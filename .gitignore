@@ -16,6 +16,8 @@ target
 # RustRover
 .idea/
 
+# VS Code
+.vscode/
 
 # Added by cargo
 /target

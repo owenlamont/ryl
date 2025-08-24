@@ -44,9 +44,9 @@ repos:
         types: [rust]
         pass_filenames: false
         require_serial: true
-      - id: test
-        name: cargo test
-        entry: cargo test
+      - id: nextest
+        name: cargo nextest run
+        entry: cargo nextest run --all --no-tests=pass
         language: system
         types: [rust]
         pass_filenames: false
