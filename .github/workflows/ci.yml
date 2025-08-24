@@ -81,7 +81,7 @@ jobs:
       - name: Build macOS universal2 wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
-          args: --release --out dist --universal2
+          args: --release --out dist --target universal2-apple-darwin
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
