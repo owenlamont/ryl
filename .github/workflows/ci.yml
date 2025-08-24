@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Build manylinux wheels
-        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Build musllinux wheels
-        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Build Windows wheels
-        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Build macOS universal2 wheels
-        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           args: --release --out dist --universal2
           sccache: ${{ github.event_name != 'release' }}
@@ -95,7 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Build sdist
-        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           command: sdist
           args: --out dist
