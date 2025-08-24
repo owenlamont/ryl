@@ -8,12 +8,48 @@ repos:
       - id: end-of-file-fixer
       - id: check-toml
       - id: check-xml
+      - id: check-yaml
       - id: check-added-large-files
+      - id: check-merge-conflict
       - id: no-commit-to-branch
       - id: pretty-format-json
         args: [--autofix]
       - id: mixed-line-ending
         args: [--fix=lf]
+  - repo: local
+    hooks:
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --workspace
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-fix
+        name: cargo clippy --fix
+        entry: cargo clippy --fix --allow-dirty --allow-staged
+        language: system
+        types: [rust]
+        pass_filenames: false
+        require_serial: true
+      - id: clippy-enforce
+        name: cargo clippy (enforce warnings)
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+        require_serial: true
+      - id: test
+        name: cargo test
+        entry: cargo test
+        language: system
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/rvben/rumdl-pre-commit
     rev: v0.0.125
     hooks:
