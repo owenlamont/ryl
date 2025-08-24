@@ -1,0 +1,34 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml
+      - id: check-xml
+      - id: check-added-large-files
+      - id: no-commit-to-branch
+      - id: pretty-format-json
+        args: [--autofix]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+  - repo: https://github.com/rvben/rumdl-pre-commit
+    rev: v0.0.125
+    hooks:
+      - id: rumdl
+        args: [--fix]
+  - repo: https://github.com/adhtruong/mirrors-typos
+    rev: v1.35.5
+    hooks:
+      - id: typos
+        args: [
+          --force-exclude,
+          # --write-changes (Don't use this to stop typos making auto-corrections)
+        ]
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.12.1
+    hooks:
+    - id: zizmor
+      args: [ --min-severity, low, --min-confidence, medium]

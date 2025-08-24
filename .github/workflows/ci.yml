@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  release:
+    types: [published]   # Only publish on GitHub Releases
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    if: ${{ github.event_name != 'release' || github.event.action == 'published' }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@f2bf676d82a8dcc7de29a482a1c97390c1c3f529
+      - name: Build manylinux wheels
+        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: auto
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  musllinux:
+    if: ${{ github.event_name != 'release' || github.event.action == 'published' }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@f2bf676d82a8dcc7de29a482a1c97390c1c3f529
+      - name: Build musllinux wheels
+        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: musllinux_1_2
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-musllinux-${{ matrix.target }}
+          path: dist
+
+  windows:
+    if: ${{ github.event_name != 'release' || github.event.action == 'published' }}
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x64, aarch64]
+    steps:
+      - uses: actions/checkout@f2bf676d82a8dcc7de29a482a1c97390c1c3f529
+      - name: Build Windows wheels
+        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: dist
+
+  macos:
+    if: ${{ github.event_name != 'release' || github.event.action == 'published' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@f2bf676d82a8dcc7de29a482a1c97390c1c3f529
+      - name: Build macOS universal2 wheels
+        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        with:
+          args: --release --out dist --universal2
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-macos-universal2
+          path: dist
+
+  sdist:
+    if: ${{ github.event_name != 'release' || github.event.action == 'published' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f2bf676d82a8dcc7de29a482a1c97390c1c3f529
+      - name: Build sdist
+        uses: PyO3/maturin-action@2c5c156acce1424b3dfc8c736f5a8fc6dc87fac2
+        with:
+          command: sdist
+          args: --out dist
+      - name: Upload sdist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-sdist
+          path: dist
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
+    needs: [linux, musllinux, windows, macos, sdist]
+    permissions:
+      id-token: write
+      contents: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@f2bf676d82a8dcc7de29a482a1c97390c1c3f529
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: 'wheels-*/*'
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          print-hash: true
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}

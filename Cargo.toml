@@ -1,0 +1,19 @@
+[package]
+name = "ryl"
+version = "0.1.0"
+edition = "2024"
+description = "Fast YAML linter written in Rust"
+license = "MIT"
+repository = "https://github.com/owenlamont/ryl"
+categories = ["command-line-utilities", "development-tools"]
+keywords = ["yaml", "lint", "cli", "rust"]
+
+[[bin]]
+name = "ryl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.45", features = ["derive"] }
+ignore = "0.4.23"
+rayon = "1.11.0"
+saphyr-parser = "0.0.6"

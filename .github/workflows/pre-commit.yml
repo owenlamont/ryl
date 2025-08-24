@@ -1,0 +1,19 @@
+name: Pre-commit checks
+on:
+  pull_request:
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Install uv
+        uses: astral-sh/setup-uv@d9e0f98d3fc6adb07d1e3d37f3043649ddad06a1
+      - name: Install pre-commit globally
+        run: uv tool install pre-commit --with pre-commit-uv --force
+      - name: Run pre-commit hooks
+        env:
+          SKIP: no-commit-to-branch  # Skip the main branch protection hook in CI
+        run: pre-commit run --all-files
