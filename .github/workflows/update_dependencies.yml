@@ -1,0 +1,60 @@
+name: Update Rust Dependencies
+
+on:
+  schedule:
+    - cron: '30 8 * * 0'  # Sunday 18:00 UTC+9:30
+  workflow_dispatch:
+
+jobs:
+  upgrade-all:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --locked
+
+      - name: Upgrade all dependencies to latest (allow majors)
+        run: |
+          cargo upgrade --workspace --incompatible
+          cargo update
+
+      - name: Check for changes
+        id: check_diff
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate token
+        if: steps.check_diff.outputs.changed == 'true'
+        uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b
+        id: generate-token
+        with:
+          app-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+
+      - name: Create PR with upgraded dependencies
+        if: steps.check_diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+          commit-message: "chore: upgrade Rust dependencies to latest (allow majors)"
+          title: "chore: upgrade Rust dependencies to latest (allow majors)"
+          body: |
+            Automated dependency refresh:
+            - Ran `cargo upgrade --workspace --incompatible`
+            - Ran `cargo update`
+
+            Merge if CI is green.
+          branch: bot/rust-deps-max
+          author: GitHub Actions <actions@github.com>
+          delete-branch: true

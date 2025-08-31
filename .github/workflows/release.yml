@@ -1,0 +1,174 @@
+name: Release Crate and Wheels
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Verify version consistency
+        run: |
+          set -euo pipefail
+          export TAG_VERSION="${GITHUB_REF_NAME#v}"  # drop 'v' prefix if present
+          echo "Tag version:       $TAG_VERSION"
+          python - <<'PY'
+          import os, sys
+          try:
+              import tomllib  # Python 3.11+
+          except Exception as e:  # pragma: no cover
+              print("Python 3.11+ with tomllib is required", file=sys.stderr)
+              raise
+
+          def read_toml(path: str):
+              with open(path, 'rb') as f:
+                  return tomllib.load(f)
+
+          tag = os.environ['TAG_VERSION']
+          cargo = read_toml('Cargo.toml')
+          pyproj = read_toml('pyproject.toml')
+
+          cargo_version = cargo.get('package', {}).get('version')
+          py_version = pyproj.get('project', {}).get('version')
+
+          print(f"Cargo.toml version: {cargo_version}")
+          print(f"pyproject.toml version: {py_version}")
+
+          ok = True
+          if cargo_version != tag:
+              print("❌ Cargo.toml version does not match tag", file=sys.stderr)
+              ok = False
+          if py_version != tag:
+              print("❌ pyproject.toml version does not match tag", file=sys.stderr)
+              ok = False
+
+          if not ok:
+              sys.exit(1)
+
+          print("✅ Versions are consistent")
+          PY
+
+  linux:
+    needs: [version-check]
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Build manylinux wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: auto
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  musllinux:
+    needs: [version-check]
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Build musllinux wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: musllinux_1_2
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-musllinux-${{ matrix.target }}
+          path: dist
+
+  windows:
+    needs: [version-check]
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x64, aarch64]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Build Windows wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: dist
+
+  macos:
+    needs: [version-check]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Build macOS universal2 wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          args: --release --out dist --target universal2-apple-darwin
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-macos-universal2
+          path: dist
+
+  sdist:
+    needs: [version-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Build sdist
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          command: sdist
+          args: --out dist
+      - name: Upload sdist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheels-sdist
+          path: dist
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [linux, musllinux, windows, macos, sdist]
+    permissions:
+      id-token: write
+      contents: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: 'dist/*'
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          print-hash: true
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}

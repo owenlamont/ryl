@@ -1,0 +1,70 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml
+      - id: check-xml
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: no-commit-to-branch
+      - id: pretty-format-json
+        args: [--autofix]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+  - repo: local
+    hooks:
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --workspace
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-fix
+        name: cargo clippy --fix
+        entry: cargo clippy --fix --allow-dirty --allow-staged
+        language: system
+        types: [rust]
+        pass_filenames: false
+        require_serial: true
+      - id: clippy-enforce
+        name: cargo clippy (enforce warnings)
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+        require_serial: true
+      - id: nextest
+        name: cargo nextest run
+        entry: cargo nextest run --all --no-tests=pass
+        language: system
+        types: [rust]
+        pass_filenames: false
+  - repo: https://github.com/rvben/rumdl-pre-commit
+    rev: v0.0.125
+    hooks:
+      - id: rumdl
+        args: [--fix]
+  - repo: https://github.com/adhtruong/mirrors-typos
+    rev: v1.35.5
+    hooks:
+      - id: typos
+        args: [
+          --force-exclude,
+          # --write-changes (Don't use this to stop typos making auto-corrections)
+        ]
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.12.1
+    hooks:
+    - id: zizmor
+      args: [ --min-severity, low, --min-confidence, medium]
