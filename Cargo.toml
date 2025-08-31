@@ -3,6 +3,7 @@ name = "ryl"
 version = "0.1.0"
 edition = "2024"
 description = "Fast YAML linter written in Rust"
+readme = "README.md"
 license = "MIT"
 repository = "https://github.com/owenlamont/ryl"
 categories = ["command-line-utilities", "development-tools"]
