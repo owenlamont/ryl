@@ -9,19 +9,14 @@ ryl is a CLI tool for linting yaml files
 ## Code Change Requirements
 
 - Whenever code is changed ensure all pre-commit linters pass (run:
-  `pre-commit run --all-files`) and all pytests pass (run:
-  `uv run pytest --cov=. --cov-branch --cov-report term-missing`) and
-  that all newly added code has full branch coverage.
+  `pre-commit run --all-files`)
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
 ## Project Structure
 
 - **/src/** – All application code lives here.
-- **/tests/** – Unit and integration tests; uses pytest (tests sub-directory structure
-  stays in sync with the src directory). Test modules (in most cases) are named
-  according to the src module they are testing (just with a `test_` prefix) except for
-  rarer tests checking functionality spanning several modules.
+- **/tests/** – Unit and integration tests.
 - **pyproject.toml** - Package configuration
 - **.pre-commit-config.yaml** - Pre-commit linters and some configuration
 
@@ -40,7 +35,7 @@ ryl is a CLI tool for linting yaml files
 - Comments should only be used to explain unavoidable code smells (arising from third
   party crate use), or the reason for temporary dependency version pinning (e.g.
   linking an unresolved GitHub issues) or lastly explaining opaque code or non-obvious
-  trade offs or workarounds.
+  trade-offs or workarounds.
 
 ## Development Environment / Terminal
 
