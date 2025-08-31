@@ -15,29 +15,43 @@ jobs:
       - name: Verify version consistency
         run: |
           set -euo pipefail
-
-          TAG_VERSION="${GITHUB_REF_NAME#v}"  # drop 'v' prefix if present
-
-          # Extract Cargo.toml version
-          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version\s*=\s*"([^"]+)"/\1/')
-          # Extract pyproject.toml version
-          PYPROJECT_VERSION=$(grep -m1 '^version' pyproject.toml | sed -E 's/version\s*=\s*"([^"]+)"/\1/')
-
+          export TAG_VERSION="${GITHUB_REF_NAME#v}"  # drop 'v' prefix if present
           echo "Tag version:       $TAG_VERSION"
-          echo "Cargo.toml version: $CARGO_VERSION"
-          echo "pyproject.toml version: $PYPROJECT_VERSION"
+          python - <<'PY'
+          import os, sys
+          try:
+              import tomllib  # Python 3.11+
+          except Exception as e:  # pragma: no cover
+              print("Python 3.11+ with tomllib is required", file=sys.stderr)
+              raise
 
-          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "❌ Cargo.toml version does not match tag"
-            exit 1
-          fi
+          def read_toml(path: str):
+              with open(path, 'rb') as f:
+                  return tomllib.load(f)
 
-          if [ "$PYPROJECT_VERSION" != "$TAG_VERSION" ]; then
-            echo "❌ pyproject.toml version does not match tag"
-            exit 1
-          fi
+          tag = os.environ['TAG_VERSION']
+          cargo = read_toml('Cargo.toml')
+          pyproj = read_toml('pyproject.toml')
 
-          echo "✅ Versions are consistent"
+          cargo_version = cargo.get('package', {}).get('version')
+          py_version = pyproj.get('project', {}).get('version')
+
+          print(f"Cargo.toml version: {cargo_version}")
+          print(f"pyproject.toml version: {py_version}")
+
+          ok = True
+          if cargo_version != tag:
+              print("❌ Cargo.toml version does not match tag", file=sys.stderr)
+              ok = False
+          if py_version != tag:
+              print("❌ pyproject.toml version does not match tag", file=sys.stderr)
+              ok = False
+
+          if not ok:
+              sys.exit(1)
+
+          print("✅ Versions are consistent")
+          PY
 
   linux:
     needs: [version-check]
