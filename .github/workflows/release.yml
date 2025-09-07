@@ -115,8 +115,9 @@ jobs:
         run: |
           set -euxo pipefail
           uv python install ${{ matrix.python }}
-          uv pip install -p ${{ matrix.python }} --no-index --find-links dist ryl
-          uv run -p ${{ matrix.python }} ryl --version
+          uv venv -p ${{ matrix.python }} .venv
+          uv pip install -p .venv --no-index --find-links dist ryl
+          uv run -p .venv ryl --version
 
   musllinux:
     needs: [version-check]
@@ -160,8 +161,9 @@ jobs:
         run: |
           set -euxo pipefail
           uv python install ${{ matrix.python }}
-          uv pip install -p ${{ matrix.python }} --no-index --find-links dist ryl
-          uv run -p ${{ matrix.python }} ryl --version
+          uv venv -p ${{ matrix.python }} .venv
+          uv pip install -p .venv --no-index --find-links dist ryl
+          uv run -p .venv ryl --version
 
   windows:
     needs: [version-check]
@@ -204,8 +206,9 @@ jobs:
         run: |
           set -euxo pipefail
           uv python install ${{ matrix.python }}
-          uv pip install -p ${{ matrix.python }} --no-index --find-links dist ryl
-          uv run -p ${{ matrix.python }} ryl --version
+          uv venv -p ${{ matrix.python }} .venv
+          uv pip install -p .venv --no-index --find-links dist ryl
+          uv run -p .venv ryl --version
 
   macos:
     needs: [version-check]
@@ -252,8 +255,9 @@ jobs:
         run: |
           set -euxo pipefail
           uv python install ${{ matrix.python }}
-          uv pip install -p ${{ matrix.python }} --no-index --find-links dist ryl
-          uv run -p ${{ matrix.python }} ryl --version
+          uv venv -p ${{ matrix.python }} .venv
+          uv pip install -p .venv --no-index --find-links dist ryl
+          uv run -p .venv ryl --version
 
   sdist:
     needs: [version-check]
