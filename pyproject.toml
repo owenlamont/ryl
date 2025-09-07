@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "ryl"
 version = "0.1.0"
 description = "Fast YAML linter (Rust) packaged for PyPI"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -19,7 +19,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -36,9 +35,6 @@ keywords = ["yaml", "linter", "lint", "cli", "rust"]
 Homepage = "https://github.com/owenlamont/ryl"
 Repository = "https://github.com/owenlamont/ryl"
 Issues = "https://github.com/owenlamont/ryl/issues"
-
-[project.scripts]
-ryl = "ryl"
 
 [tool.maturin]
 bindings = "bin"
