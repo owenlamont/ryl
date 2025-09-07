@@ -21,3 +21,4 @@ saphyr-parser = "0.0.6"
 
 [dev-dependencies]
 semver = "1"
+tempfile = "3"
