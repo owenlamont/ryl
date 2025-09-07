@@ -51,12 +51,12 @@ repos:
         types: [rust]
         pass_filenames: false
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.0.125
+    rev: v0.0.138
     hooks:
       - id: rumdl
         args: [--fix]
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: v1.35.5
+    rev: v1.36.2
     hooks:
       - id: typos
         args: [
