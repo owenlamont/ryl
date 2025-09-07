@@ -53,8 +53,46 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
     assert_eq!(y_ok, 0, "yamllint should return 0 on valid yaml");
 
     // Invalid file: both should be non-zero.
-    let (ryl_bad, _, r_err) = run_cmd(Command::new(ryl).arg(&bad));
-    let (y_bad, _, y_err) = run_cmd(Command::new("yamllint").arg("-c").arg(&cfg).arg(&bad));
+    let (ryl_bad, r_out, r_err) = run_cmd(Command::new(ryl).arg(&bad));
+    let (y_bad, y_out, y_err) = run_cmd(Command::new("yamllint").arg("-c").arg(&cfg).arg(&bad));
     assert_ne!(ryl_bad, 0, "ryl should fail on invalid yaml: {r_err}");
     assert_ne!(y_bad, 0, "yamllint should fail on invalid yaml: {y_err}");
+
+    // Extract file, line and col from both outputs to compare.
+    fn parse_loc(s: &str) -> Option<(String, usize, usize)> {
+        let mut lines = s.lines().filter(|l| !l.trim().is_empty());
+        let file = lines.next()?.trim().to_string();
+        let second = lines.next()?.trim_start();
+        let pos = second.split_whitespace().next()?; // like "3:6"
+        let mut it = pos.split(':');
+        let line = it.next()?.parse().ok()?;
+        let col = it.next()?.parse().ok()?;
+        Some((file, line, col))
+    }
+
+    let r_msg = if !r_err.is_empty() { &r_err } else { &r_out };
+    let y_msg = if !y_out.is_empty() { &y_out } else { &y_err };
+
+    if let (Some((rf, rl, rc)), Some((yf, yl, yc))) = (parse_loc(r_msg), parse_loc(y_msg)) {
+        assert!(
+            rf.ends_with("bad.yaml"),
+            "ryl file line should show the bad file: {rf}"
+        );
+        assert!(
+            yf.ends_with("bad.yaml"),
+            "yamllint file line should show the bad file: {yf}"
+        );
+        assert_eq!(rl, yl, "line numbers should match");
+        assert_eq!(rc, yc, "column numbers should match");
+        assert!(
+            r_msg.contains("error    syntax error:"),
+            "ryl format should include error label: {r_msg}"
+        );
+        assert!(
+            y_msg.contains(" error    syntax error:"),
+            "yamllint format should include error label: {y_msg}"
+        );
+    } else {
+        panic!("could not parse location from outputs\nryl:\n{r_msg}\nyamllint:\n{y_msg}");
+    }
 }

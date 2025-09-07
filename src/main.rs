@@ -55,7 +55,17 @@ fn parse_yaml_file(path: &Path) -> Result<(), String> {
     let mut sink = Sink;
     match parser.load(&mut sink, true) {
         Ok(()) => Ok(()),
-        Err(e) => Err(format!("{}: {}", path.display(), e)),
+        Err(e) => {
+            let m = e.marker();
+            let msg = e.info();
+            Err(format!(
+                "{}\n  {}:{}       error    syntax error: {} (syntax)",
+                path.display(),
+                m.line(),
+                m.col() + 1,
+                msg
+            ))
+        }
     }
 }
 

@@ -32,6 +32,31 @@ fn single_dir_with_valid_and_invalid_yaml() {
         err.contains("bad.yaml"),
         "stderr should include bad file name: {err}"
     );
+
+    // Verify two-line, yamllint-style format with location and label
+    let mut lines = err.lines().filter(|l| !l.trim().is_empty());
+    let file_line = lines.next().unwrap_or("");
+    assert!(
+        file_line.ends_with("bad.yaml"),
+        "first line should be the file path: {file_line}"
+    );
+    let second = lines.next().unwrap_or("");
+    assert!(
+        second.starts_with("  "),
+        "second line should begin with two spaces: {second}"
+    );
+    let pos = second.split_whitespace().next().unwrap_or("");
+    let mut it = pos.split(':');
+    let line_ok = it.next().and_then(|s| s.parse::<usize>().ok()).is_some();
+    let col_ok = it.next().and_then(|s| s.parse::<usize>().ok()).is_some();
+    assert!(
+        line_ok && col_ok,
+        "second line should start with L:C position: {second}"
+    );
+    assert!(
+        second.contains(" error    syntax error: "),
+        "second line should include error label: {second}"
+    );
 }
 
 #[test]
