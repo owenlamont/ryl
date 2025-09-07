@@ -9,7 +9,7 @@ ryl is a CLI tool for linting yaml files
 ## Code Change Requirements
 
 - Whenever code is changed ensure all pre-commit linters pass (run:
-  `pre-commit run --all-files`)
+  `prek run --all-files`)
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -42,7 +42,7 @@ ryl is a CLI tool for linting yaml files
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `pre-commit`, `rumdl`, `typos`, and `zizmor` should be installed as global uv tools.
+- `prek`, `rumdl`, `typos`, and `zizmor` should be installed as global uv tools.
 
 ## Automated Tests
 
