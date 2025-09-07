@@ -87,7 +87,6 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: auto
-          zig: true
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels (manylinux)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -133,7 +132,6 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: musllinux_1_2
-          zig: true
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels (musllinux)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -147,7 +145,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine"]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
@@ -155,15 +153,11 @@ jobs:
           pattern: wheels-musllinux-*
           merge-multiple: true
           path: dist
-      - name: Install uv
-        uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
-      - name: Install wheel and run CLI
+      - name: Install wheel and run CLI in Alpine
         run: |
           set -euxo pipefail
-          uv python install ${{ matrix.python }}
-          uv venv -p ${{ matrix.python }} .venv
-          uv pip install -p .venv --no-index --find-links dist ryl
-          uv run -p .venv ryl --version
+          docker run --rm -v "$PWD/dist":/dist python:${{ matrix.python_image }} \
+            sh -euxc "python --version; python -m pip install --no-index --find-links /dist ryl; ryl --version"
 
   windows:
     needs: [version-check]
