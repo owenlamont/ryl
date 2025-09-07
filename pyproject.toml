@@ -36,9 +36,6 @@ Homepage = "https://github.com/owenlamont/ryl"
 Repository = "https://github.com/owenlamont/ryl"
 Issues = "https://github.com/owenlamont/ryl/issues"
 
-[project.scripts]
-ryl = "ryl"
-
 [tool.maturin]
 bindings = "bin"
 sdist = true
