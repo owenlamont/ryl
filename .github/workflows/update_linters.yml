@@ -17,11 +17,11 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
 
-      - name: Install pre-commit globally
-        run: uv tool install pre-commit --with pre-commit-uv --force
+      - name: Install prek
+        run: uv tool install prek --force
 
-      - name: Run pre-commit autoupdate
-        run: pre-commit autoupdate
+      - name: Run prek autoupdate
+        run: prek autoupdate
 
       - name: Check for changes in .pre-commit-config.yaml
         id: check_diff
@@ -48,7 +48,7 @@ jobs:
           commit-message: "chore: refresh .pre-commit-config.yaml"
           title: "chore: refresh .pre-commit-config.yaml"
           body: |
-            This PR updates `.pre-commit-config.yaml` by running `pre-commit autoupdate`.
+            This PR updates `.pre-commit-config.yaml` by running `prek autoupdate`.
             It was triggered automatically (or manually) to keep linters up-to-date.
           branch: bot/pre-commit-config-refresh
           author: GitHub Actions <actions@github.com>

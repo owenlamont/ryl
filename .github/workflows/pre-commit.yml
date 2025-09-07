@@ -1,4 +1,4 @@
-name: Pre-commit checks
+name: Prek checks
 on:
   pull_request:
 jobs:
@@ -13,12 +13,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
 
-      - name: Install pre-commit globally
-        run: uv tool install pre-commit --with pre-commit-uv --force
+      - name: Install prek
+        run: uv tool install prek --force
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
-      - name: "Install Rust toolchain"
+      - name: "Install Rust components"
         run: rustup component add rustfmt clippy
 
       - name: "Install cargo nextest"
@@ -26,7 +26,7 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Run pre-commit hooks
+      - name: Run prek hooks
         env:
           SKIP: no-commit-to-branch  # Skip the main branch protection hook in CI
-        run: pre-commit run --all-files
+        run: prek run --all-files
