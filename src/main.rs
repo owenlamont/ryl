@@ -1,3 +1,6 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
+
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +9,11 @@ use std::process::ExitCode;
 use clap::Parser;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
+
+struct NullSink;
+impl<'i> saphyr_parser::EventReceiver<'i> for NullSink {
+    fn on_event(&mut self, _ev: saphyr_parser::Event<'i>) {}
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "ryl", version, about = "Fast YAML linter written in Rust")]
@@ -17,7 +25,7 @@ struct Cli {
 
 fn is_yaml_path(path: &Path) -> bool {
     matches!(
-        path.extension().and_then(OsStr::to_str).map(|s| s.to_ascii_lowercase()),
+        path.extension().and_then(OsStr::to_str).map(str::to_ascii_lowercase),
         Some(ref ext) if ext == "yml" || ext == "yaml"
     )
 }
@@ -45,14 +53,8 @@ fn gather_yaml_from_dir(dir: &Path) -> Vec<PathBuf> {
 fn parse_yaml_file(path: &Path) -> Result<(), String> {
     let content = fs::read_to_string(path)
         .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
-
-    struct Sink;
-    impl<'i> saphyr_parser::EventReceiver<'i> for Sink {
-        fn on_event(&mut self, _ev: saphyr_parser::Event<'i>) {}
-    }
-
     let mut parser = saphyr_parser::Parser::new_from_str(&content);
-    let mut sink = Sink;
+    let mut sink = NullSink;
     match parser.load(&mut sink, true) {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -105,7 +107,7 @@ fn main() -> ExitCode {
     let errors: Vec<String> = files
         .par_iter()
         .map(|p| parse_yaml_file(p))
-        .filter_map(|res| res.err())
+        .filter_map(std::result::Result::err)
         .collect();
 
     if errors.is_empty() {
