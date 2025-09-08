@@ -51,3 +51,10 @@ ryl is a CLI tool for linting yaml files
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.
+- Coverage with nextest is supported via `cargo-llvm-cov`.
+  - Run tests with coverage:
+    - Quick summary: `cargo llvm-cov nextest --summary-only`
+    - HTML report: `cargo llvm-cov nextest --html`
+      (open `target/llvm-cov/html/index.html`)
+    - LCOV (for CI):
+      `cargo llvm-cov nextest --lcov --output-path lcov.info`
