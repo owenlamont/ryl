@@ -12,7 +12,6 @@ code_blocks = false
 tables = true
 headings = true
 strict = false
-stern = false
 
 [MD029]
 style = "ordered"

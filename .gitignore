@@ -24,3 +24,6 @@ target
 
 # maturin
 /dist
+
+# Coverage files
+lcov.info

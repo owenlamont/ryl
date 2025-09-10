@@ -73,27 +73,31 @@ fn multiple_files_allowed_and_report_invalid() {
 }
 
 #[test]
-fn multiple_directories_is_error() {
+fn multiple_directories_are_allowed() {
     let d1 = tempdir().unwrap();
     let d2 = tempdir().unwrap();
+    // One good in d1, one bad in d2
+    write_file(d1.path(), "ok.yml", "a: 1\n");
+    write_file(d2.path(), "bad.yml", "a: [1, 2\n");
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _out, err) = run(Command::new(exe).arg(d1.path()).arg(d2.path()));
 
-    assert_ne!(code, 0);
-    assert!(err.contains("single path or a series of files"));
+    assert_eq!(code, 1);
+    assert!(err.contains("bad.yml"));
 }
 
 #[test]
-fn mixed_dir_and_files_is_error() {
+fn mixed_dirs_and_files_are_allowed() {
     let dir = tempdir().unwrap();
-    let file = write_file(dir.path(), "f.yaml", "a: b\n");
+    write_file(dir.path(), "g.yaml", "a: b\n");
+    let bad = write_file(dir.path(), "bad.yaml", "a: [1,\n");
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _out, err) = run(Command::new(exe).arg(dir.path()).arg(&file));
+    let (code, _out, err) = run(Command::new(exe).arg(dir.path()).arg(&bad));
 
-    assert_ne!(code, 0);
-    assert!(err.contains("single path or a series of files"), "{err}");
+    assert_eq!(code, 1);
+    assert!(err.contains("bad.yaml"), "{err}");
 }
 
 #[test]
