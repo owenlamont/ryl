@@ -18,7 +18,7 @@ impl<'i> saphyr_parser::EventReceiver<'i> for NullSink {
 #[derive(Parser, Debug)]
 #[command(name = "ryl", version, about = "Fast YAML linter written in Rust")]
 struct Cli {
-    /// A single directory path to search, or one or more YAML files
+    /// One or more paths: files and/or directories
     #[arg(value_name = "PATH_OR_FILE", num_args = 1..)]
     inputs: Vec<PathBuf>,
 }
@@ -75,29 +75,23 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     if cli.inputs.is_empty() {
-        eprintln!("error: expected a single directory path or one or more files");
+        eprintln!("error: expected one or more paths (files and/or directories)");
         return ExitCode::from(2);
     }
 
     let inputs = cli.inputs;
 
-    let any_dirs = inputs.iter().any(|p| p.is_dir());
-    if inputs.len() > 1 && any_dirs {
-        eprintln!("error: pass a single path or a series of files (not multiple directories)");
-        return ExitCode::from(2);
-    }
-
-    // Determine files to parse
-    let files: Vec<PathBuf> = if inputs.len() == 1 {
-        let p = &inputs[0];
+    // Determine files to parse from mixed inputs.
+    // - Directories: recursively gather only .yml/.yaml
+    // - Files: include as-is (even if extension isn't yaml)
+    let mut files: Vec<PathBuf> = Vec::new();
+    for p in inputs {
         if p.is_dir() {
-            gather_yaml_from_dir(p)
+            files.extend(gather_yaml_from_dir(&p));
         } else {
-            vec![p.clone()]
+            files.push(p);
         }
-    } else {
-        inputs
-    };
+    }
 
     if files.is_empty() {
         return ExitCode::SUCCESS;
