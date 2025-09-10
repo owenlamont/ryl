@@ -45,12 +45,21 @@ jobs:
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
         run: |
           set -euo pipefail
+          # Clean previous coverage artifacts to ensure a fresh run
+          cargo llvm-cov clean --workspace || true
+
+          # Run non-ignored tests via nextest (fast executor)
+          cargo llvm-cov nextest --no-report
+
+          # Run ignored tests via libtest harness (only ignored)
+          cargo llvm-cov test --no-report -- --ignored
+
+          # Produce a combined summary and LCOV report
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
           echo '```text' >> coverage.md
-          cargo llvm-cov nextest --summary-only --run-ignored all | tee -a coverage.md
+          cargo llvm-cov report --summary-only | tee -a coverage.md
           echo '```' >> coverage.md
-          # Produce LCOV for detailed per-line/branch analysis
-          cargo llvm-cov nextest --lcov --output-path lcov.info --run-ignored all
+          cargo llvm-cov report --lcov --output-path lcov.info
           echo '' >> coverage.md
           echo '#### Missed Lines (per file)' >> coverage.md
           awk -F: '
