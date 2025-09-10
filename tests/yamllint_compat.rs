@@ -45,7 +45,14 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
 
     // Valid file: both should succeed.
     let (ryl_ok, _, _) = run_cmd(Command::new(ryl).arg(&ok));
-    let (y_ok, _, y_err) = run_cmd(Command::new("yamllint").arg("-c").arg(&cfg).arg(&ok));
+    let (y_ok, _, y_err) = run_cmd(
+        Command::new("yamllint")
+            .arg("-f")
+            .arg("standard")
+            .arg("-c")
+            .arg(&cfg)
+            .arg(&ok),
+    );
     assert_eq!(
         ryl_ok, 0,
         "ryl should return 0 on valid yaml: stdout/stderr from yamllint: {y_err}"
@@ -54,7 +61,14 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
 
     // Invalid file: both should be non-zero.
     let (ryl_bad, r_out, r_err) = run_cmd(Command::new(ryl).arg(&bad));
-    let (y_bad, y_out, y_err) = run_cmd(Command::new("yamllint").arg("-c").arg(&cfg).arg(&bad));
+    let (y_bad, y_out, y_err) = run_cmd(
+        Command::new("yamllint")
+            .arg("-f")
+            .arg("standard")
+            .arg("-c")
+            .arg(&cfg)
+            .arg(&bad),
+    );
     assert_ne!(ryl_bad, 0, "ryl should fail on invalid yaml: {r_err}");
     assert_ne!(y_bad, 0, "yamllint should fail on invalid yaml: {y_err}");
 
