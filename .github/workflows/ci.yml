@@ -43,8 +43,6 @@ jobs:
         run: prek run --all-files
 
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
-        env:
-          NEXTEST_PROFILE: ci
         run: |
           set -euo pipefail
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
