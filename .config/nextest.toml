@@ -1,0 +1,3 @@
+# CI-specific Nextest settings
+[profile.ci]
+run-ignored = "all"
