@@ -56,5 +56,10 @@ ryl is a CLI tool for linting yaml files
     - Quick summary: `cargo llvm-cov nextest --summary-only`
     - HTML report: `cargo llvm-cov nextest --html`
       (open `target/llvm-cov/html/index.html`)
-    - LCOV (for CI):
-      `cargo llvm-cov nextest --lcov --output-path lcov.info`
+    - LCOV (for CI): `cargo llvm-cov nextest --lcov --output-path lcov.info`
+    - Cobertura XML: `cargo llvm-cov nextest --cobertura --output-path coverage.xml`
+  - Clean coverage artifacts: `cargo llvm-cov clean --workspace`
+  - Windows (MSVC) note: The MSVC toolchain is supported.
+    Ensure the `llvm-tools-preview` component is installed (it is in
+    `rust-toolchain.toml`). If you see linker tool issues, run from a Developer
+    Command Prompt or ensure the MSVC build tools are in PATH.
