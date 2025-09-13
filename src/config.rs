@@ -209,7 +209,71 @@ pub struct ConfigContext {
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
 pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<ConfigContext, String> {
-    discover_config_with_env(inputs, overrides, |k| env::var(k).ok())
+    // Global config resolution: inline > file > env var.
+    // Project and user-global configs are handled per-file elsewhere.
+    if let Some(ref data) = overrides.config_data {
+        let cfg = YamlLintConfig::from_yaml_str(data)?;
+        return Ok(ConfigContext {
+            config: cfg,
+            base_dir: current_dir(),
+            source: None,
+        });
+    }
+    if let Some(ref file) = overrides.config_file {
+        let data = fs::read_to_string(file)
+            .map_err(|e| format!("failed to read config file {}: {e}", file.display()))?;
+        let cfg = YamlLintConfig::from_yaml_str(&data)?;
+        let base = file.parent().map_or_else(current_dir, Path::to_path_buf);
+        return Ok(ConfigContext {
+            config: cfg,
+            base_dir: base,
+            source: Some(file.clone()),
+        });
+    }
+    if let Ok(path) = env::var("YAMLLINT_CONFIG_FILE") {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            let data = fs::read_to_string(&p)
+                .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+            let cfg = YamlLintConfig::from_yaml_str(&data)?;
+            let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
+            return Ok(ConfigContext {
+                config: cfg,
+                base_dir: base,
+                source: Some(p),
+            });
+        }
+    }
+    // Project config up the tree from inputs
+    if let Some((cfg_path, base_dir)) = find_project_config(inputs) {
+        let data = fs::read_to_string(&cfg_path)
+            .map_err(|e| format!("failed to read config file {}: {e}", cfg_path.display()))?;
+        let cfg = YamlLintConfig::from_yaml_str(&data)?;
+        return Ok(ConfigContext {
+            config: cfg,
+            base_dir,
+            source: Some(cfg_path),
+        });
+    }
+    // User-global config
+    if let Some(p) = user_global_config_path()
+        && p.exists()
+    {
+        let data = fs::read_to_string(&p)
+            .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+        let cfg = YamlLintConfig::from_yaml_str(&data)?;
+        let base = current_dir();
+        return Ok(ConfigContext {
+            config: cfg,
+            base_dir: base,
+            source: Some(p),
+        });
+    }
+    Ok(ConfigContext {
+        config: YamlLintConfig::default(),
+        base_dir: current_dir(),
+        source: None,
+    })
 }
 
 /// Variant of `discover_config` with injectable environment access to keep tests safe.
@@ -220,7 +284,7 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
 /// # Panics
 /// Panics only if the built-in default preset is not embedded (programming error).
 pub fn discover_config_with_env<F>(
-    inputs: &[PathBuf],
+    _inputs: &[PathBuf],
     overrides: &Overrides,
     env_get: F,
 ) -> Result<ConfigContext, String>
@@ -266,37 +330,9 @@ where
         }
     }
 
-    // 4) Project config up the tree from inputs
-    if let Some((cfg_path, base_dir)) = find_project_config(inputs) {
-        let data = fs::read_to_string(&cfg_path)
-            .map_err(|e| format!("failed to read config file {}: {e}", cfg_path.display()))?;
-        let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir,
-            source: Some(cfg_path),
-        });
-    }
-
-    // 5) User-global: $XDG_CONFIG_HOME/yamllint/config or ~/.config/yamllint/config
-    if let Some(p) = user_global_config_path()
-        && p.exists()
-    {
-        let data = fs::read_to_string(&p)
-            .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
-        let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = current_dir();
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir: base,
-            source: Some(p),
-        });
-    }
-
-    // Default to built-in default preset
-    let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
+    // Fallback to no global config (empty)
     Ok(ConfigContext {
-        config: cfg,
+        config: YamlLintConfig::default(),
         base_dir: current_dir(),
         source: None,
     })
