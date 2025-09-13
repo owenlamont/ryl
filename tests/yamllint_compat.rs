@@ -27,7 +27,6 @@ fn yamllint_available() -> bool {
 }
 
 #[test]
-#[ignore]
 fn yamllint_exit_behavior_matches_for_syntax_only() {
     if !yamllint_available() {
         eprintln!("yamllint not found in PATH; skipping");

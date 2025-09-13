@@ -20,7 +20,6 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 }
 
 #[test]
-#[ignore]
 fn yamllint_and_ryl_list_the_same_files_with_ignores() {
     if !yamllint_available() {
         eprintln!("yamllint not found in PATH; skipping");
@@ -84,7 +83,6 @@ fn yamllint_and_ryl_list_the_same_files_with_ignores() {
 }
 
 #[test]
-#[ignore]
 fn yamllint_filters_explicit_files_if_ignored() {
     if !yamllint_available() {
         eprintln!("yamllint not found in PATH; skipping");
