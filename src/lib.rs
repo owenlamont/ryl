@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 
+pub mod conf;
+pub mod config;
 pub mod discover;
 pub mod lint;
 

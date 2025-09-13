@@ -42,7 +42,8 @@ ryl is a CLI tool for linting yaml files
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rumdl`, `typos`, and `zizmor` should be installed as global uv tools.
+- `gh`, `prek`, `rg`, `rumdl`, `typos`, and `zizmor` should be installed as global
+  tools.
 
 ## Permissions and Timeouts
 
