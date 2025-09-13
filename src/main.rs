@@ -132,6 +132,11 @@ fn main() -> ExitCode {
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
     let global_cfg = build_global_cfg(&cli.inputs, &cli);
     let inputs = cli.inputs;
+    // Usage error when no inputs
+    if inputs.is_empty() {
+        eprintln!("error: expected one or more paths (files and/or directories)");
+        return ExitCode::from(2);
+    }
 
     // Determine files to parse from mixed inputs.
     // - Directories: recursively gather only .yml/.yaml

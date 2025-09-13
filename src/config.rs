@@ -87,9 +87,7 @@ impl YamlLintConfig {
             YamlOwned::load_from_str(s).map_err(|e| format!("failed to parse config data: {e}"))?;
         let mut cfg = Self::default();
 
-        let Some(doc) = docs.first() else {
-            return Ok(cfg);
-        };
+        let doc = &docs[0];
 
         // Handle `extends` first (string or sequence)
         if let Some(extends) = doc.as_mapping_get("extends") {
