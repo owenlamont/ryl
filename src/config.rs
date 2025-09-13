@@ -287,7 +287,7 @@ where
         let data = fs::read_to_string(&p)
             .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
         let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
+        let base = current_dir();
         return Ok(ConfigContext {
             config: cfg,
             base_dir: base,
@@ -341,7 +341,7 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
         let data = fs::read_to_string(&p)
             .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
         let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
+        let base = start_dir.to_path_buf();
         return Ok(ConfigContext {
             config: cfg,
             base_dir: base,
