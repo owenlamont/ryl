@@ -93,9 +93,8 @@ ryl is a CLI tool for linting yaml files
 
 ## Coverage and CI Notes
 
-- Coverage uses `cargo-llvm-cov` with nextest; ignored tests are included.
+- Coverage uses `cargo-llvm-cov` with nextest.
   - Quick summary: `cargo llvm-cov nextest --summary-only`.
-  - Include ignored: add `--run-ignored all`.
   - LCOV for artifacts: `cargo llvm-cov nextest --lcov --output-path lcov.info`.
 - Branch coverage:
   - Stable Rust does not emit branch data; PR comment omits “Missed Branches”.

@@ -47,10 +47,10 @@ jobs:
           set -euo pipefail
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
           echo '```text' >> coverage.md
-          cargo llvm-cov nextest --summary-only --run-ignored all | tee -a coverage.md
+          cargo llvm-cov nextest --summary-only | tee -a coverage.md
           echo '```' >> coverage.md
           # Produce LCOV for detailed per-line/branch analysis
-          cargo llvm-cov nextest --lcov --output-path lcov.info --run-ignored all
+          cargo llvm-cov nextest --lcov --output-path lcov.info
           echo '' >> coverage.md
           echo '#### Missed Lines (per file)' >> coverage.md
           awk -F: '
@@ -100,4 +100,4 @@ jobs:
           path: coverage.md
 
       - name: Enforce 100% line coverage
-        run: cargo llvm-cov nextest --summary-only --run-ignored all --fail-under-lines 100
+        run: cargo llvm-cov nextest --summary-only --fail-under-lines 100

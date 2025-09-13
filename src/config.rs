@@ -77,20 +77,7 @@ impl YamlLintConfig {
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
         if let Some(matcher) = &self.yaml_matcher {
-            let matched = matcher.is_match(rel);
-            if matched {
-                if let Some(name) = rel.file_name().and_then(|s| s.to_str())
-                    && (name == ".yamllint.yml" || name == ".yamllint.yaml")
-                    && !self
-                        .yaml_file_patterns
-                        .iter()
-                        .any(|p| p == ".yamllint.yml" || p == ".yamllint.yaml")
-                {
-                    return false;
-                }
-                return true;
-            }
-            return false;
+            return matcher.is_match(rel);
         }
         crate::discover::is_yaml_path(path)
     }

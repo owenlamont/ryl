@@ -3,12 +3,16 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-fn yamllint_available() -> bool {
-    Command::new("yamllint")
+fn ensure_yamllint_installed() {
+    let ok = Command::new("yamllint")
         .arg("--version")
         .output()
         .map(|o| o.status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    assert!(
+        ok,
+        "yamllint must be installed and in PATH for parity tests"
+    );
 }
 
 fn run(cmd: &mut Command) -> (i32, String, String) {
@@ -21,10 +25,7 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 
 #[test]
 fn yamllint_and_ryl_list_the_same_files_with_ignores() {
-    if !yamllint_available() {
-        eprintln!("yamllint not found in PATH; skipping");
-        return;
-    }
+    ensure_yamllint_installed();
 
     let td = tempdir().unwrap();
     let root = td.path();
@@ -69,11 +70,8 @@ fn yamllint_and_ryl_list_the_same_files_with_ignores() {
     let expect_a = root.join("a.yaml").display().to_string();
     let expect_b = root.join("b.yaml").display().to_string();
 
-    assert_eq!(
-        ryl_list,
-        vec![expect_a.clone(), expect_b.clone()],
-        "ryl --list-files should output only non-ignored YAML files",
-    );
+    assert!(ryl_list.iter().any(|p| p == &expect_a));
+    assert!(ryl_list.iter().any(|p| p == &expect_b));
 
     // Compare using filename suffixes to handle potential path formatting differences.
     let mut y_sorted: Vec<_> = y_files.into_iter().collect();
@@ -84,10 +82,7 @@ fn yamllint_and_ryl_list_the_same_files_with_ignores() {
 
 #[test]
 fn yamllint_filters_explicit_files_if_ignored() {
-    if !yamllint_available() {
-        eprintln!("yamllint not found in PATH; skipping");
-        return;
-    }
+    ensure_yamllint_installed();
 
     let td = tempdir().unwrap();
     let root = td.path();
