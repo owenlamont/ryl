@@ -44,6 +44,9 @@ ryl is a CLI tool for linting yaml files
   Windows Powershell).
 - `gh`, `prek`, `rg`, `rumdl`, `typos`, and `zizmor` should be installed as global
   tools.
+- Parity tests require `yamllint` in PATH. Install with uv and verify:
+  - Install: `uv tool install yamllint --force`
+  - Verify: `yamllint --version`
 
 ## Permissions and Timeouts
 
@@ -72,6 +75,12 @@ ryl is a CLI tool for linting yaml files
     Ensure the `llvm-tools-preview` component is installed (it is in
     `rust-toolchain.toml`). If you see linker tool issues, run from a Developer
     Command Prompt or ensure the MSVC build tools are in PATH.
+
+  - Discipline:
+    - Add tests only if LCOV shows fewer missed lines (remove tests that don’t
+      increase coverage).
+    - Prefer fewer/simpler conditionals when refactoring if behavior is
+      unchanged. This reduces branch count and line granularity.
 
 ## Release Checklist
 
@@ -102,6 +111,21 @@ ryl is a CLI tool for linting yaml files
 - yamllint gotcha:
   - In CI, yamllint may auto-select the “github” format; tests force
     `-f standard` to keep output stable.
+
+## Testing and Parity Notes
+
+- Parity tests (yamllint) require `yamllint` installed (see install notes above).
+- Config discovery:
+  - `discover_config`: global/project/user-global (inline > file > env >
+    project > user-global > empty).
+  - `discover_per_file`: per-file (nearest project up-tree > user-global >
+    default).
+- CLI parity specifics:
+  - Ignores apply to directory scans and explicit files.
+  - `yaml-files` patterns filter both directory and explicit files.
+- Lint/run etiquette:
+  - Always run `prek run --all-files`; rerun once if fmt/clippy auto-fix files.
+  - Prefix intentionally unused variables with `_` to silence warnings.
 
 ## CLI Behavior
 
