@@ -52,7 +52,7 @@ fn list_files_empty_dir_prints_nothing() {
 }
 
 #[test]
-fn explicit_files_are_not_filtered_by_ignores() {
+fn explicit_files_are_filtered_by_ignores() {
     let td = tempdir().unwrap();
     let proj = td.path();
 
@@ -69,5 +69,8 @@ fn explicit_files_are_not_filtered_by_ignores() {
 
     let lines: Vec<_> = out.lines().collect();
     assert!(lines.iter().any(|l| l.ends_with("keep.yaml")));
-    assert!(lines.iter().any(|l| l.ends_with("x.skip.yaml")));
+    assert!(
+        !lines.iter().any(|l| l.ends_with("x.skip.yaml")),
+        "explicit file matching ignore should be filtered (parity)"
+    );
 }

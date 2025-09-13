@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use saphyr::LoadableYamlNode;
+use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
 use crate::conf;
 
@@ -14,6 +14,9 @@ pub struct YamlLintConfig {
     #[allow(clippy::struct_field_names)]
     matcher: Option<GlobSet>,
     rule_names: Vec<String>,
+    rules: std::collections::BTreeMap<String, YamlOwned>,
+    yaml_file_patterns: Vec<String>,
+    yaml_matcher: Option<GlobSet>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -36,18 +39,26 @@ impl YamlLintConfig {
     fn build_matcher(&mut self) {
         if self.ignore_patterns.is_empty() {
             self.matcher = None;
-            return;
-        }
-        let mut b = GlobSetBuilder::new();
-        for pat in &self.ignore_patterns {
-            // Accept raw patterns; callers should match on relative paths.
-            if let Ok(glob) = Glob::new(pat) {
-                b.add(glob);
+        } else {
+            let mut b = GlobSetBuilder::new();
+            for pat in &self.ignore_patterns {
+                if let Ok(glob) = Glob::new(pat) {
+                    b.add(glob);
+                }
             }
+            self.matcher = b.build().ok();
         }
-        match b.build() {
-            Ok(gs) => self.matcher = Some(gs),
-            Err(_) => self.matcher = None,
+
+        if self.yaml_file_patterns.is_empty() {
+            self.yaml_matcher = None;
+        } else {
+            let mut b = GlobSetBuilder::new();
+            for pat in &self.yaml_file_patterns {
+                if let Ok(glob) = Glob::new(pat) {
+                    b.add(glob);
+                }
+            }
+            self.yaml_matcher = b.build().ok();
         }
     }
 
@@ -62,10 +73,31 @@ impl YamlLintConfig {
         matcher.is_match(rel)
     }
 
+    #[must_use]
+    pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
+        let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
+        if let Some(matcher) = &self.yaml_matcher {
+            let matched = matcher.is_match(rel);
+            if matched {
+                if let Some(name) = rel.file_name().and_then(|s| s.to_str())
+                    && (name == ".yamllint.yml" || name == ".yamllint.yaml")
+                    && !self
+                        .yaml_file_patterns
+                        .iter()
+                        .any(|p| p == ".yamllint.yml" || p == ".yamllint.yaml")
+                {
+                    return false;
+                }
+                return true;
+            }
+            return false;
+        }
+        crate::discover::is_yaml_path(path)
+    }
+
     fn from_yaml_str(s: &str) -> Result<Self, String> {
-        // Parse with saphyr (DOM) to avoid an extra YAML dependency.
-        let docs = saphyr::Yaml::load_from_str(s)
-            .map_err(|e| format!("failed to parse config data: {e}"))?;
+        let docs =
+            YamlOwned::load_from_str(s).map_err(|e| format!("failed to parse config data: {e}"))?;
         let mut cfg = Self::default();
 
         let Some(doc) = docs.first() else {
@@ -104,14 +136,31 @@ impl YamlLintConfig {
             }
         }
 
+        if let Some(yf) = doc.as_mapping_get("yaml-files") {
+            if let Some(seq) = yf.as_sequence() {
+                for it in seq {
+                    if let Some(s) = it.as_str() {
+                        cfg.yaml_file_patterns.push(s.to_owned());
+                    }
+                }
+            } else if let Some(s) = yf.as_str() {
+                cfg.yaml_file_patterns.push(s.to_owned());
+            }
+        }
+
         if let Some(rules) = doc.as_mapping_get("rules")
             && let Some(map) = rules.as_mapping()
         {
-            for (k, _v) in map {
-                if let Some(name) = k.as_str()
-                    && !cfg.rule_names.iter().any(|e| e == name)
-                {
-                    cfg.rule_names.push(name.to_owned());
+            for (k, v) in map {
+                if let Some(name) = k.as_str() {
+                    if let Some(dst) = cfg.rules.get_mut(name) {
+                        deep_merge_yaml_owned(dst, v);
+                    } else {
+                        cfg.rules.insert(name.to_owned(), v.clone());
+                    }
+                    if !cfg.rule_names.iter().any(|e| e == name) {
+                        cfg.rule_names.push(name.to_owned());
+                    }
                 }
             }
         }
@@ -123,13 +172,41 @@ impl YamlLintConfig {
     fn merge_from(&mut self, mut other: Self) {
         // Merge ignore patterns (append, then dedup later during matcher build)
         self.ignore_patterns.append(&mut other.ignore_patterns);
-        // Merge rule names; keep unique
-        for n in other.rule_names {
-            if !self.rule_names.iter().any(|e| e == &n) {
-                self.rule_names.push(n);
+        // Merge rules deeply and accumulate names
+        for (name, val) in other.rules {
+            if let Some(dst) = self.rules.get_mut(&name) {
+                deep_merge_yaml_owned(dst, &val);
+            } else {
+                self.rules.insert(name.clone(), val.clone());
+            }
+            if !self.rule_names.iter().any(|e| e == &name) {
+                self.rule_names.push(name);
             }
         }
+        // Merge yaml file patterns
+        self.yaml_file_patterns
+            .append(&mut other.yaml_file_patterns);
         self.build_matcher();
+    }
+}
+
+fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
+    if let (Some(_), Some(src_map)) = (dst.as_mapping(), src.as_mapping()) {
+        for (k, v) in src_map {
+            if let Some(key) = k.as_str() {
+                let merged = dst.as_mapping_get_mut(key).is_some_and(|dv| {
+                    deep_merge_yaml_owned(dv, v);
+                    true
+                });
+                if !merged {
+                    let key_node = YamlOwned::Value(ScalarOwned::String(key.to_owned()));
+                    let map = dst.as_mapping_mut().expect("checked mapping above");
+                    map.insert(key_node, v.clone());
+                }
+            }
+        }
+    } else {
+        *dst = src.clone();
     }
 }
 
@@ -154,6 +231,9 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
+///
+/// # Panics
+/// Panics only if the built-in default preset is not embedded (programming error).
 pub fn discover_config_with_env<F>(
     inputs: &[PathBuf],
     overrides: &Overrides,
@@ -228,9 +308,10 @@ where
         });
     }
 
-    // Default empty config
+    // Default to built-in default preset
+    let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
     Ok(ConfigContext {
-        config: YamlLintConfig::default(),
+        config: cfg,
         base_dir: current_dir(),
         source: None,
     })
@@ -242,6 +323,13 @@ where
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
+/// Discover the effective config for a single file.
+///
+/// # Errors
+/// Returns an error when a config file cannot be read or parsed.
+///
+/// # Panics
+/// Panics only if the built-in default preset is not embedded (programming error).
 pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
     let start_dir = if path.is_dir() {
         path
@@ -274,8 +362,9 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
         });
     }
 
+    let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
     Ok(ConfigContext {
-        config: YamlLintConfig::default(),
+        config: cfg,
         base_dir: current_dir(),
         source: None,
     })

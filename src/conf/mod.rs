@@ -1,7 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-// Minimal built-in presets to support `extends`.
-// These are placeholders to enable composition and merging logic.
+// Built-in presets to support `extends`, mirroring yamllint.
 
 #[must_use]
 pub fn builtin(name: &str) -> Option<&'static str> {
@@ -13,15 +12,72 @@ pub fn builtin(name: &str) -> Option<&'static str> {
     }
 }
 
-const DEFAULT: &str = r"
+const DEFAULT: &str = r"---
+
+yaml-files:
+  - '*.yaml'
+  - '*.yml'
+  - '.yamllint'
+
 rules:
+  anchors: enable
+  braces: enable
+  brackets: enable
+  colons: enable
+  commas: enable
+  comments:
+    level: warning
+  comments-indentation:
+    level: warning
+  document-end: disable
+  document-start:
+    level: warning
+  empty-lines: enable
+  empty-values: disable
+  float-values: disable
+  hyphens: enable
+  indentation: enable
+  key-duplicates: enable
+  key-ordering: disable
+  line-length: enable
+  new-line-at-end-of-file: enable
+  new-lines: enable
+  octal-values: disable
+  quoted-strings: disable
   trailing-spaces: enable
-  document-end: enable
+  truthy:
+    level: warning
 ";
 
-const RELAXED: &str = r"
+const RELAXED: &str = r"---
+
+extends: default
+
 rules:
-  trailing-spaces: disable
+  braces:
+    level: warning
+    max-spaces-inside: 1
+  brackets:
+    level: warning
+    max-spaces-inside: 1
+  colons:
+    level: warning
+  commas:
+    level: warning
+  comments: disable
+  comments-indentation: disable
+  document-start: disable
+  empty-lines:
+    level: warning
+  hyphens:
+    level: warning
+  indentation:
+    level: warning
+    indent-sequences: consistent
+  line-length:
+    level: warning
+    allow-non-breakable-inline-mappings: true
+  truthy: disable
 ";
 
 const EMPTY: &str = r"
