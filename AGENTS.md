@@ -44,6 +44,14 @@ ryl is a CLI tool for linting yaml files
   Windows Powershell).
 - `prek`, `rumdl`, `typos`, and `zizmor` should be installed as global uv tools.
 
+## Permissions and Timeouts
+
+- Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
+  sandboxed, request permission escalation when running `prek`, `cargo test`,
+  or coverage commands.
+- Allow at least a 1-minute timeout per linter/test invocation; increase as
+  needed for larger runs or CI.
+
 ## Automated Tests
 
 - Don't use comments in tests, use meaningful function names, and variable names to

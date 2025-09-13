@@ -98,3 +98,6 @@ jobs:
         with:
           header: ryl-coverage
           path: coverage.md
+
+      - name: Enforce 100% line coverage
+        run: cargo llvm-cov nextest --summary-only --run-ignored all --fail-under-lines 100
