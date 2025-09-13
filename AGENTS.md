@@ -42,7 +42,19 @@ ryl is a CLI tool for linting yaml files
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rumdl`, `typos`, and `zizmor` should be installed as global uv tools.
+- `gh`, `prek`, `rg`, `rumdl`, `typos`, and `zizmor` should be installed as global
+  tools.
+- Parity tests require `yamllint` in PATH. Install with uv and verify:
+  - Install: `uv tool install yamllint --force`
+  - Verify: `yamllint --version`
+
+## Permissions and Timeouts
+
+- Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
+  sandboxed, request permission escalation when running `prek`, `cargo test`,
+  or coverage commands.
+- Allow at least a 1-minute timeout per linter/test invocation; increase as
+  needed for larger runs or CI.
 
 ## Automated Tests
 
@@ -64,6 +76,12 @@ ryl is a CLI tool for linting yaml files
     `rust-toolchain.toml`). If you see linker tool issues, run from a Developer
     Command Prompt or ensure the MSVC build tools are in PATH.
 
+  - Discipline:
+    - Add tests only if LCOV shows fewer missed lines (remove tests that don’t
+      increase coverage).
+    - Prefer fewer/simpler conditionals when refactoring if behavior is
+      unchanged. This reduces branch count and line granularity.
+
 ## Release Checklist
 
 - Bump versions in lockstep:
@@ -84,9 +102,8 @@ ryl is a CLI tool for linting yaml files
 
 ## Coverage and CI Notes
 
-- Coverage uses `cargo-llvm-cov` with nextest; ignored tests are included.
+- Coverage uses `cargo-llvm-cov` with nextest.
   - Quick summary: `cargo llvm-cov nextest --summary-only`.
-  - Include ignored: add `--run-ignored all`.
   - LCOV for artifacts: `cargo llvm-cov nextest --lcov --output-path lcov.info`.
 - Branch coverage:
   - Stable Rust does not emit branch data; PR comment omits “Missed Branches”.
@@ -94,6 +111,21 @@ ryl is a CLI tool for linting yaml files
 - yamllint gotcha:
   - In CI, yamllint may auto-select the “github” format; tests force
     `-f standard` to keep output stable.
+
+## Testing and Parity Notes
+
+- Parity tests (yamllint) require `yamllint` installed (see install notes above).
+- Config discovery:
+  - `discover_config`: global/project/user-global (inline > file > env >
+    project > user-global > empty).
+  - `discover_per_file`: per-file (nearest project up-tree > user-global >
+    default).
+- CLI parity specifics:
+  - Ignores apply to directory scans and explicit files.
+  - `yaml-files` patterns filter both directory and explicit files.
+- Lint/run etiquette:
+  - Always run `prek run --all-files`; rerun once if fmt/clippy auto-fix files.
+  - Prefix intentionally unused variables with `_` to silence warnings.
 
 ## CLI Behavior
 
