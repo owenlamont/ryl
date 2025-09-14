@@ -48,3 +48,26 @@ fn helper_uses_user_global_config_when_present() {
             .ends_with(global_cfg.to_string_lossy().as_ref())
     );
 }
+
+#[test]
+fn helper_uses_env_config_when_set() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join("envcfg.yml");
+    fs::write(&cfg, "ignore: ['**/skipme/**']\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_discover_config_bin");
+    let (code, out, err) = run(Command::new(exe)
+        .env("YAMLLINT_CONFIG_FILE", &cfg)
+        .arg(td.path()));
+    assert_eq!(code, 0, "expected success: {err}");
+    assert!(out.trim_end().ends_with(cfg.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn helper_prints_empty_when_no_config_found() {
+    let td = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_discover_config_bin");
+    let (code, out, err) = run(Command::new(exe).arg(td.path()));
+    assert_eq!(code, 0, "expected success: {err}");
+    assert_eq!(out.trim(), "");
+}

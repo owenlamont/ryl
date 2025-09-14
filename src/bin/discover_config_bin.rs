@@ -13,13 +13,10 @@ fn main() {
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let inputs = vec![dir];
     match discover_config(&inputs, &Overrides::default()) {
-        Ok(ctx) => {
-            let out = ctx
-                .source
-                .map(|p| format!("{}", p.display()))
-                .unwrap_or_default();
-            println!("{out}");
-        }
+        Ok(ctx) => match ctx.source {
+            Some(p) => println!("{}", p.display()),
+            None => println!(),
+        },
         Err(e) => {
             eprintln!("{e}");
             std::process::exit(2);
