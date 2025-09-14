@@ -99,5 +99,9 @@ jobs:
           header: ryl-coverage
           path: coverage.md
 
-      - name: Enforce 100% line coverage
-        run: cargo llvm-cov nextest --summary-only --fail-under-lines 100
+      - name: Enforce coverage thresholds
+        run: |
+          # Enforce zero missed lines and regions
+          cargo llvm-cov nextest --summary-only \
+            --fail-uncovered-lines 0 \
+            --fail-uncovered-regions 0
