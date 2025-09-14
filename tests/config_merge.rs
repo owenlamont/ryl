@@ -11,6 +11,7 @@ rules:
     style: custom
   comments:
     extra: 1
+    level: error
 "#;
     let ctx = discover_config(
         &[],

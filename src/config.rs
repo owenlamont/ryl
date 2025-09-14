@@ -91,16 +91,12 @@ impl YamlLintConfig {
 
         // Handle `extends` first (string or sequence)
         if let Some(extends) = doc.as_mapping_get("extends") {
-            if let Some(s) = extends.as_str() {
-                if let Some(y) = conf::builtin(s) {
-                    let base = Self::from_yaml_str(y)?;
-                    cfg.merge_from(base);
-                }
+            if let Some(y) = extends.as_str().and_then(conf::builtin) {
+                let base = Self::from_yaml_str(y)?;
+                cfg.merge_from(base);
             } else if let Some(seq) = extends.as_sequence() {
                 for it in seq {
-                    if let Some(name) = it.as_str()
-                        && let Some(y) = conf::builtin(name)
-                    {
+                    if let Some(y) = it.as_str().and_then(conf::builtin) {
                         let base = Self::from_yaml_str(y)?;
                         cfg.merge_from(base);
                     }

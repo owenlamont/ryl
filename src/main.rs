@@ -38,9 +38,6 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
 }
 
 fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Option<ConfigContext> {
-    if inputs.is_empty() {
-        return None;
-    }
     if cli.config_data.is_some()
         || cli.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
@@ -63,30 +60,24 @@ fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Option<ConfigContext> {
     }
 }
 
-fn ignored_for(
+fn resolve_ctx(
     path: &Path,
     global_cfg: Option<&ConfigContext>,
     cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
-) -> bool {
-    global_cfg.map_or_else(
-        || {
-            let start = path
-                .parent()
-                .map_or_else(|| PathBuf::from("."), PathBuf::from);
-            let entry = cache.get(&start).cloned();
-            let (base_dir, cfg) = entry.unwrap_or_else(|| {
-                let ctx = discover_per_file(path).unwrap_or_else(|e| {
-                    eprintln!("{e}");
-                    std::process::exit(2);
-                });
-                let pair = (ctx.base_dir.clone(), ctx.config);
-                cache.insert(start.clone(), pair.clone());
-                pair
-            });
-            cfg.is_file_ignored(path, &base_dir)
-        },
-        |gc| gc.config.is_file_ignored(path, &gc.base_dir),
-    )
+) -> Result<(PathBuf, YamlLintConfig), String> {
+    if let Some(gc) = global_cfg {
+        return Ok((gc.base_dir.clone(), gc.config.clone()));
+    }
+    let start = path
+        .parent()
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
+    if let Some(pair) = cache.get(&start).cloned() {
+        return Ok(pair);
+    }
+    let ctx = discover_per_file(path)?;
+    let pair = (ctx.base_dir.clone(), ctx.config);
+    cache.insert(start, pair.clone());
+    Ok(pair)
 }
 
 #[derive(Parser, Debug)]
@@ -132,11 +123,6 @@ fn main() -> ExitCode {
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
     let global_cfg = build_global_cfg(&cli.inputs, &cli);
     let inputs = cli.inputs;
-    // Usage error when no inputs
-    if inputs.is_empty() {
-        eprintln!("error: expected one or more paths (files and/or directories)");
-        return ExitCode::from(2);
-    }
 
     // Determine files to parse from mixed inputs.
     // - Directories: recursively gather only .yml/.yaml
@@ -147,23 +133,15 @@ fn main() -> ExitCode {
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
     let mut filtered: Vec<PathBuf> = Vec::new();
     for f in candidates {
-        let ignored = ignored_for(&f, global_cfg.as_ref(), &mut cache);
-        let yaml_ok = global_cfg.as_ref().map_or_else(
-            || {
-                let start = f.parent().map_or_else(|| PathBuf::from("."), PathBuf::from);
-                let (base_dir, cfg) = cache.get(&start).cloned().unwrap_or_else(|| {
-                    let ctx = discover_per_file(&f).unwrap_or_else(|e| {
-                        eprintln!("{e}");
-                        std::process::exit(2);
-                    });
-                    let pair = (ctx.base_dir.clone(), ctx.config);
-                    cache.insert(start.clone(), pair.clone());
-                    pair
-                });
-                cfg.is_yaml_candidate(&f, &base_dir)
-            },
-            |gc| gc.config.is_yaml_candidate(&f, &gc.base_dir),
-        );
+        let (base_dir, cfg) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
+            Ok(pair) => pair,
+            Err(e) => {
+                eprintln!("{e}");
+                return ExitCode::from(2);
+            }
+        };
+        let ignored = cfg.is_file_ignored(&f, &base_dir);
+        let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
         if !ignored && yaml_ok {
             filtered.push(f);
         }
@@ -172,25 +150,15 @@ fn main() -> ExitCode {
     // Combine with explicit files (parity: explicit files are also filtered by ignores).
     let mut files: Vec<PathBuf> = filtered;
     for ef in explicit_files {
-        let ignored = ignored_for(&ef, global_cfg.as_ref(), &mut cache);
-        let yaml_ok = global_cfg.as_ref().map_or_else(
-            || {
-                let start = ef
-                    .parent()
-                    .map_or_else(|| PathBuf::from("."), PathBuf::from);
-                let (base_dir, cfg) = cache.get(&start).cloned().unwrap_or_else(|| {
-                    let ctx = discover_per_file(&ef).unwrap_or_else(|e| {
-                        eprintln!("{e}");
-                        std::process::exit(2);
-                    });
-                    let pair = (ctx.base_dir.clone(), ctx.config);
-                    cache.insert(start.clone(), pair.clone());
-                    pair
-                });
-                cfg.is_yaml_candidate(&ef, &base_dir)
-            },
-            |gc| gc.config.is_yaml_candidate(&ef, &gc.base_dir),
-        );
+        let (base_dir, cfg) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
+            Ok(pair) => pair,
+            Err(e) => {
+                eprintln!("{e}");
+                return ExitCode::from(2);
+            }
+        };
+        let ignored = cfg.is_file_ignored(&ef, &base_dir);
+        let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
         if !ignored && yaml_ok {
             files.push(ef);
         }
