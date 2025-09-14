@@ -54,8 +54,8 @@ impl YamlLintConfig {
     }
 
     fn build_matcher(&mut self) {
-        if self.ignore_patterns.is_empty() {
-            self.matcher = None;
+        self.matcher = if self.ignore_patterns.is_empty() {
+            None
         } else {
             let mut b = GlobSetBuilder::new();
             for pat in &self.ignore_patterns {
@@ -63,11 +63,11 @@ impl YamlLintConfig {
                     b.add(glob);
                 }
             }
-            self.matcher = b.build().ok();
-        }
+            b.build().ok()
+        };
 
-        if self.yaml_file_patterns.is_empty() {
-            self.yaml_matcher = None;
+        self.yaml_matcher = if self.yaml_file_patterns.is_empty() {
+            None
         } else {
             let mut b = GlobSetBuilder::new();
             for pat in &self.yaml_file_patterns {
@@ -75,8 +75,8 @@ impl YamlLintConfig {
                     b.add(glob);
                 }
             }
-            self.yaml_matcher = b.build().ok();
-        }
+            b.build().ok()
+        };
     }
 
     /// Returns true when `path` should be ignored according to config patterns.
@@ -114,11 +114,10 @@ impl YamlLintConfig {
         // Current document overrides
         if let Some(ignore) = doc.as_mapping_get("ignore") {
             if let Some(seq) = ignore.as_sequence() {
-                for it in seq {
-                    if let Some(s) = it.as_str() {
-                        cfg.ignore_patterns.push(s.to_owned());
-                    }
-                }
+                cfg.ignore_patterns.extend(
+                    seq.iter()
+                        .filter_map(|it| it.as_str().map(ToOwned::to_owned)),
+                );
             } else if let Some(s) = ignore.as_str() {
                 cfg.ignore_patterns.push(s.to_owned());
             }
@@ -126,11 +125,10 @@ impl YamlLintConfig {
 
         if let Some(yf) = doc.as_mapping_get("yaml-files") {
             if let Some(seq) = yf.as_sequence() {
-                for it in seq {
-                    if let Some(s) = it.as_str() {
-                        cfg.yaml_file_patterns.push(s.to_owned());
-                    }
-                }
+                cfg.yaml_file_patterns.extend(
+                    seq.iter()
+                        .filter_map(|it| it.as_str().map(ToOwned::to_owned)),
+                );
             } else if let Some(s) = yf.as_str() {
                 cfg.yaml_file_patterns.push(s.to_owned());
             }
