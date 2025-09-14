@@ -191,3 +191,15 @@ fn main() -> ExitCode {
         ExitCode::from(1)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_ctx_handles_path_without_parent() {
+        let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
+        let p = PathBuf::from("");
+        let _ = resolve_ctx(&p, None, &mut cache);
+    }
+}
