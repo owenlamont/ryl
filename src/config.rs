@@ -26,22 +26,21 @@ pub struct Overrides {
 }
 
 impl YamlLintConfig {
-    fn apply_extends(&mut self, node: &YamlOwned) -> Result<(), String> {
+    fn apply_extends(&mut self, node: &YamlOwned) {
         if let Some(y) = node.as_str().and_then(conf::builtin) {
-            let base = Self::from_yaml_str(y)?;
+            let base = Self::from_yaml_str(y).expect("builtin preset must parse");
             self.merge_from(base);
-            return Ok(());
+            return;
         }
-        node.as_sequence()
-            .into_iter()
-            .flat_map(|seq| seq.iter())
-            .filter_map(|it| it.as_str().and_then(conf::builtin))
-            .try_for_each(|y| {
-                let base = Self::from_yaml_str(y)?;
+        if let Some(seq) = node.as_sequence() {
+            for y in seq
+                .iter()
+                .filter_map(|it| it.as_str().and_then(conf::builtin))
+            {
+                let base = Self::from_yaml_str(y).expect("builtin preset must parse");
                 self.merge_from(base);
-                Ok::<(), String>(())
-            })?;
-        Ok(())
+            }
+        }
     }
     #[must_use]
     pub fn ignore_patterns(&self) -> &[String] {
@@ -108,16 +107,17 @@ impl YamlLintConfig {
 
         // Handle `extends` first (string or sequence)
         if let Some(extends) = doc.as_mapping_get("extends") {
-            cfg.apply_extends(extends)?;
+            cfg.apply_extends(extends);
         }
 
         // Current document overrides
         if let Some(ignore) = doc.as_mapping_get("ignore") {
             if let Some(seq) = ignore.as_sequence() {
-                cfg.ignore_patterns.extend(
-                    seq.iter()
-                        .filter_map(|it| it.as_str().map(ToOwned::to_owned)),
-                );
+                for it in seq {
+                    if let Some(s) = it.as_str() {
+                        cfg.ignore_patterns.push(s.to_owned());
+                    }
+                }
             } else if let Some(s) = ignore.as_str() {
                 cfg.ignore_patterns.push(s.to_owned());
             }
@@ -125,10 +125,11 @@ impl YamlLintConfig {
 
         if let Some(yf) = doc.as_mapping_get("yaml-files") {
             if let Some(seq) = yf.as_sequence() {
-                cfg.yaml_file_patterns.extend(
-                    seq.iter()
-                        .filter_map(|it| it.as_str().map(ToOwned::to_owned)),
-                );
+                for it in seq {
+                    if let Some(s) = it.as_str() {
+                        cfg.yaml_file_patterns.push(s.to_owned());
+                    }
+                }
             } else if let Some(s) = yf.as_str() {
                 cfg.yaml_file_patterns.push(s.to_owned());
             }
@@ -146,7 +147,14 @@ impl YamlLintConfig {
                 } else {
                     cfg.rules.insert(name.to_owned(), v.clone());
                 }
-                if !cfg.rule_names.iter().any(|e| e == name) {
+                let mut seen = false;
+                for e in &cfg.rule_names {
+                    if e == name {
+                        seen = true;
+                        break;
+                    }
+                }
+                if !seen {
                     cfg.rule_names.push(name.to_owned());
                 }
             }
@@ -342,7 +350,8 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
     }
     try_user_global(start_dir.to_path_buf())?.map_or_else(
         || {
-            let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
+            let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
+                .expect("builtin preset must parse");
             Ok(ConfigContext {
                 config: cfg,
                 base_dir: current_dir(),
@@ -354,7 +363,8 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
 }
 
 fn current_dir() -> PathBuf {
-    env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    // Treat current directory as "." to keep paths relative and avoid OS errors.
+    PathBuf::from(".")
 }
 
 fn user_global_config_path() -> Option<PathBuf> {
@@ -410,28 +420,31 @@ fn try_user_global(base_dir: PathBuf) -> Result<Option<ConfigContext>, String> {
 }
 
 fn find_project_config(inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
-    let starts: Vec<PathBuf> = if inputs.is_empty() {
-        vec![current_dir()]
+    let mut starts: Vec<PathBuf> = Vec::new();
+    if inputs.is_empty() {
+        starts.push(current_dir());
     } else {
-        let mut acc = Vec::new();
         for p in inputs {
             let s = if p.is_dir() {
                 p.clone()
             } else {
-                p.parent().map_or_else(current_dir, Path::to_path_buf)
+                p.parent()
+                    .map_or_else(current_dir, std::path::Path::to_path_buf)
             };
-            if !acc.iter().any(|e| e == &s) {
-                acc.push(s);
+            if !starts.iter().any(|e| e == &s) {
+                starts.push(s);
             }
         }
-        acc
-    };
+    }
     let candidates = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
     for start in starts {
         let mut dir = start.as_path();
         loop {
-            if let Some(found) = candidates.iter().map(|n| dir.join(n)).find(|c| c.exists()) {
-                return Some((found, dir.to_path_buf()));
+            for name in candidates {
+                let cand = dir.join(name);
+                if cand.exists() {
+                    return Some((cand, dir.to_path_buf()));
+                }
             }
             match dir.parent() {
                 Some(parent) if parent != dir => dir = parent,
