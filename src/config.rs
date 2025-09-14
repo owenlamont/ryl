@@ -32,14 +32,15 @@ impl YamlLintConfig {
             self.merge_from(base);
             return Ok(());
         }
-        if let Some(seq) = node.as_sequence() {
-            for it in seq {
-                if let Some(y) = it.as_str().and_then(conf::builtin) {
-                    let base = Self::from_yaml_str(y)?;
-                    self.merge_from(base);
-                }
-            }
-        }
+        node.as_sequence()
+            .into_iter()
+            .flat_map(|seq| seq.iter())
+            .filter_map(|it| it.as_str().and_then(conf::builtin))
+            .try_for_each(|y| {
+                let base = Self::from_yaml_str(y)?;
+                self.merge_from(base);
+                Ok::<(), String>(())
+            })?;
         Ok(())
     }
     #[must_use]
@@ -181,18 +182,19 @@ impl YamlLintConfig {
 fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
     if let (Some(_), Some(src_map)) = (dst.as_mapping(), src.as_mapping()) {
         for (k, v) in src_map {
-            if let Some(key) = k.as_str() {
-                let merged = dst.as_mapping_get_mut(key).is_some_and(|dv| {
-                    deep_merge_yaml_owned(dv, v);
-                    true
-                });
-                if !merged {
-                    let map = dst.as_mapping_mut().expect("checked mapping above");
-                    map.insert(
-                        YamlOwned::Value(ScalarOwned::String(key.to_owned())),
-                        v.clone(),
-                    );
-                }
+            let Some(key) = k.as_str() else {
+                continue;
+            };
+            let merged = dst.as_mapping_get_mut(key).is_some_and(|dv| {
+                deep_merge_yaml_owned(dv, v);
+                true
+            });
+            if !merged {
+                let map = dst.as_mapping_mut().expect("checked mapping above");
+                map.insert(
+                    YamlOwned::Value(ScalarOwned::String(key.to_owned())),
+                    v.clone(),
+                );
             }
         }
     } else {
@@ -235,19 +237,8 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
             source: Some(file.clone()),
         });
     }
-    if let Ok(path) = env::var("YAMLLINT_CONFIG_FILE") {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            let data = fs::read_to_string(&p)
-                .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
-            let cfg = YamlLintConfig::from_yaml_str(&data)?;
-            let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
-            return Ok(ConfigContext {
-                config: cfg,
-                base_dir: base,
-                source: Some(p),
-            });
-        }
+    if let Some(ctx) = try_env_config()? {
+        return Ok(ctx);
     }
     // Project config up the tree from inputs
     if let Some((cfg_path, base_dir)) = find_project_config(inputs) {
@@ -261,18 +252,8 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
         });
     }
     // User-global config
-    if let Some(p) = user_global_config_path()
-        && p.exists()
-    {
-        let data = fs::read_to_string(&p)
-            .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
-        let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = current_dir();
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir: base,
-            source: Some(p),
-        });
+    if let Some(ctx) = try_user_global(current_dir())? {
+        return Ok(ctx);
     }
     Ok(ConfigContext {
         config: YamlLintConfig::default(),
@@ -320,19 +301,8 @@ where
     }
 
     // 3) Env var YAMLLINT_CONFIG_FILE acts like a global config file
-    if let Some(path) = env_get("YAMLLINT_CONFIG_FILE") {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            let data = fs::read_to_string(&p)
-                .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
-            let cfg = YamlLintConfig::from_yaml_str(&data)?;
-            let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
-            return Ok(ConfigContext {
-                config: cfg,
-                base_dir: base,
-                source: Some(p),
-            });
-        }
+    if let Some(ctx) = try_env_config_with(env_get)? {
+        return Ok(ctx);
     }
 
     // Fallback to no global config (empty)
@@ -374,18 +344,8 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
         });
     }
 
-    if let Some(p) = user_global_config_path()
-        && p.exists()
-    {
-        let data = fs::read_to_string(&p)
-            .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
-        let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = start_dir.to_path_buf();
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir: base,
-            source: Some(p),
-        });
+    if let Some(ctx) = try_user_global(start_dir.to_path_buf())? {
+        return Ok(ctx);
     }
 
     let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
@@ -404,6 +364,60 @@ fn user_global_config_path() -> Option<PathBuf> {
     // dirs::config_dir respects XDG on Unix and appropriate locations on other OSes.
     let base = dirs::config_dir()?;
     Some(base.join("yamllint").join("config"))
+}
+
+fn ctx_from_config_path(p: &Path) -> Result<ConfigContext, String> {
+    let data = fs::read_to_string(p)
+        .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+    let cfg = YamlLintConfig::from_yaml_str(&data)?;
+    let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
+    Ok(ConfigContext {
+        config: cfg,
+        base_dir: base,
+        source: Some(p.to_path_buf()),
+    })
+}
+
+fn try_env_config() -> Result<Option<ConfigContext>, String> {
+    let Some(path) = env::var("YAMLLINT_CONFIG_FILE").ok() else {
+        return Ok(None);
+    };
+    let p = PathBuf::from(path);
+    if !p.exists() {
+        return Ok(None);
+    }
+    Ok(Some(ctx_from_config_path(&p)?))
+}
+
+fn try_env_config_with<F>(env_get: F) -> Result<Option<ConfigContext>, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(path) = env_get("YAMLLINT_CONFIG_FILE") else {
+        return Ok(None);
+    };
+    let p = PathBuf::from(path);
+    if !p.exists() {
+        return Ok(None);
+    }
+    Ok(Some(ctx_from_config_path(&p)?))
+}
+
+fn try_user_global(base_dir: PathBuf) -> Result<Option<ConfigContext>, String> {
+    let Some(p) = user_global_config_path() else {
+        return Ok(None);
+    };
+    if !p.exists() {
+        return Ok(None);
+    }
+    let data = fs::read_to_string(&p)
+        .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+    let cfg = YamlLintConfig::from_yaml_str(&data)?;
+    Ok(Some(ConfigContext {
+        config: cfg,
+        base_dir,
+        source: Some(p),
+    }))
 }
 
 fn find_project_config(inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
