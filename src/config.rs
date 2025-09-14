@@ -267,14 +267,11 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
 ///
 /// # Panics
 /// Panics only if the built-in default preset is not embedded (programming error).
-pub fn discover_config_with_env<F>(
+pub fn discover_config_with_env(
     _inputs: &[PathBuf],
     overrides: &Overrides,
-    env_get: F,
-) -> Result<ConfigContext, String>
-where
-    F: Fn(&str) -> Option<String>,
-{
+    env_get: &dyn Fn(&str) -> Option<String>,
+) -> Result<ConfigContext, String> {
     // 1) Inline data has highest precedence
     if let Some(ref data) = overrides.config_data {
         let cfg = YamlLintConfig::from_yaml_str(data)?;
@@ -385,10 +382,9 @@ fn try_env_config() -> Result<Option<ConfigContext>, String> {
     Ok(None)
 }
 
-fn try_env_config_with<F>(env_get: F) -> Result<Option<ConfigContext>, String>
-where
-    F: Fn(&str) -> Option<String>,
-{
+fn try_env_config_with(
+    env_get: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<ConfigContext>, String> {
     env_get("YAMLLINT_CONFIG_FILE")
         .map(PathBuf::from)
         .filter(|p| p.exists())

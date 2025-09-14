@@ -14,7 +14,7 @@ fn discover_config_with_env_respects_inline_data() {
             config_file: None,
             config_data: Some(inline),
         },
-        |_k| None,
+        &|_k| None,
     )
     .expect("inline data parsed");
     assert!(ctx.config.ignore_patterns().iter().any(|p| p == "a.yaml"));
@@ -32,7 +32,7 @@ fn discover_config_with_env_respects_explicit_file() {
             config_file: Some(file.clone()),
             config_data: None,
         },
-        |_k| None,
+        &|_k| None,
     )
     .expect("file parsed");
     assert!(ctx.config.ignore_patterns().iter().any(|p| p == "b.yaml"));

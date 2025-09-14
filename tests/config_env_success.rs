@@ -10,7 +10,7 @@ fn env_points_to_valid_config_applies() {
     fs::write(&cfg, "ignore: ['**/skipme/**']\n").unwrap();
 
     let inputs: Vec<std::path::PathBuf> = vec![];
-    let ctx = discover_config_with_env(&inputs, &Overrides::default(), |k| {
+    let ctx = discover_config_with_env(&inputs, &Overrides::default(), &|k| {
         if k == "YAMLLINT_CONFIG_FILE" {
             Some(cfg.display().to_string())
         } else {

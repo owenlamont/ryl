@@ -38,7 +38,7 @@ fn env_config_used_when_no_project_config_via_injected_env() {
     write(&cfg, "ignore: ['**/generated/**']\n");
 
     let inputs = vec![td.path().to_path_buf()];
-    let ctx = discover_config_with_env(&inputs, &Overrides::default(), |k| {
+    let ctx = discover_config_with_env(&inputs, &Overrides::default(), &|k| {
         if k == "YAMLLINT_CONFIG_FILE" {
             Some(cfg.display().to_string())
         } else {

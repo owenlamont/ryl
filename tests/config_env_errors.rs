@@ -9,7 +9,7 @@ fn env_points_to_unreadable_path_errors() {
     let dir = td.path().join("cfgdir");
     fs::create_dir_all(&dir).unwrap();
     let inputs: Vec<std::path::PathBuf> = vec![];
-    let res = discover_config_with_env(&inputs, &Overrides::default(), |k| {
+    let res = discover_config_with_env(&inputs, &Overrides::default(), &|k| {
         if k == "YAMLLINT_CONFIG_FILE" {
             Some(dir.display().to_string())
         } else {
