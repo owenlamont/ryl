@@ -249,15 +249,17 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
             source: Some(cfg_path),
         });
     }
-    // User-global config
-    if let Some(ctx) = try_user_global(current_dir())? {
-        return Ok(ctx);
-    }
-    Ok(ConfigContext {
-        config: YamlLintConfig::default(),
-        base_dir: current_dir(),
-        source: None,
-    })
+    // User-global config, or default when none
+    try_user_global(current_dir())?.map_or_else(
+        || {
+            Ok(ConfigContext {
+                config: YamlLintConfig::default(),
+                base_dir: current_dir(),
+                source: None,
+            })
+        },
+        Ok,
+    )
 }
 
 /// Variant of `discover_config` with injectable environment access to keep tests safe.
@@ -338,17 +340,17 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
             source: Some(cfg_path),
         });
     }
-
-    if let Some(ctx) = try_user_global(start_dir.to_path_buf())? {
-        return Ok(ctx);
-    }
-
-    let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
-    Ok(ConfigContext {
-        config: cfg,
-        base_dir: current_dir(),
-        source: None,
-    })
+    try_user_global(start_dir.to_path_buf())?.map_or_else(
+        || {
+            let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())?;
+            Ok(ConfigContext {
+                config: cfg,
+                base_dir: current_dir(),
+                source: None,
+            })
+        },
+        Ok,
+    )
 }
 
 fn current_dir() -> PathBuf {
@@ -373,13 +375,12 @@ fn ctx_from_config_path(p: &Path) -> Result<ConfigContext, String> {
 }
 
 fn try_env_config() -> Result<Option<ConfigContext>, String> {
-    if let Ok(path) = env::var("YAMLLINT_CONFIG_FILE") {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Ok(Some(ctx_from_config_path(&p)?));
-        }
-    }
-    Ok(None)
+    env::var("YAMLLINT_CONFIG_FILE")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+        .map(|p| ctx_from_config_path(&p))
+        .transpose()
 }
 
 fn try_env_config_with(
