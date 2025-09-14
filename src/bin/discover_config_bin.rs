@@ -7,9 +7,8 @@ use std::path::PathBuf;
 use ryl::config::{Overrides, discover_config};
 
 fn main() {
-    let mut args = env::args().skip(1);
-    let dir = args
-        .next()
+    let dir = env::args()
+        .nth(1)
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let inputs = vec![dir];
     match discover_config(&inputs, &Overrides::default()) {
