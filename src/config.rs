@@ -32,15 +32,14 @@ impl YamlLintConfig {
             self.merge_from(base);
             return;
         }
-        if let Some(seq) = node.as_sequence() {
-            for y in seq
-                .iter()
-                .filter_map(|it| it.as_str().and_then(conf::builtin))
-            {
+        node.as_sequence()
+            .into_iter()
+            .flat_map(|seq| seq.iter())
+            .filter_map(|it| it.as_str().and_then(conf::builtin))
+            .for_each(|y| {
                 let base = Self::from_yaml_str(y).expect("builtin preset must parse");
                 self.merge_from(base);
-            }
-        }
+            });
     }
     #[must_use]
     pub fn ignore_patterns(&self) -> &[String] {
