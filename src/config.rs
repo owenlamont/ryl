@@ -7,6 +7,46 @@ use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
 use crate::conf;
 
+/// Abstraction over environment/filesystem to enable full test coverage.
+/// Minimal environment abstraction used by tests to cover file system and env-var behavior.
+pub trait Env {
+    /// Current working directory.
+    fn current_dir(&self) -> PathBuf;
+    /// Platform configuration directory (e.g., XDG config dir).
+    fn config_dir(&self) -> Option<PathBuf>;
+    /// Read file contents.
+    ///
+    /// # Errors
+    /// Returns an error string when the file cannot be read.
+    fn read_to_string(&self, p: &Path) -> Result<String, String>;
+    fn path_exists(&self, p: &Path) -> bool;
+    fn env_var(&self, key: &str) -> Option<String>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemEnv;
+
+impl Env for SystemEnv {
+    fn current_dir(&self) -> PathBuf {
+        PathBuf::from(".")
+    }
+    fn config_dir(&self) -> Option<PathBuf> {
+        dirs::config_dir()
+    }
+    fn read_to_string(&self, p: &Path) -> Result<String, String> {
+        match fs::read_to_string(p) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(format!("failed to read config file {}: {e}", p.display())),
+        }
+    }
+    fn path_exists(&self, p: &Path) -> bool {
+        p.exists()
+    }
+    fn env_var(&self, key: &str) -> Option<String> {
+        env::var(key).ok()
+    }
+}
+
 /// Minimal configuration model compatible with yamllint discovery precedence.
 #[derive(Debug, Clone, Default)]
 pub struct YamlLintConfig {
@@ -221,34 +261,44 @@ pub struct ConfigContext {
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
 pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<ConfigContext, String> {
+    discover_config_with(inputs, overrides, &SystemEnv)
+}
+
+/// Discover configuration using a provided `Env` implementation.
+///
+/// # Errors
+/// Returns an error when a configuration file cannot be read or parsed.
+pub fn discover_config_with(
+    inputs: &[PathBuf],
+    overrides: &Overrides,
+    envx: &dyn Env,
+) -> Result<ConfigContext, String> {
     // Global config resolution: inline > file > env var.
-    // Project and user-global configs are handled per-file elsewhere.
     if let Some(ref data) = overrides.config_data {
         let cfg = YamlLintConfig::from_yaml_str(data)?;
         return Ok(ConfigContext {
             config: cfg,
-            base_dir: current_dir(),
+            base_dir: envx.current_dir(),
             source: None,
         });
     }
     if let Some(ref file) = overrides.config_file {
-        let data = fs::read_to_string(file)
-            .map_err(|e| format!("failed to read config file {}: {e}", file.display()))?;
+        let data = envx.read_to_string(file)?;
         let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = file.parent().map_or_else(current_dir, Path::to_path_buf);
+        let base = file
+            .parent()
+            .map_or_else(|| envx.current_dir(), Path::to_path_buf);
         return Ok(ConfigContext {
             config: cfg,
             base_dir: base,
             source: Some(file.clone()),
         });
     }
-    if let Some(ctx) = try_env_config()? {
+    if let Some(ctx) = try_env_config_core(envx)? {
         return Ok(ctx);
     }
-    // Project config up the tree from inputs
-    if let Some((cfg_path, base_dir)) = find_project_config(inputs) {
-        let data = fs::read_to_string(&cfg_path)
-            .map_err(|e| format!("failed to read config file {}: {e}", cfg_path.display()))?;
+    if let Some((cfg_path, base_dir)) = find_project_config_core(envx, inputs) {
+        let data = envx.read_to_string(&cfg_path)?;
         let cfg = YamlLintConfig::from_yaml_str(&data)?;
         return Ok(ConfigContext {
             config: cfg,
@@ -256,12 +306,11 @@ pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<Conf
             source: Some(cfg_path),
         });
     }
-    // User-global config, or default when none
-    try_user_global(current_dir())?.map_or_else(
+    try_user_global_core(envx, envx.current_dir())?.map_or_else(
         || {
             Ok(ConfigContext {
                 config: YamlLintConfig::default(),
-                base_dir: current_dir(),
+                base_dir: envx.current_dir(),
                 source: None,
             })
         },
@@ -281,40 +330,27 @@ pub fn discover_config_with_env(
     overrides: &Overrides,
     env_get: &dyn Fn(&str) -> Option<String>,
 ) -> Result<ConfigContext, String> {
-    // 1) Inline data has highest precedence
-    if let Some(ref data) = overrides.config_data {
-        let cfg = YamlLintConfig::from_yaml_str(data)?;
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir: current_dir(),
-            source: None,
-        });
+    struct ClosureEnv<'a> {
+        get: &'a dyn Fn(&str) -> Option<String>,
     }
-
-    // 2) Explicit file flag
-    if let Some(ref file) = overrides.config_file {
-        let data = fs::read_to_string(file)
-            .map_err(|e| format!("failed to read config file {}: {e}", file.display()))?;
-        let cfg = YamlLintConfig::from_yaml_str(&data)?;
-        let base = file.parent().map_or_else(current_dir, Path::to_path_buf);
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir: base,
-            source: Some(file.clone()),
-        });
+    impl Env for ClosureEnv<'_> {
+        fn current_dir(&self) -> PathBuf {
+            SystemEnv.current_dir()
+        }
+        fn config_dir(&self) -> Option<PathBuf> {
+            SystemEnv.config_dir()
+        }
+        fn read_to_string(&self, p: &Path) -> Result<String, String> {
+            SystemEnv.read_to_string(p)
+        }
+        fn path_exists(&self, p: &Path) -> bool {
+            SystemEnv.path_exists(p)
+        }
+        fn env_var(&self, key: &str) -> Option<String> {
+            (self.get)(key)
+        }
     }
-
-    // 3) Env var YAMLLINT_CONFIG_FILE acts like a global config file
-    if let Some(ctx) = try_env_config_with(env_get)? {
-        return Ok(ctx);
-    }
-
-    // Fallback to no global config (empty)
-    Ok(ConfigContext {
-        config: YamlLintConfig::default(),
-        base_dir: current_dir(),
-        source: None,
-    })
+    discover_config_with(&[], overrides, &ClosureEnv { get: env_get })
 }
 
 /// Discover the config for a single file path, ignoring env/global overrides.
@@ -331,15 +367,25 @@ pub fn discover_config_with_env(
 /// # Panics
 /// Panics only if the built-in default preset is not embedded (programming error).
 pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
+    discover_per_file_with(path, &SystemEnv)
+}
+
+/// Discover the effective config for a single file using a provided `Env`.
+///
+/// # Errors
+/// Returns an error when a configuration file cannot be read or parsed.
+///
+/// # Panics
+/// Panics only if the built-in default preset cannot be parsed.
+pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigContext, String> {
     let start_dir = if path.is_dir() {
         path
     } else {
         path.parent().unwrap_or(path)
     };
 
-    if let Some((cfg_path, base_dir)) = find_project_config(&[start_dir.to_path_buf()]) {
-        let data = fs::read_to_string(&cfg_path)
-            .map_err(|e| format!("failed to read config file {}: {e}", cfg_path.display()))?;
+    if let Some((cfg_path, base_dir)) = find_project_config_core(envx, &[start_dir.to_path_buf()]) {
+        let data = envx.read_to_string(&cfg_path)?;
         let cfg = YamlLintConfig::from_yaml_str(&data)?;
         return Ok(ConfigContext {
             config: cfg,
@@ -347,13 +393,13 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
             source: Some(cfg_path),
         });
     }
-    try_user_global(start_dir.to_path_buf())?.map_or_else(
+    try_user_global_core(envx, start_dir.to_path_buf())?.map_or_else(
         || {
             let cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
                 .expect("builtin preset must parse");
             Ok(ConfigContext {
                 config: cfg,
-                base_dir: current_dir(),
+                base_dir: envx.current_dir(),
                 source: None,
             })
         },
@@ -361,21 +407,13 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
     )
 }
 
-fn current_dir() -> PathBuf {
-    // Treat current directory as "." to keep paths relative and avoid OS errors.
-    PathBuf::from(".")
-}
-
-fn user_global_config_path() -> Option<PathBuf> {
-    // dirs::config_dir respects XDG on Unix and appropriate locations on other OSes.
-    dirs::config_dir().map(|base| base.join("yamllint").join("config"))
-}
-
-fn ctx_from_config_path(p: &Path) -> Result<ConfigContext, String> {
-    let data = fs::read_to_string(p)
-        .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+// Testable core helpers below.
+fn ctx_from_config_path_core(envx: &dyn Env, p: &Path) -> Result<ConfigContext, String> {
+    let data = envx.read_to_string(p)?;
     let cfg = YamlLintConfig::from_yaml_str(&data)?;
-    let base = p.parent().map_or_else(current_dir, Path::to_path_buf);
+    let base = p
+        .parent()
+        .map_or_else(|| envx.current_dir(), Path::to_path_buf);
     Ok(ConfigContext {
         config: cfg,
         base_dir: base,
@@ -383,31 +421,25 @@ fn ctx_from_config_path(p: &Path) -> Result<ConfigContext, String> {
     })
 }
 
-fn try_env_config() -> Result<Option<ConfigContext>, String> {
-    env::var("YAMLLINT_CONFIG_FILE")
-        .ok()
+fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> {
+    envx.env_var("YAMLLINT_CONFIG_FILE")
         .map(PathBuf::from)
-        .filter(|p| p.exists())
-        .map(|p| ctx_from_config_path(&p))
+        .filter(|p| envx.path_exists(p))
+        .map(|p| ctx_from_config_path_core(envx, &p))
         .transpose()
 }
 
-fn try_env_config_with(
-    env_get: &dyn Fn(&str) -> Option<String>,
+// no separate try_env_config_with; discover_config_with_env uses ClosureEnv + discover_config_with
+
+fn try_user_global_core(
+    envx: &dyn Env,
+    base_dir: PathBuf,
 ) -> Result<Option<ConfigContext>, String> {
-    env_get("YAMLLINT_CONFIG_FILE")
-        .map(PathBuf::from)
-        .filter(|p| p.exists())
-        .map(|p| ctx_from_config_path(&p))
-        .transpose()
-}
-
-fn try_user_global(base_dir: PathBuf) -> Result<Option<ConfigContext>, String> {
-    user_global_config_path()
-        .filter(|p| p.exists())
+    envx.config_dir()
+        .map(|base| base.join("yamllint").join("config"))
+        .filter(|p| envx.path_exists(p))
         .map(|p| {
-            let data = fs::read_to_string(&p)
-                .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+            let data = envx.read_to_string(&p)?;
             let cfg = YamlLintConfig::from_yaml_str(&data)?;
             Ok(ConfigContext {
                 config: cfg,
@@ -418,17 +450,17 @@ fn try_user_global(base_dir: PathBuf) -> Result<Option<ConfigContext>, String> {
         .transpose()
 }
 
-fn find_project_config(inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
+fn find_project_config_core(envx: &dyn Env, inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
     let mut starts: Vec<PathBuf> = Vec::new();
     if inputs.is_empty() {
-        starts.push(current_dir());
+        starts.push(envx.current_dir());
     } else {
         for p in inputs {
             let s = if p.is_dir() {
                 p.clone()
             } else {
                 p.parent()
-                    .map_or_else(current_dir, std::path::Path::to_path_buf)
+                    .map_or_else(|| envx.current_dir(), Path::to_path_buf)
             };
             if !starts.iter().any(|e| e == &s) {
                 starts.push(s);
@@ -441,7 +473,7 @@ fn find_project_config(inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
         loop {
             for name in candidates {
                 let cand = dir.join(name);
-                if cand.exists() {
+                if envx.path_exists(&cand) {
                     return Some((cand, dir.to_path_buf()));
                 }
             }
