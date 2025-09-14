@@ -362,8 +362,7 @@ fn current_dir() -> PathBuf {
 
 fn user_global_config_path() -> Option<PathBuf> {
     // dirs::config_dir respects XDG on Unix and appropriate locations on other OSes.
-    let base = dirs::config_dir()?;
-    Some(base.join("yamllint").join("config"))
+    dirs::config_dir().map(|base| base.join("yamllint").join("config"))
 }
 
 fn ctx_from_config_path(p: &Path) -> Result<ConfigContext, String> {
@@ -416,32 +415,28 @@ fn try_user_global(base_dir: PathBuf) -> Result<Option<ConfigContext>, String> {
 }
 
 fn find_project_config(inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
-    let mut starts: Vec<PathBuf> = Vec::new();
-    if inputs.is_empty() {
-        starts.push(current_dir());
+    let starts: Vec<PathBuf> = if inputs.is_empty() {
+        vec![current_dir()]
     } else {
+        let mut acc = Vec::new();
         for p in inputs {
             let s = if p.is_dir() {
                 p.clone()
             } else {
                 p.parent().map_or_else(current_dir, Path::to_path_buf)
             };
-            if !starts.iter().any(|e| e == &s) {
-                starts.push(s);
+            if !acc.iter().any(|e| e == &s) {
+                acc.push(s);
             }
         }
-    }
+        acc
+    };
     let candidates = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
-
     for start in starts {
         let mut dir = start.as_path();
         loop {
-            for name in &candidates {
-                let candidate = dir.join(name);
-                if candidate.exists() {
-                    let base_dir = dir.to_path_buf();
-                    return Some((candidate, base_dir));
-                }
+            if let Some(found) = candidates.iter().map(|n| dir.join(n)).find(|c| c.exists()) {
+                return Some((found, dir.to_path_buf()));
             }
             match dir.parent() {
                 Some(parent) if parent != dir => dir = parent,
