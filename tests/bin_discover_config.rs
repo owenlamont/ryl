@@ -64,6 +64,28 @@ fn helper_uses_env_config_when_set() {
 }
 
 #[test]
+fn helper_env_config_missing_is_ignored() {
+    let td = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_discover_config_bin");
+    let (code, out, err) = run(Command::new(exe)
+        .env("YAMLLINT_CONFIG_FILE", td.path().join("nope.yml"))
+        .arg(td.path()));
+    assert_eq!(code, 0, "expected success: {err}");
+    assert_eq!(out.trim(), "");
+}
+
+#[test]
+fn helper_user_global_path_unavailable_is_ignored() {
+    let td = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_discover_config_bin");
+    let (code, out, err) = run(Command::new(exe)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("HOME")
+        .arg(td.path()));
+    assert_eq!(code, 0, "expected success: {err}");
+    assert_eq!(out.trim(), "");
+}
+#[test]
 fn helper_prints_empty_when_no_config_found() {
     let td = tempdir().unwrap();
     let exe = env!("CARGO_BIN_EXE_discover_config_bin");

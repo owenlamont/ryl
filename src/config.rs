@@ -379,45 +379,40 @@ fn ctx_from_config_path(p: &Path) -> Result<ConfigContext, String> {
 }
 
 fn try_env_config() -> Result<Option<ConfigContext>, String> {
-    let Some(path) = env::var("YAMLLINT_CONFIG_FILE").ok() else {
-        return Ok(None);
-    };
-    let p = PathBuf::from(path);
-    if !p.exists() {
-        return Ok(None);
+    if let Ok(path) = env::var("YAMLLINT_CONFIG_FILE") {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Ok(Some(ctx_from_config_path(&p)?));
+        }
     }
-    Ok(Some(ctx_from_config_path(&p)?))
+    Ok(None)
 }
 
 fn try_env_config_with<F>(env_get: F) -> Result<Option<ConfigContext>, String>
 where
     F: Fn(&str) -> Option<String>,
 {
-    let Some(path) = env_get("YAMLLINT_CONFIG_FILE") else {
-        return Ok(None);
-    };
-    let p = PathBuf::from(path);
-    if !p.exists() {
-        return Ok(None);
-    }
-    Ok(Some(ctx_from_config_path(&p)?))
+    env_get("YAMLLINT_CONFIG_FILE")
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+        .map(|p| ctx_from_config_path(&p))
+        .transpose()
 }
 
 fn try_user_global(base_dir: PathBuf) -> Result<Option<ConfigContext>, String> {
-    let Some(p) = user_global_config_path() else {
-        return Ok(None);
-    };
-    if !p.exists() {
-        return Ok(None);
-    }
-    let data = fs::read_to_string(&p)
-        .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
-    let cfg = YamlLintConfig::from_yaml_str(&data)?;
-    Ok(Some(ConfigContext {
-        config: cfg,
-        base_dir,
-        source: Some(p),
-    }))
+    user_global_config_path()
+        .filter(|p| p.exists())
+        .map(|p| {
+            let data = fs::read_to_string(&p)
+                .map_err(|e| format!("failed to read config file {}: {e}", p.display()))?;
+            let cfg = YamlLintConfig::from_yaml_str(&data)?;
+            Ok(ConfigContext {
+                config: cfg,
+                base_dir,
+                source: Some(p),
+            })
+        })
+        .transpose()
 }
 
 fn find_project_config(inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
