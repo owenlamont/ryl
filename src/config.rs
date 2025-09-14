@@ -26,6 +26,22 @@ pub struct Overrides {
 }
 
 impl YamlLintConfig {
+    fn apply_extends(&mut self, node: &YamlOwned) -> Result<(), String> {
+        if let Some(y) = node.as_str().and_then(conf::builtin) {
+            let base = Self::from_yaml_str(y)?;
+            self.merge_from(base);
+            return Ok(());
+        }
+        if let Some(seq) = node.as_sequence() {
+            for it in seq {
+                if let Some(y) = it.as_str().and_then(conf::builtin) {
+                    let base = Self::from_yaml_str(y)?;
+                    self.merge_from(base);
+                }
+            }
+        }
+        Ok(())
+    }
     #[must_use]
     pub fn ignore_patterns(&self) -> &[String] {
         &self.ignore_patterns
@@ -91,17 +107,7 @@ impl YamlLintConfig {
 
         // Handle `extends` first (string or sequence)
         if let Some(extends) = doc.as_mapping_get("extends") {
-            if let Some(y) = extends.as_str().and_then(conf::builtin) {
-                let base = Self::from_yaml_str(y)?;
-                cfg.merge_from(base);
-            } else if let Some(seq) = extends.as_sequence() {
-                for it in seq {
-                    if let Some(y) = it.as_str().and_then(conf::builtin) {
-                        let base = Self::from_yaml_str(y)?;
-                        cfg.merge_from(base);
-                    }
-                }
-            }
+            cfg.apply_extends(extends)?;
         }
 
         // Current document overrides
@@ -133,15 +139,16 @@ impl YamlLintConfig {
             && let Some(map) = rules.as_mapping()
         {
             for (k, v) in map {
-                if let Some(name) = k.as_str() {
-                    if let Some(dst) = cfg.rules.get_mut(name) {
-                        deep_merge_yaml_owned(dst, v);
-                    } else {
-                        cfg.rules.insert(name.to_owned(), v.clone());
-                    }
-                    if !cfg.rule_names.iter().any(|e| e == name) {
-                        cfg.rule_names.push(name.to_owned());
-                    }
+                let Some(name) = k.as_str() else {
+                    continue;
+                };
+                if let Some(dst) = cfg.rules.get_mut(name) {
+                    deep_merge_yaml_owned(dst, v);
+                } else {
+                    cfg.rules.insert(name.to_owned(), v.clone());
+                }
+                if !cfg.rule_names.iter().any(|e| e == name) {
+                    cfg.rule_names.push(name.to_owned());
                 }
             }
         }
@@ -180,9 +187,11 @@ fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
                     true
                 });
                 if !merged {
-                    let key_node = YamlOwned::Value(ScalarOwned::String(key.to_owned()));
                     let map = dst.as_mapping_mut().expect("checked mapping above");
-                    map.insert(key_node, v.clone());
+                    map.insert(
+                        YamlOwned::Value(ScalarOwned::String(key.to_owned())),
+                        v.clone(),
+                    );
                 }
             }
         }
