@@ -76,24 +76,72 @@ ryl is a CLI tool for linting yaml files
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.
-- Coverage with nextest is supported via `cargo-llvm-cov`.
-  - Run tests with coverage:
-    - Quick summary: `cargo llvm-cov nextest --summary-only`
-    - HTML report: `cargo llvm-cov nextest --html`
-      (open `target/llvm-cov/html/index.html`)
-    - LCOV (for CI): `cargo llvm-cov nextest --lcov --output-path lcov.info`
-    - Cobertura XML: `cargo llvm-cov nextest --cobertura --output-path coverage.xml`
-  - Clean coverage artifacts: `cargo llvm-cov clean --workspace`
-  - Windows (MSVC) note: The MSVC toolchain is supported.
-    Ensure the `llvm-tools-preview` component is installed (it is in
-    `rust-toolchain.toml`). If you see linker tool issues, run from a Developer
-    Command Prompt or ensure the MSVC build tools are in PATH.
 
-  - Discipline:
-    - Add tests only if LCOV shows fewer missed lines (remove tests that don’t
-      increase coverage).
-    - Prefer fewer/simpler conditionals when refactoring if behavior is
-      unchanged. This reduces branch count and line granularity.
+## Coverage Playbook
+
+The CI enforces zero missed lines and zero missed regions via cargo-llvm-cov.
+
+- Quick status: `cargo llvm-cov nextest --summary-only`
+- Text report with missing lines highlighted:
+  `cargo llvm-cov --text --show-missing-lines \
+  --output-path target/llvm-cov/report.txt`
+- HTML: `cargo llvm-cov nextest --html` (open `target/llvm-cov/html/index.html`)
+- LCOV for drilling into files: `cargo llvm-cov nextest --lcov --output-path lcov.info`
+
+- Windows (MSVC) note: The MSVC toolchain is supported.
+  Ensure the `llvm-tools-preview` component is installed (it is in
+  `rust-toolchain.toml`). If you see linker tool issues, run from a Developer
+  Command Prompt or ensure the MSVC build tools are in PATH.
+
+### Hitting tricky regions in this repo
+
+- Use the Env abstraction in `src/config.rs` to craft precise tests without
+  touching the real FS/env.
+  - Implement a tiny FakeEnv with predictable `current_dir`, `config_dir`,
+    `read_to_string`, `path_exists`, and `env_var`.
+  - Drive discovery via `discover_config_with(&inputs, &overrides, &fake_env)`.
+
+- `discover_config_with` branches:
+  - Inline data path: `Overrides { config_data: Some(..) }`.
+  - Explicit file path: `Overrides { config_file: Some(..) }` (hit both valid
+    parse and invalid YAML error).
+  - Env var/core path: use `discover_config_with_env` with a closure or FakeEnv.
+
+- `find_project_config_core` search/dedup:
+  - Inputs empty → ensure a `.yamllint` in `current_dir()`.
+  - Single file with no parent → `.parent()` is `None`, exercises
+    `map_or_else` path that falls back to `current_dir()`.
+  - Multiple files in same directory → exercises the dedup branch
+    (`!starts.iter().any(..)`).
+
+- `from_yaml_str` parsing arms (common micro‑regions):
+  - `ignore` as string and as sequence (include non‑string items to hit skip paths).
+  - `yaml-files` as string and as sequence (include non‑string items and all
+    non‑string sequence).
+  - `rules` with both updating an existing rule (from `extends: default`) and
+    inserting a new rule (exercises `merge_from` branches and rule name
+    accumulation).
+
+- `resolve_ctx` in `src/main.rs`:
+  - Use an empty `PathBuf` to exercise the
+    `parent().map_or_else(|| PathBuf::from("."), ..)` branch.
+
+### Triage tips
+
+- If lines are 100% but regions are not, look for:
+  - Short‑circuiting conditions and inline closures (`map_or_else`, `any`, etc.).
+  - Multi‑arm `if let` / `match` on the same line.
+  - Sequence vs scalar variants in config parsing.
+
+- To pinpoint: search for zero‑count regions in the text export.
+  - `awk` or `rg` against `target/llvm-cov/report.txt` for `^0` markers helps
+    isolate the exact source line.
+
+### CI policy
+
+- CI step enforces: `--fail-uncovered-lines 0 --fail-uncovered-regions 0`.
+- Aim to keep local runs green with: `cargo llvm-cov nextest --summary-only`
+  before pushing.
 
 ## Release Checklist
 
