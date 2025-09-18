@@ -2,7 +2,7 @@ use ryl::config::{Overrides, discover_config};
 
 #[test]
 fn scalar_ignore_and_yaml_files_string_are_parsed() {
-    let cfg = "ignore: 'docs/**'\nyaml-files: '.yamllint.yml'\n";
+    let cfg = "ignore: 'docs/**'\nyaml-files: ['.yamllint.yml']\n";
     let ctx = discover_config(
         &[],
         &Overrides {

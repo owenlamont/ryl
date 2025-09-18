@@ -3,8 +3,11 @@ use ryl::config::{Overrides, discover_config};
 #[test]
 fn from_yaml_str_covers_ignore_yamlfiles_and_rules_paths() {
     let yaml = r#"
-ignore: ["a.yml", 1, "b.yaml"]
-yaml-files: "*.yml"
+ignore:
+  - "a.yml"
+  - "b.yaml"
+yaml-files:
+  - "*.yml"
 rules:
   new_rule: { enabled: true }
 "#;

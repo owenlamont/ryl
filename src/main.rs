@@ -42,12 +42,19 @@ fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Option<ConfigContext> {
         || cli.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
     {
+        let config_data = cli.config_data.as_ref().map(|raw| {
+            if !raw.is_empty() && !raw.contains(':') {
+                format!("extends: {raw}")
+            } else {
+                raw.clone()
+            }
+        });
         Some(
             discover_config(
                 inputs,
                 &Overrides {
                     config_file: cli.config_file.clone(),
-                    config_data: cli.config_data.clone(),
+                    config_data,
                 },
             )
             .unwrap_or_else(|e| {
@@ -201,5 +208,36 @@ mod tests {
         let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
         let p = PathBuf::from("");
         let _ = resolve_ctx(&p, None, &mut cache);
+    }
+
+    #[test]
+    fn build_global_cfg_extends_shortcut() {
+        let cli = Cli {
+            inputs: vec![PathBuf::from("foo.yaml")],
+            config_file: None,
+            config_data: Some("relaxed".to_string()),
+            list_files: false,
+            format: None,
+            strict: false,
+            no_warnings: false,
+        };
+        let ctx = build_global_cfg(&cli.inputs, &cli).expect("config context");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "braces"));
+    }
+
+    #[test]
+    fn build_global_cfg_retains_inline_yaml() {
+        let yaml = "rules: {}".to_string();
+        let cli = Cli {
+            inputs: vec![PathBuf::from("foo.yaml")],
+            config_file: None,
+            config_data: Some(yaml),
+            list_files: false,
+            format: None,
+            strict: false,
+            no_warnings: false,
+        };
+        let ctx = build_global_cfg(&cli.inputs, &cli).expect("config context");
+        assert!(ctx.config.rule_names().is_empty());
     }
 }

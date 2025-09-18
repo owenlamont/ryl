@@ -11,6 +11,7 @@ fn env_points_to_missing_file_is_ignored() {
         }
     })
     .expect("discover should succeed");
-    // Fallback to empty config
-    assert!(ctx.config.rule_names().is_empty());
+    // Missing env config falls back to default preset
+    assert!(ctx.source.is_none());
+    assert!(ctx.config.rule_names().iter().any(|r| r == "anchors"));
 }

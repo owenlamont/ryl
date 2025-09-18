@@ -83,8 +83,9 @@ The CI enforces zero missed lines and zero missed regions via cargo-llvm-cov.
 
 - Quick status: `cargo llvm-cov nextest --summary-only`
 - Text report with missing lines highlighted:
-  `cargo llvm-cov --text --show-missing-lines \
-  --output-path target/llvm-cov/report.txt`
+  `cargo llvm-cov --text --show-missing-lines
+  --output-path target/llvm-cov/report.txt` (This is probably the best format for
+  identifying missing coverage). Add focused tests if any ^0 markers remain.
 - HTML: `cargo llvm-cov nextest --html` (open `target/llvm-cov/html/index.html`)
 - LCOV for drilling into files: `cargo llvm-cov nextest --lcov --output-path lcov.info`
 
