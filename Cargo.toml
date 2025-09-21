@@ -18,6 +18,9 @@ clap = { version = "4.5.45", features = ["derive"] }
 ignore = "0.4.23"
 rayon = "1.11.0"
 saphyr-parser = "0.0.6"
+saphyr = "0.0.6"
+globset = "0.4.14"
+dirs = "6.0.0"
 
 [dev-dependencies]
 semver = "1"

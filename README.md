@@ -49,3 +49,21 @@ Help and version:
 - `ryl -V` or `ryl --version` prints the version.
 
 The CLI is built with `clap`, which auto-generates `--help` and `--version`.
+
+## Configuration
+
+- Flags:
+  - `-c, --config-file <FILE>`: path to a YAML config file.
+  - `-d, --config-data <YAML>`: inline YAML config (highest precedence).
+  - `--list-files`: print files that would be linted after applying ignores and exit.
+  - `-f, --format`, `-s, --strict`, `--no-warnings`: reserved for compatibility.
+- Discovery precedence:
+  inline `--config-data` > `--config-file` > env `YAMLLINT_CONFIG_FILE`
+  (global) > nearest project config up the tree (`.yamllint`, `.yamllint.yml`,
+  `.yamllint.yaml`) > user-global (`$XDG_CONFIG_HOME/yamllint/config` or
+  `~/.config/yamllint/config`) > built-in defaults.
+- Per-file behavior: unless a global config is set via `--config-data`,
+  `--config-file`, or `YAMLLINT_CONFIG_FILE`, each file discovers its nearest
+  project config. Ignores apply to directory scans and explicit files (parity).
+- Presets and extends: supports yamllint’s built-in `default`, `relaxed`, and
+  `empty` via `extends`. Rule maps are deep-merged; scalars/sequences overwrite.

@@ -18,21 +18,21 @@ fn write_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf {
     p
 }
 
-fn yamllint_available() -> bool {
-    Command::new("yamllint")
+fn ensure_yamllint_installed() {
+    let ok = Command::new("yamllint")
         .arg("--version")
         .output()
         .map(|o| o.status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    assert!(
+        ok,
+        "yamllint must be installed and in PATH for parity tests"
+    );
 }
 
 #[test]
-#[ignore]
 fn yamllint_exit_behavior_matches_for_syntax_only() {
-    if !yamllint_available() {
-        eprintln!("yamllint not found in PATH; skipping");
-        return;
-    }
+    ensure_yamllint_installed();
 
     let dir = tempdir().unwrap();
     let ok = write_file(dir.path(), "ok.yaml", "a: 1\n");
