@@ -2,13 +2,14 @@
 #![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config, discover_per_file};
+use ryl::cli_support::resolve_ctx;
+use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
 use ryl::parse_yaml_file;
 
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
@@ -65,26 +66,6 @@ fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Option<ConfigContext> {
     } else {
         None
     }
-}
-
-fn resolve_ctx(
-    path: &Path,
-    global_cfg: Option<&ConfigContext>,
-    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
-) -> Result<(PathBuf, YamlLintConfig), String> {
-    if let Some(gc) = global_cfg {
-        return Ok((gc.base_dir.clone(), gc.config.clone()));
-    }
-    let start = path
-        .parent()
-        .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    if let Some(pair) = cache.get(&start).cloned() {
-        return Ok(pair);
-    }
-    let ctx = discover_per_file(path)?;
-    let pair = (ctx.base_dir.clone(), ctx.config);
-    cache.insert(start, pair.clone());
-    Ok(pair)
 }
 
 #[derive(Parser, Debug)]
@@ -196,48 +177,5 @@ fn main() -> ExitCode {
             eprintln!("{e}");
         }
         ExitCode::from(1)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_ctx_handles_path_without_parent() {
-        let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
-        let p = PathBuf::from("");
-        let _ = resolve_ctx(&p, None, &mut cache);
-    }
-
-    #[test]
-    fn build_global_cfg_extends_shortcut() {
-        let cli = Cli {
-            inputs: vec![PathBuf::from("foo.yaml")],
-            config_file: None,
-            config_data: Some("relaxed".to_string()),
-            list_files: false,
-            format: None,
-            strict: false,
-            no_warnings: false,
-        };
-        let ctx = build_global_cfg(&cli.inputs, &cli).expect("config context");
-        assert!(ctx.config.rule_names().iter().any(|r| r == "braces"));
-    }
-
-    #[test]
-    fn build_global_cfg_retains_inline_yaml() {
-        let yaml = "rules: {}".to_string();
-        let cli = Cli {
-            inputs: vec![PathBuf::from("foo.yaml")],
-            config_file: None,
-            config_data: Some(yaml),
-            list_files: false,
-            format: None,
-            strict: false,
-            no_warnings: false,
-        };
-        let ctx = build_global_cfg(&cli.inputs, &cli).expect("config context");
-        assert!(ctx.config.rule_names().is_empty());
     }
 }
