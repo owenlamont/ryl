@@ -41,7 +41,7 @@ ryl is a CLI tool for linting yaml files
 - Remember the linter/formatter prek won't scan any new modules until they are added to
   git so don't forget to git add any new modules you create before running prek.
 - Use the most modern Rust idioms and syntax allowed by the Rust version (currently this
-  is Rust 1.89).
+  is Rust 1.90).
 - Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
   so ensure current documentation and/or repo is consulted when working with third party
   dependencies.
