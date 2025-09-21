@@ -484,12 +484,13 @@ mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct StubEnv {
         cwd: PathBuf,
         files: HashMap<PathBuf, String>,
         exists: HashSet<PathBuf>,
         vars: HashMap<String, String>,
+        config_dir: Option<PathBuf>,
     }
 
     impl StubEnv {
@@ -519,6 +520,11 @@ mod tests {
             self.vars.insert(key.into(), value.into());
             self
         }
+
+        fn with_config_dir(mut self, path: impl Into<PathBuf>) -> Self {
+            self.config_dir = Some(path.into());
+            self
+        }
     }
 
     impl Env for StubEnv {
@@ -527,7 +533,7 @@ mod tests {
         }
 
         fn config_dir(&self) -> Option<PathBuf> {
-            None
+            self.config_dir.clone()
         }
 
         fn read_to_string(&self, p: &Path) -> Result<String, String> {
@@ -985,6 +991,152 @@ mod tests {
         let nodes = YamlOwned::load_from_str("['a', 'b']").expect("load");
         let files = load_ignore_from_files(&nodes[0]).expect("should parse");
         assert_eq!(files, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn discover_config_precedence_covers_env_variants() {
+        let project_dir = PathBuf::from("/workspace/project");
+        let project_cfg = project_dir.join(".yamllint");
+        let cli_cfg = project_dir.join("override.yml");
+        let env_cfg = project_dir.join("env.yml");
+        let user_cfg = PathBuf::from("/home/user/.config/yamllint/config");
+
+        let inline_env = StubEnv::new().with_cwd(project_dir.clone());
+        let ctx = discover_config_with(
+            &[],
+            &Overrides {
+                config_file: None,
+                config_data: Some("rules:\n  inline_rule: { enabled: true }\n".into()),
+            },
+            &inline_env,
+        )
+        .expect("inline config");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "inline_rule"));
+
+        let file_env = StubEnv::new()
+            .with_cwd(project_dir.clone())
+            .with_file(cli_cfg.clone(), "rules:\n  file_rule: { enabled: true }\n")
+            .with_exists(cli_cfg.clone());
+        let ctx = discover_config_with(
+            &[],
+            &Overrides {
+                config_file: Some(cli_cfg),
+                config_data: None,
+            },
+            &file_env,
+        )
+        .expect("file override");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "file_rule"));
+
+        let project_env = StubEnv::new()
+            .with_cwd(project_dir.clone())
+            .with_file(
+                project_cfg.clone(),
+                "rules:\n  project_rule: { enabled: true }\n",
+            )
+            .with_exists(project_cfg.clone());
+        let ctx =
+            discover_config_with(&[], &Overrides::default(), &project_env).expect("project config");
+        assert_eq!(ctx.source.as_deref(), Some(project_cfg.as_path()));
+        assert!(ctx.config.rule_names().iter().any(|r| r == "project_rule"));
+
+        let env_env = StubEnv::new()
+            .with_cwd(project_dir.clone())
+            .with_file(env_cfg.clone(), "rules:\n  env_rule: { enabled: true }\n")
+            .with_var("YAMLLINT_CONFIG_FILE", env_cfg.to_string_lossy());
+        let ctx = discover_config_with(&[], &Overrides::default(), &env_env).expect("env config");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "env_rule"));
+
+        let user_env = StubEnv::new()
+            .with_cwd(project_dir.clone())
+            .with_config_dir(PathBuf::from("/home/user/.config"))
+            .with_file(user_cfg, "rules:\n  user_rule: { enabled: true }\n");
+        let ctx = discover_config_with(&[], &Overrides::default(), &user_env).expect("user config");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "user_rule"));
+
+        let default_env = StubEnv::new().with_cwd(project_dir);
+        let ctx =
+            discover_config_with(&[], &Overrides::default(), &default_env).expect("default config");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "anchors"));
+    }
+
+    #[test]
+    fn discover_per_file_with_uses_user_global_when_project_missing() {
+        let project_dir = PathBuf::from("/workspace/project");
+        let file_path = project_dir.join("sample.yaml");
+        let user_cfg = PathBuf::from("/home/user/.config/yamllint/config");
+
+        let env = StubEnv::new()
+            .with_cwd(project_dir)
+            .with_config_dir(PathBuf::from("/home/user/.config"))
+            .with_file(
+                user_cfg,
+                "rules:\n  user_per_file_rule: { enabled: true }\n",
+            );
+        let ctx = discover_per_file_with(&file_path, &env).expect("per-file config");
+        assert!(
+            ctx.config
+                .rule_names()
+                .iter()
+                .any(|r| r == "user_per_file_rule")
+        );
+    }
+
+    #[test]
+    fn discover_config_public_inline_uses_system_env() {
+        let ctx = discover_config(
+            &[],
+            &Overrides {
+                config_file: None,
+                config_data: Some("rules:\n  direct_rule: { enabled: true }\n".into()),
+            },
+        )
+        .expect("discover config");
+        assert!(ctx.config.rule_names().iter().any(|r| r == "direct_rule"));
+    }
+
+    #[test]
+    fn discover_per_file_public_handles_missing_paths() {
+        let path = Path::new("/tmp/nonexistent/per_file.yaml");
+        let _ = discover_per_file(path);
+    }
+
+    #[test]
+    fn deep_merge_yaml_owned_merges_nested_values() {
+        let mut dst = YamlOwned::load_from_str("base: { enabled: false }\n")
+            .expect("dst")
+            .into_iter()
+            .next()
+            .expect("dst node");
+        let src = YamlOwned::load_from_str("base: { enabled: true }\nextra: { enabled: true }\n")
+            .expect("src")
+            .into_iter()
+            .next()
+            .expect("src node");
+        deep_merge_yaml_owned(&mut dst, &src);
+        let map = dst.as_mapping().expect("mapping result");
+        let base = map
+            .get(&YamlOwned::Value(ScalarOwned::String("base".to_owned())))
+            .expect("base merged")
+            .as_mapping()
+            .expect("base map");
+        let enabled = base
+            .get(&YamlOwned::Value(ScalarOwned::String("enabled".to_owned())))
+            .expect("enabled flag")
+            .as_bool()
+            .expect("bool flag");
+        assert!(enabled);
+        assert!(map.contains_key(&YamlOwned::Value(ScalarOwned::String("extra".to_owned()))));
+    }
+
+    #[test]
+    fn system_env_wrappers_execute() {
+        let env = SystemEnv;
+        let _ = env.current_dir();
+        let _ = env.config_dir();
+        let _ = env.path_exists(Path::new("Cargo.toml"));
+        let _ = env.env_var("PATH");
+        let _ = env.read_to_string(Path::new("Cargo.toml"));
     }
 
     #[test]
