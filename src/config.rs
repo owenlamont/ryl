@@ -312,9 +312,10 @@ impl YamlLintConfig {
         if !other.yaml_file_patterns.is_empty() {
             self.yaml_file_patterns = other.yaml_file_patterns;
         }
-        if self.locale.is_none() {
-            self.locale = other.locale;
-        }
+        self.locale = match self.locale.take() {
+            Some(loc) => Some(loc),
+            None => other.locale,
+        };
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
@@ -850,6 +851,33 @@ mod tests {
     }
 
     #[test]
+    fn extend_populates_missing_locale_from_base() {
+        let env = StubEnv::new()
+            .with_cwd(PathBuf::from("/workspace"))
+            .with_file(
+                PathBuf::from("/workspace/base.yml"),
+                "locale: en_US.UTF-8\n",
+            );
+        let cfg = YamlLintConfig::from_yaml_str_with_env(
+            "extends: base.yml\n",
+            Some(&env),
+            Some(Path::new("/workspace")),
+        )
+        .expect("extend locale fallback");
+        assert_eq!(cfg.locale(), Some("en_US.UTF-8"));
+    }
+
+    #[test]
+    fn merge_from_retains_existing_locale() {
+        let mut cfg =
+            YamlLintConfig::from_yaml_str("locale: fr_FR.UTF-8\n").expect("primary locale");
+        let other =
+            YamlLintConfig::from_yaml_str("locale: en_US.UTF-8\n").expect("secondary locale");
+        cfg.merge_from(other);
+        assert_eq!(cfg.locale(), Some("fr_FR.UTF-8"));
+    }
+
+    #[test]
     fn locale_non_string_errors() {
         let err =
             YamlLintConfig::from_yaml_str("locale: [1]\n").expect_err("locale list should error");
@@ -978,6 +1006,21 @@ pub struct ConfigContext {
     pub source: Option<PathBuf>,
 }
 
+fn finalize_context(
+    envx: &dyn Env,
+    mut cfg: YamlLintConfig,
+    base_dir: impl Into<PathBuf>,
+    source: Option<PathBuf>,
+) -> Result<ConfigContext, String> {
+    let base_dir = base_dir.into();
+    cfg.finalize(envx, &base_dir)?;
+    Ok(ConfigContext {
+        config: cfg,
+        base_dir,
+        source,
+    })
+}
+
 /// Discover configuration with precedence inspired by yamllint:
 /// config-data > config-file > project > user-global > defaults.
 ///
@@ -1002,51 +1045,35 @@ pub fn discover_config_with(
     // Global config resolution: inline > file > project > env var.
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
-        let mut cfg = YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
-        cfg.finalize(envx, &base_dir)?;
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir,
-            source: None,
-        });
+        let cfg = YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
+        return finalize_context(envx, cfg, base_dir, None);
     }
     if let Some(ref file) = overrides.config_file {
         let base = file
             .parent()
             .map_or_else(|| envx.current_dir(), Path::to_path_buf);
         let data = envx.read_to_string(file)?;
-        let mut cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base))?;
-        cfg.finalize(envx, &base)?;
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir: base,
-            source: Some(file.clone()),
-        });
+        let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base))?;
+        return finalize_context(envx, cfg, base, Some(file.clone()));
     }
     if let Some((cfg_path, base_dir)) = find_project_config_core(envx, inputs) {
         let data = envx.read_to_string(&cfg_path)?;
-        let mut cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
-        cfg.finalize(envx, &base_dir)?;
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir,
-            source: Some(cfg_path),
-        });
+        let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
+        return finalize_context(envx, cfg, base_dir, Some(cfg_path));
     }
     if let Some(ctx) = try_env_config_core(envx)? {
         return Ok(ctx);
     }
-    try_user_global_core(envx, envx.current_dir())?.map_or_else(
-        || {
-            let base_dir = envx.current_dir();
-            let mut cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
-                .expect("builtin preset must parse");
-            cfg.finalize(envx, &base_dir)?;
-            Ok(ConfigContext {
-                config: cfg,
-                base_dir,
-                source: None,
-            })
+    let cwd = envx.current_dir();
+    try_user_global_core(envx, &cwd)?.map_or_else(
+        move || {
+            finalize_context(
+                envx,
+                YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
+                    .expect("builtin preset must parse"),
+                cwd,
+                None,
+            )
         },
         Ok,
     )
@@ -1120,24 +1147,18 @@ pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigConte
 
     if let Some((cfg_path, base_dir)) = find_project_config_core(envx, &[start_dir.to_path_buf()]) {
         let data = envx.read_to_string(&cfg_path)?;
-        let mut cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
-        cfg.finalize(envx, &base_dir)?;
-        return Ok(ConfigContext {
-            config: cfg,
-            base_dir,
-            source: Some(cfg_path),
-        });
+        let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
+        return finalize_context(envx, cfg, base_dir, Some(cfg_path));
     }
-    try_user_global_core(envx, start_dir.to_path_buf())?.map_or_else(
+    try_user_global_core(envx, start_dir)?.map_or_else(
         || {
-            let mut cfg = YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
-                .expect("builtin preset must parse");
-            cfg.finalize(envx, &envx.current_dir())?;
-            Ok(ConfigContext {
-                config: cfg,
-                base_dir: envx.current_dir(),
-                source: None,
-            })
+            finalize_context(
+                envx,
+                YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
+                    .expect("builtin preset must parse"),
+                envx.current_dir(),
+                None,
+            )
         },
         Ok,
     )
@@ -1149,13 +1170,8 @@ fn ctx_from_config_path_core(envx: &dyn Env, p: &Path) -> Result<ConfigContext, 
     let base = p
         .parent()
         .map_or_else(|| envx.current_dir(), Path::to_path_buf);
-    let mut cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base))?;
-    cfg.finalize(envx, &base)?;
-    Ok(ConfigContext {
-        config: cfg,
-        base_dir: base,
-        source: Some(p.to_path_buf()),
-    })
+    let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base))?;
+    finalize_context(envx, cfg, base, Some(p.to_path_buf()))
 }
 
 fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> {
@@ -1168,23 +1184,14 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
 
 // no separate try_env_config_with; discover_config_with_env uses ClosureEnv + discover_config_with
 
-fn try_user_global_core(
-    envx: &dyn Env,
-    base_dir: PathBuf,
-) -> Result<Option<ConfigContext>, String> {
+fn try_user_global_core(envx: &dyn Env, base_dir: &Path) -> Result<Option<ConfigContext>, String> {
     envx.config_dir()
         .map(|base| base.join("yamllint").join("config"))
         .filter(|p| envx.path_exists(p))
         .map(|p| {
             let data = envx.read_to_string(&p)?;
-            let mut cfg =
-                YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
-            cfg.finalize(envx, &base_dir)?;
-            Ok(ConfigContext {
-                config: cfg,
-                base_dir,
-                source: Some(p),
-            })
+            let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
+            finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p))
         })
         .transpose()
 }
