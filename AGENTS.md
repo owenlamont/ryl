@@ -76,6 +76,10 @@ ryl is a CLI tool for linting yaml files
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.
+- Do not add `#[cfg(test)]` test modules directly inside files under `src/`. Unit tests
+  compiled alongside the library create duplicate LLVM coverage instantiations and break
+  the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
+  tests in `tests/` instead.
 
 ## Coverage Playbook
 
