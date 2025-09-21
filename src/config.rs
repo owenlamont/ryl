@@ -103,16 +103,18 @@ impl YamlLintConfig {
         envx: Option<&dyn Env>,
         base_dir: Option<&Path>,
     ) -> Result<(), String> {
+        let base_path = base_dir.unwrap_or_else(|| Path::new(""));
+
         match node {
             YamlOwned::Value(value) => {
                 if let Some(ext) = value.as_str() {
-                    self.extend_from_entry(ext, envx, base_dir)?;
+                    self.extend_from_entry(ext, envx, base_path)?;
                 }
             }
             YamlOwned::Sequence(seq) => {
                 for item in seq {
                     if let Some(ext) = item.as_str() {
-                        self.extend_from_entry(ext, envx, base_dir)?;
+                        self.extend_from_entry(ext, envx, base_path)?;
                     }
                 }
             }
@@ -125,7 +127,7 @@ impl YamlLintConfig {
         &mut self,
         entry: &str,
         envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
+        base_dir: &Path,
     ) -> Result<(), String> {
         if let Some(builtin) = conf::builtin(entry) {
             let base = Self::from_yaml_str(builtin).expect("builtin preset must parse");
@@ -139,7 +141,7 @@ impl YamlLintConfig {
             ));
         };
 
-        let resolved = resolve_extend_path(entry, envx, base_dir);
+        let resolved = resolve_extend_path(entry, envx, Some(base_dir));
         let data = match envx.read_to_string(&resolved) {
             Ok(text) => text,
             Err(err) => {
@@ -149,10 +151,9 @@ impl YamlLintConfig {
                 ));
             }
         };
-        let parent_dir = resolved.parent().map_or_else(
-            || base_dir.map_or_else(|| envx.current_dir(), Path::to_path_buf),
-            Path::to_path_buf,
-        );
+        let parent_dir = resolved
+            .parent()
+            .map_or_else(|| base_dir.to_path_buf(), Path::to_path_buf);
         let base = Self::from_yaml_str_with_env(&data, Some(envx), Some(&parent_dir))?;
         self.merge_from(base);
         Ok(())

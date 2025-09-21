@@ -79,3 +79,33 @@ fn locale_non_string_errors() {
     .expect_err("non-string locale should error");
     assert!(err.contains("locale should be a string"));
 }
+
+#[test]
+fn locale_survives_additional_extends() {
+    let root = PathBuf::from("/workspace");
+    let cfg = root.join("config.yml");
+    let first = root.join("first.yml");
+    let second = root.join("second.yml");
+    let env = FakeEnv::new()
+        .with_cwd(root.clone())
+        .with_file(first.clone(), "locale: en_US.UTF-8\n")
+        .with_exists(first.clone())
+        .with_file(second.clone(), "rules: { extra: enable }\n")
+        .with_exists(second.clone())
+        .with_file(
+            cfg.clone(),
+            format!("extends: ['{}', '{}']\n", first.display(), second.display()),
+        )
+        .with_exists(cfg.clone());
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("multiple extends should parse");
+    assert_eq!(ctx.config.locale(), Some("en_US.UTF-8"));
+}
