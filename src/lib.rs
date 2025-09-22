@@ -6,6 +6,7 @@ pub mod conf;
 pub mod config;
 pub mod discover;
 pub mod lint;
+pub mod rules;
 
 pub use discover::{gather_yaml_from_dir, is_yaml_path};
-pub use lint::parse_yaml_file;
+pub use lint::{LintProblem, Severity, lint_file};

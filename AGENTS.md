@@ -50,6 +50,9 @@ ryl is a CLI tool for linting yaml files
 
 - Whenever any files are edited ensure all prek linters pass (run:
   `prek run --all-files`).
+- `prek` already runs the key tooling (e.g., trim/fix whitespace, `cargo fmt`,
+  `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
+  invoking those individually—just run `prek` once after code *or* docs updates.
 - Whenever source files are edited ensure the full test suite passes (run:
 - `cargo llvm-cov nextest --summary-only`)
 - For any behaviour or feature changes ensure all documentation is updated
@@ -131,16 +134,20 @@ The CI enforces zero missed lines and zero missed regions via cargo-llvm-cov.
   - Use an empty `PathBuf` to exercise the
     `parent().map_or_else(|| PathBuf::from("."), ..)` branch.
 
-### Triage tips
+### Coverage & Triage Tips
 
-- If lines are 100% but regions are not, look for:
-  - Short‑circuiting conditions and inline closures (`map_or_else`, `any`, etc.).
-  - Multi‑arm `if let` / `match` on the same line.
-  - Sequence vs scalar variants in config parsing.
-
-- To pinpoint: search for zero‑count regions in the text export.
-  - `awk` or `rg` against `target/llvm-cov/report.txt` for `^0` markers helps
-    isolate the exact source line.
+- Regenerate reports with `cargo llvm-cov --text --show-missing-lines --output-path
+  target/llvm-cov/report.txt`; clear `target/llvm-cov-target` if cached coverage
+  lingers.
+- Search for uncovered regions via `rg '^0' target/llvm-cov/report.txt`; zero-count
+  lines usually point to short-circuit branches, inline closures (`map_or_else`,
+  `any`), condensed `if let`/`match` arms, or scalar vs sequence parsing paths.
+- Prefer CLI/system tests under `tests/` that spawn `env!("CARGO_BIN_EXE_ryl")` to
+  exercise `main.rs` branches (strict mode, no-warnings, list-files, etc.).
+- Format yamllint-style diagnostics with `saturating_sub` padding to keep coverage
+  simple and avoid redundant branches.
+- Add yamllint compatibility tests to confirm exit codes and messages before wiring
+  new rules into the Rust pipeline.
 
 ### CI policy
 
