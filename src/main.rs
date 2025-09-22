@@ -2,7 +2,7 @@
 #![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -95,6 +95,21 @@ struct Cli {
     no_warnings: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutputFormat {
+    Standard,
+    Github,
+}
+
+fn detect_output_format() -> OutputFormat {
+    if std::env::var_os("GITHUB_ACTIONS").is_some() && std::env::var_os("GITHUB_WORKFLOW").is_some()
+    {
+        OutputFormat::Github
+    } else {
+        OutputFormat::Standard
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -170,6 +185,24 @@ fn main() -> ExitCode {
 
     results.sort_by_key(|(idx, _)| *idx);
 
+    let output_format = detect_output_format();
+    let (has_error, has_warning) = process_results(&files, results, output_format, cli.no_warnings);
+
+    if has_error {
+        ExitCode::from(1)
+    } else if has_warning && cli.strict {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn process_results(
+    files: &[(PathBuf, YamlLintConfig)],
+    results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
+    output_format: OutputFormat,
+    no_warnings: bool,
+) -> (bool, bool) {
     let mut has_error = false;
     let mut has_warning = false;
 
@@ -183,36 +216,46 @@ fn main() -> ExitCode {
             Ok(diagnostics) => {
                 let mut problems = diagnostics
                     .iter()
-                    .filter(|problem| !(cli.no_warnings && problem.level == Severity::Warning))
+                    .filter(|problem| !(no_warnings && problem.level == Severity::Warning))
                     .peekable();
 
                 if problems.peek().is_none() {
                     continue;
                 }
 
-                eprintln!("{}", path.display());
-                for problem in problems {
-                    eprintln!("{}", format_problem(problem));
-                    match problem.level {
-                        Severity::Error => has_error = true,
-                        Severity::Warning => has_warning = true,
+                match output_format {
+                    OutputFormat::Standard => {
+                        eprintln!("{}", path.display());
+                        for problem in problems {
+                            eprintln!("{}", format_standard(problem));
+                            match problem.level {
+                                Severity::Error => has_error = true,
+                                Severity::Warning => has_warning = true,
+                            }
+                        }
+                        eprintln!();
+                    }
+                    OutputFormat::Github => {
+                        eprintln!("::group::{}", path.display());
+                        for problem in problems {
+                            eprintln!("{}", format_github(problem, path));
+                            match problem.level {
+                                Severity::Error => has_error = true,
+                                Severity::Warning => has_warning = true,
+                            }
+                        }
+                        eprintln!("::endgroup::");
+                        eprintln!();
                     }
                 }
-                eprintln!();
             }
         }
     }
 
-    if has_error {
-        ExitCode::from(1)
-    } else if has_warning && cli.strict {
-        ExitCode::from(2)
-    } else {
-        ExitCode::SUCCESS
-    }
+    (has_error, has_warning)
 }
 
-fn format_problem(problem: &LintProblem) -> String {
+fn format_standard(problem: &LintProblem) -> String {
     let mut line = format!("  {}:{}", problem.line, problem.column);
     line.push_str(&" ".repeat(12usize.saturating_sub(line.len())));
     line.push_str(problem.level.as_str());
@@ -223,5 +266,24 @@ fn format_problem(problem: &LintProblem) -> String {
         line.push_str(rule);
         line.push(')');
     }
+    line
+}
+
+fn format_github(problem: &LintProblem, path: &Path) -> String {
+    let mut line = format!(
+        "::{} file={},line={},col={}::{}:{} ",
+        problem.level.as_str(),
+        path.display(),
+        problem.line,
+        problem.column,
+        problem.line,
+        problem.column
+    );
+    if let Some(rule) = problem.rule {
+        line.push('[');
+        line.push_str(rule);
+        line.push_str("] ");
+    }
+    line.push_str(&problem.message);
     line
 }
