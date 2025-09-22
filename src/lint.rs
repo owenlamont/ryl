@@ -1,34 +1,94 @@
 use std::fs;
 use std::path::Path;
 
+use crate::config::{RuleLevel, YamlLintConfig};
+use crate::rules::new_line_at_end_of_file;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+impl Severity {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+        }
+    }
+}
+
+impl From<RuleLevel> for Severity {
+    fn from(value: RuleLevel) -> Self {
+        match value {
+            RuleLevel::Error => Self::Error,
+            RuleLevel::Warning => Self::Warning,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LintProblem {
+    pub line: usize,
+    pub column: usize,
+    pub level: Severity,
+    pub message: String,
+    pub rule: Option<&'static str>,
+}
+
 struct NullSink;
 impl<'i> saphyr_parser::EventReceiver<'i> for NullSink {
     fn on_event(&mut self, _ev: saphyr_parser::Event<'i>) {}
 }
 
-/// Parse a single YAML file and return an error message formatted like yamllint on failure.
+/// Lint a single YAML file and return diagnostics in yamllint format order.
 ///
 /// # Errors
 ///
-/// Returns `Err(String)` when the file cannot be read or when the YAML parser
-/// reports a syntax error. The error string matches the CLI output format.
-pub fn parse_yaml_file(path: &Path) -> Result<(), String> {
+/// Returns `Err(String)` when the file cannot be read.
+pub fn lint_file(path: &Path, cfg: &YamlLintConfig) -> Result<Vec<LintProblem>, String> {
     let content = fs::read_to_string(path)
         .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
-    let mut parser = saphyr_parser::Parser::new_from_str(&content);
+
+    let mut diagnostics: Vec<LintProblem> = Vec::new();
+
+    if let Some(level) = cfg.rule_level(new_line_at_end_of_file::ID)
+        && let Some(hit) = new_line_at_end_of_file::check(&content)
+    {
+        diagnostics.push(LintProblem {
+            line: hit.line,
+            column: hit.column,
+            level: level.into(),
+            message: new_line_at_end_of_file::MESSAGE.to_string(),
+            rule: Some(new_line_at_end_of_file::ID),
+        });
+    }
+
+    if let Some(syntax) = syntax_diagnostic(&content) {
+        diagnostics.retain(|diag| diag.rule != Some(new_line_at_end_of_file::ID));
+        diagnostics.push(syntax);
+    }
+
+    Ok(diagnostics)
+}
+
+fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
+    let mut parser = saphyr_parser::Parser::new_from_str(content);
     let mut sink = NullSink;
     match parser.load(&mut sink, true) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let m = e.marker();
-            let msg = e.info();
-            Err(format!(
-                "{}\n  {}:{}       error    syntax error: {} (syntax)",
-                path.display(),
-                m.line(),
-                m.col() + 1,
-                msg
-            ))
+        Ok(()) => None,
+        Err(err) => {
+            let marker = err.marker();
+            let column = marker.col() + 1;
+            Some(LintProblem {
+                line: marker.line(),
+                column,
+                level: Severity::Error,
+                message: format!("syntax error: {} (syntax)", err.info()),
+                rule: None,
+            })
         }
     }
 }

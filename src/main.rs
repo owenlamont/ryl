@@ -10,7 +10,7 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
-use ryl::parse_yaml_file;
+use ryl::{LintProblem, Severity, lint_file};
 
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut explicit_files = Vec::new();
@@ -119,7 +119,7 @@ fn main() -> ExitCode {
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
-    let mut filtered: Vec<PathBuf> = Vec::new();
+    let mut files: Vec<(PathBuf, YamlLintConfig)> = Vec::new();
     for f in candidates {
         let (base_dir, cfg) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
@@ -131,12 +131,10 @@ fn main() -> ExitCode {
         let ignored = cfg.is_file_ignored(&f, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
         if !ignored && yaml_ok {
-            filtered.push(f);
+            files.push((f, cfg));
         }
     }
 
-    // Combine with explicit files (parity: explicit files are also filtered by ignores).
-    let mut files: Vec<PathBuf> = filtered;
     for ef in explicit_files {
         let (base_dir, cfg) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
@@ -148,13 +146,13 @@ fn main() -> ExitCode {
         let ignored = cfg.is_file_ignored(&ef, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
         if !ignored && yaml_ok {
-            files.push(ef);
+            files.push((ef, cfg));
         }
     }
 
     if cli.list_files {
-        for f in &files {
-            println!("{}", f.display());
+        for (path, _) in &files {
+            println!("{}", path.display());
         }
         return ExitCode::SUCCESS;
     }
@@ -163,19 +161,66 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // Parse in parallel
-    let errors: Vec<String> = files
+    let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
         .par_iter()
-        .map(|p| parse_yaml_file(p))
-        .filter_map(std::result::Result::err)
+        .enumerate()
+        .map(|(idx, (path, cfg))| (idx, lint_file(path, cfg)))
         .collect();
 
-    if errors.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        for e in errors {
-            eprintln!("{e}");
+    results.sort_by_key(|(idx, _)| *idx);
+
+    let mut has_error = false;
+    let mut has_warning = false;
+
+    for (idx, outcome) in results {
+        let (path, _) = &files[idx];
+        match outcome {
+            Err(message) => {
+                eprintln!("{message}");
+                has_error = true;
+            }
+            Ok(diagnostics) => {
+                let mut printed_header = false;
+                for problem in &diagnostics {
+                    if cli.no_warnings && problem.level == Severity::Warning {
+                        continue;
+                    }
+                    if !printed_header {
+                        eprintln!("{}", path.display());
+                        printed_header = true;
+                    }
+                    eprintln!("{}", format_problem(problem));
+                    match problem.level {
+                        Severity::Error => has_error = true,
+                        Severity::Warning => has_warning = true,
+                    }
+                }
+                if printed_header {
+                    eprintln!();
+                }
+            }
         }
-        ExitCode::from(1)
     }
+
+    if has_error {
+        ExitCode::from(1)
+    } else if has_warning && cli.strict {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn format_problem(problem: &LintProblem) -> String {
+    let mut line = format!("  {}:{}", problem.line, problem.column);
+    line.push_str(&" ".repeat(12usize.saturating_sub(line.len())));
+    line.push_str(problem.level.as_str());
+    line.push_str(&" ".repeat(21usize.saturating_sub(line.len())));
+    line.push_str(&problem.message);
+    if let Some(rule) = problem.rule {
+        line.push_str("  (");
+        line.push_str(rule);
+        line.push(')');
+    }
+    line
 }

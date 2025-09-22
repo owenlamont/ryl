@@ -64,6 +64,22 @@ pub struct YamlLintConfig {
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleLevel {
+    Error,
+    Warning,
+}
+
+impl RuleLevel {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "error" => Some(Self::Error),
+            "warning" => Some(Self::Warning),
+            _ => None,
+        }
+    }
+}
+
 impl Default for YamlLintConfig {
     fn default() -> Self {
         Self {
@@ -166,6 +182,12 @@ impl YamlLintConfig {
     #[must_use]
     pub fn rule_names(&self) -> &[String] {
         &self.rule_names
+    }
+
+    #[must_use]
+    pub fn rule_level(&self, rule: &str) -> Option<RuleLevel> {
+        let value = self.rules.get(rule)?;
+        determine_rule_level(value)
     }
 
     #[must_use]
@@ -278,6 +300,7 @@ impl YamlLintConfig {
                 let Some(name) = k.as_str() else {
                     continue;
                 };
+                validate_rule_value(name, v)?;
                 if let Some(dst) = cfg.rules.get_mut(name) {
                     deep_merge_yaml_owned(dst, v);
                 } else {
@@ -435,6 +458,58 @@ fn patterns_from_scalar(value: &str) -> Vec<String> {
         .filter(|line| !line.trim().is_empty())
         .map(std::string::ToString::to_string)
         .collect()
+}
+
+fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
+    if let Some(s) = node.as_str() {
+        return if s == "disable" {
+            None
+        } else {
+            Some(RuleLevel::Error)
+        };
+    }
+
+    node.as_mapping()
+        .and_then(|map| {
+            map.iter().find_map(|(key, value)| {
+                (key.as_str() == Some("level")).then(|| value.as_str().and_then(RuleLevel::parse))
+            })
+        })
+        .flatten()
+        .or(Some(RuleLevel::Error))
+}
+
+fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
+    if let Some(text) = value.as_str() {
+        return match text {
+            "enable" | "disable" => Ok(()),
+            _ => Err(format!(
+                "invalid config: rule '{name}' should be 'enable', 'disable', or a mapping"
+            )),
+        };
+    }
+
+    if let Some(map) = value.as_mapping() {
+        for (key, val) in map {
+            if key.as_str() == Some("level") {
+                let Some(level_text) = val.as_str() else {
+                    return Err(format!(
+                        "invalid config: rule '{name}' level should be \"error\" or \"warning\""
+                    ));
+                };
+                if RuleLevel::parse(level_text).is_none() {
+                    return Err(format!(
+                        "invalid config: rule '{name}' level should be \"error\" or \"warning\""
+                    ));
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    Err(format!(
+        "invalid config: rule '{name}' should be 'enable', 'disable', or a mapping"
+    ))
 }
 
 fn resolve_extend_path(entry: &str, envx: &dyn Env, base_dir: Option<&Path>) -> PathBuf {
