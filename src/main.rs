@@ -2,10 +2,11 @@
 #![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
@@ -63,6 +64,15 @@ fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Result<Option<ConfigContex
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum CliFormat {
+    Auto,
+    Standard,
+    Colored,
+    Github,
+    Parsable,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "ryl", version, about = "Fast YAML linter written in Rust")]
 struct Cli {
@@ -82,9 +92,9 @@ struct Cli {
     #[arg(long = "list-files", default_value_t = false)]
     list_files: bool,
 
-    /// Output format (reserved)
-    #[arg(short = 'f', long = "format", value_name = "FORMAT")]
-    format: Option<String>,
+    /// Output format (auto, standard, colored, github, parsable)
+    #[arg(short = 'f', long = "format", default_value_t = CliFormat::Auto, value_enum)]
+    format: CliFormat,
 
     /// Strict mode (reserved)
     #[arg(short = 's', long = "strict", default_value_t = false)]
@@ -98,16 +108,41 @@ struct Cli {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputFormat {
     Standard,
+    Colored,
     Github,
+    Parsable,
 }
 
-fn detect_output_format() -> OutputFormat {
-    if std::env::var_os("GITHUB_ACTIONS").is_some() && std::env::var_os("GITHUB_WORKFLOW").is_some()
-    {
-        OutputFormat::Github
-    } else {
-        OutputFormat::Standard
+fn detect_output_format(choice: CliFormat) -> OutputFormat {
+    match choice {
+        CliFormat::Standard => OutputFormat::Standard,
+        CliFormat::Colored => OutputFormat::Colored,
+        CliFormat::Github => OutputFormat::Github,
+        CliFormat::Parsable => OutputFormat::Parsable,
+        CliFormat::Auto => {
+            if github_env_active() {
+                OutputFormat::Github
+            } else if supports_color() {
+                OutputFormat::Colored
+            } else {
+                OutputFormat::Standard
+            }
+        }
     }
+}
+
+fn github_env_active() -> bool {
+    std::env::var_os("GITHUB_ACTIONS").is_some() && std::env::var_os("GITHUB_WORKFLOW").is_some()
+}
+
+fn supports_color() -> bool {
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    if std::env::var_os("FORCE_COLOR").is_some() {
+        return true;
+    }
+    std::io::stderr().is_terminal()
 }
 
 fn main() -> ExitCode {
@@ -185,7 +220,7 @@ fn main() -> ExitCode {
 
     results.sort_by_key(|(idx, _)| *idx);
 
-    let output_format = detect_output_format();
+    let output_format = detect_output_format(cli.format);
     let (has_error, has_warning) = process_results(&files, results, output_format, cli.no_warnings);
 
     if has_error {
@@ -235,6 +270,17 @@ fn process_results(
                         }
                         eprintln!();
                     }
+                    OutputFormat::Colored => {
+                        eprintln!("\u{001b}[4m{}\u{001b}[0m", path.display());
+                        for problem in problems {
+                            eprintln!("{}", format_colored(problem));
+                            match problem.level {
+                                Severity::Error => has_error = true,
+                                Severity::Warning => has_warning = true,
+                            }
+                        }
+                        eprintln!();
+                    }
                     OutputFormat::Github => {
                         eprintln!("::group::{}", path.display());
                         for problem in problems {
@@ -246,6 +292,15 @@ fn process_results(
                         }
                         eprintln!("::endgroup::");
                         eprintln!();
+                    }
+                    OutputFormat::Parsable => {
+                        for problem in problems {
+                            eprintln!("{}", format_parsable(problem, path));
+                            match problem.level {
+                                Severity::Error => has_error = true,
+                                Severity::Warning => has_warning = true,
+                            }
+                        }
                     }
                 }
             }
@@ -269,6 +324,24 @@ fn format_standard(problem: &LintProblem) -> String {
     line
 }
 
+fn format_colored(problem: &LintProblem) -> String {
+    let mut line = format!("\u{001b}[2m{}:{}\u{001b}[0m", problem.line, problem.column);
+    line.push_str(&" ".repeat(20usize.saturating_sub(line.len())));
+    let level_str = match problem.level {
+        Severity::Warning => "\u{001b}[33mwarning\u{001b}[0m",
+        Severity::Error => "\u{001b}[31merror\u{001b}[0m",
+    };
+    line.push_str(level_str);
+    line.push_str(&" ".repeat(38usize.saturating_sub(line.len())));
+    line.push_str(&problem.message);
+    if let Some(rule) = problem.rule {
+        line.push_str("  \u{001b}[2m(");
+        line.push_str(rule);
+        line.push_str(")\u{001b}[0m");
+    }
+    line
+}
+
 fn format_github(problem: &LintProblem, path: &Path) -> String {
     let mut line = format!(
         "::{} file={},line={},col={}::{}:{} ",
@@ -285,5 +358,22 @@ fn format_github(problem: &LintProblem, path: &Path) -> String {
         line.push_str("] ");
     }
     line.push_str(&problem.message);
+    line
+}
+
+fn format_parsable(problem: &LintProblem, path: &Path) -> String {
+    let mut line = format!(
+        "{}:{}:{}: [{}] {}",
+        path.display(),
+        problem.line,
+        problem.column,
+        problem.level.as_str(),
+        problem.message
+    );
+    if let Some(rule) = problem.rule {
+        line.push_str(" (");
+        line.push_str(rule);
+        line.push(')');
+    }
     line
 }
