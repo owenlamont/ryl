@@ -38,7 +38,7 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     (candidates, explicit_files)
 }
 
-fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Option<ConfigContext> {
+fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Result<Option<ConfigContext>, String> {
     if cli.config_data.is_some()
         || cli.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
@@ -50,21 +50,16 @@ fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Option<ConfigContext> {
                 raw.clone()
             }
         });
-        Some(
-            discover_config(
-                inputs,
-                &Overrides {
-                    config_file: cli.config_file.clone(),
-                    config_data,
-                },
-            )
-            .unwrap_or_else(|e| {
-                eprintln!("{e}");
-                std::process::exit(2);
-            }),
+        discover_config(
+            inputs,
+            &Overrides {
+                config_file: cli.config_file.clone(),
+                config_data,
+            },
         )
+        .map(Some)
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -109,7 +104,13 @@ fn main() -> ExitCode {
     }
 
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
-    let global_cfg = build_global_cfg(&cli.inputs, &cli);
+    let global_cfg = match build_global_cfg(&cli.inputs, &cli) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    };
     let inputs = cli.inputs;
 
     // Determine files to parse from mixed inputs.
@@ -180,24 +181,24 @@ fn main() -> ExitCode {
                 has_error = true;
             }
             Ok(diagnostics) => {
-                let mut printed_header = false;
-                for problem in &diagnostics {
-                    if cli.no_warnings && problem.level == Severity::Warning {
-                        continue;
-                    }
-                    if !printed_header {
-                        eprintln!("{}", path.display());
-                        printed_header = true;
-                    }
+                let mut problems = diagnostics
+                    .iter()
+                    .filter(|problem| !(cli.no_warnings && problem.level == Severity::Warning))
+                    .peekable();
+
+                if problems.peek().is_none() {
+                    continue;
+                }
+
+                eprintln!("{}", path.display());
+                for problem in problems {
                     eprintln!("{}", format_problem(problem));
                     match problem.level {
                         Severity::Error => has_error = true,
                         Severity::Warning => has_warning = true,
                     }
                 }
-                if printed_header {
-                    eprintln!();
-                }
+                eprintln!();
             }
         }
     }
