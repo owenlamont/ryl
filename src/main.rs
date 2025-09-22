@@ -325,7 +325,10 @@ fn format_standard(problem: &LintProblem) -> String {
 }
 
 fn format_colored(problem: &LintProblem) -> String {
-    let mut line = format!("\u{001b}[2m{}:{}\u{001b}[0m", problem.line, problem.column);
+    let mut line = format!(
+        "  \u{001b}[2m{}:{}\u{001b}[0m",
+        problem.line, problem.column
+    );
     line.push_str(&" ".repeat(20usize.saturating_sub(line.len())));
     let level_str = match problem.level {
         Severity::Warning => "\u{001b}[33mwarning\u{001b}[0m",
