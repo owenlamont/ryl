@@ -45,6 +45,9 @@ ryl is a CLI tool for linting yaml files
 - Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
   so ensure current documentation and/or repo is consulted when working with third party
   dependencies.
+- When mirroring yamllint behaviour, spot-check tricky inputs with the yamllint CLI so
+  our diagnostics and message text match (e.g., mixed newline styles or config keys of
+  type int/bool/null/tagged scalar).
 
 ## Code Change Requirements
 
@@ -148,6 +151,9 @@ The CI enforces zero missed lines and zero missed regions via cargo-llvm-cov.
   simple and avoid redundant branches.
 - Add yamllint compatibility tests to confirm exit codes and messages before wiring
   new rules into the Rust pipeline.
+- If coverage flags a zero-count branch in a tight iterator/closure chain, rewrite the
+  loop explicitly so every arm is exercised—this avoids hidden early returns that leave
+  regions uncovered.
 
 ### CI policy
 
