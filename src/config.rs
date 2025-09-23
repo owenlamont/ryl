@@ -191,6 +191,15 @@ impl YamlLintConfig {
     }
 
     #[must_use]
+    pub fn rule_option_str(&self, rule: &str, option: &str) -> Option<&str> {
+        let node = self.rules.get(rule)?;
+        let map = node.as_mapping()?;
+        map.iter()
+            .find_map(|(key, value)| (key.as_str() == Some(option)).then(|| value.as_str()))
+            .flatten()
+    }
+
+    #[must_use]
     pub fn locale(&self) -> Option<&str> {
         self.locale.as_deref()
     }
@@ -500,6 +509,42 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 if RuleLevel::parse(level_text).is_none() {
                     return Err(format!(
                         "invalid config: rule '{name}' level should be \"error\" or \"warning\""
+                    ));
+                }
+                continue;
+            }
+
+            if name == "new-lines" {
+                if key.as_str() == Some("type") {
+                    let Some(kind) = val.as_str() else {
+                        return Err(
+                            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
+                                .to_string(),
+                        );
+                    };
+                    if !matches!(kind, "unix" | "dos" | "platform") {
+                        return Err(
+                            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
+                                .to_string(),
+                        );
+                    }
+                } else {
+                    let key_name = match (
+                        key.as_integer(),
+                        key.as_floating_point(),
+                        key.as_bool(),
+                        key.is_null(),
+                        key.as_str(),
+                    ) {
+                        (Some(num), _, _, _, _) => num.to_string(),
+                        (None, Some(float), _, _, _) => float.to_string(),
+                        (None, None, Some(flag), _, _) => flag.to_string(),
+                        (None, None, None, true, _) => "None".to_string(),
+                        (None, None, None, false, Some(text)) => text.to_owned(),
+                        _ => format!("{key:?}"),
+                    };
+                    return Err(format!(
+                        "invalid config: unknown option \"{key_name}\" for rule \"new-lines\""
                     ));
                 }
             }
