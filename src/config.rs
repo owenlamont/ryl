@@ -194,9 +194,12 @@ impl YamlLintConfig {
     pub fn rule_option_str(&self, rule: &str, option: &str) -> Option<&str> {
         let node = self.rules.get(rule)?;
         let map = node.as_mapping()?;
-        map.iter()
-            .find_map(|(key, value)| (key.as_str() == Some(option)).then(|| value.as_str()))
-            .flatten()
+        for (key, value) in map {
+            if key.as_str() == Some(option) {
+                return value.as_str();
+            }
+        }
+        None
     }
 
     #[must_use]

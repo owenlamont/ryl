@@ -39,3 +39,10 @@ fn check_returns_none_when_newlines_match() {
     let outcome = new_lines::check("key: value\n", resolved, new_lines::platform_newline());
     assert!(outcome.is_none());
 }
+
+#[test]
+fn resolve_defaults_when_rule_missing() {
+    let cfg = YamlLintConfig::from_yaml_str("rules: {}\n").expect("config parses");
+    let resolved = Config::resolve(&cfg);
+    assert_eq!(resolved.kind, LineKind::Unix);
+}

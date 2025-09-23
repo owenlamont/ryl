@@ -66,6 +66,15 @@ fn unknown_option_reports_float_key() {
 }
 
 #[test]
+fn unknown_option_reports_tagged_key() {
+    let err = discover_with_yaml("rules:\n  new-lines:\n    !foo bar: value\n").unwrap_err();
+    assert_eq!(
+        err,
+        "invalid config: unknown option \"Tagged(Tag { handle: \"!\", suffix: \"foo\" }, Value(String(\"bar\")))\" for rule \"new-lines\""
+    );
+}
+
+#[test]
 fn unknown_option_reports_null_key() {
     let err = discover_with_yaml("rules:\n  new-lines:\n    null: value\n").unwrap_err();
     assert_eq!(

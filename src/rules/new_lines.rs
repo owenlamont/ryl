@@ -45,9 +45,16 @@ pub struct Violation {
     pub message: String,
 }
 
+#[cfg(windows)]
 #[must_use]
 pub const fn platform_newline() -> &'static str {
-    if cfg!(windows) { "\r\n" } else { "\n" }
+    "\r\n"
+}
+
+#[cfg(not(windows))]
+#[must_use]
+pub const fn platform_newline() -> &'static str {
+    "\n"
 }
 
 #[must_use]
