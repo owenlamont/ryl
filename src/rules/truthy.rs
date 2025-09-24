@@ -21,6 +21,12 @@ pub struct Config {
 }
 
 impl Config {
+    /// Resolve the rule configuration from the parsed yamllint config.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `allowed-values` contains a non-string entry. The parser rejects
+    /// that configuration, so this only occurs with manual construction in tests.
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
         let mut allowed: HashSet<String> = HashSet::new();
@@ -33,9 +39,10 @@ impl Config {
         {
             allowed.clear();
             for value in seq {
-                if let Some(text) = value.as_str() {
-                    allowed.insert(text.to_owned());
-                }
+                let text = value
+                    .as_str()
+                    .expect("truthy allowed-values should be strings");
+                allowed.insert(text.to_owned());
             }
         }
 
@@ -317,10 +324,10 @@ fn parse_yaml_directive(line: &str) -> Option<(u32, u32)> {
         return None;
     }
     let mut parts = trimmed.split_whitespace();
-    let _ = parts.next()?; // %YAML
+    let _ = parts.next();
     let version = parts.next()?;
-    let mut nums = version.split('.');
-    let major = nums.next()?.parse().ok()?;
-    let minor = nums.next()?.parse().ok()?;
+    let (major_raw, minor_raw) = version.split_once('.')?;
+    let major = major_raw.parse().ok()?;
+    let minor = minor_raw.parse().ok()?;
     Some((major, minor))
 }

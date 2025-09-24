@@ -75,3 +75,57 @@ fn flags_keys_when_enabled() {
     assert_eq!(hits[1].line, 1);
     assert_eq!(hits[1].column, 7);
 }
+
+#[test]
+fn handles_complex_keys_without_leaking_key_depth() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "? { mixed: True }\n: value\n";
+    let hits = truthy::check(input, &resolved);
+    assert_eq!(hits.len(), 1, "should flag nested truthy value once");
+    assert_eq!(hits[0].line, 1);
+    assert_eq!(hits[0].column, 12);
+}
+
+#[test]
+fn ignores_malformed_yaml_directive_without_version() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "%YAML\n---\nfoo: True\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "malformed directive should be skipped: {hits:?}"
+    );
+}
+
+#[test]
+fn ignores_yaml_directive_with_non_numeric_version() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "%YAML 1.x\n---\nfoo: True\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "invalid directives should be ignored: {hits:?}"
+    );
+}
+
+#[test]
+fn ignores_yaml_directive_missing_minor_version() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "%YAML 1\n---\nfoo: True\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "directive without minor version should be ignored"
+    );
+}
+
+#[test]
+fn ignores_yaml_directive_with_non_numeric_major() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "%YAML x.1\n---\nfoo: True\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "directive with invalid major should be ignored"
+    );
+}
