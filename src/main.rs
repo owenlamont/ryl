@@ -170,7 +170,7 @@ fn main() -> ExitCode {
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
-    let mut files: Vec<(PathBuf, YamlLintConfig)> = Vec::new();
+    let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
     for f in candidates {
         let (base_dir, cfg) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
@@ -182,7 +182,7 @@ fn main() -> ExitCode {
         let ignored = cfg.is_file_ignored(&f, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
         if !ignored && yaml_ok {
-            files.push((f, cfg));
+            files.push((f, base_dir, cfg));
         }
     }
 
@@ -197,12 +197,12 @@ fn main() -> ExitCode {
         let ignored = cfg.is_file_ignored(&ef, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
         if !ignored && yaml_ok {
-            files.push((ef, cfg));
+            files.push((ef, base_dir, cfg));
         }
     }
 
     if cli.list_files {
-        for (path, _) in &files {
+        for (path, ..) in &files {
             println!("{}", path.display());
         }
         return ExitCode::SUCCESS;
@@ -215,7 +215,7 @@ fn main() -> ExitCode {
     let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
         .par_iter()
         .enumerate()
-        .map(|(idx, (path, cfg))| (idx, lint_file(path, cfg)))
+        .map(|(idx, (path, base_dir, cfg))| (idx, lint_file(path, cfg, base_dir)))
         .collect();
 
     results.sort_by_key(|(idx, _)| *idx);
@@ -233,7 +233,7 @@ fn main() -> ExitCode {
 }
 
 fn process_results(
-    files: &[(PathBuf, YamlLintConfig)],
+    files: &[(PathBuf, PathBuf, YamlLintConfig)],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
     output_format: OutputFormat,
     no_warnings: bool,
@@ -242,7 +242,7 @@ fn process_results(
     let mut has_warning = false;
 
     for (idx, outcome) in results {
-        let (path, _) = &files[idx];
+        let (path, ..) = &files[idx];
         match outcome {
             Err(message) => {
                 eprintln!("{message}");
