@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
-use crate::rules::{new_line_at_end_of_file, new_lines};
+use crate::rules::{new_line_at_end_of_file, new_lines, truthy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -75,6 +75,24 @@ pub fn lint_file(path: &Path, cfg: &YamlLintConfig) -> Result<Vec<LintProblem>, 
                 level: level.into(),
                 message: hit.message,
                 rule: Some(new_lines::ID),
+            });
+        }
+    }
+
+    if let Some(level) = cfg.rule_level(truthy::ID) {
+        let rule_cfg = truthy::Config::resolve(cfg);
+        for hit in truthy::check(&content, &rule_cfg) {
+            let truthy::Violation {
+                line,
+                column,
+                message,
+            } = hit;
+            diagnostics.push(LintProblem {
+                line,
+                column,
+                level: level.into(),
+                message,
+                rule: Some(truthy::ID),
             });
         }
     }
