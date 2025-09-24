@@ -57,6 +57,7 @@ pub struct YamlLintConfig {
     ignore_matcher: Option<Gitignore>,
     rule_names: Vec<String>,
     rules: std::collections::BTreeMap<String, YamlOwned>,
+    rule_filters: std::collections::BTreeMap<String, RuleFilter>,
     yaml_file_patterns: Vec<String>,
     yaml_matcher: Option<GlobSet>,
     locale: Option<String>,
@@ -70,6 +71,13 @@ const TRUTHY_ALLOWED_VALUES: [&str; 18] = [
 ];
 
 const TRUTHY_ALLOWED_VALUES_DISPLAY: &str = "['YES', 'Yes', 'yes', 'NO', 'No', 'no', 'TRUE', 'True', 'true', 'FALSE', 'False', 'false', 'ON', 'On', 'on', 'OFF', 'Off', 'off']";
+
+#[derive(Debug, Clone, Default)]
+struct RuleFilter {
+    patterns: Vec<String>,
+    from_files: Vec<String>,
+    matcher: Option<Gitignore>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleLevel {
@@ -95,6 +103,7 @@ impl Default for YamlLintConfig {
             ignore_matcher: None,
             rule_names: Vec::new(),
             rules: std::collections::BTreeMap::new(),
+            rule_filters: std::collections::BTreeMap::new(),
             yaml_file_patterns: DEFAULT_YAML_FILE_PATTERNS
                 .iter()
                 .map(|s| (*s).to_string())
@@ -240,11 +249,52 @@ impl YamlLintConfig {
         };
     }
 
+    fn refresh_rule_filter(&mut self, rule: &str) {
+        let node = self
+            .rules
+            .get(rule)
+            .expect("refresh_rule_filter should only be called for existing rules");
+
+        if node.as_mapping().is_none() {
+            self.rule_filters.remove(rule);
+            return;
+        }
+
+        let patterns = node
+            .as_mapping_get("ignore")
+            .map(|n| load_ignore_patterns(n).expect("ignore patterns validated during parsing"))
+            .unwrap_or_default();
+        let from_files = node
+            .as_mapping_get("ignore-from-file")
+            .map(|n| {
+                load_ignore_from_files(n)
+                    .expect("ignore-from-file entries validated during parsing")
+            })
+            .unwrap_or_default();
+
+        let filter = self.rule_filters.entry(rule.to_owned()).or_default();
+        filter.patterns = patterns;
+        filter.from_files = from_files;
+        filter.matcher = None;
+    }
+
     /// Returns true when `path` should be ignored according to config patterns.
     /// Matching is performed on the path relative to `base_dir`.
     #[must_use]
     pub fn is_file_ignored(&self, path: &Path, base_dir: &Path) -> bool {
         let Some(matcher) = &self.ignore_matcher else {
+            return false;
+        };
+        let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
+        matcher.matched_path_or_any_parents(rel, false).is_ignore()
+    }
+
+    #[must_use]
+    pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
+        let Some(filter) = self.rule_filters.get(rule) else {
+            return false;
+        };
+        let Some(matcher) = &filter.matcher else {
             return false;
         };
         let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
@@ -337,6 +387,7 @@ impl YamlLintConfig {
                 } else {
                     cfg.rules.insert(name.to_owned(), v.clone());
                 }
+                cfg.refresh_rule_filter(name);
                 let mut seen = false;
                 for e in &cfg.rule_names {
                     if e == name {
@@ -364,6 +415,7 @@ impl YamlLintConfig {
             } else {
                 self.rules.insert(name.clone(), val.clone());
             }
+            self.refresh_rule_filter(&name);
             if !self.rule_names.iter().any(|e| e == &name) {
                 self.rule_names.push(name);
             }
@@ -438,8 +490,84 @@ impl YamlLintConfig {
         };
 
         self.build_yaml_matcher();
+
+        for filter in self.rule_filters.values_mut() {
+            build_rule_filter(filter, envx, base_dir)?;
+        }
         Ok(())
     }
+}
+
+fn build_rule_filter(
+    filter: &mut RuleFilter,
+    envx: &dyn Env,
+    base_dir: &Path,
+) -> Result<(), String> {
+    if filter.patterns.is_empty() && filter.from_files.is_empty() {
+        filter.matcher = None;
+        return Ok(());
+    }
+
+    let mut builder = GitignoreBuilder::new(base_dir);
+    let mut any_pattern = false;
+
+    for pat in &filter.patterns {
+        let normalized = pat.trim_end_matches(['\r']);
+        if let Err(err) = builder.add_line(None, normalized) {
+            return Err(format!(
+                "invalid config: ignore pattern '{normalized}' is invalid: {err}"
+            ));
+        }
+        any_pattern = true;
+    }
+
+    let mut extra_patterns: Vec<String> = Vec::new();
+    for source in &filter.from_files {
+        let source_path = Path::new(source);
+        let resolved = if source_path.is_absolute() {
+            source_path.to_path_buf()
+        } else {
+            base_dir.join(source_path)
+        };
+        let data = match envx.read_to_string(&resolved) {
+            Ok(text) => text,
+            Err(err) => {
+                return Err(format!(
+                    "failed to read ignore-from-file {}: {err}",
+                    resolved.display()
+                ));
+            }
+        };
+        for line in data.lines() {
+            let normalized = line.trim_end_matches(['\r']);
+            if normalized.trim().is_empty() {
+                continue;
+            }
+            if let Err(err) = builder.add_line(Some(resolved.clone()), normalized) {
+                return Err(format!(
+                    "invalid config: ignore-from-file pattern in {} is invalid: {err}",
+                    resolved.display()
+                ));
+            }
+            extra_patterns.push(normalized.to_string());
+            any_pattern = true;
+        }
+    }
+
+    if !extra_patterns.is_empty() {
+        filter.patterns.extend(extra_patterns);
+    }
+
+    filter.matcher = if any_pattern {
+        Some(
+            builder
+                .build()
+                .expect("rule ignore matcher build should not fail after validation"),
+        )
+    } else {
+        None
+    };
+    Ok(())
 }
 
 fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
@@ -522,81 +650,20 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
 
     if let Some(map) = value.as_mapping() {
         for (key, val) in map {
-            if key.as_str() == Some("level") {
-                let Some(level_text) = val.as_str() else {
-                    return Err(format!(
-                        "invalid config: rule '{name}' level should be \"error\" or \"warning\""
-                    ));
-                };
-                if RuleLevel::parse(level_text).is_none() {
-                    return Err(format!(
-                        "invalid config: rule '{name}' level should be \"error\" or \"warning\""
-                    ));
-                }
+            if handle_common_rule_key(name, key, val)? {
                 continue;
             }
 
-            if name == "new-lines" {
-                if key.as_str() == Some("type") {
-                    let Some(kind) = val.as_str() else {
-                        return Err(
-                            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
-                                .to_string(),
-                        );
-                    };
-                    if !matches!(kind, "unix" | "dos" | "platform") {
-                        return Err(
-                            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
-                                .to_string(),
-                        );
-                    }
-                } else {
+            match name {
+                "new-lines" => validate_new_lines_option(key, val)?,
+                "truthy" => validate_truthy_option(key, val)?,
+                "trailing-spaces" => {
                     let key_name = describe_rule_option_key(key);
                     return Err(format!(
-                        "invalid config: unknown option \"{key_name}\" for rule \"new-lines\""
+                        "invalid config: unknown option \"{key_name}\" for rule \"trailing-spaces\""
                     ));
                 }
-            } else if name == "truthy" {
-                match key.as_str() {
-                    Some("allowed-values") => {
-                        let Some(seq) = val.as_sequence() else {
-                            return Err(format!(
-                                "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                            ));
-                        };
-                        for item in seq {
-                            let Some(text) = item.as_str() else {
-                                return Err(format!(
-                                    "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                                ));
-                            };
-                            if !TRUTHY_ALLOWED_VALUES.iter().any(|allowed| allowed == &text) {
-                                return Err(format!(
-                                    "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                                ));
-                            }
-                        }
-                    }
-                    Some("check-keys") => {
-                        if val.as_bool().is_none() {
-                            return Err(
-                                "invalid config: option \"check-keys\" of \"truthy\" should be bool"
-                                    .to_string(),
-                            );
-                        }
-                    }
-                    Some(other) => {
-                        return Err(format!(
-                            "invalid config: unknown option \"{other}\" for rule \"truthy\""
-                        ));
-                    }
-                    None => {
-                        let key_name = describe_rule_option_key(key);
-                        return Err(format!(
-                            "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
-                        ));
-                    }
-                }
+                _ => {}
             }
         }
         return Ok(());
@@ -605,6 +672,103 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
     Err(format!(
         "invalid config: rule '{name}' should be 'enable', 'disable', or a mapping"
     ))
+}
+
+fn handle_common_rule_key(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Result<bool, String> {
+    if key.as_str() == Some("level") {
+        let Some(level_text) = val.as_str() else {
+            return Err(format!(
+                "invalid config: rule '{rule}' level should be \"error\" or \"warning\""
+            ));
+        };
+        if RuleLevel::parse(level_text).is_none() {
+            return Err(format!(
+                "invalid config: rule '{rule}' level should be \"error\" or \"warning\""
+            ));
+        }
+        return Ok(true);
+    }
+
+    if key.as_str() == Some("ignore") {
+        load_ignore_patterns(val)?;
+        return Ok(true);
+    }
+
+    if key.as_str() == Some("ignore-from-file") {
+        load_ignore_from_files(val)?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    if key.as_str() != Some("type") {
+        let key_name = describe_rule_option_key(key);
+        return Err(format!(
+            "invalid config: unknown option \"{key_name}\" for rule \"new-lines\""
+        ));
+    }
+
+    let Some(kind) = val.as_str() else {
+        return Err(
+            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
+                .to_string(),
+        );
+    };
+
+    if matches!(kind, "unix" | "dos" | "platform") {
+        Ok(())
+    } else {
+        Err(
+            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
+                .to_string(),
+        )
+    }
+}
+
+fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("allowed-values") => {
+            let Some(seq) = val.as_sequence() else {
+                return Err(format!(
+                    "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
+                ));
+            };
+            for item in seq {
+                let Some(text) = item.as_str() else {
+                    return Err(format!(
+                        "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
+                    ));
+                };
+                if !TRUTHY_ALLOWED_VALUES.iter().any(|allowed| allowed == &text) {
+                    return Err(format!(
+                        "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
+                    ));
+                }
+            }
+            Ok(())
+        }
+        Some("check-keys") => {
+            if val.as_bool().is_none() {
+                Err(
+                    "invalid config: option \"check-keys\" of \"truthy\" should be bool"
+                        .to_string(),
+                )
+            } else {
+                Ok(())
+            }
+        }
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"truthy\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
+            ))
+        }
+    }
 }
 
 fn resolve_extend_path(entry: &str, envx: &dyn Env, base_dir: Option<&Path>) -> PathBuf {
