@@ -64,6 +64,13 @@ pub struct YamlLintConfig {
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
 
+const TRUTHY_ALLOWED_VALUES: [&str; 18] = [
+    "YES", "Yes", "yes", "NO", "No", "no", "TRUE", "True", "true", "FALSE", "False", "false", "ON",
+    "On", "on", "OFF", "Off", "off",
+];
+
+const TRUTHY_ALLOWED_VALUES_DISPLAY: &str = "['YES', 'Yes', 'yes', 'NO', 'No', 'no', 'TRUE', 'True', 'true', 'FALSE', 'False', 'false', 'ON', 'On', 'on', 'OFF', 'Off', 'off']";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleLevel {
     Error,
@@ -197,6 +204,18 @@ impl YamlLintConfig {
         for (key, value) in map {
             if key.as_str() == Some(option) {
                 return value.as_str();
+            }
+        }
+        None
+    }
+
+    #[must_use]
+    pub fn rule_option(&self, rule: &str, option: &str) -> Option<&YamlOwned> {
+        let node = self.rules.get(rule)?;
+        let map = node.as_mapping()?;
+        for (key, value) in map {
+            if key.as_str() == Some(option) {
+                return Some(value);
             }
         }
         None
@@ -532,23 +551,51 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                         );
                     }
                 } else {
-                    let key_name = match (
-                        key.as_integer(),
-                        key.as_floating_point(),
-                        key.as_bool(),
-                        key.is_null(),
-                        key.as_str(),
-                    ) {
-                        (Some(num), _, _, _, _) => num.to_string(),
-                        (None, Some(float), _, _, _) => float.to_string(),
-                        (None, None, Some(flag), _, _) => flag.to_string(),
-                        (None, None, None, true, _) => "None".to_string(),
-                        (None, None, None, false, Some(text)) => text.to_owned(),
-                        _ => format!("{key:?}"),
-                    };
+                    let key_name = describe_rule_option_key(key);
                     return Err(format!(
                         "invalid config: unknown option \"{key_name}\" for rule \"new-lines\""
                     ));
+                }
+            } else if name == "truthy" {
+                match key.as_str() {
+                    Some("allowed-values") => {
+                        let Some(seq) = val.as_sequence() else {
+                            return Err(format!(
+                                "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
+                            ));
+                        };
+                        for item in seq {
+                            let Some(text) = item.as_str() else {
+                                return Err(format!(
+                                    "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
+                                ));
+                            };
+                            if !TRUTHY_ALLOWED_VALUES.iter().any(|allowed| allowed == &text) {
+                                return Err(format!(
+                                    "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
+                                ));
+                            }
+                        }
+                    }
+                    Some("check-keys") => {
+                        if val.as_bool().is_none() {
+                            return Err(
+                                "invalid config: option \"check-keys\" of \"truthy\" should be bool"
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    Some(other) => {
+                        return Err(format!(
+                            "invalid config: unknown option \"{other}\" for rule \"truthy\""
+                        ));
+                    }
+                    None => {
+                        let key_name = describe_rule_option_key(key);
+                        return Err(format!(
+                            "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
+                        ));
+                    }
                 }
             }
         }
@@ -600,6 +647,23 @@ fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
         }
     } else {
         *dst = src.clone();
+    }
+}
+
+fn describe_rule_option_key(key: &YamlOwned) -> String {
+    match (
+        key.as_integer(),
+        key.as_floating_point(),
+        key.as_bool(),
+        key.is_null(),
+        key.as_str(),
+    ) {
+        (Some(num), _, _, _, _) => num.to_string(),
+        (None, Some(float), _, _, _) => float.to_string(),
+        (None, None, Some(flag), _, _) => flag.to_string(),
+        (None, None, None, true, _) => "None".to_string(),
+        (None, None, None, false, Some(text)) => text.to_owned(),
+        _ => format!("{key:?}"),
     }
 }
 
