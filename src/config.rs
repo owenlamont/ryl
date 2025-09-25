@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
+use regex::Regex;
+use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 
 use crate::conf;
 
@@ -649,6 +650,11 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
     }
 
     if let Some(map) = value.as_mapping() {
+        if name == "quoted-strings" {
+            validate_quoted_strings_rule(map)?;
+            return Ok(());
+        }
+
         for (key, val) in map {
             if handle_common_rule_key(name, key, val)? {
                 continue;
@@ -768,6 +774,163 @@ fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
                 "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
             ))
         }
+    }
+}
+
+fn validate_quoted_strings_rule(map: &MappingOwned) -> Result<(), String> {
+    let mut state = QuotedStringsValidationState::default();
+    for (key, val) in map {
+        if handle_common_rule_key("quoted-strings", key, val)? {
+            continue;
+        }
+        validate_quoted_strings_option(key, val, &mut state)?;
+    }
+    state.finish()
+}
+
+#[derive(Default)]
+struct QuotedStringsValidationState {
+    required: Option<QuotedStringsRequired>,
+    extra_required_count: Option<usize>,
+    extra_allowed_count: Option<usize>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuotedStringsRequired {
+    True,
+    False,
+    OnlyWhenNeeded,
+}
+
+impl QuotedStringsValidationState {
+    fn finish(&self) -> Result<(), String> {
+        let required = self.required.unwrap_or(QuotedStringsRequired::True);
+        let extra_required = self.extra_required_count.unwrap_or(0);
+        let extra_allowed = self.extra_allowed_count.unwrap_or(0);
+
+        if matches!(required, QuotedStringsRequired::True) && extra_allowed > 0 {
+            return Err(
+                "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-allowed\""
+                    .to_string(),
+            );
+        }
+        if matches!(required, QuotedStringsRequired::True) && extra_required > 0 {
+            return Err(
+                "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
+                    .to_string(),
+            );
+        }
+        if matches!(required, QuotedStringsRequired::False) && extra_allowed > 0 {
+            return Err(
+                "invalid config: quoted-strings: cannot use both \"required: false\" and \"extra-allowed\""
+                    .to_string(),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_quoted_strings_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+    state: &mut QuotedStringsValidationState,
+) -> Result<(), String> {
+    match key.as_str() {
+        Some("quote-type") => validate_quote_type_option(val),
+        Some("required") => validate_required_option(val, state),
+        Some("extra-required") => {
+            validate_regex_list_option(val, "extra-required", &mut state.extra_required_count)
+        }
+        Some("extra-allowed") => {
+            validate_regex_list_option(val, "extra-allowed", &mut state.extra_allowed_count)
+        }
+        Some("allow-quoted-quotes") => validate_bool_option(val, "allow-quoted-quotes"),
+        Some("check-keys") => validate_bool_option(val, "check-keys"),
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"quoted-strings\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"quoted-strings\""
+            ))
+        }
+    }
+}
+
+fn validate_quote_type_option(val: &YamlOwned) -> Result<(), String> {
+    let Some(text) = val.as_str() else {
+        return Err(
+            "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')"
+                .to_string(),
+        );
+    };
+    if matches!(text, "any" | "single" | "double") {
+        Ok(())
+    } else {
+        Err(
+            "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')"
+                .to_string(),
+        )
+    }
+}
+
+fn validate_required_option(
+    val: &YamlOwned,
+    state: &mut QuotedStringsValidationState,
+) -> Result<(), String> {
+    if let Some(flag) = val.as_bool() {
+        state.required = Some(if flag {
+            QuotedStringsRequired::True
+        } else {
+            QuotedStringsRequired::False
+        });
+        Ok(())
+    } else if val.as_str() == Some("only-when-needed") {
+        state.required = Some(QuotedStringsRequired::OnlyWhenNeeded);
+        Ok(())
+    } else {
+        Err(
+            "invalid config: option \"required\" of \"quoted-strings\" should be in (True, False, 'only-when-needed')"
+                .to_string(),
+        )
+    }
+}
+
+fn validate_regex_list_option(
+    val: &YamlOwned,
+    option_name: &str,
+    count_slot: &mut Option<usize>,
+) -> Result<(), String> {
+    let Some(seq) = val.as_sequence() else {
+        return Err(format!(
+            "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
+        ));
+    };
+    *count_slot = Some(seq.len());
+    for entry in seq {
+        let Some(text) = entry.as_str() else {
+            return Err(format!(
+                "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
+            ));
+        };
+        Regex::new(text).map_err(|err| {
+            format!(
+                "invalid config: regex \"{text}\" in option \"{option_name}\" of \"quoted-strings\" is invalid: {err}"
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn validate_bool_option(val: &YamlOwned, option_name: &str) -> Result<(), String> {
+    if val.as_bool().is_some() {
+        Ok(())
+    } else {
+        Err(format!(
+            "invalid config: option \"{option_name}\" of \"quoted-strings\" should be bool"
+        ))
     }
 }
 

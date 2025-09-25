@@ -1,4 +1,5 @@
 pub mod new_line_at_end_of_file;
 pub mod new_lines;
+pub mod quoted_strings;
 pub mod trailing_spaces;
 pub mod truthy;
