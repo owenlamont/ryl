@@ -453,15 +453,22 @@ fn build_violation(span: Span, message: String) -> Violation {
 }
 
 fn is_flow_sequence(buffer: &str, span: Span) -> bool {
-    matches!(char_at(buffer, span.start.index()), Some('['))
+    matches!(
+        next_non_whitespace_char(buffer, span.start.index()),
+        Some('[')
+    )
 }
 
 fn is_flow_mapping(buffer: &str, span: Span) -> bool {
-    matches!(char_at(buffer, span.start.index()), Some('{'))
+    matches!(
+        next_non_whitespace_char(buffer, span.start.index()),
+        Some('{')
+    )
 }
 
-fn char_at(text: &str, idx: usize) -> Option<char> {
-    text.chars().nth(idx)
+fn next_non_whitespace_char(text: &str, byte_idx: usize) -> Option<char> {
+    text.get(byte_idx..)
+        .and_then(|tail| tail.chars().find(|ch| !ch.is_whitespace()))
 }
 
 fn is_core_tag(tag: &Tag) -> bool {
@@ -527,9 +534,8 @@ impl SpannedEventReceiver<'_> for PlainScalarChecker<'_> {
             if !self.seen_key {
                 self.seen_key = true;
             } else if self.result.is_none() {
-                let is_plain_scalar = matches!(style, ScalarStyle::Plain);
-                let matches_expected = value.as_ref() == self.expected;
-                self.result = Some(is_plain_scalar && matches_expected);
+                self.result =
+                    Some(matches!(style, ScalarStyle::Plain) && value.as_ref() == self.expected);
             }
         }
     }

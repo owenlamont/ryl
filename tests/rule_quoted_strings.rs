@@ -215,6 +215,19 @@ fn flow_context_retain_quotes_when_needed() {
 }
 
 #[test]
+fn flow_context_after_multibyte_key_retain_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
+    );
+    let yaml = "\u{00E9}: [\"a,b\"]\n";
+    let hits = quoted_strings::check(yaml, &cfg);
+    assert!(
+        hits.is_empty(),
+        "flow context after multibyte key should keep quotes"
+    );
+}
+
+#[test]
 fn multiline_backslash_requires_quotes() {
     let cfg = build_config(
         "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
