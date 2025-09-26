@@ -2,7 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
-use crate::rules::{new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy};
+use crate::rules::{
+    new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -82,6 +84,21 @@ pub fn lint_file(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(new_lines::ID),
+            });
+        }
+    }
+
+    if let Some(level) = cfg.rule_level(octal_values::ID)
+        && !cfg.is_rule_ignored(octal_values::ID, path, base_dir)
+    {
+        let rule_cfg = octal_values::Config::resolve(cfg);
+        for hit in octal_values::check(&content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(octal_values::ID),
             });
         }
     }

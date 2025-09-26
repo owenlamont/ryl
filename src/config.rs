@@ -662,6 +662,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
 
             match name {
                 "new-lines" => validate_new_lines_option(key, val)?,
+                "octal-values" => validate_octal_values_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
                 "trailing-spaces" => {
                     let key_name = describe_rule_option_key(key);
@@ -730,6 +731,26 @@ fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Str
             "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
                 .to_string(),
         )
+    }
+}
+
+fn validate_octal_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("forbid-implicit-octal") => {
+            validate_bool_option(val, "octal-values", "forbid-implicit-octal")
+        }
+        Some("forbid-explicit-octal") => {
+            validate_bool_option(val, "octal-values", "forbid-explicit-octal")
+        }
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"octal-values\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"octal-values\""
+            ))
+        }
     }
 }
 
@@ -845,8 +866,10 @@ fn validate_quoted_strings_option(
         Some("extra-allowed") => {
             validate_regex_list_option(val, "extra-allowed", &mut state.extra_allowed_count)
         }
-        Some("allow-quoted-quotes") => validate_bool_option(val, "allow-quoted-quotes"),
-        Some("check-keys") => validate_bool_option(val, "check-keys"),
+        Some("allow-quoted-quotes") => {
+            validate_bool_option(val, "quoted-strings", "allow-quoted-quotes")
+        }
+        Some("check-keys") => validate_bool_option(val, "quoted-strings", "check-keys"),
         Some(other) => Err(format!(
             "invalid config: unknown option \"{other}\" for rule \"quoted-strings\""
         )),
@@ -924,12 +947,12 @@ fn validate_regex_list_option(
     Ok(())
 }
 
-fn validate_bool_option(val: &YamlOwned, option_name: &str) -> Result<(), String> {
+fn validate_bool_option(val: &YamlOwned, rule_name: &str, option_name: &str) -> Result<(), String> {
     if val.as_bool().is_some() {
         Ok(())
     } else {
         Err(format!(
-            "invalid config: option \"{option_name}\" of \"quoted-strings\" should be bool"
+            "invalid config: option \"{option_name}\" of \"{rule_name}\" should be bool"
         ))
     }
 }
