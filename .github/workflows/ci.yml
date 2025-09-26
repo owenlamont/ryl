@@ -28,12 +28,12 @@ jobs:
         run: rustup component add rustfmt clippy llvm-tools-preview
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@8ea32481661d5e04d602f215b94f17e4014b44f9
+        uses: taiki-e/install-action@8c60043dc911baeac02a36f6f84c43ef289b86ec
         with:
           tool: cargo-nextest
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@8ea32481661d5e04d602f215b94f17e4014b44f9
+        uses: taiki-e/install-action@8c60043dc911baeac02a36f6f84c43ef289b86ec
         with:
           tool: cargo-llvm-cov
 
