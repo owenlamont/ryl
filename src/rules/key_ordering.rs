@@ -23,21 +23,18 @@ impl Config {
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
         let mut ignored: Vec<Regex> = Vec::new();
         if let Some(node) = cfg.rule_option(ID, "ignored-keys") {
-            match node {
-                saphyr::YamlOwned::Sequence(seq) => {
-                    for entry in seq {
-                        let pattern = entry
-                            .as_str()
-                            .expect("key-ordering ignored-keys should be strings");
-                        ignored.push(Regex::new(pattern).expect("key-ordering ignored-keys regex"));
-                    }
+            if let saphyr::YamlOwned::Sequence(seq) = node {
+                for entry in seq {
+                    let pattern = entry
+                        .as_str()
+                        .expect("key-ordering ignored-keys should be strings");
+                    ignored.push(Regex::new(pattern).expect("key-ordering ignored-keys regex"));
                 }
-                saphyr::YamlOwned::Value(value) => {
-                    if let Some(text) = value.as_str() {
-                        ignored.push(Regex::new(text).expect("key-ordering ignored-keys regex"));
-                    }
-                }
-                _ => {}
+            }
+            if let saphyr::YamlOwned::Value(value) = node
+                && let Some(text) = value.as_str()
+            {
+                ignored.push(Regex::new(text).expect("key-ordering ignored-keys regex"));
             }
         }
 
@@ -200,10 +197,10 @@ impl<'cfg> KeyOrderingState<'cfg> {
         let ctx = self.begin_node();
         self.containers.push(ContainerState {
             key_context: ctx.active,
-            kind: ContainerKind::Mapping {
+            mapping: Some(MappingState {
                 expect_key: true,
                 keys: Vec::new(),
-            },
+            }),
         });
     }
 
@@ -211,7 +208,7 @@ impl<'cfg> KeyOrderingState<'cfg> {
         let ctx = self.begin_node();
         self.containers.push(ContainerState {
             key_context: ctx.active,
-            kind: ContainerKind::Sequence,
+            mapping: None,
         });
     }
 
@@ -232,18 +229,23 @@ impl<'cfg> KeyOrderingState<'cfg> {
             return;
         }
 
-        if let Some(state) = self.containers.last_mut()
-            && let ContainerKind::Mapping { keys, .. } = &mut state.kind
-        {
-            if self.config.in_order(keys.last().map(String::as_str), value) {
-                keys.push(value.to_owned());
-            } else {
-                diagnostics.push(Violation {
-                    line: span.start.line(),
-                    column: span.start.col() + 1,
-                    message: format!("wrong ordering of key \"{value}\" in mapping"),
-                });
-            }
+        let state = self
+            .containers
+            .last_mut()
+            .expect("stack should contain mapping when key root is active");
+        let mapping = state
+            .mapping
+            .as_mut()
+            .expect("key root should only be active for mappings");
+        let keys = &mut mapping.keys;
+        if self.config.in_order(keys.last().map(String::as_str), value) {
+            keys.push(value.to_owned());
+        } else {
+            diagnostics.push(Violation {
+                line: span.start.line(),
+                column: span.start.col() + 1,
+                message: format!("wrong ordering of key \"{value}\" in mapping"),
+            });
         }
         self.finish_node(context);
     }
@@ -251,15 +253,15 @@ impl<'cfg> KeyOrderingState<'cfg> {
     fn begin_node(&mut self) -> NodeContext {
         let mut key_root = false;
         if let Some(ContainerState {
-            kind: ContainerKind::Mapping { expect_key, .. },
+            mapping: Some(mapping),
             ..
         }) = self.containers.last_mut()
         {
-            if *expect_key {
+            if mapping.expect_key {
                 key_root = true;
-                *expect_key = false;
+                mapping.expect_key = false;
             } else {
-                *expect_key = true;
+                mapping.expect_key = true;
             }
         }
         let active = key_root || self.key_depth > 0;
@@ -278,12 +280,12 @@ impl<'cfg> KeyOrderingState<'cfg> {
 
 struct ContainerState {
     key_context: bool,
-    kind: ContainerKind,
+    mapping: Option<MappingState>,
 }
 
-enum ContainerKind {
-    Sequence,
-    Mapping { expect_key: bool, keys: Vec<String> },
+struct MappingState {
+    expect_key: bool,
+    keys: Vec<String>,
 }
 
 #[derive(Copy, Clone)]

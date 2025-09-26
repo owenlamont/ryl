@@ -66,6 +66,7 @@ fn ignored_keys_are_not_enforced() {
 fn locale_enables_case_and_accent_friendly_ordering() {
     let ascii_cfg = build_config("rules:\n  key-ordering: enable\n");
     let locale_cfg = build_config("locale: en_US.UTF-8\nrules:\n  key-ordering: enable\n");
+    let bare_locale_cfg = build_config("locale: en_US\nrules:\n  key-ordering: enable\n");
 
     let case_input = "---\nT-shirt: 1\nT-shirts: 2\nt-shirt: 3\nt-shirts: 4\n";
     let case_hits = key_ordering::check(case_input, &ascii_cfg);
@@ -91,6 +92,12 @@ fn locale_enables_case_and_accent_friendly_ordering() {
     assert!(
         locale_pass.is_empty(),
         "locale-aware comparison should accept case-insensitive order: {locale_pass:?}"
+    );
+
+    let bare_locale_pass = key_ordering::check(case_fail, &bare_locale_cfg);
+    assert!(
+        bare_locale_pass.is_empty(),
+        "locale-aware comparison should accept bare locale strings: {bare_locale_pass:?}"
     );
 
     let accent_fail = "---\nhaïr: true\nhais: true\n";
@@ -149,6 +156,17 @@ fn sequence_elements_are_checked_inside_lists() {
     );
     assert_eq!(hits[0].line, 3);
     assert_eq!(hits[0].column, 3);
+}
+
+#[test]
+fn sequences_of_scalars_are_ignored() {
+    let cfg = build_config("rules:\n  key-ordering: enable\n");
+    let input = "---\n- bravo\n- alpha\n- charlie\n";
+    let hits = key_ordering::check(input, &cfg);
+    assert!(
+        hits.is_empty(),
+        "scalar sequences should not be checked: {hits:?}"
+    );
 }
 
 #[test]
