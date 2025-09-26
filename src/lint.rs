@@ -3,8 +3,8 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces,
-    truthy,
+    key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
+    trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +51,7 @@ impl<'i> saphyr_parser::EventReceiver<'i> for NullSink {
 /// # Errors
 ///
 /// Returns `Err(String)` when the file cannot be read.
+#[allow(clippy::too_many_lines)]
 pub fn lint_file(
     path: &Path,
     cfg: &YamlLintConfig,
@@ -135,6 +136,21 @@ pub fn lint_file(
                 level: level.into(),
                 message,
                 rule: Some(truthy::ID),
+            });
+        }
+    }
+
+    if let Some(level) = cfg.rule_level(key_ordering::ID)
+        && !cfg.is_rule_ignored(key_ordering::ID, path, base_dir)
+    {
+        let rule_cfg = key_ordering::Config::resolve(cfg);
+        for hit in key_ordering::check(&content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(key_ordering::ID),
             });
         }
     }

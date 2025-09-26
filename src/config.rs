@@ -664,6 +664,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
+                "key-ordering" => validate_key_ordering_option(key, val)?,
                 "line-length" => validate_line_length_option(key, val)?,
                 "trailing-spaces" => {
                     let key_name = describe_rule_option_key(key);
@@ -817,6 +818,50 @@ fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
             let key_name = describe_rule_option_key(key);
             Err(format!(
                 "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
+            ))
+        }
+    }
+}
+
+fn validate_key_ordering_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("ignored-keys") => {
+            if let Some(seq) = val.as_sequence() {
+                for entry in seq {
+                    let Some(text) = entry.as_str() else {
+                        return Err(
+                            "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings"
+                                .to_string(),
+                        );
+                    };
+                    Regex::new(text).map_err(|err| {
+                        format!(
+                            "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
+                        )
+                    })?;
+                }
+                Ok(())
+            } else if let Some(text) = val.as_str() {
+                Regex::new(text).map_err(|err| {
+                    format!(
+                        "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
+                    )
+                })?;
+                Ok(())
+            } else {
+                Err(
+                    "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings"
+                        .to_string(),
+                )
+            }
+        }
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"key-ordering\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"key-ordering\""
             ))
         }
     }
