@@ -663,6 +663,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             match name {
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
+                "key-duplicates" => validate_key_duplicates_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
                 "key-ordering" => validate_key_ordering_option(key, val)?,
                 "line-length" => validate_line_length_option(key, val)?,
@@ -774,6 +775,23 @@ fn validate_octal_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
             let key_name = describe_rule_option_key(key);
             Err(format!(
                 "invalid config: unknown option \"{key_name}\" for rule \"octal-values\""
+            ))
+        }
+    }
+}
+
+fn validate_key_duplicates_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("forbid-duplicated-merge-keys") => {
+            validate_bool_option(val, "key-duplicates", "forbid-duplicated-merge-keys")
+        }
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"key-duplicates\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"key-duplicates\""
             ))
         }
     }
