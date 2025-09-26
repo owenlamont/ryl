@@ -3,7 +3,8 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
+    line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces,
+    truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +139,8 @@ pub fn lint_file(
         }
     }
 
+    collect_line_length_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+
     if let Some(level) = cfg.rule_level(trailing_spaces::ID)
         && !cfg.is_rule_ignored(trailing_spaces::ID, path, base_dir)
     {
@@ -158,6 +161,29 @@ pub fn lint_file(
     }
 
     Ok(diagnostics)
+}
+
+fn collect_line_length_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(line_length::ID)
+        && !cfg.is_rule_ignored(line_length::ID, path, base_dir)
+    {
+        let rule_cfg = line_length::Config::resolve(cfg);
+        for hit in line_length::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(line_length::ID),
+            });
+        }
+    }
 }
 
 fn syntax_diagnostic(content: &str) -> Option<LintProblem> {

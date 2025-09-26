@@ -664,6 +664,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
+                "line-length" => validate_line_length_option(key, val)?,
                 "trailing-spaces" => {
                     let key_name = describe_rule_option_key(key);
                     return Err(format!(
@@ -707,6 +708,29 @@ fn handle_common_rule_key(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Resul
     }
 
     Ok(false)
+}
+
+fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("max") => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max\" of \"line-length\" should be int".to_string()
+        }),
+        Some("allow-non-breakable-words") => {
+            validate_bool_option(val, "line-length", "allow-non-breakable-words")
+        }
+        Some("allow-non-breakable-inline-mappings") => {
+            validate_bool_option(val, "line-length", "allow-non-breakable-inline-mappings")
+        }
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"line-length\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"line-length\""
+            ))
+        }
+    }
 }
 
 fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
