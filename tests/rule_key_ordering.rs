@@ -112,6 +112,25 @@ fn locale_enables_case_and_accent_friendly_ordering() {
         locale_accent.is_empty(),
         "locale-aware comparison should accept accent-friendly order: {locale_accent:?}"
     );
+
+    let mixed_input = "---\n- t-shirt: 1\n  T-shirt: 2\n  t-shirts: 3\n  T-shirts: 4\n- hair: true\n  haïr: true\n  hais: true\n  haïssable: true\n";
+    let locale_mixed = key_ordering::check(mixed_input, &locale_cfg);
+    assert!(
+        locale_mixed.is_empty(),
+        "locale-aware comparison should tolerate mixed case/accent segments: {locale_mixed:?}"
+    );
+}
+
+#[test]
+fn locale_still_enforces_order_within_single_mapping() {
+    let cfg = build_config("locale: en_US.UTF-8\nrules:\n  key-ordering: enable\n");
+    let input = "---\nt-shirt: 1\nT-shirt: 2\nt-shirts: 3\nT-shirts: 4\nhair: true\nhaïr: true\nhais: true\nhaïssable: true\n";
+    let hits = key_ordering::check(input, &cfg);
+    assert_eq!(
+        hits.len(),
+        4,
+        "single mapping should report out-of-order keys even with locale"
+    );
 }
 
 #[test]

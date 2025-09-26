@@ -62,7 +62,7 @@ fn key_ordering_matches_yamllint() {
     let locale_file = dir.path().join("locale.yaml");
     fs::write(
         &locale_file,
-        "t-shirt: 1\nT-shirt: 2\nt-shirts: 3\nT-shirts: 4\nhair: true\nhaïr: true\nhais: true\nhaïssable: true\n",
+        "- t-shirt: 1\n  T-shirt: 2\n  t-shirts: 3\n  T-shirts: 4\n- hair: true\n  haïr: true\n  hais: true\n  haïssable: true\n",
     )
     .unwrap();
 
