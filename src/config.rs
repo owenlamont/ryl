@@ -664,6 +664,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
                 "key-duplicates" => validate_key_duplicates_option(key, val)?,
+                "hyphens" => validate_hyphens_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
                 "key-ordering" => validate_key_ordering_option(key, val)?,
                 "indentation" => validate_indentation_option(key, val)?,
@@ -711,6 +712,23 @@ fn handle_common_rule_key(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Resul
     }
 
     Ok(false)
+}
+
+fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("max-spaces-after") => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-spaces-after\" of \"hyphens\" should be int".to_string()
+        }),
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"hyphens\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"hyphens\""
+            ))
+        }
+    }
 }
 
 fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
