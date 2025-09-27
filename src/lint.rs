@@ -3,8 +3,8 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    key_duplicates, key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values,
-    quoted_strings, trailing_spaces, truthy,
+    indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file, new_lines,
+    octal_values, quoted_strings, trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,6 +166,21 @@ pub fn lint_file(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(key_ordering::ID),
+            });
+        }
+    }
+
+    if let Some(level) = cfg.rule_level(indentation::ID)
+        && !cfg.is_rule_ignored(indentation::ID, path, base_dir)
+    {
+        let rule_cfg = indentation::Config::resolve(cfg);
+        for hit in indentation::check(&content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(indentation::ID),
             });
         }
     }
