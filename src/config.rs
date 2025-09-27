@@ -663,6 +663,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             match name {
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
+                "float-values" => validate_float_values_option(key, val)?,
                 "key-duplicates" => validate_key_duplicates_option(key, val)?,
                 "hyphens" => validate_hyphens_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
@@ -794,6 +795,28 @@ fn validate_octal_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
             let key_name = describe_rule_option_key(key);
             Err(format!(
                 "invalid config: unknown option \"{key_name}\" for rule \"octal-values\""
+            ))
+        }
+    }
+}
+
+fn validate_float_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("require-numeral-before-decimal") => {
+            validate_bool_option(val, "float-values", "require-numeral-before-decimal")
+        }
+        Some("forbid-scientific-notation") => {
+            validate_bool_option(val, "float-values", "forbid-scientific-notation")
+        }
+        Some("forbid-nan") => validate_bool_option(val, "float-values", "forbid-nan"),
+        Some("forbid-inf") => validate_bool_option(val, "float-values", "forbid-inf"),
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"float-values\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"float-values\""
             ))
         }
     }
