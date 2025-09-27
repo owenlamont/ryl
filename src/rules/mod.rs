@@ -1,3 +1,4 @@
+pub mod hyphens;
 pub mod indentation;
 pub mod key_duplicates;
 pub mod key_ordering;
