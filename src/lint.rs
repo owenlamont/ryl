@@ -3,8 +3,8 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    hyphens, indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file,
-    new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
+    float_values, hyphens, indentation, key_duplicates, key_ordering, line_length,
+    new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +101,21 @@ pub fn lint_file(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(octal_values::ID),
+            });
+        }
+    }
+
+    if let Some(level) = cfg.rule_level(float_values::ID)
+        && !cfg.is_rule_ignored(float_values::ID, path, base_dir)
+    {
+        let rule_cfg = float_values::Config::resolve(cfg);
+        for hit in float_values::check(&content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(float_values::ID),
             });
         }
     }

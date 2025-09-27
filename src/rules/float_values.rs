@@ -1,0 +1,294 @@
+use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+
+use crate::config::YamlLintConfig;
+
+pub const ID: &str = "float-values";
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    flags: u8,
+}
+
+const REQUIRE_NUMERAL_FLAG: u8 = 1 << 0;
+const FORBID_SCIENTIFIC_FLAG: u8 = 1 << 1;
+const FORBID_NAN_FLAG: u8 = 1 << 2;
+const FORBID_INF_FLAG: u8 = 1 << 3;
+
+impl Config {
+    #[must_use]
+    pub fn resolve(cfg: &YamlLintConfig) -> Self {
+        let require_numeral_before_decimal = cfg
+            .rule_option(ID, "require-numeral-before-decimal")
+            .and_then(saphyr::YamlOwned::as_bool)
+            .unwrap_or(false);
+
+        let forbid_scientific_notation = cfg
+            .rule_option(ID, "forbid-scientific-notation")
+            .and_then(saphyr::YamlOwned::as_bool)
+            .unwrap_or(false);
+
+        let forbid_nan = cfg
+            .rule_option(ID, "forbid-nan")
+            .and_then(saphyr::YamlOwned::as_bool)
+            .unwrap_or(false);
+
+        let forbid_inf = cfg
+            .rule_option(ID, "forbid-inf")
+            .and_then(saphyr::YamlOwned::as_bool)
+            .unwrap_or(false);
+
+        let mut flags = 0u8;
+        if require_numeral_before_decimal {
+            flags |= REQUIRE_NUMERAL_FLAG;
+        }
+        if forbid_scientific_notation {
+            flags |= FORBID_SCIENTIFIC_FLAG;
+        }
+        if forbid_nan {
+            flags |= FORBID_NAN_FLAG;
+        }
+        if forbid_inf {
+            flags |= FORBID_INF_FLAG;
+        }
+
+        Self { flags }
+    }
+
+    const fn require_numeral_before_decimal(&self) -> bool {
+        (self.flags & REQUIRE_NUMERAL_FLAG) != 0
+    }
+
+    const fn forbid_scientific_notation(&self) -> bool {
+        (self.flags & FORBID_SCIENTIFIC_FLAG) != 0
+    }
+
+    const fn forbid_nan(&self) -> bool {
+        (self.flags & FORBID_NAN_FLAG) != 0
+    }
+
+    const fn forbid_inf(&self) -> bool {
+        (self.flags & FORBID_INF_FLAG) != 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Violation {
+    pub line: usize,
+    pub column: usize,
+    pub message: String,
+}
+
+#[must_use]
+pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    let mut parser = Parser::new_from_str(buffer);
+    let mut receiver = FloatValuesReceiver::new(cfg);
+    let _ = parser.load(&mut receiver, true);
+    receiver.diagnostics
+}
+
+struct FloatValuesReceiver<'cfg> {
+    config: &'cfg Config,
+    diagnostics: Vec<Violation>,
+}
+
+impl<'cfg> FloatValuesReceiver<'cfg> {
+    const fn new(config: &'cfg Config) -> Self {
+        Self {
+            config,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn handle_scalar(&mut self, value: &str, span: Span) {
+        let line = span.start.line();
+        let column = span.start.col() + 1;
+
+        if self.config.forbid_nan() && is_nan(value) {
+            self.diagnostics.push(Violation {
+                line,
+                column,
+                message: format!("forbidden not a number value \"{value}\""),
+            });
+        }
+
+        if self.config.forbid_inf() && is_inf(value) {
+            self.diagnostics.push(Violation {
+                line,
+                column,
+                message: format!("forbidden infinite value \"{value}\""),
+            });
+        }
+
+        if self.config.forbid_scientific_notation() && is_scientific_notation(value) {
+            self.diagnostics.push(Violation {
+                line,
+                column,
+                message: format!("forbidden scientific notation \"{value}\""),
+            });
+        }
+
+        if self.config.require_numeral_before_decimal() && is_missing_numeral_before_decimal(value)
+        {
+            self.diagnostics.push(Violation {
+                line,
+                column,
+                message: format!("forbidden decimal missing 0 prefix \"{value}\""),
+            });
+        }
+    }
+}
+
+impl SpannedEventReceiver<'_> for FloatValuesReceiver<'_> {
+    fn on_event(&mut self, event: Event<'_>, span: Span) {
+        if let Event::Scalar(value, style, _, tag) = event {
+            if tag.is_some() || !matches!(style, ScalarStyle::Plain) {
+                return;
+            }
+            self.handle_scalar(value.as_ref(), span);
+        }
+    }
+}
+
+fn is_nan(value: &str) -> bool {
+    matches!(value, ".nan" | ".NaN" | ".NAN")
+}
+
+fn is_inf(value: &str) -> bool {
+    let trimmed = without_sign(value);
+    matches!(trimmed, ".inf" | ".Inf" | ".INF")
+}
+
+fn is_scientific_notation(value: &str) -> bool {
+    let trimmed = without_sign(value);
+    let Some((mantissa, exponent)) = split_exponent(trimmed) else {
+        return false;
+    };
+    if !is_valid_exponent(exponent) {
+        return false;
+    }
+    if let Some(digits) = mantissa.strip_prefix('.') {
+        return !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit());
+    }
+
+    if mantissa.is_empty() {
+        return false;
+    }
+
+    let mut parts = mantissa.splitn(2, '.');
+    let int_part = parts.next().unwrap();
+    if int_part.is_empty() || !int_part.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    if let Some(frac_part) = parts.next() {
+        return frac_part.chars().all(|c| c.is_ascii_digit());
+    }
+    true
+}
+
+fn is_missing_numeral_before_decimal(value: &str) -> bool {
+    let trimmed = without_sign(value);
+    if !trimmed.starts_with('.') {
+        return false;
+    }
+    let after_dot = &trimmed[1..];
+    if after_dot.is_empty() {
+        return false;
+    }
+
+    let (digits, exponent) = match split_exponent(after_dot) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+        None => (after_dot, None),
+    };
+
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+
+    exponent.is_none_or(is_valid_exponent)
+}
+
+fn split_exponent(value: &str) -> Option<(&str, &str)> {
+    let idx = value.find(['e', 'E'])?;
+    Some(value.split_at(idx))
+}
+
+fn is_valid_exponent(exponent: &str) -> bool {
+    let Some(first) = exponent.chars().next() else {
+        return false;
+    };
+    if !matches!(first, 'e' | 'E') {
+        return false;
+    }
+    let rest = &exponent[first.len_utf8()..];
+    let rest = without_sign(rest);
+    !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+}
+
+fn without_sign(value: &str) -> &str {
+    value
+        .strip_prefix('+')
+        .or_else(|| value.strip_prefix('-'))
+        .unwrap_or(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_inf, is_missing_numeral_before_decimal, is_nan, is_scientific_notation,
+        is_valid_exponent,
+    };
+
+    #[test]
+    fn detects_nan_variants() {
+        assert!(is_nan(".nan"));
+        assert!(is_nan(".NaN"));
+        assert!(is_nan(".NAN"));
+        assert!(!is_nan("nan"));
+        assert!(!is_nan("+.nan"));
+    }
+
+    #[test]
+    fn detects_inf_variants() {
+        assert!(is_inf(".inf"));
+        assert!(is_inf(".Inf"));
+        assert!(is_inf(".INF"));
+        assert!(is_inf("+.inf"));
+        assert!(is_inf("-.INF"));
+        assert!(!is_inf("inf"));
+    }
+
+    #[test]
+    fn detects_scientific_notation() {
+        assert!(is_scientific_notation("1e2"));
+        assert!(is_scientific_notation("-1E+3"));
+        assert!(is_scientific_notation(".5e-2"));
+        assert!(is_scientific_notation("10.e4"));
+        assert!(is_scientific_notation("1.2e3"));
+        assert!(!is_scientific_notation("10.0"));
+        assert!(!is_scientific_notation(".5"));
+        assert!(!is_scientific_notation("e10"));
+        assert!(!is_scientific_notation("1ee3"));
+        assert!(!is_scientific_notation("a.e2"));
+    }
+
+    #[test]
+    fn detects_missing_numeral_before_decimal() {
+        assert!(is_missing_numeral_before_decimal(".5"));
+        assert!(is_missing_numeral_before_decimal("-.1"));
+        assert!(is_missing_numeral_before_decimal("+.5e2"));
+        assert!(!is_missing_numeral_before_decimal("0.5"));
+        assert!(!is_missing_numeral_before_decimal("1."));
+        assert!(!is_missing_numeral_before_decimal(".e2"));
+        assert!(!is_missing_numeral_before_decimal("."));
+        assert!(!is_missing_numeral_before_decimal("+."));
+    }
+
+    #[test]
+    fn validates_exponent_inputs() {
+        assert!(!is_valid_exponent(""));
+        assert!(!is_valid_exponent("x10"));
+        assert!(!is_valid_exponent("e"));
+        assert!(is_valid_exponent("e10"));
+        assert!(is_valid_exponent("E+5"));
+    }
+}

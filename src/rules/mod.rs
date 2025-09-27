@@ -1,3 +1,4 @@
+pub mod float_values;
 pub mod hyphens;
 pub mod indentation;
 pub mod key_duplicates;
