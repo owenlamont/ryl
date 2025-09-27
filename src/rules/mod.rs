@@ -1,3 +1,4 @@
+pub mod indentation;
 pub mod key_duplicates;
 pub mod key_ordering;
 pub mod line_length;

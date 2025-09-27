@@ -666,6 +666,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "key-duplicates" => validate_key_duplicates_option(key, val)?,
                 "truthy" => validate_truthy_option(key, val)?,
                 "key-ordering" => validate_key_ordering_option(key, val)?,
+                "indentation" => validate_indentation_option(key, val)?,
                 "line-length" => validate_line_length_option(key, val)?,
                 "trailing-spaces" => {
                     let key_name = describe_rule_option_key(key);
@@ -880,6 +881,50 @@ fn validate_key_ordering_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
             let key_name = describe_rule_option_key(key);
             Err(format!(
                 "invalid config: unknown option \"{key_name}\" for rule \"key-ordering\""
+            ))
+        }
+    }
+}
+
+fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("spaces") => {
+            if val.as_integer().is_some() || val.as_str() == Some("consistent") {
+                Ok(())
+            } else {
+                Err(
+                    "invalid config: option \"spaces\" of \"indentation\" should be in (<class 'int'>, 'consistent')"
+                        .to_string(),
+                )
+            }
+        }
+        Some("indent-sequences") => {
+            if val.as_bool().is_some() || matches!(val.as_str(), Some("whatever" | "consistent")) {
+                Ok(())
+            } else {
+                Err(
+                    "invalid config: option \"indent-sequences\" of \"indentation\" should be in (<class 'bool'>, 'whatever', 'consistent')"
+                        .to_string(),
+                )
+            }
+        }
+        Some("check-multi-line-strings") => {
+            if val.as_bool().is_some() {
+                Ok(())
+            } else {
+                Err(
+                    "invalid config: option \"check-multi-line-strings\" of \"indentation\" should be bool"
+                        .to_string(),
+                )
+            }
+        }
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"indentation\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"indentation\""
             ))
         }
     }
