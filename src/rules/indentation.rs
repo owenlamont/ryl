@@ -47,20 +47,19 @@ impl Config {
         let indent_sequences =
             cfg.rule_option(ID, "indent-sequences")
                 .map_or(IndentSequencesSetting::True, |node| {
-                    node.as_bool().map_or_else(
-                        || match node.as_str() {
-                            Some("whatever") => IndentSequencesSetting::Whatever,
-                            Some("consistent") => IndentSequencesSetting::Consistent,
-                            _ => IndentSequencesSetting::True,
-                        },
-                        |value| {
-                            if value {
-                                IndentSequencesSetting::True
-                            } else {
-                                IndentSequencesSetting::False
-                            }
-                        },
-                    )
+                    if let Some(choice) = node.as_str() {
+                        return if choice == "whatever" {
+                            IndentSequencesSetting::Whatever
+                        } else {
+                            IndentSequencesSetting::Consistent
+                        };
+                    }
+
+                    if node.as_bool() == Some(false) {
+                        IndentSequencesSetting::False
+                    } else {
+                        IndentSequencesSetting::True
+                    }
                 });
 
         let check_multi_line_strings = cfg
@@ -195,8 +194,6 @@ impl<'a> Analyzer<'a> {
             self.check_sequence_indent(indent, line_number);
         }
 
-        self.check_mapping_indent(indent, line_number, analysis);
-
         if analysis.starts_multiline {
             self.multiline = Some(MultilineState::new(indent));
         }
@@ -243,19 +240,6 @@ impl<'a> Analyzer<'a> {
                 column: indent + 1,
                 message,
             });
-        }
-    }
-
-    fn check_mapping_indent(&mut self, indent: usize, line_number: usize, analysis: LineAnalysis) {
-        if analysis.is_mapping_key() {
-            let expected = self.current_indent();
-            if indent != expected {
-                self.diagnostics.push(Violation {
-                    line: line_number,
-                    column: indent + 1,
-                    message: format!("wrong indentation: expected {expected} but found {indent}"),
-                });
-            }
         }
     }
 }
@@ -392,10 +376,23 @@ impl SpacesRuntime {
     ) {
         match self.setting {
             SpacesSetting::Fixed(value) => {
-                if found >= base {
-                    let delta = found - base;
-                    if !delta.is_multiple_of(value) {
-                        let expected = base.saturating_add(value);
+                let delta = found.saturating_sub(base);
+                if !delta.is_multiple_of(value) {
+                    let expected = base.saturating_add(value);
+                    diagnostics.push(Violation {
+                        line,
+                        column: found + 1,
+                        message: format!(
+                            "wrong indentation: expected {expected} but found {found}"
+                        ),
+                    });
+                }
+            }
+            SpacesSetting::Consistent => {
+                let delta = found.saturating_sub(base);
+                if let Some(val) = self.value {
+                    if !delta.is_multiple_of(val) {
+                        let expected = base.saturating_add(val);
                         diagnostics.push(Violation {
                             line,
                             column: found + 1,
@@ -404,25 +401,8 @@ impl SpacesRuntime {
                             ),
                         });
                     }
-                }
-            }
-            SpacesSetting::Consistent => {
-                if found > base {
-                    let delta = found - base;
-                    if let Some(val) = self.value {
-                        if !delta.is_multiple_of(val) {
-                            let expected = base.saturating_add(val);
-                            diagnostics.push(Violation {
-                                line,
-                                column: found + 1,
-                                message: format!(
-                                    "wrong indentation: expected {expected} but found {found}"
-                                ),
-                            });
-                        }
-                    } else {
-                        self.value = Some(delta);
-                    }
+                } else {
+                    self.value = Some(delta);
                 }
             }
         }
