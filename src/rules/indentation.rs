@@ -210,22 +210,21 @@ impl<'a> Analyzer<'a> {
     }
 
     fn find_mapping_parent_indent(&self, current_indent: usize) -> Option<usize> {
-        self.contexts
-            .iter()
-            .rev()
-            .find(|ctx| ctx.indent < current_indent && matches!(ctx.kind, ContextKind::Mapping))
-            .map_or_else(
-                || {
-                    self.contexts
-                        .iter()
-                        .rev()
-                        .find(|ctx| {
-                            ctx.indent == current_indent && matches!(ctx.kind, ContextKind::Mapping)
-                        })
-                        .map(|ctx| ctx.indent)
-                },
-                |ctx| Some(ctx.indent),
-            )
+        let mut saw_mapping = false;
+        for ctx in self.contexts.iter().rev() {
+            if !matches!(ctx.kind, ContextKind::Mapping) {
+                continue;
+            }
+            saw_mapping = true;
+            if ctx.indent < current_indent {
+                return Some(ctx.indent);
+            }
+        }
+        if saw_mapping {
+            Some(current_indent)
+        } else {
+            None
+        }
     }
 
     fn check_sequence_indent(&mut self, indent: usize, line_number: usize) {

@@ -339,3 +339,24 @@ fn consistent_spacing_records_initial_delta() {
     let yaml = "root:\n  child:\n    grand: 1\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
 }
+
+#[test]
+fn sequence_indented_under_mapping_finds_parent() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "root:\n  - valid\n  child: value\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
+fn dash_prefixed_scalar_not_sequence_entry() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "-foo: bar\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
+fn nested_mapping_sequence_resolves_parent_indent() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "root:\n  child:\n    - item\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
