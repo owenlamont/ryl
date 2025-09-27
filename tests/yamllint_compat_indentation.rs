@@ -60,6 +60,9 @@ fn indentation_matches_yamllint() {
     let seq_ok_file = dir.path().join("seq-ok.yaml");
     fs::write(&seq_ok_file, "root:\n  - item\n").unwrap();
 
+    let seq_over_file = dir.path().join("seq-over.yaml");
+    fs::write(&seq_over_file, "root:\n      - item\n").unwrap();
+
     let multi_bad_file = dir.path().join("multi-bad.yaml");
     fs::write(&multi_bad_file, "quote: |\n    good\n     bad\n").unwrap();
 
@@ -89,6 +92,12 @@ fn indentation_matches_yamllint() {
             config: &seq_cfg,
             file: &seq_ok_file,
             exit: 0,
+        },
+        Case {
+            label: "sequence-over-indented",
+            config: &seq_cfg,
+            file: &seq_over_file,
+            exit: 1,
         },
         Case {
             label: "multi-line",

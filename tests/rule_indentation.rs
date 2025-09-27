@@ -57,6 +57,21 @@ fn detects_indented_sequence_when_disabled() {
 }
 
 #[test]
+fn detects_over_indented_sequence_when_required() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "root:\n      - item\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 2,
+            column: 7,
+            message: "wrong indentation: expected 2 but found 6".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn enforces_consistent_spacing() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "root:\n   child: value\n";
@@ -345,6 +360,25 @@ fn sequence_indented_under_mapping_finds_parent() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "root:\n  - valid\n  child: value\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
+fn consistent_sequence_spacing_obeys_fixed_step() {
+    let cfg = config(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::Consistent,
+        false,
+    );
+    let yaml = "root:\n      - item\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 2,
+            column: 7,
+            message: "wrong indentation: expected 2 but found 6".to_string(),
+        }]
+    );
 }
 
 #[test]

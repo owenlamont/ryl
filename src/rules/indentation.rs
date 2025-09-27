@@ -233,7 +233,15 @@ impl<'a> Analyzer<'a> {
         };
 
         let is_indented = indent > parent_indent;
-        if let Some(message) = self.indent_seq.check(parent_indent, indent, is_indented) {
+        let expected = self
+            .spaces
+            .expected_step()
+            .map(|step| parent_indent.saturating_add(step));
+
+        if let Some(message) = self
+            .indent_seq
+            .check(parent_indent, indent, is_indented, expected)
+        {
             self.diagnostics.push(Violation {
                 line: line_number,
                 column: indent + 1,
@@ -350,6 +358,13 @@ impl SpacesRuntime {
         }
     }
 
+    const fn expected_step(&self) -> Option<usize> {
+        match self.setting {
+            SpacesSetting::Fixed(value) => Some(value),
+            SpacesSetting::Consistent => self.value,
+        }
+    }
+
     fn current_or_set(&mut self, base: usize, found: usize) -> usize {
         match self.setting {
             SpacesSetting::Fixed(v) => base.saturating_add(v),
@@ -456,18 +471,24 @@ impl IndentSequencesRuntime {
         parent_indent: usize,
         found_indent: usize,
         is_indented: bool,
+        expected_indent: Option<usize>,
     ) -> Option<String> {
         match self.setting {
             IndentSequencesSetting::True => {
-                if is_indented {
-                    None
-                } else {
-                    Some(format!(
-                        "wrong indentation: expected {} but found {}",
-                        parent_indent + 2,
-                        found_indent
-                    ))
+                if !is_indented {
+                    let expected = expected_indent.unwrap_or(parent_indent + 2);
+                    return Some(format!(
+                        "wrong indentation: expected {expected} but found {found_indent}"
+                    ));
                 }
+                if let Some(expected) = expected_indent
+                    && found_indent != expected
+                {
+                    return Some(format!(
+                        "wrong indentation: expected {expected} but found {found_indent}"
+                    ));
+                }
+                None
             }
             IndentSequencesSetting::False => {
                 if is_indented {
@@ -480,6 +501,14 @@ impl IndentSequencesRuntime {
             }
             IndentSequencesSetting::Whatever => None,
             IndentSequencesSetting::Consistent => {
+                if let Some(expected) = expected_indent
+                    && is_indented
+                    && found_indent != expected
+                {
+                    return Some(format!(
+                        "wrong indentation: expected {expected} but found {found_indent}"
+                    ));
+                }
                 if let Some(expected) = self.consistent {
                     if expected == is_indented {
                         None
