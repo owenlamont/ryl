@@ -1,3 +1,4 @@
+pub mod document_start;
 pub mod empty_lines;
 pub mod empty_values;
 pub mod float_values;
