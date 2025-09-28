@@ -66,6 +66,12 @@ fn single_newline_file_is_ignored() {
         hits.is_empty(),
         "single newline should not produce violations"
     );
+
+    let crlf_hits = empty_lines::check("\r\n", &cfg);
+    assert!(
+        crlf_hits.is_empty(),
+        "single CRLF newline should not produce violations"
+    );
 }
 
 #[test]

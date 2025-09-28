@@ -126,7 +126,7 @@ fn finalize_run(
     is_end: bool,
     out: &mut Vec<Violation>,
 ) {
-    if is_end && buffer == "\n" {
+    if is_end && matches!(buffer, "\n" | "\r\n") {
         return;
     }
 
