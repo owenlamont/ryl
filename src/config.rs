@@ -664,6 +664,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "document-end" => validate_document_end_option(key, val)?,
                 "document-start" => validate_document_start_option(key, val)?,
                 "empty-lines" => validate_empty_lines_option(key, val)?,
+                "commas" => validate_commas_option(key, val)?,
                 "comments" => validate_comments_option(key, val)?,
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
@@ -770,6 +771,30 @@ fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
                 "invalid config: unknown option \"{key_name}\" for rule \"hyphens\""
             ))
         }
+    }
+}
+
+fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    let Some(name) = key.as_str() else {
+        let key_name = describe_rule_option_key(key);
+        return Err(format!(
+            "invalid config: unknown option \"{key_name}\" for rule \"commas\""
+        ));
+    };
+
+    match name {
+        "max-spaces-before" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-spaces-before\" of \"commas\" should be int".to_string()
+        }),
+        "min-spaces-after" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"min-spaces-after\" of \"commas\" should be int".to_string()
+        }),
+        "max-spaces-after" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-spaces-after\" of \"commas\" should be int".to_string()
+        }),
+        other => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"commas\""
+        )),
     }
 }
 
