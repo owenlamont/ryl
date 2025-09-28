@@ -3,9 +3,9 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    document_start, empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates,
-    key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
-    trailing_spaces, truthy,
+    document_end, document_start, empty_lines, empty_values, float_values, hyphens, indentation,
+    key_duplicates, key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values,
+    quoted_strings, trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +64,8 @@ pub fn lint_file(
     let mut diagnostics: Vec<LintProblem> = Vec::new();
 
     collect_document_start_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+
+    collect_document_end_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
     if let Some(level) = cfg.rule_level(new_line_at_end_of_file::ID)
         && !cfg.is_rule_ignored(new_line_at_end_of_file::ID, path, base_dir)
@@ -257,6 +259,29 @@ pub fn lint_file(
     }
 
     Ok(diagnostics)
+}
+
+fn collect_document_end_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(document_end::ID)
+        && !cfg.is_rule_ignored(document_end::ID, path, base_dir)
+    {
+        let rule_cfg = document_end::Config::resolve(cfg);
+        for hit in document_end::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(document_end::ID),
+            });
+        }
+    }
 }
 
 fn collect_document_start_diagnostics(
