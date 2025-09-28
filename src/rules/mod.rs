@@ -1,3 +1,4 @@
+pub mod comments_indentation;
 pub mod document_end;
 pub mod document_start;
 pub mod empty_lines;

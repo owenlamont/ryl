@@ -680,6 +680,12 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                         "invalid config: unknown option \"{key_name}\" for rule \"trailing-spaces\""
                     ));
                 }
+                "comments-indentation" => {
+                    let key_name = describe_rule_option_key(key);
+                    return Err(format!(
+                        "invalid config: unknown option \"{key_name}\" for rule \"comments-indentation\""
+                    ));
+                }
                 _ => {}
             }
         }

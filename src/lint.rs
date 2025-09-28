@@ -3,9 +3,9 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    document_end, document_start, empty_lines, empty_values, float_values, hyphens, indentation,
-    key_duplicates, key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values,
-    quoted_strings, trailing_spaces, truthy,
+    comments_indentation, document_end, document_start, empty_lines, empty_values, float_values,
+    hyphens, indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file,
+    new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,6 +222,8 @@ pub fn lint_file(
         }
     }
 
+    collect_comments_indentation_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+
     if let Some(level) = cfg.rule_level(indentation::ID)
         && !cfg.is_rule_ignored(indentation::ID, path, base_dir)
     {
@@ -325,6 +327,29 @@ fn collect_empty_lines_diagnostics(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(empty_lines::ID),
+            });
+        }
+    }
+}
+
+fn collect_comments_indentation_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(comments_indentation::ID)
+        && !cfg.is_rule_ignored(comments_indentation::ID, path, base_dir)
+    {
+        let rule_cfg = comments_indentation::Config::resolve(cfg);
+        for hit in comments_indentation::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: comments_indentation::MESSAGE.to_string(),
+                rule: Some(comments_indentation::ID),
             });
         }
     }
