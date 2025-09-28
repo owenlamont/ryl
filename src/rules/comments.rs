@@ -65,9 +65,10 @@ pub struct Violation {
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut violations = Vec::new();
+    let mut quote_state = QuoteState::default();
 
     for (line_idx, line) in buffer.lines().enumerate() {
-        let Some(comment_start) = find_comment_start(line) else {
+        let Some(comment_start) = find_comment_start(line, &mut quote_state) else {
             continue;
         };
 
@@ -109,27 +110,40 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     violations
 }
 
-fn find_comment_start(line: &str) -> Option<usize> {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
+#[derive(Debug, Default, Clone, Copy)]
+struct QuoteState {
+    in_single: bool,
+    in_double: bool,
+    escaped: bool,
+}
 
+fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
     for (idx, ch) in line.char_indices() {
+        if ch == '\\' && !state.in_single {
+            state.escaped = !state.escaped;
+            continue;
+        }
+
+        if state.escaped {
+            state.escaped = false;
+            continue;
+        }
+
         match ch {
-            '\\' => escaped = !escaped,
-            '\'' if !escaped && !in_double => {
-                in_single = !in_single;
-                escaped = false;
+            '\'' if !state.in_double => {
+                state.in_single = !state.in_single;
             }
-            '"' if !escaped && !in_single => {
-                in_double = !in_double;
-                escaped = false;
+            '"' if !state.in_single => {
+                state.in_double = !state.in_double;
             }
-            '#' if !in_single && !in_double => return Some(idx),
-            _ => escaped = false,
+            '#' if !state.in_single && !state.in_double => {
+                return Some(idx);
+            }
+            _ => {}
         }
     }
 
+    state.escaped = false;
     None
 }
 

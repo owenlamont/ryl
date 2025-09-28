@@ -151,3 +151,14 @@ fn handles_crlf_newlines() {
     assert_eq!(hits[0].line, 1);
     assert_eq!(hits[1].line, 2);
 }
+
+#[test]
+fn multiline_quoted_scalars_ignore_hashes() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let input = "value: \"first line\\n  second # still scalar\\n  third\"\n";
+    let hits = comments::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "quoted scalar hash should not be comment: {hits:?}"
+    );
+}
