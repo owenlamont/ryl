@@ -1,3 +1,4 @@
+pub mod comments;
 pub mod comments_indentation;
 pub mod document_end;
 pub mod document_start;
