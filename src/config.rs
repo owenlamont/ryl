@@ -661,6 +661,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             }
 
             match name {
+                "document-start" => validate_document_start_option(key, val)?,
                 "empty-lines" => validate_empty_lines_option(key, val)?,
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
@@ -715,6 +716,21 @@ fn handle_common_rule_key(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Resul
     }
 
     Ok(false)
+}
+
+fn validate_document_start_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("present") => validate_bool_option(val, "document-start", "present"),
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"document-start\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"document-start\""
+            ))
+        }
+    }
 }
 
 fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
