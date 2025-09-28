@@ -661,6 +661,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             }
 
             match name {
+                "empty-lines" => validate_empty_lines_option(key, val)?,
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
                 "float-values" => validate_float_values_option(key, val)?,
@@ -728,6 +729,29 @@ fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
             let key_name = describe_rule_option_key(key);
             Err(format!(
                 "invalid config: unknown option \"{key_name}\" for rule \"hyphens\""
+            ))
+        }
+    }
+}
+
+fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    match key.as_str() {
+        Some("max") => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max\" of \"empty-lines\" should be int".to_string()
+        }),
+        Some("max-start") => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-start\" of \"empty-lines\" should be int".to_string()
+        }),
+        Some("max-end") => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-end\" of \"empty-lines\" should be int".to_string()
+        }),
+        Some(other) => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"empty-lines\""
+        )),
+        None => {
+            let key_name = describe_rule_option_key(key);
+            Err(format!(
+                "invalid config: unknown option \"{key_name}\" for rule \"empty-lines\""
             ))
         }
     }
