@@ -10,7 +10,7 @@ rules:
   anchors:
     style: custom
   comments:
-    extra: 1
+    min-spaces-from-content: 1
     level: error
 "#;
     let ctx = discover_config(

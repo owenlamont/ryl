@@ -664,6 +664,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "document-end" => validate_document_end_option(key, val)?,
                 "document-start" => validate_document_start_option(key, val)?,
                 "empty-lines" => validate_empty_lines_option(key, val)?,
+                "comments" => validate_comments_option(key, val)?,
                 "new-lines" => validate_new_lines_option(key, val)?,
                 "octal-values" => validate_octal_values_option(key, val)?,
                 "float-values" => validate_float_values_option(key, val)?,
@@ -769,6 +770,25 @@ fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
                 "invalid config: unknown option \"{key_name}\" for rule \"hyphens\""
             ))
         }
+    }
+}
+
+fn validate_comments_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    let Some(name) = key.as_str() else {
+        // Non-string keys are ignored during deep merge, matching yamllint.
+        return Ok(());
+    };
+
+    match name {
+        "require-starting-space" => validate_bool_option(val, "comments", "require-starting-space"),
+        "ignore-shebangs" => validate_bool_option(val, "comments", "ignore-shebangs"),
+        "min-spaces-from-content" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"min-spaces-from-content\" of \"comments\" should be int"
+                .to_string()
+        }),
+        other => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"comments\""
+        )),
     }
 }
 
