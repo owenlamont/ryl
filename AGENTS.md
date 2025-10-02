@@ -136,6 +136,10 @@ The CI enforces zero missed lines and zero missed regions via cargo-llvm-cov.
 - `resolve_ctx` in `src/main.rs`:
   - Use an empty `PathBuf` to exercise the
     `parent().map_or_else(|| PathBuf::from("."), ..)` branch.
+- `rules/commas.rs` flow scanning:
+  - Parser spans are expressed in byte offsets; if you iterate with
+    `char_indices()` convert the span start/end back into byte offsets before
+    comparing, otherwise commas that follow UTF-8 scalars can be skipped.
 
 ### Coverage & Triage Tips
 
