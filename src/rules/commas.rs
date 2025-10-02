@@ -138,6 +138,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let scalar_ranges = collector.into_sorted();
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let buffer_len = buffer.len();
 
     let line_starts = build_line_starts(buffer);
 
@@ -147,19 +148,22 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut range_idx = 0usize;
 
     while i < chars.len() {
-        while range_idx < scalar_ranges.len() && scalar_ranges[range_idx].end <= i {
+        let (byte_idx, ch) = chars[i];
+
+        while range_idx < scalar_ranges.len()
+            && span_char_index_to_byte(&chars, scalar_ranges[range_idx].end, buffer_len) <= byte_idx
+        {
             range_idx += 1;
         }
 
-        if let Some(range) = scalar_ranges.get(range_idx)
-            && i >= range.start
-            && i < range.end
-        {
-            i = range.end;
-            continue;
+        if let Some(range) = scalar_ranges.get(range_idx) {
+            let start_byte = span_char_index_to_byte(&chars, range.start, buffer_len);
+            let end_byte = span_char_index_to_byte(&chars, range.end, buffer_len);
+            if byte_idx >= start_byte && byte_idx < end_byte {
+                i = range.end;
+                continue;
+            }
         }
-
-        let (_byte_idx, ch) = chars[i];
 
         match ch {
             '[' => contexts.push(FlowKind::Sequence),
@@ -330,6 +334,14 @@ fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
     }
     let line_start = line_starts[left];
     (left + 1, byte_idx - line_start + 1)
+}
+
+fn span_char_index_to_byte(chars: &[(usize, char)], char_idx: usize, buffer_len: usize) -> usize {
+    if char_idx >= chars.len() {
+        buffer_len
+    } else {
+        chars[char_idx].0
+    }
 }
 
 #[doc(hidden)]

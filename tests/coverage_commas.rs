@@ -33,3 +33,14 @@ fn stray_comma_outside_flow_is_ignored() {
     let cfg = Config::new_for_tests(0, 1, 1);
     assert!(check(",", &cfg).is_empty());
 }
+
+#[test]
+fn commas_after_multibyte_scalars_are_checked() {
+    let cfg = Config::new_for_tests(0, 1, 1);
+    let violations = check("[\"å\",\"b\"]", &cfg);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.message == "too few spaces after comma")
+    );
+}
