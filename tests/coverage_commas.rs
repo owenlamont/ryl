@@ -1,4 +1,7 @@
-use ryl::rules::commas::coverage_compute_spaces_before;
+use ryl::rules::commas::{
+    Config, check, coverage_compute_spaces_before, coverage_skip_comment_crlf,
+    coverage_skip_zero_length_span,
+};
 
 #[test]
 fn leading_comma_reports_zero_spaces() {
@@ -13,4 +16,20 @@ fn leading_space_before_comma_counts_correctly() {
 #[test]
 fn newline_before_comma_is_ignored() {
     assert_eq!(coverage_compute_spaces_before("\n,", 1), None);
+}
+
+#[test]
+fn zero_length_scalar_span_is_ignored() {
+    assert_eq!(coverage_skip_zero_length_span(), 0);
+}
+
+#[test]
+fn skip_comment_handles_crlf_lines() {
+    assert_eq!(coverage_skip_comment_crlf(), (2, 1));
+}
+
+#[test]
+fn stray_comma_outside_flow_is_ignored() {
+    let cfg = Config::new_for_tests(0, 1, 1);
+    assert!(check(",", &cfg).is_empty());
 }

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use saphyr_parser::{Event, Marker, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 
@@ -216,13 +216,11 @@ fn evaluate_comma(
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_before {
             let comma_byte = chars[comma_idx].0;
-            let (line, mut column) = line_and_column(line_starts, comma_byte);
-            if column > 1 {
-                column -= 1;
-            }
+            let (line, column) = line_and_column(line_starts, comma_byte);
+            let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
-                column,
+                column: highlight_column,
                 message: TOO_MANY_BEFORE.to_string(),
             });
         }
@@ -343,4 +341,24 @@ pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<
         BeforeResult::SameLine { spaces } => Some(spaces),
         BeforeResult::Ignored => None,
     }
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn coverage_skip_zero_length_span() -> usize {
+    let mut collector = ScalarRangeCollector::new();
+    collector.push_range(Span::empty(Marker::default()));
+    collector.into_sorted().len()
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn coverage_skip_comment_crlf() -> (usize, usize) {
+    let chars_crlf: Vec<(usize, char)> = "#\r\n".char_indices().collect();
+    let idx_crlf = skip_comment(&chars_crlf, 0);
+
+    let chars_cr: Vec<(usize, char)> = "#\r".char_indices().collect();
+    let idx_cr = skip_comment(&chars_cr, 0);
+
+    (idx_crlf, idx_cr)
 }
