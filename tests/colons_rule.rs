@@ -226,3 +226,61 @@ fn coverage_evaluate_question_mark_reports_violation() {
             .any(|v| v.message.contains("too many spaces after question mark"))
     );
 }
+
+#[test]
+fn coverage_explicit_question_mark_handles_flow_prefix_variants() {
+    let bracket_chars: Vec<(usize, char)> = "[ ? key".char_indices().collect();
+    assert!(colons::coverage_is_explicit_question_mark(
+        &bracket_chars,
+        2
+    ));
+    let brace_chars: Vec<(usize, char)> = "{ ? key".char_indices().collect();
+    assert!(colons::coverage_is_explicit_question_mark(&brace_chars, 2));
+    let comma_chars: Vec<(usize, char)> = ", ? key".char_indices().collect();
+    assert!(colons::coverage_is_explicit_question_mark(&comma_chars, 2));
+}
+
+#[test]
+fn coverage_question_mark_immediate_newline_is_ignored() {
+    let cfg = Config::new_for_tests(-1, 1);
+    let violations = colons::coverage_evaluate_question_mark("? \n: value\n", &cfg);
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn coverage_question_mark_crlf_is_ignored() {
+    let cfg = Config::new_for_tests(-1, 1);
+    let violations = colons::coverage_evaluate_question_mark("? \r\n: value\n", &cfg);
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn coverage_skip_comment_handles_crlf() {
+    assert!(colons::coverage_skip_comment("# comment\r\nrest"));
+}
+
+#[test]
+fn coverage_skip_comment_handles_standalone_cr() {
+    assert!(!colons::coverage_skip_comment("# comment\rrest"));
+}
+
+#[test]
+fn coverage_evaluate_question_mark_without_marker_is_noop() {
+    let cfg = Config::new_for_tests(-1, 1);
+    let violations = colons::coverage_evaluate_question_mark("key: value\n", &cfg);
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn coverage_question_mark_within_limit_on_same_line() {
+    let cfg = Config::new_for_tests(-1, 1);
+    let violations = colons::coverage_evaluate_question_mark("? key: value\n", &cfg);
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn coverage_check_handles_comment_crlf() {
+    let cfg = Config::new_for_tests(0, 1);
+    let result = colons::check("# heading\r\nkey: value\n", &cfg);
+    assert!(result.is_empty());
+}
