@@ -1,3 +1,4 @@
+pub mod colons;
 pub mod commas;
 pub mod comments;
 pub mod comments_indentation;
