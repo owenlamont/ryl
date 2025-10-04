@@ -3,6 +3,7 @@ use std::ops::Range;
 use saphyr_parser::{Event, Marker, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::span_utils::span_char_index_to_byte;
 
 pub const ID: &str = "commas";
 const TOO_MANY_BEFORE: &str = "too many spaces before comma";
@@ -334,14 +335,6 @@ fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
     }
     let line_start = line_starts[left];
     (left + 1, byte_idx - line_start + 1)
-}
-
-fn span_char_index_to_byte(chars: &[(usize, char)], char_idx: usize, buffer_len: usize) -> usize {
-    if char_idx >= chars.len() {
-        buffer_len
-    } else {
-        chars[char_idx].0
-    }
 }
 
 #[doc(hidden)]

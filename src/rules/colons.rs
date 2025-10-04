@@ -3,6 +3,7 @@ use std::ops::Range;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::span_utils::{ranges_to_char_indices, span_char_index_to_byte};
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
@@ -119,6 +120,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let buffer_len = buffer.len();
+    let scalar_ranges = ranges_to_char_indices(scalar_ranges, &chars, buffer_len);
     let line_starts = build_line_starts(buffer);
 
     let mut scalar_idx = 0usize;
@@ -428,14 +430,6 @@ fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
 
     let line_start = line_starts[left];
     (left + 1, byte_idx - line_start + 1)
-}
-
-fn span_char_index_to_byte(chars: &[(usize, char)], char_idx: usize, buffer_len: usize) -> usize {
-    if char_idx >= chars.len() {
-        buffer_len
-    } else {
-        chars[char_idx].0
-    }
 }
 
 #[doc(hidden)]

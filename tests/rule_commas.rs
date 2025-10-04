@@ -106,7 +106,7 @@ fn newline_before_comma_is_ignored() {
 #[test]
 fn ignores_commas_inside_scalars() {
     let cfg = defaults();
-    let diagnostics = commas::check("[\"1,2\", 3]\n", &cfg);
+    let diagnostics = commas::check("[\"café, menu\", 3]\n", &cfg);
     assert!(
         diagnostics.is_empty(),
         "unexpected diagnostics: {diagnostics:?}"

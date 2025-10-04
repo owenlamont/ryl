@@ -193,6 +193,13 @@ fn dash_without_space_before_question_mark_is_ignored() {
 }
 
 #[test]
+fn colons_inside_scalars_with_multibyte_chars_are_ignored() {
+    let cfg = Config::new_for_tests(0, 1);
+    let points = violation_points("key: \"café: menu\"\n", cfg);
+    assert!(points.is_empty());
+}
+
+#[test]
 fn coverage_explicit_question_mark_handles_non_whitespace_next() {
     let chars: Vec<(usize, char)> = "?key".char_indices().collect();
     assert!(!colons::coverage_is_explicit_question_mark(&chars, 0));
