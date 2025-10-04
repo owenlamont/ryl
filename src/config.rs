@@ -661,6 +661,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             }
 
             match name {
+                "brackets" => validate_brackets_option(key, val)?,
                 "document-end" => validate_document_end_option(key, val)?,
                 "document-start" => validate_document_start_option(key, val)?,
                 "empty-lines" => validate_empty_lines_option(key, val)?,
@@ -754,6 +755,43 @@ fn validate_document_start_option(key: &YamlOwned, val: &YamlOwned) -> Result<()
                 "invalid config: unknown option \"{key_name}\" for rule \"document-start\""
             ))
         }
+    }
+}
+
+fn validate_brackets_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    let Some(name) = key.as_str() else {
+        let key_name = describe_rule_option_key(key);
+        return Err(format!(
+            "invalid config: unknown option \"{key_name}\" for rule \"brackets\""
+        ));
+    };
+
+    match name {
+        "forbid" => {
+            if val.as_bool().is_some() || matches!(val.as_str(), Some("non-empty")) {
+                Ok(())
+            } else {
+                Err("invalid config: option \"forbid\" of \"brackets\" should be bool or \"non-empty\""
+                    .to_string())
+            }
+        }
+        "min-spaces-inside" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"min-spaces-inside\" of \"brackets\" should be int".to_string()
+        }),
+        "max-spaces-inside" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-spaces-inside\" of \"brackets\" should be int".to_string()
+        }),
+        "min-spaces-inside-empty" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"min-spaces-inside-empty\" of \"brackets\" should be int"
+                .to_string()
+        }),
+        "max-spaces-inside-empty" => val.as_integer().map(|_| ()).ok_or_else(|| {
+            "invalid config: option \"max-spaces-inside-empty\" of \"brackets\" should be int"
+                .to_string()
+        }),
+        other => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"brackets\""
+        )),
     }
 }
 

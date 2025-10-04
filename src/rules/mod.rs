@@ -1,3 +1,4 @@
+pub mod brackets;
 pub mod colons;
 pub mod commas;
 pub mod comments;
