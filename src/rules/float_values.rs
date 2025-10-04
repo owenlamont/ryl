@@ -1,6 +1,7 @@
 use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::span_utils::span_char_index_to_byte;
 
 pub const ID: &str = "float-values";
 
@@ -81,20 +82,26 @@ pub struct Violation {
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut parser = Parser::new_from_str(buffer);
-    let mut receiver = FloatValuesReceiver::new(cfg);
+    let mut receiver = FloatValuesReceiver::new(cfg, buffer);
     let _ = parser.load(&mut receiver, true);
     receiver.diagnostics
 }
 
-struct FloatValuesReceiver<'cfg> {
+struct FloatValuesReceiver<'cfg, 'input> {
     config: &'cfg Config,
+    buffer: &'input str,
+    chars: Vec<(usize, char)>,
+    buffer_len: usize,
     diagnostics: Vec<Violation>,
 }
 
-impl<'cfg> FloatValuesReceiver<'cfg> {
-    const fn new(config: &'cfg Config) -> Self {
+impl<'cfg, 'input> FloatValuesReceiver<'cfg, 'input> {
+    fn new(config: &'cfg Config, buffer: &'input str) -> Self {
         Self {
             config,
+            buffer,
+            chars: buffer.char_indices().collect(),
+            buffer_len: buffer.len(),
             diagnostics: Vec::new(),
         }
     }
@@ -107,7 +114,10 @@ impl<'cfg> FloatValuesReceiver<'cfg> {
             self.diagnostics.push(Violation {
                 line,
                 column,
-                message: format!("forbidden not a number value \"{value}\""),
+                message: format!(
+                    "forbidden not a number value \"{}\"",
+                    self.original_scalar(span, value)
+                ),
             });
         }
 
@@ -115,7 +125,10 @@ impl<'cfg> FloatValuesReceiver<'cfg> {
             self.diagnostics.push(Violation {
                 line,
                 column,
-                message: format!("forbidden infinite value \"{value}\""),
+                message: format!(
+                    "forbidden infinite value \"{}\"",
+                    self.original_scalar(span, value)
+                ),
             });
         }
 
@@ -123,7 +136,10 @@ impl<'cfg> FloatValuesReceiver<'cfg> {
             self.diagnostics.push(Violation {
                 line,
                 column,
-                message: format!("forbidden scientific notation \"{value}\""),
+                message: format!(
+                    "forbidden scientific notation \"{}\"",
+                    self.original_scalar(span, value)
+                ),
             });
         }
 
@@ -132,14 +148,30 @@ impl<'cfg> FloatValuesReceiver<'cfg> {
             self.diagnostics.push(Violation {
                 line,
                 column,
-                message: format!("forbidden decimal missing 0 prefix \"{value}\""),
+                message: format!(
+                    "forbidden decimal missing 0 prefix \"{}\"",
+                    self.original_scalar(span, value)
+                ),
             });
         }
     }
+
+    fn original_scalar<'a>(&'a self, span: Span, fallback: &'a str) -> &'a str {
+        let start_char = span.start.index();
+        let end_char = span.end.index();
+        let start = span_char_index_to_byte(&self.chars, start_char, self.buffer_len);
+        let end = span_char_index_to_byte(&self.chars, end_char, self.buffer_len);
+        if start <= end
+            && let Some(slice) = self.buffer.get(start..end)
+        {
+            return slice;
+        }
+        fallback
+    }
 }
 
-impl SpannedEventReceiver<'_> for FloatValuesReceiver<'_> {
-    fn on_event(&mut self, event: Event<'_>, span: Span) {
+impl<'input> SpannedEventReceiver<'input> for FloatValuesReceiver<'_, 'input> {
+    fn on_event(&mut self, event: Event<'input>, span: Span) {
         if let Event::Scalar(value, style, _, tag) = event {
             if tag.is_some() || !matches!(style, ScalarStyle::Plain) {
                 return;
@@ -229,66 +261,4 @@ fn without_sign(value: &str) -> &str {
         .strip_prefix('+')
         .or_else(|| value.strip_prefix('-'))
         .unwrap_or(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        is_inf, is_missing_numeral_before_decimal, is_nan, is_scientific_notation,
-        is_valid_exponent,
-    };
-
-    #[test]
-    fn detects_nan_variants() {
-        assert!(is_nan(".nan"));
-        assert!(is_nan(".NaN"));
-        assert!(is_nan(".NAN"));
-        assert!(!is_nan("nan"));
-        assert!(!is_nan("+.nan"));
-    }
-
-    #[test]
-    fn detects_inf_variants() {
-        assert!(is_inf(".inf"));
-        assert!(is_inf(".Inf"));
-        assert!(is_inf(".INF"));
-        assert!(is_inf("+.inf"));
-        assert!(is_inf("-.INF"));
-        assert!(!is_inf("inf"));
-    }
-
-    #[test]
-    fn detects_scientific_notation() {
-        assert!(is_scientific_notation("1e2"));
-        assert!(is_scientific_notation("-1E+3"));
-        assert!(is_scientific_notation(".5e-2"));
-        assert!(is_scientific_notation("10.e4"));
-        assert!(is_scientific_notation("1.2e3"));
-        assert!(!is_scientific_notation("10.0"));
-        assert!(!is_scientific_notation(".5"));
-        assert!(!is_scientific_notation("e10"));
-        assert!(!is_scientific_notation("1ee3"));
-        assert!(!is_scientific_notation("a.e2"));
-    }
-
-    #[test]
-    fn detects_missing_numeral_before_decimal() {
-        assert!(is_missing_numeral_before_decimal(".5"));
-        assert!(is_missing_numeral_before_decimal("-.1"));
-        assert!(is_missing_numeral_before_decimal("+.5e2"));
-        assert!(!is_missing_numeral_before_decimal("0.5"));
-        assert!(!is_missing_numeral_before_decimal("1."));
-        assert!(!is_missing_numeral_before_decimal(".e2"));
-        assert!(!is_missing_numeral_before_decimal("."));
-        assert!(!is_missing_numeral_before_decimal("+."));
-    }
-
-    #[test]
-    fn validates_exponent_inputs() {
-        assert!(!is_valid_exponent(""));
-        assert!(!is_valid_exponent("x10"));
-        assert!(!is_valid_exponent("e"));
-        assert!(is_valid_exponent("e10"));
-        assert!(is_valid_exponent("E+5"));
-    }
 }

@@ -165,11 +165,13 @@ struct SequenceState {
     is_empty: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum AfterResult {
     SameLine { spaces: usize, next_idx: usize },
     Ignored,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum BeforeResult {
     SameLine { spaces: usize },
     Empty,
@@ -463,10 +465,7 @@ fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<us
                 if idx >= chars.len() {
                     continue;
                 }
-                let ch = chars[idx].1;
-                if ch == '\r' || ch == '\n' {
-                    idx += 1;
-                }
+                idx += 1;
             }
             _ => return Some(idx),
         }
@@ -531,138 +530,4 @@ fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
     }
     let line_start = line_starts[left];
     (left + 1, byte_idx - line_start + 1)
-}
-
-#[cfg(test)]
-pub(crate) mod coverage {
-    use super::*;
-
-    #[test]
-    fn coverage_skip_comment_handles_crlf() {
-        let buffer = "# comment\r\n";
-        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-        let idx = skip_comment(&chars, 0);
-        assert_eq!(idx, chars.len() - 1);
-    }
-
-    #[test]
-    fn coverage_skip_comment_handles_newline() {
-        let buffer = "# comment\n";
-        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-        let idx = skip_comment(&chars, 0);
-        assert_eq!(idx, chars.len() - 1);
-    }
-
-    #[test]
-    fn coverage_after_open_comment_branch_is_ignored() {
-        let chars: Vec<(usize, char)> = "[#]".char_indices().collect();
-        assert!(matches!(
-            compute_spaces_after_open(&chars, 0),
-            AfterResult::Ignored
-        ));
-    }
-
-    #[test]
-    fn coverage_before_close_empty_branch() {
-        let chars: Vec<(usize, char)> = "[ ]".char_indices().collect();
-        assert!(matches!(
-            compute_spaces_before_close(&chars, chars.len() - 1),
-            BeforeResult::Empty
-        ));
-    }
-
-    #[test]
-    fn coverage_before_close_start_index_zero() {
-        let chars: Vec<(usize, char)> = "]".char_indices().collect();
-        assert!(matches!(
-            compute_spaces_before_close(&chars, 0),
-            BeforeResult::Ignored
-        ));
-    }
-
-    #[test]
-    fn coverage_next_significant_skips_comment_crlf() {
-        let chars: Vec<(usize, char)> = "[ #c\r\n]".char_indices().collect();
-        let idx = next_significant_index(&chars, 0);
-        assert_eq!(idx, Some(chars.len() - 1));
-    }
-
-    #[test]
-    fn coverage_next_significant_returns_none_at_end() {
-        let chars: Vec<(usize, char)> = "[".char_indices().collect();
-        assert!(next_significant_index(&chars, 0).is_none());
-    }
-
-    #[test]
-    fn coverage_build_line_starts_handles_crlf_and_cr() {
-        let starts = build_line_starts("first\r\nsecond\rthird\n");
-        assert!(starts.contains(&0));
-        assert!(starts.contains(&7));
-        assert!(starts.contains(&14));
-    }
-
-    #[test]
-    fn coverage_after_open_end_of_input_is_ignored() {
-        let chars: Vec<(usize, char)> = "[".char_indices().collect();
-        assert!(matches!(
-            compute_spaces_after_open(&chars, 0),
-            AfterResult::Ignored
-        ));
-    }
-
-    #[test]
-    fn coverage_before_close_returns_ignored_when_no_open() {
-        let chars: Vec<(usize, char)> = " ]".char_indices().collect();
-        assert!(matches!(
-            compute_spaces_before_close(&chars, chars.len() - 1),
-            BeforeResult::Ignored
-        ));
-    }
-
-    #[test]
-    fn coverage_next_significant_handles_carriage_return_without_line_feed() {
-        let chars: Vec<(usize, char)> = "[ \r]".char_indices().collect();
-        assert_eq!(next_significant_index(&chars, 0), Some(chars.len() - 1));
-    }
-
-    #[test]
-    fn coverage_next_significant_handles_crlf_sequence() {
-        let chars: Vec<(usize, char)> = "[ \r\n]".char_indices().collect();
-        assert_eq!(next_significant_index(&chars, 0), Some(chars.len() - 1));
-    }
-
-    #[test]
-    fn coverage_next_significant_handles_comment_followed_by_carriage_return() {
-        let chars: Vec<(usize, char)> = "[#\r]".char_indices().collect();
-        assert_eq!(next_significant_index(&chars, 0), Some(chars.len() - 1));
-    }
-
-    #[test]
-    fn coverage_next_significant_handles_comment_followed_by_crlf() {
-        let chars: Vec<(usize, char)> = "[#\r\n]".char_indices().collect();
-        assert_eq!(next_significant_index(&chars, 0), Some(chars.len() - 1));
-    }
-
-    #[test]
-    fn coverage_next_significant_handles_comment_followed_by_newline() {
-        let chars: Vec<(usize, char)> = "[#\n]".char_indices().collect();
-        assert_eq!(next_significant_index(&chars, 0), Some(chars.len() - 1));
-    }
-
-    #[test]
-    fn coverage_next_significant_handles_comment_at_end_of_input() {
-        let chars: Vec<(usize, char)> = "[#".char_indices().collect();
-        assert!(next_significant_index(&chars, 0).is_none());
-    }
-
-    #[test]
-    fn coverage_non_scalar_character_marks_sequence_non_empty() {
-        let cfg = Config::new_for_tests(Forbid::NonEmpty, 0, 0, -1, -1);
-        let violations = check("[ { key: value } ]", &cfg);
-        assert!(
-            violations
-                .iter()
-                .any(|v| v.message == FORBIDDEN_FLOW_SEQUENCE)
-        );
-    }
 }

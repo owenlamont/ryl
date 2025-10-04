@@ -132,8 +132,8 @@ sticking to the quick-status step above.
   When writing tests, prefer inputs like `"café"` or `"å"` to ensure coverage of
   character vs byte offset logic.
 - Use meaningful function and variable names in tests—comments are discouraged.
-- Avoid `#[cfg(test)]` modules inside `src/`; add coverage through integration tests in
-  `tests/` so LLVM regions stay unique.
+- `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
+   tests in `tests/` so LLVM regions stay unique.
 
 ## Release Checklist
 

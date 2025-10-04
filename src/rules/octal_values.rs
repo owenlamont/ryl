@@ -119,25 +119,3 @@ fn is_explicit_octal(value: &str) -> bool {
     }
     bytes[2..].iter().all(|b| (b'0'..=b'7').contains(b))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{is_explicit_octal, is_implicit_octal};
-
-    #[test]
-    fn implicit_octal_detection_matches_yamllint_logic() {
-        assert!(is_implicit_octal("010"));
-        assert!(!is_implicit_octal("0"));
-        assert!(!is_implicit_octal("10"));
-        assert!(!is_implicit_octal("010,021"));
-        assert!(!is_implicit_octal("-010"));
-    }
-
-    #[test]
-    fn explicit_octal_detection_matches_yamllint_logic() {
-        assert!(is_explicit_octal("0o10"));
-        assert!(!is_explicit_octal("0o"));
-        assert!(!is_explicit_octal("0O10"));
-        assert!(!is_explicit_octal("0o8"));
-    }
-}
