@@ -69,6 +69,10 @@ ryl is a CLI tool for linting yaml files
 - `prek`, `rg`, `rumdl`, `typos`, `yamllint`, and `zizmor` should be installed as global
   tools (if they don't appear to be installed raise that with the user).
 - `gh` will be available in most, but not all environments to inspect GitHub.
+- When reviewing PR feedback, prefer `gh pr view <number> --json comments,reviews` for
+  summary threads and `gh api repos/<owner>/<repo>/pulls/<number>/comments` when you
+  need inline review details without guesswork. Avoid flags that the GitHub CLI does not
+  support (e.g., `--review-comments`).
 - Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
   sandboxed, request permission escalation when running `prek`, `cargo test`,
   or coverage commands.
@@ -87,83 +91,49 @@ ryl is a CLI tool for linting yaml files
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
   tests in `tests/` instead.
 
-## Coverage Playbook
+## Coverage Workflow
 
-The CI enforces zero missed lines and zero missed regions via cargo-llvm-cov.
+The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
+hunting through scattered tips:
 
-- Quick status: `cargo llvm-cov nextest --summary-only`
-- Text report with missing lines highlighted:
-  `cargo llvm-cov --text --show-missing-lines
-  --output-path target/llvm-cov/report.txt` (This is probably the best format for
-  identifying missing coverage). Add focused tests if any ^0 markers remain.
-- HTML: `cargo llvm-cov nextest --html` (open `target/llvm-cov/html/index.html`)
-- LCOV for drilling into files: `cargo llvm-cov nextest --lcov --output-path lcov.info`
+1. Quick status before pushing: `cargo llvm-cov nextest --summary-only`.
+2. If something is uncovered, generate a focused text report with
+   `cargo llvm-cov --text --show-missing-lines --output-path target/llvm-cov/report.txt`
+   and search for `^0` in that file to locate gaps.
+3. Need more context? Produce HTML (`cargo llvm-cov nextest --html`) or LCOV
+   (`cargo llvm-cov nextest --lcov --output-path lcov.info`).
+4. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
+   that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
+5. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
 
-- Windows (MSVC) note: The MSVC toolchain is supported.
-  Ensure the `llvm-tools-preview` component is installed (it is in
-  `rust-toolchain.toml`). If you see linker tool issues, run from a Developer
-  Command Prompt or ensure the MSVC build tools are in PATH.
+Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already listed in
+`rust-toolchain.toml`). Run from a Developer Command Prompt if linker tools go missing.
 
-### Hitting tricky regions in this repo
+### Common hotspots
 
-- Use the Env abstraction in `src/config.rs` to craft precise tests without
-  touching the real FS/env.
-  - Implement a tiny FakeEnv with predictable `current_dir`, `config_dir`,
-    `read_to_string`, `path_exists`, and `env_var`.
-  - Drive discovery via `discover_config_with(&inputs, &overrides, &fake_env)`.
+- Configuration discovery: use the `Env` abstraction (`discover_config_with`) and fake
+  envs to hit inline data, explicit files (success and YAML failure), and env-var paths.
+- Project configuration search: cover empty inputs, single files without parents, and
+  multiple files in the same directory to trigger dedup logic.
+- YAML parsing: drive `from_yaml_str` through string vs sequence options and ensure rule
+  merges hit both update and insert branches.
+- CLI context resolution: pass an empty `PathBuf` into `resolve_ctx` to trigger the
+  fallback to `.`.
+- Flow scanners in rules: always reconcile parser byte spans with `char_indices()` via
+  `crate::rules::span_utils` to avoid off-by-byte bugs when UTF-8 characters appear.
 
-- `discover_config_with` branches:
-  - Inline data path: `Overrides { config_data: Some(..) }`.
-  - Explicit file path: `Overrides { config_file: Some(..) }` (hit both valid
-    parse and invalid YAML error).
-  - Env var/core path: use `discover_config_with_env` with a closure or FakeEnv.
+CI will fail the build on any missed line or region, so keep local runs green by
+sticking to the quick-status step above.
 
-- `find_project_config_core` search/dedup:
-  - Inputs empty → ensure a `.yamllint` in `current_dir()`.
-  - Single file with no parent → `.parent()` is `None`, exercises
-    `map_or_else` path that falls back to `current_dir()`.
-  - Multiple files in same directory → exercises the dedup branch
-    (`!starts.iter().any(..)`).
+## Testing Tips
 
-- `from_yaml_str` parsing arms (common micro‑regions):
-  - `ignore` as string and as sequence (include non‑string items to hit skip paths).
-  - `yaml-files` as string and as sequence (include non‑string items and all
-    non‑string sequence).
-  - `rules` with both updating an existing rule (from `extends: default`) and
-    inserting a new rule (exercises `merge_from` branches and rule name
-    accumulation).
-
-- `resolve_ctx` in `src/main.rs`:
-  - Use an empty `PathBuf` to exercise the
-    `parent().map_or_else(|| PathBuf::from("."), ..)` branch.
-- `rules/commas.rs` flow scanning:
-  - Parser spans are expressed in byte offsets; if you iterate with
-    `char_indices()` convert the span start/end back into byte offsets before
-    comparing, otherwise commas that follow UTF-8 scalars can be skipped.
-
-### Coverage & Triage Tips
-
-- Regenerate reports with `cargo llvm-cov --text --show-missing-lines --output-path
-  target/llvm-cov/report.txt`; clear `target/llvm-cov-target` if cached coverage
-  lingers.
-- Search for uncovered regions via `rg '^0' target/llvm-cov/report.txt`; zero-count
-  lines usually point to short-circuit branches, inline closures (`map_or_else`,
-  `any`), condensed `if let`/`match` arms, or scalar vs sequence parsing paths.
-- Prefer CLI/system tests under `tests/` that spawn `env!("CARGO_BIN_EXE_ryl")` to
-  exercise `main.rs` branches (strict mode, no-warnings, list-files, etc.).
-- Format yamllint-style diagnostics with `saturating_sub` padding to keep coverage
-  simple and avoid redundant branches.
-- Add yamllint compatibility tests to confirm exit codes and messages before wiring
-  new rules into the Rust pipeline.
-- If coverage flags a zero-count branch in a tight iterator/closure chain, rewrite the
-  loop explicitly so every arm is exercised—this avoids hidden early returns that leave
-  regions uncovered.
-
-### CI policy
-
-- CI step enforces: `--fail-uncovered-lines 0 --fail-uncovered-regions 0`.
-- Aim to keep local runs green with: `cargo llvm-cov nextest --summary-only`
-  before pushing.
+- For Unicode-heavy fixtures, assert behaviour with multibyte characters and reuse the
+  helpers in `crate::rules::span_utils` instead of reinventing byte/char conversions.
+  When writing tests, prefer inputs like `"café"` or `"å"` to ensure coverage of
+  character vs byte offset logic.
+- Use meaningful function and variable names in tests—comments are discouraged.
+- Avoid `#[cfg(test)]` modules inside `src/`; add coverage through integration tests in
+  `tests/` so LLVM regions stay unique.
 
 ## Release Checklist
 
