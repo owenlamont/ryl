@@ -18,7 +18,9 @@ pub fn ensure_yamllint_installed() {
 }
 
 pub fn normalize_output(stdout: String, stderr: String) -> String {
-    if stderr.is_empty() { stdout } else { stderr }
+    let output = if stderr.is_empty() { stdout } else { stderr };
+    // Normalize line endings to LF for cross-platform compatibility
+    output.replace("\r\n", "\n")
 }
 
 pub fn capture_with_env(mut cmd: Command, envs: &[(&str, Option<&str>)]) -> (i32, String) {

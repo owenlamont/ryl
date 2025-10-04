@@ -33,7 +33,11 @@ impl Env for SystemEnv {
         PathBuf::from(".")
     }
     fn config_dir(&self) -> Option<PathBuf> {
-        dirs::config_dir()
+        // Check XDG_CONFIG_HOME first (for cross-platform compatibility)
+        env::var("XDG_CONFIG_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(dirs::config_dir)
     }
     fn read_to_string(&self, p: &Path) -> Result<String, String> {
         match fs::read_to_string(p) {
