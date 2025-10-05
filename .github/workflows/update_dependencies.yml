@@ -21,7 +21,7 @@ jobs:
 
       - name: Upgrade all dependencies to latest (allow majors)
         run: |
-          cargo upgrade --workspace --incompatible
+          cargo upgrade --incompatible --recursive
           cargo update
 
       - name: Check for changes
@@ -51,7 +51,7 @@ jobs:
           title: "chore: upgrade Rust dependencies to latest (allow majors)"
           body: |
             Automated dependency refresh:
-            - Ran `cargo upgrade --workspace --incompatible`
+            - Ran `cargo upgrade --incompatible --recursive`
             - Ran `cargo update`
 
             Merge if CI is green.
