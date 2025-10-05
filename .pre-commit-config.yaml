@@ -21,6 +21,12 @@ repos:
         args: [--autofix]
       - id: mixed-line-ending
         args: [--fix=lf]
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=style]
+        files: ^scripts/.*\.sh$
   - repo: local
     hooks:
       - id: cargo-check
@@ -50,12 +56,12 @@ repos:
         pass_filenames: false
         require_serial: true
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.0.146
+    rev: v0.0.153
     hooks:
       - id: rumdl
         args: [--fix]
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: v1.36.3
+    rev: v1.37.2
     hooks:
       - id: typos
         args: [
@@ -63,7 +69,7 @@ repos:
           # --write-changes (Don't use this to stop typos making auto-corrections)
         ]
   - repo: https://github.com/woodruffw/zizmor-pre-commit
-    rev: v1.14.1
+    rev: v1.14.2
     hooks:
     - id: zizmor
       args: [ --min-severity, low, --min-confidence, medium]

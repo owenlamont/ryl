@@ -56,8 +56,9 @@ ryl is a CLI tool for linting yaml files
 - `prek` already runs the key tooling (e.g., trim/fix whitespace, `cargo fmt`,
   `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
   invoking those individually—just run `prek` once after code *or* docs updates.
-- Whenever source files are edited ensure the full test suite passes (run:
-- `cargo llvm-cov nextest --summary-only`)
+- Whenever source files are edited ensure the full test suite passes (run
+  `./scripts/coverage-missing.sh` to regenerate coverage; it reports uncovered
+  ranges and confirms when coverage is complete)
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -96,12 +97,14 @@ ryl is a CLI tool for linting yaml files
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
 hunting through scattered tips:
 
-1. Quick status before pushing: `cargo llvm-cov nextest --summary-only`.
-2. If something is uncovered, generate a focused text report with
-   `cargo llvm-cov --text --show-missing-lines --output-path target/llvm-cov/report.txt`
-   and search for `^0` in that file to locate gaps.
-3. Need more context? Produce HTML (`cargo llvm-cov nextest --html`) or LCOV
-   (`cargo llvm-cov nextest --lcov --output-path lcov.info`).
+1. Quick status before pushing: run `./scripts/coverage-missing.sh`. It reruns the
+   coverage suite and prints any uncovered ranges, or explicitly confirms when
+   coverage is complete.
+2. If the script reports files, extend CLI/system tests targeting those ranges until
+   the script produces no output.
+3. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
+   after running the script. HTML is not easily machine readable though so not
+   recommended.
 4. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
    that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
 5. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
