@@ -57,8 +57,9 @@ ryl is a CLI tool for linting yaml files
   `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
   invoking those individually—just run `prek` once after code *or* docs updates.
 - Whenever source files are edited ensure the full test suite passes (run
-  `./scripts/coverage-missing.sh` to regenerate coverage; it reports uncovered
-  ranges and confirms when coverage is complete)
+  `./scripts/coverage-missing.sh` (Unix) or
+  `pwsh ./scripts/coverage-missing.ps1` (Windows) to regenerate coverage; it reports
+  uncovered ranges and confirms when coverage is complete)
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -97,9 +98,9 @@ ryl is a CLI tool for linting yaml files
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
 hunting through scattered tips:
 
-1. Quick status before pushing: run `./scripts/coverage-missing.sh`. It reruns the
-   coverage suite and prints any uncovered ranges, or explicitly confirms when
-   coverage is complete.
+1. Quick status before pushing: run `./scripts/coverage-missing.sh` (Unix) or
+   `pwsh ./scripts/coverage-missing.ps1` (Windows). It reruns the coverage suite and
+   prints any uncovered ranges, or explicitly confirms when coverage is complete.
 2. If the script reports files, extend CLI/system tests targeting those ranges until
    the script produces no output.
 3. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
