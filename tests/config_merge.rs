@@ -8,7 +8,7 @@ fn rules_merge_deep_and_replace_scalars() {
 extends: default
 rules:
   anchors:
-    style: custom
+    forbid-duplicated-anchors: true
   comments:
     min-spaces-from-content: 1
     level: error

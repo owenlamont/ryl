@@ -3,10 +3,10 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    braces, brackets, colons, commas, comments, comments_indentation, document_end, document_start,
-    empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates, key_ordering,
-    line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces,
-    truthy,
+    anchors, braces, brackets, colons, commas, comments, comments_indentation, document_end,
+    document_start, empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates,
+    key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
+    trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +106,8 @@ pub fn lint_file(
     collect_brackets_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
     collect_comments_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+
+    collect_anchors_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
     if let Some(level) = cfg.rule_level(octal_values::ID)
         && !cfg.is_rule_ignored(octal_values::ID, path, base_dir)
@@ -457,6 +459,29 @@ fn collect_comments_diagnostics(
     }
 }
 
+fn collect_anchors_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(anchors::ID)
+        && !cfg.is_rule_ignored(anchors::ID, path, base_dir)
+    {
+        let rule_cfg = anchors::Config::resolve(cfg);
+        for hit in anchors::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(anchors::ID),
+            });
+        }
+    }
+}
+
 fn collect_comments_indentation_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
     content: &str,
@@ -509,6 +534,9 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     match parser.load(&mut sink, true) {
         Ok(()) => None,
         Err(err) => {
+            if err.info() == "while parsing node, found unknown anchor" {
+                return None;
+            }
             let marker = err.marker();
             let column = marker.col() + 1;
             Some(LintProblem {

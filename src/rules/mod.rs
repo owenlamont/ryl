@@ -1,3 +1,4 @@
+pub mod anchors;
 pub mod braces;
 pub mod brackets;
 pub mod colons;
