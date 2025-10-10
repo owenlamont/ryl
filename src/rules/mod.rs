@@ -1,3 +1,4 @@
+pub mod braces;
 pub mod brackets;
 pub mod colons;
 pub mod commas;
@@ -8,6 +9,7 @@ pub mod document_start;
 pub mod empty_lines;
 pub mod empty_values;
 pub mod float_values;
+pub(crate) mod flow_collection;
 pub mod hyphens;
 pub mod indentation;
 pub mod key_duplicates;

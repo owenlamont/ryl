@@ -6,16 +6,16 @@ pub use crate::rules::flow_collection::{Forbid, Violation};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config(flow_collection::Config);
 
-pub const ID: &str = "brackets";
+pub const ID: &str = "braces";
 
 const DESCRIPTOR: FlowCollectionDescriptor = FlowCollectionDescriptor {
-    open: '[',
-    close: ']',
-    forbid_message: "forbidden flow sequence",
-    min_message: "too few spaces inside brackets",
-    max_message: "too many spaces inside brackets",
-    min_empty_message: "too few spaces inside empty brackets",
-    max_empty_message: "too many spaces inside empty brackets",
+    open: '{',
+    close: '}',
+    forbid_message: "forbidden flow mapping",
+    min_message: "too few spaces inside braces",
+    max_message: "too many spaces inside braces",
+    min_empty_message: "too few spaces inside empty braces",
+    max_empty_message: "too many spaces inside empty braces",
 };
 
 #[must_use]
