@@ -37,7 +37,7 @@ impl Env for SystemEnv {
         env::var("XDG_CONFIG_HOME")
             .ok()
             .map(PathBuf::from)
-            .or_else(dirs::config_dir)
+            .or_else(dirs_next::config_dir)
     }
     fn read_to_string(&self, p: &Path) -> Result<String, String> {
         match fs::read_to_string(p) {
@@ -1583,7 +1583,7 @@ fn find_project_config_core(envx: &dyn Env, inputs: &[PathBuf]) -> Option<(PathB
     let home_dir = envx
         .env_var("HOME")
         .map(PathBuf::from)
-        .or_else(dirs::home_dir);
+        .or_else(dirs_next::home_dir);
     let home_abs = home_dir.as_ref().map(|h| {
         if h.is_absolute() {
             h.clone()
