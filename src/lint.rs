@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    brackets, colons, commas, comments, comments_indentation, document_end, document_start,
+    braces, brackets, colons, commas, comments, comments_indentation, document_end, document_start,
     empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates, key_ordering,
     line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces,
     truthy,
@@ -102,6 +102,7 @@ pub fn lint_file(
 
     collect_colons_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
+    collect_braces_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
     collect_brackets_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
     collect_comments_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
@@ -405,6 +406,29 @@ fn collect_brackets_diagnostics(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(brackets::ID),
+            });
+        }
+    }
+}
+
+fn collect_braces_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(braces::ID)
+        && !cfg.is_rule_ignored(braces::ID, path, base_dir)
+    {
+        let rule_cfg = braces::Config::resolve(cfg);
+        for hit in braces::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(braces::ID),
             });
         }
     }
