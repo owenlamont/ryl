@@ -130,7 +130,7 @@ pub struct Violation {
 }
 
 struct ScalarRangeCollector {
-    ranges: Vec<Range<usize>>,
+    ranges: Vec<(usize, usize)>,
 }
 
 impl ScalarRangeCollector {
@@ -138,24 +138,21 @@ impl ScalarRangeCollector {
         Self { ranges: Vec::new() }
     }
 
-    fn push_range(&mut self, span: Span) {
-        let start = span.start.index();
-        let end = span.end.index();
-        if start < end {
-            self.ranges.push(start..end);
-        }
-    }
-
     fn into_sorted(mut self) -> Vec<Range<usize>> {
-        self.ranges.sort_by(|a, b| a.start.cmp(&b.start));
+        self.ranges.sort_by(|a, b| a.0.cmp(&b.0));
         self.ranges
+            .into_iter()
+            .filter_map(|(start, end)| (start <= end).then_some(start..end))
+            .collect()
     }
 }
 
 impl SpannedEventReceiver<'_> for ScalarRangeCollector {
     fn on_event(&mut self, ev: Event<'_>, span: Span) {
         if matches!(ev, Event::Scalar(..)) {
-            self.push_range(span);
+            let start = span.start.index();
+            let end = span.end.index();
+            self.ranges.push((start, end));
         }
     }
 }
@@ -168,13 +165,6 @@ struct SequenceState {
 #[derive(Debug, PartialEq, Eq)]
 enum AfterResult {
     SameLine { spaces: usize, next_idx: usize },
-    Ignored,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum BeforeResult {
-    SameLine { spaces: usize },
-    Empty,
     Ignored,
 }
 
@@ -351,28 +341,25 @@ fn handle_close(
         return;
     }
 
-    match compute_spaces_before_close(chars, idx) {
-        BeforeResult::SameLine { spaces } => {
-            let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-            let bracket_byte = chars[idx].0;
-            let (line, bracket_column) = line_and_column(line_starts, bracket_byte);
-            if cfg.max_spaces_inside() >= 0 && spaces_i64 > cfg.max_spaces_inside() {
-                let highlight = bracket_column.saturating_sub(1).max(1);
-                violations.push(Violation {
-                    line,
-                    column: highlight,
-                    message: TOO_MANY_SPACES_INSIDE.to_string(),
-                });
-            }
-            if cfg.min_spaces_inside() >= 0 && spaces_i64 < cfg.min_spaces_inside() {
-                violations.push(Violation {
-                    line,
-                    column: bracket_column,
-                    message: TOO_FEW_SPACES_INSIDE.to_string(),
-                });
-            }
+    if let Some(spaces) = compute_spaces_before_close(chars, idx) {
+        let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
+        let bracket_byte = chars[idx].0;
+        let (line, bracket_column) = line_and_column(line_starts, bracket_byte);
+        if cfg.max_spaces_inside() >= 0 && spaces_i64 > cfg.max_spaces_inside() {
+            let highlight = bracket_column.saturating_sub(1).max(1);
+            violations.push(Violation {
+                line,
+                column: highlight,
+                message: TOO_MANY_SPACES_INSIDE.to_string(),
+            });
         }
-        BeforeResult::Empty | BeforeResult::Ignored => {}
+        if cfg.min_spaces_inside() >= 0 && spaces_i64 < cfg.min_spaces_inside() {
+            violations.push(Violation {
+                line,
+                column: bracket_column,
+                message: TOO_FEW_SPACES_INSIDE.to_string(),
+            });
+        }
     }
 }
 
@@ -424,28 +411,19 @@ fn compute_spaces_after_open(chars: &[(usize, char)], open_idx: usize) -> AfterR
     AfterResult::Ignored
 }
 
-fn compute_spaces_before_close(chars: &[(usize, char)], close_idx: usize) -> BeforeResult {
-    if close_idx == 0 {
-        return BeforeResult::Ignored;
-    }
+fn compute_spaces_before_close(chars: &[(usize, char)], close_idx: usize) -> Option<usize> {
     let mut spaces = 0usize;
     let mut idx = close_idx;
-    while idx > 0 {
-        idx -= 1;
+    loop {
+        idx = idx
+            .checked_sub(1)
+            .expect("closing bracket should have a preceding opening bracket");
         match chars[idx].1 {
-            ' ' | '\t' => {
-                spaces += 1;
-            }
-            '\n' | '\r' | '#' => return BeforeResult::Ignored,
-            '[' => {
-                return BeforeResult::Empty;
-            }
-            _ => {
-                return BeforeResult::SameLine { spaces };
-            }
+            ' ' | '\t' => spaces += 1,
+            '\n' | '\r' | '#' | '[' => return None,
+            _ => return Some(spaces),
         }
     }
-    BeforeResult::Ignored
 }
 
 fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<usize> {

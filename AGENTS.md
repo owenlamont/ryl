@@ -108,7 +108,12 @@ hunting through scattered tips:
    recommended.
 4. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
    that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
-5. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+5. When you need to observe the exact flow through an uncovered branch, run the
+   failing test under `rust-lldb` (ships with the toolchain). Start with
+   `cargo test --no-run` and then
+   `rust-lldb target/debug/deps/<test-binary> -- <filter args>` to set breakpoints
+   on the problematic lines.
+6. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
 
 Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already listed in
 `rust-toolchain.toml`). Run from a Developer Command Prompt if linker tools go missing.

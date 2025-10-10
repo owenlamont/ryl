@@ -161,12 +161,9 @@ impl<'cfg, 'input> FloatValuesReceiver<'cfg, 'input> {
         let end_char = span.end.index();
         let start = span_char_index_to_byte(&self.chars, start_char, self.buffer_len);
         let end = span_char_index_to_byte(&self.chars, end_char, self.buffer_len);
-        if start <= end
-            && let Some(slice) = self.buffer.get(start..end)
-        {
-            return slice;
-        }
-        fallback
+        let range_start = start.min(end);
+        let range_end = start.max(end);
+        self.buffer.get(range_start..range_end).unwrap_or(fallback)
     }
 }
 
@@ -245,13 +242,10 @@ fn split_exponent(value: &str) -> Option<(&str, &str)> {
 }
 
 fn is_valid_exponent(exponent: &str) -> bool {
-    let Some(first) = exponent.chars().next() else {
-        return false;
-    };
-    if !matches!(first, 'e' | 'E') {
-        return false;
-    }
-    let rest = &exponent[first.len_utf8()..];
+    let rest = exponent
+        .strip_prefix('e')
+        .or_else(|| exponent.strip_prefix('E'))
+        .expect("exponent fragment must start with e/E");
     let rest = without_sign(rest);
     !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
 }
