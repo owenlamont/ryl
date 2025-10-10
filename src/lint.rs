@@ -3,9 +3,10 @@ use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::rules::{
-    colons, commas, comments, comments_indentation, document_end, document_start, empty_lines,
-    empty_values, float_values, hyphens, indentation, key_duplicates, key_ordering, line_length,
-    new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
+    brackets, colons, commas, comments, comments_indentation, document_end, document_start,
+    empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates, key_ordering,
+    line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, trailing_spaces,
+    truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +101,8 @@ pub fn lint_file(
     collect_commas_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
     collect_colons_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+
+    collect_brackets_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
     collect_comments_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
 
@@ -379,6 +382,29 @@ fn collect_colons_diagnostics(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(colons::ID),
+            });
+        }
+    }
+}
+
+fn collect_brackets_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(brackets::ID)
+        && !cfg.is_rule_ignored(brackets::ID, path, base_dir)
+    {
+        let rule_cfg = brackets::Config::resolve(cfg);
+        for hit in brackets::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(brackets::ID),
             });
         }
     }

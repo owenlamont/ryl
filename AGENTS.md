@@ -56,8 +56,10 @@ ryl is a CLI tool for linting yaml files
 - `prek` already runs the key tooling (e.g., trim/fix whitespace, `cargo fmt`,
   `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
   invoking those individually—just run `prek` once after code *or* docs updates.
-- Whenever source files are edited ensure the full test suite passes (run:
-- `cargo llvm-cov nextest --summary-only`)
+- Whenever source files are edited ensure the full test suite passes (run
+  `./scripts/coverage-missing.sh` (Unix) or
+  `pwsh ./scripts/coverage-missing.ps1` (Windows) to regenerate coverage; it reports
+  uncovered ranges and confirms when coverage is complete)
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -96,15 +98,39 @@ ryl is a CLI tool for linting yaml files
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
 hunting through scattered tips:
 
-1. Quick status before pushing: `cargo llvm-cov nextest --summary-only`.
-2. If something is uncovered, generate a focused text report with
-   `cargo llvm-cov --text --show-missing-lines --output-path target/llvm-cov/report.txt`
-   and search for `^0` in that file to locate gaps.
-3. Need more context? Produce HTML (`cargo llvm-cov nextest --html`) or LCOV
-   (`cargo llvm-cov nextest --lcov --output-path lcov.info`).
+1. Quick status before pushing: run `./scripts/coverage-missing.sh` (Unix) or
+   `pwsh ./scripts/coverage-missing.ps1` (Windows). It reruns the coverage suite and
+   prints any uncovered ranges, or explicitly confirms when coverage is complete.
+2. If the script reports files, extend CLI/system tests targeting those ranges until
+   the script produces no output.
+3. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
+   after running the script. HTML is not easily machine readable though so not
+   recommended.
 4. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
    that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
-5. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+5. When you need to observe the exact flow through an uncovered branch, run the
+   failing test under `rust-lldb` (ships with the toolchain). Start with
+   `cargo test --no-run` and then
+   `rust-lldb target/debug/deps/<test-binary> -- <filter args>` to set breakpoints
+   on the problematic lines.
+6. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+
+### Coverage-Friendly Rust Idioms
+
+- Guard invariants with `expect` (or an early `return Err(...)`) when the
+  “else” branch is truly unreachable. Leaving a `return` in the unreachable path
+  often shows up as a permanent uncovered region even though the condition is
+  ruled out. Reserve `assert!` for test-only code or cases where a runtime panic
+  is acceptable.
+- When walking indices backwards, call `checked_sub(1).expect("…")` instead of
+  matching on `checked_sub`; the `expect` documents the invariant and removes
+  the uncovered `None` branch that instrumentation reports.
+- When collecting spans, store the raw tuple `(start, end)` and filter once at
+  the end instead of pushing `Range` conditionally; this keeps the guard logic
+  centralized and ensures LLVM records the conversion branch exactly once.
+- Normalize prefix checks with `strip_prefix(...).expect(...)` when downstream
+  code already guarantees the prefix; this removes the otherwise uncovered
+  `return` path that instrumentation would highlight.
 
 Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already listed in
 `rust-toolchain.toml`). Run from a Developer Command Prompt if linker tools go missing.
@@ -132,8 +158,8 @@ sticking to the quick-status step above.
   When writing tests, prefer inputs like `"café"` or `"å"` to ensure coverage of
   character vs byte offset logic.
 - Use meaningful function and variable names in tests—comments are discouraged.
-- Avoid `#[cfg(test)]` modules inside `src/`; add coverage through integration tests in
-  `tests/` so LLVM regions stay unique.
+- `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
+   tests in `tests/` so LLVM regions stay unique.
 
 ## Release Checklist
 

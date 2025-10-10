@@ -47,3 +47,61 @@ fn skips_quoted_and_tagged_values() {
     assert_eq!(hits[0].column, 8);
     assert_eq!(hits[0].message, "forbidden decimal missing 0 prefix \".5\"");
 }
+
+#[test]
+fn scientific_notation_edge_cases() {
+    let resolved = build_config(
+        "rules:\n  float-values:\n    forbid-scientific-notation: true\n    require-numeral-before-decimal: true\n",
+    );
+
+    let buffer = "\
+scientific_lower: .5e+2
+scientific_upper: -.5E-2
+missing_mantissa: e3
+invalid_mantissa: a.e2
+invalid_fraction: 1.ae2
+missing_digits_after_dot: .e2
+bare_decimal: .
+missing_exponent: .5e
+signed_without_digits: .5e+
+invalid_exponent_chars: 1e+Q
+";
+    let hits = float_values::check(buffer, &resolved);
+    let messages: Vec<_> = hits.iter().map(|d| d.message.as_str()).collect();
+
+    assert_eq!(
+        hits.len(),
+        4,
+        "expected two diagnostics per scientific value"
+    );
+    assert!(
+        messages.contains(&"forbidden scientific notation \".5e+2\""),
+        "messages: {messages:?}"
+    );
+    assert!(
+        messages.contains(&"forbidden decimal missing 0 prefix \".5e+2\""),
+        "messages: {messages:?}"
+    );
+    assert!(
+        messages.contains(&"forbidden scientific notation \"-.5E-2\""),
+        "messages: {messages:?}"
+    );
+    assert!(
+        messages.contains(&"forbidden decimal missing 0 prefix \"-.5E-2\""),
+        "messages: {messages:?}"
+    );
+    let forbidden = [
+        "\"a.e2\"",
+        "\"1.ae2\"",
+        "\".e2\"",
+        "\".5e\"",
+        "\".5e+\"",
+        "\"1e+Q\"",
+    ];
+    assert!(
+        messages
+            .iter()
+            .all(|m| forbidden.iter().all(|value| !m.contains(value))),
+        "unexpected diagnostics: {messages:?}"
+    );
+}
