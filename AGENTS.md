@@ -115,6 +115,23 @@ hunting through scattered tips:
    on the problematic lines.
 6. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
 
+### Coverage-Friendly Rust Idioms
+
+- Guard invariants with `expect` (or an early `return Err(...)`) when the
+  “else” branch is truly unreachable. Leaving a `return` in the unreachable path
+  often shows up as a permanent uncovered region even though the condition is
+  ruled out. Reserve `assert!` for test-only code or cases where a runtime panic
+  is acceptable.
+- When walking indices backwards, call `checked_sub(1).expect("…")` instead of
+  matching on `checked_sub`; the `expect` documents the invariant and removes
+  the uncovered `None` branch that instrumentation reports.
+- When collecting spans, store the raw tuple `(start, end)` and filter once at
+  the end instead of pushing `Range` conditionally; this keeps the guard logic
+  centralized and ensures LLVM records the conversion branch exactly once.
+- Normalize prefix checks with `strip_prefix(...).expect(...)` when downstream
+  code already guarantees the prefix; this removes the otherwise uncovered
+  `return` path that instrumentation would highlight.
+
 Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already listed in
 `rust-toolchain.toml`). Run from a Developer Command Prompt if linker tools go missing.
 
