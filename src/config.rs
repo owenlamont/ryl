@@ -665,6 +665,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             }
 
             match name {
+                "anchors" => validate_anchors_option(key, val)?,
                 "braces" => validate_brace_like_option("braces", key, val)?,
                 "brackets" => validate_brace_like_option("brackets", key, val)?,
                 "document-end" => validate_document_end_option(key, val)?,
@@ -799,6 +800,30 @@ fn validate_brace_like_option(rule: &str, key: &YamlOwned, val: &YamlOwned) -> R
         }),
         other => Err(format!(
             "invalid config: unknown option \"{other}\" for rule \"{rule}\""
+        )),
+    }
+}
+
+fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+    let Some(name) = key.as_str() else {
+        let key_name = describe_rule_option_key(key);
+        return Err(format!(
+            "invalid config: unknown option \"{key_name}\" for rule \"anchors\""
+        ));
+    };
+
+    match name {
+        "forbid-undeclared-aliases" | "forbid-duplicated-anchors" | "forbid-unused-anchors" => {
+            if val.as_bool().is_some() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "invalid config: option \"{name}\" of \"anchors\" should be bool"
+                ))
+            }
+        }
+        other => Err(format!(
+            "invalid config: unknown option \"{other}\" for rule \"anchors\""
         )),
     }
 }

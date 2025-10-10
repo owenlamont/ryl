@@ -8,7 +8,7 @@ fn rules_with_non_string_key_are_skipped() {
 rules:
   ? [1, 2]
   : { level: warning }
-  anchors: { style: custom }
+  anchors: { forbid-undeclared-aliases: false }
 "#;
     let ctx = discover_config(
         &[],
