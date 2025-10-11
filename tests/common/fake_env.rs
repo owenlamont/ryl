@@ -10,6 +10,7 @@ pub struct FakeEnv {
     exists: HashSet<PathBuf>,
     vars: HashMap<String, String>,
     config_dir: Option<PathBuf>,
+    home: Option<PathBuf>,
 }
 
 #[allow(dead_code)]
@@ -45,6 +46,11 @@ impl FakeEnv {
         self.vars.insert(key.into(), value.into());
         self
     }
+
+    pub fn with_home(mut self, path: impl Into<PathBuf>) -> Self {
+        self.home = Some(path.into());
+        self
+    }
 }
 
 impl Env for FakeEnv {
@@ -69,5 +75,12 @@ impl Env for FakeEnv {
 
     fn env_var(&self, key: &str) -> Option<String> {
         self.vars.get(key).cloned()
+    }
+
+    fn home_dir(&self) -> Option<PathBuf> {
+        self.home
+            .clone()
+            .or_else(|| self.vars.get("HOME").map(PathBuf::from))
+            .or_else(|| self.vars.get("USERPROFILE").map(PathBuf::from))
     }
 }

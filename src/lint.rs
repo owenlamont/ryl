@@ -1,7 +1,7 @@
-use std::fs;
 use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
+use crate::decoder;
 use crate::rules::{
     anchors, braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates,
@@ -59,8 +59,7 @@ pub fn lint_file(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
+    let content = decoder::read_file(path)?;
 
     let mut diagnostics: Vec<LintProblem> = Vec::new();
 

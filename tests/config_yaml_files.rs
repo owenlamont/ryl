@@ -39,3 +39,24 @@ fn yaml_files_invalid_pattern_is_skipped() {
     let base = ctx.base_dir.clone();
     assert!(!ctx.config.is_yaml_candidate(&base.join("file.yaml"), &base));
 }
+
+#[test]
+fn yaml_files_negation_excludes_matches() {
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some("yaml-files: ['*.yaml', '!skip.yaml']\n".into()),
+        },
+    )
+    .expect("yaml-files with negation should parse");
+    let base = ctx.base_dir.clone();
+    assert!(
+        ctx.config.is_yaml_candidate(&base.join("keep.yaml"), &base),
+        "positive pattern should include keep.yaml"
+    );
+    assert!(
+        !ctx.config.is_yaml_candidate(&base.join("skip.yaml"), &base),
+        "negated pattern should exclude skip.yaml"
+    );
+}

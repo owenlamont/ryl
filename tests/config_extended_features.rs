@@ -101,8 +101,9 @@ fn extends_resolves_relative_file_paths() {
     let base = ctx.base_dir.clone();
 
     assert!(
-        ctx.config
-            .is_file_ignored(&td.path().join("base/one.yaml"), &base)
+        !ctx.config
+            .is_file_ignored(&td.path().join("base/one.yaml"), &base),
+        "parent ignore entries should be replaced by child overrides"
     );
     assert!(
         ctx.config
