@@ -56,12 +56,12 @@ repos:
         pass_filenames: false
         require_serial: true
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.0.153
+    rev: v0.0.155
     hooks:
       - id: rumdl
         args: [--fix]
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: v1.37.2
+    rev: v1.38.1
     hooks:
       - id: typos
         args: [
