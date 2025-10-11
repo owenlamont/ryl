@@ -410,7 +410,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "dirs-next",
- "globset",
+ "encoding_rs",
  "ignore",
  "rayon",
  "regex",

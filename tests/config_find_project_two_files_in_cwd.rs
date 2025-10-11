@@ -22,6 +22,9 @@ impl ryl::config::Env for FakeEnv {
     fn path_exists(&self, p: &Path) -> bool {
         self.exists.contains(p)
     }
+    fn home_dir(&self) -> Option<PathBuf> {
+        None
+    }
     fn env_var(&self, _key: &str) -> Option<String> {
         None
     }

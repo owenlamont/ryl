@@ -1,13 +1,13 @@
+use std::borrow::Cow;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 
-use crate::conf;
+use crate::{conf, decoder};
 
 /// Abstraction over environment/filesystem to enable full test coverage.
 /// Minimal environment abstraction used by tests to cover file system and env-var behavior.
@@ -16,6 +16,8 @@ pub trait Env {
     fn current_dir(&self) -> PathBuf;
     /// Platform configuration directory (e.g., XDG config dir).
     fn config_dir(&self) -> Option<PathBuf>;
+    /// Home directory for tilde expansion.
+    fn home_dir(&self) -> Option<PathBuf>;
     /// Read file contents.
     ///
     /// # Errors
@@ -39,10 +41,19 @@ impl Env for SystemEnv {
             .map(PathBuf::from)
             .or_else(dirs_next::config_dir)
     }
+    fn home_dir(&self) -> Option<PathBuf> {
+        dirs_next::home_dir()
+    }
     fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        match fs::read_to_string(p) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(format!("failed to read config file {}: {e}", p.display())),
+        let bytes = match fs::read(p) {
+            Ok(data) => data,
+            Err(err) => {
+                return Err(format!("failed to read config file {}: {err}", p.display()));
+            }
+        };
+        match decoder::decode_bytes(&bytes) {
+            Ok(text) => Ok(text),
+            Err(err) => Err(format!("failed to read config file {}: {err}", p.display())),
         }
     }
     fn path_exists(&self, p: &Path) -> bool {
@@ -50,6 +61,39 @@ impl Env for SystemEnv {
     }
     fn env_var(&self, key: &str) -> Option<String> {
         env::var(key).ok()
+    }
+}
+
+struct ClosureEnv<'a> {
+    get: &'a dyn Fn(&str) -> Option<String>,
+}
+
+impl Env for ClosureEnv<'_> {
+    fn current_dir(&self) -> PathBuf {
+        SystemEnv.current_dir()
+    }
+
+    fn config_dir(&self) -> Option<PathBuf> {
+        SystemEnv.config_dir()
+    }
+
+    fn home_dir(&self) -> Option<PathBuf> {
+        (self.get)("HOME")
+            .or_else(|| (self.get)("USERPROFILE"))
+            .map(PathBuf::from)
+            .or_else(|| SystemEnv.home_dir())
+    }
+
+    fn read_to_string(&self, p: &Path) -> Result<String, String> {
+        SystemEnv.read_to_string(p)
+    }
+
+    fn path_exists(&self, p: &Path) -> bool {
+        SystemEnv.path_exists(p)
+    }
+
+    fn env_var(&self, key: &str) -> Option<String> {
+        (self.get)(key)
     }
 }
 
@@ -64,7 +108,7 @@ pub struct YamlLintConfig {
     rules: std::collections::BTreeMap<String, YamlOwned>,
     rule_filters: std::collections::BTreeMap<String, RuleFilter>,
     yaml_file_patterns: Vec<String>,
-    yaml_matcher: Option<GlobSet>,
+    yaml_matcher: Option<Gitignore>,
     locale: Option<String>,
 }
 
@@ -240,18 +284,19 @@ impl YamlLintConfig {
         self.locale.as_deref()
     }
 
-    fn build_yaml_matcher(&mut self) {
-        self.yaml_matcher = if self.yaml_file_patterns.is_empty() {
-            None
-        } else {
-            let mut b = GlobSetBuilder::new();
-            for pat in &self.yaml_file_patterns {
-                if let Ok(glob) = Glob::new(pat) {
-                    b.add(glob);
-                }
-            }
-            b.build().ok()
-        };
+    fn build_yaml_matcher(&mut self, base_dir: &Path) {
+        if self.yaml_file_patterns.is_empty() {
+            self.yaml_matcher = None;
+            return;
+        }
+
+        let mut builder = GitignoreBuilder::new(base_dir);
+        for pat in &self.yaml_file_patterns {
+            let normalized = pat.trim_end_matches(['\r']);
+            let _ = builder.add_line(None, normalized);
+        }
+
+        self.yaml_matcher = builder.build().ok();
     }
 
     fn refresh_rule_filter(&mut self, rule: &str) {
@@ -308,9 +353,19 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
-        let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
         if let Some(matcher) = &self.yaml_matcher {
-            return matcher.is_match(rel);
+            let rel: Cow<'_, Path> = path.strip_prefix(base_dir).map_or_else(
+                |_| Cow::Owned(path.file_name().map(PathBuf::from).unwrap_or_default()),
+                Cow::Borrowed,
+            );
+            let matched = matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
+            if matched.is_ignore() {
+                return true;
+            }
+            if matched.is_whitelist() {
+                return false;
+            }
+            return false;
         }
         crate::discover::is_yaml_path(path)
     }
@@ -345,11 +400,14 @@ impl YamlLintConfig {
         }
 
         if let Some(node) = ignore {
+            cfg.ignore_patterns.clear();
+            cfg.ignore_from_files.clear();
             let mut patterns = load_ignore_patterns(node)?;
             cfg.ignore_patterns.append(&mut patterns);
         }
 
         if let Some(node) = ignore_from_file {
+            cfg.ignore_patterns.clear();
             cfg.ignore_from_files = load_ignore_from_files(node)?;
         }
 
@@ -494,7 +552,7 @@ impl YamlLintConfig {
             None
         };
 
-        self.build_yaml_matcher();
+        self.build_yaml_matcher(base_dir);
 
         for filter in self.rule_filters.values_mut() {
             build_rule_filter(filter, envx, base_dir)?;
@@ -1485,26 +1543,6 @@ pub fn discover_config_with_env(
     overrides: &Overrides,
     env_get: &dyn Fn(&str) -> Option<String>,
 ) -> Result<ConfigContext, String> {
-    struct ClosureEnv<'a> {
-        get: &'a dyn Fn(&str) -> Option<String>,
-    }
-    impl Env for ClosureEnv<'_> {
-        fn current_dir(&self) -> PathBuf {
-            SystemEnv.current_dir()
-        }
-        fn config_dir(&self) -> Option<PathBuf> {
-            SystemEnv.config_dir()
-        }
-        fn read_to_string(&self, p: &Path) -> Result<String, String> {
-            SystemEnv.read_to_string(p)
-        }
-        fn path_exists(&self, p: &Path) -> bool {
-            SystemEnv.path_exists(p)
-        }
-        fn env_var(&self, key: &str) -> Option<String> {
-            (self.get)(key)
-        }
-    }
     discover_config_with(&[], overrides, &ClosureEnv { get: env_get })
 }
 
@@ -1568,9 +1606,19 @@ fn ctx_from_config_path_core(envx: &dyn Env, p: &Path) -> Result<ConfigContext, 
     finalize_context(envx, cfg, base, Some(p.to_path_buf()))
 }
 
+fn expand_user_path(envx: &dyn Env, raw: &str) -> PathBuf {
+    if let Some(rest) = raw.strip_prefix('~') {
+        let trimmed = rest.trim_start_matches(['/', '\\']);
+        return envx
+            .home_dir()
+            .map_or_else(|| PathBuf::from(raw), |home| home.join(trimmed));
+    }
+    PathBuf::from(raw)
+}
+
 fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> {
     envx.env_var("YAMLLINT_CONFIG_FILE")
-        .map(PathBuf::from)
+        .map(|raw| expand_user_path(envx, &raw))
         .filter(|p| envx.path_exists(p))
         .map(|p| ctx_from_config_path_core(envx, &p))
         .transpose()

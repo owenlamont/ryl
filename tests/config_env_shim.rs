@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ryl::config::{Env, Overrides, SystemEnv, discover_config_with, discover_per_file_with};
+use tempfile::tempdir;
 
 #[derive(Default)]
 struct FakeEnv {
@@ -10,6 +11,7 @@ struct FakeEnv {
     files: HashMap<PathBuf, String>,
     exists: HashSet<PathBuf>,
     vars: HashMap<String, String>,
+    home: Option<PathBuf>,
 }
 
 impl FakeEnv {
@@ -33,6 +35,10 @@ impl FakeEnv {
         self.vars.insert(k.into(), v.into());
         self
     }
+    fn with_home(mut self, p: impl Into<PathBuf>) -> Self {
+        self.home = Some(p.into());
+        self
+    }
 }
 
 impl Env for FakeEnv {
@@ -53,6 +59,12 @@ impl Env for FakeEnv {
     }
     fn env_var(&self, key: &str) -> Option<String> {
         self.vars.get(key).cloned()
+    }
+    fn home_dir(&self) -> Option<PathBuf> {
+        self.home
+            .clone()
+            .or_else(|| self.vars.get("HOME").map(PathBuf::from))
+            .or_else(|| self.vars.get("USERPROFILE").map(PathBuf::from))
     }
 }
 
@@ -104,6 +116,67 @@ fn shim_env_var_points_to_file_base_dir_from_cwd() {
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.base_dir, PathBuf::from("/tmp/cwd"));
     assert_eq!(ctx.source.unwrap(), PathBuf::from(""));
+}
+
+#[test]
+fn shim_env_var_with_tilde_expands_home() {
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .with_home("/home/tester")
+        .set_var("YAMLLINT_CONFIG_FILE", "~/.config/yamllint/custom.yml")
+        .add_file(
+            "/home/tester/.config/yamllint/custom.yml",
+            cfg_rules_empty(),
+        );
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(
+        ctx.source.unwrap(),
+        PathBuf::from("/home/tester/.config/yamllint/custom.yml")
+    );
+}
+
+#[test]
+fn shim_env_var_tilde_alone_uses_home_directory() {
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .with_home("/home/tester")
+        .set_var("YAMLLINT_CONFIG_FILE", "~")
+        .add_file("/home/tester", cfg_rules_empty());
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(ctx.source.unwrap(), PathBuf::from("/home/tester"));
+}
+
+#[test]
+fn shim_env_var_tilde_without_home_keeps_literal_path() {
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .set_var("YAMLLINT_CONFIG_FILE", "~/.config/yamllint/custom.yml")
+        .add_file("~/.config/yamllint/custom.yml", cfg_rules_empty());
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(
+        ctx.source.unwrap(),
+        PathBuf::from("~/.config/yamllint/custom.yml")
+    );
+}
+
+#[test]
+fn system_env_home_dir_accessible() {
+    let env = SystemEnv;
+    let _ = env.home_dir();
+}
+
+#[test]
+fn shim_env_var_userprofile_handles_windows_tilde_backslash() {
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .set_var("USERPROFILE", "/profiles/user")
+        .set_var("YAMLLINT_CONFIG_FILE", "~\\config.yml")
+        .add_file("/profiles/user/config.yml", cfg_rules_empty());
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(
+        ctx.source.unwrap(),
+        PathBuf::from("/profiles/user/config.yml")
+    );
 }
 
 #[test]
@@ -179,6 +252,38 @@ fn shim_systemenv_read_success_is_used() {
     )
     .unwrap();
     assert!(ctx.source.unwrap().ends_with("ok.yml"));
+}
+
+#[test]
+fn system_env_read_invalid_encoding_reports_error() {
+    let td = tempdir().unwrap();
+    let path = td.path().join("bad.yml");
+    std::fs::write(&path, [0xFFu8, 0xFE, 0x00]).unwrap();
+    let env = SystemEnv;
+    let err = env.read_to_string(&path).unwrap_err();
+    assert!(err.contains("invalid"));
+}
+
+#[test]
+fn shim_env_var_tilde_slash_only_returns_home() {
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .set_var("HOME", "/home/tester")
+        .set_var("YAMLLINT_CONFIG_FILE", "~/")
+        .add_file("/home/tester", cfg_rules_empty());
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(ctx.source.unwrap(), PathBuf::from("/home/tester"));
+}
+
+#[test]
+fn shim_env_var_tilde_backslash_only_returns_home() {
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .set_var("USERPROFILE", "/profiles/user")
+        .set_var("YAMLLINT_CONFIG_FILE", "~\\")
+        .add_file("/profiles/user", cfg_rules_empty());
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(ctx.source.unwrap(), PathBuf::from("/profiles/user"));
 }
 
 #[test]
