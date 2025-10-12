@@ -102,6 +102,16 @@ fn inline_comment_reports_both_issues() {
 }
 
 #[test]
+fn url_fragment_does_not_count_as_comment() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let hits = comments::check("link: https://example.com/#anchor\n", &resolved);
+    assert!(
+        hits.is_empty(),
+        "URL fragments should not be treated as comments: {hits:?}"
+    );
+}
+
+#[test]
 fn ignores_hash_characters_inside_quotes() {
     let resolved = build_config("rules:\n  comments: {}\n");
     let hits = comments::check("string: \"value #not comment\" # comment\n", &resolved);

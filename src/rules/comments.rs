@@ -203,7 +203,9 @@ fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
                 state.in_double = !state.in_double;
             }
             '#' if !state.in_single && !state.in_double => {
-                return Some(idx);
+                if is_comment_position(line, idx) {
+                    return Some(idx);
+                }
             }
             _ => {}
         }
@@ -241,6 +243,10 @@ fn leading_indent_width(line: &str) -> usize {
     line.chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))
         .count()
+}
+
+fn is_comment_position(line: &str, idx: usize) -> bool {
+    line[..idx].chars().last().is_none_or(char::is_whitespace)
 }
 
 fn strip_trailing_comment_for_block(content: &str) -> &str {

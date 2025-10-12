@@ -26,10 +26,24 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
         return diagnostics;
     }
 
-    let lines: Vec<LineInfo> = buffer
-        .lines()
-        .map(|line| classify_line(line.trim_end_matches('\r')))
-        .collect();
+    let mut block_tracker = BlockScalarTracker::default();
+    let mut lines: Vec<LineInfo> = Vec::new();
+
+    for raw_line in buffer.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        let indent = leading_whitespace_width(line);
+        let content = &line[indent..];
+
+        let consumed = block_tracker.consume_line(indent, content);
+        let kind = if consumed {
+            LineKind::Other
+        } else {
+            classify_line_kind(content)
+        };
+
+        lines.push(LineInfo { indent, kind });
+        block_tracker.observe_indicator(indent, content);
+    }
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
@@ -42,10 +56,8 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
                 let prev_indent = prev_content_indents[idx].unwrap_or(0);
                 let next_indent = next_content_indents[idx].unwrap_or(0);
 
-                let reference_indent = last_comment_indent.map_or_else(
-                    || prev_indent.max(next_indent),
-                    |previous_comment_indent| previous_comment_indent,
-                );
+                let reference_indent =
+                    last_comment_indent.unwrap_or_else(|| prev_indent.max(next_indent));
 
                 if line.indent != reference_indent && line.indent != next_indent {
                     diagnostics.push(Violation {
@@ -79,25 +91,15 @@ enum LineKind {
     Other,
 }
 
-fn classify_line(line: &str) -> LineInfo {
-    let indent = leading_whitespace_width(line);
-    let trimmed = line[indent..].trim_start_matches([' ', '\t']);
+fn classify_line_kind(content: &str) -> LineKind {
+    let trimmed = content.trim_start_matches([' ', '\t']);
 
     if trimmed.is_empty() {
-        LineInfo {
-            indent,
-            kind: LineKind::Empty,
-        }
+        LineKind::Empty
     } else if trimmed.starts_with('#') {
-        LineInfo {
-            indent,
-            kind: LineKind::Comment,
-        }
+        LineKind::Comment
     } else {
-        LineInfo {
-            indent,
-            kind: LineKind::Other,
-        }
+        LineKind::Other
     }
 }
 
@@ -105,6 +107,58 @@ fn leading_whitespace_width(line: &str) -> usize {
     line.chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))
         .count()
+}
+
+#[derive(Debug, Default)]
+struct BlockScalarTracker {
+    state: Option<BlockScalarState>,
+}
+
+#[derive(Debug)]
+struct BlockScalarState {
+    indicator_indent: usize,
+    content_indent: Option<usize>,
+}
+
+impl BlockScalarTracker {
+    fn consume_line(&mut self, indent: usize, content: &str) -> bool {
+        let Some(state) = self.state.as_mut() else {
+            return false;
+        };
+
+        if content.trim().is_empty() {
+            return true;
+        }
+
+        let updated_indent = if let Some(content_indent) = state.content_indent {
+            if indent >= content_indent {
+                return true;
+            }
+            if indent <= state.indicator_indent {
+                self.state = None;
+                return false;
+            }
+            content_indent.min(indent)
+        } else {
+            if indent <= state.indicator_indent {
+                self.state = None;
+                return false;
+            }
+            indent
+        };
+        state.content_indent = Some(updated_indent);
+        true
+    }
+
+    fn observe_indicator(&mut self, indent: usize, content: &str) {
+        let candidate = strip_trailing_comment_for_block(content).trim_end();
+        if is_block_scalar_indicator(candidate) {
+            self.state = Some(BlockScalarState {
+                indicator_indent: indent,
+                content_indent: None,
+            });
+        }
+    }
 }
 
 fn compute_prev_content_indents(lines: &[LineInfo]) -> Vec<Option<usize>> {
@@ -129,4 +183,49 @@ fn compute_next_content_indents(lines: &[LineInfo]) -> Vec<Option<usize>> {
         result[idx] = upcoming;
     }
     result
+}
+
+fn strip_trailing_comment_for_block(content: &str) -> &str {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    for (idx, ch) in content.char_indices() {
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            continue;
+        }
+
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\'' if !in_double => {
+                in_single = !in_single;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+            }
+            '#' if !in_single && !in_double => {
+                return content[..idx].trim_end();
+            }
+            _ => {}
+        }
+    }
+    content.trim_end()
+}
+
+fn is_block_scalar_indicator(content: &str) -> bool {
+    if content.is_empty() {
+        return false;
+    }
+
+    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
+    trimmed.ends_with("|-")
+        || trimmed.ends_with("|+")
+        || trimmed.ends_with('|')
+        || trimmed.ends_with(">-")
+        || trimmed.ends_with(">+")
+        || trimmed.ends_with('>')
 }

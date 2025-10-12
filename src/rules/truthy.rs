@@ -301,7 +301,12 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut parser = Parser::new_from_str(buffer);
     let mut receiver = TruthyReceiver::new(cfg, directives);
     let _ = parser.load(&mut receiver, true);
-    receiver.diagnostics
+    let mut diagnostics = receiver.diagnostics;
+    let disabled_lines = collect_truthy_disable_lines(buffer);
+    if !disabled_lines.is_empty() {
+        diagnostics.retain(|violation| !disabled_lines.contains(&violation.line));
+    }
+    diagnostics
 }
 
 fn collect_yaml_directives(buffer: &str) -> Vec<(usize, (u32, u32))> {
@@ -330,4 +335,84 @@ fn parse_yaml_directive(line: &str) -> Option<(u32, u32)> {
     let major = major_raw.parse().ok()?;
     let minor = minor_raw.parse().ok()?;
     Some((major, minor))
+}
+
+fn collect_truthy_disable_lines(buffer: &str) -> HashSet<usize> {
+    let mut disabled = HashSet::new();
+    let mut disable_next = false;
+
+    for (index, segment) in buffer.split_inclusive(['\n']).enumerate() {
+        let line_number = index + 1;
+        let line = segment.trim_end_matches(['\n', '\r']);
+
+        if disable_next {
+            disabled.insert(line_number);
+            disable_next = false;
+        }
+
+        let Some(comment_start) = find_comment_start(line) else {
+            continue;
+        };
+
+        let inline = !line[..comment_start].trim().is_empty();
+        let comment = line[comment_start..].trim_end();
+
+        if disables_truthy(comment) {
+            if inline {
+                disabled.insert(line_number);
+            } else {
+                disable_next = true;
+            }
+        }
+    }
+
+    disabled
+}
+
+fn find_comment_start(line: &str) -> Option<usize> {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    for (idx, ch) in line.char_indices() {
+        match ch {
+            '\\' if !in_single => {
+                escaped = !escaped;
+            }
+            '\'' if !escaped && !in_double => {
+                in_single = !in_single;
+            }
+            '"' if !escaped && !in_single => {
+                in_double = !in_double;
+            }
+            '#' if !escaped && !in_single && !in_double => return Some(idx),
+            _ => {
+                escaped = false;
+            }
+        }
+    }
+    None
+}
+
+fn disables_truthy(comment: &str) -> bool {
+    let trimmed = comment.trim_start_matches('#').trim_start();
+    if !trimmed.starts_with("yamllint disable-line") {
+        return false;
+    }
+    let rest = trimmed.trim_start_matches("yamllint disable-line").trim();
+    if rest.is_empty() {
+        return true;
+    }
+
+    let mut any_rules = false;
+    let mut matches = false;
+    for token in rest.split_whitespace() {
+        if let Some(name) = token.strip_prefix("rule:") {
+            any_rules = true;
+            if name == ID {
+                matches = true;
+            }
+        }
+    }
+
+    if any_rules { matches } else { true }
 }

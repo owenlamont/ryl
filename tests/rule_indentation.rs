@@ -324,6 +324,22 @@ fn plain_scalar_contexts_are_tracked() {
 }
 
 #[test]
+fn top_level_indented_plain_scalar_is_permitted() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "  value\n    deeper\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
+fn sequence_of_mappings_reports_incorrect_dedent() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "- key:\n    - nested\n- other\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(hits.len(), 1, "unexpected diagnostics: {hits:?}");
+    assert!(hits[0].message.contains("expected 2 but found 0"));
+}
+
+#[test]
 fn complex_mapping_keys_are_classified_correctly() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "root:\n  key\\with: value\n  'single_quote': value\n  \"double_quote\": value\n  {braced}: value\n  [bracketed]: value\n";
