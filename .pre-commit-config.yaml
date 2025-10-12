@@ -60,6 +60,10 @@ repos:
     hooks:
       - id: rumdl
         args: [--fix]
+  - repo: https://github.com/owenlamont/ryl-pre-commit
+    rev: v0.3.1
+    hooks:
+      - id: ryl
   - repo: https://github.com/adhtruong/mirrors-typos
     rev: v1.38.1
     hooks:
