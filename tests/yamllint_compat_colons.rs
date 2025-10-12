@@ -251,3 +251,44 @@ fn colons_rule_matches_yamllint() {
         );
     }
 }
+
+#[test]
+fn inline_comment_after_value_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("colons.yaml");
+    fs::write(&cfg_path, "rules:\n  document-start: disable\n").unwrap();
+
+    let yaml_path = dir.path().join("inline.yaml");
+    fs::write(
+        &yaml_path,
+        "---\n- debug:  # noqa comment\n    var: value\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_output) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_output) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(ryl_code, 0, "ryl emitted diagnostics ({})", scenario.label);
+        assert_eq!(
+            yam_code, 0,
+            "yamllint emitted diagnostics ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_output, yam_output,
+            "output mismatch ({})",
+            scenario.label
+        );
+    }
+}

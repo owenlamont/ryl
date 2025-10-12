@@ -102,6 +102,16 @@ fn inline_comment_reports_both_issues() {
 }
 
 #[test]
+fn url_fragment_does_not_count_as_comment() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let hits = comments::check("link: https://example.com/#anchor\n", &resolved);
+    assert!(
+        hits.is_empty(),
+        "URL fragments should not be treated as comments: {hits:?}"
+    );
+}
+
+#[test]
 fn ignores_hash_characters_inside_quotes() {
     let resolved = build_config("rules:\n  comments: {}\n");
     let hits = comments::check("string: \"value #not comment\" # comment\n", &resolved);
@@ -160,5 +170,27 @@ fn multiline_quoted_scalars_ignore_hashes() {
     assert!(
         hits.is_empty(),
         "quoted scalar hash should not be comment: {hits:?}"
+    );
+}
+
+#[test]
+fn block_scalar_lines_do_not_trigger_comment_checks() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let input = "job:\n  run: |\n    line one\n   line two\n    line three\n  next: value\n";
+    let hits = comments::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "block scalar content must be ignored: {hits:?}"
+    );
+}
+
+#[test]
+fn empty_block_scalar_is_ignored() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let input = "job:\n  run: |\n  next: value\n";
+    let hits = comments::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "empty block scalar should reset tracker: {hits:?}"
     );
 }

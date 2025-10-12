@@ -8,6 +8,18 @@ pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
 pub const FORBIDDEN_MESSAGE: &str = "found forbidden document end \"...\"";
 
+#[must_use]
+pub fn classify_document_end_marker_bytes(bytes: &[u8]) -> Option<&'static str> {
+    let trimmed = trim_ascii(bytes);
+    if trimmed == b"..." {
+        Some("...")
+    } else if trimmed == b"---" {
+        Some("---")
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
     present: bool,
@@ -41,6 +53,13 @@ pub struct Violation {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Marker {
+    ExplicitEnd,
+    DocumentStart,
+    Other,
+}
+
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut parser = Parser::new_from_str(buffer);
@@ -67,9 +86,11 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
     }
 
     fn handle_document_end(&mut self, span: Span) {
+        let marker = self.marker(span);
+
         if !self.config.requires_marker() {
             self.pending_stream_end_violation = false;
-            if self.slice(span) == "..." {
+            if matches!(marker, Marker::ExplicitEnd) {
                 self.violations.push(Violation {
                     line: span.start.line(),
                     column: span.start.col() + 1,
@@ -79,11 +100,11 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
             return;
         }
 
-        match self.slice(span) {
-            "..." => {
+        match marker {
+            Marker::ExplicitEnd => {
                 self.pending_stream_end_violation = false;
             }
-            "---" => {
+            Marker::DocumentStart => {
                 self.pending_stream_end_violation = false;
                 self.violations.push(Violation {
                     line: span.start.line(),
@@ -91,7 +112,7 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
                     message: MISSING_MESSAGE.to_string(),
                 });
             }
-            _ => {
+            Marker::Other => {
                 self.pending_stream_end_violation = true;
             }
         }
@@ -112,10 +133,20 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
         self.pending_stream_end_violation = false;
     }
 
-    fn slice(&self, span: Span) -> &'src str {
+    fn marker(&self, span: Span) -> Marker {
         let start = span.start.index().min(self.source.len());
         let end = span.end.index().min(self.source.len());
-        &self.source[start..end]
+        let slice = if start < end {
+            &self.source.as_bytes()[start..end]
+        } else {
+            &[]
+        };
+
+        match classify_document_end_marker_bytes(slice) {
+            Some("...") => Marker::ExplicitEnd,
+            Some("---") => Marker::DocumentStart,
+            _ => Marker::Other,
+        }
     }
 }
 
@@ -127,4 +158,18 @@ impl SpannedEventReceiver<'_> for DocumentEndReceiver<'_, '_> {
             _ => {}
         }
     }
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let mut start = 0usize;
+    let mut end = bytes.len();
+
+    while start < end && bytes[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    while start < end && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+
+    &bytes[start..end]
 }

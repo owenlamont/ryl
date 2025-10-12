@@ -129,3 +129,104 @@ fn ignores_yaml_directive_with_non_numeric_major() {
         "directive with invalid major should be ignored"
     );
 }
+
+#[test]
+fn disable_line_inline_comment_suppresses_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "value: yes  # yamllint disable-line rule:truthy\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "inline disable-line should suppress diagnostics: {hits:?}"
+    );
+}
+
+#[test]
+fn disable_line_without_rule_applies_to_next_line() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "# yamllint disable-line\nvalue: on\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "global disable-line should apply to the next line: {hits:?}"
+    );
+}
+
+#[test]
+fn disable_line_with_other_rule_does_not_affect_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "value: on  # yamllint disable-line rule:comments\n";
+    let hits = truthy::check(input, &resolved);
+    assert_eq!(hits.len(), 1, "truthy diagnostics should remain: {hits:?}");
+}
+
+#[test]
+fn disable_line_without_rule_list_still_matches_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "#   yamllint disable-line   \nvalue: off\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "implicit disable-line should apply to truthy rule: {hits:?}"
+    );
+}
+
+#[test]
+fn disable_line_with_multiple_rules_including_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "value: on  # yamllint disable-line rule:comments rule:truthy\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "listing truthy rule should suppress diagnostics: {hits:?}"
+    );
+}
+
+#[test]
+fn disable_line_without_rule_prefix_disables_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "value: on  # yamllint disable-line truthy\n";
+    let hits = truthy::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "directive without rule: prefix should disable all rules: {hits:?}"
+    );
+}
+
+#[test]
+fn disable_line_parsing_handles_quotes_and_escapes() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let double_quoted = "value: \"hash # fragment\"  # yamllint disable-line rule:truthy\n";
+    assert!(truthy::check(double_quoted, &resolved).is_empty());
+
+    let single_quoted = "value: 'path\\#fragment'  # yamllint disable-line rule:truthy\n";
+    assert!(truthy::check(single_quoted, &resolved).is_empty());
+
+    let escaped_hash = "value: foo \\# not comment\n";
+    assert!(truthy::check(escaped_hash, &resolved).is_empty());
+}
+
+#[test]
+fn regular_comment_does_not_disable_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "value: yes  # regular comment\n";
+    let hits = truthy::check(input, &resolved);
+    assert_eq!(
+        hits.len(),
+        1,
+        "non-directive comment should not disable rule"
+    );
+}
+
+#[test]
+fn disable_line_block_comment_with_truthy() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = "# yamllint disable-line rule:truthy\nvalue: yes\nnext: On\n";
+    let hits = truthy::check(input, &resolved);
+    assert_eq!(
+        hits.len(),
+        1,
+        "only the immediately following line should be disabled"
+    );
+    assert_eq!(hits[0].line, 3);
+}

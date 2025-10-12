@@ -25,5 +25,8 @@ target
 # maturin
 /dist
 
+# Local test clones
+test_repos/
+
 # Coverage files
 lcov.info

@@ -200,6 +200,16 @@ fn colons_inside_scalars_with_multibyte_chars_are_ignored() {
 }
 
 #[test]
+fn inline_comment_after_colon_is_ignored_for_spacing() {
+    let cfg = Config::new_for_tests(-1, 0);
+    let points = violation_points("key:  # note\n", cfg);
+    assert!(
+        points.is_empty(),
+        "inline comment should bypass spacing check: {points:?}"
+    );
+}
+
+#[test]
 fn coverage_explicit_question_mark_handles_non_whitespace_next() {
     let chars: Vec<(usize, char)> = "?key".char_indices().collect();
     assert!(!colons::coverage_is_explicit_question_mark(&chars, 0));

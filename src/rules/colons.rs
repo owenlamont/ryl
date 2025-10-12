@@ -224,6 +224,9 @@ fn evaluate_colon(
         && cfg.max_spaces_after >= 0
         && let AfterResult::SameLine { spaces, next_char } = compute_spaces_after(chars, colon_idx)
     {
+        if chars[next_char].1 == '#' {
+            return;
+        }
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_after {
             let next_byte = chars[next_char].0;
