@@ -239,10 +239,15 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
                     }
                 }
                 '*' => {
-                    if let Some((alias_name, len)) = parse_name(&chars, idx + 1) {
-                        self.register_alias(&alias_name, line_number, column);
-                        idx += len + 1;
-                        column += len + 1;
+                    if self.is_alias_indicator(&chars, idx) {
+                        if let Some((alias_name, len)) = parse_name(&chars, idx + 1) {
+                            self.register_alias(&alias_name, line_number, column);
+                            idx += len + 1;
+                            column += len + 1;
+                        } else {
+                            idx += 1;
+                            column += 1;
+                        }
                     } else {
                         idx += 1;
                         column += 1;
@@ -368,6 +373,15 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
         let prefix = &chars[..idx];
         let last_non_ws = prefix.iter().rev().find(|ch| !ch.is_whitespace());
         matches!(last_non_ws, None | Some(':' | '-' | '?'))
+    }
+
+    fn is_alias_indicator(&self, chars: &[char], idx: usize) -> bool {
+        debug_assert!(!self.in_single_quote && !self.in_double_quote);
+        let prev_non_ws = chars[..idx]
+            .iter()
+            .rev()
+            .find(|ch| !matches!(ch, ' ' | '\t'));
+        prev_non_ws.is_none_or(|prev| matches!(prev, ':' | '-' | '[' | '{' | ',' | '?'))
     }
 }
 

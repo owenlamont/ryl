@@ -56,6 +56,13 @@ fn anchors_rule_matches_yamllint() {
     let unused_file = dir.path().join("unused.yaml");
     fs::write(&unused_file, "---\n- &anchor value\n- 1\n").unwrap();
 
+    let regex_file = dir.path().join("regex.yaml");
+    fs::write(
+        &regex_file,
+        "repos:\n  - repo: local\n    hooks:\n      - id: shellcheck\n        files: ^scripts/.*\\.sh$\n",
+    )
+    .unwrap();
+
     let exe = env!("CARGO_BIN_EXE_ryl");
 
     for scenario in SCENARIOS {
@@ -193,6 +200,27 @@ fn anchors_rule_matches_yamllint() {
         assert_eq!(
             ryl_valid_output, yam_valid_output,
             "valid diagnostics mismatch ({})",
+            scenario.label
+        );
+
+        // Plain scalars containing '*' should not be treated as aliases
+        let mut ryl_regex = build_ryl_command(exe, scenario.ryl_format);
+        ryl_regex.arg("-c").arg(&default_cfg).arg(&regex_file);
+        let (ryl_regex_code, ryl_regex_output) = capture_with_env(ryl_regex, scenario.envs);
+
+        let mut yam_regex = build_yamllint_command(scenario.yam_format);
+        yam_regex.arg("-c").arg(&default_cfg).arg(&regex_file);
+        let (yam_regex_code, yam_regex_output) = capture_with_env(yam_regex, scenario.envs);
+
+        assert_eq!(ryl_regex_code, 0, "ryl regex exit ({})", scenario.label);
+        assert_eq!(
+            yam_regex_code, 0,
+            "yamllint regex exit ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_regex_output, yam_regex_output,
+            "regex diagnostics mismatch ({})",
             scenario.label
         );
     }

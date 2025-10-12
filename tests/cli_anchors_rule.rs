@@ -121,3 +121,19 @@ fn rule_ignore_skips_file() {
     assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
 }
+
+#[test]
+fn alias_value_with_only_indent_prefix_is_supported() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("alias.yaml");
+    fs::write(&file, "---\nvalue: &anchor literal\nalias:\n  *anchor\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    assert_eq!(
+        code, 0,
+        "alias resolved successfully: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
+    assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
+}
