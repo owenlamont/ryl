@@ -216,6 +216,26 @@ fn colored_format_omits_rule_suffix_for_syntax_errors() {
 }
 
 #[test]
+fn colored_format_matches_reference_layout() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("layout.yaml");
+    fs::write(&file, "list: [1,2]\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--format").arg("colored").arg(&file));
+    assert_eq!(code, 1, "colored format should exit 1 when errors occur");
+    assert!(
+        stdout.is_empty(),
+        "colored format diagnostics must print on stderr"
+    );
+    let expected = format!(
+        "\u{001b}[4m{path}\u{001b}[0m\n  \u{001b}[2m1:1\u{001b}[0m       \u{001b}[33mwarning\u{001b}[0m  missing document start \"---\"  \u{001b}[2m(document-start)\u{001b}[0m\n  \u{001b}[2m1:10\u{001b}[0m      \u{001b}[31merror\u{001b}[0m    too few spaces after comma  \u{001b}[2m(commas)\u{001b}[0m\n\n",
+        path = file.display()
+    );
+    assert_eq!(stderr, expected, "colored diagnostic payload mismatch");
+}
+
+#[test]
 fn standard_format_remains_plain_text() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());
