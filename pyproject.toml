@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ryl"
-version = "0.3.0"
+version = "0.3.1"
 description = "Fast YAML linter (Rust) packaged for PyPI"
 requires-python = ">=3.10"
 readme = "README.md"
