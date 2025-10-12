@@ -197,3 +197,43 @@ fn document_end_rule_matches_yamllint() {
         );
     }
 }
+
+#[test]
+fn document_end_handles_unicode_scalars() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("config.yaml");
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  document-end:\n    level: error\n    present: false\n",
+    )
+    .unwrap();
+
+    let yaml_path = dir.path().join("unicode.yaml");
+    fs::write(
+        &yaml_path,
+        "set_room_temperature:\n  fields:\n    comfort_temp:\n      selector:\n        number:\n          min: 0\n          max: 100\n          unit_of_measurement: \"°\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_output) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_output) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(ryl_code, yam_code, "exit mismatch ({})", scenario.label);
+        assert_eq!(
+            ryl_output, yam_output,
+            "diagnostics mismatch ({})",
+            scenario.label
+        );
+    }
+}

@@ -187,7 +187,7 @@ impl<'a> Analyzer<'a> {
         if analysis.is_mapping_key()
             && let Some(ctx) = self.contexts.last_mut()
         {
-            ctx.kind = ContextKind::Mapping;
+            ctx.kind = analysis.context_kind();
         }
 
         if analysis.is_sequence_entry() {
@@ -212,12 +212,13 @@ impl<'a> Analyzer<'a> {
     fn find_mapping_parent_indent(&self, current_indent: usize) -> Option<usize> {
         let mut saw_mapping = false;
         for ctx in self.contexts.iter().rev() {
-            if !matches!(ctx.kind, ContextKind::Mapping) {
+            let ContextKind::Mapping { sequence_offset } = ctx.kind else {
                 continue;
-            }
+            };
             saw_mapping = true;
-            if ctx.indent < current_indent {
-                return Some(ctx.indent);
+            let base_indent = ctx.indent.saturating_add(sequence_offset);
+            if base_indent < current_indent {
+                return Some(base_indent);
             }
         }
         if saw_mapping {
@@ -260,7 +261,7 @@ struct Context {
 #[derive(Debug, Clone, Copy)]
 enum ContextKind {
     Root,
-    Mapping,
+    Mapping { sequence_offset: usize },
     Sequence,
     Other,
 }
@@ -273,7 +274,10 @@ struct LineAnalysis {
 
 #[derive(Debug, Clone, Copy)]
 enum LineKind {
-    Mapping { opens_block: bool },
+    Mapping {
+        opens_block: bool,
+        sequence_offset: usize,
+    },
     Sequence,
     Other,
 }
@@ -286,7 +290,10 @@ impl LineAnalysis {
         let is_sequence_entry = is_sequence_entry(trimmed);
         let (is_mapping_key, opens_block) = classify_mapping(trimmed);
         let kind = if is_mapping_key {
-            LineKind::Mapping { opens_block }
+            LineKind::Mapping {
+                opens_block,
+                sequence_offset: sequence_prefix_width(trimmed),
+            }
         } else if is_sequence_entry {
             LineKind::Sequence
         } else {
@@ -301,14 +308,22 @@ impl LineAnalysis {
 
     const fn context_kind(self) -> ContextKind {
         match self.kind {
-            LineKind::Mapping { .. } => ContextKind::Mapping,
+            LineKind::Mapping {
+                sequence_offset, ..
+            } => ContextKind::Mapping { sequence_offset },
             LineKind::Sequence => ContextKind::Sequence,
             LineKind::Other => ContextKind::Other,
         }
     }
 
     const fn opens_child_context(self) -> bool {
-        matches!(self.kind, LineKind::Mapping { opens_block: true })
+        matches!(
+            self.kind,
+            LineKind::Mapping {
+                opens_block: true,
+                ..
+            }
+        )
     }
 
     const fn is_mapping_key(self) -> bool {
@@ -607,4 +622,15 @@ fn detect_multiline_indicator(content: &str) -> bool {
         || base.ends_with(">-")
         || base.ends_with(">+")
         || base.ends_with('>')
+}
+
+fn sequence_prefix_width(content: &str) -> usize {
+    if !content.starts_with('-') {
+        return 0;
+    }
+    1 + content
+        .chars()
+        .skip(1)
+        .take_while(|ch| matches!(ch, ' ' | '\t'))
+        .count()
 }

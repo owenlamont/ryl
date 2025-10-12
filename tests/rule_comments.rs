@@ -162,3 +162,25 @@ fn multiline_quoted_scalars_ignore_hashes() {
         "quoted scalar hash should not be comment: {hits:?}"
     );
 }
+
+#[test]
+fn block_scalar_lines_do_not_trigger_comment_checks() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let input = "job:\n  run: |\n    line one\n   line two\n    line three\n  next: value\n";
+    let hits = comments::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "block scalar content must be ignored: {hits:?}"
+    );
+}
+
+#[test]
+fn empty_block_scalar_is_ignored() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let input = "job:\n  run: |\n  next: value\n";
+    let hits = comments::check(input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "empty block scalar should reset tracker: {hits:?}"
+    );
+}

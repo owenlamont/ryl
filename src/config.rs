@@ -691,6 +691,10 @@ fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
         };
     }
 
+    if let Some(flag) = node.as_bool() {
+        return flag.then_some(RuleLevel::Error);
+    }
+
     node.as_mapping()
         .and_then(|map| {
             map.iter().find_map(|(key, value)| {
@@ -709,6 +713,10 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "invalid config: rule '{name}' should be 'enable', 'disable', or a mapping"
             )),
         };
+    }
+
+    if value.as_bool().is_some() {
+        return Ok(());
     }
 
     if let Some(map) = value.as_mapping() {
