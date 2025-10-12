@@ -8,7 +8,7 @@ fn env_points_to_unreadable_path_errors() {
     let td = tempdir().unwrap();
     let dir = td.path().join("cfgdir");
     fs::create_dir_all(&dir).unwrap();
-    let inputs: Vec<std::path::PathBuf> = vec![];
+    let inputs = vec![dir.join("input.yaml")];
     let res = discover_config_with_env(&inputs, &Overrides::default(), &|k| {
         if k == "YAMLLINT_CONFIG_FILE" {
             Some(dir.display().to_string())
@@ -18,6 +18,6 @@ fn env_points_to_unreadable_path_errors() {
     });
     assert!(
         res.is_err(),
-        "expected error when env points to a directory"
+        "expected error when env points to a directory, got {res:?}"
     );
 }

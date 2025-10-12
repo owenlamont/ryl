@@ -1539,11 +1539,11 @@ pub fn discover_config_with(
 /// # Panics
 /// Panics only if the built-in default preset is not embedded (programming error).
 pub fn discover_config_with_env(
-    _inputs: &[PathBuf],
+    inputs: &[PathBuf],
     overrides: &Overrides,
     env_get: &dyn Fn(&str) -> Option<String>,
 ) -> Result<ConfigContext, String> {
-    discover_config_with(&[], overrides, &ClosureEnv { get: env_get })
+    discover_config_with(inputs, overrides, &ClosureEnv { get: env_get })
 }
 
 /// Discover the config for a single file path, ignoring env/global overrides.

@@ -48,6 +48,7 @@ fn colored_diagnostics_match_yamllint_across_formats() {
             if let Some(cfg) = &case.config_path {
                 ryl_cmd.arg("-c").arg(cfg);
             }
+            ryl_cmd.current_dir(dir.path());
             ryl_cmd.arg(&file);
             let (ryl_code, ryl_output) = capture_with_env(ryl_cmd, scenario.envs);
 
@@ -55,6 +56,7 @@ fn colored_diagnostics_match_yamllint_across_formats() {
             if let Some(cfg) = &case.config_path {
                 yam_cmd.arg("-c").arg(cfg);
             }
+            yam_cmd.current_dir(dir.path());
             yam_cmd.arg(&file);
             let (yam_code, yam_output) = capture_with_env(yam_cmd, scenario.envs);
 
