@@ -246,24 +246,27 @@ impl<'a> Analyzer<'a> {
     }
 
     fn find_mapping_parent_indent(&self, current_indent: usize) -> Option<(usize, usize)> {
-        let mut saw_mapping = false;
-        let mut last_mapping_index = None;
+        let mut fallback: Option<(usize, usize)> = None;
         for (idx, ctx) in self.contexts.iter().enumerate().rev() {
-            let ContextKind::Mapping { sequence_offset } = ctx.kind else {
-                continue;
-            };
-            saw_mapping = true;
-            last_mapping_index = Some(idx);
-            let base_indent = ctx.indent.saturating_add(sequence_offset);
-            if base_indent <= current_indent {
-                return Some((idx, base_indent));
+            match ctx.kind {
+                ContextKind::Sequence => {
+                    if ctx.indent < current_indent {
+                        return Some((idx, ctx.indent));
+                    }
+                }
+                ContextKind::Mapping { sequence_offset } => {
+                    let base_indent = ctx.indent.saturating_add(sequence_offset);
+                    if base_indent < current_indent {
+                        return Some((idx, base_indent));
+                    }
+                    if base_indent == current_indent && fallback.is_none() {
+                        fallback = Some((idx, base_indent));
+                    }
+                }
+                ContextKind::Root | ContextKind::Other => {}
             }
         }
-        if saw_mapping {
-            Some((last_mapping_index.unwrap(), current_indent))
-        } else {
-            None
-        }
+        fallback
     }
 
     fn check_sequence_indent(&mut self, indent: usize, line_number: usize, content: &str) {

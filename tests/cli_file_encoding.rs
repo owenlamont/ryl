@@ -60,10 +60,13 @@ fn cli_reads_utf16_config_file() {
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"
     );
-    let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
-        output.contains("truthy"),
-        "expected truthy diagnostics in output, got:\n{output}"
+        stdout.contains("truthy"),
+        "expected truthy diagnostics in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "unexpected stderr from utf16 config run: {stderr}"
     );
 }
 
@@ -82,10 +85,13 @@ fn cli_reads_utf16_yaml_input() {
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"
     );
-    let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
-        output.contains("truthy"),
-        "expected truthy diagnostics in output, got:\n{output}"
+        stdout.contains("truthy"),
+        "expected truthy diagnostics in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "unexpected stderr from utf16 yaml run: {stderr}"
     );
 }
 
@@ -109,14 +115,9 @@ fn cli_honors_yamllint_file_encoding_override() {
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"
     );
-    let message = if stderr.is_empty() {
-        stdout.clone()
-    } else {
-        stderr.clone()
-    };
     assert!(
-        message.contains("truthy"),
-        "expected truthy diagnostics in output, got:\n{message}"
+        stdout.contains("truthy"),
+        "expected truthy diagnostics in stdout, got:\n{stdout}"
     );
     assert!(
         stderr.contains("YAMLLINT_FILE_ENCODING is meant for temporary workarounds"),
@@ -142,10 +143,13 @@ fn cli_override_utf16_variants() {
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"
     );
-    let message = if stderr.is_empty() { stdout } else { stderr };
     assert!(
-        message.contains("truthy"),
-        "expected truthy diagnostics, got:\n{message}"
+        stdout.contains("truthy"),
+        "expected truthy diagnostics in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("YAMLLINT_FILE_ENCODING is meant for temporary workarounds"),
+        "expected override warning on stderr, got:\n{stderr}"
     );
 }
 
@@ -167,10 +171,13 @@ fn cli_override_utf32_variants() {
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"
     );
-    let message = if stderr.is_empty() { stdout } else { stderr };
     assert!(
-        message.contains("truthy"),
-        "expected truthy diagnostics, got:\n{message}"
+        stdout.contains("truthy"),
+        "expected truthy diagnostics in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("YAMLLINT_FILE_ENCODING is meant for temporary workarounds"),
+        "expected override warning on stderr, got:\n{stderr}"
     );
 }
 

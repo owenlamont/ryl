@@ -260,42 +260,42 @@ fn process_results(
 
                 match output_format {
                     OutputFormat::Standard => {
-                        eprintln!("{}", path.display());
+                        println!("{}", path.display());
                         for problem in problems {
-                            eprintln!("{}", format_standard(problem));
+                            println!("{}", format_standard(problem));
                             match problem.level {
                                 Severity::Error => has_error = true,
                                 Severity::Warning => has_warning = true,
                             }
                         }
-                        eprintln!();
+                        println!();
                     }
                     OutputFormat::Colored => {
-                        eprintln!("\u{001b}[4m{}\u{001b}[0m", path.display());
+                        println!("\u{001b}[4m{}\u{001b}[0m", path.display());
                         for problem in problems {
-                            eprintln!("{}", format_colored(problem));
+                            println!("{}", format_colored(problem));
                             match problem.level {
                                 Severity::Error => has_error = true,
                                 Severity::Warning => has_warning = true,
                             }
                         }
-                        eprintln!();
+                        println!();
                     }
                     OutputFormat::Github => {
-                        eprintln!("::group::{}", path.display());
+                        println!("::group::{}", path.display());
                         for problem in problems {
-                            eprintln!("{}", format_github(problem, path));
+                            println!("{}", format_github(problem, path));
                             match problem.level {
                                 Severity::Error => has_error = true,
                                 Severity::Warning => has_warning = true,
                             }
                         }
-                        eprintln!("::endgroup::");
-                        eprintln!();
+                        println!("::endgroup::");
+                        println!();
                     }
                     OutputFormat::Parsable => {
                         for problem in problems {
-                            eprintln!("{}", format_parsable(problem, path));
+                            println!("{}", format_parsable(problem, path));
                             match problem.level {
                                 Severity::Error => has_error = true,
                                 Severity::Warning => has_warning = true,

@@ -335,8 +335,10 @@ fn sequence_of_mappings_reports_incorrect_dedent() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "- key:\n    - nested\n- other\n";
     let hits = indentation::check(yaml, &cfg);
-    assert_eq!(hits.len(), 1, "unexpected diagnostics: {hits:?}");
-    assert!(hits[0].message.contains("expected 2 but found 0"));
+    assert!(
+        hits.is_empty(),
+        "expected yamllint-compatible indent handling, got: {hits:?}"
+    );
 }
 
 #[test]
