@@ -186,3 +186,5 @@ sticking to the quick-status step above.
   git exclude; does not follow symlinks.
 - Files: parsed as YAML even if the extension is not `.yml`/`.yaml`.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
+- Diagnostics from yamllint (and therefore ryl) are emitted on stdout for all formats,
+  even when the messages look like errors; stderr is reserved for fatal tool errors.
