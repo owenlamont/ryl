@@ -59,6 +59,44 @@ fn yamllint_and_ryl_honor_ignore_from_file() {
 }
 
 #[test]
+fn yamllint_config_yml_discovery_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let td = tempdir().unwrap();
+    let root = td.path();
+
+    fs::write(
+        root.join("yamllint-config.yml"),
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("airflow.yaml"),
+        "line: \"This string intentionally exceeds the default eighty character limit for yamllint\"\n",
+    )
+    .unwrap();
+
+    let ryl = env!("CARGO_BIN_EXE_ryl");
+    let (ryl_code, ryl_out, ryl_err) = run(Command::new(ryl).current_dir(root).arg("airflow.yaml"));
+    let (yam_code, yam_out, yam_err) = run(Command::new("yamllint")
+        .current_dir(root)
+        .arg("airflow.yaml"));
+
+    assert_eq!(
+        ryl_code, yam_code,
+        "exit mismatch\nryl: {ryl_out}{ryl_err}\nyamllint: {yam_out}{yam_err}"
+    );
+    assert_eq!(
+        ryl_out, yam_out,
+        "stdout mismatch\nryl: {ryl_out}\nyamllint: {yam_out}"
+    );
+    assert_eq!(
+        ryl_err, yam_err,
+        "stderr mismatch\nryl: {ryl_err}\nyamllint: {yam_err}"
+    );
+}
+
+#[test]
 fn project_config_precedence_over_env_matches_yamllint() {
     ensure_yamllint_installed();
 

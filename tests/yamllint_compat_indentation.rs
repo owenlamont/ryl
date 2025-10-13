@@ -245,3 +245,93 @@ fn molecule_loop_indentation_matches_yamllint() {
         assert_eq!(ryl_msg, yam_msg, "output mismatch ({})", scenario.label);
     }
 }
+
+#[test]
+fn nested_feature_list_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("cfg.yaml");
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  indentation:\n    spaces: 2\n    indent-sequences: true\n",
+    )
+    .unwrap();
+
+    let yaml_path = dir.path().join("features.yaml");
+    fs::write(
+        &yaml_path,
+        "supported_features:\n  - - Feature.OFF\n    - Feature.ON\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, 0,
+            "ryl exited with diagnostics ({})",
+            scenario.label
+        );
+        assert_eq!(
+            yam_code, 0,
+            "yamllint reported diagnostics ({})",
+            scenario.label
+        );
+        assert_eq!(ryl_msg, yam_msg, "output mismatch ({})", scenario.label);
+    }
+}
+
+#[test]
+fn mapping_sequence_children_follow_yamllint_indent() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("cfg.yaml");
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  indentation:\n    spaces: 2\n    indent-sequences: true\n",
+    )
+    .unwrap();
+
+    let yaml_path = dir.path().join("labeler.yaml");
+    fs::write(
+        &yaml_path,
+        "# generated\nbug:\n  # comment 1\n  # comment 2\n  - \"(\\\"pattern\\\")\"\nsweeper:\n  - 'sweeper'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, 0,
+            "ryl exited with diagnostics ({})",
+            scenario.label
+        );
+        assert_eq!(
+            yam_code, 0,
+            "yamllint reported diagnostics ({})",
+            scenario.label
+        );
+        assert_eq!(ryl_msg, yam_msg, "output mismatch ({})", scenario.label);
+    }
+}
