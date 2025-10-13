@@ -377,11 +377,22 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
 
     fn is_alias_indicator(&self, chars: &[char], idx: usize) -> bool {
         debug_assert!(!self.in_single_quote && !self.in_double_quote);
-        let prev_non_ws = chars[..idx]
-            .iter()
-            .rev()
-            .find(|ch| !matches!(ch, ' ' | '\t'));
-        prev_non_ws.is_none_or(|prev| matches!(prev, ':' | '-' | '[' | '{' | ',' | '?'))
+        if idx == 0 {
+            return true;
+        }
+        let prev = chars[idx - 1];
+        if matches!(prev, ' ' | '\t' | '\r') {
+            let prev_non_ws = chars[..idx].iter().rev().find(|ch| !ch.is_whitespace());
+            return prev_non_ws.is_none_or(|ch| matches!(ch, ':' | '-' | '[' | '{' | ',' | '?'));
+        }
+        if matches!(prev, '[' | '{' | ',' | '?') {
+            return true;
+        }
+        if prev == '-' {
+            let before_hyphen = chars[..idx - 1].iter().rev().find(|ch| !ch.is_whitespace());
+            return before_hyphen.is_none_or(|ch| matches!(ch, ':' | '-' | '[' | '{' | ',' | '?'));
+        }
+        false
     }
 }
 

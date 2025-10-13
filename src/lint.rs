@@ -536,6 +536,11 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
             if err.info() == "while parsing node, found unknown anchor" {
                 return None;
             }
+            if should_retry_with_serde_yaml(err.info())
+                && serde_yaml::from_str::<serde_yaml::Value>(content).is_ok()
+            {
+                return None;
+            }
             let marker = err.marker();
             let column = marker.col() + 1;
             Some(LintProblem {
@@ -547,4 +552,13 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
             })
         }
     }
+}
+
+fn should_retry_with_serde_yaml(info: &str) -> bool {
+    matches!(
+        info,
+        "invalid indentation"
+            | "invalid indentation in quoted scalar"
+            | "invalid indentation in flow collection"
+    )
 }

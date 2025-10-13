@@ -193,3 +193,60 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
         );
     }
 }
+
+#[test]
+fn flow_style_multiline_sequence_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let file = write_file(
+        dir.path(),
+        "flow.yaml",
+        "---\nroot:\n  command: [\n    'mysqld',\n    '--option',\n  ]\n",
+    );
+
+    let ryl = env!("CARGO_BIN_EXE_ryl");
+    let mut ryl_cmd = Command::new(ryl);
+    ryl_cmd.arg(&file);
+    let (ryl_code, ryl_out, ryl_err) = run_cmd(&mut ryl_cmd);
+    assert_eq!(ryl_code, 0, "ryl reported diagnostics: {ryl_out}{ryl_err}");
+
+    let mut yam_cmd = Command::new("yamllint");
+    yam_cmd.arg(&file);
+    let (yam_code, yam_out, yam_err) = run_cmd(&mut yam_cmd);
+    assert_eq!(
+        yam_code, 0,
+        "yamllint reported diagnostics: {yam_out}{yam_err}"
+    );
+}
+
+#[test]
+fn double_quoted_multiline_scalar_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = write_file(
+        dir.path(),
+        "cfg.yaml",
+        "rules:\n  document-start: disable\n  line-length: disable\n",
+    );
+    let file = write_file(
+        dir.path(),
+        "quoted.yaml",
+        "value: \"CreateContainerConfigError,ErrImagePull,CreateContainerError,ImageInspectError,\\\n        InvalidImageName\"\n",
+    );
+
+    let ryl = env!("CARGO_BIN_EXE_ryl");
+    let mut ryl_cmd = Command::new(ryl);
+    ryl_cmd.arg("-c").arg(&cfg).arg(&file);
+    let (ryl_code, ryl_out, ryl_err) = run_cmd(&mut ryl_cmd);
+    assert_eq!(ryl_code, 0, "ryl reported diagnostics: {ryl_out}{ryl_err}");
+
+    let mut yam_cmd = Command::new("yamllint");
+    yam_cmd.arg("-c").arg(&cfg).arg(&file);
+    let (yam_code, yam_out, yam_err) = run_cmd(&mut yam_cmd);
+    assert_eq!(
+        yam_code, 0,
+        "yamllint reported diagnostics: {yam_out}{yam_err}"
+    );
+}

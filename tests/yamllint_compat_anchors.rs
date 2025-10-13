@@ -63,6 +63,19 @@ fn anchors_rule_matches_yamllint() {
     )
     .unwrap();
 
+    let glob_alias_file = dir.path().join("glob-alias.yaml");
+    fs::write(&glob_alias_file, "---\npath: warn-summary-*.txt\n").unwrap();
+
+    let alias_start_file = dir.path().join("alias-start.yaml");
+    fs::write(&alias_start_file, "&later value\n*later\n").unwrap();
+
+    let alias_flow_file = dir.path().join("alias-flow.yaml");
+    fs::write(
+        &alias_flow_file,
+        "values:\n  - &item value\nlist: [*item]\n",
+    )
+    .unwrap();
+
     let exe = env!("CARGO_BIN_EXE_ryl");
 
     for scenario in SCENARIOS {
@@ -200,6 +213,89 @@ fn anchors_rule_matches_yamllint() {
         assert_eq!(
             ryl_valid_output, yam_valid_output,
             "valid diagnostics mismatch ({})",
+            scenario.label
+        );
+
+        // Plain strings with glob patterns should not be treated as aliases.
+        let mut ryl_glob = build_ryl_command(exe, scenario.ryl_format);
+        ryl_glob.arg("-c").arg(&default_cfg).arg(&glob_alias_file);
+        let (ryl_glob_code, ryl_glob_output) = capture_with_env(ryl_glob, scenario.envs);
+
+        let mut yam_glob = build_yamllint_command(scenario.yam_format);
+        yam_glob.arg("-c").arg(&default_cfg).arg(&glob_alias_file);
+        let (yam_glob_code, yam_glob_output) = capture_with_env(yam_glob, scenario.envs);
+
+        assert_eq!(ryl_glob_code, 0, "ryl glob exit ({})", scenario.label);
+        assert_eq!(yam_glob_code, 0, "yamllint glob exit ({})", scenario.label);
+        assert_eq!(
+            ryl_glob_output, yam_glob_output,
+            "glob diagnostics mismatch ({})",
+            scenario.label
+        );
+
+        // Alias at start of document should respect allow-forward setting.
+        let mut ryl_alias_start = build_ryl_command(exe, scenario.ryl_format);
+        ryl_alias_start
+            .arg("-c")
+            .arg(&allow_forward_cfg)
+            .arg(&alias_start_file);
+        let (ryl_alias_start_code, ryl_alias_start_output) =
+            capture_with_env(ryl_alias_start, scenario.envs);
+
+        let mut yam_alias_start = build_yamllint_command(scenario.yam_format);
+        yam_alias_start
+            .arg("-c")
+            .arg(&allow_forward_cfg)
+            .arg(&alias_start_file);
+        let (yam_alias_start_code, yam_alias_start_output) =
+            capture_with_env(yam_alias_start, scenario.envs);
+
+        assert_eq!(
+            ryl_alias_start_code, 0,
+            "ryl alias-start exit ({})",
+            scenario.label
+        );
+        assert_eq!(
+            yam_alias_start_code, 0,
+            "yamllint alias-start exit ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_alias_start_output, yam_alias_start_output,
+            "alias-start diagnostics mismatch ({})",
+            scenario.label
+        );
+
+        // Alias within flow sequence should be treated as a scalar reference.
+        let mut ryl_alias_flow = build_ryl_command(exe, scenario.ryl_format);
+        ryl_alias_flow
+            .arg("-c")
+            .arg(&default_cfg)
+            .arg(&alias_flow_file);
+        let (ryl_alias_flow_code, ryl_alias_flow_output) =
+            capture_with_env(ryl_alias_flow, scenario.envs);
+
+        let mut yam_alias_flow = build_yamllint_command(scenario.yam_format);
+        yam_alias_flow
+            .arg("-c")
+            .arg(&default_cfg)
+            .arg(&alias_flow_file);
+        let (yam_alias_flow_code, yam_alias_flow_output) =
+            capture_with_env(yam_alias_flow, scenario.envs);
+
+        assert_eq!(
+            ryl_alias_flow_code, 0,
+            "ryl alias-flow exit ({})",
+            scenario.label
+        );
+        assert_eq!(
+            yam_alias_flow_code, 0,
+            "yamllint alias-flow exit ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_alias_flow_output, yam_alias_flow_output,
+            "alias-flow diagnostics mismatch ({})",
             scenario.label
         );
 

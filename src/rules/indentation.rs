@@ -191,14 +191,22 @@ impl<'a> Analyzer<'a> {
                 .pending_child
                 .take()
                 .unwrap_or_else(|| analysis.context_kind());
+            let parent_kind = self.contexts.last().map(|ctx| ctx.kind);
+            let allowed_indent = self.allowed_indent_for_child(indent, parent_indent, parent_kind);
             self.contexts.push(Context { indent, kind });
             self.sequence_expectations.push(None);
-            self.spaces
-                .observe_increase(parent_indent, indent, line_number, &mut self.diagnostics);
+            self.spaces.observe_increase(
+                parent_indent,
+                indent,
+                allowed_indent,
+                line_number,
+                &mut self.diagnostics,
+            );
             true
         } else {
+            let allowed_indent = self.allowed_indent_from_mappings(indent);
             self.spaces
-                .observe_indent(indent, line_number, &mut self.diagnostics);
+                .observe_indent(indent, allowed_indent, line_number, &mut self.diagnostics);
             self.pending_child = None;
             false
         };
@@ -217,7 +225,7 @@ impl<'a> Analyzer<'a> {
         }
 
         if analysis.is_sequence_entry() {
-            self.check_sequence_indent(indent, line_number);
+            self.check_sequence_indent(indent, line_number, content);
         }
 
         if analysis.starts_multiline {
@@ -258,28 +266,64 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_sequence_indent(&mut self, indent: usize, line_number: usize) {
+    fn check_sequence_indent(&mut self, indent: usize, line_number: usize, content: &str) {
         let Some((ctx_index, parent_indent)) = self.find_mapping_parent_indent(indent) else {
             return;
         };
 
+        let inline_sequence = content.starts_with("- - ");
         let is_indented = indent > parent_indent;
+        let effective_indented = if inline_sequence { true } else { is_indented };
         let expected = self
             .spaces
             .expected_step()
             .map(|step| parent_indent.saturating_add(step));
+        let effective_expected = if inline_sequence { None } else { expected };
 
         let state = &mut self.sequence_expectations[ctx_index];
-        if let Some(message) =
-            self.indent_seq
-                .check(parent_indent, indent, is_indented, expected, state)
-        {
+        if let Some(message) = self.indent_seq.check(
+            parent_indent,
+            indent,
+            effective_indented,
+            effective_expected,
+            state,
+        ) {
             self.diagnostics.push(Violation {
                 line: line_number,
                 column: indent + 1,
                 message,
             });
         }
+    }
+
+    const fn allowed_indent_for_child(
+        &self,
+        indent: usize,
+        parent_indent: usize,
+        parent_kind: Option<ContextKind>,
+    ) -> Option<usize> {
+        if matches!(parent_kind, Some(ContextKind::Sequence)) {
+            return Some(indent);
+        }
+        match self.prev_line_kind {
+            Some(LineKind::Mapping {
+                sequence_offset, ..
+            }) if sequence_offset > 0 && parent_indent + sequence_offset == indent => {
+                Some(parent_indent + sequence_offset)
+            }
+            Some(LineKind::Sequence) => Some(indent),
+            _ => None,
+        }
+    }
+
+    fn allowed_indent_from_mappings(&self, indent: usize) -> Option<usize> {
+        self.contexts.iter().rev().find_map(|ctx| match ctx.kind {
+            ContextKind::Mapping { sequence_offset } if sequence_offset > 0 => {
+                let expected = ctx.indent.saturating_add(sequence_offset);
+                (expected == indent).then_some(expected)
+            }
+            _ => None,
+        })
     }
 }
 
@@ -431,13 +475,18 @@ impl SpacesRuntime {
         &mut self,
         base: usize,
         found: usize,
+        allowed: Option<usize>,
         line: usize,
         diagnostics: &mut Vec<Violation>,
     ) {
+        let allowed_match = allowed.is_some_and(|expected| expected == found);
         match self.setting {
             SpacesSetting::Fixed(value) => {
                 let delta = found.saturating_sub(base);
                 if !delta.is_multiple_of(value) {
+                    if allowed_match {
+                        return;
+                    }
                     let expected = base.saturating_add(value);
                     diagnostics.push(Violation {
                         line,
@@ -451,7 +500,7 @@ impl SpacesRuntime {
             SpacesSetting::Consistent => {
                 let delta = found.saturating_sub(base);
                 if let Some(val) = self.value {
-                    if !delta.is_multiple_of(val) {
+                    if !allowed_match && !delta.is_multiple_of(val) {
                         let expected = base.saturating_add(val);
                         diagnostics.push(Violation {
                             line,
@@ -460,17 +509,33 @@ impl SpacesRuntime {
                                 "wrong indentation: expected {expected} but found {found}"
                             ),
                         });
+                    } else if allowed_match && delta > 0 {
+                        let updated = gcd(val, delta);
+                        if updated > 0 && updated != val {
+                            self.value = Some(updated);
+                        }
                     }
                 } else {
                     self.value = Some(delta);
                 }
             }
         }
+
+        if allowed_match {}
     }
 
-    fn observe_indent(&self, indent: usize, line: usize, diagnostics: &mut Vec<Violation>) {
+    fn observe_indent(
+        &self,
+        indent: usize,
+        allowed: Option<usize>,
+        line: usize,
+        diagnostics: &mut Vec<Violation>,
+    ) {
         match self.setting {
             SpacesSetting::Fixed(value) => {
+                if allowed.is_some_and(|expected| expected == indent) {
+                    return;
+                }
                 if !indent.is_multiple_of(value) {
                     diagnostics.push(Violation {
                         line,
@@ -484,6 +549,9 @@ impl SpacesRuntime {
                 }
             }
             SpacesSetting::Consistent => {
+                if allowed.is_some_and(|expected| expected == indent) {
+                    return;
+                }
                 if let Some(val) = self.value
                     && !indent.is_multiple_of(val)
                 {
@@ -661,4 +729,43 @@ fn sequence_prefix_width(content: &str) -> usize {
         .skip(1)
         .take_while(|ch| matches!(ch, ' ' | '\t'))
         .count()
+}
+
+const fn gcd(mut a: usize, mut b: usize) -> usize {
+    while b != 0 {
+        let temp = b;
+        b = a % b;
+        a = temp;
+    }
+    a
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn test_observe_increase_with_allowed(
+    initial: Option<usize>,
+    base: usize,
+    found: usize,
+    allowed: Option<usize>,
+) -> Option<usize> {
+    let mut runtime = SpacesRuntime::new(SpacesSetting::Consistent);
+    runtime.value = initial;
+    let mut diags = Vec::new();
+    runtime.observe_increase(base, found, allowed, 1, &mut diags);
+    runtime.value
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn test_observe_indent_with_allowed(
+    setting: SpacesSetting,
+    value: Option<usize>,
+    indent: usize,
+    allowed: Option<usize>,
+) -> Vec<Violation> {
+    let mut runtime = SpacesRuntime::new(setting);
+    runtime.value = value;
+    let mut diags = Vec::new();
+    runtime.observe_indent(indent, allowed, 1, &mut diags);
+    diags
 }

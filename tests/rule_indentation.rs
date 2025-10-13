@@ -410,3 +410,78 @@ fn nested_mapping_sequence_resolves_parent_indent() {
     let yaml = "root:\n  child:\n    - item\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
 }
+
+#[test]
+fn nested_sequences_allow_shared_indent_in_consistent_mode() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::Consistent,
+        false,
+    );
+    let yaml = "-\n  - item\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert!(
+        hits.is_empty(),
+        "nested sequence should not raise diagnostics: {hits:?}"
+    );
+}
+
+#[test]
+fn mapping_children_in_sequence_keep_alignment() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let yaml = "-\n  key:\n    child: 1\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert!(
+        hits.is_empty(),
+        "mapping children aligned with sequence offset should be accepted: {hits:?}"
+    );
+}
+
+#[test]
+fn mapping_after_sequence_entry_retains_expected_indent() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let yaml = "root:\n  - key:\n      child: 1\n  sibling: 2\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert!(
+        hits.is_empty(),
+        "sibling mapping should keep expected indentation: {hits:?}"
+    );
+}
+
+#[test]
+fn multi_level_nested_sequences_align_consistently() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::Consistent,
+        false,
+    );
+    let yaml = "-\n  -\n    - item\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert!(
+        hits.is_empty(),
+        "deeply nested sequences should reuse consistent indentation: {hits:?}"
+    );
+}
+
+#[test]
+fn mapping_after_nested_sequence_is_accepted() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let yaml = "root:\n  - key:\n      child: 1\n    sibling: 2\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert!(
+        hits.is_empty(),
+        "mapping following nested sequence should align: {hits:?}"
+    );
+}

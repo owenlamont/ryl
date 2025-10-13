@@ -23,6 +23,9 @@ dirs-next = "2.0.0"
 regex = "1"
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
+# Temporary fallback parser while saphyr#73 is unresolved:
+# https://github.com/saphyr-rs/saphyr/issues/73
+serde_yaml = "0.9"
 
 [dev-dependencies]
 semver = "1"
