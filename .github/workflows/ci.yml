@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
 
       - name: Install uv
-        uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d
+        uses: astral-sh/setup-uv@2ddd2b9cb38ad8efd50337e8ab201519a34c9f24
 
       - name: Install prek
         run: uv tool install prek --force
@@ -28,12 +28,12 @@ jobs:
         run: rustup component add rustfmt clippy llvm-tools-preview
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@e79914c740f0acf092c59adfa2a61d3d2266b6bf
+        uses: taiki-e/install-action@ebb229c6baa68383264f2822689b07b4916d9177
         with:
           tool: cargo-nextest
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@e79914c740f0acf092c59adfa2a61d3d2266b6bf
+        uses: taiki-e/install-action@ebb229c6baa68383264f2822689b07b4916d9177
         with:
           tool: cargo-llvm-cov
 
