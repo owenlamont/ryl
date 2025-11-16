@@ -291,6 +291,7 @@ impl YamlLintConfig {
         }
 
         let mut builder = GitignoreBuilder::new(base_dir);
+        builder.allow_unclosed_class(false);
         for pat in &self.yaml_file_patterns {
             let normalized = pat.trim_end_matches(['\r']);
             let _ = builder.add_line(None, normalized);
@@ -493,6 +494,7 @@ impl YamlLintConfig {
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
         let mut builder = GitignoreBuilder::new(base_dir);
+        builder.allow_unclosed_class(false);
         let mut any_pattern = false;
 
         for pat in &self.ignore_patterns {
@@ -572,6 +574,7 @@ fn build_rule_filter(
     }
 
     let mut builder = GitignoreBuilder::new(base_dir);
+    builder.allow_unclosed_class(false);
     let mut any_pattern = false;
 
     for pat in &filter.patterns {
