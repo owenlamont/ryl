@@ -14,8 +14,8 @@ name = "ryl"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5.48", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
-ignore = "0.4.23"
+clap = { version = "4.5.51", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
+ignore = "0.4.25"
 rayon = "1.11.0"
 saphyr-parser = "0.0.6"
 saphyr = "0.0.6"
