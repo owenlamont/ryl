@@ -75,5 +75,5 @@ repos:
   - repo: https://github.com/woodruffw/zizmor-pre-commit
     rev: v1.16.3
     hooks:
-      - id: zizmor
-        args: [ --min-severity, low, --min-confidence, medium]
+    - id: zizmor
+      args: [ --min-severity, low, --min-confidence, medium, --fix=safe]
