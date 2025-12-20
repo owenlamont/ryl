@@ -56,7 +56,7 @@ repos:
         pass_filenames: false
         require_serial: true
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.0.194
+    rev: v0.0.197
     hooks:
       - id: rumdl
         args: [--fix]
@@ -73,7 +73,7 @@ repos:
           # --write-changes (Don't use this to stop typos making auto-corrections)
         ]
   - repo: https://github.com/woodruffw/zizmor-pre-commit
-    rev: v1.18.0
+    rev: v1.19.0
     hooks:
     - id: zizmor
       args: [ --min-severity, low, --min-confidence, medium, --fix=safe]
