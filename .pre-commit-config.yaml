@@ -56,7 +56,7 @@ repos:
         pass_filenames: false
         require_serial: true
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.0.197
+    rev: v0.0.204
     hooks:
       - id: rumdl
         args: [--fix]
