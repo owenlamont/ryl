@@ -109,7 +109,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
       - name: Install wheel and run CLI
         run: |
           set -euxo pipefail
@@ -194,7 +194,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
       - name: Install wheel and run CLI
         shell: bash
         run: |
@@ -244,7 +244,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
       - name: Install wheel and run CLI
         run: |
           set -euxo pipefail
@@ -286,7 +286,7 @@ jobs:
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       - name: Create release
-        uses: taiki-e/create-gh-release-action@26b80501670402f1999aff4b934e1574ef2d3705
+        uses: taiki-e/create-gh-release-action@56a8b3f8449593aa02b91f7b84da564f476e94f0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
