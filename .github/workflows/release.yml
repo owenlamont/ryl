@@ -18,7 +18,7 @@ jobs:
   version-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Verify version consistency
         run: |
           set -euo pipefail
@@ -80,7 +80,7 @@ jobs:
       matrix:
         target: [x86_64, aarch64, armv7, i686, ppc64le, s390x]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Build manylinux wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
@@ -102,7 +102,7 @@ jobs:
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: wheels-manylinux-*
@@ -125,7 +125,7 @@ jobs:
       matrix:
         target: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Build musllinux wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
@@ -147,7 +147,7 @@ jobs:
       matrix:
         python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine"]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: wheels-musllinux-*
@@ -166,7 +166,7 @@ jobs:
       matrix:
         target: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Build Windows wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
@@ -187,7 +187,7 @@ jobs:
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: wheels-windows-*
@@ -215,7 +215,7 @@ jobs:
             target: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Build macOS wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
@@ -237,7 +237,7 @@ jobs:
         python: ["3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: wheels-macos-*
@@ -257,7 +257,7 @@ jobs:
     needs: [version-check]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Build sdist
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
@@ -284,9 +284,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Create release
-        uses: taiki-e/create-gh-release-action@26b80501670402f1999aff4b934e1574ef2d3705
+        uses: taiki-e/create-gh-release-action@56a8b3f8449593aa02b91f7b84da564f476e94f0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -328,7 +328,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Upload binaries for ${{ matrix.target }}
         uses: taiki-e/upload-rust-binary-action@3962470d6e7f1993108411bc3f75a135ec67fc8c
         with:
@@ -355,7 +355,7 @@ jobs:
       contents: write
       attestations: write
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: wheels-*
@@ -364,7 +364,7 @@ jobs:
       - name: Publish to crates.io
         run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f
         with:
           subject-path: 'dist/*'
       - name: Publish to PyPI (Trusted Publishing)
