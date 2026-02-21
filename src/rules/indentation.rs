@@ -162,7 +162,7 @@ impl<'a> Analyzer<'a> {
                 self.diagnostics.push(Violation {
                     line: line_number,
                     column: indent + 1,
-                    message: format!("wrong indentation: expected {expected}but found {indent}"),
+                    message: format!("wrong indentation: expected {expected} but found {indent}"),
                 });
             }
             return;

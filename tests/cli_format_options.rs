@@ -271,6 +271,7 @@ fn auto_format_honors_force_color_env() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
         .env("FORCE_COLOR", "1")
+        .env_remove("NO_COLOR")
         .env_remove("GITHUB_ACTIONS")
         .env_remove("GITHUB_WORKFLOW")
         .arg("-c")

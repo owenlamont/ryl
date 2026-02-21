@@ -96,7 +96,7 @@ fn checks_multiline_strings_when_enabled() {
         vec![Violation {
             line: 3,
             column: 6,
-            message: "wrong indentation: expected 4but found 5".to_string(),
+            message: "wrong indentation: expected 4 but found 5".to_string(),
         }]
     );
 }
@@ -119,7 +119,7 @@ fn folded_multiline_reports_violation() {
         vec![Violation {
             line: 3,
             column: 6,
-            message: "wrong indentation: expected 4but found 5".to_string(),
+            message: "wrong indentation: expected 4 but found 5".to_string(),
         }]
     );
 }
@@ -291,7 +291,7 @@ fn multiline_blocks_reuse_consistent_spacing() {
     let hits = indentation::check(yaml, &cfg);
     assert_eq!(hits.len(), 1, "expected single violation: {hits:?}");
     assert_eq!(hits[0].line, 5);
-    assert!(hits[0].message.contains("expected 2but found 1"));
+    assert!(hits[0].message.contains("expected 2 but found 1"));
 }
 
 #[test]
