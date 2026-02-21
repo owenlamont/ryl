@@ -269,30 +269,14 @@ jobs:
           name: wheels-sdist
           path: dist
 
-  create-github-release:
-    name: Create GitHub release
+  upload-release-binaries:
+    name: Upload release binaries
     needs:
       - smoke-manylinux
       - smoke-musllinux
       - smoke-windows
       - smoke-macos
       - sdist
-    if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
-      - name: Create release
-        uses: taiki-e/create-gh-release-action@26b80501670402f1999aff4b934e1574ef2d3705
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  upload-release-binaries:
-    name: Upload release binaries
-    needs: create-github-release
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish == true)
@@ -326,16 +310,80 @@ jobs:
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
-      - name: Upload binaries for ${{ matrix.target }}
+      - name: Build binaries for ${{ matrix.target }}
         uses: taiki-e/upload-rust-binary-action@3962470d6e7f1993108411bc3f75a135ec67fc8c
         with:
           bin: ryl
           target: ${{ matrix.target }}
           locked: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: true
+      - name: Collect release assets for ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p release-assets
+          assets=(ryl-${{ matrix.target }}*)
+          for asset in "${assets[@]}"; do
+            if [ -f "$asset" ]; then
+              cp "$asset" release-assets/
+            fi
+          done
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "No release assets found for target ${{ matrix.target }}" >&2
+            exit 1
+          fi
+      - name: Upload release assets for ${{ matrix.target }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-binaries-${{ matrix.target }}
+          path: release-assets/*
+
+  create-github-release:
+    name: Create GitHub release
+    needs: upload-release-binaries
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: release-binaries-*
+          merge-multiple: true
+          path: release-assets
+      - name: Generate release asset attestation
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8
+        with:
+          subject-path: 'release-assets/*'
+      - name: Ensure tag release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            echo "Ref '${GITHUB_REF}' is not a release tag (refs/tags/v*)." >&2
+            exit 1
+          fi
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; reusing it."
+          else
+            gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}"
+          fi
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
 
   release:
     name: Release
@@ -346,7 +394,7 @@ jobs:
       - smoke-windows
       - smoke-macos
       - sdist
-      - upload-release-binaries
+      - create-github-release
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish == true)
