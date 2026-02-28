@@ -276,8 +276,8 @@ jobs:
       - smoke-macos
       - sdist
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
     strategy:
       fail-fast: false
       matrix:
@@ -345,8 +345,8 @@ jobs:
       - upload-release-binaries
       - release
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -363,7 +363,7 @@ jobs:
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f
         with:
           subject-path: 'release-assets/*'
-      - name: Ensure tag release exists
+      - name: Create tag release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -374,10 +374,10 @@ jobs:
             exit 1
           fi
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists; reusing it."
-          else
-            gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}"
+            echo "Release ${RELEASE_TAG} already exists. Delete it and rerun the workflow." >&2
+            exit 1
           fi
+          gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}"
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -395,8 +395,8 @@ jobs:
       - sdist
       - upload-release-binaries
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
     permissions:
       id-token: write
       contents: write
