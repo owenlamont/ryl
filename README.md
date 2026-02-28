@@ -10,6 +10,32 @@ Compatibility note:
 - `ryl` uses the `saphyr` parser stack, while `yamllint` uses the `PyYAML` parser stack.
 - `saphyr` and `PyYAML` do not always agree on which files are valid YAML.
 
+## Quick Start
+
+```bash
+uvx ryl .
+```
+
+## Installation
+
+### uv
+
+```bash
+uv tool install ryl
+```
+
+### pip
+
+```bash
+pip install ryl
+```
+
+### Cargo
+
+```bash
+cargo install ryl
+```
+
 ## Usage
 
 ryl accepts one or more paths: files and/or directories.
