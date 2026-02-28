@@ -341,7 +341,9 @@ jobs:
 
   create-github-release:
     name: Create GitHub release
-    needs: upload-release-binaries
+    needs:
+      - upload-release-binaries
+      - release
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish == true)
@@ -391,7 +393,7 @@ jobs:
       - smoke-windows
       - smoke-macos
       - sdist
-      - create-github-release
+      - upload-release-binaries
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish == true)
