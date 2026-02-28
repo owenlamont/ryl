@@ -87,6 +87,10 @@ Artifacts are written under `manual_outputs/benchmarks/<UTC_TIMESTAMP>/`:
 - `meta.json`: tool versions and run parameters.
 - `hyperfine-json/`: raw results from `hyperfine`.
 
+Example benchmark figure (5x5 matrix, 5 runs per point):
+
+![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/v0.3.4/img/benchmark-5x5-5runs.svg)
+
 ## Configuration
 
 - Flags:
