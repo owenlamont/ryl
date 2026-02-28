@@ -395,10 +395,6 @@ jobs:
             echo "Ref '${GITHUB_REF}' is not a release tag (refs/tags/v*)." >&2
             exit 1
           fi
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists. Delete it and rerun the workflow." >&2
-            exit 1
-          fi
           gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}"
       - name: Upload release assets
         env:
