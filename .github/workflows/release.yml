@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine"]
+        python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine", "3.14-alpine"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -185,7 +185,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -209,8 +209,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-13
-            target: x86_64
           - runner: macos-14
             target: aarch64
     runs-on: ${{ matrix.runner }}
@@ -233,8 +231,8 @@ jobs:
     needs: [macos]
     strategy:
       matrix:
-        runner: [macos-13, macos-14]
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        runner: [macos-14]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -304,8 +302,6 @@ jobs:
             target: x86_64-pc-windows-msvc
           - runner: windows-latest
             target: aarch64-pc-windows-msvc
-          - runner: macos-13
-            target: x86_64-apple-darwin
           - runner: macos-14
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
