@@ -1,8 +1,14 @@
 # ryl
 
 ryl - the Rust Yaml Linter is intended to ultimately be a drop in replacement for
-[yamllint](https://github.com/adrienverge/yamllint). It's only just begun and isn't
-ready for use yet though. I'll update and post info as it becomes ready.
+[yamllint](https://github.com/adrienverge/yamllint). It is usable today, but
+parity and edge-case behavior are still maturing.
+
+Compatibility note:
+
+- `ryl` aims to match `yamllint` behavior and includes many parity tests.
+- `ryl` uses the `saphyr` parser stack, while `yamllint` uses the `PyYAML` parser stack.
+- `saphyr` and `PyYAML` do not always agree on which files are valid YAML.
 
 ## Usage
 
