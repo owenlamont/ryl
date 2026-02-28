@@ -336,7 +336,7 @@ impl YamlLintConfig {
         let Some(matcher) = &self.ignore_matcher else {
             return false;
         };
-        let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
+        let rel = path.strip_prefix(base_dir).unwrap_or(path);
         matcher.matched_path_or_any_parents(rel, false).is_ignore()
     }
 
@@ -348,7 +348,7 @@ impl YamlLintConfig {
         let Some(matcher) = &filter.matcher else {
             return false;
         };
-        let rel = path.strip_prefix(base_dir).map_or(path, |r| r);
+        let rel = path.strip_prefix(base_dir).unwrap_or(path);
         matcher.matched_path_or_any_parents(rel, false).is_ignore()
     }
 
@@ -360,13 +360,7 @@ impl YamlLintConfig {
                 Cow::Borrowed,
             );
             let matched = matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
-            if matched.is_ignore() {
-                return true;
-            }
-            if matched.is_whitelist() {
-                return false;
-            }
-            return false;
+            return matched.is_ignore();
         }
         crate::discover::is_yaml_path(path)
     }
@@ -412,23 +406,21 @@ impl YamlLintConfig {
             cfg.ignore_from_files = load_ignore_from_files(node)?;
         }
 
-        if let Some(yf) = doc.as_mapping_get("yaml-files") {
-            if let Some(seq) = yf.as_sequence() {
-                cfg.yaml_file_patterns.clear();
-                for it in seq {
-                    let Some(s) = it.as_str() else {
-                        return Err(
-                            "invalid config: yaml-files should be a list of file patterns"
-                                .to_string(),
-                        );
-                    };
-                    cfg.yaml_file_patterns.push(s.to_owned());
-                }
-            } else {
-                return Err(
-                    "invalid config: yaml-files should be a list of file patterns".to_string(),
-                );
+        let yaml_files = doc.as_mapping_get("yaml-files");
+        if let Some(yf) = yaml_files
+            && let Some(seq) = yf.as_sequence()
+        {
+            cfg.yaml_file_patterns.clear();
+            for it in seq {
+                let Some(s) = it.as_str() else {
+                    return Err(
+                        "invalid config: yaml-files should be a list of file patterns".to_string(),
+                    );
+                };
+                cfg.yaml_file_patterns.push(s.to_owned());
             }
+        } else if yaml_files.is_some() {
+            return Err("invalid config: yaml-files should be a list of file patterns".to_string());
         }
 
         if let Some(locale) = doc.as_mapping_get("locale") {

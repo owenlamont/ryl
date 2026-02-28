@@ -173,7 +173,9 @@ fn detect_encoding_with_override(
 }
 
 fn decode_utf8(bytes: &[u8]) -> Result<String, String> {
-    String::from_utf8(bytes.to_vec()).map_err(|err| decode_error("utf-8 data", err.to_string()))
+    std::str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|err| decode_error("utf-8 data", err.to_string()))
 }
 
 fn decode_utf8_bom(bytes: &[u8]) -> Result<String, String> {
