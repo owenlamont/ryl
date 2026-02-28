@@ -185,8 +185,8 @@ sticking to the quick-status step above.
     - PyPI via Trusted Publishing (`pypa/gh-action-pypi-publish`)
   - GitHub release creation is deferred until the end of the workflow, after
     crates.io and PyPI publishing succeed.
-  - GitHub release notes are generated automatically from the new tag back to
-    the previous published release tag.
+  - GitHub release notes are generated automatically by GitHub when the release
+    draft is created.
   - The workflow keeps GitHub releases as drafts until assets are uploaded and
     supports reruns by skipping crates.io/PyPI publish steps when that exact
     version already exists.
