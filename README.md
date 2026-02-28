@@ -50,6 +50,43 @@ Help and version:
 
 The CLI is built with `clap`, which auto-generates `--help` and `--version`.
 
+## Performance benchmarking
+
+This repo includes a standalone benchmark script that compares PyPI `ryl` and
+`yamllint` using synthetic YAML corpora and `hyperfine`.
+
+Prerequisites:
+
+- `uv`
+- `hyperfine`
+
+Run a quick sample:
+
+```text
+uv run scripts/benchmark_perf_vs_yamllint.py --file-counts 25,100 --file-sizes-kib 1,8 --runs 5 --warmup 1
+```
+
+Run a fuller matrix (explicit lists):
+
+```text
+uv run scripts/benchmark_perf_vs_yamllint.py --file-counts 25,100,400,1000 --file-sizes-kib 1,8,32,128 --runs 10 --warmup 2
+```
+
+Run a fuller matrix (ranges with increments):
+
+```text
+uv run scripts/benchmark_perf_vs_yamllint.py --file-count-start 100 --file-count-end 1000 --file-count-step 100 --file-size-start-kib 4 --file-size-end-kib 64 --file-size-step-kib 4 --runs 10 --warmup 2
+```
+
+The script uses Typer; use `--help` for all options.
+
+Artifacts are written under `manual_outputs/benchmarks/<UTC_TIMESTAMP>/`:
+
+- `benchmark.png` and `benchmark.svg`: side-by-side facet plot with shared Y axis.
+- `summary.csv`: aggregated timing table.
+- `meta.json`: tool versions and run parameters.
+- `hyperfine-json/`: raw results from `hyperfine`.
+
 ## Configuration
 
 - Flags:
