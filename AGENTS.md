@@ -176,8 +176,16 @@ sticking to the quick-status step above.
 - Tag and push (when releasing):
   - `git tag -a vX.Y.Z -m "vX.Y.Z"`
   - `git push && git push --tags`
-  - Releases are handled by `.github/workflows/release.yml` (publishes to
-    crates.io, then PyPI).
+  - `.github/workflows/release.yml` validates that the pushed tag version
+    matches both `Cargo.toml` and `pyproject.toml` versions before release jobs run.
+  - Publishing uses Trusted Publishing for both registries:
+    - crates.io via GitHub OIDC (`rust-lang/crates-io-auth-action`)
+    - PyPI via Trusted Publishing (`pypa/gh-action-pypi-publish`)
+  - GitHub release creation is deferred until the end of the workflow, after
+    crates.io and PyPI publishing succeed.
+  - The workflow keeps GitHub releases as drafts until assets are uploaded and
+    supports reruns by skipping crates.io/PyPI publish steps when that exact
+    version already exists.
 
 ## CLI Behavior
 
