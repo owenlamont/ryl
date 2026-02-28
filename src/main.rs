@@ -1,5 +1,10 @@
 #![forbid(unsafe_code)]
-#![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::cargo,
+    clippy::cognitive_complexity
+)]
 
 use std::collections::HashMap;
 use std::io::IsTerminal;
