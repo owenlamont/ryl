@@ -16,9 +16,9 @@ use ryl::{LintProblem, Severity, lint_file};
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut explicit_files = Vec::new();
     let mut candidates = Vec::new();
-    for p in inputs.iter().cloned() {
+    for p in inputs {
         if p.is_dir() {
-            let walker = WalkBuilder::new(&p)
+            let walker = WalkBuilder::new(p)
                 .hidden(false)
                 .ignore(true)
                 .git_ignore(true)
@@ -33,7 +33,7 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
                 }
             }
         } else {
-            explicit_files.push(p);
+            explicit_files.push(p.clone());
         }
     }
     (candidates, explicit_files)
