@@ -73,6 +73,27 @@ jobs:
           print("✅ Versions are consistent")
           PY
 
+  preflight-release-guard:
+    name: Preflight release guard
+    needs: [version-check]
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Ensure release does not already exist for tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; refusing to continue." >&2
+            exit 1
+          fi
+
   linux:
     needs: [version-check]
     runs-on: ubuntu-22.04
@@ -275,6 +296,7 @@ jobs:
       - smoke-windows
       - smoke-macos
       - sdist
+      - preflight-release-guard
     if: >-
       startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
