@@ -90,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           release_query_err_file="$(mktemp)"
-          if release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
+          if release_is_draft="$(gh release view "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
             :
           elif grep -Eq '404|not[[:space:]]+found' "${release_query_err_file}"; then
             echo "No release exists for ${RELEASE_TAG}; continuing."
@@ -409,10 +409,10 @@ jobs:
             exit 1
           fi
           release_query_err_file="$(mktemp)"
-          if release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
+          if release_is_draft="$(gh release view "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
             :
           elif grep -Eq '404|not[[:space:]]+found' "${release_query_err_file}"; then
-            gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}" --draft
+            gh release create "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --verify-tag --title "${RELEASE_TAG}" --draft
             exit 0
           else
             echo "Failed to query release ${RELEASE_TAG}." >&2
@@ -429,12 +429,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+        run: gh release upload "$RELEASE_TAG" -R "${GITHUB_REPOSITORY}" release-assets/* --clobber
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release edit "$RELEASE_TAG" --draft=false
+        run: gh release edit "$RELEASE_TAG" -R "${GITHUB_REPOSITORY}" --draft=false
 
   publish-crates:
     name: Publish to crates.io
