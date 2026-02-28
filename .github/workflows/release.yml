@@ -315,6 +315,7 @@ jobs:
           bin: ryl
           target: ${{ matrix.target }}
           locked: true
+          token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: true
       - name: Collect release assets for ${{ matrix.target }}
         shell: bash
