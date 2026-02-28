@@ -412,7 +412,7 @@ jobs:
           if release_is_draft="$(gh release view "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
             :
           elif grep -Eq '404|not[[:space:]]+found' "${release_query_err_file}"; then
-            gh release create "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --verify-tag --title "${RELEASE_TAG}" --draft
+            gh release create "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --verify-tag --title "${RELEASE_TAG}" --draft --generate-notes
             exit 0
           else
             echo "Failed to query release ${RELEASE_TAG}." >&2
