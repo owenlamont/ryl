@@ -479,10 +479,11 @@ jobs:
         env:
           CRATE_NAME: ${{ steps.crate_metadata.outputs.name }}
           CRATE_VERSION: ${{ steps.crate_metadata.outputs.version }}
+          HTTP_USER_AGENT: ryl-release-workflow/1.0 (+https://github.com/${{ github.repository }})
         run: |
           set -euo pipefail
           url="https://crates.io/api/v1/crates/${CRATE_NAME}/${CRATE_VERSION}"
-          http_status="$(curl -sS -o /dev/null -w "%{http_code}" "${url}")"
+          http_status="$(curl -sS -A "${HTTP_USER_AGENT}" -o /dev/null -w "%{http_code}" "${url}")"
           if [ "${http_status}" = "200" ]; then
             echo "already_published=true" >> "${GITHUB_OUTPUT}"
             echo "Crate ${CRATE_NAME} ${CRATE_VERSION} already published; skipping cargo publish."
@@ -548,10 +549,11 @@ jobs:
         env:
           PACKAGE_NAME: ${{ steps.package_metadata.outputs.name }}
           PACKAGE_VERSION: ${{ steps.package_metadata.outputs.version }}
+          HTTP_USER_AGENT: ryl-release-workflow/1.0 (+https://github.com/${{ github.repository }})
         run: |
           set -euo pipefail
           url="https://pypi.org/pypi/${PACKAGE_NAME}/${PACKAGE_VERSION}/json"
-          http_status="$(curl -sS -o /dev/null -w "%{http_code}" "${url}")"
+          http_status="$(curl -sS -A "${HTTP_USER_AGENT}" -o /dev/null -w "%{http_code}" "${url}")"
           if [ "${http_status}" = "200" ]; then
             echo "already_published=true" >> "${GITHUB_OUTPUT}"
             echo "PyPI package ${PACKAGE_NAME} ${PACKAGE_VERSION} already published; skipping upload."
