@@ -89,10 +89,16 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
-          if [ -z "${release_is_draft}" ]; then
+          release_query_err_file="$(mktemp)"
+          if release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
+            :
+          elif grep -Eq '404|not[[:space:]]+found' "${release_query_err_file}"; then
             echo "No release exists for ${RELEASE_TAG}; continuing."
             exit 0
+          else
+            echo "Failed to query release ${RELEASE_TAG}." >&2
+            cat "${release_query_err_file}" >&2
+            exit 1
           fi
           if [ "${release_is_draft}" = "true" ]; then
             echo "Draft release ${RELEASE_TAG} already exists; continuing for rerun safety."
@@ -402,10 +408,16 @@ jobs:
             echo "Ref '${GITHUB_REF}' is not a release tag (refs/tags/v*)." >&2
             exit 1
           fi
-          release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
-          if [ -z "${release_is_draft}" ]; then
+          release_query_err_file="$(mktemp)"
+          if release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
+            :
+          elif grep -Eq '404|not[[:space:]]+found' "${release_query_err_file}"; then
             gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}" --draft
             exit 0
+          else
+            echo "Failed to query release ${RELEASE_TAG}." >&2
+            cat "${release_query_err_file}" >&2
+            exit 1
           fi
           if [ "${release_is_draft}" = "true" ]; then
             echo "Reusing existing draft release ${RELEASE_TAG}."
