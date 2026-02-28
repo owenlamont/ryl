@@ -1,8 +1,14 @@
 # ryl
 
 ryl - the Rust Yaml Linter is intended to ultimately be a drop in replacement for
-[yamllint](https://github.com/adrienverge/yamllint). It's only just begun and isn't
-ready for use yet though. I'll update and post info as it becomes ready.
+[yamllint](https://github.com/adrienverge/yamllint). It is usable today, but
+parity and edge-case behavior are still maturing.
+
+Compatibility note:
+
+- `ryl` aims to match `yamllint` behavior and includes many parity tests.
+- `ryl` uses the `saphyr` parser stack, while `yamllint` uses the `PyYAML` parser stack.
+- `saphyr` and `PyYAML` do not always agree on which files are valid YAML.
 
 ## Usage
 
@@ -49,6 +55,47 @@ Help and version:
 - `ryl -V` or `ryl --version` prints the version.
 
 The CLI is built with `clap`, which auto-generates `--help` and `--version`.
+
+## Performance benchmarking
+
+This repo includes a standalone benchmark script that compares PyPI `ryl` and
+`yamllint` using synthetic YAML corpora and `hyperfine`.
+
+Prerequisites:
+
+- `uv`
+- `hyperfine`
+
+Run a quick sample:
+
+```text
+uv run scripts/benchmark_perf_vs_yamllint.py --file-counts 25,100 --file-sizes-kib 1,8 --runs 5 --warmup 1
+```
+
+Run a fuller matrix (explicit lists):
+
+```text
+uv run scripts/benchmark_perf_vs_yamllint.py --file-counts 25,100,400,1000 --file-sizes-kib 1,8,32,128 --runs 10 --warmup 2
+```
+
+Run a fuller matrix (ranges with increments):
+
+```text
+uv run scripts/benchmark_perf_vs_yamllint.py --file-count-start 100 --file-count-end 1000 --file-count-step 100 --file-size-start-kib 4 --file-size-end-kib 64 --file-size-step-kib 4 --runs 10 --warmup 2
+```
+
+The script uses Typer; use `--help` for all options.
+
+Artifacts are written under `manual_outputs/benchmarks/<UTC_TIMESTAMP>/`:
+
+- `benchmark.png` and `benchmark.svg`: side-by-side facet plot with shared Y axis.
+- `summary.csv`: aggregated timing table.
+- `meta.json`: tool versions and run parameters.
+- `hyperfine-json/`: raw results from `hyperfine`.
+
+Example benchmark figure (5x5 matrix, 5 runs per point):
+
+![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/v0.3.4/img/benchmark-5x5-5runs.svg)
 
 ## Configuration
 

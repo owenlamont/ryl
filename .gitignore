@@ -30,3 +30,6 @@ test_repos/
 
 # Coverage files
 lcov.info
+
+# Benchmark artifacts
+manual_outputs/benchmarks/
