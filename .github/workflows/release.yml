@@ -83,16 +83,23 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Ensure release does not already exist for tag
+      - name: Ensure existing release (if any) is a draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists; refusing to continue." >&2
-            exit 1
+          release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [ -z "${release_is_draft}" ]; then
+            echo "No release exists for ${RELEASE_TAG}; continuing."
+            exit 0
           fi
+          if [ "${release_is_draft}" = "true" ]; then
+            echo "Draft release ${RELEASE_TAG} already exists; continuing for rerun safety."
+            exit 0
+          fi
+          echo "Published release ${RELEASE_TAG} already exists; refusing to continue." >&2
+          exit 1
 
   linux:
     needs: [version-check]
@@ -385,7 +392,7 @@ jobs:
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f
         with:
           subject-path: 'release-assets/*'
-      - name: Create tag release
+      - name: Ensure draft tag release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -395,12 +402,27 @@ jobs:
             echo "Ref '${GITHUB_REF}' is not a release tag (refs/tags/v*)." >&2
             exit 1
           fi
-          gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}"
+          release_is_draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [ -z "${release_is_draft}" ]; then
+            gh release create "${RELEASE_TAG}" --verify-tag --title "${RELEASE_TAG}" --draft
+            exit 0
+          fi
+          if [ "${release_is_draft}" = "true" ]; then
+            echo "Reusing existing draft release ${RELEASE_TAG}."
+            exit 0
+          fi
+          echo "Published release ${RELEASE_TAG} already exists; refusing to continue." >&2
+          exit 1
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --draft=false
 
   release:
     name: Release
