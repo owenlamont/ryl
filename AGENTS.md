@@ -183,6 +183,9 @@ sticking to the quick-status step above.
     - PyPI via Trusted Publishing (`pypa/gh-action-pypi-publish`)
   - GitHub release creation is deferred until the end of the workflow, after
     crates.io and PyPI publishing succeed.
+  - The workflow keeps GitHub releases as drafts until assets are uploaded and
+    supports reruns by skipping crates.io/PyPI publish steps when that exact
+    version already exists.
 
 ## CLI Behavior
 
