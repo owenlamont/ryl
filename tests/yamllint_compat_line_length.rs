@@ -324,3 +324,46 @@ fn line_length_disable_line_is_consumed_by_next_directive_line() {
         );
     }
 }
+
+#[test]
+fn line_length_disable_line_is_consumed_by_blank_line() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("line-40.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 40\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("line-disable-line-blank.yaml");
+    fs::write(
+        &input,
+        "---\n# yamllint disable-line rule:line-length\n\nlong: \"01234567890123456789012345678901234567890123456789\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for disable-line consumed by blank line ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for disable-line consumed by blank line ({})",
+            scenario.label
+        );
+    }
+}

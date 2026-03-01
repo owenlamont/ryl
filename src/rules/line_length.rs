@@ -123,12 +123,12 @@ fn process_line(
     out: &mut Vec<Violation>,
     directive_state: &mut DirectiveState,
 ) {
+    let disable_line_applies = std::mem::take(&mut directive_state.disable_next_line);
     if start == end {
         return;
     }
 
     let line = &buffer[start..end];
-    let disable_line_applies = std::mem::take(&mut directive_state.disable_next_line);
     match line_length_directive(line) {
         Directive::Disable => {
             directive_state.disabled = true;
