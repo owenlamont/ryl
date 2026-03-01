@@ -104,6 +104,7 @@ struct Analyzer<'a> {
     indent_seq: IndentSequencesRuntime,
     pending_child: Option<ContextKind>,
     multiline: Option<MultilineState>,
+    compact_sequence_parent_indent: Option<usize>,
     prev_line_kind: Option<LineKind>,
     diagnostics: Vec<Violation>,
 }
@@ -123,6 +124,7 @@ impl<'a> Analyzer<'a> {
             indent_seq: IndentSequencesRuntime::new(cfg.indent_sequences),
             pending_child: None,
             multiline: None,
+            compact_sequence_parent_indent: None,
             prev_line_kind: None,
             diagnostics: Vec::new(),
         }
@@ -139,6 +141,12 @@ impl<'a> Analyzer<'a> {
     fn process_line(&mut self, line_number: usize, raw: &str) {
         let line = raw.trim_end_matches(['\r', '\n']);
         let (indent, content) = split_indent(line);
+        if self
+            .compact_sequence_parent_indent
+            .is_some_and(|parent| indent <= parent)
+        {
+            self.compact_sequence_parent_indent = None;
+        }
 
         if let Some(state) = &self.multiline
             && indent <= state.base_indent
@@ -220,7 +228,11 @@ impl<'a> Analyzer<'a> {
             ctx.kind = ContextKind::Sequence;
         }
 
-        if analysis.is_sequence_entry() {
+        if analysis.is_sequence_entry()
+            && self
+                .compact_sequence_parent_indent
+                .is_none_or(|parent| indent <= parent)
+        {
             self.check_sequence_indent(indent, line_number);
         }
 
@@ -232,6 +244,10 @@ impl<'a> Analyzer<'a> {
             self.pending_child = Some(analysis.context_kind());
         } else {
             self.pending_child = None;
+        }
+
+        if is_compact_sequence_start(content) {
+            self.compact_sequence_parent_indent = Some(indent);
         }
 
         self.prev_line_kind = Some(analysis.kind);
@@ -614,6 +630,17 @@ fn is_sequence_entry(content: &str) -> bool {
         return false;
     }
     matches!(content.chars().nth(1), None | Some(' ' | '\t' | '\r' | '#'))
+}
+
+fn is_compact_sequence_start(content: &str) -> bool {
+    let trimmed = content.trim();
+    if !is_sequence_entry(trimmed) {
+        return false;
+    }
+    let stripped = trimmed
+        .strip_prefix('-')
+        .expect("sequence entry starts with '-'");
+    is_sequence_entry(stripped.trim_start())
 }
 
 fn classify_mapping(content: &str) -> (bool, bool) {
