@@ -216,8 +216,10 @@ pub fn check(buffer: &str, cfg: &Config, desc: &FlowCollectionDescriptor) -> Vec
         }
 
         let ch = chars[idx].1;
-        if desc.open == '{' && ch == '{' && is_double_curly_open(&chars, idx) {
-            idx = skip_double_curly_expression(&chars, idx);
+        if desc.open == '{'
+            && let Some(next_idx) = template_double_curly_end(&chars, idx)
+        {
+            idx = next_idx;
             continue;
         }
         if ch == desc.open {
@@ -494,19 +496,20 @@ fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
     idx
 }
 
-fn is_double_curly_open(chars: &[(usize, char)], idx: usize) -> bool {
-    idx + 1 < chars.len() && chars[idx].1 == '{' && chars[idx + 1].1 == '{'
-}
-
-fn skip_double_curly_expression(chars: &[(usize, char)], mut idx: usize) -> usize {
-    idx = idx.saturating_add(2);
-    while idx + 1 < chars.len() {
-        if chars[idx].1 == '}' && chars[idx + 1].1 == '}' {
-            return idx + 2;
-        }
-        idx += 1;
+fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usize> {
+    if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
+        return None;
     }
-    chars.len()
+    let mut cursor = idx + 2;
+    while cursor + 1 < chars.len() {
+        if chars[cursor].1 == '}' && chars[cursor + 1].1 == '}' {
+            let inner_contains_mapping = chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
+            return (!inner_contains_mapping).then_some(cursor + 2);
+        }
+        cursor += 1;
+    }
+    let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
+    (!inner_contains_mapping).then_some(chars.len())
 }
 
 fn build_line_starts(buffer: &str) -> Vec<usize> {

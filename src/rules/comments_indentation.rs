@@ -239,5 +239,5 @@ fn is_block_scalar_indicator(content: &str) -> bool {
     };
 
     let prefix = trimmed[..marker_idx].trim_end();
-    prefix.ends_with(':') || prefix.ends_with('-')
+    prefix.ends_with(':') || prefix.ends_with('-') || prefix.ends_with('?')
 }

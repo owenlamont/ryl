@@ -324,6 +324,45 @@ fn braces_rule_matches_yamllint() {
 }
 
 #[test]
+fn nested_double_curly_flow_mapping_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("braces-forbid.yml");
+    fs::write(
+        &cfg,
+        "rules:\n  document-start: disable\n  braces:\n    forbid: true\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("double-curly.yml");
+    fs::write(&input, "outer: {{inner: 1}: 2}\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for nested double-curly flow mapping ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for nested double-curly flow mapping ({})",
+            scenario.label
+        );
+    }
+}
+
+#[test]
 fn github_actions_payload_expression_braces_match_yamllint() {
     ensure_yamllint_installed();
 

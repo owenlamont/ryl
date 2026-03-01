@@ -76,7 +76,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut line_no = 1usize;
     let mut line_start = 0usize;
     let mut idx = 0usize;
-    let mut disabled = false;
+    let mut directive_state = DirectiveState::new();
 
     while idx < bytes.len() {
         if bytes[idx] == b'\n' {
@@ -92,7 +92,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                 line_end,
                 cfg,
                 &mut violations,
-                &mut disabled,
+                &mut directive_state,
             );
             idx += 1;
             line_start = idx;
@@ -109,7 +109,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         bytes.len(),
         cfg,
         &mut violations,
-        &mut disabled,
+        &mut directive_state,
     );
     violations
 }
@@ -121,8 +121,9 @@ fn process_line(
     end: usize,
     cfg: &Config,
     out: &mut Vec<Violation>,
-    disabled: &mut bool,
+    directive_state: &mut DirectiveState,
 ) {
+    let disable_line_applies = std::mem::take(&mut directive_state.disable_next_line);
     if start == end {
         return;
     }
@@ -130,16 +131,20 @@ fn process_line(
     let line = &buffer[start..end];
     match line_length_directive(line) {
         Directive::Disable => {
-            *disabled = true;
+            directive_state.disabled = true;
+            return;
+        }
+        Directive::DisableLine => {
+            directive_state.disable_next_line = true;
             return;
         }
         Directive::Enable => {
-            *disabled = false;
+            directive_state.disabled = false;
             return;
         }
         Directive::None => {}
     }
-    if *disabled {
+    if directive_state.disabled || disable_line_applies {
         return;
     }
 
@@ -199,7 +204,23 @@ fn allows_overflow(line: &str, cfg: &Config) -> bool {
 enum Directive {
     None,
     Disable,
+    DisableLine,
     Enable,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct DirectiveState {
+    disabled: bool,
+    disable_next_line: bool,
+}
+
+impl DirectiveState {
+    const fn new() -> Self {
+        Self {
+            disabled: false,
+            disable_next_line: false,
+        }
+    }
 }
 
 fn line_length_directive(line: &str) -> Directive {
@@ -208,10 +229,11 @@ fn line_length_directive(line: &str) -> Directive {
         return Directive::None;
     }
     let payload = trimmed.trim_start_matches('#').trim_start();
-    if payload == "yamllint disable rule:line-length"
-        || payload == "yamllint disable-line rule:line-length"
-    {
+    if payload == "yamllint disable rule:line-length" {
         return Directive::Disable;
+    }
+    if payload == "yamllint disable-line rule:line-length" {
+        return Directive::DisableLine;
     }
     if payload == "yamllint enable rule:line-length" {
         return Directive::Enable;
