@@ -1,8 +1,8 @@
 [package]
 name = "ryl"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2024"
-description = "Fast YAML linter written in Rust"
+description = "Fast YAML linter inspired by yamllint"
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/owenlamont/ryl"
