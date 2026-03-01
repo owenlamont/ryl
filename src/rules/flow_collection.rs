@@ -216,6 +216,10 @@ pub fn check(buffer: &str, cfg: &Config, desc: &FlowCollectionDescriptor) -> Vec
         }
 
         let ch = chars[idx].1;
+        if desc.open == '{' && ch == '{' && is_double_curly_open(&chars, idx) {
+            idx = skip_double_curly_expression(&chars, idx);
+            continue;
+        }
         if ch == desc.open {
             if let Some(state) = stack.last_mut() {
                 state.is_empty = false;
@@ -488,6 +492,21 @@ fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
         idx += 1;
     }
     idx
+}
+
+fn is_double_curly_open(chars: &[(usize, char)], idx: usize) -> bool {
+    idx + 1 < chars.len() && chars[idx].1 == '{' && chars[idx + 1].1 == '{'
+}
+
+fn skip_double_curly_expression(chars: &[(usize, char)], mut idx: usize) -> usize {
+    idx = idx.saturating_add(2);
+    while idx + 1 < chars.len() {
+        if chars[idx].1 == '}' && chars[idx + 1].1 == '}' {
+            return idx + 2;
+        }
+        idx += 1;
+    }
+    chars.len()
 }
 
 fn build_line_starts(buffer: &str) -> Vec<usize> {

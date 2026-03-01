@@ -104,6 +104,8 @@ struct Analyzer<'a> {
     indent_seq: IndentSequencesRuntime,
     pending_child: Option<ContextKind>,
     multiline: Option<MultilineState>,
+    compact_sequence_parent_indent: Option<usize>,
+    compact_flow_mapping: Option<CompactFlowMapping>,
     prev_line_kind: Option<LineKind>,
     diagnostics: Vec<Violation>,
 }
@@ -123,6 +125,8 @@ impl<'a> Analyzer<'a> {
             indent_seq: IndentSequencesRuntime::new(cfg.indent_sequences),
             pending_child: None,
             multiline: None,
+            compact_sequence_parent_indent: None,
+            compact_flow_mapping: None,
             prev_line_kind: None,
             diagnostics: Vec::new(),
         }
@@ -139,6 +143,18 @@ impl<'a> Analyzer<'a> {
     fn process_line(&mut self, line_number: usize, raw: &str) {
         let line = raw.trim_end_matches(['\r', '\n']);
         let (indent, content) = split_indent(line);
+        if self
+            .compact_sequence_parent_indent
+            .is_some_and(|parent| indent <= parent)
+        {
+            self.compact_sequence_parent_indent = None;
+        }
+        if self
+            .compact_flow_mapping
+            .is_some_and(|state| indent <= state.parent_indent)
+        {
+            self.compact_flow_mapping = None;
+        }
 
         if let Some(state) = &self.multiline
             && indent <= state.base_indent
@@ -168,39 +184,20 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        let analysis = LineAnalysis::analyze(content);
-
-        while self.current_indent() > indent {
-            self.contexts.pop();
-            self.sequence_expectations.pop();
+        if content.trim_start().starts_with('#') {
+            return;
         }
 
-        let parent_indent = self.current_indent();
+        let analysis = LineAnalysis::analyze(content);
+        let compact_mapping_continuation = self.is_compact_mapping_continuation(indent, analysis);
 
-        let pushing_child = if indent > parent_indent {
-            if matches!(analysis.kind, LineKind::Other)
-                && matches!(
-                    self.prev_line_kind,
-                    Some(LineKind::Sequence | LineKind::Mapping { .. })
-                )
-            {
-                self.prev_line_kind = Some(analysis.kind);
-                return;
-            }
-            let kind = self
-                .pending_child
-                .take()
-                .unwrap_or_else(|| analysis.context_kind());
-            self.contexts.push(Context { indent, kind });
-            self.sequence_expectations.push(None);
-            self.spaces
-                .observe_increase(parent_indent, indent, line_number, &mut self.diagnostics);
-            true
-        } else {
-            self.spaces
-                .observe_indent(indent, line_number, &mut self.diagnostics);
-            self.pending_child = None;
-            false
+        let Some(pushing_child) = self.update_context_for_indent(
+            line_number,
+            indent,
+            analysis,
+            compact_mapping_continuation,
+        ) else {
+            return;
         };
 
         if analysis.is_mapping_key()
@@ -216,7 +213,11 @@ impl<'a> Analyzer<'a> {
             ctx.kind = ContextKind::Sequence;
         }
 
-        if analysis.is_sequence_entry() {
+        if analysis.is_sequence_entry()
+            && self
+                .compact_sequence_parent_indent
+                .is_none_or(|parent| indent <= parent)
+        {
             self.check_sequence_indent(indent, line_number);
         }
 
@@ -230,11 +231,87 @@ impl<'a> Analyzer<'a> {
             self.pending_child = None;
         }
 
+        if is_compact_sequence_start(content) {
+            self.compact_sequence_parent_indent = Some(indent);
+        }
+        if let Some(continuation_indent) = compact_flow_mapping_continuation_indent(content, indent)
+        {
+            self.compact_flow_mapping = Some(CompactFlowMapping {
+                parent_indent: indent,
+                continuation_indent,
+            });
+        }
+
         self.prev_line_kind = Some(analysis.kind);
     }
 
     fn current_indent(&self) -> usize {
         self.contexts.last().map_or(0, |ctx| ctx.indent)
+    }
+
+    fn update_context_for_indent(
+        &mut self,
+        line_number: usize,
+        indent: usize,
+        analysis: LineAnalysis,
+        compact_mapping_continuation: bool,
+    ) -> Option<bool> {
+        while self.current_indent() > indent {
+            self.contexts.pop();
+            self.sequence_expectations.pop();
+        }
+
+        let parent_indent = self.current_indent();
+        if indent > parent_indent {
+            if matches!(analysis.kind, LineKind::Other)
+                && matches!(
+                    self.prev_line_kind,
+                    Some(LineKind::Sequence | LineKind::Mapping { .. })
+                )
+            {
+                return None;
+            }
+            let kind = self
+                .pending_child
+                .take()
+                .unwrap_or_else(|| analysis.context_kind());
+            self.contexts.push(Context { indent, kind });
+            self.sequence_expectations.push(None);
+            if !compact_mapping_continuation {
+                self.spaces.observe_increase(
+                    parent_indent,
+                    indent,
+                    line_number,
+                    &mut self.diagnostics,
+                );
+            }
+            Some(true)
+        } else {
+            if !compact_mapping_continuation {
+                self.spaces
+                    .observe_indent(indent, line_number, &mut self.diagnostics);
+            }
+            self.pending_child = None;
+            Some(false)
+        }
+    }
+
+    fn is_compact_mapping_continuation(&self, indent: usize, analysis: LineAnalysis) -> bool {
+        if !analysis.is_mapping_key() {
+            return false;
+        }
+        if self
+            .compact_flow_mapping
+            .is_some_and(|state| state.continuation_indent == indent)
+        {
+            return true;
+        }
+        self.contexts.iter().rev().any(|ctx| {
+            let ContextKind::Mapping { sequence_offset } = ctx.kind else {
+                return false;
+            };
+            sequence_offset > 0 && ctx.indent.saturating_add(sequence_offset) == indent
+        })
     }
 
     fn find_mapping_parent_indent(&self, current_indent: usize) -> Option<(usize, usize)> {
@@ -287,6 +364,12 @@ impl<'a> Analyzer<'a> {
 struct Context {
     indent: usize,
     kind: ContextKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CompactFlowMapping {
+    parent_indent: usize,
+    continuation_indent: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -612,6 +695,17 @@ fn is_sequence_entry(content: &str) -> bool {
     matches!(content.chars().nth(1), None | Some(' ' | '\t' | '\r' | '#'))
 }
 
+fn is_compact_sequence_start(content: &str) -> bool {
+    let trimmed = content.trim();
+    if !is_sequence_entry(trimmed) {
+        return false;
+    }
+    let stripped = trimmed
+        .strip_prefix('-')
+        .expect("sequence entry starts with '-'");
+    is_sequence_entry(stripped.trim_start())
+}
+
 fn classify_mapping(content: &str) -> (bool, bool) {
     let mut in_single = false;
     let mut in_double = false;
@@ -661,4 +755,19 @@ fn sequence_prefix_width(content: &str) -> usize {
         .skip(1)
         .take_while(|ch| matches!(ch, ' ' | '\t'))
         .count()
+}
+
+fn compact_flow_mapping_continuation_indent(content: &str, indent: usize) -> Option<usize> {
+    let trimmed = content.trim();
+    if !is_sequence_entry(trimmed) {
+        return None;
+    }
+    let base_prefix = 1 + trimmed
+        .chars()
+        .skip(1)
+        .take_while(|ch| matches!(ch, ' ' | '\t'))
+        .count();
+    trimmed[base_prefix..]
+        .starts_with('{')
+        .then_some(indent.saturating_add(base_prefix + 1))
 }

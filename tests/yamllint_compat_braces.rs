@@ -322,3 +322,45 @@ fn braces_rule_matches_yamllint() {
         );
     }
 }
+
+#[test]
+fn github_actions_payload_expression_braces_match_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("input.yml");
+    fs::write(
+        &input,
+        "---\nsteps:\n  - uses: slackapi/slack-github-action@v2.1.1\n    with:\n      token: ${{ env.SLACK_BOT_TOKEN }}\n      # yamllint disable rule:line-length\n      payload: |\n        channel: \"internal-airflow-ci-cd\"\n        text: \"🚨🕒 Failure Alert: ${{ env.workflow_id }} on branch *${{ env.branch }}* 🕒🚨\\n\\n*Details:* <${{ env.run_url }}|View the failure log>\"\n        blocks:\n          - type: \"section\"\n            text:\n              type: \"mrkdwn\"\n              text: \"🚨🕒 Failure Alert: ${{ env.workflow_id }} ${{ env.branch }} 🕒🚨\\n\\n*Details:* <${{ env.run_url }}|View the failure log>\"\n    env:\n      run_url: ${{ steps.find-workflow-run-status.outputs.run-url }}\n      branch: ${{ matrix.branch }}\n      workflow_id: ${{ matrix.workflow-id }}\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for github actions payload expressions ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for github actions payload expressions ({})",
+            scenario.label
+        );
+    }
+}

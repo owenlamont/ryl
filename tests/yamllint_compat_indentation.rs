@@ -180,3 +180,219 @@ fn nested_sequence_indentation_matches_yamllint() {
         assert_eq!(ryl_msg, yam_msg, "output mismatch ({})", scenario.label);
     }
 }
+
+#[test]
+fn sequence_after_comments_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("cfg.yaml");
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  line-length: disable\n  indentation:\n    spaces: 2\n",
+    )
+    .unwrap();
+
+    let yaml_path = dir.path().join("input.yaml");
+    fs::write(
+        &yaml_path,
+        "bug:\n  # Bug Issue Template:\n  #   [Bug]:\n  # General:\n  #   panic:\n  # Terraform Plugin SDK:\n  #   doesn't support update\n  #   Invalid address to set\n  - \"(\\\\[Bug\\\\]:|doesn't support update|Invalid address to set|panic:)\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            yam_code, 0,
+            "yamllint should accept input ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_code, 0,
+            "ryl should accept input ({})\n{}",
+            scenario.label, ryl_msg
+        );
+        assert_eq!(ryl_msg, yam_msg, "output mismatch ({})", scenario.label);
+    }
+}
+
+#[test]
+fn compact_nested_sequence_indentation_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("cfg.yaml");
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  line-length: disable\n  indentation:\n    spaces: 2\n    indent-sequences: consistent\n",
+    )
+    .unwrap();
+
+    let yaml_path = dir.path().join("input.yaml");
+    fs::write(
+        &yaml_path,
+        "- name: Test nerdctl\n  tasks:\n    - name: Test nerdctl commands\n      loop:\n        - - pull\n          - \"{{ image }}\"\n        - - save\n          - -o\n          - /tmp/hello-world.tar\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            yam_code, 0,
+            "yamllint should accept compact nested sequence input ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_code, 0,
+            "ryl should accept compact nested sequence input ({})\n{}",
+            scenario.label, ryl_msg
+        );
+        assert_eq!(ryl_msg, yam_msg, "output mismatch ({})", scenario.label);
+    }
+}
+
+#[test]
+fn readthedocs_style_indentation_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yaml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("readthedocs.yaml");
+    fs::write(
+        &input,
+        "---\nversion: 2\nformats: []\nsphinx:\n    configuration: devel-common/src/docs/rtd-deprecation/conf.py\npython:\n    version: \"3.10\"\n    install:\n        - method: pip\n          path: .\n          extra_requirements:\n              - doc\n    system_packages: true\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for readthedocs-style indentation ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for readthedocs-style indentation ({})",
+            scenario.label
+        );
+    }
+}
+
+#[test]
+fn flow_mapping_continuation_indentation_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("input.yml");
+    fs::write(
+        &input,
+        "---\nserializers:\n  - {className: org.example.Serializer,\n     config: {includeTypes: true}}\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for flow mapping continuation indentation ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for flow mapping continuation indentation ({})",
+            scenario.label
+        );
+    }
+}
+
+#[test]
+fn multiline_double_quoted_template_indentation_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("input.yml");
+    fs::write(
+        &input,
+        "---\nlogging:\n  log_filename_template:\n    default: \"dag_id={{ ti.dag_id }}/run_id={{ ti.run_id }}/task_id={{ ti.task_id }}/\\\n             {%% if ti.map_index >= 0 %%}map_index={{ ti.map_index }}/{%% endif %%}\\\n             attempt={{ try_number|default(ti.try_number) }}.log\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for multiline quoted template indentation ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for multiline quoted template indentation ({})",
+            scenario.label
+        );
+    }
+}

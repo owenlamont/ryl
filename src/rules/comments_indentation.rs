@@ -36,7 +36,7 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
 
         let consumed = block_tracker.consume_line(indent, content);
         let kind = if consumed {
-            LineKind::Other
+            LineKind::BlockScalarContent
         } else {
             classify_line_kind(content)
         };
@@ -68,10 +68,10 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
 
                 last_comment_indent = Some(line.indent);
             }
-            LineKind::Other => {
+            LineKind::Other | LineKind::DirectiveComment => {
                 last_comment_indent = None;
             }
-            LineKind::Empty => {}
+            LineKind::Empty | LineKind::BlockScalarContent => {}
         }
     }
 
@@ -88,6 +88,8 @@ struct LineInfo {
 enum LineKind {
     Empty,
     Comment,
+    DirectiveComment,
+    BlockScalarContent,
     Other,
 }
 
@@ -96,6 +98,8 @@ fn classify_line_kind(content: &str) -> LineKind {
 
     if trimmed.is_empty() {
         LineKind::Empty
+    } else if trimmed.starts_with("# yamllint ") {
+        LineKind::DirectiveComment
     } else if trimmed.starts_with('#') {
         LineKind::Comment
     } else {
@@ -222,10 +226,18 @@ fn is_block_scalar_indicator(content: &str) -> bool {
     }
 
     let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    trimmed.ends_with("|-")
+    let marker_idx = if trimmed.ends_with("|-")
         || trimmed.ends_with("|+")
-        || trimmed.ends_with('|')
         || trimmed.ends_with(">-")
         || trimmed.ends_with(">+")
-        || trimmed.ends_with('>')
+    {
+        trimmed.len().saturating_sub(2)
+    } else if trimmed.ends_with('|') || trimmed.ends_with('>') {
+        trimmed.len().saturating_sub(1)
+    } else {
+        return false;
+    };
+
+    let prefix = trimmed[..marker_idx].trim_end();
+    prefix.ends_with(':') || prefix.ends_with('-')
 }

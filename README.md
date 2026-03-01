@@ -16,6 +16,9 @@ Compatibility note:
 uvx ryl .
 ```
 
+For `prek` / `pre-commit` integration, see
+[ryl-pre-commit](https://github.com/owenlamont/ryl-pre-commit).
+
 ## Installation
 
 ### uv
@@ -140,3 +143,21 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   project config. Ignores apply to directory scans and explicit files (parity).
 - Presets and extends: supports yamllint’s built-in `default`, `relaxed`, and
   `empty` via `extends`. Rule maps are deep-merged; scalars/sequences overwrite.
+
+## Acknowledgements
+
+This project exists thanks to the tooling and ecosystems around YAML linting and
+developer automation, especially:
+
+- [yamllint](https://github.com/adrienverge/yamllint) - for giving me the shoulders to
+  stand on and the source of many of the automated tests that ryl uses now to check for
+  behaviour parity. Copying the behaviour of an existing tool is infinitely easier than
+  building one from scratch - there'd be no ryl without yamllint.
+- [ruff](https://github.com/astral-sh/ruff) - for showing the power of Rust tooling for
+  Python development and inspiring the config and API for ryl.
+- [rumdl](https://github.com/rvben/rumdl) - for giving me another template to follow for
+  Rust tooling and showing me almost the only dev tool I was still using after this that
+  wasn't written in Rust was yamllint (which inspired me to tackle this project)
+- [saphyr](https://github.com/saphyr-rs/saphyr) - ryl is built on saphyr and saphyr's
+  developers were very patient in showing some of the nuance and complexity of parsing
+  YAML which I was embarrassingly ignorant of when start ryl.

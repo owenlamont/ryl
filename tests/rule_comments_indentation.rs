@@ -107,6 +107,16 @@ fn block_scalar_followed_by_mapping_is_handled() {
 }
 
 #[test]
+fn folded_block_scalar_with_chomping_is_detected() {
+    let input = "rule:\n  value: >-\n    body\n  # metadata\n  next: value\n";
+    let hits = run(input);
+    assert!(
+        hits.is_empty(),
+        "folded block scalar with chomping should not flag comments: {hits:?}"
+    );
+}
+
+#[test]
 fn empty_block_scalar_resets_state() {
     let input = "value: |\nnext: item\n";
     let hits = run(input);
