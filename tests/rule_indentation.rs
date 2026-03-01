@@ -302,6 +302,17 @@ fn inline_structures_and_comments_preserve_mapping_detection() {
 }
 
 #[test]
+fn compact_flow_mapping_sequence_resets_after_dedent() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let yaml = "root:\n  - {a: 1,\n     b: 2}\nnext: value\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
 fn fixed_spacing_reports_repeated_misalignments() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "root:\n child_one: value\n child_two: value\n";

@@ -312,3 +312,87 @@ fn readthedocs_style_indentation_matches_yamllint() {
         );
     }
 }
+
+#[test]
+fn flow_mapping_continuation_indentation_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("input.yml");
+    fs::write(
+        &input,
+        "---\nserializers:\n  - {className: org.example.Serializer,\n     config: {includeTypes: true}}\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for flow mapping continuation indentation ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for flow mapping continuation indentation ({})",
+            scenario.label
+        );
+    }
+}
+
+#[test]
+fn multiline_double_quoted_template_indentation_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("input.yml");
+    fs::write(
+        &input,
+        "---\nlogging:\n  log_filename_template:\n    default: \"dag_id={{ ti.dag_id }}/run_id={{ ti.run_id }}/task_id={{ ti.task_id }}/\\\n             {%% if ti.map_index >= 0 %%}map_index={{ ti.map_index }}/{%% endif %%}\\\n             attempt={{ try_number|default(ti.try_number) }}.log\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for multiline quoted template indentation ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for multiline quoted template indentation ({})",
+            scenario.label
+        );
+    }
+}

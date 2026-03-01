@@ -193,3 +193,45 @@ fn comments_around_line_length_toggle_match_yamllint() {
         );
     }
 }
+
+#[test]
+fn comment_after_block_scalar_pattern_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("cfg.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("input.yml");
+    fs::write(
+        &input,
+        "---\nhooks:\n  - id: x\n    files: >\n      (?x)\n      ^a$|\n      ^b$\n    ## ONLY ADD PREK HOOKS HERE THAT REQUIRE CI IMAGE\n  - id: y\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg("--strict").arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for comment after block scalar pattern ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for comment after block scalar pattern ({})",
+            scenario.label
+        );
+    }
+}

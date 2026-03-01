@@ -215,3 +215,43 @@ fn unmatched_closing_brace_is_ignored() {
         "unexpected diagnostics: {diagnostics:?}"
     );
 }
+
+#[test]
+fn open_brace_at_end_of_input_is_ignored() {
+    let cfg = defaults();
+    let diagnostics = braces::check("value: {\n", &cfg);
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn open_brace_with_comment_to_eof_is_ignored() {
+    let cfg = defaults();
+    let diagnostics = braces::check("value: {# comment\n", &cfg);
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn comment_with_crlf_after_open_brace_is_ignored() {
+    let cfg = defaults();
+    let diagnostics = braces::check("value: {# comment\r\n", &cfg);
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn double_curly_expression_without_closing_pair_is_ignored() {
+    let cfg = defaults();
+    let diagnostics = braces::check("value: {{ missing\n", &cfg);
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
