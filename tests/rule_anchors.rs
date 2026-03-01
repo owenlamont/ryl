@@ -279,6 +279,21 @@ fn alias_token_without_name_is_ignored() {
 }
 
 #[test]
+fn alias_at_document_start_is_reported() {
+    let cfg = Config::new_for_tests(true, false, false);
+    let yaml = concat!("---\n", "*missing\n");
+    let hits = anchors::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![violation(
+            2,
+            1,
+            &format!(r#"{MESSAGE_UNDECLARED_ALIAS} "missing""#)
+        )]
+    );
+}
+
+#[test]
 fn block_indicator_with_unexpected_suffix_is_not_special() {
     let cfg = Config::new_for_tests(true, true, true);
     let yaml = concat!(

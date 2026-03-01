@@ -68,7 +68,7 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
 
                 last_comment_indent = Some(line.indent);
             }
-            LineKind::Other => {
+            LineKind::Other | LineKind::DirectiveComment => {
                 last_comment_indent = None;
             }
             LineKind::Empty => {}
@@ -88,6 +88,7 @@ struct LineInfo {
 enum LineKind {
     Empty,
     Comment,
+    DirectiveComment,
     Other,
 }
 
@@ -96,6 +97,8 @@ fn classify_line_kind(content: &str) -> LineKind {
 
     if trimmed.is_empty() {
         LineKind::Empty
+    } else if trimmed.starts_with("# yamllint ") {
+        LineKind::DirectiveComment
     } else if trimmed.starts_with('#') {
         LineKind::Comment
     } else {

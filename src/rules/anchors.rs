@@ -377,11 +377,10 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
 
     fn is_alias_indicator(&self, chars: &[char], idx: usize) -> bool {
         debug_assert!(!self.in_single_quote && !self.in_double_quote);
-        let prev_non_ws = chars[..idx]
-            .iter()
-            .rev()
-            .find(|ch| !matches!(ch, ' ' | '\t'));
-        prev_non_ws.is_none_or(|prev| matches!(prev, ':' | '-' | '[' | '{' | ',' | '?'))
+        let Some(prev) = idx.checked_sub(1).and_then(|prev_idx| chars.get(prev_idx)) else {
+            return true;
+        };
+        matches!(prev, ' ' | '\t' | ':' | '[' | '{' | ',' | '?')
     }
 }
 

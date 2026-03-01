@@ -181,38 +181,15 @@ impl<'a> Analyzer<'a> {
         }
 
         let analysis = LineAnalysis::analyze(content);
+        let compact_mapping_continuation = self.is_compact_mapping_continuation(indent, analysis);
 
-        while self.current_indent() > indent {
-            self.contexts.pop();
-            self.sequence_expectations.pop();
-        }
-
-        let parent_indent = self.current_indent();
-
-        let pushing_child = if indent > parent_indent {
-            if matches!(analysis.kind, LineKind::Other)
-                && matches!(
-                    self.prev_line_kind,
-                    Some(LineKind::Sequence | LineKind::Mapping { .. })
-                )
-            {
-                self.prev_line_kind = Some(analysis.kind);
-                return;
-            }
-            let kind = self
-                .pending_child
-                .take()
-                .unwrap_or_else(|| analysis.context_kind());
-            self.contexts.push(Context { indent, kind });
-            self.sequence_expectations.push(None);
-            self.spaces
-                .observe_increase(parent_indent, indent, line_number, &mut self.diagnostics);
-            true
-        } else {
-            self.spaces
-                .observe_indent(indent, line_number, &mut self.diagnostics);
-            self.pending_child = None;
-            false
+        let Some(pushing_child) = self.update_context_for_indent(
+            line_number,
+            indent,
+            analysis,
+            compact_mapping_continuation,
+        ) else {
+            return;
         };
 
         if analysis.is_mapping_key()
@@ -255,6 +232,66 @@ impl<'a> Analyzer<'a> {
 
     fn current_indent(&self) -> usize {
         self.contexts.last().map_or(0, |ctx| ctx.indent)
+    }
+
+    fn update_context_for_indent(
+        &mut self,
+        line_number: usize,
+        indent: usize,
+        analysis: LineAnalysis,
+        compact_mapping_continuation: bool,
+    ) -> Option<bool> {
+        while self.current_indent() > indent {
+            self.contexts.pop();
+            self.sequence_expectations.pop();
+        }
+
+        let parent_indent = self.current_indent();
+        if indent > parent_indent {
+            if matches!(analysis.kind, LineKind::Other)
+                && matches!(
+                    self.prev_line_kind,
+                    Some(LineKind::Sequence | LineKind::Mapping { .. })
+                )
+            {
+                self.prev_line_kind = Some(analysis.kind);
+                return None;
+            }
+            let kind = self
+                .pending_child
+                .take()
+                .unwrap_or_else(|| analysis.context_kind());
+            self.contexts.push(Context { indent, kind });
+            self.sequence_expectations.push(None);
+            if !compact_mapping_continuation {
+                self.spaces.observe_increase(
+                    parent_indent,
+                    indent,
+                    line_number,
+                    &mut self.diagnostics,
+                );
+            }
+            Some(true)
+        } else {
+            if !compact_mapping_continuation {
+                self.spaces
+                    .observe_indent(indent, line_number, &mut self.diagnostics);
+            }
+            self.pending_child = None;
+            Some(false)
+        }
+    }
+
+    fn is_compact_mapping_continuation(&self, indent: usize, analysis: LineAnalysis) -> bool {
+        if !analysis.is_mapping_key() {
+            return false;
+        }
+        self.contexts.iter().rev().any(|ctx| {
+            let ContextKind::Mapping { sequence_offset } = ctx.kind else {
+                return false;
+            };
+            sequence_offset > 0 && ctx.indent.saturating_add(sequence_offset) == indent
+        })
     }
 
     fn find_mapping_parent_indent(&self, current_indent: usize) -> Option<(usize, usize)> {

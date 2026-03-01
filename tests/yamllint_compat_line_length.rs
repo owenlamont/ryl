@@ -195,3 +195,46 @@ fn line_length_rule_matches_yamllint() {
         );
     }
 }
+
+#[test]
+fn line_length_disable_enable_comments_match_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("line-110.yml");
+    fs::write(
+        &cfg,
+        "extends: default\nrules:\n  line-length:\n    max: 110\n",
+    )
+    .unwrap();
+
+    let input = dir.path().join("line-disable-comments.yaml");
+    fs::write(
+        &input,
+        "# yamllint disable rule:line-length\nmsg: \"This is a very very very very very very very very very very very very very very very long line that should be ignored\"\n# yamllint enable rule:line-length\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg).arg(&input);
+        let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg).arg(&input);
+        let (yam_code, yam_msg) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(
+            ryl_code, yam_code,
+            "exit mismatch for line-length disable comments ({})",
+            scenario.label
+        );
+        assert_eq!(
+            ryl_msg, yam_msg,
+            "diagnostics mismatch for line-length disable comments ({})",
+            scenario.label
+        );
+    }
+}

@@ -76,6 +76,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut line_no = 1usize;
     let mut line_start = 0usize;
     let mut idx = 0usize;
+    let mut disabled = false;
 
     while idx < bytes.len() {
         if bytes[idx] == b'\n' {
@@ -84,7 +85,15 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             } else {
                 idx
             };
-            process_line(buffer, line_no, line_start, line_end, cfg, &mut violations);
+            process_line(
+                buffer,
+                line_no,
+                line_start,
+                line_end,
+                cfg,
+                &mut violations,
+                &mut disabled,
+            );
             idx += 1;
             line_start = idx;
             line_no += 1;
@@ -100,6 +109,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         bytes.len(),
         cfg,
         &mut violations,
+        &mut disabled,
     );
     violations
 }
@@ -111,12 +121,28 @@ fn process_line(
     end: usize,
     cfg: &Config,
     out: &mut Vec<Violation>,
+    disabled: &mut bool,
 ) {
     if start == end {
         return;
     }
 
     let line = &buffer[start..end];
+    match line_length_directive(line) {
+        Directive::Disable => {
+            *disabled = true;
+            return;
+        }
+        Directive::Enable => {
+            *disabled = false;
+            return;
+        }
+        Directive::None => {}
+    }
+    if *disabled {
+        return;
+    }
+
     let length = line.chars().count();
     let length_i64 = i64::try_from(length).unwrap_or(i64::MAX);
 
@@ -167,6 +193,30 @@ fn allows_overflow(line: &str, cfg: &Config) -> bool {
     }
 
     cfg.allow_non_breakable_inline_mappings() && check_inline_mapping(line)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Directive {
+    None,
+    Disable,
+    Enable,
+}
+
+fn line_length_directive(line: &str) -> Directive {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with('#') {
+        return Directive::None;
+    }
+    let payload = trimmed.trim_start_matches('#').trim_start();
+    if payload == "yamllint disable rule:line-length"
+        || payload == "yamllint disable-line rule:line-length"
+    {
+        return Directive::Disable;
+    }
+    if payload == "yamllint enable rule:line-length" {
+        return Directive::Enable;
+    }
+    Directive::None
 }
 
 fn check_inline_mapping(line: &str) -> bool {
