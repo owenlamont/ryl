@@ -168,6 +168,10 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
+        if content.trim_start().starts_with('#') {
+            return;
+        }
+
         let analysis = LineAnalysis::analyze(content);
 
         while self.current_indent() > indent {
