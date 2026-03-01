@@ -128,6 +128,7 @@ fn process_line(
     }
 
     let line = &buffer[start..end];
+    let disable_line_applies = std::mem::take(&mut directive_state.disable_next_line);
     match line_length_directive(line) {
         Directive::Disable => {
             directive_state.disabled = true;
@@ -143,8 +144,7 @@ fn process_line(
         }
         Directive::None => {}
     }
-    if directive_state.disabled || directive_state.disable_next_line {
-        directive_state.disable_next_line = false;
+    if directive_state.disabled || disable_line_applies {
         return;
     }
 
