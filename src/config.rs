@@ -337,6 +337,13 @@ impl YamlLintConfig {
             return false;
         };
         let rel = path.strip_prefix(base_dir).unwrap_or(path);
+        let direct = matcher.matched(rel, false);
+        if direct.is_whitelist() {
+            return false;
+        }
+        if direct.is_ignore() {
+            return true;
+        }
         matcher.matched_path_or_any_parents(rel, false).is_ignore()
     }
 
@@ -349,6 +356,13 @@ impl YamlLintConfig {
             return false;
         };
         let rel = path.strip_prefix(base_dir).unwrap_or(path);
+        let direct = matcher.matched(rel, false);
+        if direct.is_whitelist() {
+            return false;
+        }
+        if direct.is_ignore() {
+            return true;
+        }
         matcher.matched_path_or_any_parents(rel, false).is_ignore()
     }
 

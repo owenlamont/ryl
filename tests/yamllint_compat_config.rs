@@ -31,10 +31,10 @@ fn yamllint_and_ryl_honor_ignore_from_file() {
     let root = td.path();
     fs::write(
         root.join(".yamllint"),
-        "ignore-from-file: .ignore\nrules: {}\n",
+        "ignore-from-file: patterns.ignore\nrules: {}\n",
     )
     .unwrap();
-    fs::write(root.join(".ignore"), "*.skip.yaml\n").unwrap();
+    fs::write(root.join("patterns.ignore"), "*.skip.yaml\n").unwrap();
     fs::write(root.join("keep.yaml"), "ok: 1\n").unwrap();
     fs::write(root.join("skip.yaml"), "bad: [1\n").unwrap();
 
@@ -94,4 +94,77 @@ fn project_config_precedence_over_env_matches_yamllint() {
     y_list.sort();
 
     assert_eq!(ryl_list, y_list, "project config should take precedence");
+}
+
+#[test]
+fn ignore_can_reinclude_file_from_excluded_directory_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let td = tempdir().unwrap();
+    let root = td.path();
+    fs::write(
+        root.join(".yamllint"),
+        "ignore: |\n  build/\n  !build/keep.yaml\nrules: {}\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("build")).unwrap();
+    fs::write(root.join("build/keep.yaml"), "ok: 1\n").unwrap();
+    fs::write(root.join("build/drop.yaml"), "ok: 1\n").unwrap();
+    fs::write(root.join("top.yaml"), "ok: 1\n").unwrap();
+
+    let ryl = env!("CARGO_BIN_EXE_ryl");
+    let (_code, ryl_out, ryl_err) = run(Command::new(ryl)
+        .current_dir(root)
+        .arg("--list-files")
+        .arg("."));
+    assert!(ryl_err.is_empty(), "unexpected stderr from ryl: {ryl_err}");
+    let mut ryl_list: Vec<_> = ryl_out.lines().map(|s| s.to_string()).collect();
+    ryl_list.sort();
+
+    let (_yc, y_out, y_err) = run(Command::new("yamllint")
+        .current_dir(root)
+        .arg("--list-files")
+        .arg("."));
+    assert!(y_err.is_empty(), "unexpected stderr from yamllint: {y_err}");
+    let mut y_list: Vec<_> = y_out.lines().map(|s| s.to_string()).collect();
+    y_list.sort();
+
+    assert_eq!(ryl_list, y_list, "file lists should match");
+}
+
+#[test]
+fn ignore_from_file_can_reinclude_file_from_excluded_directory_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let td = tempdir().unwrap();
+    let root = td.path();
+    fs::write(
+        root.join(".yamllint"),
+        "ignore-from-file: patterns.ignore\nrules: {}\n",
+    )
+    .unwrap();
+    fs::write(root.join("patterns.ignore"), "build/\n!build/keep.yaml\n").unwrap();
+    fs::create_dir_all(root.join("build")).unwrap();
+    fs::write(root.join("build/keep.yaml"), "ok: 1\n").unwrap();
+    fs::write(root.join("build/drop.yaml"), "ok: 1\n").unwrap();
+    fs::write(root.join("top.yaml"), "ok: 1\n").unwrap();
+
+    let ryl = env!("CARGO_BIN_EXE_ryl");
+    let (_code, ryl_out, ryl_err) = run(Command::new(ryl)
+        .current_dir(root)
+        .arg("--list-files")
+        .arg("."));
+    assert!(ryl_err.is_empty(), "unexpected stderr from ryl: {ryl_err}");
+    let mut ryl_list: Vec<_> = ryl_out.lines().map(|s| s.to_string()).collect();
+    ryl_list.sort();
+
+    let (_yc, y_out, y_err) = run(Command::new("yamllint")
+        .current_dir(root)
+        .arg("--list-files")
+        .arg("."));
+    assert!(y_err.is_empty(), "unexpected stderr from yamllint: {y_err}");
+    let mut y_list: Vec<_> = y_out.lines().map(|s| s.to_string()).collect();
+    y_list.sort();
+
+    assert_eq!(ryl_list, y_list, "file lists should match");
 }
