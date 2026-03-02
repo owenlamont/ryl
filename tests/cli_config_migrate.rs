@@ -85,6 +85,51 @@ fn migrate_configs_warns_when_multiple_yaml_configs_share_directory() {
 }
 
 #[test]
+fn migrate_configs_write_with_delete_old_removes_skipped_lower_precedence_files() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    let primary = root.join(".yamllint");
+    let skipped = root.join(".yamllint.yml");
+    fs::write(&primary, "rules: {}\n").unwrap();
+    fs::write(&skipped, "rules: { document-start: disable }\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--migrate-configs")
+        .arg("--migrate-root")
+        .arg(root)
+        .arg("--migrate-write")
+        .arg("--migrate-delete-old"));
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(!primary.exists());
+    assert!(!skipped.exists());
+}
+
+#[test]
+fn migrate_configs_write_with_rename_old_renames_skipped_lower_precedence_files() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    let primary = root.join(".yamllint");
+    let skipped = root.join(".yamllint.yml");
+    fs::write(&primary, "rules: {}\n").unwrap();
+    fs::write(&skipped, "rules: { document-start: disable }\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--migrate-configs")
+        .arg("--migrate-root")
+        .arg(root)
+        .arg("--migrate-write")
+        .arg("--migrate-rename-old")
+        .arg(".bak"));
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(!primary.exists());
+    assert!(!skipped.exists());
+    assert!(root.join(".yamllint.bak").exists());
+    assert!(root.join(".yamllint.yml.bak").exists());
+}
+
+#[test]
 fn migrate_rename_and_delete_conflict() {
     let td = tempdir().unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");

@@ -32,6 +32,7 @@ fn migrate_single_non_config_file_returns_no_entries() {
     };
     let res = migrate_configs(&opts).unwrap();
     assert!(res.entries.is_empty());
+    assert!(res.cleanup_only_sources.is_empty());
 }
 
 #[test]
@@ -48,6 +49,7 @@ fn migrate_single_yaml_config_file_path_returns_entry() {
     let res = migrate_configs(&opts).unwrap();
     assert_eq!(res.entries.len(), 1);
     assert_eq!(res.entries[0].source, file);
+    assert!(res.cleanup_only_sources.is_empty());
 }
 
 #[test]
@@ -65,6 +67,7 @@ fn migrate_write_mode_with_delete_removes_source_file() {
     assert_eq!(res.entries.len(), 1);
     assert!(!source.exists());
     assert!(td.path().join(".ryl.toml").exists());
+    assert!(res.cleanup_only_sources.is_empty());
 }
 
 #[test]
@@ -82,6 +85,7 @@ fn migrate_write_mode_with_keep_preserves_source_file() {
     assert_eq!(res.entries.len(), 1);
     assert!(source.exists());
     assert!(td.path().join(".ryl.toml").exists());
+    assert!(res.cleanup_only_sources.is_empty());
 }
 
 #[test]
@@ -100,6 +104,7 @@ fn migrate_write_mode_with_rename_suffix_renames_source_file() {
     assert!(!source.exists());
     assert!(td.path().join(".yamllint.bak").exists());
     assert!(td.path().join(".ryl.toml").exists());
+    assert!(res.cleanup_only_sources.is_empty());
 }
 
 #[test]
@@ -115,6 +120,7 @@ fn migrate_warns_on_multiple_same_directory_configs() {
     };
     let res = migrate_configs(&opts).unwrap();
     assert_eq!(res.entries.len(), 1);
+    assert_eq!(res.cleanup_only_sources.len(), 1);
     assert_eq!(res.warnings.len(), 1);
     assert!(res.warnings[0].contains("lower-precedence"));
 }
@@ -190,6 +196,58 @@ fn apply_entries_delete_mode_propagates_delete_failures() {
         target,
         toml: "[rules]\n".to_string(),
     }];
-    let err = apply_migration_entries(&entries, &SourceCleanup::Delete).unwrap_err();
+    let err = apply_migration_entries(&entries, &[], &SourceCleanup::Delete).unwrap_err();
     assert!(err.contains("failed to delete migrated source config"));
+}
+
+#[test]
+fn apply_entries_delete_mode_cleans_up_cleanup_only_sources() {
+    let td = tempdir().unwrap();
+    let skipped = td.path().join(".yamllint.yml");
+    fs::write(&skipped, "rules: {}\n").unwrap();
+    apply_migration_entries(&[], std::slice::from_ref(&skipped), &SourceCleanup::Delete).unwrap();
+    assert!(!skipped.exists());
+}
+
+#[test]
+fn migrate_delete_mode_removes_lower_precedence_skipped_configs() {
+    let td = tempdir().unwrap();
+    let primary = td.path().join(".yamllint");
+    let skipped = td.path().join(".yamllint.yml");
+    fs::write(&primary, "rules: { document-start: disable }\n").unwrap();
+    fs::write(&skipped, "rules: {}\n").unwrap();
+    let opts = MigrateOptions {
+        root: td.path().to_path_buf(),
+        write_mode: WriteMode::Write,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Delete,
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert_eq!(res.entries.len(), 1);
+    assert_eq!(res.cleanup_only_sources, vec![skipped.clone()]);
+    assert!(!primary.exists());
+    assert!(!skipped.exists());
+    assert!(td.path().join(".ryl.toml").exists());
+}
+
+#[test]
+fn migrate_rename_mode_renames_lower_precedence_skipped_configs() {
+    let td = tempdir().unwrap();
+    let primary = td.path().join(".yamllint");
+    let skipped = td.path().join(".yamllint.yml");
+    fs::write(&primary, "rules: { document-start: disable }\n").unwrap();
+    fs::write(&skipped, "rules: {}\n").unwrap();
+    let opts = MigrateOptions {
+        root: td.path().to_path_buf(),
+        write_mode: WriteMode::Write,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::RenameSuffix(".bak".to_string()),
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert_eq!(res.entries.len(), 1);
+    assert_eq!(res.cleanup_only_sources, vec![skipped.clone()]);
+    assert!(!primary.exists());
+    assert!(td.path().join(".yamllint.bak").exists());
+    assert!(!skipped.exists());
+    assert!(td.path().join(".yamllint.yml.bak").exists());
 }

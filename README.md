@@ -163,8 +163,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   - `--migrate-root <DIR>`: root to search for legacy YAML configs (default `.`).
   - `--migrate-write`: write migrated `.ryl.toml` files (without this it is preview-only).
   - `--migrate-stdout`: print generated TOML in migration mode.
-  - `--migrate-rename-old <SUFFIX>`: rename migrated source YAML files after writing.
-  - `--migrate-delete-old`: delete migrated source YAML files after writing.
+  - `--migrate-rename-old <SUFFIX>`: rename discovered legacy YAML config files after writing.
+  - `--migrate-delete-old`: delete discovered legacy YAML config files after writing.
   - `-f, --format`, `-s, --strict`, `--no-warnings`: reserved for compatibility.
 - Discovery precedence:
   inline `--config-data` > `--config-file` > env `YAMLLINT_CONFIG_FILE`

@@ -43,7 +43,15 @@ pub struct MigrationEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrateResult {
     pub entries: Vec<MigrationEntry>,
+    pub cleanup_only_sources: Vec<PathBuf>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct MigrationPlan {
+    entries: Vec<MigrationEntry>,
+    cleanup_only_sources: Vec<PathBuf>,
+    warnings: Vec<String>,
 }
 
 /// Apply write + cleanup actions for already planned migration entries.
@@ -52,8 +60,37 @@ pub struct MigrateResult {
 /// Returns an error if writing targets or requested source cleanup fails.
 pub fn apply_migration_entries(
     entries: &[MigrationEntry],
+    cleanup_only_sources: &[PathBuf],
     cleanup: &SourceCleanup,
 ) -> Result<(), String> {
+    let apply_cleanup = |source: &Path| -> Result<(), String> {
+        match cleanup {
+            SourceCleanup::Keep => {}
+            SourceCleanup::Delete => {
+                fs::remove_file(source).map_err(|err| {
+                    format!(
+                        "failed to delete migrated source config {}: {err}",
+                        source.display()
+                    )
+                })?;
+            }
+            SourceCleanup::RenameSuffix(suffix) => {
+                let source_name = source
+                    .file_name()
+                    .map_or_else(String::new, |name| name.to_string_lossy().to_string());
+                let renamed = source.with_file_name(format!("{source_name}{suffix}"));
+                fs::rename(source, &renamed).map_err(|err| {
+                    format!(
+                        "failed to rename migrated source config {} to {}: {err}",
+                        source.display(),
+                        renamed.display()
+                    )
+                })?;
+            }
+        }
+        Ok(())
+    };
+
     for entry in entries {
         fs::write(&entry.target, &entry.toml).map_err(|err| {
             format!(
@@ -61,34 +98,16 @@ pub fn apply_migration_entries(
                 entry.target.display()
             )
         })?;
-        match cleanup {
-            SourceCleanup::Keep => {}
-            SourceCleanup::Delete => {
-                fs::remove_file(&entry.source).map_err(|err| {
-                    format!(
-                        "failed to delete migrated source config {}: {err}",
-                        entry.source.display()
-                    )
-                })?;
-            }
-            SourceCleanup::RenameSuffix(suffix) => {
-                let source_name = entry
-                    .source
-                    .file_name()
-                    .map_or_else(String::new, |name| name.to_string_lossy().to_string());
-                let renamed = entry
-                    .source
-                    .with_file_name(format!("{source_name}{suffix}"));
-                fs::rename(&entry.source, &renamed).map_err(|err| {
-                    format!(
-                        "failed to rename migrated source config {} to {}: {err}",
-                        entry.source.display(),
-                        renamed.display()
-                    )
-                })?;
-            }
-        }
     }
+
+    for source in entries
+        .iter()
+        .map(|entry| &entry.source)
+        .chain(cleanup_only_sources.iter())
+    {
+        apply_cleanup(source)?;
+    }
+
     Ok(())
 }
 
@@ -133,15 +152,14 @@ fn discover_legacy_yaml_configs(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn build_migration_entries(root: &Path) -> Result<(Vec<MigrationEntry>, Vec<String>), String> {
+fn build_migration_entries(root: &Path) -> Result<MigrationPlan, String> {
     let mut grouped: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for path in discover_legacy_yaml_configs(root) {
         let parent = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         grouped.entry(parent).or_default().push(path);
     }
 
-    let mut warnings = Vec::new();
-    let mut entries = Vec::new();
+    let mut plan = MigrationPlan::default();
     let mut directories: Vec<PathBuf> = grouped.keys().cloned().collect();
     directories.sort();
 
@@ -159,7 +177,8 @@ fn build_migration_entries(root: &Path) -> Result<(Vec<MigrationEntry>, Vec<Stri
             .cloned()
             .expect("at least one config path should exist per grouped directory");
         for ignored in paths.iter().skip(1) {
-            warnings.push(format!(
+            plan.cleanup_only_sources.push(ignored.clone());
+            plan.warnings.push(format!(
                 "warning: skipping lower-precedence config {} in favor of {}",
                 ignored.display(),
                 primary.display()
@@ -175,14 +194,14 @@ fn build_migration_entries(root: &Path) -> Result<(Vec<MigrationEntry>, Vec<Stri
         )?;
         let rendered = ctx.config.to_toml_string()?;
         let toml = format!("{}\n", rendered.trim_end());
-        entries.push(MigrationEntry {
+        plan.entries.push(MigrationEntry {
             source: primary,
             target: dir.join(".ryl.toml"),
             toml,
         });
     }
 
-    Ok((entries, warnings))
+    Ok(plan)
 }
 
 /// Build and optionally apply YAML-to-TOML config migration.
@@ -197,10 +216,14 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
         ));
     }
 
-    let (entries, warnings) = build_migration_entries(&options.root)?;
+    let plan = build_migration_entries(&options.root)?;
     if options.write_mode == WriteMode::Write {
-        apply_migration_entries(&entries, &options.cleanup)?;
+        apply_migration_entries(&plan.entries, &plan.cleanup_only_sources, &options.cleanup)?;
     }
 
-    Ok(MigrateResult { entries, warnings })
+    Ok(MigrateResult {
+        entries: plan.entries,
+        cleanup_only_sources: plan.cleanup_only_sources,
+        warnings: plan.warnings,
+    })
 }
