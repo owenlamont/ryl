@@ -46,6 +46,52 @@ pub struct MigrateResult {
     pub warnings: Vec<String>,
 }
 
+/// Apply write + cleanup actions for already planned migration entries.
+///
+/// # Errors
+/// Returns an error if writing targets or requested source cleanup fails.
+pub fn apply_migration_entries(
+    entries: &[MigrationEntry],
+    cleanup: &SourceCleanup,
+) -> Result<(), String> {
+    for entry in entries {
+        fs::write(&entry.target, &entry.toml).map_err(|err| {
+            format!(
+                "failed to write migrated config {}: {err}",
+                entry.target.display()
+            )
+        })?;
+        match cleanup {
+            SourceCleanup::Keep => {}
+            SourceCleanup::Delete => {
+                fs::remove_file(&entry.source).map_err(|err| {
+                    format!(
+                        "failed to delete migrated source config {}: {err}",
+                        entry.source.display()
+                    )
+                })?;
+            }
+            SourceCleanup::RenameSuffix(suffix) => {
+                let source_name = entry
+                    .source
+                    .file_name()
+                    .map_or_else(String::new, |name| name.to_string_lossy().to_string());
+                let renamed = entry
+                    .source
+                    .with_file_name(format!("{source_name}{suffix}"));
+                fs::rename(&entry.source, &renamed).map_err(|err| {
+                    format!(
+                        "failed to rename migrated source config {} to {}: {err}",
+                        entry.source.display(),
+                        renamed.display()
+                    )
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn yaml_config_rank(path: &Path) -> usize {
     match path.file_name().and_then(|name| name.to_str()) {
         Some(".yamllint") => 0,
@@ -153,36 +199,7 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
 
     let (entries, warnings) = build_migration_entries(&options.root)?;
     if options.write_mode == WriteMode::Write {
-        for entry in &entries {
-            fs::write(&entry.target, &entry.toml).map_err(|err| {
-                format!(
-                    "failed to write migrated config {}: {err}",
-                    entry.target.display()
-                )
-            })?;
-            match &options.cleanup {
-                SourceCleanup::Keep => {}
-                SourceCleanup::Delete => {
-                    let _ = fs::remove_file(&entry.source);
-                }
-                SourceCleanup::RenameSuffix(suffix) => {
-                    let source_name = entry
-                        .source
-                        .file_name()
-                        .map_or_else(String::new, |name| name.to_string_lossy().to_string());
-                    let renamed = entry
-                        .source
-                        .with_file_name(format!("{source_name}{suffix}"));
-                    if fs::rename(&entry.source, &renamed).is_err() {
-                        return Err(format!(
-                            "failed to rename migrated source config {} to {}",
-                            entry.source.display(),
-                            renamed.display()
-                        ));
-                    }
-                }
-            }
-        }
+        apply_migration_entries(&entries, &options.cleanup)?;
     }
 
     Ok(MigrateResult { entries, warnings })

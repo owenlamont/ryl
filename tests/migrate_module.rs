@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ryl::migrate::{MigrateOptions, OutputMode, SourceCleanup, WriteMode, migrate_configs};
+use ryl::migrate::{
+    MigrateOptions, MigrationEntry, OutputMode, SourceCleanup, WriteMode, apply_migration_entries,
+    migrate_configs,
+};
 use tempfile::tempdir;
 
 #[test]
@@ -175,4 +178,18 @@ fn migrate_write_errors_when_rename_destination_is_invalid() {
     };
     let err = migrate_configs(&opts).unwrap_err();
     assert!(err.contains("failed to rename migrated source config"));
+}
+
+#[test]
+fn apply_entries_delete_mode_propagates_delete_failures() {
+    let td = tempdir().unwrap();
+    let target = td.path().join(".ryl.toml");
+    let source = td.path().join(".yamllint");
+    let entries = vec![MigrationEntry {
+        source: source.clone(),
+        target,
+        toml: "[rules]\n".to_string(),
+    }];
+    let err = apply_migration_entries(&entries, &SourceCleanup::Delete).unwrap_err();
+    assert!(err.contains("failed to delete migrated source config"));
 }
