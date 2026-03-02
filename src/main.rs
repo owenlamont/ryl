@@ -7,6 +7,7 @@
 )]
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -16,6 +17,9 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
+use ryl::migrate::{
+    MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode, migrate_configs,
+};
 use ryl::{LintProblem, Severity, lint_file};
 
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
@@ -69,6 +73,56 @@ fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Result<Option<ConfigContex
     }
 }
 
+fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
+    let cleanup = if let Some(suffix) = &cli.migrate.rename_old {
+        SourceCleanup::RenameSuffix(suffix.clone())
+    } else if cli.migrate.delete_old {
+        SourceCleanup::Delete
+    } else {
+        SourceCleanup::Keep
+    };
+    let options = MigrateOptions {
+        root: cli
+            .migrate
+            .root
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(".")),
+        write_mode: if cli.migrate.write {
+            WriteMode::Write
+        } else {
+            WriteMode::Preview
+        },
+        output_mode: if cli.migrate.stdout {
+            MigrateOutputMode::IncludeToml
+        } else {
+            MigrateOutputMode::SummaryOnly
+        },
+        cleanup,
+    };
+    let result = migrate_configs(&options)?;
+    for warning in result.warnings {
+        eprintln!("{warning}");
+    }
+    if result.entries.is_empty() {
+        println!(
+            "No legacy YAML config files found under {}",
+            options.root.display()
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    for entry in &result.entries {
+        println!("{} -> {}", entry.source.display(), entry.target.display());
+    }
+    if options.output_mode == MigrateOutputMode::IncludeToml {
+        for entry in &result.entries {
+            println!("# {}", entry.target.display());
+            println!("{}", entry.toml);
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum CliFormat {
     Auto,
@@ -82,10 +136,10 @@ enum CliFormat {
 #[command(name = "ryl", version, about = "Fast YAML linter written in Rust")]
 struct Cli {
     /// One or more paths: files and/or directories
-    #[arg(value_name = "PATH_OR_FILE", num_args = 1..)]
+    #[arg(value_name = "PATH_OR_FILE")]
     inputs: Vec<PathBuf>,
 
-    /// Path to configuration file (yaml)
+    /// Path to configuration file (YAML or TOML)
     #[arg(short = 'c', long = "config-file", value_name = "FILE")]
     config_file: Option<PathBuf>,
 
@@ -93,13 +147,26 @@ struct Cli {
     #[arg(short = 'd', long = "config-data", value_name = "YAML")]
     config_data: Option<String>,
 
-    /// List files that would be linted (reserved)
-    #[arg(long = "list-files", default_value_t = false)]
-    list_files: bool,
-
     /// Output format (auto, standard, colored, github, parsable)
     #[arg(short = 'f', long = "format", default_value_t = CliFormat::Auto, value_enum)]
     format: CliFormat,
+
+    /// Convert discovered legacy YAML config files into .ryl.toml files
+    #[arg(long = "migrate-configs", default_value_t = false)]
+    migrate_configs: bool,
+
+    #[command(flatten)]
+    lint: LintFlags,
+
+    #[command(flatten)]
+    migrate: MigrateFlags,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct LintFlags {
+    /// List files that would be linted (reserved)
+    #[arg(long = "list-files", default_value_t = false)]
+    list_files: bool,
 
     /// Strict mode (reserved)
     #[arg(short = 's', long = "strict", default_value_t = false)]
@@ -108,6 +175,51 @@ struct Cli {
     /// Suppress warnings (reserved)
     #[arg(long = "no-warnings", default_value_t = false)]
     no_warnings: bool,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct MigrateFlags {
+    /// Root path to search for legacy YAML config files (default: .)
+    #[arg(
+        long = "migrate-root",
+        value_name = "DIR",
+        requires = "migrate_configs"
+    )]
+    root: Option<PathBuf>,
+
+    /// Write migrated .ryl.toml files (otherwise preview only)
+    #[arg(
+        long = "migrate-write",
+        default_value_t = false,
+        requires = "migrate_configs"
+    )]
+    write: bool,
+
+    /// Print generated TOML to stdout during migration
+    #[arg(
+        long = "migrate-stdout",
+        default_value_t = false,
+        requires = "migrate_configs"
+    )]
+    stdout: bool,
+
+    /// Rename source YAML configs by appending this suffix after migration
+    #[arg(
+        long = "migrate-rename-old",
+        value_name = "SUFFIX",
+        conflicts_with = "delete_old",
+        requires_all = ["write", "migrate_configs"]
+    )]
+    rename_old: Option<String>,
+
+    /// Delete source YAML configs after migration
+    #[arg(
+        long = "migrate-delete-old",
+        default_value_t = false,
+        conflicts_with = "rename_old",
+        requires_all = ["write", "migrate_configs"]
+    )]
+    delete_old: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +265,16 @@ fn supports_color() -> bool {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    if cli.migrate_configs {
+        return match run_migration(&cli) {
+            Ok(code) => code,
+            Err(err) => {
+                eprintln!("{err}");
+                ExitCode::from(2)
+            }
+        };
+    }
+
     if cli.inputs.is_empty() {
         eprintln!("error: expected one or more paths (files and/or directories)");
         return ExitCode::from(2);
@@ -166,6 +288,11 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Some(cfg) = &global_cfg {
+        for notice in &cfg.notices {
+            eprintln!("{notice}");
+        }
+    }
     let inputs = cli.inputs;
 
     // Determine files to parse from mixed inputs.
@@ -175,15 +302,21 @@ fn main() -> ExitCode {
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
+    let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
     for f in candidates {
-        let (base_dir, cfg) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
+        let (base_dir, cfg, notices) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
             Err(e) => {
                 eprintln!("{e}");
                 return ExitCode::from(2);
             }
         };
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
         let ignored = cfg.is_file_ignored(&f, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
         if !ignored && yaml_ok {
@@ -192,13 +325,18 @@ fn main() -> ExitCode {
     }
 
     for ef in explicit_files {
-        let (base_dir, cfg) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
+        let (base_dir, cfg, notices) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
             Err(e) => {
                 eprintln!("{e}");
                 return ExitCode::from(2);
             }
         };
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
         let ignored = cfg.is_file_ignored(&ef, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
         if !ignored && yaml_ok {
@@ -206,7 +344,7 @@ fn main() -> ExitCode {
         }
     }
 
-    if cli.list_files {
+    if cli.lint.list_files {
         for (path, ..) in &files {
             println!("{}", path.display());
         }
@@ -226,11 +364,12 @@ fn main() -> ExitCode {
     results.sort_by_key(|(idx, _)| *idx);
 
     let output_format = detect_output_format(cli.format);
-    let (has_error, has_warning) = process_results(&files, results, output_format, cli.no_warnings);
+    let (has_error, has_warning) =
+        process_results(&files, results, output_format, cli.lint.no_warnings);
 
     if has_error {
         ExitCode::from(1)
-    } else if has_warning && cli.strict {
+    } else if has_warning && cli.lint.strict {
         ExitCode::from(2)
     } else {
         ExitCode::SUCCESS

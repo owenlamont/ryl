@@ -15,18 +15,19 @@ pub fn resolve_ctx<S: BuildHasher>(
     path: &Path,
     global_cfg: Option<&ConfigContext>,
     cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig), S>,
-) -> Result<(PathBuf, YamlLintConfig), String> {
+) -> Result<(PathBuf, YamlLintConfig, Vec<String>), String> {
     if let Some(gc) = global_cfg {
-        return Ok((gc.base_dir.clone(), gc.config.clone()));
+        return Ok((gc.base_dir.clone(), gc.config.clone(), Vec::new()));
     }
     let start = path
         .parent()
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
     if let Some(pair) = cache.get(&start).cloned() {
-        return Ok(pair);
+        return Ok((pair.0, pair.1, Vec::new()));
     }
     let ctx = discover_per_file(path)?;
     let pair = (ctx.base_dir.clone(), ctx.config);
+    let notices = ctx.notices;
     cache.insert(start, pair.clone());
-    Ok(pair)
+    Ok((pair.0, pair.1, notices))
 }
