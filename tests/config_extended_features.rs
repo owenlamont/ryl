@@ -75,6 +75,68 @@ fn ignore_from_file_patterns_are_loaded() {
 }
 
 #[test]
+fn ignore_directory_pattern_allows_reinclude_of_specific_file() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join("conf.yaml");
+    fs::write(
+        &cfg,
+        "ignore: |\n  build/\n  !build/keep.yaml\nyaml-files: []\nrules: {}\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg.clone()),
+            config_data: None,
+        },
+    )
+    .expect("config parse");
+    let base = ctx.base_dir.clone();
+
+    assert!(
+        ctx.config
+            .is_file_ignored(&td.path().join("build/drop.yaml"), &base)
+    );
+    assert!(
+        !ctx.config
+            .is_file_ignored(&td.path().join("build/keep.yaml"), &base)
+    );
+}
+
+#[test]
+fn ignore_from_file_directory_pattern_allows_reinclude_of_specific_file() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join("conf.yaml");
+    let ignore = td.path().join(".yamllint-ignore");
+    fs::write(
+        &cfg,
+        "ignore-from-file: .yamllint-ignore\nyaml-files: []\nrules: {}\n",
+    )
+    .unwrap();
+    fs::write(&ignore, "build/\n!build/keep.yaml\n").unwrap();
+
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg.clone()),
+            config_data: None,
+        },
+    )
+    .expect("config parse");
+    let base = ctx.base_dir.clone();
+
+    assert!(
+        ctx.config
+            .is_file_ignored(&td.path().join("build/drop.yaml"), &base)
+    );
+    assert!(
+        !ctx.config
+            .is_file_ignored(&td.path().join("build/keep.yaml"), &base)
+    );
+}
+
+#[test]
 fn extends_resolves_relative_file_paths() {
     let td = tempdir().unwrap();
     let base_cfg = td.path().join("base.yaml");
