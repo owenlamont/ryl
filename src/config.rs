@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
+use toml::Value as TomlValue;
 
 use crate::{conf, decoder};
 
@@ -223,6 +224,12 @@ impl YamlLintConfig {
         };
 
         let resolved = resolve_extend_path(entry, envx, Some(base_dir));
+        if is_toml_path(&resolved) {
+            return Err(format!(
+                "invalid config: extends cannot reference TOML configuration {}",
+                resolved.display()
+            ));
+        }
         let data = match envx.read_to_string(&resolved) {
             Ok(text) => text,
             Err(err) => {
@@ -386,19 +393,55 @@ impl YamlLintConfig {
     ) -> Result<Self, String> {
         let docs =
             YamlOwned::load_from_str(s).map_err(|e| format!("failed to parse config data: {e}"))?;
+        Self::from_doc_with_env(&docs[0], envx, base_dir, true)
+    }
+
+    fn from_toml_str_with_env(
+        s: &str,
+        envx: Option<&dyn Env>,
+        base_dir: Option<&Path>,
+        pyproject: bool,
+    ) -> Result<Option<Self>, String> {
+        let toml = s
+            .parse::<TomlValue>()
+            .map_err(|e| format!("failed to parse config data: {e}"))?;
+
+        if pyproject {
+            let Some(doc) = toml
+                .get("tool")
+                .and_then(|tool| tool.get("ryl"))
+                .map(toml_value_to_yaml_owned)
+            else {
+                return Ok(None);
+            };
+            return Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some);
+        }
+
+        let doc = toml_value_to_yaml_owned(&toml);
+        Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some)
+    }
+
+    fn from_doc_with_env(
+        doc: &YamlOwned,
+        envx: Option<&dyn Env>,
+        base_dir: Option<&Path>,
+        allow_extends: bool,
+    ) -> Result<Self, String> {
         let mut cfg = Self::default();
 
-        let doc = &docs[0];
         if doc.as_mapping().is_none() {
             return Err("invalid config: not a mapping".to_string());
         }
 
-        // Handle `extends` first (string or sequence)
         if let Some(extends) = doc.as_mapping_get("extends") {
+            if !allow_extends {
+                return Err(
+                    "invalid config: extends is not supported in TOML configuration".into(),
+                );
+            }
             cfg.apply_extends(extends, envx, base_dir)?;
         }
 
-        // Current document overrides
         let ignore = doc.as_mapping_get("ignore");
         let ignore_from_file = doc.as_mapping_get("ignore-from-file");
         if ignore.is_some() && ignore_from_file.is_some() {
@@ -1467,12 +1510,42 @@ fn describe_rule_option_key(key: &YamlOwned) -> String {
     }
 }
 
+fn toml_value_to_yaml_owned(value: &TomlValue) -> YamlOwned {
+    match value {
+        TomlValue::String(text) => YamlOwned::Value(ScalarOwned::String(text.clone())),
+        TomlValue::Integer(num) => YamlOwned::Value(ScalarOwned::Integer(*num)),
+        TomlValue::Float(num) => {
+            let rendered = num.to_string();
+            YamlOwned::load_from_str(&rendered)
+                .ok()
+                .and_then(|docs| docs.into_iter().next())
+                .unwrap_or(YamlOwned::Value(ScalarOwned::String(rendered)))
+        }
+        TomlValue::Boolean(flag) => YamlOwned::Value(ScalarOwned::Boolean(*flag)),
+        TomlValue::Datetime(dt) => YamlOwned::Value(ScalarOwned::String(dt.to_string())),
+        TomlValue::Array(items) => {
+            YamlOwned::Sequence(items.iter().map(toml_value_to_yaml_owned).collect())
+        }
+        TomlValue::Table(table) => {
+            let mut map = MappingOwned::new();
+            for (key, val) in table {
+                map.insert(
+                    YamlOwned::Value(ScalarOwned::String(key.clone())),
+                    toml_value_to_yaml_owned(val),
+                );
+            }
+            YamlOwned::Mapping(map)
+        }
+    }
+}
+
 /// Result of configuration discovery.
 #[derive(Debug, Clone)]
 pub struct ConfigContext {
     pub config: YamlLintConfig,
     pub base_dir: PathBuf,
     pub source: Option<PathBuf>,
+    pub notices: Vec<String>,
 }
 
 fn finalize_context(
@@ -1480,6 +1553,7 @@ fn finalize_context(
     mut cfg: YamlLintConfig,
     base_dir: impl Into<PathBuf>,
     source: Option<PathBuf>,
+    notices: Vec<String>,
 ) -> Result<ConfigContext, String> {
     let base_dir = base_dir.into();
     cfg.finalize(envx, &base_dir)?;
@@ -1487,11 +1561,12 @@ fn finalize_context(
         config: cfg,
         base_dir,
         source,
+        notices,
     })
 }
 
-/// Discover configuration with precedence inspired by yamllint:
-/// config-data > config-file > project > user-global > defaults.
+/// Discover configuration with precedence:
+/// config-data > config-file > project (TOML-first, YAML fallback) > env var > user-global > defaults.
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
@@ -1515,20 +1590,14 @@ pub fn discover_config_with(
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
         let cfg = YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
-        return finalize_context(envx, cfg, base_dir, None);
+        return finalize_context(envx, cfg, base_dir, None, Vec::new());
     }
     if let Some(ref file) = overrides.config_file {
-        let base = file
-            .parent()
-            .map_or_else(|| envx.current_dir(), Path::to_path_buf);
-        let data = envx.read_to_string(file)?;
-        let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base))?;
-        return finalize_context(envx, cfg, base, Some(file.clone()));
+        return ctx_from_config_path_core(envx, file, false, Vec::new());
     }
-    if let Some((cfg_path, base_dir)) = find_project_config_core(envx, inputs) {
-        let data = envx.read_to_string(&cfg_path)?;
-        let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
-        return finalize_context(envx, cfg, base_dir, Some(cfg_path));
+    let discovered = find_project_config_core(envx, inputs)?;
+    if let Some(discovered) = discovered {
+        return ctx_from_config_path_core(envx, &discovered.cfg_path, true, discovered.notices);
     }
     if let Some(ctx) = try_env_config_core(envx)? {
         return Ok(ctx);
@@ -1542,6 +1611,7 @@ pub fn discover_config_with(
                     .expect("builtin preset must parse"),
                 cwd,
                 None,
+                Vec::new(),
             )
         },
         Ok,
@@ -1564,7 +1634,7 @@ pub fn discover_config_with_env(
 }
 
 /// Discover the config for a single file path, ignoring env/global overrides.
-/// Precedence: nearest project config up-tree from the file's directory,
+/// Precedence: nearest project config up-tree (TOML-first, YAML fallback),
 /// then user-global, then defaults.
 ///
 /// # Errors
@@ -1594,10 +1664,9 @@ pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigConte
         path.parent().unwrap_or(path)
     };
 
-    if let Some((cfg_path, base_dir)) = find_project_config_core(envx, &[start_dir.to_path_buf()]) {
-        let data = envx.read_to_string(&cfg_path)?;
-        let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base_dir))?;
-        return finalize_context(envx, cfg, base_dir, Some(cfg_path));
+    let discovered = find_project_config_core(envx, &[start_dir.to_path_buf()])?;
+    if let Some(discovered) = discovered {
+        return ctx_from_config_path_core(envx, &discovered.cfg_path, true, discovered.notices);
     }
     try_user_global_core(envx, start_dir)?.map_or_else(
         || {
@@ -1607,6 +1676,7 @@ pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigConte
                     .expect("builtin preset must parse"),
                 envx.current_dir(),
                 None,
+                Vec::new(),
             )
         },
         Ok,
@@ -1614,13 +1684,18 @@ pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigConte
 }
 
 // Testable core helpers below.
-fn ctx_from_config_path_core(envx: &dyn Env, p: &Path) -> Result<ConfigContext, String> {
-    let data = envx.read_to_string(p)?;
+fn ctx_from_config_path_core(
+    envx: &dyn Env,
+    p: &Path,
+    allow_missing_pyproject: bool,
+    notices: Vec<String>,
+) -> Result<ConfigContext, String> {
     let base = p
         .parent()
         .map_or_else(|| envx.current_dir(), Path::to_path_buf);
-    let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(&base))?;
-    finalize_context(envx, cfg, base, Some(p.to_path_buf()))
+    let cfg = load_config_from_path_core(envx, p, &base, allow_missing_pyproject)?
+        .expect("missing [tool.ryl] should be filtered or returned as an error before this point");
+    finalize_context(envx, cfg, base, Some(p.to_path_buf()), notices)
 }
 
 fn expand_user_path(envx: &dyn Env, raw: &str) -> PathBuf {
@@ -1637,7 +1712,7 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
     envx.env_var("YAMLLINT_CONFIG_FILE")
         .map(|raw| expand_user_path(envx, &raw))
         .filter(|p| envx.path_exists(p))
-        .map(|p| ctx_from_config_path_core(envx, &p))
+        .map(|p| ctx_from_config_path_core(envx, &p, false, Vec::new()))
         .transpose()
 }
 
@@ -1650,53 +1725,147 @@ fn try_user_global_core(envx: &dyn Env, base_dir: &Path) -> Result<Option<Config
         .map(|p| {
             let data = envx.read_to_string(&p)?;
             let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
-            finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p))
+            finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p), Vec::new())
         })
         .transpose()
 }
 
-fn find_project_config_core(envx: &dyn Env, inputs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
-    let mut starts: Vec<PathBuf> = Vec::new();
+const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 3] = [".ryl.toml", "ryl.toml", "pyproject.toml"];
+const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
+
+#[derive(Debug, Clone)]
+struct ProjectConfigDiscovery {
+    cfg_path: PathBuf,
+    notices: Vec<String>,
+}
+
+fn load_config_from_path_core(
+    envx: &dyn Env,
+    path: &Path,
+    base_dir: &Path,
+    allow_missing_pyproject: bool,
+) -> Result<Option<YamlLintConfig>, String> {
+    let data = envx.read_to_string(path)?;
+    if path
+        .file_name()
+        .is_some_and(|name| name == "pyproject.toml")
+    {
+        let cfg = YamlLintConfig::from_toml_str_with_env(&data, Some(envx), Some(base_dir), true)?;
+        if cfg.is_none() && !allow_missing_pyproject {
+            return Err(format!(
+                "failed to parse config file {}: missing [tool.ryl] section",
+                path.display()
+            ));
+        }
+        return Ok(cfg);
+    }
+    if is_toml_path(path) {
+        let cfg = YamlLintConfig::from_toml_str_with_env(&data, Some(envx), Some(base_dir), false)?;
+        return Ok(cfg);
+    }
+    let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
+    Ok(Some(cfg))
+}
+
+fn is_toml_path(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "toml")
+}
+
+fn build_project_search_starts(envx: &dyn Env, inputs: &[PathBuf]) -> Vec<PathBuf> {
     let cwd = envx.current_dir();
+    let mut starts = Vec::new();
     if inputs.is_empty() {
         starts.push(cwd.clone());
-    } else {
-        for p in inputs {
-            let s = if p.is_dir() {
-                p.clone()
-            } else {
-                p.parent().map_or_else(|| cwd.clone(), Path::to_path_buf)
-            };
-            let abs = if s.is_absolute() { s } else { cwd.join(s) };
-            if !starts.iter().any(|e| e == &abs) {
-                starts.push(abs);
-            }
-        }
+        return starts;
     }
-    let candidates = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
-    let home_dir = envx
-        .env_var("HOME")
-        .map(PathBuf::from)
-        .or_else(dirs_next::home_dir);
-    let home_abs = home_dir.as_ref().map(|h| {
-        if h.is_absolute() {
-            h.clone()
+    for path in inputs {
+        let start = if path.is_dir() {
+            path.clone()
         } else {
-            cwd.join(h)
-        }
-    });
-    for start in starts {
-        let mut dir = if start.is_absolute() {
+            path.parent().map_or_else(|| cwd.clone(), Path::to_path_buf)
+        };
+        let abs = if start.is_absolute() {
             start
         } else {
             cwd.join(start)
         };
+        if !starts.iter().any(|existing| existing == &abs) {
+            starts.push(abs);
+        }
+    }
+    starts
+}
+
+fn find_first_yaml_candidate(
+    envx: &dyn Env,
+    start: &Path,
+    home_abs: Option<&PathBuf>,
+) -> Option<PathBuf> {
+    let mut dir = start.to_path_buf();
+    loop {
+        for name in YAML_PROJECT_CONFIG_CANDIDATES {
+            let candidate = dir.join(name);
+            if envx.path_exists(&candidate) {
+                return Some(candidate);
+            }
+        }
+        if home_abs.is_some_and(|home| home == &dir) {
+            break;
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent.to_path_buf(),
+            _ => break,
+        }
+    }
+    None
+}
+
+fn find_project_config_core(
+    envx: &dyn Env,
+    inputs: &[PathBuf],
+) -> Result<Option<ProjectConfigDiscovery>, String> {
+    let starts = build_project_search_starts(envx, inputs);
+    let cwd = envx.current_dir();
+    let home_abs = envx
+        .env_var("HOME")
+        .map(PathBuf::from)
+        .or_else(dirs_next::home_dir)
+        .map(|home| {
+            if home.is_absolute() {
+                home
+            } else {
+                cwd.join(home)
+            }
+        });
+
+    for start in &starts {
+        let mut dir = start.clone();
         loop {
-            for name in candidates {
-                let cand = dir.join(name);
-                if envx.path_exists(&cand) {
-                    return Some((cand, dir));
+            for name in TOML_PROJECT_CONFIG_CANDIDATES {
+                let candidate = dir.join(name);
+                if !envx.path_exists(&candidate) {
+                    continue;
                 }
+                if name == "pyproject.toml" {
+                    let loaded = load_config_from_path_core(envx, &candidate, &dir, true)?;
+                    if loaded.is_none() {
+                        continue;
+                    }
+                }
+                let notices = find_first_yaml_candidate(envx, start, home_abs.as_ref())
+                    .map(|yaml_path| {
+                        format!(
+                            "warning: ignoring legacy YAML config discovery because TOML config {} was found (legacy candidate: {})",
+                            candidate.display(),
+                            yaml_path.display()
+                        )
+                    })
+                    .into_iter()
+                    .collect();
+                return Ok(Some(ProjectConfigDiscovery {
+                    cfg_path: candidate,
+                    notices,
+                }));
             }
             if home_abs.as_ref().is_some_and(|home| home == &dir) {
                 break;
@@ -1707,5 +1876,15 @@ fn find_project_config_core(envx: &dyn Env, inputs: &[PathBuf]) -> Option<(PathB
             }
         }
     }
-    None
+
+    for start in starts {
+        if let Some(candidate) = find_first_yaml_candidate(envx, &start, home_abs.as_ref()) {
+            return Ok(Some(ProjectConfigDiscovery {
+                cfg_path: candidate,
+                notices: Vec::new(),
+            }));
+        }
+    }
+
+    Ok(None)
 }

@@ -129,20 +129,44 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
 ## Configuration
 
 - Flags:
-  - `-c, --config-file <FILE>`: path to a YAML config file.
+  - `-c, --config-file <FILE>`: path to a YAML or TOML config file.
   - `-d, --config-data <YAML>`: inline YAML config (highest precedence).
   - `--list-files`: print files that would be linted after applying ignores and exit.
   - `-f, --format`, `-s, --strict`, `--no-warnings`: reserved for compatibility.
 - Discovery precedence:
   inline `--config-data` > `--config-file` > env `YAMLLINT_CONFIG_FILE`
-  (global) > nearest project config up the tree (`.yamllint`, `.yamllint.yml`,
-  `.yamllint.yaml`) > user-global (`$XDG_CONFIG_HOME/yamllint/config` or
+  (global) > nearest project config up the tree:
+  TOML (`.ryl.toml`, `ryl.toml`, `pyproject.toml` with `[tool.ryl]`) then
+  YAML fallback (`.yamllint`, `.yamllint.yml`, `.yamllint.yaml`)
+  > user-global (`$XDG_CONFIG_HOME/yamllint/config` or
   `~/.config/yamllint/config`) > built-in defaults.
+- TOML and YAML are not merged during discovery. If a TOML project config is
+  found, YAML project config discovery is skipped (and `ryl` prints a warning).
 - Per-file behavior: unless a global config is set via `--config-data`,
   `--config-file`, or `YAMLLINT_CONFIG_FILE`, each file discovers its nearest
   project config. Ignores apply to directory scans and explicit files (parity).
 - Presets and extends: supports yamllint’s built-in `default`, `relaxed`, and
   `empty` via `extends`. Rule maps are deep-merged; scalars/sequences overwrite.
+- TOML preset examples: see
+  [docs/config-presets.md](/home/owen/Code/ryl_repos/ryl/docs/config-presets.md)
+  for `default`/`relaxed` equivalents.
+
+Example TOML config (`.ryl.toml`):
+
+```toml
+yaml-files = ["*.yaml", "*.yml"]
+ignore = ["vendor/**", "generated/**"]
+locale = "en_US.UTF-8"
+
+[rules]
+document-start = "disable"
+
+[rules.line-length]
+max = 120
+
+[rules.truthy]
+allowed-values = ["true", "false"]
+```
 
 ## Acknowledgements
 

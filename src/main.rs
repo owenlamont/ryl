@@ -7,6 +7,7 @@
 )]
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -85,7 +86,7 @@ struct Cli {
     #[arg(value_name = "PATH_OR_FILE", num_args = 1..)]
     inputs: Vec<PathBuf>,
 
-    /// Path to configuration file (yaml)
+    /// Path to configuration file (YAML or TOML)
     #[arg(short = 'c', long = "config-file", value_name = "FILE")]
     config_file: Option<PathBuf>,
 
@@ -166,6 +167,11 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Some(cfg) = &global_cfg {
+        for notice in &cfg.notices {
+            eprintln!("{notice}");
+        }
+    }
     let inputs = cli.inputs;
 
     // Determine files to parse from mixed inputs.
@@ -175,15 +181,21 @@ fn main() -> ExitCode {
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
+    let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
     for f in candidates {
-        let (base_dir, cfg) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
+        let (base_dir, cfg, notices) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
             Err(e) => {
                 eprintln!("{e}");
                 return ExitCode::from(2);
             }
         };
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
         let ignored = cfg.is_file_ignored(&f, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
         if !ignored && yaml_ok {
@@ -192,13 +204,18 @@ fn main() -> ExitCode {
     }
 
     for ef in explicit_files {
-        let (base_dir, cfg) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
+        let (base_dir, cfg, notices) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
             Ok(pair) => pair,
             Err(e) => {
                 eprintln!("{e}");
                 return ExitCode::from(2);
             }
         };
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
         let ignored = cfg.is_file_ignored(&ef, &base_dir);
         let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
         if !ignored && yaml_ok {
