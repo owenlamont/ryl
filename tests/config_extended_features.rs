@@ -137,6 +137,42 @@ fn ignore_from_file_directory_pattern_allows_reinclude_of_specific_file() {
 }
 
 #[test]
+fn rule_ignore_handles_direct_ignore_whitelist_and_parent_fallback() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join("conf.yaml");
+    fs::write(
+        &cfg,
+        "yaml-files: []\nrules:\n  trailing-spaces:\n    ignore: |\n      build/\n      !build/keep.yaml\n      drop.yaml\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg.clone()),
+            config_data: None,
+        },
+    )
+    .expect("config parse");
+    let base = ctx.base_dir.clone();
+
+    assert!(!ctx.config.is_rule_ignored(
+        "trailing-spaces",
+        &td.path().join("build/keep.yaml"),
+        &base
+    ));
+    assert!(
+        ctx.config
+            .is_rule_ignored("trailing-spaces", &td.path().join("drop.yaml"), &base)
+    );
+    assert!(ctx.config.is_rule_ignored(
+        "trailing-spaces",
+        &td.path().join("build/sub/nested.yaml"),
+        &base,
+    ));
+}
+
+#[test]
 fn extends_resolves_relative_file_paths() {
     let td = tempdir().unwrap();
     let base_cfg = td.path().join("base.yaml");
