@@ -12,6 +12,7 @@ pub mod config;
 pub mod decoder;
 pub mod discover;
 pub mod lint;
+pub mod migrate;
 pub mod rules;
 
 pub use discover::{gather_yaml_from_dir, is_yaml_path};

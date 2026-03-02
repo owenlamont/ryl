@@ -80,10 +80,37 @@ ryl notes.txt
 
 Help and version:
 
-- `ryl -h` or `ryl --help` shows auto-generated help.
-- `ryl -V` or `ryl --version` prints the version.
+```text
+Fast YAML linter written in Rust
 
-The CLI is built with `clap`, which auto-generates `--help` and `--version`.
+Usage: ryl [OPTIONS] [PATH_OR_FILE]...
+
+Arguments:
+  [PATH_OR_FILE]...  One or more paths: files and/or directories
+
+Options:
+  -c, --config-file <FILE>           Path to configuration file (YAML or TOML)
+  -d, --config-data <YAML>           Inline configuration data (yaml)
+  -f, --format <FORMAT>              Output format (auto, standard, colored, github,
+                                     parsable) [default: auto]
+                                     [possible values: auto, standard, colored,
+                                     github, parsable]
+      --migrate-configs              Convert discovered legacy YAML config files
+                                     into .ryl.toml files
+      --list-files                   List files that would be linted (reserved)
+  -s, --strict                       Strict mode (reserved)
+      --no-warnings                  Suppress warnings (reserved)
+      --migrate-root <DIR>           Root path to search for legacy YAML config
+                                     files (default: .)
+      --migrate-write                Write migrated .ryl.toml files (otherwise
+                                     preview only)
+      --migrate-stdout               Print generated TOML to stdout during migration
+      --migrate-rename-old <SUFFIX>  Rename source YAML configs by appending
+                                     this suffix after migration
+      --migrate-delete-old           Delete source YAML configs after migration
+  -h, --help                         Print help
+  -V, --version                      Print version
+```
 
 ## Performance benchmarking
 
@@ -132,6 +159,12 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   - `-c, --config-file <FILE>`: path to a YAML or TOML config file.
   - `-d, --config-data <YAML>`: inline YAML config (highest precedence).
   - `--list-files`: print files that would be linted after applying ignores and exit.
+  - `--migrate-configs`: discover legacy YAML configs and plan TOML migration.
+  - `--migrate-root <DIR>`: root to search for legacy YAML configs (default `.`).
+  - `--migrate-write`: write migrated `.ryl.toml` files (without this it is preview-only).
+  - `--migrate-stdout`: print generated TOML in migration mode.
+  - `--migrate-rename-old <SUFFIX>`: rename migrated source YAML files after writing.
+  - `--migrate-delete-old`: delete migrated source YAML files after writing.
   - `-f, --format`, `-s, --strict`, `--no-warnings`: reserved for compatibility.
 - Discovery precedence:
   inline `--config-data` > `--config-file` > env `YAMLLINT_CONFIG_FILE`
@@ -166,6 +199,16 @@ max = 120
 
 [rules.truthy]
 allowed-values = ["true", "false"]
+```
+
+Migration example:
+
+```text
+# Preview migration actions
+ryl --migrate-configs --migrate-root .
+
+# Write .ryl.toml files and keep old files with a suffix
+ryl --migrate-configs --migrate-root . --migrate-write --migrate-rename-old .bak
 ```
 
 ## Acknowledgements

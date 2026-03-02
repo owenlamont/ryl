@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -539,6 +540,68 @@ impl YamlLintConfig {
         if self.locale.is_none() {
             self.locale = other.locale;
         }
+    }
+
+    /// Render the effective configuration as TOML.
+    ///
+    /// # Errors
+    /// Returns an error if a value cannot be represented in TOML.
+    ///
+    /// # Panics
+    /// Panics if serializing a valid TOML value fails unexpectedly.
+    pub fn to_toml_string(&self) -> Result<String, String> {
+        let mut root = toml::map::Map::new();
+
+        root.insert(
+            "yaml-files".to_string(),
+            TomlValue::Array(
+                self.yaml_file_patterns
+                    .iter()
+                    .map(|item| TomlValue::String(item.clone()))
+                    .collect(),
+            ),
+        );
+
+        if !self.ignore_from_files.is_empty() {
+            root.insert(
+                "ignore-from-file".to_string(),
+                TomlValue::Array(
+                    self.ignore_from_files
+                        .iter()
+                        .map(|item| TomlValue::String(item.clone()))
+                        .collect(),
+                ),
+            );
+        } else if !self.ignore_patterns.is_empty() {
+            root.insert(
+                "ignore".to_string(),
+                TomlValue::Array(
+                    self.ignore_patterns
+                        .iter()
+                        .map(|item| TomlValue::String(item.clone()))
+                        .collect(),
+                ),
+            );
+        }
+
+        if let Some(locale) = &self.locale {
+            root.insert("locale".to_string(), TomlValue::String(locale.clone()));
+        }
+
+        let mut rules: BTreeMap<String, TomlValue> = BTreeMap::new();
+        for (name, value) in &self.rules {
+            let converted = yaml_owned_to_toml_value(value)?;
+            rules.insert(name.clone(), converted);
+        }
+        if !rules.is_empty() {
+            root.insert(
+                "rules".to_string(),
+                TomlValue::Table(toml::map::Map::from_iter(rules)),
+            );
+        }
+
+        Ok(toml::to_string_pretty(&TomlValue::Table(root))
+            .expect("serializing TOML Value should not fail"))
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
@@ -1537,6 +1600,39 @@ fn toml_value_to_yaml_owned(value: &TomlValue) -> YamlOwned {
             YamlOwned::Mapping(map)
         }
     }
+}
+
+fn yaml_owned_to_toml_value(value: &YamlOwned) -> Result<TomlValue, String> {
+    if let Some(text) = value.as_str() {
+        return Ok(TomlValue::String(text.to_string()));
+    }
+    if let Some(flag) = value.as_bool() {
+        return Ok(TomlValue::Boolean(flag));
+    }
+    if let Some(num) = value.as_integer() {
+        return Ok(TomlValue::Integer(num));
+    }
+    if let Some(num) = value.as_floating_point() {
+        return Ok(TomlValue::Float(num));
+    }
+    if value.is_null() {
+        return Err("cannot convert null values to TOML (TOML has no null type)".to_string());
+    }
+    if let Some(items) = value.as_sequence() {
+        let out: Result<Vec<_>, _> = items.iter().map(yaml_owned_to_toml_value).collect();
+        return out.map(TomlValue::Array);
+    }
+    if let Some(map) = value.as_mapping() {
+        let mut out = toml::map::Map::new();
+        for (key, val) in map {
+            let Some(key_text) = key.as_str() else {
+                return Err(format!("cannot convert non-string TOML key: {key:?}"));
+            };
+            out.insert(key_text.to_string(), yaml_owned_to_toml_value(val)?);
+        }
+        return Ok(TomlValue::Table(out));
+    }
+    Err("cannot convert this YAML node to TOML".to_string())
 }
 
 /// Result of configuration discovery.
