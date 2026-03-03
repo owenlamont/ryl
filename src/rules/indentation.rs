@@ -200,12 +200,6 @@ impl<'a> Analyzer<'a> {
             return;
         };
 
-        if analysis.is_mapping_key()
-            && let Some(ctx) = self.contexts.last_mut()
-        {
-            ctx.kind = analysis.context_kind();
-        }
-
         if pushing_child
             && analysis.is_sequence_entry()
             && let Some(ctx) = self.contexts.last_mut()
@@ -219,6 +213,12 @@ impl<'a> Analyzer<'a> {
                 .is_none_or(|parent| indent <= parent)
         {
             self.check_sequence_indent(indent, line_number);
+        }
+
+        if analysis.is_mapping_key()
+            && let Some(ctx) = self.contexts.last_mut()
+        {
+            ctx.kind = analysis.context_kind();
         }
 
         if analysis.starts_multiline {
@@ -384,6 +384,7 @@ enum ContextKind {
 struct LineAnalysis {
     kind: LineKind,
     starts_multiline: bool,
+    is_sequence_entry: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -417,6 +418,7 @@ impl LineAnalysis {
         Self {
             kind,
             starts_multiline,
+            is_sequence_entry,
         }
     }
 
@@ -445,7 +447,7 @@ impl LineAnalysis {
     }
 
     const fn is_sequence_entry(self) -> bool {
-        matches!(self.kind, LineKind::Sequence)
+        self.is_sequence_entry
     }
 }
 
