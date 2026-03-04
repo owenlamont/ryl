@@ -421,3 +421,25 @@ fn nested_mapping_sequence_resolves_parent_indent() {
     let yaml = "root:\n  child:\n    - item\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
 }
+
+#[test]
+fn detects_unindented_mapping_sequence_in_mapping() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "metadata:\n  name: test\nsubjects:\n- apiGroup: rbac.authorization.k8s.io\n  kind: User\n  name: kubelet\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 4,
+            column: 1,
+            message: "wrong indentation: expected 2 but found 0".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn allows_indented_mapping_sequence_in_mapping() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "subjects:\n  - apiGroup: rbac.authorization.k8s.io\n    kind: User\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
