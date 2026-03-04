@@ -75,9 +75,9 @@ pub fn apply_migration_entries(
                 })?;
             }
             SourceCleanup::RenameSuffix(suffix) => {
-                let source_name = source
-                    .file_name()
-                    .map_or_else(String::new, |name| name.to_string_lossy().to_string());
+                let source_name = source.file_name().map_or_else(String::new, |name| {
+                    name.to_string_lossy().to_string()
+                });
                 let renamed = source.with_file_name(format!("{source_name}{suffix}"));
                 fs::rename(source, &renamed).map_err(|err| {
                     format!(
@@ -218,7 +218,11 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
 
     let plan = build_migration_entries(&options.root)?;
     if options.write_mode == WriteMode::Write {
-        apply_migration_entries(&plan.entries, &plan.cleanup_only_sources, &options.cleanup)?;
+        apply_migration_entries(
+            &plan.entries,
+            &plan.cleanup_only_sources,
+            &options.cleanup,
+        )?;
     }
 
     Ok(MigrateResult {

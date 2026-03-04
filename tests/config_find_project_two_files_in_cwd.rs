@@ -37,7 +37,11 @@ fn project_config_search_dedups_multiple_files_without_parent() {
     };
     envx.exists.insert(PathBuf::from(".yamllint"));
     let inputs = vec![PathBuf::from("a.yml"), PathBuf::from("b.yml")];
-    let ctx = ryl::config::discover_config_with(&inputs, &ryl::config::Overrides::default(), &envx)
-        .expect("ok");
+    let ctx = ryl::config::discover_config_with(
+        &inputs,
+        &ryl::config::Overrides::default(),
+        &envx,
+    )
+    .expect("ok");
     assert_eq!(ctx.source.as_deref(), Some(Path::new(".yamllint")));
 }

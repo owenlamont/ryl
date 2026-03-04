@@ -74,14 +74,16 @@ fn octal_values_rule_matches_yamllint() {
             .arg("-c")
             .arg(&implicit_ok_cfg)
             .arg(&bad_file);
-        let (ryl_imp_code, ryl_imp_msg) = capture_with_env(ryl_implicit_ok, scenario.envs);
+        let (ryl_imp_code, ryl_imp_msg) =
+            capture_with_env(ryl_implicit_ok, scenario.envs);
 
         let mut yam_implicit_ok = build_yamllint_command(scenario.yam_format);
         yam_implicit_ok
             .arg("-c")
             .arg(&implicit_ok_cfg)
             .arg(&bad_file);
-        let (yam_imp_code, yam_imp_msg) = capture_with_env(yam_implicit_ok, scenario.envs);
+        let (yam_imp_code, yam_imp_msg) =
+            capture_with_env(yam_implicit_ok, scenario.envs);
 
         assert_eq!(ryl_imp_code, 1, "ryl implicit-ok exit ({})", scenario.label);
         assert_eq!(
@@ -100,14 +102,16 @@ fn octal_values_rule_matches_yamllint() {
             .arg("-c")
             .arg(&explicit_ok_cfg)
             .arg(&bad_file);
-        let (ryl_exp_code, ryl_exp_msg) = capture_with_env(ryl_explicit_ok, scenario.envs);
+        let (ryl_exp_code, ryl_exp_msg) =
+            capture_with_env(ryl_explicit_ok, scenario.envs);
 
         let mut yam_explicit_ok = build_yamllint_command(scenario.yam_format);
         yam_explicit_ok
             .arg("-c")
             .arg(&explicit_ok_cfg)
             .arg(&bad_file);
-        let (yam_exp_code, yam_exp_msg) = capture_with_env(yam_explicit_ok, scenario.envs);
+        let (yam_exp_code, yam_exp_msg) =
+            capture_with_env(yam_explicit_ok, scenario.envs);
 
         assert_eq!(ryl_exp_code, 1, "ryl explicit-ok exit ({})", scenario.label);
         assert_eq!(
@@ -126,14 +130,16 @@ fn octal_values_rule_matches_yamllint() {
             .arg("-c")
             .arg(&all_allowed_cfg)
             .arg(&bad_file);
-        let (ryl_all_code, ryl_all_msg) = capture_with_env(ryl_all_allowed, scenario.envs);
+        let (ryl_all_code, ryl_all_msg) =
+            capture_with_env(ryl_all_allowed, scenario.envs);
 
         let mut yam_all_allowed = build_yamllint_command(scenario.yam_format);
         yam_all_allowed
             .arg("-c")
             .arg(&all_allowed_cfg)
             .arg(&bad_file);
-        let (yam_all_code, yam_all_msg) = capture_with_env(yam_all_allowed, scenario.envs);
+        let (yam_all_code, yam_all_msg) =
+            capture_with_env(yam_all_allowed, scenario.envs);
 
         assert_eq!(ryl_all_code, 0, "ryl all-allowed exit ({})", scenario.label);
         assert_eq!(

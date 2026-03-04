@@ -8,7 +8,8 @@ fn build_config(yaml: &str) -> Config {
 
 #[test]
 fn required_true_flags_plain_values() {
-    let cfg = build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
+    let cfg =
+        build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
     let hits = quoted_strings::check("foo: bar\n", &cfg);
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].line, 1);
@@ -34,7 +35,8 @@ fn quote_type_single_requires_single_quotes() {
 
 #[test]
 fn non_string_plain_values_are_ignored() {
-    let cfg = build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
+    let cfg =
+        build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
     let hits = quoted_strings::check("foo: 123\n", &cfg);
     assert!(hits.is_empty(), "numeric scalars should be skipped");
 }
@@ -116,7 +118,8 @@ fn only_when_needed_mismatched_quote_type_when_quotes_required() {
 
 #[test]
 fn tagged_scalars_are_skipped() {
-    let cfg = build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
+    let cfg =
+        build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
     let hits = quoted_strings::check("foo: !!str yes\n", &cfg);
     assert!(
         hits.is_empty(),
@@ -126,7 +129,8 @@ fn tagged_scalars_are_skipped() {
 
 #[test]
 fn literal_block_is_ignored() {
-    let cfg = build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
+    let cfg =
+        build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
     let hits = quoted_strings::check("foo: |\n  line\n", &cfg);
     assert!(hits.is_empty(), "literal blocks are outside rule scope");
 }
@@ -152,8 +156,9 @@ fn quoted_value_starting_with_bang_keeps_quotes() {
 
 #[test]
 fn required_false_allows_plain_strings_without_extras() {
-    let cfg =
-        build_config("rules:\n  document-start: disable\n  quoted-strings:\n    required: false\n");
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: false\n",
+    );
     let hits = quoted_strings::check("foo: bar\n", &cfg);
     assert!(hits.is_empty(), "plain values should be allowed");
 }
@@ -169,7 +174,8 @@ fn required_false_respects_matching_quote_type() {
 
 #[test]
 fn complex_keys_do_not_suppress_value_diagnostics() {
-    let cfg = build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
+    let cfg =
+        build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");
     let yaml = "? { key: value }\n: data\n";
     let hits = quoted_strings::check(yaml, &cfg);
     assert_eq!(hits.len(), 1, "expected value diagnostic, got: {:?}", hits);

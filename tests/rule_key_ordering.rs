@@ -43,7 +43,9 @@ fn ordered_mapping_passes() {
 
 #[test]
 fn ignored_keys_are_not_enforced() {
-    let cfg = build_config("rules:\n  key-ordering:\n    ignored-keys: [\"n(a|o)me\", \"^b\"]\n");
+    let cfg = build_config(
+        "rules:\n  key-ordering:\n    ignored-keys: [\"n(a|o)me\", \"^b\"]\n",
+    );
     let input = "---\na:\nb:\nc:\nname: ignored\nfirst-name: ignored\nnome: ignored\ngnomes: ignored\nd:\ne:\nboat: ignored\n.boat: ERROR\ncall: ERROR\nf:\ng:\n";
     let hits = key_ordering::check(input, &cfg);
     assert_eq!(
@@ -65,8 +67,10 @@ fn ignored_keys_are_not_enforced() {
 #[test]
 fn locale_enables_case_and_accent_friendly_ordering() {
     let ascii_cfg = build_config("rules:\n  key-ordering: enable\n");
-    let locale_cfg = build_config("locale: en_US.UTF-8\nrules:\n  key-ordering: enable\n");
-    let bare_locale_cfg = build_config("locale: en_US\nrules:\n  key-ordering: enable\n");
+    let locale_cfg =
+        build_config("locale: en_US.UTF-8\nrules:\n  key-ordering: enable\n");
+    let bare_locale_cfg =
+        build_config("locale: en_US\nrules:\n  key-ordering: enable\n");
 
     let case_input = "---\nT-shirt: 1\nT-shirts: 2\nt-shirt: 3\nt-shirts: 4\n";
     let case_hits = key_ordering::check(case_input, &ascii_cfg);
@@ -135,9 +139,10 @@ fn locale_still_enforces_order_within_single_mapping() {
 
 #[test]
 fn ignored_keys_accepts_scalar_configuration() {
-    let raw =
-        YamlLintConfig::from_yaml_str("rules:\n  key-ordering:\n    ignored-keys: \"name\"\n")
-            .expect("config parses");
+    let raw = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-ordering:\n    ignored-keys: \"name\"\n",
+    )
+    .expect("config parses");
     let option = raw
         .rule_option(key_ordering::ID, "ignored-keys")
         .expect("option present");
@@ -152,8 +157,10 @@ fn ignored_keys_accepts_scalar_configuration() {
 
 #[test]
 fn c_locale_devolves_to_codepoint_ordering() {
-    let raw = YamlLintConfig::from_yaml_str("locale: C.UTF-8\nrules:\n  key-ordering: enable\n")
-        .expect("config parses");
+    let raw = YamlLintConfig::from_yaml_str(
+        "locale: C.UTF-8\nrules:\n  key-ordering: enable\n",
+    )
+    .expect("config parses");
     assert_eq!(raw.locale(), Some("C.UTF-8"));
     let cfg = key_ordering::Config::resolve(&raw);
     let hits = key_ordering::check("t-shirt: 1\nT-shirt: 2\n", &cfg);

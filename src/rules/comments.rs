@@ -103,7 +103,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
         let next_char = line[after_hash_idx..].chars().next().unwrap_or(' ');
 
-        if cfg.ignore_shebangs() && line_idx == 0 && comment_start == 0 && next_char == '!' {
+        if cfg.ignore_shebangs()
+            && line_idx == 0
+            && comment_start == 0
+            && next_char == '!'
+        {
             continue;
         }
 

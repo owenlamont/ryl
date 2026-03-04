@@ -100,11 +100,13 @@ fn new_lines_rule_matches_yamllint() {
 
         let mut ryl_platform = build_ryl_command(exe, scenario.ryl_format);
         ryl_platform.arg("-c").arg(&platform_cfg).arg(platform_file);
-        let (ryl_platform_code, ryl_platform_msg) = capture_with_env(ryl_platform, scenario.envs);
+        let (ryl_platform_code, ryl_platform_msg) =
+            capture_with_env(ryl_platform, scenario.envs);
 
         let mut yam_platform = build_yamllint_command(scenario.yam_format);
         yam_platform.arg("-c").arg(&platform_cfg).arg(platform_file);
-        let (yam_platform_code, yam_platform_msg) = capture_with_env(yam_platform, scenario.envs);
+        let (yam_platform_code, yam_platform_msg) =
+            capture_with_env(yam_platform, scenario.envs);
 
         assert_eq!(
             ryl_platform_code, 1,
@@ -130,11 +132,13 @@ fn new_lines_rule_matches_yamllint() {
         // success path for dos config with CRLF
         let mut ryl_dos_ok = build_ryl_command(exe, scenario.ryl_format);
         ryl_dos_ok.arg("-c").arg(&dos_cfg).arg(&crlf_file);
-        let (ryl_dos_ok_code, ryl_dos_ok_msg) = capture_with_env(ryl_dos_ok, scenario.envs);
+        let (ryl_dos_ok_code, ryl_dos_ok_msg) =
+            capture_with_env(ryl_dos_ok, scenario.envs);
 
         let mut yam_dos_ok = build_yamllint_command(scenario.yam_format);
         yam_dos_ok.arg("-c").arg(&dos_cfg).arg(&crlf_file);
-        let (yam_dos_ok_code, yam_dos_ok_msg) = capture_with_env(yam_dos_ok, scenario.envs);
+        let (yam_dos_ok_code, yam_dos_ok_msg) =
+            capture_with_env(yam_dos_ok, scenario.envs);
 
         assert_eq!(
             ryl_dos_ok_code, 0,

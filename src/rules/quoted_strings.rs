@@ -57,23 +57,24 @@ impl Config {
     /// manually in tests.
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let (quote_type, quote_type_label) = match cfg.rule_option_str(ID, "quote-type") {
+        let (quote_type, quote_type_label) = match cfg.rule_option_str(ID, "quote-type")
+        {
             Some("single") => (QuoteType::Single, "single"),
             Some("double") => (QuoteType::Double, "double"),
             _ => (QuoteType::Any, "any"),
         };
 
-        let required = cfg
-            .rule_option(ID, "required")
-            .map_or(RequiredMode::Always, |node| {
-                if node.as_bool() == Some(false) {
-                    RequiredMode::Never
-                } else if node.as_str() == Some("only-when-needed") {
-                    RequiredMode::OnlyWhenNeeded
-                } else {
-                    RequiredMode::Always
-                }
-            });
+        let required =
+            cfg.rule_option(ID, "required")
+                .map_or(RequiredMode::Always, |node| {
+                    if node.as_bool() == Some(false) {
+                        RequiredMode::Never
+                    } else if node.as_str() == Some("only-when-needed") {
+                        RequiredMode::OnlyWhenNeeded
+                    } else {
+                        RequiredMode::Always
+                    }
+                });
 
         let mut extra_required: Vec<Regex> = Vec::new();
         if let Some(node) = cfg.rule_option(ID, "extra-required")
@@ -357,8 +358,9 @@ impl<'cfg> QuotedStringsState<'cfg> {
             .extra_allowed
             .iter()
             .any(|re| re.is_match(value));
-        let quotes_needed = matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-            && quotes_are_needed(style, value, self.in_flow(), self.buffer, span);
+        let quotes_needed =
+            matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
+                && quotes_are_needed(style, value, self.in_flow(), self.buffer, span);
 
         let message = match self.config.required {
             RequiredMode::Always => {
@@ -427,7 +429,11 @@ impl<'cfg> QuotedStringsState<'cfg> {
         Some(build_violation(span, message))
     }
 
-    const fn mismatched_quote(&self, style_kind: QuoteStyle, has_quoted_quotes: bool) -> bool {
+    const fn mismatched_quote(
+        &self,
+        style_kind: QuoteStyle,
+        has_quoted_quotes: bool,
+    ) -> bool {
         !(self.config.quote_type.matches(Some(style_kind))
             || (self.config.allow_quoted_quotes && has_quoted_quotes))
     }
@@ -534,8 +540,10 @@ impl SpannedEventReceiver<'_> for PlainScalarChecker<'_> {
             if !self.seen_key {
                 self.seen_key = true;
             } else if self.result.is_none() {
-                self.result =
-                    Some(matches!(style, ScalarStyle::Plain) && value.as_ref() == self.expected);
+                self.result = Some(
+                    matches!(style, ScalarStyle::Plain)
+                        && value.as_ref() == self.expected,
+                );
             }
         }
     }

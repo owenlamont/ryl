@@ -54,7 +54,9 @@ fn reports_block_sequence_empty_value() {
 #[test]
 fn respects_block_sequence_flag() {
     let yaml = "-\n";
-    let cfg = resolve_config("rules:\n  empty-values:\n    forbid-in-block-sequences: false\n");
+    let cfg = resolve_config(
+        "rules:\n  empty-values:\n    forbid-in-block-sequences: false\n",
+    );
     let hits = empty_values::check(yaml, &cfg);
     assert!(hits.is_empty());
 }
@@ -62,7 +64,8 @@ fn respects_block_sequence_flag() {
 #[test]
 fn respects_flow_mapping_flag() {
     let yaml = "root: { key: }\n";
-    let cfg = resolve_config("rules:\n  empty-values:\n    forbid-in-flow-mappings: false\n");
+    let cfg =
+        resolve_config("rules:\n  empty-values:\n    forbid-in-flow-mappings: false\n");
     let hits = empty_values::check(yaml, &cfg);
     assert!(hits.is_empty());
 }
@@ -70,7 +73,9 @@ fn respects_flow_mapping_flag() {
 #[test]
 fn respects_block_mapping_flag() {
     let yaml = "key:\n";
-    let cfg = resolve_config("rules:\n  empty-values:\n    forbid-in-block-mappings: false\n");
+    let cfg = resolve_config(
+        "rules:\n  empty-values:\n    forbid-in-block-mappings: false\n",
+    );
     let hits = empty_values::check(yaml, &cfg);
     assert!(hits.is_empty());
 }

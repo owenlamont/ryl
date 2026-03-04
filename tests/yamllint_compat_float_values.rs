@@ -70,11 +70,13 @@ fn float_values_rule_matches_yamllint() {
         // Default configuration should not flag anything
         let mut ryl_default = build_ryl_command(exe, scenario.ryl_format);
         ryl_default.arg("-c").arg(&default_cfg).arg(&violations);
-        let (ryl_default_code, ryl_default_msg) = capture_with_env(ryl_default, scenario.envs);
+        let (ryl_default_code, ryl_default_msg) =
+            capture_with_env(ryl_default, scenario.envs);
 
         let mut yam_default = build_yamllint_command(scenario.yam_format);
         yam_default.arg("-c").arg(&default_cfg).arg(&violations);
-        let (yam_default_code, yam_default_msg) = capture_with_env(yam_default, scenario.envs);
+        let (yam_default_code, yam_default_msg) =
+            capture_with_env(yam_default, scenario.envs);
 
         assert_eq!(ryl_default_code, 0, "ryl default exit ({})", scenario.label);
         assert_eq!(
@@ -91,11 +93,13 @@ fn float_values_rule_matches_yamllint() {
         // require-numeral-before-decimal
         let mut ryl_require = build_ryl_command(exe, scenario.ryl_format);
         ryl_require.arg("-c").arg(&require_cfg).arg(&violations);
-        let (ryl_require_code, ryl_require_msg) = capture_with_env(ryl_require, scenario.envs);
+        let (ryl_require_code, ryl_require_msg) =
+            capture_with_env(ryl_require, scenario.envs);
 
         let mut yam_require = build_yamllint_command(scenario.yam_format);
         yam_require.arg("-c").arg(&require_cfg).arg(&violations);
-        let (yam_require_code, yam_require_msg) = capture_with_env(yam_require, scenario.envs);
+        let (yam_require_code, yam_require_msg) =
+            capture_with_env(yam_require, scenario.envs);
 
         assert_eq!(ryl_require_code, 1, "ryl require exit ({})", scenario.label);
         assert_eq!(

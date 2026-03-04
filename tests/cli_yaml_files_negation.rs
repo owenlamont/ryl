@@ -26,7 +26,8 @@ fn yaml_files_negation_excludes_files_via_cli() {
     fs::write(root.join("skip.yaml"), "value: Yes\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg_path).arg(root));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&cfg_path).arg(root));
 
     assert_eq!(
         code, 1,

@@ -12,7 +12,10 @@ fn run_cmd(cmd: &mut Command) -> (i32, String, String) {
     (code, stdout, stderr)
 }
 
-fn run_with_env(mut cmd: Command, envs: &[(&str, Option<&str>)]) -> (i32, String, String) {
+fn run_with_env(
+    mut cmd: Command,
+    envs: &[(&str, Option<&str>)],
+) -> (i32, String, String) {
     cmd.env_remove("GITHUB_ACTIONS");
     cmd.env_remove("GITHUB_WORKFLOW");
     cmd.env_remove("CI");
@@ -180,7 +183,9 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
             assert_eq!(rl, yl, "line numbers should match ({label})");
             assert_eq!(rc, yc, "column numbers should match ({label})");
         } else {
-            panic!("could not parse location ({label})\nryl:\n{r_msg}\nyamllint:\n{y_msg}");
+            panic!(
+                "could not parse location ({label})\nryl:\n{r_msg}\nyamllint:\n{y_msg}"
+            );
         }
 
         assert!(

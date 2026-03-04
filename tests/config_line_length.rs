@@ -2,8 +2,9 @@ use ryl::config::YamlLintConfig;
 
 #[test]
 fn rejects_unknown_option() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    unexpected: true\n")
-        .unwrap_err();
+    let err =
+        YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    unexpected: true\n")
+            .unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"unexpected\" for rule \"line-length\""
@@ -12,7 +13,8 @@ fn rejects_unknown_option() {
 
 #[test]
 fn rejects_non_integer_max() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    max: []\n").unwrap_err();
+    let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    max: []\n")
+        .unwrap_err();
     assert_eq!(
         err,
         "invalid config: option \"max\" of \"line-length\" should be int"
@@ -54,7 +56,8 @@ fn accepts_valid_configuration() {
 
 #[test]
 fn rejects_non_string_option_key() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    1: true\n").unwrap_err();
+    let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    1: true\n")
+        .unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"1\" for rule \"line-length\""

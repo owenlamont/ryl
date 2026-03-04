@@ -34,9 +34,11 @@ fn flags_forbidden_float_variants() {
 
 #[test]
 fn skips_quoted_and_tagged_values() {
-    let resolved =
-        build_config("rules:\n  float-values:\n    require-numeral-before-decimal: true\n");
-    let hits = float_values::check("quoted: '.5'\ntagged: !!float .5\nplain: .5\n", &resolved);
+    let resolved = build_config(
+        "rules:\n  float-values:\n    require-numeral-before-decimal: true\n",
+    );
+    let hits =
+        float_values::check("quoted: '.5'\ntagged: !!float .5\nplain: .5\n", &resolved);
 
     assert_eq!(
         hits.len(),

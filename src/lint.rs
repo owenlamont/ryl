@@ -3,10 +3,10 @@ use std::path::Path;
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::decoder;
 use crate::rules::{
-    anchors, braces, brackets, colons, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, empty_values, float_values, hyphens, indentation, key_duplicates,
-    key_ordering, line_length, new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
-    trailing_spaces, truthy,
+    anchors, braces, brackets, colons, commas, comments, comments_indentation,
+    document_end, document_start, empty_lines, empty_values, float_values, hyphens,
+    indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file,
+    new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,9 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(new_lines::ID, path, base_dir)
     {
         let rule_cfg = new_lines::Config::resolve(cfg);
-        if let Some(hit) = new_lines::check(&content, rule_cfg, new_lines::platform_newline()) {
+        if let Some(hit) =
+            new_lines::check(&content, rule_cfg, new_lines::platform_newline())
+        {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -233,7 +235,13 @@ pub fn lint_file(
         }
     }
 
-    collect_comments_indentation_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_comments_indentation_diagnostics(
+        &mut diagnostics,
+        &content,
+        cfg,
+        path,
+        base_dir,
+    );
 
     if let Some(level) = cfg.rule_level(indentation::ID)
         && !cfg.is_rule_ignored(indentation::ID, path, base_dir)

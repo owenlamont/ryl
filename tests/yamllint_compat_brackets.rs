@@ -94,14 +94,16 @@ fn brackets_rule_matches_yamllint() {
             .arg("-c")
             .arg(&default_cfg)
             .arg(&default_violation);
-        let (ryl_default_code, ryl_default_output) = capture_with_env(ryl_default, scenario.envs);
+        let (ryl_default_code, ryl_default_output) =
+            capture_with_env(ryl_default, scenario.envs);
 
         let mut yam_default = build_yamllint_command(scenario.yam_format);
         yam_default
             .arg("-c")
             .arg(&default_cfg)
             .arg(&default_violation);
-        let (yam_default_code, yam_default_output) = capture_with_env(yam_default, scenario.envs);
+        let (yam_default_code, yam_default_output) =
+            capture_with_env(yam_default, scenario.envs);
 
         assert_eq!(ryl_default_code, 1, "ryl default exit ({})", scenario.label);
         assert_eq!(
@@ -120,14 +122,16 @@ fn brackets_rule_matches_yamllint() {
             .arg("-c")
             .arg(&warning_cfg)
             .arg(&default_violation);
-        let (ryl_warning_code, ryl_warning_output) = capture_with_env(ryl_warning, scenario.envs);
+        let (ryl_warning_code, ryl_warning_output) =
+            capture_with_env(ryl_warning, scenario.envs);
 
         let mut yam_warning = build_yamllint_command(scenario.yam_format);
         yam_warning
             .arg("-c")
             .arg(&warning_cfg)
             .arg(&default_violation);
-        let (yam_warning_code, yam_warning_output) = capture_with_env(yam_warning, scenario.envs);
+        let (yam_warning_code, yam_warning_output) =
+            capture_with_env(yam_warning, scenario.envs);
 
         assert_eq!(ryl_warning_code, 0, "ryl warning exit ({})", scenario.label);
         assert_eq!(
@@ -239,11 +243,13 @@ fn brackets_rule_matches_yamllint() {
 
         let mut ryl_forbid = build_ryl_command(exe, scenario.ryl_format);
         ryl_forbid.arg("-c").arg(&forbid_cfg).arg(&forbid_violation);
-        let (ryl_forbid_code, ryl_forbid_output) = capture_with_env(ryl_forbid, scenario.envs);
+        let (ryl_forbid_code, ryl_forbid_output) =
+            capture_with_env(ryl_forbid, scenario.envs);
 
         let mut yam_forbid = build_yamllint_command(scenario.yam_format);
         yam_forbid.arg("-c").arg(&forbid_cfg).arg(&forbid_violation);
-        let (yam_forbid_code, yam_forbid_output) = capture_with_env(yam_forbid, scenario.envs);
+        let (yam_forbid_code, yam_forbid_output) =
+            capture_with_env(yam_forbid, scenario.envs);
 
         assert_eq!(ryl_forbid_code, 1, "ryl forbid exit ({})", scenario.label);
         assert_eq!(
@@ -321,7 +327,8 @@ fn brackets_rule_matches_yamllint() {
             scenario.label
         );
 
-        let mut ryl_forbid_non_empty_spaces = build_ryl_command(exe, scenario.ryl_format);
+        let mut ryl_forbid_non_empty_spaces =
+            build_ryl_command(exe, scenario.ryl_format);
         ryl_forbid_non_empty_spaces
             .arg("-c")
             .arg(&forbid_non_empty_cfg)
@@ -329,7 +336,8 @@ fn brackets_rule_matches_yamllint() {
         let (ryl_forbid_non_empty_spaces_code, ryl_forbid_non_empty_spaces_output) =
             capture_with_env(ryl_forbid_non_empty_spaces, scenario.envs);
 
-        let mut yam_forbid_non_empty_spaces = build_yamllint_command(scenario.yam_format);
+        let mut yam_forbid_non_empty_spaces =
+            build_yamllint_command(scenario.yam_format);
         yam_forbid_non_empty_spaces
             .arg("-c")
             .arg(&forbid_non_empty_cfg)

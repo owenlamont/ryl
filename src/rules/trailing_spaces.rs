@@ -35,7 +35,13 @@ pub fn check(buffer: &str) -> Vec<Violation> {
     violations
 }
 
-fn process_line(buffer: &str, line_no: usize, start: usize, end: usize, out: &mut Vec<Violation>) {
+fn process_line(
+    buffer: &str,
+    line_no: usize,
+    start: usize,
+    end: usize,
+    out: &mut Vec<Violation>,
+) {
     if start == end {
         return;
     }

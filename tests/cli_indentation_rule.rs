@@ -37,7 +37,8 @@ fn indentation_warning_respected() {
     fs::write(&config, "rules:\n  indentation:\n    level: warning\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 0, "expected warning exit");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(output.contains("warning"), "missing warning line: {output}");
@@ -56,7 +57,8 @@ fn indentation_sequences_false_skips() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 0, "indent-sequences false should pass");
     assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");

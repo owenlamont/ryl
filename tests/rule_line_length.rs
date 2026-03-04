@@ -38,8 +38,9 @@ fn allows_long_single_word_by_default() {
 
 #[test]
 fn respects_allow_non_breakable_words_flag() {
-    let resolved =
-        build_config("rules:\n  line-length:\n    max: 20\n    allow-non-breakable-words: false\n");
+    let resolved = build_config(
+        "rules:\n  line-length:\n    max: 20\n    allow-non-breakable-words: false\n",
+    );
     let input = format!("{}\n", "B".repeat(40));
     let hits = line_length::check(&input, &resolved);
     assert_eq!(hits.len(), 1, "long words should be flagged when disabled");
@@ -54,8 +55,9 @@ fn respects_allow_non_breakable_words_flag() {
 
 #[test]
 fn allows_inline_mappings_when_requested() {
-    let strict =
-        build_config("rules:\n  line-length:\n    max: 20\n    allow-non-breakable-words: false\n");
+    let strict = build_config(
+        "rules:\n  line-length:\n    max: 20\n    allow-non-breakable-words: false\n",
+    );
     let inline_allowed = build_config(
         "rules:\n  line-length:\n    max: 20\n    allow-non-breakable-inline-mappings: true\n",
     );
@@ -93,8 +95,9 @@ fn inline_mappings_still_fail_when_value_contains_spaces() {
 
 #[test]
 fn handles_comment_prefixes_like_yamllint() {
-    let resolved =
-        build_config("rules:\n  line-length:\n    max: 20\n    allow-non-breakable-words: true\n");
+    let resolved = build_config(
+        "rules:\n  line-length:\n    max: 20\n    allow-non-breakable-words: true\n",
+    );
     let allowed = "## http://example.com/super/long/url/with/no/spaces\n";
     let disallowed = "# # http://example.com/super/long/url/with/no/spaces\n";
 
@@ -120,8 +123,9 @@ fn inline_option_implies_non_breakable_words() {
 
 #[test]
 fn diagnostic_column_handles_negative_max() {
-    let resolved =
-        build_config("rules:\n  line-length:\n    max: -1\n    allow-non-breakable-words: false\n");
+    let resolved = build_config(
+        "rules:\n  line-length:\n    max: -1\n    allow-non-breakable-words: false\n",
+    );
     let hits = line_length::check("abc\n", &resolved);
     assert_eq!(
         hits.len(),
@@ -133,8 +137,9 @@ fn diagnostic_column_handles_negative_max() {
 
 #[test]
 fn crlf_lines_are_checked() {
-    let resolved =
-        build_config("rules:\n  line-length:\n    max: 3\n    allow-non-breakable-words: false\n");
+    let resolved = build_config(
+        "rules:\n  line-length:\n    max: 3\n    allow-non-breakable-words: false\n",
+    );
     let hits = line_length::check("AAAA\r\n", &resolved);
     assert_eq!(
         hits.len(),

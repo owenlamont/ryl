@@ -44,7 +44,8 @@ fn forbid_flow_mappings_reports_error() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -66,7 +67,8 @@ fn empty_spacing_config_is_respected() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -88,7 +90,8 @@ fn warning_level_does_not_fail() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "warnings should not fail: stdout={stdout} stderr={stderr}"

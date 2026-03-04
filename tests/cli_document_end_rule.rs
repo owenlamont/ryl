@@ -25,7 +25,8 @@ fn missing_marker_reports_error() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected error: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -52,7 +53,8 @@ fn forbidding_marker_flags_explicit_document() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected error: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -79,7 +81,8 @@ fn forbidding_marker_allows_implicit_document() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "implicit end should pass: stdout={stdout} stderr={stderr}"

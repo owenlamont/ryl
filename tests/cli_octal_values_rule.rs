@@ -29,7 +29,8 @@ fn octal_rule_reports_plain_values() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 1,
         "expected lint failure: stdout={stdout} stderr={stderr}"

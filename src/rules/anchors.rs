@@ -274,7 +274,8 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
             if line.trim().is_empty() {
                 return true;
             }
-            let explicit_indent = block.explicit_indent.map(|value| block.indent_base + value);
+            let explicit_indent =
+                block.explicit_indent.map(|value| block.indent_base + value);
             let required_indent = match (explicit_indent, block.required_indent) {
                 (Some(explicit), _) => explicit,
                 (None, Some(required)) => required,
@@ -309,7 +310,8 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
         let marker = &candidate[..3];
         let is_boundary_marker = matches!(marker, ['-', '-', '-'] | ['.', '.', '.']);
         if is_boundary_marker
-            && (candidate.len() == 3 || candidate.get(3).is_some_and(|ch| ch.is_whitespace()))
+            && (candidate.len() == 3
+                || candidate.get(3).is_some_and(|ch| ch.is_whitespace()))
         {
             self.finish_doc();
             self.reset_block_and_quotes();
@@ -367,7 +369,12 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
         self.violations
     }
 
-    fn is_block_indicator(&self, chars: &[char], idx: usize, indent_count: usize) -> bool {
+    fn is_block_indicator(
+        &self,
+        chars: &[char],
+        idx: usize,
+        indent_count: usize,
+    ) -> bool {
         debug_assert!(!self.in_single_quote && !self.in_double_quote);
         debug_assert!(idx >= indent_count);
         let prefix = &chars[..idx];
@@ -377,7 +384,8 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
 
     fn is_alias_indicator(&self, chars: &[char], idx: usize) -> bool {
         debug_assert!(!self.in_single_quote && !self.in_double_quote);
-        let Some(prev) = idx.checked_sub(1).and_then(|prev_idx| chars.get(prev_idx)) else {
+        let Some(prev) = idx.checked_sub(1).and_then(|prev_idx| chars.get(prev_idx))
+        else {
             return true;
         };
         matches!(prev, ' ' | '\t' | ':' | '[' | '{' | ',' | '?')

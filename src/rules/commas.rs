@@ -152,7 +152,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         let (byte_idx, ch) = chars[i];
 
         while range_idx < scalar_ranges.len()
-            && span_char_index_to_byte(&chars, scalar_ranges[range_idx].end, buffer_len) <= byte_idx
+            && span_char_index_to_byte(&chars, scalar_ranges[range_idx].end, buffer_len)
+                <= byte_idx
         {
             range_idx += 1;
         }
@@ -231,7 +232,9 @@ fn evaluate_comma(
         }
     }
 
-    if let AfterResult::SameLine { spaces, next_char } = compute_spaces_after(chars, comma_idx) {
+    if let AfterResult::SameLine { spaces, next_char } =
+        compute_spaces_after(chars, comma_idx)
+    {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         let next_byte = chars[next_char].0;
         let (line, column) = line_and_column(line_starts, next_byte);

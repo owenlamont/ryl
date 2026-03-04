@@ -7,11 +7,12 @@ use crate::config::YamlLintConfig;
 pub const ID: &str = "truthy";
 
 const TRUTHY_VALUES_YAML_1_1: [&str; 18] = [
-    "YES", "Yes", "yes", "NO", "No", "no", "TRUE", "True", "true", "FALSE", "False", "false", "ON",
-    "On", "on", "OFF", "Off", "off",
+    "YES", "Yes", "yes", "NO", "No", "no", "TRUE", "True", "true", "FALSE", "False",
+    "false", "ON", "On", "on", "OFF", "Off", "off",
 ];
 
-const TRUTHY_VALUES_YAML_1_2: [&str; 6] = ["TRUE", "True", "true", "FALSE", "False", "false"];
+const TRUTHY_VALUES_YAML_1_2: [&str; 6] =
+    ["TRUE", "True", "true", "FALSE", "False", "false"];
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -52,7 +53,8 @@ impl Config {
             check_keys = flag;
         }
 
-        let mut display_values: Vec<&str> = allowed.iter().map(String::as_str).collect();
+        let mut display_values: Vec<&str> =
+            allowed.iter().map(String::as_str).collect();
         display_values.sort_unstable();
         let allowed_display = format!("[{}]", display_values.join(", "));
 

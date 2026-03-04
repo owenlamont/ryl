@@ -45,7 +45,9 @@ fn parsable_format_outputs_expected_diagnostic() {
         "missing location: {line}"
     );
     assert!(
-        line.contains("no new line character at the end of file (new-line-at-end-of-file)"),
+        line.contains(
+            "no new line character at the end of file (new-line-at-end-of-file)"
+        ),
         "unexpected diagnostic payload: {line}"
     );
 
@@ -222,7 +224,8 @@ fn colored_format_matches_reference_layout() {
     fs::write(&file, "list: [1,2]\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("--format").arg("colored").arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("--format").arg("colored").arg(&file));
     assert_eq!(code, 1, "colored format should exit 1 when errors occur");
     assert!(
         stdout.is_empty(),

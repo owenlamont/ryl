@@ -1,5 +1,6 @@
 use ryl::rules::document_end::{
-    self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAGE, classify_document_end_marker_bytes,
+    self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAGE,
+    classify_document_end_marker_bytes,
 };
 
 #[test]

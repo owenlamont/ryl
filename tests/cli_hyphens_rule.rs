@@ -44,7 +44,8 @@ fn warning_level_does_not_fail() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "warnings should not fail: stdout={stdout} stderr={stderr}"
@@ -69,7 +70,8 @@ fn rule_ignore_skips_file() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "ignored file should pass: stdout={stdout} stderr={stderr}"
@@ -91,7 +93,8 @@ fn custom_max_allows_extra_spacing() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "custom max should pass: stdout={stdout} stderr={stderr}"

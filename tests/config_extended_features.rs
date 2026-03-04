@@ -161,10 +161,11 @@ fn rule_ignore_handles_direct_ignore_whitelist_and_parent_fallback() {
         &td.path().join("build/keep.yaml"),
         &base
     ));
-    assert!(
-        ctx.config
-            .is_rule_ignored("trailing-spaces", &td.path().join("drop.yaml"), &base)
-    );
+    assert!(ctx.config.is_rule_ignored(
+        "trailing-spaces",
+        &td.path().join("drop.yaml"),
+        &base
+    ));
     assert!(ctx.config.is_rule_ignored(
         "trailing-spaces",
         &td.path().join("build/sub/nested.yaml"),

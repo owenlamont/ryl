@@ -108,7 +108,8 @@ fn decode_utf32_invalid_scalar_reports_error() {
 
 #[test]
 fn decode_utf16_invalid_scalar_reports_error() {
-    let err = decoder::decode_bytes_with_override(&[0xD8, 0x00], Some("utf-16be")).unwrap_err();
+    let err = decoder::decode_bytes_with_override(&[0xD8, 0x00], Some("utf-16be"))
+        .unwrap_err();
     assert!(err.contains("invalid utf-16"));
 }
 
@@ -187,7 +188,8 @@ fn decode_with_override_utf32_detects_little_without_bom() {
 #[test]
 fn decode_with_override_utf32_missing_hint_errors() {
     let err =
-        decoder::decode_bytes_with_override(&[0x01, 0x02, 0x03, 0x04], Some("utf-32")).unwrap_err();
+        decoder::decode_bytes_with_override(&[0x01, 0x02, 0x03, 0x04], Some("utf-32"))
+            .unwrap_err();
     assert!(err.contains("utf-32"), "unexpected error: {err}");
 }
 
@@ -280,7 +282,8 @@ fn decode_with_override_utf32_empty_input() {
 
 #[test]
 fn decode_with_override_unknown_errors() {
-    let err = decoder::decode_bytes_with_override(b"data", Some("unsupported")).unwrap_err();
+    let err =
+        decoder::decode_bytes_with_override(b"data", Some("unsupported")).unwrap_err();
     assert!(err.contains("unsupported label"));
 }
 
@@ -305,7 +308,8 @@ fn decode_with_custom_encoding() {
 
 #[test]
 fn decode_with_custom_encoding_errors() {
-    let err = decoder::decode_bytes_with_override(&[0x82], Some("shift_jis")).unwrap_err();
+    let err =
+        decoder::decode_bytes_with_override(&[0x82], Some("shift_jis")).unwrap_err();
     assert!(err.contains("decode error"));
 }
 

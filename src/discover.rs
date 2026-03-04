@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use ignore::WalkBuilder;
 
 pub fn is_yaml_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(OsStr::to_str)
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml"))
+    path.extension().and_then(OsStr::to_str).is_some_and(|ext| {
+        ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml")
+    })
 }
 
 #[must_use]

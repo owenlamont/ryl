@@ -40,7 +40,9 @@ fn default_allows_merge_key_duplicates() {
 
 #[test]
 fn forbidding_merge_key_duplicates_reports_violation() {
-    let cfg = build_config("rules:\n  key-duplicates:\n    forbid-duplicated-merge-keys: true\n");
+    let cfg = build_config(
+        "rules:\n  key-duplicates:\n    forbid-duplicated-merge-keys: true\n",
+    );
     let input = "anchor: &a\n  value: 1\nmerged:\n  <<: *a\n  <<: *a\n";
     let hits = key_duplicates::check(input, &cfg);
     assert_eq!(hits.len(), 1, "expected violation: {hits:?}");

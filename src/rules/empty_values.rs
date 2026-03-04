@@ -182,11 +182,12 @@ impl<'cfg> EmptyValuesReceiver<'cfg> {
 
     fn record(&mut self, span: Span, message: &str) {
         let line = span.start.line();
-        let column = if let Some(ContainerState::Mapping { .. }) = self.containers.last() {
-            span.start.col() + 2
-        } else {
-            span.start.col() + 1
-        };
+        let column =
+            if let Some(ContainerState::Mapping { .. }) = self.containers.last() {
+                span.start.col() + 2
+            } else {
+                span.start.col() + 1
+            };
         self.diagnostics.push(Violation {
             line,
             column,

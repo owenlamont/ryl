@@ -50,12 +50,17 @@ impl Env for SystemEnv {
         let bytes = match fs::read(p) {
             Ok(data) => data,
             Err(err) => {
-                return Err(format!("failed to read config file {}: {err}", p.display()));
+                return Err(format!(
+                    "failed to read config file {}: {err}",
+                    p.display()
+                ));
             }
         };
         match decoder::decode_bytes(&bytes) {
             Ok(text) => Ok(text),
-            Err(err) => Err(format!("failed to read config file {}: {err}", p.display())),
+            Err(err) => {
+                Err(format!("failed to read config file {}: {err}", p.display()))
+            }
         }
     }
     fn path_exists(&self, p: &Path) -> bool {
@@ -117,8 +122,8 @@ pub struct YamlLintConfig {
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
 
 const TRUTHY_ALLOWED_VALUES: [&str; 18] = [
-    "YES", "Yes", "yes", "NO", "No", "no", "TRUE", "True", "true", "FALSE", "False", "false", "ON",
-    "On", "on", "OFF", "Off", "off",
+    "YES", "Yes", "yes", "NO", "No", "no", "TRUE", "True", "true", "FALSE", "False",
+    "false", "ON", "On", "on", "OFF", "Off", "off",
 ];
 
 const TRUTHY_ALLOWED_VALUES_DISPLAY: &str = "['YES', 'Yes', 'yes', 'NO', 'No', 'no', 'TRUE', 'True', 'true', 'FALSE', 'False', 'false', 'ON', 'On', 'on', 'OFF', 'Off', 'off']";
@@ -321,7 +326,10 @@ impl YamlLintConfig {
 
         let patterns = node
             .as_mapping_get("ignore")
-            .map(|n| load_ignore_patterns(n).expect("ignore patterns validated during parsing"))
+            .map(|n| {
+                load_ignore_patterns(n)
+                    .expect("ignore patterns validated during parsing")
+            })
             .unwrap_or_default();
         let from_files = node
             .as_mapping_get("ignore-from-file")
@@ -381,7 +389,8 @@ impl YamlLintConfig {
                 |_| Cow::Owned(path.file_name().map(PathBuf::from).unwrap_or_default()),
                 Cow::Borrowed,
             );
-            let matched = matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
+            let matched =
+                matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
             return matched.is_ignore();
         }
         crate::discover::is_yaml_path(path)
@@ -392,8 +401,8 @@ impl YamlLintConfig {
         envx: Option<&dyn Env>,
         base_dir: Option<&Path>,
     ) -> Result<Self, String> {
-        let docs =
-            YamlOwned::load_from_str(s).map_err(|e| format!("failed to parse config data: {e}"))?;
+        let docs = YamlOwned::load_from_str(s)
+            .map_err(|e| format!("failed to parse config data: {e}"))?;
         Self::from_doc_with_env(&docs[0], envx, base_dir, true)
     }
 
@@ -437,7 +446,8 @@ impl YamlLintConfig {
         if let Some(extends) = doc.as_mapping_get("extends") {
             if !allow_extends {
                 return Err(
-                    "invalid config: extends is not supported in TOML configuration".into(),
+                    "invalid config: extends is not supported in TOML configuration"
+                        .into(),
                 );
             }
             cfg.apply_extends(extends, envx, base_dir)?;
@@ -472,13 +482,17 @@ impl YamlLintConfig {
             for it in seq {
                 let Some(s) = it.as_str() else {
                     return Err(
-                        "invalid config: yaml-files should be a list of file patterns".to_string(),
+                        "invalid config: yaml-files should be a list of file patterns"
+                            .to_string(),
                     );
                 };
                 cfg.yaml_file_patterns.push(s.to_owned());
             }
         } else if yaml_files.is_some() {
-            return Err("invalid config: yaml-files should be a list of file patterns".to_string());
+            return Err(
+                "invalid config: yaml-files should be a list of file patterns"
+                    .to_string(),
+            );
         }
 
         if let Some(locale) = doc.as_mapping_get("locale") {
@@ -753,7 +767,9 @@ fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
     if let Some(seq) = node.as_sequence() {
         for it in seq {
             let Some(s) = it.as_str() else {
-                return Err("invalid config: ignore should contain file patterns".to_string());
+                return Err(
+                    "invalid config: ignore should contain file patterns".to_string()
+                );
             };
             out.extend(patterns_from_scalar(s));
         }
@@ -813,7 +829,8 @@ fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
     node.as_mapping()
         .and_then(|map| {
             map.iter().find_map(|(key, value)| {
-                (key.as_str() == Some("level")).then(|| value.as_str().and_then(RuleLevel::parse))
+                (key.as_str() == Some("level"))
+                    .then(|| value.as_str().and_then(RuleLevel::parse))
             })
         })
         .flatten()
@@ -887,7 +904,11 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
     ))
 }
 
-fn handle_common_rule_key(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Result<bool, String> {
+fn handle_common_rule_key(
+    rule: &str,
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<bool, String> {
     if key.as_str() == Some("level") {
         let Some(level_text) = val.as_str() else {
             return Err(format!(
@@ -915,7 +936,10 @@ fn handle_common_rule_key(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Resul
     Ok(false)
 }
 
-fn validate_document_end_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_document_end_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("present") => validate_bool_option(val, "document-end", "present"),
         Some(other) => Err(format!(
@@ -930,7 +954,10 @@ fn validate_document_end_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
     }
 }
 
-fn validate_document_start_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_document_start_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("present") => validate_bool_option(val, "document-start", "present"),
         Some(other) => Err(format!(
@@ -945,7 +972,11 @@ fn validate_document_start_option(key: &YamlOwned, val: &YamlOwned) -> Result<()
     }
 }
 
-fn validate_brace_like_option(rule: &str, key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_brace_like_option(
+    rule: &str,
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     let Some(name) = key.as_str() else {
         let key_name = describe_rule_option_key(key);
         return Err(format!(
@@ -994,7 +1025,9 @@ fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
     };
 
     match name {
-        "forbid-undeclared-aliases" | "forbid-duplicated-anchors" | "forbid-unused-anchors" => {
+        "forbid-undeclared-aliases"
+        | "forbid-duplicated-anchors"
+        | "forbid-unused-anchors" => {
             if val.as_bool().is_some() {
                 Ok(())
             } else {
@@ -1072,13 +1105,16 @@ fn validate_comments_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Stri
 fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
         Some("max") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max\" of \"empty-lines\" should be int".to_string()
+            "invalid config: option \"max\" of \"empty-lines\" should be int"
+                .to_string()
         }),
         Some("max-start") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-start\" of \"empty-lines\" should be int".to_string()
+            "invalid config: option \"max-start\" of \"empty-lines\" should be int"
+                .to_string()
         }),
         Some("max-end") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-end\" of \"empty-lines\" should be int".to_string()
+            "invalid config: option \"max-end\" of \"empty-lines\" should be int"
+                .to_string()
         }),
         Some(other) => Err(format!(
             "invalid config: unknown option \"{other}\" for rule \"empty-lines\""
@@ -1095,14 +1131,17 @@ fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
 fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
         Some("max") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max\" of \"line-length\" should be int".to_string()
+            "invalid config: option \"max\" of \"line-length\" should be int"
+                .to_string()
         }),
         Some("allow-non-breakable-words") => {
             validate_bool_option(val, "line-length", "allow-non-breakable-words")
         }
-        Some("allow-non-breakable-inline-mappings") => {
-            validate_bool_option(val, "line-length", "allow-non-breakable-inline-mappings")
-        }
+        Some("allow-non-breakable-inline-mappings") => validate_bool_option(
+            val,
+            "line-length",
+            "allow-non-breakable-inline-mappings",
+        ),
         Some(other) => Err(format!(
             "invalid config: unknown option \"{other}\" for rule \"line-length\""
         )),
@@ -1140,7 +1179,10 @@ fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Str
     }
 }
 
-fn validate_octal_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_octal_values_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("forbid-implicit-octal") => {
             validate_bool_option(val, "octal-values", "forbid-implicit-octal")
@@ -1160,7 +1202,10 @@ fn validate_octal_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
     }
 }
 
-fn validate_empty_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_empty_values_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("forbid-in-block-mappings") => {
             validate_bool_option(val, "empty-values", "forbid-in-block-mappings")
@@ -1183,7 +1228,10 @@ fn validate_empty_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
     }
 }
 
-fn validate_float_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_float_values_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("require-numeral-before-decimal") => {
             validate_bool_option(val, "float-values", "require-numeral-before-decimal")
@@ -1205,7 +1253,10 @@ fn validate_float_values_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), 
     }
 }
 
-fn validate_key_duplicates_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_key_duplicates_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("forbid-duplicated-merge-keys") => {
             validate_bool_option(val, "key-duplicates", "forbid-duplicated-merge-keys")
@@ -1266,7 +1317,10 @@ fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
     }
 }
 
-fn validate_key_ordering_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_key_ordering_option(
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
     match key.as_str() {
         Some("ignored-keys") => {
             if let Some(seq) = val.as_sequence() {
@@ -1323,7 +1377,9 @@ fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             }
         }
         Some("indent-sequences") => {
-            if val.as_bool().is_some() || matches!(val.as_str(), Some("whatever" | "consistent")) {
+            if val.as_bool().is_some()
+                || matches!(val.as_str(), Some("whatever" | "consistent"))
+            {
                 Ok(())
             } else {
                 Err(
@@ -1416,12 +1472,16 @@ fn validate_quoted_strings_option(
     match key.as_str() {
         Some("quote-type") => validate_quote_type_option(val),
         Some("required") => validate_required_option(val, state),
-        Some("extra-required") => {
-            validate_regex_list_option(val, "extra-required", &mut state.extra_required_count)
-        }
-        Some("extra-allowed") => {
-            validate_regex_list_option(val, "extra-allowed", &mut state.extra_allowed_count)
-        }
+        Some("extra-required") => validate_regex_list_option(
+            val,
+            "extra-required",
+            &mut state.extra_required_count,
+        ),
+        Some("extra-allowed") => validate_regex_list_option(
+            val,
+            "extra-allowed",
+            &mut state.extra_allowed_count,
+        ),
         Some("allow-quoted-quotes") => {
             validate_bool_option(val, "quoted-strings", "allow-quoted-quotes")
         }
@@ -1503,7 +1563,11 @@ fn validate_regex_list_option(
     Ok(())
 }
 
-fn validate_bool_option(val: &YamlOwned, rule_name: &str, option_name: &str) -> Result<(), String> {
+fn validate_bool_option(
+    val: &YamlOwned,
+    rule_name: &str,
+    option_name: &str,
+) -> Result<(), String> {
     if val.as_bool().is_some() {
         Ok(())
     } else {
@@ -1513,7 +1577,11 @@ fn validate_bool_option(val: &YamlOwned, rule_name: &str, option_name: &str) -> 
     }
 }
 
-fn resolve_extend_path(entry: &str, envx: &dyn Env, base_dir: Option<&Path>) -> PathBuf {
+fn resolve_extend_path(
+    entry: &str,
+    envx: &dyn Env,
+    base_dir: Option<&Path>,
+) -> PathBuf {
     let candidate = PathBuf::from(entry);
     if candidate.is_absolute() {
         return candidate;
@@ -1585,7 +1653,9 @@ fn toml_value_to_yaml_owned(value: &TomlValue) -> YamlOwned {
                 .unwrap_or(YamlOwned::Value(ScalarOwned::String(rendered)))
         }
         TomlValue::Boolean(flag) => YamlOwned::Value(ScalarOwned::Boolean(*flag)),
-        TomlValue::Datetime(dt) => YamlOwned::Value(ScalarOwned::String(dt.to_string())),
+        TomlValue::Datetime(dt) => {
+            YamlOwned::Value(ScalarOwned::String(dt.to_string()))
+        }
         TomlValue::Array(items) => {
             YamlOwned::Sequence(items.iter().map(toml_value_to_yaml_owned).collect())
         }
@@ -1616,10 +1686,13 @@ fn yaml_owned_to_toml_value(value: &YamlOwned) -> Result<TomlValue, String> {
         return Ok(TomlValue::Float(num));
     }
     if value.is_null() {
-        return Err("cannot convert null values to TOML (TOML has no null type)".to_string());
+        return Err(
+            "cannot convert null values to TOML (TOML has no null type)".to_string()
+        );
     }
     if let Some(items) = value.as_sequence() {
-        let out: Result<Vec<_>, _> = items.iter().map(yaml_owned_to_toml_value).collect();
+        let out: Result<Vec<_>, _> =
+            items.iter().map(yaml_owned_to_toml_value).collect();
         return out.map(TomlValue::Array);
     }
     if let Some(map) = value.as_mapping() {
@@ -1666,7 +1739,10 @@ fn finalize_context(
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
-pub fn discover_config(inputs: &[PathBuf], overrides: &Overrides) -> Result<ConfigContext, String> {
+pub fn discover_config(
+    inputs: &[PathBuf],
+    overrides: &Overrides,
+) -> Result<ConfigContext, String> {
     discover_config_with(inputs, overrides, &SystemEnv)
 }
 
@@ -1685,7 +1761,8 @@ pub fn discover_config_with(
     // Global config resolution: inline > file > project > env var.
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
-        let cfg = YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
+        let cfg =
+            YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
         return finalize_context(envx, cfg, base_dir, None, Vec::new());
     }
     if let Some(ref file) = overrides.config_file {
@@ -1693,7 +1770,12 @@ pub fn discover_config_with(
     }
     let discovered = find_project_config_core(envx, inputs)?;
     if let Some(discovered) = discovered {
-        return ctx_from_config_path_core(envx, &discovered.cfg_path, true, discovered.notices);
+        return ctx_from_config_path_core(
+            envx,
+            &discovered.cfg_path,
+            true,
+            discovered.notices,
+        );
     }
     if let Some(ctx) = try_env_config_core(envx)? {
         return Ok(ctx);
@@ -1753,7 +1835,10 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
 ///
 /// # Panics
 /// Panics only if the built-in default preset cannot be parsed.
-pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigContext, String> {
+pub fn discover_per_file_with(
+    path: &Path,
+    envx: &dyn Env,
+) -> Result<ConfigContext, String> {
     let start_dir = if path.is_dir() {
         path
     } else {
@@ -1762,7 +1847,12 @@ pub fn discover_per_file_with(path: &Path, envx: &dyn Env) -> Result<ConfigConte
 
     let discovered = find_project_config_core(envx, &[start_dir.to_path_buf()])?;
     if let Some(discovered) = discovered {
-        return ctx_from_config_path_core(envx, &discovered.cfg_path, true, discovered.notices);
+        return ctx_from_config_path_core(
+            envx,
+            &discovered.cfg_path,
+            true,
+            discovered.notices,
+        );
     }
     try_user_global_core(envx, start_dir)?.map_or_else(
         || {
@@ -1814,20 +1904,29 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
 
 // no separate try_env_config_with; discover_config_with_env uses ClosureEnv + discover_config_with
 
-fn try_user_global_core(envx: &dyn Env, base_dir: &Path) -> Result<Option<ConfigContext>, String> {
+fn try_user_global_core(
+    envx: &dyn Env,
+    base_dir: &Path,
+) -> Result<Option<ConfigContext>, String> {
     envx.config_dir()
         .map(|base| base.join("yamllint").join("config"))
         .filter(|p| envx.path_exists(p))
         .map(|p| {
             let data = envx.read_to_string(&p)?;
-            let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
+            let cfg = YamlLintConfig::from_yaml_str_with_env(
+                &data,
+                Some(envx),
+                Some(base_dir),
+            )?;
             finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p), Vec::new())
         })
         .transpose()
 }
 
-const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 3] = [".ryl.toml", "ryl.toml", "pyproject.toml"];
-const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
+const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
+    [".ryl.toml", "ryl.toml", "pyproject.toml"];
+const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
+    [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 
 #[derive(Debug, Clone)]
 struct ProjectConfigDiscovery {
@@ -1846,7 +1945,12 @@ fn load_config_from_path_core(
         .file_name()
         .is_some_and(|name| name == "pyproject.toml")
     {
-        let cfg = YamlLintConfig::from_toml_str_with_env(&data, Some(envx), Some(base_dir), true)?;
+        let cfg = YamlLintConfig::from_toml_str_with_env(
+            &data,
+            Some(envx),
+            Some(base_dir),
+            true,
+        )?;
         if cfg.is_none() && !allow_missing_pyproject {
             return Err(format!(
                 "failed to parse config file {}: missing [tool.ryl] section",
@@ -1856,10 +1960,16 @@ fn load_config_from_path_core(
         return Ok(cfg);
     }
     if is_toml_path(path) {
-        let cfg = YamlLintConfig::from_toml_str_with_env(&data, Some(envx), Some(base_dir), false)?;
+        let cfg = YamlLintConfig::from_toml_str_with_env(
+            &data,
+            Some(envx),
+            Some(base_dir),
+            false,
+        )?;
         return Ok(cfg);
     }
-    let cfg = YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
+    let cfg =
+        YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
     Ok(Some(cfg))
 }
 
@@ -1943,7 +2053,8 @@ fn find_project_config_core(
                     continue;
                 }
                 if name == "pyproject.toml" {
-                    let loaded = load_config_from_path_core(envx, &candidate, &dir, true)?;
+                    let loaded =
+                        load_config_from_path_core(envx, &candidate, &dir, true)?;
                     if loaded.is_none() {
                         continue;
                     }
@@ -1974,7 +2085,9 @@ fn find_project_config_core(
     }
 
     for start in starts {
-        if let Some(candidate) = find_first_yaml_candidate(envx, &start, home_abs.as_ref()) {
+        if let Some(candidate) =
+            find_first_yaml_candidate(envx, &start, home_abs.as_ref())
+        {
             return Ok(Some(ProjectConfigDiscovery {
                 cfg_path: candidate,
                 notices: Vec::new(),

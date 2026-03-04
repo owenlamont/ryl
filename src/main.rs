@@ -18,7 +18,8 @@ use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
 use ryl::migrate::{
-    MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode, migrate_configs,
+    MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
+    migrate_configs,
 };
 use ryl::{LintProblem, Severity, lint_file};
 
@@ -48,7 +49,10 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     (candidates, explicit_files)
 }
 
-fn build_global_cfg(inputs: &[PathBuf], cli: &Cli) -> Result<Option<ConfigContext>, String> {
+fn build_global_cfg(
+    inputs: &[PathBuf],
+    cli: &Cli,
+) -> Result<Option<ConfigContext>, String> {
     if cli.config_data.is_some()
         || cli.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
@@ -249,7 +253,8 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
 }
 
 fn github_env_active() -> bool {
-    std::env::var_os("GITHUB_ACTIONS").is_some() && std::env::var_os("GITHUB_WORKFLOW").is_some()
+    std::env::var_os("GITHUB_ACTIONS").is_some()
+        && std::env::var_os("GITHUB_WORKFLOW").is_some()
 }
 
 fn supports_color() -> bool {
@@ -305,13 +310,14 @@ fn main() -> ExitCode {
     let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
     for f in candidates {
-        let (base_dir, cfg, notices) = match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
-            Ok(pair) => pair,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::from(2);
-            }
-        };
+        let (base_dir, cfg, notices) =
+            match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::from(2);
+                }
+            };
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{notice}");
@@ -325,13 +331,14 @@ fn main() -> ExitCode {
     }
 
     for ef in explicit_files {
-        let (base_dir, cfg, notices) = match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
-            Ok(pair) => pair,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::from(2);
-            }
-        };
+        let (base_dir, cfg, notices) =
+            match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::from(2);
+                }
+            };
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{notice}");
@@ -395,7 +402,9 @@ fn process_results(
             Ok(diagnostics) => {
                 let mut problems = diagnostics
                     .iter()
-                    .filter(|problem| !(no_warnings && problem.level == Severity::Warning))
+                    .filter(|problem| {
+                        !(no_warnings && problem.level == Severity::Warning)
+                    })
                     .peekable();
 
                 if problems.peek().is_none() {

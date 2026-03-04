@@ -25,7 +25,8 @@ fn empty_values_reports_all_diagnostics() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { &stdout } else { &stderr };
     assert!(
@@ -56,7 +57,8 @@ fn empty_values_honors_flags() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "expected success when all checks disabled: stdout={stdout} stderr={stderr}"
