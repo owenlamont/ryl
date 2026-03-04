@@ -28,7 +28,8 @@ fn unix_type_reports_crlf() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     assert!(
@@ -52,7 +53,8 @@ fn dos_type_reports_lf() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     assert!(
@@ -75,7 +77,8 @@ fn dos_type_accepts_crlf() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
 }
 
@@ -97,7 +100,8 @@ fn platform_type_uses_detected_newline() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     if cfg!(windows) {

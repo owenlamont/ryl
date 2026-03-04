@@ -28,13 +28,16 @@ impl Config {
                     let pattern = entry
                         .as_str()
                         .expect("key-ordering ignored-keys should be strings");
-                    ignored.push(Regex::new(pattern).expect("key-ordering ignored-keys regex"));
+                    ignored.push(
+                        Regex::new(pattern).expect("key-ordering ignored-keys regex"),
+                    );
                 }
             }
             if let saphyr::YamlOwned::Value(value) = node
                 && let Some(text) = value.as_str()
             {
-                ignored.push(Regex::new(text).expect("key-ordering ignored-keys regex"));
+                ignored
+                    .push(Regex::new(text).expect("key-ordering ignored-keys regex"));
             }
         }
 
@@ -222,7 +225,12 @@ impl<'cfg> KeyOrderingState<'cfg> {
         }
     }
 
-    fn handle_scalar(&mut self, value: &str, span: Span, diagnostics: &mut Vec<Violation>) {
+    fn handle_scalar(
+        &mut self,
+        value: &str,
+        span: Span,
+        diagnostics: &mut Vec<Violation>,
+    ) {
         let context = self.begin_node();
         if !context.key_root || self.config.is_ignored(value) {
             self.finish_node(context);

@@ -131,8 +131,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         let (byte_idx, ch) = chars[idx];
 
         while scalar_idx < scalar_ranges.len()
-            && span_char_index_to_byte(&chars, scalar_ranges[scalar_idx].end, buffer_len)
-                <= byte_idx
+            && span_char_index_to_byte(
+                &chars,
+                scalar_ranges[scalar_idx].end,
+                buffer_len,
+            ) <= byte_idx
         {
             scalar_idx += 1;
         }
@@ -222,7 +225,8 @@ fn evaluate_colon(
 
     if !skip_after_check
         && cfg.max_spaces_after >= 0
-        && let AfterResult::SameLine { spaces, next_char } = compute_spaces_after(chars, colon_idx)
+        && let AfterResult::SameLine { spaces, next_char } =
+            compute_spaces_after(chars, colon_idx)
     {
         if chars[next_char].1 == '#' {
             return;

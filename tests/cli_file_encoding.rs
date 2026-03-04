@@ -55,7 +55,8 @@ fn cli_reads_utf16_config_file() {
     fs::write(&yaml_path, "value: Yes\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg_path).arg(&yaml_path));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&cfg_path).arg(&yaml_path));
     assert_eq!(
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"
@@ -77,7 +78,8 @@ fn cli_reads_utf16_yaml_input() {
     write_utf16le(&yaml_path, "value: Yes\n");
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg_path).arg(&yaml_path));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&cfg_path).arg(&yaml_path));
     assert_eq!(
         code, 1,
         "expected lint failures: stdout={stdout} stderr={stderr}"

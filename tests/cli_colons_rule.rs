@@ -25,7 +25,8 @@ fn colons_reports_spacing_errors() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -53,7 +54,8 @@ fn colons_reports_explicit_key_spacing() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(

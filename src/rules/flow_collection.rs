@@ -177,7 +177,11 @@ struct SpacingMessages<'a> {
 }
 
 #[must_use]
-pub fn check(buffer: &str, cfg: &Config, desc: &FlowCollectionDescriptor) -> Vec<Violation> {
+pub fn check(
+    buffer: &str,
+    cfg: &Config,
+    desc: &FlowCollectionDescriptor,
+) -> Vec<Violation> {
     if buffer.is_empty() {
         return Vec::new();
     }
@@ -295,8 +299,7 @@ fn handle_open(
             skip_open_check = true;
         }
         Forbid::NonEmpty => {
-            let is_empty =
-                matches!(next_significant.map(|j| chars[j].1), Some(close) if close == desc.close);
+            let is_empty = matches!(next_significant.map(|j| chars[j].1), Some(close) if close == desc.close);
             if !is_empty {
                 violations.push(Violation {
                     line,
@@ -314,7 +317,8 @@ fn handle_open(
     };
 
     if !skip_open_check
-        && let AfterResult::SameLine { spaces, next_idx } = compute_spaces_after_open(chars, idx)
+        && let AfterResult::SameLine { spaces, next_idx } =
+            compute_spaces_after_open(chars, idx)
     {
         let next_byte = chars[next_idx].0;
         let (line, next_column) = line_and_column(line_starts, next_byte);
@@ -438,7 +442,10 @@ fn compute_spaces_after_open(chars: &[(usize, char)], open_idx: usize) -> AfterR
     AfterResult::Ignored
 }
 
-fn compute_spaces_before_close(chars: &[(usize, char)], close_idx: usize) -> Option<usize> {
+fn compute_spaces_before_close(
+    chars: &[(usize, char)],
+    close_idx: usize,
+) -> Option<usize> {
     let mut spaces = 0usize;
     let mut idx = close_idx;
     loop {
@@ -503,7 +510,8 @@ fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usiz
     let mut cursor = idx + 2;
     while cursor + 1 < chars.len() {
         if chars[cursor].1 == '}' && chars[cursor + 1].1 == '}' {
-            let inner_contains_mapping = chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
+            let inner_contains_mapping =
+                chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
             return (!inner_contains_mapping).then_some(cursor + 2);
         }
         cursor += 1;

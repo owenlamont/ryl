@@ -179,7 +179,8 @@ fn braces_inside_scalars_are_ignored() {
 #[test]
 fn comments_inside_flow_mappings_are_ignored() {
     let cfg = defaults();
-    let diagnostics = braces::check("object: {key: value, # comment\n  other: 2}\n", &cfg);
+    let diagnostics =
+        braces::check("object: {key: value, # comment\n  other: 2}\n", &cfg);
     assert!(
         diagnostics.is_empty(),
         "unexpected diagnostics: {diagnostics:?}"

@@ -73,14 +73,16 @@ fn colons_rule_matches_yamllint() {
             .arg("-c")
             .arg(&default_cfg)
             .arg(&default_violation);
-        let (ryl_default_code, ryl_default_output) = capture_with_env(ryl_default, scenario.envs);
+        let (ryl_default_code, ryl_default_output) =
+            capture_with_env(ryl_default, scenario.envs);
 
         let mut yam_default = build_yamllint_command(scenario.yam_format);
         yam_default
             .arg("-c")
             .arg(&default_cfg)
             .arg(&default_violation);
-        let (yam_default_code, yam_default_output) = capture_with_env(yam_default, scenario.envs);
+        let (yam_default_code, yam_default_output) =
+            capture_with_env(yam_default, scenario.envs);
 
         assert_eq!(ryl_default_code, 1, "ryl default exit ({})", scenario.label);
         assert_eq!(
@@ -99,14 +101,16 @@ fn colons_rule_matches_yamllint() {
             .arg("-c")
             .arg(&warning_cfg)
             .arg(&warning_violation);
-        let (ryl_warning_code, ryl_warning_output) = capture_with_env(ryl_warning, scenario.envs);
+        let (ryl_warning_code, ryl_warning_output) =
+            capture_with_env(ryl_warning, scenario.envs);
 
         let mut yam_warning = build_yamllint_command(scenario.yam_format);
         yam_warning
             .arg("-c")
             .arg(&warning_cfg)
             .arg(&warning_violation);
-        let (yam_warning_code, yam_warning_output) = capture_with_env(yam_warning, scenario.envs);
+        let (yam_warning_code, yam_warning_output) =
+            capture_with_env(yam_warning, scenario.envs);
 
         assert_eq!(ryl_warning_code, 0, "ryl warning exit ({})", scenario.label);
         assert_eq!(

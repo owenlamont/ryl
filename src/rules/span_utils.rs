@@ -27,7 +27,11 @@ pub fn span_char_index_to_byte(
     }
 }
 
-fn byte_index_to_char(chars: &[(usize, char)], byte_idx: usize, buffer_len: usize) -> usize {
+fn byte_index_to_char(
+    chars: &[(usize, char)],
+    byte_idx: usize,
+    buffer_len: usize,
+) -> usize {
     let clamped = byte_idx.min(buffer_len);
     chars.partition_point(|(offset, _)| *offset < clamped)
 }

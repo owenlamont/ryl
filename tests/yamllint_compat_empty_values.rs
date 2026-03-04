@@ -86,11 +86,13 @@ fn empty_values_rule_matches_yamllint() {
 
         let mut ryl_block = build_ryl_command(exe, scenario.ryl_format);
         ryl_block.arg("-c").arg(&block_cfg).arg(&violations);
-        let (ryl_block_code, ryl_block_msg) = capture_with_env(ryl_block, scenario.envs);
+        let (ryl_block_code, ryl_block_msg) =
+            capture_with_env(ryl_block, scenario.envs);
 
         let mut yam_block = build_yamllint_command(scenario.yam_format);
         yam_block.arg("-c").arg(&block_cfg).arg(&violations);
-        let (yam_block_code, yam_block_msg) = capture_with_env(yam_block, scenario.envs);
+        let (yam_block_code, yam_block_msg) =
+            capture_with_env(yam_block, scenario.envs);
 
         assert_eq!(ryl_block_code, 1, "ryl block exit ({})", scenario.label);
         assert_eq!(
@@ -154,11 +156,13 @@ fn empty_values_rule_matches_yamllint() {
 
         let mut ryl_clean = build_ryl_command(exe, scenario.ryl_format);
         ryl_clean.arg("-c").arg(&all_cfg).arg(&clean);
-        let (ryl_clean_code, ryl_clean_msg) = capture_with_env(ryl_clean, scenario.envs);
+        let (ryl_clean_code, ryl_clean_msg) =
+            capture_with_env(ryl_clean, scenario.envs);
 
         let mut yam_clean = build_yamllint_command(scenario.yam_format);
         yam_clean.arg("-c").arg(&all_cfg).arg(&clean);
-        let (yam_clean_code, yam_clean_msg) = capture_with_env(yam_clean, scenario.envs);
+        let (yam_clean_code, yam_clean_msg) =
+            capture_with_env(yam_clean, scenario.envs);
 
         assert_eq!(ryl_clean_code, 0, "ryl clean exit ({})", scenario.label);
         assert_eq!(

@@ -74,14 +74,16 @@ fn comments_rule_matches_yamllint() {
             .arg("-c")
             .arg(&no_require_cfg)
             .arg(&inline_file);
-        let (ryl_nr_code, ryl_nr_output) = capture_with_env(ryl_no_require, scenario.envs);
+        let (ryl_nr_code, ryl_nr_output) =
+            capture_with_env(ryl_no_require, scenario.envs);
 
         let mut yam_no_require = build_yamllint_command(scenario.yam_format);
         yam_no_require
             .arg("-c")
             .arg(&no_require_cfg)
             .arg(&inline_file);
-        let (yam_nr_code, yam_nr_output) = capture_with_env(yam_no_require, scenario.envs);
+        let (yam_nr_code, yam_nr_output) =
+            capture_with_env(yam_no_require, scenario.envs);
 
         assert_eq!(ryl_nr_code, 1, "ryl no-require exit ({})", scenario.label);
         assert_eq!(

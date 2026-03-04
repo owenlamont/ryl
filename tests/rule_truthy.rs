@@ -33,7 +33,8 @@ fn skips_quoted_or_explicitly_tagged_values() {
 
 #[test]
 fn respects_allowed_values_override() {
-    let resolved = build_config("rules:\n  truthy:\n    allowed-values: [\"yes\", \"no\"]\n");
+    let resolved =
+        build_config("rules:\n  truthy:\n    allowed-values: [\"yes\", \"no\"]\n");
     let hits = truthy::check("key: yes\nkey2: true\n", &resolved);
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].line, 2);
@@ -55,8 +56,9 @@ fn respects_yaml_version_directive() {
 
 #[test]
 fn skips_keys_when_disabled() {
-    let resolved =
-        build_config("rules:\n  truthy:\n    allowed-values: []\n    check-keys: false\n");
+    let resolved = build_config(
+        "rules:\n  truthy:\n    allowed-values: []\n    check-keys: false\n",
+    );
     let hits = truthy::check("True: yes\nvalue: True\n", &resolved);
     assert_eq!(hits.len(), 2, "keys should be skipped but values flagged");
     assert!(
@@ -196,10 +198,12 @@ fn disable_line_without_rule_prefix_disables_truthy() {
 #[test]
 fn disable_line_parsing_handles_quotes_and_escapes() {
     let resolved = build_config("rules:\n  truthy: enable\n");
-    let double_quoted = "value: \"hash # fragment\"  # yamllint disable-line rule:truthy\n";
+    let double_quoted =
+        "value: \"hash # fragment\"  # yamllint disable-line rule:truthy\n";
     assert!(truthy::check(double_quoted, &resolved).is_empty());
 
-    let single_quoted = "value: 'path\\#fragment'  # yamllint disable-line rule:truthy\n";
+    let single_quoted =
+        "value: 'path\\#fragment'  # yamllint disable-line rule:truthy\n";
     assert!(truthy::check(single_quoted, &resolved).is_empty());
 
     let escaped_hash = "value: foo \\# not comment\n";

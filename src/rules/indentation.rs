@@ -33,34 +33,36 @@ pub enum IndentSequencesSetting {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let spaces = cfg
-            .rule_option(ID, "spaces")
-            .map_or(SpacesSetting::Consistent, |node| {
-                node.as_integer()
-                    .map_or(SpacesSetting::Consistent, |value| {
-                        let non_negative = value.max(0);
-                        let fixed = usize::try_from(non_negative).unwrap_or(usize::MAX);
-                        SpacesSetting::Fixed(fixed)
-                    })
-            });
-
-        let indent_sequences =
-            cfg.rule_option(ID, "indent-sequences")
-                .map_or(IndentSequencesSetting::True, |node| {
-                    if let Some(choice) = node.as_str() {
-                        return if choice == "whatever" {
-                            IndentSequencesSetting::Whatever
-                        } else {
-                            IndentSequencesSetting::Consistent
-                        };
-                    }
-
-                    if node.as_bool() == Some(false) {
-                        IndentSequencesSetting::False
-                    } else {
-                        IndentSequencesSetting::True
-                    }
+        let spaces =
+            cfg.rule_option(ID, "spaces")
+                .map_or(SpacesSetting::Consistent, |node| {
+                    node.as_integer()
+                        .map_or(SpacesSetting::Consistent, |value| {
+                            let non_negative = value.max(0);
+                            let fixed =
+                                usize::try_from(non_negative).unwrap_or(usize::MAX);
+                            SpacesSetting::Fixed(fixed)
+                        })
                 });
+
+        let indent_sequences = cfg.rule_option(ID, "indent-sequences").map_or(
+            IndentSequencesSetting::True,
+            |node| {
+                if let Some(choice) = node.as_str() {
+                    return if choice == "whatever" {
+                        IndentSequencesSetting::Whatever
+                    } else {
+                        IndentSequencesSetting::Consistent
+                    };
+                }
+
+                if node.as_bool() == Some(false) {
+                    IndentSequencesSetting::False
+                } else {
+                    IndentSequencesSetting::True
+                }
+            },
+        );
 
         let check_multi_line_strings = cfg
             .rule_option(ID, "check-multi-line-strings")
@@ -178,7 +180,9 @@ impl<'a> Analyzer<'a> {
                 self.diagnostics.push(Violation {
                     line: line_number,
                     column: indent + 1,
-                    message: format!("wrong indentation: expected {expected} but found {indent}"),
+                    message: format!(
+                        "wrong indentation: expected {expected} but found {indent}"
+                    ),
                 });
             }
             return;
@@ -189,7 +193,8 @@ impl<'a> Analyzer<'a> {
         }
 
         let analysis = LineAnalysis::analyze(content);
-        let compact_mapping_continuation = self.is_compact_mapping_continuation(indent, analysis);
+        let compact_mapping_continuation =
+            self.is_compact_mapping_continuation(indent, analysis);
 
         let Some(pushing_child) = self.update_context_for_indent(
             line_number,
@@ -234,7 +239,8 @@ impl<'a> Analyzer<'a> {
         if is_compact_sequence_start(content) {
             self.compact_sequence_parent_indent = Some(indent);
         }
-        if let Some(continuation_indent) = compact_flow_mapping_continuation_indent(content, indent)
+        if let Some(continuation_indent) =
+            compact_flow_mapping_continuation_indent(content, indent)
         {
             self.compact_flow_mapping = Some(CompactFlowMapping {
                 parent_indent: indent,
@@ -296,7 +302,11 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn is_compact_mapping_continuation(&self, indent: usize, analysis: LineAnalysis) -> bool {
+    fn is_compact_mapping_continuation(
+        &self,
+        indent: usize,
+        analysis: LineAnalysis,
+    ) -> bool {
         if !analysis.is_mapping_key() {
             return false;
         }
@@ -314,7 +324,10 @@ impl<'a> Analyzer<'a> {
         })
     }
 
-    fn find_mapping_parent_indent(&self, current_indent: usize) -> Option<(usize, usize)> {
+    fn find_mapping_parent_indent(
+        &self,
+        current_indent: usize,
+    ) -> Option<(usize, usize)> {
         let mut saw_mapping = false;
         let mut last_mapping_index = None;
         for (idx, ctx) in self.contexts.iter().enumerate().rev() {
@@ -336,7 +349,8 @@ impl<'a> Analyzer<'a> {
     }
 
     fn check_sequence_indent(&mut self, indent: usize, line_number: usize) {
-        let Some((ctx_index, parent_indent)) = self.find_mapping_parent_indent(indent) else {
+        let Some((ctx_index, parent_indent)) = self.find_mapping_parent_indent(indent)
+        else {
             return;
         };
 
@@ -553,7 +567,12 @@ impl SpacesRuntime {
         }
     }
 
-    fn observe_indent(&self, indent: usize, line: usize, diagnostics: &mut Vec<Violation>) {
+    fn observe_indent(
+        &self,
+        indent: usize,
+        line: usize,
+        diagnostics: &mut Vec<Violation>,
+    ) {
         match self.setting {
             SpacesSetting::Fixed(value) => {
                 if !indent.is_multiple_of(value) {
@@ -576,7 +595,9 @@ impl SpacesRuntime {
                     diagnostics.push(Violation {
                         line,
                         column: indent + 1,
-                        message: format!("wrong indentation: expected {exp} but found {indent}"),
+                        message: format!(
+                            "wrong indentation: expected {exp} but found {indent}"
+                        ),
                     });
                 }
             }
@@ -723,7 +744,11 @@ fn classify_mapping(content: &str) -> (bool, bool) {
             '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
             '[' if !in_single && !in_double => bracket_depth += 1,
             ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
-            ':' if !in_single && !in_double && brace_depth == 0 && bracket_depth == 0 => {
+            ':' if !in_single
+                && !in_double
+                && brace_depth == 0
+                && bracket_depth == 0 =>
+            {
                 let before = content[..idx].trim_end();
                 if before.is_empty() {
                     return (false, false);
@@ -759,7 +784,10 @@ fn sequence_prefix_width(content: &str) -> usize {
         .count()
 }
 
-fn compact_flow_mapping_continuation_indent(content: &str, indent: usize) -> Option<usize> {
+fn compact_flow_mapping_continuation_indent(
+    content: &str,
+    indent: usize,
+) -> Option<usize> {
     let trimmed = content.trim();
     if !is_sequence_entry(trimmed) {
         return None;

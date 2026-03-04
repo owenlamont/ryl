@@ -55,7 +55,8 @@ fn warning_level_does_not_fail() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "warnings should not fail: stdout={stdout} stderr={stderr}"
@@ -76,7 +77,8 @@ fn disabled_new_line_rule_allows_success() {
     fs::write(&config, "rules:\n  new-line-at-end-of-file: disable\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(
         code, 0,
         "disabled rule should pass: stdout={stdout} stderr={stderr}"

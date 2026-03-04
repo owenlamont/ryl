@@ -69,11 +69,13 @@ fn truthy_rule_matches_yamllint() {
         // allowed-values override keeps yes/no allowed
         let mut ryl_allowed = build_ryl_command(exe, scenario.ryl_format);
         ryl_allowed.arg("-c").arg(&allowed_cfg).arg(&allowed_file);
-        let (ryl_allowed_code, ryl_allowed_msg) = capture_with_env(ryl_allowed, scenario.envs);
+        let (ryl_allowed_code, ryl_allowed_msg) =
+            capture_with_env(ryl_allowed, scenario.envs);
 
         let mut yam_allowed = build_yamllint_command(scenario.yam_format);
         yam_allowed.arg("-c").arg(&allowed_cfg).arg(&allowed_file);
-        let (yam_allowed_code, yam_allowed_msg) = capture_with_env(yam_allowed, scenario.envs);
+        let (yam_allowed_code, yam_allowed_msg) =
+            capture_with_env(yam_allowed, scenario.envs);
 
         assert_eq!(ryl_allowed_code, 1, "ryl allowed exit ({})", scenario.label);
         assert_eq!(

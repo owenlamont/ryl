@@ -101,11 +101,13 @@ fn new_line_rule_matches_yamllint() {
 
         let mut ryl_warning_cmd = build_ryl_command(exe, scenario.ryl_format);
         ryl_warning_cmd.arg("-c").arg(&cfg_warning).arg(&missing);
-        let (ryl_warn_code, ryl_warn) = capture_with_env(ryl_warning_cmd, scenario.envs);
+        let (ryl_warn_code, ryl_warn) =
+            capture_with_env(ryl_warning_cmd, scenario.envs);
 
         let mut yam_warning_cmd = build_yamllint_command(scenario.yam_format);
         yam_warning_cmd.arg("-c").arg(&cfg_warning).arg(&missing);
-        let (yam_warn_code, yam_warn) = capture_with_env(yam_warning_cmd, scenario.envs);
+        let (yam_warn_code, yam_warn) =
+            capture_with_env(yam_warning_cmd, scenario.envs);
 
         assert_eq!(
             ryl_warn_code, 0,

@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use ryl::config::{Env, Overrides, SystemEnv, discover_config_with, discover_per_file_with};
+use ryl::config::{
+    Env, Overrides, SystemEnv, discover_config_with, discover_per_file_with,
+};
 use tempfile::tempdir;
 
 #[derive(Default)]
@@ -49,10 +51,9 @@ impl Env for FakeEnv {
         self.cfg_dir.clone()
     }
     fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        self.files
-            .get(p)
-            .cloned()
-            .ok_or_else(|| format!("failed to read config file {}: not found", p.display()))
+        self.files.get(p).cloned().ok_or_else(|| {
+            format!("failed to read config file {}: not found", p.display())
+        })
     }
     fn path_exists(&self, p: &Path) -> bool {
         self.files.contains_key(p) || self.exists.contains(p)

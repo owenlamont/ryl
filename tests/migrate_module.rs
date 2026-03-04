@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use ryl::migrate::{
-    MigrateOptions, MigrationEntry, OutputMode, SourceCleanup, WriteMode, apply_migration_entries,
-    migrate_configs,
+    MigrateOptions, MigrationEntry, OutputMode, SourceCleanup, WriteMode,
+    apply_migration_entries, migrate_configs,
 };
 use tempfile::tempdir;
 
@@ -196,7 +196,8 @@ fn apply_entries_delete_mode_propagates_delete_failures() {
         target,
         toml: "[rules]\n".to_string(),
     }];
-    let err = apply_migration_entries(&entries, &[], &SourceCleanup::Delete).unwrap_err();
+    let err =
+        apply_migration_entries(&entries, &[], &SourceCleanup::Delete).unwrap_err();
     assert!(err.contains("failed to delete migrated source config"));
 }
 
@@ -205,7 +206,12 @@ fn apply_entries_delete_mode_cleans_up_cleanup_only_sources() {
     let td = tempdir().unwrap();
     let skipped = td.path().join(".yamllint.yml");
     fs::write(&skipped, "rules: {}\n").unwrap();
-    apply_migration_entries(&[], std::slice::from_ref(&skipped), &SourceCleanup::Delete).unwrap();
+    apply_migration_entries(
+        &[],
+        std::slice::from_ref(&skipped),
+        &SourceCleanup::Delete,
+    )
+    .unwrap();
     assert!(!skipped.exists());
 }
 

@@ -143,7 +143,8 @@ impl<'cfg, 'input> FloatValuesReceiver<'cfg, 'input> {
             });
         }
 
-        if self.config.require_numeral_before_decimal() && is_missing_numeral_before_decimal(value)
+        if self.config.require_numeral_before_decimal()
+            && is_missing_numeral_before_decimal(value)
         {
             self.diagnostics.push(Violation {
                 line,

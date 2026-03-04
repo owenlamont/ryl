@@ -40,11 +40,13 @@ fn yaml_files_patterns_match_yamllint() {
     for scenario in SCENARIOS {
         let mut ryl_default = build_ryl_command(exe, scenario.ryl_format);
         ryl_default.arg("-c").arg(&default_cfg).arg(dir.path());
-        let (ryl_default_code, ryl_default_out) = capture_with_env(ryl_default, scenario.envs);
+        let (ryl_default_code, ryl_default_out) =
+            capture_with_env(ryl_default, scenario.envs);
 
         let mut yam_default = build_yamllint_command(scenario.yam_format);
         yam_default.arg("-c").arg(&default_cfg).arg(dir.path());
-        let (yam_default_code, yam_default_out) = capture_with_env(yam_default, scenario.envs);
+        let (yam_default_code, yam_default_out) =
+            capture_with_env(yam_default, scenario.envs);
 
         assert_eq!(
             ryl_default_code, yam_default_code,

@@ -23,7 +23,10 @@ pub fn normalize_output(stdout: String, stderr: String) -> String {
     output.replace("\r\n", "\n")
 }
 
-pub fn capture_with_env(mut cmd: Command, envs: &[(&str, Option<&str>)]) -> (i32, String) {
+pub fn capture_with_env(
+    mut cmd: Command,
+    envs: &[(&str, Option<&str>)],
+) -> (i32, String) {
     cmd.env_remove("GITHUB_ACTIONS");
     cmd.env_remove("GITHUB_WORKFLOW");
     cmd.env_remove("CI");

@@ -21,8 +21,9 @@ fn braces_options_are_parsed() {
 
 #[test]
 fn braces_empty_overrides_fallback_to_main_values() {
-    let cfg =
-        parse_config("rules:\n  braces:\n    min-spaces-inside: 2\n    max-spaces-inside: 3\n");
+    let cfg = parse_config(
+        "rules:\n  braces:\n    min-spaces-inside: 2\n    max-spaces-inside: 3\n",
+    );
 
     let rule_cfg = BracesConfig::resolve(&cfg);
     assert_eq!(rule_cfg.effective_min_empty(), 2);
@@ -41,8 +42,10 @@ fn braces_invalid_forbid_value_is_rejected() {
 
 #[test]
 fn braces_invalid_numeric_option_is_rejected() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  braces:\n    min-spaces-inside: foo\n")
-        .expect_err("config should fail");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  braces:\n    min-spaces-inside: foo\n",
+    )
+    .expect_err("config should fail");
     assert!(
         err.contains("option \"min-spaces-inside\" of \"braces\" should be int"),
         "unexpected error: {err}"
@@ -51,8 +54,10 @@ fn braces_invalid_numeric_option_is_rejected() {
 
 #[test]
 fn braces_invalid_max_option_is_rejected() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  braces:\n    max-spaces-inside: foo\n")
-        .expect_err("config should fail");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  braces:\n    max-spaces-inside: foo\n",
+    )
+    .expect_err("config should fail");
     assert!(
         err.contains("option \"max-spaces-inside\" of \"braces\" should be int"),
         "unexpected error: {err}"
@@ -61,9 +66,10 @@ fn braces_invalid_max_option_is_rejected() {
 
 #[test]
 fn braces_invalid_empty_max_option_is_rejected() {
-    let err =
-        YamlLintConfig::from_yaml_str("rules:\n  braces:\n    max-spaces-inside-empty: foo\n")
-            .expect_err("config should fail");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  braces:\n    max-spaces-inside-empty: foo\n",
+    )
+    .expect_err("config should fail");
     assert!(
         err.contains("option \"max-spaces-inside-empty\" of \"braces\" should be int"),
         "unexpected error: {err}"
@@ -72,9 +78,10 @@ fn braces_invalid_empty_max_option_is_rejected() {
 
 #[test]
 fn braces_invalid_empty_min_option_is_rejected() {
-    let err =
-        YamlLintConfig::from_yaml_str("rules:\n  braces:\n    min-spaces-inside-empty: foo\n")
-            .expect_err("config should fail");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  braces:\n    min-spaces-inside-empty: foo\n",
+    )
+    .expect_err("config should fail");
     assert!(
         err.contains("option \"min-spaces-inside-empty\" of \"braces\" should be int"),
         "unexpected error: {err}"
@@ -83,10 +90,14 @@ fn braces_invalid_empty_min_option_is_rejected() {
 
 #[test]
 fn braces_unknown_string_option_is_rejected() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  braces:\n    unexpected-option: true\n")
-        .expect_err("config should fail");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  braces:\n    unexpected-option: true\n",
+    )
+    .expect_err("config should fail");
     assert!(
-        err.contains("invalid config: unknown option \"unexpected-option\" for rule \"braces\""),
+        err.contains(
+            "invalid config: unknown option \"unexpected-option\" for rule \"braces\""
+        ),
         "unexpected error: {err}"
     );
 }

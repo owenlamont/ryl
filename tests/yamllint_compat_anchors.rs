@@ -72,14 +72,16 @@ fn anchors_rule_matches_yamllint() {
             .arg("-c")
             .arg(&default_cfg)
             .arg(&undeclared_file);
-        let (ryl_default_code, ryl_default_output) = capture_with_env(ryl_default, scenario.envs);
+        let (ryl_default_code, ryl_default_output) =
+            capture_with_env(ryl_default, scenario.envs);
 
         let mut yam_default = build_yamllint_command(scenario.yam_format);
         yam_default
             .arg("-c")
             .arg(&default_cfg)
             .arg(&undeclared_file);
-        let (yam_default_code, yam_default_output) = capture_with_env(yam_default, scenario.envs);
+        let (yam_default_code, yam_default_output) =
+            capture_with_env(yam_default, scenario.envs);
 
         assert_eq!(
             ryl_default_code, 1,
@@ -103,14 +105,16 @@ fn anchors_rule_matches_yamllint() {
             .arg("-c")
             .arg(&allow_forward_cfg)
             .arg(&undeclared_file);
-        let (ryl_allow_code, ryl_allow_output) = capture_with_env(ryl_allow, scenario.envs);
+        let (ryl_allow_code, ryl_allow_output) =
+            capture_with_env(ryl_allow, scenario.envs);
 
         let mut yam_allow = build_yamllint_command(scenario.yam_format);
         yam_allow
             .arg("-c")
             .arg(&allow_forward_cfg)
             .arg(&undeclared_file);
-        let (yam_allow_code, yam_allow_output) = capture_with_env(yam_allow, scenario.envs);
+        let (yam_allow_code, yam_allow_output) =
+            capture_with_env(yam_allow, scenario.envs);
 
         assert_eq!(
             ryl_allow_code, 0,
@@ -164,11 +168,13 @@ fn anchors_rule_matches_yamllint() {
         // Unused anchors
         let mut ryl_unused = build_ryl_command(exe, scenario.ryl_format);
         ryl_unused.arg("-c").arg(&unused_cfg).arg(&unused_file);
-        let (ryl_unused_code, ryl_unused_output) = capture_with_env(ryl_unused, scenario.envs);
+        let (ryl_unused_code, ryl_unused_output) =
+            capture_with_env(ryl_unused, scenario.envs);
 
         let mut yam_unused = build_yamllint_command(scenario.yam_format);
         yam_unused.arg("-c").arg(&unused_cfg).arg(&unused_file);
-        let (yam_unused_code, yam_unused_output) = capture_with_env(yam_unused, scenario.envs);
+        let (yam_unused_code, yam_unused_output) =
+            capture_with_env(yam_unused, scenario.envs);
 
         assert_eq!(ryl_unused_code, 1, "ryl unused exit ({})", scenario.label);
         assert_eq!(
@@ -185,11 +191,13 @@ fn anchors_rule_matches_yamllint() {
         // Valid file should pass
         let mut ryl_valid = build_ryl_command(exe, scenario.ryl_format);
         ryl_valid.arg("-c").arg(&default_cfg).arg(&valid_file);
-        let (ryl_valid_code, ryl_valid_output) = capture_with_env(ryl_valid, scenario.envs);
+        let (ryl_valid_code, ryl_valid_output) =
+            capture_with_env(ryl_valid, scenario.envs);
 
         let mut yam_valid = build_yamllint_command(scenario.yam_format);
         yam_valid.arg("-c").arg(&default_cfg).arg(&valid_file);
-        let (yam_valid_code, yam_valid_output) = capture_with_env(yam_valid, scenario.envs);
+        let (yam_valid_code, yam_valid_output) =
+            capture_with_env(yam_valid, scenario.envs);
 
         assert_eq!(ryl_valid_code, 0, "ryl valid exit ({})", scenario.label);
         assert_eq!(
@@ -206,11 +214,13 @@ fn anchors_rule_matches_yamllint() {
         // Plain scalars containing '*' should not be treated as aliases
         let mut ryl_regex = build_ryl_command(exe, scenario.ryl_format);
         ryl_regex.arg("-c").arg(&default_cfg).arg(&regex_file);
-        let (ryl_regex_code, ryl_regex_output) = capture_with_env(ryl_regex, scenario.envs);
+        let (ryl_regex_code, ryl_regex_output) =
+            capture_with_env(ryl_regex, scenario.envs);
 
         let mut yam_regex = build_yamllint_command(scenario.yam_format);
         yam_regex.arg("-c").arg(&default_cfg).arg(&regex_file);
-        let (yam_regex_code, yam_regex_output) = capture_with_env(yam_regex, scenario.envs);
+        let (yam_regex_code, yam_regex_output) =
+            capture_with_env(yam_regex, scenario.envs);
 
         assert_eq!(ryl_regex_code, 0, "ryl regex exit ({})", scenario.label);
         assert_eq!(

@@ -42,7 +42,8 @@ fn parse_override(bytes: &[u8], label: &str) -> Result<EncodingKind, String> {
         "utf-8-sig" | "utf8-sig" => Ok(EncodingKind::Utf8WithBom),
         "utf-16" => Ok(EncodingKind::Utf16 {
             endian: detect_utf16_endian(bytes).unwrap_or(Endian::Little),
-            skip_bom: bytes.starts_with(&[0xFE, 0xFF]) || bytes.starts_with(&[0xFF, 0xFE]),
+            skip_bom: bytes.starts_with(&[0xFE, 0xFF])
+                || bytes.starts_with(&[0xFF, 0xFE]),
         }),
         "utf-16le" | "utf-16-le" | "utf16le" => Ok(EncodingKind::Utf16 {
             endian: Endian::Little,
@@ -68,7 +69,9 @@ fn parse_override(bytes: &[u8], label: &str) -> Result<EncodingKind, String> {
         "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" => Ok(EncodingKind::Latin1),
         other => Encoding::for_label(other.as_bytes())
             .map(EncodingKind::Custom)
-            .ok_or_else(|| decode_error("encoding", format!("unsupported label '{label}'"))),
+            .ok_or_else(|| {
+                decode_error("encoding", format!("unsupported label '{label}'"))
+            }),
     }
 }
 
@@ -183,7 +186,11 @@ fn decode_utf8_bom(bytes: &[u8]) -> Result<String, String> {
     decode_utf8(sliced)
 }
 
-fn decode_utf16(bytes: &[u8], endian: Endian, skip_bom: bool) -> Result<String, String> {
+fn decode_utf16(
+    bytes: &[u8],
+    endian: Endian,
+    skip_bom: bool,
+) -> Result<String, String> {
     if bytes.is_empty() {
         return Ok(String::new());
     }
@@ -206,10 +213,15 @@ fn decode_utf16(bytes: &[u8], endian: Endian, skip_bom: bool) -> Result<String, 
         };
         units.push(value);
     }
-    String::from_utf16(&units).map_err(|err| decode_error("utf-16 data", err.to_string()))
+    String::from_utf16(&units)
+        .map_err(|err| decode_error("utf-16 data", err.to_string()))
 }
 
-fn decode_utf32(bytes: &[u8], endian: Endian, skip_bom: bool) -> Result<String, String> {
+fn decode_utf32(
+    bytes: &[u8],
+    endian: Endian,
+    skip_bom: bool,
+) -> Result<String, String> {
     if bytes.is_empty() {
         return Ok(String::new());
     }
@@ -228,7 +240,9 @@ fn decode_utf32(bytes: &[u8], endian: Endian, skip_bom: bool) -> Result<String, 
     for chunk in data.chunks_exact(4) {
         let raw = match endian {
             Endian::Big => u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
-            Endian::Little => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+            Endian::Little => {
+                u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+            }
         };
         match char::from_u32(raw) {
             Some(ch) => out.push(ch),
@@ -250,7 +264,10 @@ fn decode_latin1(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn decode_with_custom(bytes: &[u8], encoding: &'static Encoding) -> Result<String, String> {
+fn decode_with_custom(
+    bytes: &[u8],
+    encoding: &'static Encoding,
+) -> Result<String, String> {
     let (text, _encoding_used, had_errors) = encoding.decode(bytes);
     if had_errors {
         return Err(decode_error(
@@ -265,8 +282,12 @@ fn decode_with_kind(bytes: &[u8], encoding: EncodingKind) -> Result<String, Stri
     match encoding {
         EncodingKind::Utf8 => decode_utf8(bytes),
         EncodingKind::Utf8WithBom => decode_utf8_bom(bytes),
-        EncodingKind::Utf16 { endian, skip_bom } => decode_utf16(bytes, endian, skip_bom),
-        EncodingKind::Utf32 { endian, skip_bom } => decode_utf32(bytes, endian, skip_bom),
+        EncodingKind::Utf16 { endian, skip_bom } => {
+            decode_utf16(bytes, endian, skip_bom)
+        }
+        EncodingKind::Utf32 { endian, skip_bom } => {
+            decode_utf32(bytes, endian, skip_bom)
+        }
         EncodingKind::Latin1 => Ok(decode_latin1(bytes)),
         EncodingKind::Custom(enc) => decode_with_custom(bytes, enc),
     }
@@ -298,7 +319,8 @@ pub fn decode_bytes_with_override(
 /// # Errors
 /// Returns an error string when the file cannot be read or decoded.
 pub fn read_file(path: &Path) -> Result<String, String> {
-    let data =
-        std::fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    decode_bytes(&data).map_err(|err| format!("failed to read {}: {err}", path.display()))
+    let data = std::fs::read(path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    decode_bytes(&data)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))
 }

@@ -83,11 +83,13 @@ fn trailing_spaces_rule_matches_yamllint() {
         // warning configuration should keep diagnostics but exit 0
         let mut ryl_warning = build_ryl_command(exe, scenario.ryl_format);
         ryl_warning.arg("-c").arg(&warning_cfg).arg(&bad_file);
-        let (ryl_warn_code, ryl_warn_output) = capture_with_env(ryl_warning, scenario.envs);
+        let (ryl_warn_code, ryl_warn_output) =
+            capture_with_env(ryl_warning, scenario.envs);
 
         let mut yam_warning = build_yamllint_command(scenario.yam_format);
         yam_warning.arg("-c").arg(&warning_cfg).arg(&bad_file);
-        let (yam_warn_code, yam_warn_output) = capture_with_env(yam_warning, scenario.envs);
+        let (yam_warn_code, yam_warn_output) =
+            capture_with_env(yam_warning, scenario.envs);
 
         assert_eq!(ryl_warn_code, 0, "ryl warning exit ({})", scenario.label);
         assert_eq!(
@@ -104,11 +106,13 @@ fn trailing_spaces_rule_matches_yamllint() {
         // ignore pattern applied through inline config should skip diagnostics
         let mut ryl_ignore = build_ryl_command(exe, scenario.ryl_format);
         ryl_ignore.arg("-c").arg(&ignore_cfg).arg(&ignored_file);
-        let (ryl_ignore_code, ryl_ignore_output) = capture_with_env(ryl_ignore, scenario.envs);
+        let (ryl_ignore_code, ryl_ignore_output) =
+            capture_with_env(ryl_ignore, scenario.envs);
 
         let mut yam_ignore = build_yamllint_command(scenario.yam_format);
         yam_ignore.arg("-c").arg(&ignore_cfg).arg(&ignored_file);
-        let (yam_ignore_code, yam_ignore_output) = capture_with_env(yam_ignore, scenario.envs);
+        let (yam_ignore_code, yam_ignore_output) =
+            capture_with_env(yam_ignore, scenario.envs);
 
         assert_eq!(ryl_ignore_code, 0, "ryl ignore exit ({})", scenario.label);
         assert_eq!(
@@ -128,14 +132,16 @@ fn trailing_spaces_rule_matches_yamllint() {
             .arg("-c")
             .arg(&ignore_from_file_cfg)
             .arg(&ignored_from_file);
-        let (ryl_file_code, ryl_file_output) = capture_with_env(ryl_ignore_file, scenario.envs);
+        let (ryl_file_code, ryl_file_output) =
+            capture_with_env(ryl_ignore_file, scenario.envs);
 
         let mut yam_ignore_file = build_yamllint_command(scenario.yam_format);
         yam_ignore_file
             .arg("-c")
             .arg(&ignore_from_file_cfg)
             .arg(&ignored_from_file);
-        let (yam_file_code, yam_file_output) = capture_with_env(yam_ignore_file, scenario.envs);
+        let (yam_file_code, yam_file_output) =
+            capture_with_env(yam_ignore_file, scenario.envs);
 
         assert_eq!(
             ryl_file_code, 0,

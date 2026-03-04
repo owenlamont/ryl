@@ -15,7 +15,8 @@ fn error_on_non_bool_for_forbid_merge_keys() {
 #[test]
 fn error_on_unknown_option() {
     let err =
-        YamlLintConfig::from_yaml_str("rules:\n  key-duplicates:\n    foo: true\n").unwrap_err();
+        YamlLintConfig::from_yaml_str("rules:\n  key-duplicates:\n    foo: true\n")
+            .unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"foo\" for rule \"key-duplicates\""
@@ -24,8 +25,8 @@ fn error_on_unknown_option() {
 
 #[test]
 fn error_on_non_string_option_key() {
-    let err =
-        YamlLintConfig::from_yaml_str("rules:\n  key-duplicates:\n    1: true\n").unwrap_err();
+    let err = YamlLintConfig::from_yaml_str("rules:\n  key-duplicates:\n    1: true\n")
+        .unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"1\" for rule \"key-duplicates\""

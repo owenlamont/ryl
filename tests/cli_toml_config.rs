@@ -72,7 +72,9 @@ fn global_config_notice_is_emitted_when_env_var_triggers_global_discovery() {
         .arg("--list-files")
         .arg(root.join("a.yaml")));
     assert_eq!(code, 0, "stderr={stderr}");
-    assert!(stderr.contains("warning: ignoring legacy YAML config discovery because TOML config"));
+    assert!(stderr.contains(
+        "warning: ignoring legacy YAML config discovery because TOML config"
+    ));
 }
 
 #[test]
@@ -88,7 +90,9 @@ fn explicit_file_discovery_emits_notice() {
         .arg("--list-files")
         .arg(root.join("a.yaml")));
     assert_eq!(code, 0, "stderr={stderr}");
-    assert!(stderr.contains("warning: ignoring legacy YAML config discovery because TOML config"));
+    assert!(stderr.contains(
+        "warning: ignoring legacy YAML config discovery because TOML config"
+    ));
 }
 
 #[test]

@@ -27,7 +27,9 @@ fn default_allows_two_blank_lines() {
 
 #[test]
 fn exceeds_max_reports_violation() {
-    let cfg = resolve("rules:\n  empty-lines:\n    max: 0\n    max-start: 0\n    max-end: 0\n");
+    let cfg = resolve(
+        "rules:\n  empty-lines:\n    max: 0\n    max-start: 0\n    max-end: 0\n",
+    );
     let input = "---\nvalue: 1\n\nother: 2\n";
     let hits = empty_lines::check(input, &cfg);
     assert_eq!(hits.len(), 1);
@@ -38,7 +40,9 @@ fn exceeds_max_reports_violation() {
 
 #[test]
 fn start_limit_applied_before_general_max() {
-    let cfg = resolve("rules:\n  empty-lines:\n    max: 5\n    max-start: 1\n    max-end: 0\n");
+    let cfg = resolve(
+        "rules:\n  empty-lines:\n    max: 5\n    max-start: 1\n    max-end: 0\n",
+    );
     let input = "\n\nkey: value\n";
     let hits = empty_lines::check(input, &cfg);
     assert_eq!(hits.len(), 1);
@@ -49,7 +53,9 @@ fn start_limit_applied_before_general_max() {
 
 #[test]
 fn end_limit_overrides_general_max() {
-    let cfg = resolve("rules:\n  empty-lines:\n    max: 5\n    max-start: 0\n    max-end: 1\n");
+    let cfg = resolve(
+        "rules:\n  empty-lines:\n    max: 5\n    max-start: 0\n    max-end: 1\n",
+    );
     let input = "key: value\n\n\n";
     let hits = empty_lines::check(input, &cfg);
     assert_eq!(hits.len(), 1);
@@ -60,7 +66,9 @@ fn end_limit_overrides_general_max() {
 
 #[test]
 fn single_newline_file_is_ignored() {
-    let cfg = resolve("rules:\n  empty-lines:\n    max: 0\n    max-start: 0\n    max-end: 0\n");
+    let cfg = resolve(
+        "rules:\n  empty-lines:\n    max: 0\n    max-start: 0\n    max-end: 0\n",
+    );
     let hits = empty_lines::check("\n", &cfg);
     assert!(
         hits.is_empty(),
@@ -76,7 +84,9 @@ fn single_newline_file_is_ignored() {
 
 #[test]
 fn space_only_lines_are_not_blank() {
-    let cfg = resolve("rules:\n  empty-lines:\n    max: 0\n    max-start: 0\n    max-end: 0\n");
+    let cfg = resolve(
+        "rules:\n  empty-lines:\n    max: 0\n    max-start: 0\n    max-end: 0\n",
+    );
     let input = "---\nintro\n \nend\n";
     let hits = empty_lines::check(input, &cfg);
     assert!(

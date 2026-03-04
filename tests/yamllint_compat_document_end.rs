@@ -64,11 +64,13 @@ fn document_end_rule_matches_yamllint() {
 
         let mut ryl_require_ok = build_ryl_command(exe, scenario.ryl_format);
         ryl_require_ok.arg("-c").arg(&require_cfg).arg(&explicit);
-        let (ryl_req_ok_code, ryl_req_ok_msg) = capture_with_env(ryl_require_ok, scenario.envs);
+        let (ryl_req_ok_code, ryl_req_ok_msg) =
+            capture_with_env(ryl_require_ok, scenario.envs);
 
         let mut yam_require_ok = build_yamllint_command(scenario.yam_format);
         yam_require_ok.arg("-c").arg(&require_cfg).arg(&explicit);
-        let (yam_req_ok_code, yam_req_ok_msg) = capture_with_env(yam_require_ok, scenario.envs);
+        let (yam_req_ok_code, yam_req_ok_msg) =
+            capture_with_env(yam_require_ok, scenario.envs);
 
         assert_eq!(
             ryl_req_ok_code, 0,
@@ -120,11 +122,13 @@ fn document_end_rule_matches_yamllint() {
 
         let mut ryl_forbid = build_ryl_command(exe, scenario.ryl_format);
         ryl_forbid.arg("-c").arg(&forbid_cfg).arg(&explicit);
-        let (ryl_forbid_code, ryl_forbid_msg) = capture_with_env(ryl_forbid, scenario.envs);
+        let (ryl_forbid_code, ryl_forbid_msg) =
+            capture_with_env(ryl_forbid, scenario.envs);
 
         let mut yam_forbid = build_yamllint_command(scenario.yam_format);
         yam_forbid.arg("-c").arg(&forbid_cfg).arg(&explicit);
-        let (yam_forbid_code, yam_forbid_msg) = capture_with_env(yam_forbid, scenario.envs);
+        let (yam_forbid_code, yam_forbid_msg) =
+            capture_with_env(yam_forbid, scenario.envs);
 
         assert_eq!(ryl_forbid_code, 1, "ryl forbid exit ({})", scenario.label);
         assert_eq!(

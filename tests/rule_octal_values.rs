@@ -23,7 +23,8 @@ fn flags_plain_implicit_and_explicit_values() {
 
 #[test]
 fn respects_forbid_implicit_override() {
-    let resolved = build_config("rules:\n  octal-values:\n    forbid-implicit-octal: false\n");
+    let resolved =
+        build_config("rules:\n  octal-values:\n    forbid-implicit-octal: false\n");
     let hits = octal_values::check("foo: 010\nbar: 0o10\n", &resolved);
     assert_eq!(hits.len(), 1, "implicit octals should be allowed");
     assert_eq!(hits[0].message, "forbidden explicit octal value \"0o10\"");
@@ -31,7 +32,8 @@ fn respects_forbid_implicit_override() {
 
 #[test]
 fn respects_forbid_explicit_override() {
-    let resolved = build_config("rules:\n  octal-values:\n    forbid-explicit-octal: false\n");
+    let resolved =
+        build_config("rules:\n  octal-values:\n    forbid-explicit-octal: false\n");
     let hits = octal_values::check("foo: 010\nbar: 0o10\n", &resolved);
     assert_eq!(hits.len(), 1, "explicit octals should be allowed");
     assert_eq!(hits[0].message, "forbidden implicit octal value \"010\"");

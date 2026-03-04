@@ -28,7 +28,8 @@ fn reports_interior_blank_run() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     assert!(
@@ -74,7 +75,8 @@ fn enforces_start_and_end_limits() {
     )
     .unwrap();
 
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&end_config).arg(&end_file));
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&end_config).arg(&end_file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     assert!(

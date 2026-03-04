@@ -99,7 +99,9 @@ fn to_toml_errors_on_tagged_values() {
         &[],
         &Overrides {
             config_file: None,
-            config_data: Some("rules:\n  custom-rule:\n    tagged: !demo value\n".to_string()),
+            config_data: Some(
+                "rules:\n  custom-rule:\n    tagged: !demo value\n".to_string(),
+            ),
         },
     )
     .unwrap();

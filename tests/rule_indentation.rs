@@ -1,7 +1,13 @@
 use ryl::config::YamlLintConfig;
-use ryl::rules::indentation::{self, Config, IndentSequencesSetting, SpacesSetting, Violation};
+use ryl::rules::indentation::{
+    self, Config, IndentSequencesSetting, SpacesSetting, Violation,
+};
 
-fn config(spaces: SpacesSetting, indent_sequences: IndentSequencesSetting, multi: bool) -> Config {
+fn config(
+    spaces: SpacesSetting,
+    indent_sequences: IndentSequencesSetting,
+    multi: bool,
+) -> Config {
     Config::new_for_tests(spaces, indent_sequences, multi)
 }
 
@@ -199,11 +205,13 @@ fn tab_indentation_is_counted() {
 
 #[test]
 fn resolve_indent_sequences_from_string_values() {
-    let cfg_whatever = parse_config("rules:\n  indentation:\n    indent-sequences: whatever\n");
+    let cfg_whatever =
+        parse_config("rules:\n  indentation:\n    indent-sequences: whatever\n");
     let yaml = "root:\n- top\n  - inner\n";
     assert!(indentation::check(yaml, &cfg_whatever).is_empty());
 
-    let cfg_consistent = parse_config("rules:\n  indentation:\n    indent-sequences: consistent\n");
+    let cfg_consistent =
+        parse_config("rules:\n  indentation:\n    indent-sequences: consistent\n");
     let unindented = "root:\n- first\n- second\n";
     assert!(indentation::check(unindented, &cfg_consistent).is_empty());
 
@@ -216,8 +224,9 @@ fn resolve_indent_sequences_from_string_values() {
 
 #[test]
 fn indentation_config_rejects_non_string_option_keys() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  indentation:\n    true: false\n")
-        .expect_err("expected validation failure");
+    let err =
+        YamlLintConfig::from_yaml_str("rules:\n  indentation:\n    true: false\n")
+            .expect_err("expected validation failure");
     assert!(
         err.contains("unknown option \"true\" for rule \"indentation\""),
         "unexpected error: {err}"
@@ -238,7 +247,8 @@ fn reports_misaligned_mapping_with_consistent_spacing() {
         IndentSequencesSetting::True,
         false,
     );
-    let yaml = "root:\n  child:\n    nested: 1\n   bad_child: 2\n   repeated: 3\n wrong: 4\n";
+    let yaml =
+        "root:\n  child:\n    nested: 1\n   bad_child: 2\n   repeated: 3\n wrong: 4\n";
     let hits = indentation::check(yaml, &cfg);
     assert_eq!(hits.len(), 3, "unexpected diagnostics: {hits:?}");
     assert!(

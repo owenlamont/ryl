@@ -7,8 +7,8 @@ use tempfile::tempdir;
 mod compat;
 
 use compat::{
-    SCENARIOS, STANDARD_ENV, build_ryl_command, build_yamllint_command, capture_with_env,
-    ensure_yamllint_installed,
+    SCENARIOS, STANDARD_ENV, build_ryl_command, build_yamllint_command,
+    capture_with_env, ensure_yamllint_installed,
 };
 
 #[test]
@@ -72,7 +72,8 @@ fn key_ordering_matches_yamllint() {
     locale_probe.arg("-c").arg(&locale_cfg).arg(&locale_file);
     let (probe_code, probe_output) = capture_with_env(locale_probe, STANDARD_ENV);
     let skip_locale = if probe_code != 0
-        && (probe_output.contains("unsupported locale") || probe_output.contains("unknown locale"))
+        && (probe_output.contains("unsupported locale")
+            || probe_output.contains("unknown locale"))
     {
         eprintln!("skipping locale comparison: {probe_output}");
         true
@@ -120,11 +121,13 @@ fn key_ordering_matches_yamllint() {
         // ignored-keys configuration should allow ignored patterns and flag others equally
         let mut ryl_ignored = build_ryl_command(exe, scenario.ryl_format);
         ryl_ignored.arg("-c").arg(&ignored_cfg).arg(&ignored_file);
-        let (ryl_ignored_code, ryl_ignored_msg) = capture_with_env(ryl_ignored, scenario.envs);
+        let (ryl_ignored_code, ryl_ignored_msg) =
+            capture_with_env(ryl_ignored, scenario.envs);
 
         let mut yam_ignored = build_yamllint_command(scenario.yam_format);
         yam_ignored.arg("-c").arg(&ignored_cfg).arg(&ignored_file);
-        let (yam_ignored_code, yam_ignored_msg) = capture_with_env(yam_ignored, scenario.envs);
+        let (yam_ignored_code, yam_ignored_msg) =
+            capture_with_env(yam_ignored, scenario.envs);
 
         assert_eq!(ryl_ignored_code, 1, "ryl ignored exit ({})", scenario.label);
         assert_eq!(
@@ -144,11 +147,13 @@ fn key_ordering_matches_yamllint() {
 
         let mut ryl_locale = build_ryl_command(exe, scenario.ryl_format);
         ryl_locale.arg("-c").arg(&locale_cfg).arg(&locale_file);
-        let (ryl_locale_code, ryl_locale_msg) = capture_with_env(ryl_locale, scenario.envs);
+        let (ryl_locale_code, ryl_locale_msg) =
+            capture_with_env(ryl_locale, scenario.envs);
 
         let mut yam_locale = build_yamllint_command(scenario.yam_format);
         yam_locale.arg("-c").arg(&locale_cfg).arg(&locale_file);
-        let (yam_locale_code, yam_locale_msg) = capture_with_env(yam_locale, scenario.envs);
+        let (yam_locale_code, yam_locale_msg) =
+            capture_with_env(yam_locale, scenario.envs);
 
         assert_eq!(ryl_locale_code, 0, "ryl locale exit ({})", scenario.label);
         assert_eq!(

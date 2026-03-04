@@ -126,7 +126,12 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
         }
     }
 
-    fn handle_scalar(&mut self, value: &str, span: Span, diagnostics: &mut Vec<Violation>) {
+    fn handle_scalar(
+        &mut self,
+        value: &str,
+        span: Span,
+        diagnostics: &mut Vec<Violation>,
+    ) {
         let context = self.begin_node();
         if !context.key_root {
             self.finish_node(context);

@@ -32,7 +32,11 @@ impl FakeEnv {
         self
     }
 
-    pub fn with_file(mut self, path: impl Into<PathBuf>, content: impl Into<String>) -> Self {
+    pub fn with_file(
+        mut self,
+        path: impl Into<PathBuf>,
+        content: impl Into<String>,
+    ) -> Self {
         self.files.insert(path.into(), content.into());
         self
     }
@@ -42,7 +46,11 @@ impl FakeEnv {
         self
     }
 
-    pub fn with_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn with_var(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.vars.insert(key.into(), value.into());
         self
     }
@@ -63,10 +71,9 @@ impl Env for FakeEnv {
     }
 
     fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        self.files
-            .get(p)
-            .cloned()
-            .ok_or_else(|| format!("failed to read config file {}: not found", p.display()))
+        self.files.get(p).cloned().ok_or_else(|| {
+            format!("failed to read config file {}: not found", p.display())
+        })
     }
 
     fn path_exists(&self, p: &Path) -> bool {

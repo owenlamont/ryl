@@ -22,7 +22,8 @@ fn unknown_option_errors() {
 
 #[test]
 fn invalid_type_value_errors() {
-    let err = discover_with_yaml("rules:\n  new-lines:\n    type: invalid\n").unwrap_err();
+    let err =
+        discover_with_yaml("rules:\n  new-lines:\n    type: invalid\n").unwrap_err();
     assert_eq!(
         err,
         "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
@@ -31,7 +32,8 @@ fn invalid_type_value_errors() {
 
 #[test]
 fn invalid_type_kind_errors_on_non_string() {
-    let err = discover_with_yaml("rules:\n  new-lines:\n    type: [unix]\n").unwrap_err();
+    let err =
+        discover_with_yaml("rules:\n  new-lines:\n    type: [unix]\n").unwrap_err();
     assert_eq!(
         err,
         "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
@@ -49,7 +51,8 @@ fn unknown_option_reports_numeric_key() {
 
 #[test]
 fn unknown_option_reports_boolean_key() {
-    let err = discover_with_yaml("rules:\n  new-lines:\n    true: value\n").unwrap_err();
+    let err =
+        discover_with_yaml("rules:\n  new-lines:\n    true: value\n").unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"true\" for rule \"new-lines\""
@@ -67,7 +70,8 @@ fn unknown_option_reports_float_key() {
 
 #[test]
 fn unknown_option_reports_tagged_key() {
-    let err = discover_with_yaml("rules:\n  new-lines:\n    !foo bar: value\n").unwrap_err();
+    let err =
+        discover_with_yaml("rules:\n  new-lines:\n    !foo bar: value\n").unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"Tagged(Tag { handle: \"!\", suffix: \"foo\" }, Value(String(\"bar\")))\" for rule \"new-lines\""
@@ -76,7 +80,8 @@ fn unknown_option_reports_tagged_key() {
 
 #[test]
 fn unknown_option_reports_null_key() {
-    let err = discover_with_yaml("rules:\n  new-lines:\n    null: value\n").unwrap_err();
+    let err =
+        discover_with_yaml("rules:\n  new-lines:\n    null: value\n").unwrap_err();
     assert_eq!(
         err,
         "invalid config: unknown option \"None\" for rule \"new-lines\""

@@ -91,11 +91,13 @@ fn line_length_rule_matches_yamllint() {
         // warning configuration should keep diagnostics but exit 0
         let mut ryl_warning = build_ryl_command(exe, scenario.ryl_format);
         ryl_warning.arg("-c").arg(&warning_cfg).arg(&bad_file);
-        let (ryl_warn_code, ryl_warn_output) = capture_with_env(ryl_warning, scenario.envs);
+        let (ryl_warn_code, ryl_warn_output) =
+            capture_with_env(ryl_warning, scenario.envs);
 
         let mut yam_warning = build_yamllint_command(scenario.yam_format);
         yam_warning.arg("-c").arg(&warning_cfg).arg(&bad_file);
-        let (yam_warn_code, yam_warn_output) = capture_with_env(yam_warning, scenario.envs);
+        let (yam_warn_code, yam_warn_output) =
+            capture_with_env(yam_warning, scenario.envs);
 
         assert_eq!(ryl_warn_code, 0, "ryl warning exit ({})", scenario.label);
         assert_eq!(
@@ -112,11 +114,13 @@ fn line_length_rule_matches_yamllint() {
         // strict configuration should flag long non-breakable words
         let mut ryl_strict = build_ryl_command(exe, scenario.ryl_format);
         ryl_strict.arg("-c").arg(&strict_cfg).arg(&long_word_file);
-        let (ryl_strict_code, ryl_strict_output) = capture_with_env(ryl_strict, scenario.envs);
+        let (ryl_strict_code, ryl_strict_output) =
+            capture_with_env(ryl_strict, scenario.envs);
 
         let mut yam_strict = build_yamllint_command(scenario.yam_format);
         yam_strict.arg("-c").arg(&strict_cfg).arg(&long_word_file);
-        let (yam_strict_code, yam_strict_output) = capture_with_env(yam_strict, scenario.envs);
+        let (yam_strict_code, yam_strict_output) =
+            capture_with_env(yam_strict, scenario.envs);
 
         assert_eq!(ryl_strict_code, 1, "ryl strict exit ({})", scenario.label);
         assert_eq!(
@@ -136,14 +140,16 @@ fn line_length_rule_matches_yamllint() {
             .arg("-c")
             .arg(&inline_cfg)
             .arg(&inline_ok_file);
-        let (ryl_inline_code, ryl_inline_output) = capture_with_env(ryl_inline_ok, scenario.envs);
+        let (ryl_inline_code, ryl_inline_output) =
+            capture_with_env(ryl_inline_ok, scenario.envs);
 
         let mut yam_inline_ok = build_yamllint_command(scenario.yam_format);
         yam_inline_ok
             .arg("-c")
             .arg(&inline_cfg)
             .arg(&inline_ok_file);
-        let (yam_inline_code, yam_inline_output) = capture_with_env(yam_inline_ok, scenario.envs);
+        let (yam_inline_code, yam_inline_output) =
+            capture_with_env(yam_inline_ok, scenario.envs);
 
         assert_eq!(
             ryl_inline_code, 0,

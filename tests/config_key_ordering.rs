@@ -16,8 +16,10 @@ fn ignored_keys_sequence_accepts_valid_entries() {
 
 #[test]
 fn ignored_keys_sequence_non_string_errors() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  key-ordering:\n    ignored-keys: [1]\n")
-        .expect_err("non-string sequence entries should error");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-ordering:\n    ignored-keys: [1]\n",
+    )
+    .expect_err("non-string sequence entries should error");
     assert!(
         err.contains("ignored-keys"),
         "error should mention ignored-keys: {err}"
@@ -26,30 +28,37 @@ fn ignored_keys_sequence_non_string_errors() {
 
 #[test]
 fn ignored_keys_sequence_invalid_regex_errors() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  key-ordering:\n    ignored-keys: [\"[\"]\n")
-        .expect_err("invalid regex should error");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-ordering:\n    ignored-keys: [\"[\"]\n",
+    )
+    .expect_err("invalid regex should error");
     assert!(err.contains("invalid regex"), "unexpected message: {err}");
 }
 
 #[test]
 fn ignored_keys_scalar_invalid_regex_errors() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  key-ordering:\n    ignored-keys: \"[\"\n")
-        .expect_err("invalid scalar regex should error");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-ordering:\n    ignored-keys: \"[\"\n",
+    )
+    .expect_err("invalid scalar regex should error");
     assert!(err.contains("invalid regex"), "unexpected message: {err}");
 }
 
 #[test]
 fn ignored_keys_invalid_type_errors() {
-    let err =
-        YamlLintConfig::from_yaml_str("rules:\n  key-ordering:\n    ignored-keys: {bad: true}\n")
-            .expect_err("non sequence/string should error");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-ordering:\n    ignored-keys: {bad: true}\n",
+    )
+    .expect_err("non sequence/string should error");
     assert!(err.contains("should contain regex strings"), "{err}");
 }
 
 #[test]
 fn key_ordering_unknown_option_errors() {
-    let err = YamlLintConfig::from_yaml_str("rules:\n  key-ordering:\n    unexpected: true\n")
-        .expect_err("unknown option should error");
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-ordering:\n    unexpected: true\n",
+    )
+    .expect_err("unknown option should error");
     assert!(err.contains("unknown option \"unexpected\""), "{err}");
 }
 

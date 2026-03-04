@@ -1,6 +1,6 @@
 use ryl::rules::anchors::{
-    self, Config, MESSAGE_DUPLICATED_ANCHOR, MESSAGE_UNDECLARED_ALIAS, MESSAGE_UNUSED_ANCHOR,
-    Violation,
+    self, Config, MESSAGE_DUPLICATED_ANCHOR, MESSAGE_UNDECLARED_ALIAS,
+    MESSAGE_UNUSED_ANCHOR, Violation,
 };
 
 fn violation(line: usize, column: usize, message: &str) -> Violation {

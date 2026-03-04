@@ -78,11 +78,13 @@ fn hyphens_rule_matches_yamllint() {
     for scenario in SCENARIOS {
         let mut ryl_default = build_ryl_command(exe, scenario.ryl_format);
         ryl_default.arg("-c").arg(&default_cfg).arg(&default_file);
-        let (ryl_default_code, ryl_default_output) = capture_with_env(ryl_default, scenario.envs);
+        let (ryl_default_code, ryl_default_output) =
+            capture_with_env(ryl_default, scenario.envs);
 
         let mut yam_default = build_yamllint_command(scenario.yam_format);
         yam_default.arg("-c").arg(&default_cfg).arg(&default_file);
-        let (yam_default_code, yam_default_output) = capture_with_env(yam_default, scenario.envs);
+        let (yam_default_code, yam_default_output) =
+            capture_with_env(yam_default, scenario.envs);
 
         assert_eq!(ryl_default_code, 1, "ryl default exit ({})", scenario.label);
         assert_eq!(
@@ -98,11 +100,13 @@ fn hyphens_rule_matches_yamllint() {
 
         let mut ryl_warning = build_ryl_command(exe, scenario.ryl_format);
         ryl_warning.arg("-c").arg(&warning_cfg).arg(&default_file);
-        let (ryl_warning_code, ryl_warning_output) = capture_with_env(ryl_warning, scenario.envs);
+        let (ryl_warning_code, ryl_warning_output) =
+            capture_with_env(ryl_warning, scenario.envs);
 
         let mut yam_warning = build_yamllint_command(scenario.yam_format);
         yam_warning.arg("-c").arg(&warning_cfg).arg(&default_file);
-        let (yam_warning_code, yam_warning_output) = capture_with_env(yam_warning, scenario.envs);
+        let (yam_warning_code, yam_warning_output) =
+            capture_with_env(yam_warning, scenario.envs);
 
         assert_eq!(ryl_warning_code, 0, "ryl warning exit ({})", scenario.label);
         assert_eq!(
@@ -121,14 +125,16 @@ fn hyphens_rule_matches_yamllint() {
             .arg("-c")
             .arg(&max_cfg)
             .arg(&max_violation_file);
-        let (ryl_max_code, ryl_max_output) = capture_with_env(ryl_max_violation, scenario.envs);
+        let (ryl_max_code, ryl_max_output) =
+            capture_with_env(ryl_max_violation, scenario.envs);
 
         let mut yam_max_violation = build_yamllint_command(scenario.yam_format);
         yam_max_violation
             .arg("-c")
             .arg(&max_cfg)
             .arg(&max_violation_file);
-        let (yam_max_code, yam_max_output) = capture_with_env(yam_max_violation, scenario.envs);
+        let (yam_max_code, yam_max_output) =
+            capture_with_env(yam_max_violation, scenario.envs);
 
         assert_eq!(ryl_max_code, 1, "ryl max exit ({})", scenario.label);
         assert_eq!(yam_max_code, 1, "yamllint max exit ({})", scenario.label);
@@ -140,11 +146,13 @@ fn hyphens_rule_matches_yamllint() {
 
         let mut ryl_max_ok = build_ryl_command(exe, scenario.ryl_format);
         ryl_max_ok.arg("-c").arg(&max_cfg).arg(&max_ok_file);
-        let (ryl_max_ok_code, ryl_max_ok_output) = capture_with_env(ryl_max_ok, scenario.envs);
+        let (ryl_max_ok_code, ryl_max_ok_output) =
+            capture_with_env(ryl_max_ok, scenario.envs);
 
         let mut yam_max_ok = build_yamllint_command(scenario.yam_format);
         yam_max_ok.arg("-c").arg(&max_cfg).arg(&max_ok_file);
-        let (yam_max_ok_code, yam_max_ok_output) = capture_with_env(yam_max_ok, scenario.envs);
+        let (yam_max_ok_code, yam_max_ok_output) =
+            capture_with_env(yam_max_ok, scenario.envs);
 
         assert_eq!(ryl_max_ok_code, 0, "ryl max-ok exit ({})", scenario.label);
         assert_eq!(
@@ -160,11 +168,13 @@ fn hyphens_rule_matches_yamllint() {
 
         let mut ryl_ignore = build_ryl_command(exe, scenario.ryl_format);
         ryl_ignore.arg("-c").arg(&ignore_cfg).arg(&ignored_file);
-        let (ryl_ignore_code, ryl_ignore_output) = capture_with_env(ryl_ignore, scenario.envs);
+        let (ryl_ignore_code, ryl_ignore_output) =
+            capture_with_env(ryl_ignore, scenario.envs);
 
         let mut yam_ignore = build_yamllint_command(scenario.yam_format);
         yam_ignore.arg("-c").arg(&ignore_cfg).arg(&ignored_file);
-        let (yam_ignore_code, yam_ignore_output) = capture_with_env(yam_ignore, scenario.envs);
+        let (yam_ignore_code, yam_ignore_output) =
+            capture_with_env(yam_ignore, scenario.envs);
 
         assert_eq!(ryl_ignore_code, 0, "ryl ignore exit ({})", scenario.label);
         assert_eq!(
