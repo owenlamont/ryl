@@ -23,7 +23,7 @@ dirs-next = "2.0.0"
 regex = "1"
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
-toml = "0.5.11"
+toml = "1.0.6"
 
 [dev-dependencies]
 semver = "1"
