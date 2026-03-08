@@ -57,9 +57,9 @@ fn migrate_configs_write_with_rename_flattens_extends() {
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
 
     let toml = fs::read_to_string(root.join(".ryl.toml")).unwrap();
-    assert!(toml.contains("document-start = 'disable'"));
+    assert!(toml.contains("document-start = \"disable\""));
     assert!(toml.contains("[rules.truthy]"));
-    assert!(toml.contains("level = 'error'"));
+    assert!(toml.contains("level = \"error\""));
     assert!(!root.join(".yamllint").exists());
     assert!(root.join(".yamllint.bak").exists());
 }

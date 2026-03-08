@@ -18,8 +18,8 @@ fn to_toml_includes_ignore_and_locale_and_rules() {
     .unwrap();
     let toml = ctx.config.to_toml_string().unwrap();
     assert!(toml.contains("ignore = ["));
-    assert!(toml.contains("locale = 'en_US.UTF-8'"));
-    assert!(toml.contains("document-start = 'disable'"));
+    assert!(toml.contains("locale = \"en_US.UTF-8\""));
+    assert!(toml.contains("document-start = \"disable\""));
 }
 
 #[test]
