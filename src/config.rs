@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
-use toml::Value as TomlValue;
+use toml::{Table as TomlTable, Value as TomlValue};
 
 use crate::{conf, decoder};
 
@@ -413,7 +413,7 @@ impl YamlLintConfig {
         pyproject: bool,
     ) -> Result<Option<Self>, String> {
         let toml = s
-            .parse::<TomlValue>()
+            .parse::<TomlTable>()
             .map_err(|e| format!("failed to parse config data: {e}"))?;
 
         if pyproject {
@@ -427,7 +427,7 @@ impl YamlLintConfig {
             return Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some);
         }
 
-        let doc = toml_value_to_yaml_owned(&toml);
+        let doc = toml_value_to_yaml_owned(&TomlValue::Table(toml));
         Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some)
     }
 
