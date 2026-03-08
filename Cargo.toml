@@ -23,6 +23,8 @@ dirs-next = "2.0.0"
 regex = "1"
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
+# Keep preserve_order off to avoid pulling in indexmap/hashbrown 0.16 until
+# saphyr updates hashlink and the dependency graph converges again.
 toml = { version = "1.0.6", default-features = false, features = ["display", "parse", "serde"] }
 
 [dev-dependencies]
