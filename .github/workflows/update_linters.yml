@@ -7,6 +7,7 @@ on:
 jobs:
   refresh-pre-commit-config:
     runs-on: ubuntu-latest
+    environment: automation
     permissions:
       contents: write
       pull-requests: write
