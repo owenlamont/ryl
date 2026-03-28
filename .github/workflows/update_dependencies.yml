@@ -8,6 +8,7 @@ on:
 jobs:
   upgrade-all:
     runs-on: ubuntu-latest
+    environment: automation
     permissions:
       contents: write
       pull-requests: write
