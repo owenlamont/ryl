@@ -3,13 +3,27 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 const { spawnSync } = require('child_process');
 
 const pkg = require('../package.json');
 const version = pkg.version;
 const binName = process.platform === 'win32' ? 'ryl.exe' : 'ryl';
-const binDir = path.join(__dirname, '..', 'bin');
-const binPath = path.join(binDir, binName);
+
+// Support user-writable cache directory to avoid EACCES in global installs
+function getCacheDir() {
+  if (process.platform === 'win32') {
+    return process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Caches');
+  }
+  return process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+}
+
+const rylCacheDir = path.join(getCacheDir(), 'ryl', version);
+const cacheBinPath = path.join(rylCacheDir, binName);
+const localBinPath = path.join(__dirname, binName);
 
 const PLATFORMS = {
   darwin: {
@@ -46,7 +60,6 @@ function download(url, dest) {
     const file = fs.createWriteStream(dest);
     https.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
-        // Close and clean up before redirect
         file.close(() => {
           fs.unlink(dest, () => {
             download(response.headers.location, dest).then(resolve).catch(reject);
@@ -82,25 +95,32 @@ async function install() {
     process.exit(1);
   }
 
+  // Ensure cache directory exists
+  try {
+    fs.mkdirSync(rylCacheDir, { recursive: true });
+  } catch (err) {
+    console.error(`Error creating cache directory ${rylCacheDir}: ${err.message}`);
+    process.exit(1);
+  }
+
   const url = `https://github.com/owenlamont/ryl/releases/download/v${version}/${binaryAsset}`;
-  const archivePath = path.join(binDir, binaryAsset);
+  const archivePath = path.join(rylCacheDir, binaryAsset);
 
   console.log(`Downloading ryl v${version} for ${process.platform}/${process.arch}...`);
+  console.log(`Installing to: ${cacheBinPath}`);
+
   try {
     await download(url, archivePath);
 
-    // Simple extraction logic depending on platform
     if (process.platform === 'win32') {
-      // For Windows, we'd ideally use a library like 'unzipper' or 'adm-zip'
-      // but to keep it zero-dependency, we can try using the system's tar/powershell
-      spawnSync('powershell.exe', ['-Command', `Expand-Archive -Path "${archivePath}" -DestinationPath "${binDir}" -Force`], { stdio: 'inherit' });
+      spawnSync('powershell.exe', ['-Command', `Expand-Archive -Path "${archivePath}" -DestinationPath "${rylCacheDir}" -Force`], { stdio: 'inherit' });
     } else {
-      spawnSync('tar', ['-xzf', archivePath, '-C', binDir], { stdio: 'inherit' });
+      spawnSync('tar', ['-xzf', archivePath, '-C', rylCacheDir], { stdio: 'inherit' });
     }
 
     fs.unlinkSync(archivePath);
     if (process.platform !== 'win32') {
-      fs.chmodSync(binPath, 0o755);
+      fs.chmodSync(cacheBinPath, 0o755);
     }
     console.log('Successfully installed ryl!');
   } catch (err) {
@@ -113,17 +133,31 @@ async function install() {
 }
 
 async function run() {
-  if (!fs.existsSync(binPath)) {
-    await install();
+  // 1. Try Local Bin (for dev/local installs)
+  if (fs.existsSync(localBinPath)) {
+    execute(localBinPath);
+    return;
   }
 
+  // 2. Try Cache Bin
+  if (fs.existsSync(cacheBinPath)) {
+    execute(cacheBinPath);
+    return;
+  }
+
+  // 3. Install and Execute
+  await install();
+  execute(cacheBinPath);
+}
+
+function execute(binPath) {
   const result = spawnSync(binPath, process.argv.slice(2), {
     stdio: 'inherit',
     windowsHide: true
   });
 
   if (result.error) {
-    console.error(`Error executing binary: ${result.error.message}`);
+    console.error(`Error executing binary at ${binPath}: ${result.error.message}`);
     process.exit(1);
   }
 
