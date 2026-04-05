@@ -1,32 +1,45 @@
 {
-  "author": "Owen Lamont",
+  "name": "@owenlamont/ryl",
+  "version": "0.4.2",
+  "description": "Fast YAML linter inspired by yamllint",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64",
+    "arm"
+  ],
   "bin": {
     "ryl": "bin/ryl.js"
   },
-  "bugs": {
-    "url": "https://github.com/owenlamont/ryl/issues"
-  },
-  "description": "Fast YAML linter inspired by yamllint",
   "files": [
     "bin/",
     "README.md",
     "LICENSE"
   ],
-  "homepage": "https://github.com/owenlamont/ryl#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/owenlamont/ryl.git"
+  },
   "keywords": [
     "yaml",
     "lint",
     "cli",
     "rust"
   ],
+  "author": "Owen Lamont",
   "license": "MIT",
-  "name": "@owenlamont/ryl",
+  "bugs": {
+    "url": "https://github.com/owenlamont/ryl/issues"
+  },
+  "homepage": "https://github.com/owenlamont/ryl#readme",
   "publishConfig": {
     "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/owenlamont/ryl.git"
-  },
-  "version": "0.4.2"
+  }
 }

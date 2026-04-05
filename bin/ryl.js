@@ -90,7 +90,10 @@ async function install() {
     }
     console.log('Successfully installed ryl!');
   } catch (err) {
-    console.error('Error installing ryl binary:', err.message);
+    console.error(`Error installing ryl binary: ${err.message}`);
+    if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy) {
+      console.error('Note: You are using a proxy; please ensure your environment is configured correctly for Node.js https.get().');
+    }
     process.exit(1);
   }
 }
