@@ -88,6 +88,30 @@ function download(url, dest) {
   });
 }
 
+async function run() {
+  // 0. Try Environment Variable Override
+  if (process.env.RYL_BINARY_PATH) {
+    execute(process.env.RYL_BINARY_PATH);
+    return;
+  }
+
+  // 1. Try Local Bin (for dev/local installs)
+  if (fs.existsSync(localBinPath)) {
+    execute(localBinPath);
+    return;
+  }
+
+  // 2. Try Cache Bin
+  if (fs.existsSync(cacheBinPath)) {
+    execute(cacheBinPath);
+    return;
+  }
+
+  // 3. Install and Execute
+  await install();
+  execute(cacheBinPath);
+}
+
 async function install() {
   const binaryAsset = getBinaryName();
   if (!binaryAsset) {
@@ -104,50 +128,49 @@ async function install() {
   }
 
   const url = `https://github.com/owenlamont/ryl/releases/download/v${version}/${binaryAsset}`;
-  const archivePath = path.join(rylCacheDir, binaryAsset);
+  const archivePath = path.join(rylCacheDir, `${binaryAsset}.tmp`);
+  const extractDir = path.join(rylCacheDir, `extract-${Date.now()}`);
 
   console.log(`Downloading ryl v${version} for ${process.platform}/${process.arch}...`);
   console.log(`Installing to: ${cacheBinPath}`);
 
   try {
     await download(url, archivePath);
+    fs.mkdirSync(extractDir, { recursive: true });
 
     if (process.platform === 'win32') {
-      spawnSync('powershell.exe', ['-Command', `Expand-Archive -Path "${archivePath}" -DestinationPath "${rylCacheDir}" -Force`], { stdio: 'inherit' });
+      spawnSync('powershell.exe', ['-Command', `Expand-Archive -Path "${archivePath}" -DestinationPath "${extractDir}" -Force`], { stdio: 'inherit' });
     } else {
-      spawnSync('tar', ['-xzf', archivePath, '-C', rylCacheDir], { stdio: 'inherit' });
+      spawnSync('tar', ['-xzf', archivePath, '-C', extractDir], { stdio: 'inherit' });
     }
 
+    const extractedBinPath = path.join(extractDir, binName);
+    if (!fs.existsSync(extractedBinPath)) {
+      throw new Error(`Binary not found in archive: ${binName}`);
+    }
+
+    // Atomic move
+    fs.renameSync(extractedBinPath, cacheBinPath);
+
+    // Cleanup
     fs.unlinkSync(archivePath);
+    fs.rmSync(extractDir, { recursive: true, force: true });
+
     if (process.platform !== 'win32') {
       fs.chmodSync(cacheBinPath, 0o755);
     }
     console.log('Successfully installed ryl!');
   } catch (err) {
     console.error(`Error installing ryl binary: ${err.message}`);
+    // Cleanup on failure
+    if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath);
+    if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+
     if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy) {
       console.error('Note: You are using a proxy; please ensure your environment is configured correctly for Node.js https.get().');
     }
     process.exit(1);
   }
-}
-
-async function run() {
-  // 1. Try Local Bin (for dev/local installs)
-  if (fs.existsSync(localBinPath)) {
-    execute(localBinPath);
-    return;
-  }
-
-  // 2. Try Cache Bin
-  if (fs.existsSync(cacheBinPath)) {
-    execute(cacheBinPath);
-    return;
-  }
-
-  // 3. Install and Execute
-  await install();
-  execute(cacheBinPath);
 }
 
 function execute(binPath) {
