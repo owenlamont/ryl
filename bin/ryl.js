@@ -18,7 +18,10 @@ const PLATFORMS = {
   linux: {
     x64: 'x86_64-unknown-linux-musl',
     arm64: 'aarch64-unknown-linux-musl',
-    arm: 'armv7-unknown-linux-gnueabihf'
+    arm: 'armv7-unknown-linux-gnueabihf',
+    ia32: 'i686-unknown-linux-gnu',
+    ppc64: 'powerpc64le-unknown-linux-gnu',
+    s390x: 's390x-unknown-linux-gnu'
   },
   win32: {
     x64: 'x86_64-pc-windows-msvc',

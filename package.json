@@ -2,6 +2,7 @@
   "name": "@owenlamont/ryl",
   "version": "0.4.2",
   "description": "Fast YAML linter inspired by yamllint",
+  "type": "commonjs",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -13,7 +14,10 @@
   "cpu": [
     "x64",
     "arm64",
-    "arm"
+    "arm",
+    "ia32",
+    "ppc64",
+    "s390x"
   ],
   "bin": {
     "ryl": "bin/ryl.js"
@@ -41,5 +45,6 @@
   "homepage": "https://github.com/owenlamont/ryl#readme",
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "sideEffects": false
 }
