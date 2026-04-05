@@ -46,11 +46,20 @@ function download(url, dest) {
     const file = fs.createWriteStream(dest);
     https.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
-        download(response.headers.location, dest).then(resolve).catch(reject);
+        // Close and clean up before redirect
+        file.close(() => {
+          fs.unlink(dest, () => {
+            download(response.headers.location, dest).then(resolve).catch(reject);
+          });
+        });
         return;
       }
       if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download binary: ${response.statusCode}`));
+        file.close(() => {
+          fs.unlink(dest, () => {
+            reject(new Error(`Failed to download binary: ${response.statusCode}`));
+          });
+        });
         return;
       }
       response.pipe(file);
@@ -59,7 +68,9 @@ function download(url, dest) {
         resolve();
       });
     }).on('error', (err) => {
-      fs.unlink(dest, () => reject(err));
+      file.close(() => {
+        fs.unlink(dest, () => reject(err));
+      });
     });
   });
 }
@@ -111,7 +122,17 @@ async function run() {
     windowsHide: true
   });
 
-  process.exit(result.status || 0);
+  if (result.error) {
+    console.error(`Error executing binary: ${result.error.message}`);
+    process.exit(1);
+  }
+
+  if (result.status === null) {
+    console.error('Binary execution failed (no exit status)');
+    process.exit(1);
+  }
+
+  process.exit(result.status);
 }
 
 run();
