@@ -26,7 +26,9 @@ async function run() {
       [
         `No installed npm platform package matches ${process.platform}/${process.arch}.`,
         `Expected optional dependency: ${platformPackage.packageName}`,
-        `Try reinstalling ${pkg.name} for this platform.`
+        'This package requires npm optionalDependencies; installs done with',
+        '--omit=optional or npm_config_optional=false are not supported.',
+        `Reinstall ${pkg.name} with optional dependencies enabled.`
       ].join('\n')
     );
     process.exit(1);
