@@ -13,7 +13,11 @@ Compatibility note:
 ## Quick Start
 
 ```bash
+# Using uv (Python)
 uvx ryl .
+
+# Using npx (Node.js)
+npx @owenlamont/ryl .
 ```
 
 For `prek` / `pre-commit` integration, see
@@ -25,6 +29,12 @@ For `prek` / `pre-commit` integration, see
 
 ```bash
 uv tool install ryl
+```
+
+### NPM
+
+```bash
+npm install -g @owenlamont/ryl
 ```
 
 ### pip
@@ -228,3 +238,6 @@ developer automation, especially:
 - [saphyr](https://github.com/saphyr-rs/saphyr) - ryl is built on saphyr and saphyr's
   developers were very patient in showing some of the nuance and complexity of parsing
   YAML which I was embarrassingly ignorant of when start ryl.
+- [esbuild](https://github.com/evanw/esbuild) and
+  [biome](https://github.com/biomejs/biome) - for providing the "binary wrapper"
+  blueprint for distributing high-performance native tools via NPM.

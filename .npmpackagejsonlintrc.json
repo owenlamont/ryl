@@ -1,0 +1,35 @@
+{
+  "rules": {
+    "bin-type": "error",
+    "description-type": "error",
+    "engines-type": "error",
+    "homepage-type": "error",
+    "keywords-type": "error",
+    "license-type": "error",
+    "name-type": "error",
+    "no-duplicate-properties": "error",
+    "repository-type": "error",
+    "require-author": "error",
+    "require-description": "error",
+    "require-engines": "error",
+    "require-homepage": "error",
+    "require-keywords": "error",
+    "require-license": "error",
+    "require-name": "error",
+    "require-repository": "error",
+    "require-version": "error",
+    "valid-values-author": [
+      "error",
+      [
+        "Owen Lamont"
+      ]
+    ],
+    "valid-values-license": [
+      "error",
+      [
+        "MIT"
+      ]
+    ],
+    "version-type": "error"
+  }
+}
