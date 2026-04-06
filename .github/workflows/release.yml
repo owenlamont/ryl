@@ -255,7 +255,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-latest
             target: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -277,7 +277,7 @@ jobs:
     needs: [macos]
     strategy:
       matrix:
-        runner: [macos-14]
+        runner: [macos-latest]
         python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
     runs-on: ${{ matrix.runner }}
     steps:
@@ -349,7 +349,7 @@ jobs:
             target: x86_64-pc-windows-msvc
           - runner: windows-latest
             target: aarch64-pc-windows-msvc
-          - runner: macos-14
+          - runner: macos-latest
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
     permissions:
