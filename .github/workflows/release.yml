@@ -599,8 +599,43 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: '23'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+      - name: Verify Node and npm versions for Trusted Publishing
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          def parse(version: str) -> tuple[int, int, int]:
+              version = version.strip().removeprefix("v")
+              parts = version.split(".")
+              return tuple(int(part) for part in parts[:3])
+
+          node_version = subprocess.check_output(["node", "--version"], text=True).strip()
+          npm_version = subprocess.check_output(["npm", "--version"], text=True).strip()
+          min_node = (22, 14, 0)
+          min_npm = (11, 5, 1)
+
+          if parse(node_version) < min_node:
+              print(
+                  f"Node {node_version} is too old for npm Trusted Publishing; "
+                  f"need >= {'.'.join(map(str, min_node))}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          if parse(npm_version) < min_npm:
+              print(
+                  f"npm {npm_version} is too old for npm Trusted Publishing; "
+                  f"need >= {'.'.join(map(str, min_npm))}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
       - name: Read package metadata
         id: package_metadata
         run: |
