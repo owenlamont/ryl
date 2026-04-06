@@ -1,175 +1,76 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
 const path = require('path');
-const https = require('https');
-const os = require('os');
 const { spawnSync } = require('child_process');
 
 const pkg = require('../package.json');
-const version = pkg.version;
+const platforms = require('../npm-platforms.json');
 const binName = process.platform === 'win32' ? 'ryl.exe' : 'ryl';
-
-// Support user-writable cache directory to avoid EACCES in global installs
-function getCacheDir() {
-  if (process.platform === 'win32') {
-    return process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  }
-  if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Caches');
-  }
-  return process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
-}
-
-const rylCacheDir = path.join(getCacheDir(), 'ryl', version);
-const cacheBinPath = path.join(rylCacheDir, binName);
 const localBinPath = path.join(__dirname, binName);
 
-const PLATFORMS = {
-  darwin: {
-    arm64: 'aarch64-apple-darwin'
-  },
-  linux: {
-    x64: 'x86_64-unknown-linux-musl',
-    arm64: 'aarch64-unknown-linux-musl',
-    arm: 'armv7-unknown-linux-gnueabihf',
-    ia32: 'i686-unknown-linux-gnu',
-    ppc64: 'powerpc64le-unknown-linux-gnu',
-    s390x: 's390x-unknown-linux-gnu'
-  },
-  win32: {
-    x64: 'x86_64-pc-windows-msvc',
-    arm64: 'aarch64-pc-windows-msvc'
-  }
-};
-
-function getBinaryName() {
-  const platform = PLATFORMS[process.platform];
-  if (!platform) return null;
-  const target = platform[process.arch];
-  if (!target) return null;
-
-  if (process.platform === 'win32') {
-    return `ryl-${target}.zip`;
-  }
-  return `ryl-${target}.tar.gz`;
-}
-
-function download(url, dest) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    https.get(url, (response) => {
-      if (response.statusCode === 302 || response.statusCode === 301) {
-        file.close(() => {
-          fs.unlink(dest, () => {
-            download(response.headers.location, dest).then(resolve).catch(reject);
-          });
-        });
-        return;
-      }
-      if (response.statusCode !== 200) {
-        file.close(() => {
-          fs.unlink(dest, () => {
-            reject(new Error(`Failed to download binary: ${response.statusCode}`));
-          });
-        });
-        return;
-      }
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        resolve();
-      });
-    }).on('error', (err) => {
-      file.close(() => {
-        fs.unlink(dest, () => reject(err));
-      });
-    });
-  });
-}
-
 async function run() {
-  // 0. Try Environment Variable Override
   if (process.env.RYL_BINARY_PATH) {
     execute(process.env.RYL_BINARY_PATH);
     return;
   }
 
-  // 1. Try Local Bin (for dev/local installs)
-  if (fs.existsSync(localBinPath)) {
+  if (exists(localBinPath)) {
     execute(localBinPath);
     return;
   }
 
-  // 2. Try Cache Bin
-  if (fs.existsSync(cacheBinPath)) {
-    execute(cacheBinPath);
-    return;
+  const platformPackage = resolvePlatformPackage();
+  const platformPackageJson = resolveInstalledPackageJson(platformPackage.packageName);
+  if (!platformPackageJson) {
+    console.error(
+      [
+        `No installed npm platform package matches ${process.platform}/${process.arch}.`,
+        `Expected optional dependency: ${platformPackage.packageName}`,
+        'This package requires npm optionalDependencies; installs done with',
+        '--omit=optional or npm_config_optional=false are not supported.',
+        `Reinstall ${pkg.name} with optional dependencies enabled.`
+      ].join('\n')
+    );
+    process.exit(1);
   }
 
-  // 3. Install and Execute
-  await install();
-  execute(cacheBinPath);
+  const packageRoot = path.dirname(platformPackageJson);
+  const binaryPath = path.join(packageRoot, 'bin', platformPackage.binaryName);
+  if (!exists(binaryPath)) {
+    console.error(
+      `Installed package ${platformPackage.packageName} is missing binary ${platformPackage.binaryName}.`
+    );
+    process.exit(1);
+  }
+
+  execute(binaryPath);
 }
 
-async function install() {
-  const binaryAsset = getBinaryName();
-  if (!binaryAsset) {
-    console.error(`Unsupported platform/architecture: ${process.platform}/${process.arch}`);
-    process.exit(1);
+function exists(candidatePath) {
+  try {
+    require('fs').accessSync(candidatePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolvePlatformPackage() {
+  for (const platform of platforms.platforms) {
+    if (platform.os.includes(process.platform) && platform.cpu.includes(process.arch)) {
+      return platform;
+    }
   }
 
-  // Ensure cache directory exists
+  console.error(`Unsupported platform/architecture: ${process.platform}/${process.arch}`);
+  process.exit(1);
+}
+
+function resolveInstalledPackageJson(packageName) {
   try {
-    fs.mkdirSync(rylCacheDir, { recursive: true });
-  } catch (err) {
-    console.error(`Error creating cache directory ${rylCacheDir}: ${err.message}`);
-    process.exit(1);
-  }
-
-  const url = `https://github.com/owenlamont/ryl/releases/download/v${version}/${binaryAsset}`;
-  const archivePath = path.join(rylCacheDir, `${binaryAsset}.tmp`);
-  const extractDir = path.join(rylCacheDir, `extract-${Date.now()}`);
-
-  console.log(`Downloading ryl v${version} for ${process.platform}/${process.arch}...`);
-  console.log(`Installing to: ${cacheBinPath}`);
-
-  try {
-    await download(url, archivePath);
-    fs.mkdirSync(extractDir, { recursive: true });
-
-    if (process.platform === 'win32') {
-      spawnSync('powershell.exe', ['-Command', `Expand-Archive -Path "${archivePath}" -DestinationPath "${extractDir}" -Force`], { stdio: 'inherit' });
-    } else {
-      spawnSync('tar', ['-xzf', archivePath, '-C', extractDir], { stdio: 'inherit' });
-    }
-
-    const extractedBinPath = path.join(extractDir, binName);
-    if (!fs.existsSync(extractedBinPath)) {
-      throw new Error(`Binary not found in archive: ${binName}`);
-    }
-
-    // Atomic move
-    fs.renameSync(extractedBinPath, cacheBinPath);
-
-    // Cleanup
-    fs.unlinkSync(archivePath);
-    fs.rmSync(extractDir, { recursive: true, force: true });
-
-    if (process.platform !== 'win32') {
-      fs.chmodSync(cacheBinPath, 0o755);
-    }
-    console.log('Successfully installed ryl!');
-  } catch (err) {
-    console.error(`Error installing ryl binary: ${err.message}`);
-    // Cleanup on failure
-    if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath);
-    if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
-
-    if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy) {
-      console.error('Note: You are using a proxy; please ensure your environment is configured correctly for Node.js https.get().');
-    }
-    process.exit(1);
+    return require.resolve(`${packageName}/package.json`);
+  } catch {
+    return null;
   }
 }
 

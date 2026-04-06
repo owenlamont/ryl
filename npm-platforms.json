@@ -1,0 +1,124 @@
+{
+  "binaryName": "ryl",
+  "metaPackageName": "@owenlamont/ryl",
+  "packageScope": "@owenlamont",
+  "platforms": [
+    {
+      "archiveName": "ryl-aarch64-apple-darwin.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "arm64"
+      ],
+      "folderName": "ryl-darwin-arm64",
+      "os": [
+        "darwin"
+      ],
+      "packageName": "@owenlamont/ryl-darwin-arm64",
+      "target": "aarch64-apple-darwin"
+    },
+    {
+      "archiveName": "ryl-x86_64-unknown-linux-musl.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "x64"
+      ],
+      "folderName": "ryl-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "packageName": "@owenlamont/ryl-linux-x64-musl",
+      "target": "x86_64-unknown-linux-musl"
+    },
+    {
+      "archiveName": "ryl-aarch64-unknown-linux-musl.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "arm64"
+      ],
+      "folderName": "ryl-linux-arm64-musl",
+      "os": [
+        "linux"
+      ],
+      "packageName": "@owenlamont/ryl-linux-arm64-musl",
+      "target": "aarch64-unknown-linux-musl"
+    },
+    {
+      "archiveName": "ryl-armv7-unknown-linux-gnueabihf.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "arm"
+      ],
+      "folderName": "ryl-linux-armv7-gnu",
+      "os": [
+        "linux"
+      ],
+      "packageName": "@owenlamont/ryl-linux-armv7-gnu",
+      "target": "armv7-unknown-linux-gnueabihf"
+    },
+    {
+      "archiveName": "ryl-i686-unknown-linux-gnu.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "ia32"
+      ],
+      "folderName": "ryl-linux-ia32-gnu",
+      "os": [
+        "linux"
+      ],
+      "packageName": "@owenlamont/ryl-linux-ia32-gnu",
+      "target": "i686-unknown-linux-gnu"
+    },
+    {
+      "archiveName": "ryl-powerpc64le-unknown-linux-gnu.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "ppc64"
+      ],
+      "folderName": "ryl-linux-ppc64le-gnu",
+      "os": [
+        "linux"
+      ],
+      "packageName": "@owenlamont/ryl-linux-ppc64le-gnu",
+      "target": "powerpc64le-unknown-linux-gnu"
+    },
+    {
+      "archiveName": "ryl-s390x-unknown-linux-gnu.tar.gz",
+      "binaryName": "ryl",
+      "cpu": [
+        "s390x"
+      ],
+      "folderName": "ryl-linux-s390x-gnu",
+      "os": [
+        "linux"
+      ],
+      "packageName": "@owenlamont/ryl-linux-s390x-gnu",
+      "target": "s390x-unknown-linux-gnu"
+    },
+    {
+      "archiveName": "ryl-x86_64-pc-windows-msvc.zip",
+      "binaryName": "ryl.exe",
+      "cpu": [
+        "x64"
+      ],
+      "folderName": "ryl-win32-x64-msvc",
+      "os": [
+        "win32"
+      ],
+      "packageName": "@owenlamont/ryl-win32-x64-msvc",
+      "target": "x86_64-pc-windows-msvc"
+    },
+    {
+      "archiveName": "ryl-aarch64-pc-windows-msvc.zip",
+      "binaryName": "ryl.exe",
+      "cpu": [
+        "arm64"
+      ],
+      "folderName": "ryl-win32-arm64-msvc",
+      "os": [
+        "win32"
+      ],
+      "packageName": "@owenlamont/ryl-win32-arm64-msvc",
+      "target": "aarch64-pc-windows-msvc"
+    }
+  ]
+}

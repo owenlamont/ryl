@@ -582,14 +582,62 @@ jobs:
           print-hash: true
           skip-existing: true
 
-  publish-npm:
-    name: Publish to NPM
+  stage_npm_packages:
+    name: Stage npm packages
     runs-on: ubuntu-latest
     needs:
       - draft-github-release
+      - upload-release-binaries
     if: >-
       startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    outputs:
+      platform_matrix: ${{ steps.platform_matrix.outputs.value }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          pattern: release-binaries-*
+          merge-multiple: true
+          path: release-assets
+      - name: Build npm package directories
+        run: python3 scripts/build_npm_packages.py --assets-dir release-assets --out-dir dist/npm
+      - name: Compute npm platform matrix
+        id: platform_matrix
+        run: |
+          set -euo pipefail
+          matrix_json="$(python3 - <<'PY'
+          import json
+          with open("npm-platforms.json", "r", encoding="utf-8") as handle:
+              platforms = json.load(handle)["platforms"]
+          matrix = [
+              {"folder_name": platform["folderName"], "package_name": platform["packageName"]}
+              for platform in platforms
+          ]
+          print(json.dumps(matrix, separators=(",", ":")))
+          PY
+          )"
+          echo "value=${matrix_json}" >> "${GITHUB_OUTPUT}"
+      - name: Upload staged npm packages
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: npm-packages
+          path: dist/npm
+
+  publish_npm_platforms:
+    name: Publish npm platform package
+    runs-on: ubuntu-latest
+    needs:
+      - stage_npm_packages
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.stage_npm_packages.outputs.platform_matrix) }}
     permissions:
       id-token: write
       contents: read
@@ -599,14 +647,53 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: '23'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          name: npm-packages
+          path: dist/npm
+      - name: Verify Node and npm versions for Trusted Publishing
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          def parse(version: str) -> tuple[int, int, int]:
+              version = version.strip().removeprefix("v")
+              parts = version.split(".")
+              return tuple(int(part) for part in parts[:3])
+
+          node_version = subprocess.check_output(["node", "--version"], text=True).strip()
+          npm_version = subprocess.check_output(["npm", "--version"], text=True).strip()
+          min_node = (22, 14, 0)
+          min_npm = (11, 5, 1)
+
+          if parse(node_version) < min_node:
+              print(
+                  f"Node {node_version} is too old for npm Trusted Publishing; "
+                  f"need >= {'.'.join(map(str, min_node))}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          if parse(npm_version) < min_npm:
+              print(
+                  f"npm {npm_version} is too old for npm Trusted Publishing; "
+                  f"need >= {'.'.join(map(str, min_npm))}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
       - name: Read package metadata
         id: package_metadata
         run: |
           set -euo pipefail
-          package_name=$(node -p "require('./package.json').name")
-          package_version=$(node -p "require('./package.json').version")
+          package_name=$(node -p "require('./dist/npm/${{ matrix.folder_name }}/package.json').name")
+          package_version=$(node -p "require('./dist/npm/${{ matrix.folder_name }}/package.json').version")
           echo "name=${package_name}" >> "${GITHUB_OUTPUT}"
           echo "version=${package_version}" >> "${GITHUB_OUTPUT}"
       - name: Check if NPM version already exists
@@ -622,18 +709,99 @@ jobs:
           else
             echo "already_published=false" >> "${GITHUB_OUTPUT}"
           fi
-      - name: Publish to NPM (Trusted Publishing)
+      - name: Publish npm platform package (Trusted Publishing)
         if: steps.npm_exists.outputs.already_published != 'true'
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public "./dist/npm/${{ matrix.folder_name }}"
+
+  publish_npm_meta:
+    name: Publish npm meta-package
+    runs-on: ubuntu-latest
+    needs:
+      - stage_npm_packages
+      - publish_npm_platforms
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          name: npm-packages
+          path: dist/npm
+      - name: Verify Node and npm versions for Trusted Publishing
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          def parse(version: str) -> tuple[int, int, int]:
+              version = version.strip().removeprefix("v")
+              parts = version.split(".")
+              return tuple(int(part) for part in parts[:3])
+
+          node_version = subprocess.check_output(["node", "--version"], text=True).strip()
+          npm_version = subprocess.check_output(["npm", "--version"], text=True).strip()
+          min_node = (22, 14, 0)
+          min_npm = (11, 5, 1)
+
+          if parse(node_version) < min_node:
+              print(
+                  f"Node {node_version} is too old for npm Trusted Publishing; "
+                  f"need >= {'.'.join(map(str, min_node))}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          if parse(npm_version) < min_npm:
+              print(
+                  f"npm {npm_version} is too old for npm Trusted Publishing; "
+                  f"need >= {'.'.join(map(str, min_npm))}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
+      - name: Read package metadata
+        id: package_metadata
+        run: |
+          set -euo pipefail
+          package_name=$(node -p "require('./dist/npm/ryl/package.json').name")
+          package_version=$(node -p "require('./dist/npm/ryl/package.json').version")
+          echo "name=${package_name}" >> "${GITHUB_OUTPUT}"
+          echo "version=${package_version}" >> "${GITHUB_OUTPUT}"
+      - name: Check if NPM version already exists
+        id: npm_exists
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # setup-node expects this for OIDC even if not used directly
+          PACKAGE_NAME: ${{ steps.package_metadata.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.package_metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version > /dev/null 2>&1; then
+            echo "already_published=true" >> "${GITHUB_OUTPUT}"
+            echo "NPM package ${PACKAGE_NAME} ${PACKAGE_VERSION} already published; skipping upload."
+          else
+            echo "already_published=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Publish npm meta-package (Trusted Publishing)
+        if: steps.npm_exists.outputs.already_published != 'true'
+        run: npm publish --provenance --access public ./dist/npm/ryl
 
   finalize-github-release:
     name: Finalize GitHub release
     needs:
       - publish-crates
       - publish-pypi
-      - publish-npm
+      - publish_npm_meta
     if: >-
       startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))

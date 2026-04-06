@@ -39,3 +39,6 @@ manual_outputs/benchmarks/
 /bin/ryl.exe
 /bin/ryl-*.tar.gz
 /bin/ryl-*.zip
+
+# Local planning / scratch notes
+/scratch/
