@@ -37,24 +37,6 @@ uv tool install ryl
 npm install -g @owenlamont/ryl
 ```
 
-The npm package installs a platform-specific native binary from npm optional
-dependencies rather than downloading release archives at runtime.
-
-Currently supported npm platforms:
-
-- macOS arm64
-- Linux x64 musl
-- Linux arm64 musl
-- Linux armv7 GNU
-- Linux ia32 GNU
-- Linux ppc64le GNU
-- Linux s390x GNU
-- Windows x64 MSVC
-- Windows arm64 MSVC
-
-Intel macOS is not currently published via npm because this repo does not build
-that target in release automation.
-
 ### pip
 
 ```bash

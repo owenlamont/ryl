@@ -1,6 +1,6 @@
 [package]
 name = "ryl"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 description = "Fast YAML linter inspired by yamllint"
 readme = "README.md"
