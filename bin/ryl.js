@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const path = require('path');
-const fs = require('fs');
 const { spawnSync } = require('child_process');
 
 const pkg = require('../package.json');
@@ -44,30 +43,16 @@ async function run() {
     process.exit(1);
   }
 
-  ensureExecutable(binaryPath);
   execute(binaryPath);
 }
 
 function exists(candidatePath) {
   try {
-    fs.accessSync(candidatePath);
+    require('fs').accessSync(candidatePath);
     return true;
   } catch {
     return false;
   }
-}
-
-function ensureExecutable(binPath) {
-  if (process.platform === 'win32') {
-    return;
-  }
-
-  const mode = fs.statSync(binPath).mode;
-  if ((mode & 0o111) !== 0) {
-    return;
-  }
-
-  fs.chmodSync(binPath, mode | 0o755);
 }
 
 function resolvePlatformPackage() {
