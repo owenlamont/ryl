@@ -604,6 +604,20 @@ jobs:
           path: release-assets
       - name: Build npm package directories
         run: python3 scripts/build_npm_packages.py --assets-dir release-assets --out-dir dist/npm
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24'
+      - name: Pack npm packages
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm-tarballs
+          for package_dir in dist/npm/*; do
+            [ -d "${package_dir}" ] || continue
+            (
+              cd "${package_dir}"
+              npm pack --pack-destination "${GITHUB_WORKSPACE}/dist/npm-tarballs"
+            )
+          done
       - name: Compute npm platform matrix
         id: platform_matrix
         run: |
@@ -620,11 +634,11 @@ jobs:
           PY
           )"
           echo "value=${matrix_json}" >> "${GITHUB_OUTPUT}"
-      - name: Upload staged npm packages
+      - name: Upload packed npm packages
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: npm-packages
-          path: dist/npm
+          path: dist/npm-tarballs/*.tgz
 
   publish_npm_platforms:
     name: Publish npm platform package
@@ -652,7 +666,7 @@ jobs:
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
         with:
           name: npm-packages
-          path: dist/npm
+          path: dist/npm-tarballs
       - name: Verify Node and npm versions for Trusted Publishing
         run: |
           set -euo pipefail
@@ -692,10 +706,24 @@ jobs:
         id: package_metadata
         run: |
           set -euo pipefail
-          package_name=$(node -p "require('./dist/npm/${{ matrix.folder_name }}/package.json').name")
-          package_version=$(node -p "require('./dist/npm/${{ matrix.folder_name }}/package.json').version")
+          tarball_path=$(find dist/npm-tarballs -maxdepth 1 -type f -name "*${{ matrix.folder_name }}-*.tgz" | head -n 1)
+          [ -n "${tarball_path}" ]
+          readarray -t package_metadata < <(python3 - "${tarball_path}" <<'PY'
+          import json
+          import sys
+          import tarfile
+
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              package_json = json.load(archive.extractfile("package/package.json"))
+          print(package_json["name"])
+          print(package_json["version"])
+          PY
+          )
+          package_name="${package_metadata[0]}"
+          package_version="${package_metadata[1]}"
           echo "name=${package_name}" >> "${GITHUB_OUTPUT}"
           echo "version=${package_version}" >> "${GITHUB_OUTPUT}"
+          echo "tarball_path=${tarball_path}" >> "${GITHUB_OUTPUT}"
       - name: Check if NPM version already exists
         id: npm_exists
         env:
@@ -711,7 +739,7 @@ jobs:
           fi
       - name: Publish npm platform package (Trusted Publishing)
         if: steps.npm_exists.outputs.already_published != 'true'
-        run: npm publish --provenance --access public "./dist/npm/${{ matrix.folder_name }}"
+        run: npm publish --provenance --access public "${{ steps.package_metadata.outputs.tarball_path }}"
 
   publish_npm_meta:
     name: Publish npm meta-package
@@ -736,7 +764,7 @@ jobs:
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
         with:
           name: npm-packages
-          path: dist/npm
+          path: dist/npm-tarballs
       - name: Verify Node and npm versions for Trusted Publishing
         run: |
           set -euo pipefail
@@ -775,10 +803,24 @@ jobs:
         id: package_metadata
         run: |
           set -euo pipefail
-          package_name=$(node -p "require('./dist/npm/ryl/package.json').name")
-          package_version=$(node -p "require('./dist/npm/ryl/package.json').version")
+          tarball_path="dist/npm-tarballs/owenlamont-ryl-${GITHUB_REF_NAME#v}.tgz"
+          [ -f "${tarball_path}" ]
+          readarray -t package_metadata < <(python3 - "${tarball_path}" <<'PY'
+          import json
+          import sys
+          import tarfile
+
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              package_json = json.load(archive.extractfile("package/package.json"))
+          print(package_json["name"])
+          print(package_json["version"])
+          PY
+          )
+          package_name="${package_metadata[0]}"
+          package_version="${package_metadata[1]}"
           echo "name=${package_name}" >> "${GITHUB_OUTPUT}"
           echo "version=${package_version}" >> "${GITHUB_OUTPUT}"
+          echo "tarball_path=${tarball_path}" >> "${GITHUB_OUTPUT}"
       - name: Check if NPM version already exists
         id: npm_exists
         env:
@@ -794,7 +836,7 @@ jobs:
           fi
       - name: Publish npm meta-package (Trusted Publishing)
         if: steps.npm_exists.outputs.already_published != 'true'
-        run: npm publish --provenance --access public ./dist/npm/ryl
+        run: npm publish --provenance --access public "${{ steps.package_metadata.outputs.tarball_path }}"
 
   finalize-github-release:
     name: Finalize GitHub release
