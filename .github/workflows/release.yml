@@ -625,8 +625,6 @@ jobs:
       - name: Publish to NPM (Trusted Publishing)
         if: steps.npm_exists.outputs.already_published != 'true'
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # setup-node expects this for OIDC even if not used directly
 
   finalize-github-release:
     name: Finalize GitHub release
