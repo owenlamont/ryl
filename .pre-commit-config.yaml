@@ -55,6 +55,18 @@ repos:
         types: [rust]
         pass_filenames: false
         require_serial: true
+      - id: publint
+        name: publint
+        entry: npx publint
+        language: node
+        files: package.json
+        pass_filenames: false
+      - id: npm-package-json-lint
+        name: npm-package-json-lint
+        entry: npx npm-package-json-lint .
+        language: node
+        files: package.json
+        pass_filenames: false
   - repo: https://github.com/rvben/rumdl-pre-commit
     rev: v0.1.66
     hooks:

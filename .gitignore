@@ -33,3 +33,9 @@ lcov.info
 
 # Benchmark artifacts
 manual_outputs/benchmarks/
+
+# NPM distribution binaries and archives
+/bin/ryl
+/bin/ryl.exe
+/bin/ryl-*.tar.gz
+/bin/ryl-*.zip

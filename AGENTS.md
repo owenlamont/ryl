@@ -168,9 +168,10 @@ sticking to the quick-status step above.
 - Bump versions in lockstep:
   - Cargo: update `Cargo.toml` `version`.
   - Python: update `pyproject.toml` `[project].version`.
+  - NPM: update `package.json` `version`.
 - Refresh lockfile and validate:
   - Run `cargo generate-lockfile` (or `cargo check`) to refresh `Cargo.lock`.
-  - Stage: `git add Cargo.toml Cargo.lock pyproject.toml`.
+  - Stage: `git add Cargo.toml Cargo.lock pyproject.toml package.json`.
   - Run `prek run --all-files` (re-run if files were auto-fixed).
 - Docs and notes:
   - Update README/AGENTS for behavior changes.
@@ -179,12 +180,14 @@ sticking to the quick-status step above.
   - `git tag -a vX.Y.Z -m "vX.Y.Z"`
   - `git push && git push --tags`
   - `.github/workflows/release.yml` validates that the pushed tag version
-    matches both `Cargo.toml` and `pyproject.toml` versions before release jobs run.
-  - Publishing uses Trusted Publishing for both registries:
+    matches `Cargo.toml`, `pyproject.toml`, and `package.json` versions
+    before release jobs run.
+  - Publishing uses Trusted Publishing for all registries:
     - crates.io via GitHub OIDC (`rust-lang/crates-io-auth-action`)
     - PyPI via Trusted Publishing (`pypa/gh-action-pypi-publish`)
+    - NPM via Trusted Publishing (`actions/setup-node` OIDC)
   - GitHub release creation is deferred until the end of the workflow, after
-    crates.io and PyPI publishing succeed.
+    crates.io, PyPI, and NPM publishing succeed.
   - GitHub release notes are generated automatically by GitHub when the release
     draft is created.
   - The workflow keeps GitHub releases as drafts until assets are uploaded and
