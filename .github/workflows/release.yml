@@ -803,8 +803,8 @@ jobs:
         id: package_metadata
         run: |
           set -euo pipefail
-          tarball_path=$(find dist/npm-tarballs -maxdepth 1 -type f -name "owenlamont-ryl-*.tgz" | head -n 1)
-          [ -n "${tarball_path}" ]
+          tarball_path="dist/npm-tarballs/owenlamont-ryl-${GITHUB_REF_NAME#v}.tgz"
+          [ -f "${tarball_path}" ]
           readarray -t package_metadata < <(python3 - "${tarball_path}" <<'PY'
           import json
           import sys
