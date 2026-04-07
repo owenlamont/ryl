@@ -49,3 +49,30 @@ fn resolve_defaults_when_rule_missing() {
     let resolved = Config::resolve(&cfg);
     assert_eq!(resolved.kind, LineKind::Unix);
 }
+
+#[test]
+fn fix_converts_crlf_to_unix() {
+    let cfg = YamlLintConfig::from_yaml_str("rules:\n  new-lines:\n    type: unix\n")
+        .expect("config parses");
+    let resolved = Config::resolve(&cfg);
+    let fixed = new_lines::fix("héllo\r\nworld\r\n", resolved, "\n");
+    assert_eq!(fixed, Some("héllo\nworld\n".to_string()));
+}
+
+#[test]
+fn fix_converts_lf_to_dos() {
+    let cfg = YamlLintConfig::from_yaml_str("rules:\n  new-lines:\n    type: dos\n")
+        .expect("config parses");
+    let resolved = Config::resolve(&cfg);
+    let fixed = new_lines::fix("alpha\nbeta\n", resolved, "\n");
+    assert_eq!(fixed, Some("alpha\r\nbeta\r\n".to_string()));
+}
+
+#[test]
+fn fix_returns_none_when_newlines_already_match() {
+    let cfg = YamlLintConfig::from_yaml_str("rules:\n  new-lines:\n    type: unix\n")
+        .expect("config parses");
+    let resolved = Config::resolve(&cfg);
+    let fixed = new_lines::fix("alpha\nbeta\n", resolved, "\n");
+    assert_eq!(fixed, None);
+}

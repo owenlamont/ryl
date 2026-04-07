@@ -105,6 +105,8 @@ Options:
                                      parsable) [default: auto]
                                      [possible values: auto, standard, colored,
                                      github, parsable]
+      --fix                          Apply safe fixes in place before reporting
+                                     remaining diagnostics
       --migrate-configs              Convert discovered legacy YAML config files
                                      into .ryl.toml files
       --list-files                   List files that would be linted (reserved)
@@ -168,6 +170,7 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
 - Flags:
   - `-c, --config-file <FILE>`: path to a YAML or TOML config file.
   - `-d, --config-data <YAML>`: inline YAML config (highest precedence).
+  - `--fix`: apply safe fixes in place before reporting remaining diagnostics.
   - `--list-files`: print files that would be linted after applying ignores and exit.
   - `--migrate-configs`: discover legacy YAML configs and plan TOML migration.
   - `--migrate-root <DIR>`: root to search for legacy YAML configs (default `.`).
@@ -185,6 +188,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   `~/.config/yamllint/config`) > built-in defaults.
 - TOML and YAML are not merged during discovery. If a TOML project config is
   found, YAML project config discovery is skipped (and `ryl` prints a warning).
+- Native fix policy is TOML-only. YAML config remains yamllint-compatible and
+  does not support `fix` settings.
 - Per-file behavior: unless a global config is set via `--config-data`,
   `--config-file`, or `YAMLLINT_CONFIG_FILE`, each file discovers its nearest
   project config. Ignores apply to directory scans and explicit files (parity).
@@ -209,6 +214,10 @@ max = 120
 
 [rules.truthy]
 allowed-values = ["true", "false"]
+
+[fix]
+fixable = ["ALL"]
+unfixable = []
 ```
 
 Migration example:

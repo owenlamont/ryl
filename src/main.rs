@@ -17,6 +17,7 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
+use ryl::fix::apply_safe_fixes_to_files;
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
@@ -168,6 +169,22 @@ struct Cli {
 
 #[derive(clap::Args, Debug, Default)]
 struct LintFlags {
+    #[command(flatten)]
+    fix: FixFlags,
+
+    #[command(flatten)]
+    compatibility: CompatibilityLintFlags,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct FixFlags {
+    /// Apply safe fixes in place before reporting remaining diagnostics
+    #[arg(long = "fix", default_value_t = false)]
+    fix: bool,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct CompatibilityLintFlags {
     /// List files that would be linted (reserved)
     #[arg(long = "list-files", default_value_t = false)]
     list_files: bool,
@@ -270,29 +287,32 @@ fn supports_color() -> bool {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    match run_cli(cli) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("{err}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run_cli(cli: Cli) -> Result<ExitCode, String> {
     if cli.migrate_configs {
-        return match run_migration(&cli) {
-            Ok(code) => code,
-            Err(err) => {
-                eprintln!("{err}");
-                ExitCode::from(2)
-            }
-        };
+        return run_migration(&cli);
     }
 
+    run_lint(cli)
+}
+
+fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     if cli.inputs.is_empty() {
-        eprintln!("error: expected one or more paths (files and/or directories)");
-        return ExitCode::from(2);
+        return Err(
+            "error: expected one or more paths (files and/or directories)".to_string(),
+        );
     }
 
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
-    let global_cfg = match build_global_cfg(&cli.inputs, &cli) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            eprintln!("{e}");
-            return ExitCode::from(2);
-        }
-    };
+    let global_cfg = build_global_cfg(&cli.inputs, &cli)?;
     if let Some(cfg) = &global_cfg {
         for notice in &cfg.notices {
             eprintln!("{notice}");
@@ -309,57 +329,30 @@ fn main() -> ExitCode {
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
     let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
-    for f in candidates {
-        let (base_dir, cfg, notices) =
-            match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::from(2);
-                }
-            };
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{notice}");
-            }
-        }
-        let ignored = cfg.is_file_ignored(&f, &base_dir);
-        let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
-        if !ignored && yaml_ok {
-            files.push((f, base_dir, cfg));
-        }
-    }
+    gather_lint_files(
+        &candidates,
+        &explicit_files,
+        global_cfg.as_ref(),
+        &mut cache,
+        &mut emitted_notices,
+        &mut files,
+    )?;
 
-    for ef in explicit_files {
-        let (base_dir, cfg, notices) =
-            match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::from(2);
-                }
-            };
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{notice}");
-            }
-        }
-        let ignored = cfg.is_file_ignored(&ef, &base_dir);
-        let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
-        if !ignored && yaml_ok {
-            files.push((ef, base_dir, cfg));
-        }
-    }
-
-    if cli.lint.list_files {
+    if cli.lint.compatibility.list_files {
         for (path, ..) in &files {
             println!("{}", path.display());
         }
-        return ExitCode::SUCCESS;
+        return Ok(ExitCode::SUCCESS);
     }
 
     if files.is_empty() {
-        return ExitCode::SUCCESS;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if cli.lint.fix.fix {
+        if let Err(err) = apply_safe_fixes_to_files(&files) {
+            return Err(err);
+        }
     }
 
     let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
@@ -371,16 +364,60 @@ fn main() -> ExitCode {
     results.sort_by_key(|(idx, _)| *idx);
 
     let output_format = detect_output_format(cli.format);
-    let (has_error, has_warning) =
-        process_results(&files, results, output_format, cli.lint.no_warnings);
+    let (has_error, has_warning) = process_results(
+        &files,
+        results,
+        output_format,
+        cli.lint.compatibility.no_warnings,
+    );
 
     if has_error {
-        ExitCode::from(1)
-    } else if has_warning && cli.lint.strict {
-        ExitCode::from(2)
+        Ok(ExitCode::from(1))
+    } else if has_warning && cli.lint.compatibility.strict {
+        Ok(ExitCode::from(2))
     } else {
-        ExitCode::SUCCESS
+        Ok(ExitCode::SUCCESS)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gather_lint_files(
+    candidates: &[PathBuf],
+    explicit_files: &[PathBuf],
+    global_cfg: Option<&ConfigContext>,
+    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
+    emitted_notices: &mut HashSet<String>,
+    files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig)>,
+) -> Result<(), String> {
+    for f in candidates {
+        let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, cache)?;
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
+        let ignored = cfg.is_file_ignored(f, &base_dir);
+        let yaml_ok = cfg.is_yaml_candidate(f, &base_dir);
+        if !ignored && yaml_ok {
+            files.push((f.clone(), base_dir, cfg));
+        }
+    }
+
+    for ef in explicit_files {
+        let (base_dir, cfg, notices) = resolve_ctx(ef, global_cfg, cache)?;
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
+        let ignored = cfg.is_file_ignored(ef, &base_dir);
+        let yaml_ok = cfg.is_yaml_candidate(ef, &base_dir);
+        if !ignored && yaml_ok {
+            files.push((ef.clone(), base_dir, cfg));
+        }
+    }
+
+    Ok(())
 }
 
 fn process_results(

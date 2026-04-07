@@ -108,3 +108,32 @@ fn to_toml_errors_on_tagged_values() {
     let err = ctx.config.to_toml_string().unwrap_err();
     assert!(err.contains("cannot convert this YAML node to TOML"));
 }
+
+#[test]
+fn to_toml_includes_fix_policy() {
+    let td = tempdir().unwrap();
+    let cfg_path = td.path().join(".ryl.toml");
+    fs::write(
+        &cfg_path,
+        "[fix]\nfixable = ['ALL', 'comments', 'new-lines']\nunfixable = ['new-line-at-end-of-file']\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg_path),
+            config_data: None,
+        },
+    )
+    .unwrap();
+
+    let toml = ctx.config.to_toml_string().unwrap();
+    assert!(toml.contains("[fix]"));
+    assert!(toml.contains("fixable = ["));
+    assert!(toml.contains("\"ALL\""));
+    assert!(toml.contains("\"comments\""));
+    assert!(toml.contains("\"new-lines\""));
+    assert!(toml.contains("unfixable = ["));
+    assert!(toml.contains("\"new-line-at-end-of-file\""));
+}

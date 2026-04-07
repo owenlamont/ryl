@@ -125,6 +125,41 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     violations
 }
 
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    let mut quote_state = QuoteState::default();
+    let mut block_tracker = BlockScalarTracker::default();
+    let mut output = String::with_capacity(buffer.len());
+    let mut changed = false;
+
+    for (line_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
+        let indent = leading_indent_width(raw_line);
+        let content = &raw_line[indent..];
+
+        let consumed = block_tracker.consume_line(indent, content);
+        let updated_line = if consumed {
+            raw_line.to_string()
+        } else if let Some(comment_start) =
+            find_comment_start(raw_line, &mut quote_state)
+        {
+            fix_comment_line(raw_line, line_idx, comment_start, cfg, &mut changed)
+        } else {
+            raw_line.to_string()
+        };
+
+        if !consumed {
+            let indent = leading_indent_width(&updated_line);
+            let content = &updated_line[indent..];
+            block_tracker.observe_indicator(indent, content);
+        }
+
+        output.push_str(&updated_line);
+        output.push_str(ending);
+    }
+
+    changed.then_some(output)
+}
+
 #[derive(Debug, Default)]
 struct BlockScalarTracker {
     state: Option<BlockScalarState>,
@@ -296,4 +331,82 @@ fn is_block_scalar_indicator(content: &str) -> bool {
         || trimmed.ends_with(">-")
         || trimmed.ends_with(">+")
         || trimmed.ends_with('>')
+}
+
+fn fix_comment_line(
+    line: &str,
+    line_idx: usize,
+    comment_start: usize,
+    cfg: &Config,
+    changed: &mut bool,
+) -> String {
+    let mut line = line.to_string();
+    let mut inserted_before_comment = 0usize;
+
+    if let Some(required) = cfg.min_spaces_from_content()
+        && is_inline_comment(&line, comment_start)
+    {
+        let spacing = inline_spacing_width(&line, comment_start);
+        if spacing < required {
+            inserted_before_comment = required - spacing;
+            line.insert_str(comment_start, &" ".repeat(inserted_before_comment));
+            *changed = true;
+        }
+    }
+
+    if !cfg.require_starting_space() {
+        return line;
+    }
+
+    let comment_start = comment_start + inserted_before_comment;
+    let after_hash_idx = comment_start + skip_hashes(&line[comment_start..]);
+    if after_hash_idx >= line.len() {
+        return line;
+    }
+
+    let next_char = line[after_hash_idx..].chars().next().unwrap_or(' ');
+    if cfg.ignore_shebangs() && line_idx == 0 && comment_start == 0 && next_char == '!'
+    {
+        return line;
+    }
+
+    if next_char != ' ' {
+        line.insert(after_hash_idx, ' ');
+        *changed = true;
+    }
+
+    line
+}
+
+fn split_lines_preserve_endings(
+    buffer: &str,
+) -> impl Iterator<Item = (usize, &str, &str)> {
+    let mut start = 0usize;
+    let mut line_idx = 0usize;
+    std::iter::from_fn(move || {
+        if start == buffer.len() {
+            return None;
+        }
+
+        let bytes = buffer.as_bytes();
+        let mut idx = start;
+        while idx < bytes.len() && bytes[idx] != b'\n' {
+            idx += 1;
+        }
+
+        let (line, ending, next_start) = if idx < bytes.len() {
+            if idx > start && bytes[idx - 1] == b'\r' {
+                (&buffer[start..idx - 1], &buffer[idx - 1..=idx], idx + 1)
+            } else {
+                (&buffer[start..idx], &buffer[idx..=idx], idx + 1)
+            }
+        } else {
+            (&buffer[start..], "", bytes.len())
+        };
+
+        let current = (line_idx, line, ending);
+        line_idx += 1;
+        start = next_start;
+        Some(current)
+    })
 }
