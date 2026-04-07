@@ -350,9 +350,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     }
 
     if cli.lint.fix.fix {
-        if let Err(err) = apply_safe_fixes_to_files(&files) {
-            return Err(err);
-        }
+        apply_safe_fixes_to_files(&files)?;
     }
 
     let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files

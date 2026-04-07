@@ -81,6 +81,11 @@ pub fn expected_newline(cfg: Config, platform_newline: &str) -> Cow<'_, str> {
     cfg.kind.expected(platform_newline)
 }
 
+/// Apply safe new-line fixes to `buffer` using `cfg` and `platform_newline`.
+///
+/// # Panics
+///
+/// Panics if a byte index in `buffer` does not point at a valid UTF-8 character boundary.
 #[must_use]
 pub fn fix(buffer: &str, cfg: Config, platform_newline: &str) -> Option<String> {
     let expected = expected_newline(cfg, platform_newline);

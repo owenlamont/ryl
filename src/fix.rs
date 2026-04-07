@@ -67,9 +67,7 @@ pub fn apply_safe_fixes_to_files(
     files: &[(PathBuf, PathBuf, YamlLintConfig)],
 ) -> Result<(), String> {
     for (path, base_dir, cfg) in files {
-        if let Err(err) = apply_safe_fixes_in_place(path, cfg, base_dir) {
-            return Err(err);
-        }
+        apply_safe_fixes_in_place(path, cfg, base_dir)?;
     }
     Ok(())
 }
