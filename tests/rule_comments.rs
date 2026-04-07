@@ -195,3 +195,62 @@ fn empty_block_scalar_is_ignored() {
         "empty block scalar should reset tracker: {hits:?}"
     );
 }
+
+#[test]
+fn fix_adds_missing_comment_spacing() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let fixed = comments::fix("key: value #comment\n", &resolved);
+    assert_eq!(fixed, Some("key: value  # comment\n".to_string()));
+}
+
+#[test]
+fn fix_returns_none_when_comment_spacing_is_already_valid() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let fixed = comments::fix("key: value  # comment\n", &resolved);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_preserves_shebang_when_ignored() {
+    let resolved = build_config(
+        "rules:\n  comments:\n    ignore-shebangs: true\n    require-starting-space: true\n",
+    );
+    let fixed = comments::fix("#!/usr/bin/env bash\n", &resolved);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_skips_starting_space_when_disabled() {
+    let resolved =
+        build_config("rules:\n  comments:\n    require-starting-space: false\n");
+    let fixed = comments::fix("#comment\n", &resolved);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_leaves_hash_art_unchanged() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let fixed = comments::fix("###\n", &resolved);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_ignores_block_scalar_content_and_preserves_crlf_endings() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let input = "script: |\r\n  #!/usr/bin/env bash\r\n  echo '# still scalar'\r\nkey: value #comment\r\n";
+    let fixed = comments::fix(input, &resolved);
+    assert_eq!(
+        fixed,
+        Some(
+            "script: |\r\n  #!/usr/bin/env bash\r\n  echo '# still scalar'\r\nkey: value  # comment\r\n"
+                .to_string()
+        )
+    );
+}
+
+#[test]
+fn fix_returns_none_for_empty_input() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let fixed = comments::fix("", &resolved);
+    assert_eq!(fixed, None);
+}

@@ -17,6 +17,7 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
+use ryl::fix::apply_safe_fixes_to_files;
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
@@ -168,6 +169,22 @@ struct Cli {
 
 #[derive(clap::Args, Debug, Default)]
 struct LintFlags {
+    #[command(flatten)]
+    fix: FixFlags,
+
+    #[command(flatten)]
+    compatibility: CompatibilityLintFlags,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct FixFlags {
+    /// Apply safe fixes in place before reporting remaining diagnostics
+    #[arg(long = "fix", default_value_t = false)]
+    fix: bool,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct CompatibilityLintFlags {
     /// List files that would be linted (reserved)
     #[arg(long = "list-files", default_value_t = false)]
     list_files: bool,
@@ -270,29 +287,32 @@ fn supports_color() -> bool {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    match run_cli(cli) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("{err}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run_cli(cli: Cli) -> Result<ExitCode, String> {
     if cli.migrate_configs {
-        return match run_migration(&cli) {
-            Ok(code) => code,
-            Err(err) => {
-                eprintln!("{err}");
-                ExitCode::from(2)
-            }
-        };
+        return run_migration(&cli);
     }
 
+    run_lint(cli)
+}
+
+fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     if cli.inputs.is_empty() {
-        eprintln!("error: expected one or more paths (files and/or directories)");
-        return ExitCode::from(2);
+        return Err(
+            "error: expected one or more paths (files and/or directories)".to_string(),
+        );
     }
 
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
-    let global_cfg = match build_global_cfg(&cli.inputs, &cli) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            eprintln!("{e}");
-            return ExitCode::from(2);
-        }
-    };
+    let global_cfg = build_global_cfg(&cli.inputs, &cli)?;
     if let Some(cfg) = &global_cfg {
         for notice in &cfg.notices {
             eprintln!("{notice}");
@@ -309,78 +329,115 @@ fn main() -> ExitCode {
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
     let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
-    for f in candidates {
-        let (base_dir, cfg, notices) =
-            match resolve_ctx(&f, global_cfg.as_ref(), &mut cache) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::from(2);
-                }
-            };
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{notice}");
-            }
-        }
-        let ignored = cfg.is_file_ignored(&f, &base_dir);
-        let yaml_ok = cfg.is_yaml_candidate(&f, &base_dir);
-        if !ignored && yaml_ok {
-            files.push((f, base_dir, cfg));
-        }
-    }
+    gather_lint_files(
+        &candidates,
+        &explicit_files,
+        global_cfg.as_ref(),
+        &mut cache,
+        &mut emitted_notices,
+        &mut files,
+    )?;
 
-    for ef in explicit_files {
-        let (base_dir, cfg, notices) =
-            match resolve_ctx(&ef, global_cfg.as_ref(), &mut cache) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::from(2);
-                }
-            };
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{notice}");
-            }
-        }
-        let ignored = cfg.is_file_ignored(&ef, &base_dir);
-        let yaml_ok = cfg.is_yaml_candidate(&ef, &base_dir);
-        if !ignored && yaml_ok {
-            files.push((ef, base_dir, cfg));
-        }
-    }
-
-    if cli.lint.list_files {
+    if cli.lint.compatibility.list_files {
         for (path, ..) in &files {
             println!("{}", path.display());
         }
-        return ExitCode::SUCCESS;
+        return Ok(ExitCode::SUCCESS);
     }
 
     if files.is_empty() {
-        return ExitCode::SUCCESS;
+        return Ok(ExitCode::SUCCESS);
     }
 
+    let mut initial_problem_count = 0usize;
+    if cli.lint.fix.fix {
+        let initial_results = lint_files(&files);
+        initial_problem_count = count_reported_problems(
+            &initial_results,
+            cli.lint.compatibility.no_warnings,
+        );
+        apply_safe_fixes_to_files(&files)?;
+    }
+
+    let results = lint_files(&files);
+
+    let output_format = detect_output_format(cli.format);
+    let summary = process_results(
+        &files,
+        results,
+        output_format,
+        cli.lint.compatibility.no_warnings,
+    );
+
+    if cli.lint.fix.fix && initial_problem_count > 0 {
+        eprintln!(
+            "Found {} {} ({} fixed, {} remaining).",
+            initial_problem_count,
+            pluralize("problem", initial_problem_count),
+            initial_problem_count.saturating_sub(summary.problem_count),
+            summary.problem_count
+        );
+    }
+
+    if summary.has_error {
+        Ok(ExitCode::from(1))
+    } else if summary.has_warning && cli.lint.compatibility.strict {
+        Ok(ExitCode::from(2))
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+fn lint_files(
+    files: &[(PathBuf, PathBuf, YamlLintConfig)],
+) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
     let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
         .par_iter()
         .enumerate()
         .map(|(idx, (path, base_dir, cfg))| (idx, lint_file(path, cfg, base_dir)))
         .collect();
-
     results.sort_by_key(|(idx, _)| *idx);
+    results
+}
 
-    let output_format = detect_output_format(cli.format);
-    let (has_error, has_warning) =
-        process_results(&files, results, output_format, cli.lint.no_warnings);
-
-    if has_error {
-        ExitCode::from(1)
-    } else if has_warning && cli.lint.strict {
-        ExitCode::from(2)
-    } else {
-        ExitCode::SUCCESS
+#[allow(clippy::too_many_arguments)]
+fn gather_lint_files(
+    candidates: &[PathBuf],
+    explicit_files: &[PathBuf],
+    global_cfg: Option<&ConfigContext>,
+    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
+    emitted_notices: &mut HashSet<String>,
+    files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig)>,
+) -> Result<(), String> {
+    for f in candidates {
+        let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, cache)?;
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
+        let ignored = cfg.is_file_ignored(f, &base_dir);
+        let yaml_ok = cfg.is_yaml_candidate(f, &base_dir);
+        if !ignored && yaml_ok {
+            files.push((f.clone(), base_dir, cfg));
+        }
     }
+
+    for ef in explicit_files {
+        let (base_dir, cfg, notices) = resolve_ctx(ef, global_cfg, cache)?;
+        for notice in notices {
+            if emitted_notices.insert(notice.clone()) {
+                eprintln!("{notice}");
+            }
+        }
+        let ignored = cfg.is_file_ignored(ef, &base_dir);
+        let yaml_ok = cfg.is_yaml_candidate(ef, &base_dir);
+        if !ignored && yaml_ok {
+            files.push((ef.clone(), base_dir, cfg));
+        }
+    }
+
+    Ok(())
 }
 
 fn process_results(
@@ -388,16 +445,16 @@ fn process_results(
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
     output_format: OutputFormat,
     no_warnings: bool,
-) -> (bool, bool) {
-    let mut has_error = false;
-    let mut has_warning = false;
+) -> LintSummary {
+    let mut summary = LintSummary::default();
 
     for (idx, outcome) in results {
         let (path, ..) = &files[idx];
         match outcome {
             Err(message) => {
                 eprintln!("{message}");
-                has_error = true;
+                summary.has_error = true;
+                summary.problem_count += 1;
             }
             Ok(diagnostics) => {
                 let mut problems = diagnostics
@@ -417,9 +474,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_standard(problem));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                         eprintln!();
                     }
@@ -428,9 +486,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_colored(problem));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                         eprintln!();
                     }
@@ -439,9 +498,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_github(problem, path));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                         eprintln!("::endgroup::");
                         eprintln!();
@@ -450,9 +510,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_parsable(problem, path));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                     }
                 }
@@ -460,7 +521,34 @@ fn process_results(
         }
     }
 
-    (has_error, has_warning)
+    summary
+}
+
+#[derive(Default)]
+struct LintSummary {
+    has_error: bool,
+    has_warning: bool,
+    problem_count: usize,
+}
+
+fn count_reported_problems(
+    results: &[(usize, Result<Vec<LintProblem>, String>)],
+    no_warnings: bool,
+) -> usize {
+    results
+        .iter()
+        .map(|(_, outcome)| match outcome {
+            Err(_) => 1,
+            Ok(diagnostics) => diagnostics
+                .iter()
+                .filter(|problem| !(no_warnings && problem.level == Severity::Warning))
+                .count(),
+        })
+        .sum()
+}
+
+fn pluralize(singular: &str, count: usize) -> &str {
+    if count == 1 { singular } else { "problems" }
 }
 
 fn format_standard(problem: &LintProblem) -> String {

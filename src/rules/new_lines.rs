@@ -76,6 +76,50 @@ pub fn check(buffer: &str, cfg: Config, platform_newline: &str) -> Option<Violat
     })
 }
 
+#[must_use]
+pub fn expected_newline(cfg: Config, platform_newline: &str) -> Cow<'_, str> {
+    cfg.kind.expected(platform_newline)
+}
+
+/// Apply safe new-line fixes to `buffer` using `cfg` and `platform_newline`.
+///
+/// # Panics
+///
+/// Panics if a byte index in `buffer` does not point at a valid UTF-8 character boundary.
+#[must_use]
+pub fn fix(buffer: &str, cfg: Config, platform_newline: &str) -> Option<String> {
+    let expected = expected_newline(cfg, platform_newline);
+    let mut out = String::with_capacity(buffer.len());
+    let bytes = buffer.as_bytes();
+    let mut idx = 0usize;
+    let mut changed = false;
+
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'\r' if bytes.get(idx + 1) == Some(&b'\n') => {
+                out.push_str(expected.as_ref());
+                changed |= expected.as_ref() != "\r\n";
+                idx += 2;
+            }
+            b'\n' => {
+                out.push_str(expected.as_ref());
+                changed |= expected.as_ref() != "\n";
+                idx += 1;
+            }
+            _ => {
+                let ch = buffer[idx..]
+                    .chars()
+                    .next()
+                    .expect("idx should always point at a valid character boundary");
+                out.push(ch);
+                idx += ch.len_utf8();
+            }
+        }
+    }
+
+    changed.then_some(out)
+}
+
 fn first_line_ending(buffer: &str) -> Option<(usize, &'static str)> {
     let bytes = buffer.as_bytes();
     let mut idx = 0;

@@ -21,3 +21,8 @@ pub fn check(buffer: &str) -> Option<Violation> {
 
     Some(Violation { line, column })
 }
+
+#[must_use]
+pub fn fix(buffer: &str, newline: &str) -> Option<String> {
+    check(buffer).map(|_| format!("{buffer}{newline}"))
+}

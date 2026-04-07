@@ -117,6 +117,7 @@ pub struct YamlLintConfig {
     yaml_file_patterns: Vec<String>,
     yaml_matcher: Option<Gitignore>,
     locale: Option<String>,
+    fix: FixConfig,
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
@@ -151,6 +152,104 @@ impl RuleLevel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixConfig {
+    fixable: Vec<FixRuleSelector>,
+    unfixable: Vec<FixRule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixRule {
+    Comments,
+    NewLineAtEndOfFile,
+    NewLines,
+}
+
+impl FixRule {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Comments => "comments",
+            Self::NewLineAtEndOfFile => "new-line-at-end-of-file",
+            Self::NewLines => "new-lines",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "comments" => Some(Self::Comments),
+            "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
+            "new-lines" => Some(Self::NewLines),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixRuleSelector {
+    All,
+    Rule(FixRule),
+}
+
+impl FixRuleSelector {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "ALL",
+            Self::Rule(rule) => rule.as_str(),
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        if value == "ALL" {
+            return Some(Self::All);
+        }
+
+        FixRule::parse(value).map(Self::Rule)
+    }
+}
+
+impl Default for FixConfig {
+    fn default() -> Self {
+        Self {
+            fixable: vec![FixRuleSelector::All],
+            unfixable: Vec::new(),
+        }
+    }
+}
+
+impl FixConfig {
+    #[must_use]
+    pub fn fixable(&self) -> &[FixRuleSelector] {
+        &self.fixable
+    }
+
+    #[must_use]
+    pub fn unfixable(&self) -> &[FixRule] {
+        &self.unfixable
+    }
+
+    #[must_use]
+    pub fn allows_rule(&self, rule: &str) -> bool {
+        let Some(rule) = FixRule::parse(rule) else {
+            return false;
+        };
+        if self.unfixable.contains(&rule) {
+            return false;
+        }
+
+        self.fixable.iter().any(|entry| match entry {
+            FixRuleSelector::All => true,
+            FixRuleSelector::Rule(candidate) => *candidate == rule,
+        })
+    }
+
+    #[must_use]
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 impl Default for YamlLintConfig {
     fn default() -> Self {
         Self {
@@ -166,6 +265,7 @@ impl Default for YamlLintConfig {
                 .collect(),
             yaml_matcher: None,
             locale: None,
+            fix: FixConfig::default(),
         }
     }
 }
@@ -295,6 +395,11 @@ impl YamlLintConfig {
     #[must_use]
     pub fn locale(&self) -> Option<&str> {
         self.locale.as_deref()
+    }
+
+    #[must_use]
+    pub const fn fix(&self) -> &FixConfig {
+        &self.fix
     }
 
     fn build_yaml_matcher(&mut self, base_dir: &Path) {
@@ -502,6 +607,16 @@ impl YamlLintConfig {
             cfg.locale = Some(loc.to_owned());
         }
 
+        if let Some(fix) = doc.as_mapping_get("fix") {
+            if allow_extends {
+                return Err(
+                    "invalid config: fix is only supported in TOML configuration"
+                        .to_string(),
+                );
+            }
+            cfg.fix = parse_fix_config(fix)?;
+        }
+
         if let Some(rules) = doc.as_mapping_get("rules")
             && let Some(map) = rules.as_mapping()
         {
@@ -600,6 +715,31 @@ impl YamlLintConfig {
 
         if let Some(locale) = &self.locale {
             root.insert("locale".to_string(), TomlValue::String(locale.clone()));
+        }
+
+        if !self.fix.is_default() {
+            let mut fix = toml::map::Map::new();
+            fix.insert(
+                "fixable".to_string(),
+                TomlValue::Array(
+                    self.fix
+                        .fixable
+                        .iter()
+                        .map(|item| TomlValue::String(item.as_str().to_string()))
+                        .collect(),
+                ),
+            );
+            fix.insert(
+                "unfixable".to_string(),
+                TomlValue::Array(
+                    self.fix
+                        .unfixable
+                        .iter()
+                        .map(|item| TomlValue::String(item.as_str().to_string()))
+                        .collect(),
+                ),
+            );
+            root.insert("fix".to_string(), TomlValue::Table(fix));
         }
 
         let mut rules: BTreeMap<String, TomlValue> = BTreeMap::new();
@@ -760,6 +900,89 @@ fn build_rule_filter(
         None
     };
     Ok(())
+}
+
+fn parse_fix_config(node: &YamlOwned) -> Result<FixConfig, String> {
+    let Some(map) = node.as_mapping() else {
+        return Err("invalid config: fix should be a mapping".to_string());
+    };
+
+    let mut fix = FixConfig::default();
+
+    for (key, value) in map {
+        let key_name = key
+            .as_str()
+            .expect("TOML table keys should always deserialize as strings");
+        match key_name {
+            "fixable" => {
+                fix.fixable = parse_fix_selector_list(value, "fixable")?;
+            }
+            "unfixable" => {
+                fix.unfixable = parse_fix_rule_list(value, "unfixable")?;
+            }
+            _ => {
+                return Err(format!(
+                    "invalid config: unknown option \"{key_name}\" for table \"fix\""
+                ));
+            }
+        }
+    }
+
+    Ok(fix)
+}
+
+fn parse_fix_selector_list(
+    node: &YamlOwned,
+    option_name: &str,
+) -> Result<Vec<FixRuleSelector>, String> {
+    let Some(seq) = node.as_sequence() else {
+        return Err(format!(
+            "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
+        ));
+    };
+
+    let mut rules = Vec::with_capacity(seq.len());
+    for item in seq {
+        let Some(rule) = item.as_str() else {
+            return Err(format!(
+                "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
+            ));
+        };
+        let Some(selector) = FixRuleSelector::parse(rule) else {
+            return Err(format!(
+                "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
+            ));
+        };
+        rules.push(selector);
+    }
+    Ok(rules)
+}
+
+fn parse_fix_rule_list(
+    node: &YamlOwned,
+    option_name: &str,
+) -> Result<Vec<FixRule>, String> {
+    let Some(seq) = node.as_sequence() else {
+        return Err(format!(
+            "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
+        ));
+    };
+
+    let mut rules = Vec::with_capacity(seq.len());
+    for item in seq {
+        let Some(rule) = item.as_str() else {
+            return Err(format!(
+                "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
+            ));
+        };
+        let Some(rule) = FixRule::parse(rule) else {
+            return Err(format!(
+                "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
+            ));
+        };
+        rules.push(rule);
+    }
+    Ok(rules)
 }
 
 fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {

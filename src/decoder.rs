@@ -10,14 +10,93 @@ enum Endian {
     Little,
 }
 
-#[derive(Clone, Copy)]
-enum EncodingKind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileEncoding {
     Utf8,
     Utf8WithBom,
     Utf16 { endian: Endian, skip_bom: bool },
     Utf32 { endian: Endian, skip_bom: bool },
     Latin1,
     Custom(&'static Encoding),
+}
+
+impl FileEncoding {
+    #[must_use]
+    fn encode(&self, content: &str) -> Vec<u8> {
+        match *self {
+            Self::Utf8 => content.as_bytes().to_vec(),
+            Self::Utf8WithBom => {
+                let mut out = Vec::with_capacity(content.len() + 3);
+                out.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+                out.extend_from_slice(content.as_bytes());
+                out
+            }
+            Self::Utf16 { endian, skip_bom } => {
+                let mut out = Vec::with_capacity(content.len() * 2 + 2);
+                if skip_bom {
+                    match endian {
+                        Endian::Big => out.extend_from_slice(&[0xFE, 0xFF]),
+                        Endian::Little => out.extend_from_slice(&[0xFF, 0xFE]),
+                    }
+                }
+                for ch in content.encode_utf16() {
+                    match endian {
+                        Endian::Big => out.extend_from_slice(&ch.to_be_bytes()),
+                        Endian::Little => out.extend_from_slice(&ch.to_le_bytes()),
+                    }
+                }
+                out
+            }
+            Self::Utf32 { endian, skip_bom } => {
+                let mut out = Vec::with_capacity(content.len() * 4 + 4);
+                if skip_bom {
+                    match endian {
+                        Endian::Big => out.extend_from_slice(&[0x00, 0x00, 0xFE, 0xFF]),
+                        Endian::Little => {
+                            out.extend_from_slice(&[0xFF, 0xFE, 0x00, 0x00]);
+                        }
+                    }
+                }
+                for ch in content.chars() {
+                    let val = ch as u32;
+                    match endian {
+                        Endian::Big => out.extend_from_slice(&val.to_be_bytes()),
+                        Endian::Little => out.extend_from_slice(&val.to_le_bytes()),
+                    }
+                }
+                out
+            }
+            Self::Latin1 => content.chars().map(|ch| ch as u8).collect(),
+            Self::Custom(encoding) => {
+                let (bytes, _encoding_used, _had_errors) = encoding.encode(content);
+                bytes.into_owned()
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DecodedFile {
+    content: String,
+    encoding: FileEncoding,
+}
+
+impl DecodedFile {
+    #[must_use]
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    #[must_use]
+    pub(crate) fn into_content(self) -> String {
+        self.content
+    }
+
+    pub(crate) fn write(&self, path: &Path, content: &str) -> Result<(), String> {
+        std::fs::write(path, self.encoding.encode(content)).map_err(|err| {
+            format!("failed to write fixed file {}: {err}", path.display())
+        })
+    }
 }
 
 fn normalize_label(label: &str) -> String {
@@ -29,7 +108,7 @@ fn decode_error(kind: &str, detail: impl Into<String>) -> String {
     format!("invalid {kind}: {detail}")
 }
 
-fn parse_override(bytes: &[u8], label: &str) -> Result<EncodingKind, String> {
+fn parse_override(bytes: &[u8], label: &str) -> Result<FileEncoding, String> {
     let normalized = normalize_label(label);
     if normalized.is_empty() {
         return Err(decode_error(
@@ -38,37 +117,37 @@ fn parse_override(bytes: &[u8], label: &str) -> Result<EncodingKind, String> {
         ));
     }
     match normalized.as_str() {
-        "utf-8" => Ok(EncodingKind::Utf8),
-        "utf-8-sig" | "utf8-sig" => Ok(EncodingKind::Utf8WithBom),
-        "utf-16" => Ok(EncodingKind::Utf16 {
+        "utf-8" => Ok(FileEncoding::Utf8),
+        "utf-8-sig" | "utf8-sig" => Ok(FileEncoding::Utf8WithBom),
+        "utf-16" => Ok(FileEncoding::Utf16 {
             endian: detect_utf16_endian(bytes).unwrap_or(Endian::Little),
             skip_bom: bytes.starts_with(&[0xFE, 0xFF])
                 || bytes.starts_with(&[0xFF, 0xFE]),
         }),
-        "utf-16le" | "utf-16-le" | "utf16le" => Ok(EncodingKind::Utf16 {
+        "utf-16le" | "utf-16-le" | "utf16le" => Ok(FileEncoding::Utf16 {
             endian: Endian::Little,
             skip_bom: false,
         }),
-        "utf-16be" | "utf-16-be" | "utf16be" => Ok(EncodingKind::Utf16 {
+        "utf-16be" | "utf-16-be" | "utf16be" => Ok(FileEncoding::Utf16 {
             endian: Endian::Big,
             skip_bom: false,
         }),
-        "utf-32" => Ok(EncodingKind::Utf32 {
+        "utf-32" => Ok(FileEncoding::Utf32 {
             endian: detect_utf32_endian(bytes).unwrap_or(Endian::Little),
             skip_bom: bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF])
                 || bytes.starts_with(&[0xFF, 0xFE, 0x00, 0x00]),
         }),
-        "utf-32le" | "utf-32-le" | "utf32le" => Ok(EncodingKind::Utf32 {
+        "utf-32le" | "utf-32-le" | "utf32le" => Ok(FileEncoding::Utf32 {
             endian: Endian::Little,
             skip_bom: false,
         }),
-        "utf-32be" | "utf-32-be" | "utf32be" => Ok(EncodingKind::Utf32 {
+        "utf-32be" | "utf-32-be" | "utf32be" => Ok(FileEncoding::Utf32 {
             endian: Endian::Big,
             skip_bom: false,
         }),
-        "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" => Ok(EncodingKind::Latin1),
+        "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" => Ok(FileEncoding::Latin1),
         other => Encoding::for_label(other.as_bytes())
-            .map(EncodingKind::Custom)
+            .map(FileEncoding::Custom)
             .ok_or_else(|| {
                 decode_error("encoding", format!("unsupported label '{label}'"))
             }),
@@ -103,7 +182,7 @@ fn detect_utf32_endian(bytes: &[u8]) -> Option<Endian> {
     }
 }
 
-fn detect_encoding(bytes: &[u8]) -> Result<EncodingKind, String> {
+fn detect_encoding(bytes: &[u8]) -> Result<FileEncoding, String> {
     let override_label = env::var("YAMLLINT_FILE_ENCODING").map_or(None, |value| {
         eprintln!(
             "YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint."
@@ -116,63 +195,63 @@ fn detect_encoding(bytes: &[u8]) -> Result<EncodingKind, String> {
 fn detect_encoding_with_override(
     bytes: &[u8],
     override_label: Option<&str>,
-) -> Result<EncodingKind, String> {
+) -> Result<FileEncoding, String> {
     if let Some(label) = override_label {
         return parse_override(bytes, label);
     }
 
     if bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF]) {
-        return Ok(EncodingKind::Utf32 {
+        return Ok(FileEncoding::Utf32 {
             endian: Endian::Big,
             skip_bom: true,
         });
     }
     if bytes.len() >= 4 && bytes[0..3] == [0x00, 0x00, 0x00] {
-        return Ok(EncodingKind::Utf32 {
+        return Ok(FileEncoding::Utf32 {
             endian: Endian::Big,
             skip_bom: false,
         });
     }
     if bytes.starts_with(&[0xFF, 0xFE, 0x00, 0x00]) {
-        return Ok(EncodingKind::Utf32 {
+        return Ok(FileEncoding::Utf32 {
             endian: Endian::Little,
             skip_bom: true,
         });
     }
     if bytes.len() >= 4 && bytes[1..4] == [0x00, 0x00, 0x00] {
-        return Ok(EncodingKind::Utf32 {
+        return Ok(FileEncoding::Utf32 {
             endian: Endian::Little,
             skip_bom: false,
         });
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
-        return Ok(EncodingKind::Utf16 {
+        return Ok(FileEncoding::Utf16 {
             endian: Endian::Big,
             skip_bom: true,
         });
     }
     if bytes.len() >= 2 && bytes[0] == 0x00 {
-        return Ok(EncodingKind::Utf16 {
+        return Ok(FileEncoding::Utf16 {
             endian: Endian::Big,
             skip_bom: false,
         });
     }
     if bytes.starts_with(&[0xFF, 0xFE]) {
-        return Ok(EncodingKind::Utf16 {
+        return Ok(FileEncoding::Utf16 {
             endian: Endian::Little,
             skip_bom: true,
         });
     }
     if bytes.len() >= 2 && bytes[1] == 0x00 {
-        return Ok(EncodingKind::Utf16 {
+        return Ok(FileEncoding::Utf16 {
             endian: Endian::Little,
             skip_bom: false,
         });
     }
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        return Ok(EncodingKind::Utf8WithBom);
+        return Ok(FileEncoding::Utf8WithBom);
     }
-    Ok(EncodingKind::Utf8)
+    Ok(FileEncoding::Utf8)
 }
 
 fn decode_utf8(bytes: &[u8]) -> Result<String, String> {
@@ -278,19 +357,24 @@ fn decode_with_custom(
     Ok(text.into_owned())
 }
 
-fn decode_with_kind(bytes: &[u8], encoding: EncodingKind) -> Result<String, String> {
+fn decode_with_kind(bytes: &[u8], encoding: FileEncoding) -> Result<String, String> {
     match encoding {
-        EncodingKind::Utf8 => decode_utf8(bytes),
-        EncodingKind::Utf8WithBom => decode_utf8_bom(bytes),
-        EncodingKind::Utf16 { endian, skip_bom } => {
+        FileEncoding::Utf8 => decode_utf8(bytes),
+        FileEncoding::Utf8WithBom => decode_utf8_bom(bytes),
+        FileEncoding::Utf16 { endian, skip_bom } => {
             decode_utf16(bytes, endian, skip_bom)
         }
-        EncodingKind::Utf32 { endian, skip_bom } => {
+        FileEncoding::Utf32 { endian, skip_bom } => {
             decode_utf32(bytes, endian, skip_bom)
         }
-        EncodingKind::Latin1 => Ok(decode_latin1(bytes)),
-        EncodingKind::Custom(enc) => decode_with_custom(bytes, enc),
+        FileEncoding::Latin1 => Ok(decode_latin1(bytes)),
+        FileEncoding::Custom(enc) => decode_with_custom(bytes, enc),
     }
+}
+
+fn decode_bytes_with_encoding(bytes: &[u8]) -> Result<(String, FileEncoding), String> {
+    let encoding = detect_encoding(bytes)?;
+    decode_with_kind(bytes, encoding).map(|s| (s, encoding))
 }
 
 /// Decode raw bytes using yamllint-compatible encoding detection.
@@ -298,8 +382,7 @@ fn decode_with_kind(bytes: &[u8], encoding: EncodingKind) -> Result<String, Stri
 /// # Errors
 /// Returns an error string describing why decoding failed.
 pub fn decode_bytes(bytes: &[u8]) -> Result<String, String> {
-    let encoding = detect_encoding(bytes)?;
-    decode_with_kind(bytes, encoding)
+    decode_bytes_with_encoding(bytes).map(|(content, _)| content)
 }
 
 /// Decode bytes using an explicit encoding override, bypassing environment lookups.
@@ -319,8 +402,17 @@ pub fn decode_bytes_with_override(
 /// # Errors
 /// Returns an error string when the file cannot be read or decoded.
 pub fn read_file(path: &Path) -> Result<String, String> {
+    read_file_lossless(path).map(DecodedFile::into_content)
+}
+
+/// Read a file from disk and retain its detected encoding for write-back.
+///
+/// # Errors
+/// Returns an error string when the file cannot be read or decoded.
+pub(crate) fn read_file_lossless(path: &Path) -> Result<DecodedFile, String> {
     let data = std::fs::read(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    decode_bytes(&data)
+    decode_bytes_with_encoding(&data)
+        .map(|(content, encoding)| DecodedFile { content, encoding })
         .map_err(|err| format!("failed to read {}: {err}", path.display()))
 }
