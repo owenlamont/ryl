@@ -349,33 +349,55 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    let mut initial_problem_count = 0usize;
     if cli.lint.fix.fix {
+        let initial_results = lint_files(&files);
+        initial_problem_count = count_reported_problems(
+            &initial_results,
+            cli.lint.compatibility.no_warnings,
+        );
         apply_safe_fixes_to_files(&files)?;
     }
 
-    let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
-        .par_iter()
-        .enumerate()
-        .map(|(idx, (path, base_dir, cfg))| (idx, lint_file(path, cfg, base_dir)))
-        .collect();
-
-    results.sort_by_key(|(idx, _)| *idx);
+    let results = lint_files(&files);
 
     let output_format = detect_output_format(cli.format);
-    let (has_error, has_warning) = process_results(
+    let summary = process_results(
         &files,
         results,
         output_format,
         cli.lint.compatibility.no_warnings,
     );
 
-    if has_error {
+    if cli.lint.fix.fix && initial_problem_count > 0 {
+        eprintln!(
+            "Found {} {} ({} fixed, {} remaining).",
+            initial_problem_count,
+            pluralize("problem", initial_problem_count),
+            initial_problem_count.saturating_sub(summary.problem_count),
+            summary.problem_count
+        );
+    }
+
+    if summary.has_error {
         Ok(ExitCode::from(1))
-    } else if has_warning && cli.lint.compatibility.strict {
+    } else if summary.has_warning && cli.lint.compatibility.strict {
         Ok(ExitCode::from(2))
     } else {
         Ok(ExitCode::SUCCESS)
     }
+}
+
+fn lint_files(
+    files: &[(PathBuf, PathBuf, YamlLintConfig)],
+) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
+    let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
+        .par_iter()
+        .enumerate()
+        .map(|(idx, (path, base_dir, cfg))| (idx, lint_file(path, cfg, base_dir)))
+        .collect();
+    results.sort_by_key(|(idx, _)| *idx);
+    results
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -423,16 +445,16 @@ fn process_results(
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
     output_format: OutputFormat,
     no_warnings: bool,
-) -> (bool, bool) {
-    let mut has_error = false;
-    let mut has_warning = false;
+) -> LintSummary {
+    let mut summary = LintSummary::default();
 
     for (idx, outcome) in results {
         let (path, ..) = &files[idx];
         match outcome {
             Err(message) => {
                 eprintln!("{message}");
-                has_error = true;
+                summary.has_error = true;
+                summary.problem_count += 1;
             }
             Ok(diagnostics) => {
                 let mut problems = diagnostics
@@ -452,9 +474,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_standard(problem));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                         eprintln!();
                     }
@@ -463,9 +486,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_colored(problem));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                         eprintln!();
                     }
@@ -474,9 +498,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_github(problem, path));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                         eprintln!("::endgroup::");
                         eprintln!();
@@ -485,9 +510,10 @@ fn process_results(
                         for problem in problems {
                             eprintln!("{}", format_parsable(problem, path));
                             match problem.level {
-                                Severity::Error => has_error = true,
-                                Severity::Warning => has_warning = true,
+                                Severity::Error => summary.has_error = true,
+                                Severity::Warning => summary.has_warning = true,
                             }
+                            summary.problem_count += 1;
                         }
                     }
                 }
@@ -495,7 +521,34 @@ fn process_results(
         }
     }
 
-    (has_error, has_warning)
+    summary
+}
+
+#[derive(Default)]
+struct LintSummary {
+    has_error: bool,
+    has_warning: bool,
+    problem_count: usize,
+}
+
+fn count_reported_problems(
+    results: &[(usize, Result<Vec<LintProblem>, String>)],
+    no_warnings: bool,
+) -> usize {
+    results
+        .iter()
+        .map(|(_, outcome)| match outcome {
+            Err(_) => 1,
+            Ok(diagnostics) => diagnostics
+                .iter()
+                .filter(|problem| !(no_warnings && problem.level == Severity::Warning))
+                .count(),
+        })
+        .sum()
+}
+
+fn pluralize(singular: &str, count: usize) -> &str {
+    if count == 1 { singular } else { "problems" }
 }
 
 fn format_standard(problem: &LintProblem) -> String {

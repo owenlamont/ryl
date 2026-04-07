@@ -159,11 +159,12 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
         (second.clone(), dir.path().to_path_buf(), cfg),
     ];
 
-    apply_safe_fixes_to_files(&files).expect("fixes succeed");
+    let stats = apply_safe_fixes_to_files(&files).expect("fixes succeed");
 
     assert_eq!(
         fs::read_to_string(&first).unwrap(),
         "key: value  # comment\n"
     );
     assert_eq!(fs::read_to_string(&second).unwrap(), "alpha: beta\n");
+    assert_eq!(stats.changed_files, 2);
 }

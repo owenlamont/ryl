@@ -28,6 +28,11 @@ fn fix_applies_safe_newline_and_comment_fixes() {
         code, 0,
         "fix should succeed: stdout={stdout} stderr={stderr}"
     );
+    assert!(
+        stderr.contains("Found 3 problems (3 fixed, 0 remaining)."),
+        "expected fix summary in stderr: {stderr}"
+    );
+    assert!(stdout.is_empty(), "expected no stdout: {stdout}");
 
     let fixed = fs::read_to_string(&file).unwrap();
     assert_eq!(fixed, "key: value  # comment\n");
@@ -50,6 +55,10 @@ fn fix_respects_toml_unfixable_rules() {
         code, 1,
         "comment diagnostics should remain: stdout={stdout} stderr={stderr}"
     );
+    assert!(
+        stderr.contains("Found 3 problems (1 fixed, 2 remaining)."),
+        "expected partial fix summary in stderr: {stderr}"
+    );
 
     let fixed = fs::read_to_string(&file).unwrap();
     assert_eq!(fixed, "key: value #comment\n");
@@ -71,6 +80,10 @@ fn fix_respects_toml_fixable_allowlist() {
     assert_eq!(
         code, 1,
         "missing final newline should remain: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("Found 3 problems (2 fixed, 1 remaining)."),
+        "expected partial fix summary in stderr: {stderr}"
     );
 
     let fixed = fs::read_to_string(&file).unwrap();
@@ -110,4 +123,74 @@ fn fix_handles_write_error() {
         stderr.contains("failed to write fixed file"),
         "error message should mention write failure: {stderr}"
     );
+}
+
+#[test]
+fn fix_reports_summary_for_invalid_yaml() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("invalid.yaml");
+    fs::write(&file, "key: [\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    assert_eq!(
+        code, 1,
+        "invalid yaml should fail: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("Found 1 problem (0 fixed, 1 remaining)."),
+        "expected invalid-yaml summary in stderr: {stderr}"
+    );
+    assert!(stdout.is_empty(), "expected no stdout: {stdout}");
+}
+
+#[test]
+fn fix_with_no_warnings_hides_warning_only_summary() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value #comment").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n[rules.comments]\nlevel = 'warning'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--fix")
+        .arg("--no-warnings")
+        .arg(&file));
+
+    assert_eq!(
+        code, 0,
+        "warning-only fix should pass: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
+    assert!(stdout.is_empty(), "expected no stdout: {stdout}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "key: value  # comment");
+}
+
+#[test]
+fn fix_missing_file_reports_read_error() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("missing.yaml");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    assert_eq!(
+        code, 2,
+        "missing file should fail: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("failed to read"),
+        "expected read error in stderr: {stderr}"
+    );
+    assert!(stdout.is_empty(), "expected no stdout: {stdout}");
 }

@@ -62,11 +62,14 @@ pub fn apply_safe_fixes_in_place(
 /// Returns an error if any file cannot be read or any fixed contents cannot be written.
 pub fn apply_safe_fixes_to_files(
     files: &[(PathBuf, PathBuf, YamlLintConfig)],
-) -> Result<(), String> {
+) -> Result<FixStats, String> {
+    let mut stats = FixStats::default();
     for (path, base_dir, cfg) in files {
-        apply_safe_fixes_in_place(path, cfg, base_dir)?;
+        if apply_safe_fixes_in_place(path, cfg, base_dir)? {
+            stats.changed_files += 1;
+        }
     }
-    Ok(())
+    Ok(stats)
 }
 
 #[must_use]
