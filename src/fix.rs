@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config::YamlLintConfig;
@@ -46,15 +45,13 @@ pub fn apply_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<bool, String> {
-    let original = decoder::read_file(path)?;
-    let fixed = apply_safe_fixes(&original, cfg, path, base_dir);
-    if fixed == original {
+    let decoded = decoder::read_file_lossless(path)?;
+    let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
+    if fixed == decoded.content() {
         return Ok(false);
     }
 
-    fs::write(path, fixed).map_err(|err| {
-        format!("failed to write fixed file {}: {err}", path.display())
-    })?;
+    decoded.write(path, &fixed)?;
     Ok(true)
 }
 
@@ -98,7 +95,7 @@ pub fn apply_safe_fixes(
     }
 
     if rule_enabled(SAFE_FIX_RULES[2], cfg, path, base_dir) {
-        let newline = target_newline(&content, cfg);
+        let newline = target_newline(&content, cfg, path, base_dir);
         if let Some(updated) = new_line_at_end_of_file::fix(&content, newline.as_str())
         {
             content = updated;
@@ -123,8 +120,15 @@ fn rule_enabled(
     }
 }
 
-fn target_newline(content: &str, cfg: &YamlLintConfig) -> String {
-    if cfg.rule_level(new_lines::ID).is_some() {
+fn target_newline(
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) -> String {
+    if cfg.rule_level(new_lines::ID).is_some()
+        && !cfg.is_rule_ignored(new_lines::ID, path, base_dir)
+    {
         return new_lines::expected_newline(
             new_lines::Config::resolve(cfg),
             new_lines::platform_newline(),
