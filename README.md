@@ -186,6 +186,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   YAML fallback (`.yamllint`, `.yamllint.yml`, `.yamllint.yaml`)
   > user-global (`$XDG_CONFIG_HOME/yamllint/config` or
   `~/.config/yamllint/config`) > built-in defaults.
+- **Rules Documentation**: see [docs/rules.md](https://github.com/owenlamont/ryl/blob/main/docs/rules.md)
+  for a full list of supported rules and their fixable status.
 - TOML and YAML are not merged during discovery. If a TOML project config is
   found, YAML project config discovery is skipped (and `ryl` prints a warning).
 - Native fix policy is TOML-only. YAML config remains yamllint-compatible and
