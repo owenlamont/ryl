@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Install uv
-        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
 
       - name: Install prek
         run: uv tool install prek --force
@@ -22,7 +22,7 @@ jobs:
           uv tool install yamllint --force
           yamllint --version
 
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
 
       - name: Install Rust components
         run: rustup component add rustfmt clippy llvm-tools-preview
@@ -85,7 +85,7 @@ jobs:
           fi
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: coverage
           path: |
@@ -94,7 +94,7 @@ jobs:
 
       - name: Comment coverage summary on PR
         if: github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
-        uses: marocchino/sticky-pull-request-comment@3d60a5b2dae89d44e0c6ddc69dd7536aec2071cd
+        uses: marocchino/sticky-pull-request-comment@d4d6b0936434b21bc8345ad45a440c5f7d2c40ff
         with:
           header: ryl-coverage
           path: coverage.md
