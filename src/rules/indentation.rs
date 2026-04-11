@@ -221,6 +221,7 @@ impl<'a> Analyzer<'a> {
         }
 
         if analysis.is_mapping_key()
+            && (!analysis.is_sequence_entry() || pushing_child)
             && let Some(ctx) = self.contexts.last_mut()
         {
             ctx.kind = analysis.context_kind();

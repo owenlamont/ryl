@@ -241,6 +241,28 @@ fn skips_blank_lines_and_top_level_sequence_entries() {
 }
 
 #[test]
+fn top_level_sequence_of_inline_mappings_is_allowed() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "- name: Foo\n- name: Bar\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
+fn indented_top_level_sequence_of_inline_mappings_hits_fallback_parent_indent() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "  - key: Foo\n  - key: Bar\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 2,
+            column: 3,
+            message: "wrong indentation: expected 4 but found 2".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn reports_misaligned_mapping_with_consistent_spacing() {
     let cfg = config(
         SpacesSetting::Consistent,
@@ -352,12 +374,10 @@ fn top_level_indented_plain_scalar_is_permitted() {
 }
 
 #[test]
-fn sequence_of_mappings_reports_incorrect_dedent() {
+fn sequence_of_mappings_can_dedent_to_root() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "- key:\n    - nested\n- other\n";
-    let hits = indentation::check(yaml, &cfg);
-    assert_eq!(hits.len(), 1, "unexpected diagnostics: {hits:?}");
-    assert!(hits[0].message.contains("expected 2 but found 0"));
+    assert!(indentation::check(yaml, &cfg).is_empty());
 }
 
 #[test]
