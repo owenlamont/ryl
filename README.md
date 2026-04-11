@@ -198,7 +198,7 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
 - Presets and extends: supports yamllint’s built-in `default`, `relaxed`, and
   `empty` via `extends`. Rule maps are deep-merged; scalars/sequences overwrite.
 - TOML preset examples: see
-  [docs/config-presets.md](/home/owen/Code/ryl_repos/ryl/docs/config-presets.md)
+  [docs/config-presets.md](https://github.com/owenlamont/ryl/blob/main/docs/config-presets.md)
   for `default`/`relaxed` equivalents.
 
 Example TOML config (`.ryl.toml`):
