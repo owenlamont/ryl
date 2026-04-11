@@ -400,6 +400,13 @@ impl YamlLintConfig {
     }
 
     #[must_use]
+    pub fn rule_option_int(&self, rule: &str, option: &str, default: i64) -> i64 {
+        self.rule_option(rule, option)
+            .and_then(YamlOwned::as_integer)
+            .unwrap_or(default)
+    }
+
+    #[must_use]
     pub fn locale(&self) -> Option<&str> {
         self.locale.as_deref()
     }

@@ -23,18 +23,17 @@ impl Config {
 
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max_spaces_before = cfg
-            .rule_option(ID, "max-spaces-before")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_BEFORE);
-        let max_spaces_after = cfg
-            .rule_option(ID, "max-spaces-after")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_AFTER);
-
         Self {
-            max_spaces_before,
-            max_spaces_after,
+            max_spaces_before: cfg.rule_option_int(
+                ID,
+                "max-spaces-before",
+                Self::DEFAULT_MAX_BEFORE,
+            ),
+            max_spaces_after: cfg.rule_option_int(
+                ID,
+                "max-spaces-after",
+                Self::DEFAULT_MAX_AFTER,
+            ),
         }
     }
 

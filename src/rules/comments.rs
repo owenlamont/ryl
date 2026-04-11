@@ -1,5 +1,3 @@
-use saphyr::YamlOwned;
-
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
     block_scalar_marker_index, leading_whitespace_width,
@@ -18,20 +16,10 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let require_starting_space = cfg
-            .rule_option(ID, "require-starting-space")
-            .and_then(YamlOwned::as_bool)
-            .unwrap_or(true);
-
-        let ignore_shebangs = cfg
-            .rule_option(ID, "ignore-shebangs")
-            .and_then(YamlOwned::as_bool)
-            .unwrap_or(true);
-
-        let min_spaces_value = cfg
-            .rule_option(ID, "min-spaces-from-content")
-            .and_then(YamlOwned::as_integer)
-            .unwrap_or(2);
+        let require_starting_space =
+            cfg.rule_option_bool(ID, "require-starting-space", true);
+        let ignore_shebangs = cfg.rule_option_bool(ID, "ignore-shebangs", true);
+        let min_spaces_value = cfg.rule_option_int(ID, "min-spaces-from-content", 2);
 
         let min_spaces_from_content = if min_spaces_value < 0 {
             None

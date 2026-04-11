@@ -18,37 +18,17 @@ const FORBID_INF_FLAG: u8 = 1 << 3;
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let require_numeral_before_decimal = cfg
-            .rule_option(ID, "require-numeral-before-decimal")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
-        let forbid_scientific_notation = cfg
-            .rule_option(ID, "forbid-scientific-notation")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
-        let forbid_nan = cfg
-            .rule_option(ID, "forbid-nan")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
-        let forbid_inf = cfg
-            .rule_option(ID, "forbid-inf")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
         let mut flags = 0u8;
-        if require_numeral_before_decimal {
+        if cfg.rule_option_bool(ID, "require-numeral-before-decimal", false) {
             flags |= REQUIRE_NUMERAL_FLAG;
         }
-        if forbid_scientific_notation {
+        if cfg.rule_option_bool(ID, "forbid-scientific-notation", false) {
             flags |= FORBID_SCIENTIFIC_FLAG;
         }
-        if forbid_nan {
+        if cfg.rule_option_bool(ID, "forbid-nan", false) {
             flags |= FORBID_NAN_FLAG;
         }
-        if forbid_inf {
+        if cfg.rule_option_bool(ID, "forbid-inf", false) {
             flags |= FORBID_INF_FLAG;
         }
 

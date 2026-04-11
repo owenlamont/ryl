@@ -142,29 +142,28 @@ impl Config {
                 _ => Forbid::None,
             });
 
-        let min_spaces_inside = cfg
-            .rule_option(rule_id, "min-spaces-inside")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MIN_SPACES_INSIDE);
-        let max_spaces_inside = cfg
-            .rule_option(rule_id, "max-spaces-inside")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_SPACES_INSIDE);
-        let min_spaces_inside_empty = cfg
-            .rule_option(rule_id, "min-spaces-inside-empty")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MIN_SPACES_INSIDE_EMPTY);
-        let max_spaces_inside_empty = cfg
-            .rule_option(rule_id, "max-spaces-inside-empty")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_SPACES_INSIDE_EMPTY);
-
         Self {
             forbid,
-            min_spaces_inside,
-            max_spaces_inside,
-            min_spaces_inside_empty,
-            max_spaces_inside_empty,
+            min_spaces_inside: cfg.rule_option_int(
+                rule_id,
+                "min-spaces-inside",
+                Self::DEFAULT_MIN_SPACES_INSIDE,
+            ),
+            max_spaces_inside: cfg.rule_option_int(
+                rule_id,
+                "max-spaces-inside",
+                Self::DEFAULT_MAX_SPACES_INSIDE,
+            ),
+            min_spaces_inside_empty: cfg.rule_option_int(
+                rule_id,
+                "min-spaces-inside-empty",
+                Self::DEFAULT_MIN_SPACES_INSIDE_EMPTY,
+            ),
+            max_spaces_inside_empty: cfg.rule_option_int(
+                rule_id,
+                "max-spaces-inside-empty",
+                Self::DEFAULT_MAX_SPACES_INSIDE_EMPTY,
+            ),
         }
     }
 

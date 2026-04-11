@@ -13,11 +13,13 @@ impl Config {
 
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max_spaces_after = cfg
-            .rule_option(ID, "max-spaces-after")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX);
-        Self { max_spaces_after }
+        Self {
+            max_spaces_after: cfg.rule_option_int(
+                ID,
+                "max-spaces-after",
+                Self::DEFAULT_MAX,
+            ),
+        }
     }
 
     #[must_use]
