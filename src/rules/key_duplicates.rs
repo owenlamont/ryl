@@ -13,13 +13,12 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let forbid_duplicated_merge_keys = cfg
-            .rule_option(ID, "forbid-duplicated-merge-keys")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
         Self {
-            forbid_duplicated_merge_keys,
+            forbid_duplicated_merge_keys: cfg.rule_option_bool(
+                ID,
+                "forbid-duplicated-merge-keys",
+                false,
+            ),
         }
     }
 }

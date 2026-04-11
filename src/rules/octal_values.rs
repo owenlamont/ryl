@@ -1,4 +1,3 @@
-use saphyr::YamlOwned;
 use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
@@ -14,19 +13,9 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let forbid_implicit = cfg
-            .rule_option(ID, "forbid-implicit-octal")
-            .and_then(YamlOwned::as_bool)
-            .unwrap_or(true);
-
-        let forbid_explicit = cfg
-            .rule_option(ID, "forbid-explicit-octal")
-            .and_then(YamlOwned::as_bool)
-            .unwrap_or(true);
-
         Self {
-            forbid_implicit,
-            forbid_explicit,
+            forbid_implicit: cfg.rule_option_bool(ID, "forbid-implicit-octal", true),
+            forbid_explicit: cfg.rule_option_bool(ID, "forbid-explicit-octal", true),
         }
     }
 

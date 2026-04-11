@@ -393,6 +393,13 @@ impl YamlLintConfig {
     }
 
     #[must_use]
+    pub fn rule_option_bool(&self, rule: &str, option: &str, default: bool) -> bool {
+        self.rule_option(rule, option)
+            .and_then(YamlOwned::as_bool)
+            .unwrap_or(default)
+    }
+
+    #[must_use]
     pub fn locale(&self) -> Option<&str> {
         self.locale.as_deref()
     }

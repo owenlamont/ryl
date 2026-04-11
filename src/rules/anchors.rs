@@ -17,23 +17,22 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let forbid_undeclared_aliases = cfg
-            .rule_option(ID, "forbid-undeclared-aliases")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(true);
-        let forbid_duplicated_anchors = cfg
-            .rule_option(ID, "forbid-duplicated-anchors")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-        let forbid_unused_anchors = cfg
-            .rule_option(ID, "forbid-unused-anchors")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
         Self {
-            forbid_undeclared_aliases,
-            forbid_duplicated_anchors,
-            forbid_unused_anchors,
+            forbid_undeclared_aliases: cfg.rule_option_bool(
+                ID,
+                "forbid-undeclared-aliases",
+                true,
+            ),
+            forbid_duplicated_anchors: cfg.rule_option_bool(
+                ID,
+                "forbid-duplicated-anchors",
+                false,
+            ),
+            forbid_unused_anchors: cfg.rule_option_bool(
+                ID,
+                "forbid-unused-anchors",
+                false,
+            ),
         }
     }
 
