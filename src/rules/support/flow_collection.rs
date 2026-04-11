@@ -3,6 +3,9 @@ use std::ops::Range;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::punctuation::{
+    build_line_starts, line_and_column, skip_comment,
+};
 use crate::rules::support::span_utils::ranges_to_char_indices;
 
 macro_rules! define_rule {
@@ -587,24 +590,6 @@ fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<us
     None
 }
 
-fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
-    idx += 1;
-    while idx < chars.len() {
-        let ch = chars[idx].1;
-        if ch == '\n' {
-            break;
-        }
-        if ch == '\r' {
-            if idx + 1 < chars.len() && chars[idx + 1].1 == '\n' {
-                idx += 1;
-            }
-            break;
-        }
-        idx += 1;
-    }
-    idx
-}
-
 fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usize> {
     if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
         return None;
@@ -620,45 +605,4 @@ fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usiz
     }
     let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
     (!inner_contains_mapping).then_some(chars.len())
-}
-
-fn build_line_starts(buffer: &str) -> Vec<usize> {
-    let mut starts = Vec::new();
-    starts.push(0);
-    let bytes = buffer.as_bytes();
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\n' => {
-                starts.push(idx + 1);
-                idx += 1;
-            }
-            b'\r' => {
-                if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
-                    starts.push(idx + 2);
-                    idx += 2;
-                } else {
-                    starts.push(idx + 1);
-                    idx += 1;
-                }
-            }
-            _ => idx += 1,
-        }
-    }
-    starts
-}
-
-fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
-    let mut left = 0usize;
-    let mut right = line_starts.len();
-    while left + 1 < right {
-        let mid = usize::midpoint(left, right);
-        if line_starts[mid] <= byte_idx {
-            left = mid;
-        } else {
-            right = mid;
-        }
-    }
-    let line_start = line_starts[left];
-    (left + 1, byte_idx - line_start + 1)
 }
