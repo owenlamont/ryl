@@ -5,6 +5,13 @@ pub(crate) fn leading_whitespace_width(line: &str) -> usize {
 }
 
 pub(crate) fn strip_trailing_comment_preserving_quotes(content: &str) -> &str {
+    match comment_start_preserving_quotes(content) {
+        Some(idx) => content[..idx].trim_end(),
+        None => content.trim_end(),
+    }
+}
+
+pub(crate) fn comment_start_preserving_quotes(content: &str) -> Option<usize> {
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
@@ -22,13 +29,11 @@ pub(crate) fn strip_trailing_comment_preserving_quotes(content: &str) -> &str {
         match ch {
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '#' if !in_single && !in_double => {
-                return content[..idx].trim_end();
-            }
+            '#' if !in_single && !in_double => return Some(idx),
             _ => {}
         }
     }
-    content.trim_end()
+    None
 }
 
 pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {

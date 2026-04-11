@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::comment_start_preserving_quotes;
 
 pub const ID: &str = "truthy";
 
@@ -352,7 +353,7 @@ fn collect_truthy_disable_lines(buffer: &str) -> HashSet<usize> {
             disable_next = false;
         }
 
-        let Some(comment_start) = find_comment_start(line) else {
+        let Some(comment_start) = comment_start_preserving_quotes(line) else {
             continue;
         };
 
@@ -369,30 +370,6 @@ fn collect_truthy_disable_lines(buffer: &str) -> HashSet<usize> {
     }
 
     disabled
-}
-
-fn find_comment_start(line: &str) -> Option<usize> {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
-    for (idx, ch) in line.char_indices() {
-        match ch {
-            '\\' if !in_single => {
-                escaped = !escaped;
-            }
-            '\'' if !escaped && !in_double => {
-                in_single = !in_single;
-            }
-            '"' if !escaped && !in_single => {
-                in_double = !in_double;
-            }
-            '#' if !escaped && !in_single && !in_double => return Some(idx),
-            _ => {
-                escaped = false;
-            }
-        }
-    }
-    None
 }
 
 fn disables_truthy(comment: &str) -> bool {
