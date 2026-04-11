@@ -3,6 +3,7 @@ use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::config::YamlLintConfig;
+use crate::rules::mapping_key_walker::Walker;
 
 pub const ID: &str = "key-ordering";
 
@@ -168,61 +169,39 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
 
 struct KeyOrderingState<'cfg> {
     config: &'cfg Config,
-    containers: Vec<ContainerState>,
-    key_depth: usize,
+    walker: Walker<MappingState>,
 }
 
 impl<'cfg> KeyOrderingState<'cfg> {
     const fn new(config: &'cfg Config) -> Self {
         Self {
             config,
-            containers: Vec::new(),
-            key_depth: 0,
+            walker: Walker::new(),
         }
     }
 
     fn reset_stream(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn document_start(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn document_end(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn enter_mapping(&mut self) {
-        let ctx = self.begin_node();
-        self.containers.push(ContainerState {
-            key_context: ctx.active,
-            mapping: Some(MappingState {
-                expect_key: true,
-                keys: Vec::new(),
-            }),
-        });
+        self.walker.enter_mapping(MappingState { keys: Vec::new() });
     }
 
     fn enter_sequence(&mut self) {
-        let ctx = self.begin_node();
-        self.containers.push(ContainerState {
-            key_context: ctx.active,
-            mapping: None,
-        });
+        self.walker.enter_sequence();
     }
 
     fn exit_container(&mut self) {
-        let container = self
-            .containers
-            .pop()
-            .expect("container stack should not underflow");
-        if container.key_context && self.key_depth > 0 {
-            self.key_depth -= 1;
-        }
+        self.walker.exit_container();
     }
 
     fn handle_scalar(
@@ -231,21 +210,17 @@ impl<'cfg> KeyOrderingState<'cfg> {
         span: Span,
         diagnostics: &mut Vec<Violation>,
     ) {
-        let context = self.begin_node();
-        if !context.key_root || self.config.is_ignored(value) {
-            self.finish_node(context);
+        let context = self.walker.begin_node();
+        if !context.key_root() || self.config.is_ignored(value) {
+            self.walker.finish_node(context);
             return;
         }
 
         let state = self
-            .containers
-            .last_mut()
+            .walker
+            .current_mapping_mut()
             .expect("stack should contain mapping when key root is active");
-        let mapping = state
-            .mapping
-            .as_mut()
-            .expect("key root should only be active for mappings");
-        let keys = &mut mapping.keys;
+        let keys = &mut state.keys;
         if self.config.in_order(keys.last().map(String::as_str), value) {
             keys.push(value.to_owned());
         } else {
@@ -255,49 +230,10 @@ impl<'cfg> KeyOrderingState<'cfg> {
                 message: format!("wrong ordering of key \"{value}\" in mapping"),
             });
         }
-        self.finish_node(context);
+        self.walker.finish_node(context);
     }
-
-    fn begin_node(&mut self) -> NodeContext {
-        let mut key_root = false;
-        if let Some(ContainerState {
-            mapping: Some(mapping),
-            ..
-        }) = self.containers.last_mut()
-        {
-            if mapping.expect_key {
-                key_root = true;
-                mapping.expect_key = false;
-            } else {
-                mapping.expect_key = true;
-            }
-        }
-        let active = key_root || self.key_depth > 0;
-        if active {
-            self.key_depth += 1;
-        }
-        NodeContext { active, key_root }
-    }
-
-    const fn finish_node(&mut self, context: NodeContext) {
-        if context.active && self.key_depth > 0 {
-            self.key_depth -= 1;
-        }
-    }
-}
-
-struct ContainerState {
-    key_context: bool,
-    mapping: Option<MappingState>,
 }
 
 struct MappingState {
-    expect_key: bool,
     keys: Vec<String>,
-}
-
-#[derive(Copy, Clone)]
-struct NodeContext {
-    active: bool,
-    key_root: bool,
 }

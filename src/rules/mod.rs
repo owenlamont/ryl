@@ -16,6 +16,7 @@ pub mod indentation;
 pub mod key_duplicates;
 pub mod key_ordering;
 pub mod line_length;
+pub(crate) mod mapping_key_walker;
 pub mod new_line_at_end_of_file;
 pub mod new_lines;
 pub mod octal_values;
