@@ -193,11 +193,12 @@ impl<'cfg> KeyOrderingState<'cfg> {
     }
 
     fn enter_mapping(&mut self) {
-        self.walker.enter_mapping(MappingState { keys: Vec::new() });
+        self.walker
+            .enter_mapping(MappingState { keys: Vec::new() }, ());
     }
 
     fn enter_sequence(&mut self) {
-        self.walker.enter_sequence();
+        self.walker.enter_sequence(());
     }
 
     fn exit_container(&mut self) {

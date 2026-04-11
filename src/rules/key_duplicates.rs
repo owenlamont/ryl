@@ -98,11 +98,11 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
     }
 
     fn enter_mapping(&mut self) {
-        self.walker.enter_mapping(MappingState::new());
+        self.walker.enter_mapping(MappingState::new(), ());
     }
 
     fn enter_sequence(&mut self) {
-        self.walker.enter_sequence();
+        self.walker.enter_sequence(());
     }
 
     fn exit_container(&mut self) {

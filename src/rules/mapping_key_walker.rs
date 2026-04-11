@@ -1,9 +1,9 @@
-pub(crate) struct Walker<T> {
-    containers: Vec<ContainerState<T>>,
+pub(crate) struct Walker<T, M = ()> {
+    containers: Vec<ContainerState<T, M>>,
     key_depth: usize,
 }
 
-impl<T> Walker<T> {
+impl<T, M> Walker<T, M> {
     pub(crate) const fn new() -> Self {
         Self {
             containers: Vec::new(),
@@ -16,10 +16,11 @@ impl<T> Walker<T> {
         self.key_depth = 0;
     }
 
-    pub(crate) fn enter_mapping(&mut self, mapping: T) {
+    pub(crate) fn enter_mapping(&mut self, mapping: T, metadata: M) {
         let context = self.begin_node();
         self.containers.push(ContainerState {
             key_context: context.active,
+            metadata,
             mapping: Some(MappingState {
                 expect_key: true,
                 payload: mapping,
@@ -27,10 +28,11 @@ impl<T> Walker<T> {
         });
     }
 
-    pub(crate) fn enter_sequence(&mut self) {
+    pub(crate) fn enter_sequence(&mut self, metadata: M) {
         let context = self.begin_node();
         self.containers.push(ContainerState {
             key_context: context.active,
+            metadata,
             mapping: None,
         });
     }
@@ -77,10 +79,17 @@ impl<T> Walker<T> {
             .and_then(|container| container.mapping.as_mut())
             .map(|mapping| &mut mapping.payload)
     }
+
+    pub(crate) fn any_metadata(&self, mut predicate: impl FnMut(&M) -> bool) -> bool {
+        self.containers
+            .iter()
+            .any(|container| predicate(&container.metadata))
+    }
 }
 
-struct ContainerState<T> {
+struct ContainerState<T, M> {
     key_context: bool,
+    metadata: M,
     mapping: Option<MappingState<T>>,
 }
 
@@ -96,6 +105,10 @@ pub(crate) struct NodeContext {
 }
 
 impl NodeContext {
+    pub(crate) const fn active(self) -> bool {
+        self.active
+    }
+
     pub(crate) const fn key_root(self) -> bool {
         self.key_root
     }
