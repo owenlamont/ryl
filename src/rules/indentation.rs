@@ -106,6 +106,7 @@ struct Analyzer<'a> {
     indent_seq: IndentSequencesRuntime,
     pending_child: Option<ContextKind>,
     multiline: Option<MultilineState>,
+    active_sequence_mapping_parent: Option<SequenceMappingParent>,
     compact_sequence_parent_indent: Option<usize>,
     compact_flow_mapping: Option<CompactFlowMapping>,
     prev_line_kind: Option<LineKind>,
@@ -127,6 +128,7 @@ impl<'a> Analyzer<'a> {
             indent_seq: IndentSequencesRuntime::new(cfg.indent_sequences),
             pending_child: None,
             multiline: None,
+            active_sequence_mapping_parent: None,
             compact_sequence_parent_indent: None,
             compact_flow_mapping: None,
             prev_line_kind: None,
@@ -145,25 +147,7 @@ impl<'a> Analyzer<'a> {
     fn process_line(&mut self, line_number: usize, raw: &str) {
         let line = raw.trim_end_matches(['\r', '\n']);
         let (indent, content) = split_indent(line);
-        if self
-            .compact_sequence_parent_indent
-            .is_some_and(|parent| indent <= parent)
-        {
-            self.compact_sequence_parent_indent = None;
-        }
-        if self
-            .compact_flow_mapping
-            .is_some_and(|state| indent <= state.parent_indent)
-        {
-            self.compact_flow_mapping = None;
-        }
-
-        if let Some(state) = &self.multiline
-            && indent <= state.base_indent
-            && !content.trim().is_empty()
-        {
-            self.multiline = None;
-        }
+        self.reset_transient_state(indent, content);
 
         if content.trim().is_empty() {
             self.prev_line_kind = Some(LineKind::Other);
@@ -226,7 +210,43 @@ impl<'a> Analyzer<'a> {
         {
             ctx.kind = analysis.context_kind();
         }
+        self.update_post_analysis_state(indent, content, analysis);
+    }
 
+    fn reset_transient_state(&mut self, indent: usize, content: &str) {
+        if self
+            .compact_sequence_parent_indent
+            .is_some_and(|parent| indent <= parent)
+        {
+            self.compact_sequence_parent_indent = None;
+        }
+        if self
+            .compact_flow_mapping
+            .is_some_and(|state| indent <= state.parent_indent)
+        {
+            self.compact_flow_mapping = None;
+        }
+
+        if let Some(state) = &self.multiline
+            && indent <= state.base_indent
+            && !content.trim().is_empty()
+        {
+            self.multiline = None;
+        }
+
+        if self.active_sequence_mapping_parent.is_some_and(|state| {
+            !content.trim().is_empty() && indent <= state.owner_indent
+        }) {
+            self.active_sequence_mapping_parent = None;
+        }
+    }
+
+    fn update_post_analysis_state(
+        &mut self,
+        indent: usize,
+        content: &str,
+        analysis: LineAnalysis,
+    ) {
         if analysis.starts_multiline {
             self.multiline = Some(MultilineState::new(indent));
         }
@@ -235,6 +255,13 @@ impl<'a> Analyzer<'a> {
             self.pending_child = Some(analysis.context_kind());
         } else {
             self.pending_child = None;
+        }
+
+        if analysis.is_sequence_entry() && analysis.opens_child_context() {
+            self.active_sequence_mapping_parent = Some(SequenceMappingParent {
+                owner_indent: indent,
+                parent_indent: indent.saturating_add(analysis.sequence_offset),
+            });
         }
 
         if is_compact_sequence_start(content) {
@@ -350,8 +377,15 @@ impl<'a> Analyzer<'a> {
     }
 
     fn check_sequence_indent(&mut self, indent: usize, line_number: usize) {
-        let Some((ctx_index, parent_indent)) = self.find_mapping_parent_indent(indent)
-        else {
+        let (ctx_index, parent_indent) = if let Some((ctx_index, parent_indent)) =
+            self.find_mapping_parent_indent(indent)
+        {
+            (Some(ctx_index), parent_indent)
+        } else if let Some(state) = self.active_sequence_mapping_parent
+            && indent > state.owner_indent
+        {
+            (None, state.parent_indent)
+        } else {
             return;
         };
 
@@ -361,17 +395,30 @@ impl<'a> Analyzer<'a> {
             .expected_step()
             .map(|step| parent_indent.saturating_add(step));
 
-        let state = &mut self.sequence_expectations[ctx_index];
-        if let Some(message) =
-            self.indent_seq
-                .check(parent_indent, indent, is_indented, expected, state)
-        {
-            self.diagnostics.push(Violation {
-                line: line_number,
-                column: indent + 1,
-                message,
-            });
-        }
+        let Some(message) = (match ctx_index {
+            Some(ctx_index) => self.indent_seq.check(
+                parent_indent,
+                indent,
+                is_indented,
+                expected,
+                &mut self.sequence_expectations[ctx_index],
+            ),
+            None => self.indent_seq.check(
+                parent_indent,
+                indent,
+                is_indented,
+                expected,
+                &mut None,
+            ),
+        }) else {
+            return;
+        };
+
+        self.diagnostics.push(Violation {
+            line: line_number,
+            column: indent + 1,
+            message,
+        });
     }
 }
 
@@ -388,6 +435,12 @@ struct CompactFlowMapping {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct SequenceMappingParent {
+    owner_indent: usize,
+    parent_indent: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
 enum ContextKind {
     Root,
     Mapping { sequence_offset: usize },
@@ -400,6 +453,7 @@ struct LineAnalysis {
     kind: LineKind,
     starts_multiline: bool,
     is_sequence_entry: bool,
+    sequence_offset: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -419,10 +473,15 @@ impl LineAnalysis {
         let trimmed = core.trim();
         let is_sequence_entry = is_sequence_entry(trimmed);
         let (is_mapping_key, opens_block) = classify_mapping(trimmed);
+        let sequence_offset = if is_mapping_key {
+            sequence_prefix_width(trimmed)
+        } else {
+            0
+        };
         let kind = if is_mapping_key {
             LineKind::Mapping {
                 opens_block,
-                sequence_offset: sequence_prefix_width(trimmed),
+                sequence_offset,
             }
         } else if is_sequence_entry {
             LineKind::Sequence
@@ -434,6 +493,7 @@ impl LineAnalysis {
             kind,
             starts_multiline,
             is_sequence_entry,
+            sequence_offset,
         }
     }
 

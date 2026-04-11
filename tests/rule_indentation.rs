@@ -248,18 +248,10 @@ fn top_level_sequence_of_inline_mappings_is_allowed() {
 }
 
 #[test]
-fn indented_top_level_sequence_of_inline_mappings_hits_fallback_parent_indent() {
+fn nested_inline_mapping_sequence_entries_share_parent_indent() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
-    let yaml = "  - key: Foo\n  - key: Bar\n";
-    let hits = indentation::check(yaml, &cfg);
-    assert_eq!(
-        hits,
-        vec![Violation {
-            line: 2,
-            column: 3,
-            message: "wrong indentation: expected 4 but found 2".to_string(),
-        }]
-    );
+    let yaml = "root:\n  - key: Foo\n  - key: Bar\n";
+    assert!(indentation::check(yaml, &cfg).is_empty());
 }
 
 #[test]
@@ -378,6 +370,36 @@ fn sequence_of_mappings_can_dedent_to_root() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "- key:\n    - nested\n- other\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+#[test]
+fn sequence_entry_mapping_requires_nested_sequence_indent_when_enabled() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "- key:\n  - nested\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 2,
+            column: 3,
+            message: "wrong indentation: expected 4 but found 2".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn top_level_indented_inline_mapping_sequence_uses_fallback_parent_indent() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let yaml = "  - key: Foo\n  - key: Bar\n";
+    let hits = indentation::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 2,
+            column: 3,
+            message: "wrong indentation: expected 4 but found 2".to_string(),
+        }]
+    );
 }
 
 #[test]
