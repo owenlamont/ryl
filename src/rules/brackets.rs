@@ -1,7 +1,7 @@
 use crate::config::YamlLintConfig;
-use crate::rules::flow_collection::{self, FlowCollectionDescriptor};
+use crate::rules::support::flow_collection::{self, FlowCollectionDescriptor};
 
-pub use crate::rules::flow_collection::{Forbid, Violation};
+pub use crate::rules::support::flow_collection::{Forbid, Violation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config(flow_collection::Config);

@@ -1,4 +1,5 @@
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::block_scalar_marker_index;
 
 pub const ID: &str = "indentation";
 
@@ -825,13 +826,7 @@ fn classify_mapping(content: &str) -> (bool, bool) {
 }
 
 fn detect_multiline_indicator(content: &str) -> bool {
-    let base = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    base.ends_with("|-")
-        || base.ends_with("|+")
-        || base.ends_with('|')
-        || base.ends_with(">-")
-        || base.ends_with(">+")
-        || base.ends_with('>')
+    block_scalar_marker_index(content).is_some()
 }
 
 fn sequence_prefix_width(content: &str) -> usize {

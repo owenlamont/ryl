@@ -3,7 +3,9 @@ use std::ops::Range;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::span_utils::{ranges_to_char_indices, span_char_index_to_byte};
+use crate::rules::support::span_utils::{
+    ranges_to_char_indices, span_char_index_to_byte,
+};
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";

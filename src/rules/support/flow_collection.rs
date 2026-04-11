@@ -3,7 +3,7 @@ use std::ops::Range;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::span_utils::ranges_to_char_indices;
+use crate::rules::support::span_utils::ranges_to_char_indices;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Forbid {

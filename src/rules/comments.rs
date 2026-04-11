@@ -1,6 +1,10 @@
 use saphyr::YamlOwned;
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::{
+    block_scalar_marker_index, leading_whitespace_width,
+    strip_trailing_comment_preserving_quotes,
+};
 
 pub const ID: &str = "comments";
 
@@ -69,7 +73,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut block_tracker = BlockScalarTracker::default();
 
     for (line_idx, line) in buffer.lines().enumerate() {
-        let indent = leading_indent_width(line);
+        let indent = leading_whitespace_width(line);
         let content = &line[indent..];
 
         if block_tracker.consume_line(indent, content) {
@@ -133,7 +137,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let mut changed = false;
 
     for (line_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
-        let indent = leading_indent_width(raw_line);
+        let indent = leading_whitespace_width(raw_line);
         let content = &raw_line[indent..];
 
         let consumed = block_tracker.consume_line(indent, content);
@@ -148,7 +152,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         };
 
         if !consumed {
-            let indent = leading_indent_width(&updated_line);
+            let indent = leading_whitespace_width(&updated_line);
             let content = &updated_line[indent..];
             block_tracker.observe_indicator(indent, content);
         }
@@ -278,59 +282,16 @@ fn column_at(line: &str, byte_idx: usize) -> usize {
     line[..byte_idx].chars().count() + 1
 }
 
-fn leading_indent_width(line: &str) -> usize {
-    line.chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .count()
-}
-
 fn is_comment_position(line: &str, idx: usize) -> bool {
     line[..idx].chars().last().is_none_or(char::is_whitespace)
 }
 
 fn strip_trailing_comment_for_block(content: &str) -> &str {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
-    for (idx, ch) in content.char_indices() {
-        if ch == '\\' && !in_single {
-            escaped = !escaped;
-            continue;
-        }
-
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\'' if !in_double => {
-                in_single = !in_single;
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-            }
-            '#' if !in_single && !in_double => {
-                return content[..idx].trim_end();
-            }
-            _ => {}
-        }
-    }
-    content.trim_end()
+    strip_trailing_comment_preserving_quotes(content)
 }
 
 fn is_block_scalar_indicator(content: &str) -> bool {
-    if content.is_empty() {
-        return false;
-    }
-
-    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    trimmed.ends_with("|-")
-        || trimmed.ends_with("|+")
-        || trimmed.ends_with('|')
-        || trimmed.ends_with(">-")
-        || trimmed.ends_with(">+")
-        || trimmed.ends_with('>')
+    block_scalar_marker_index(content).is_some()
 }
 
 fn fix_comment_line(

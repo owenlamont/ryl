@@ -1,4 +1,8 @@
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::{
+    block_scalar_marker_index, leading_whitespace_width,
+    strip_trailing_comment_preserving_quotes,
+};
 
 pub const ID: &str = "comments-indentation";
 pub const MESSAGE: &str = "comment not indented like content";
@@ -107,12 +111,6 @@ fn classify_line_kind(content: &str) -> LineKind {
     }
 }
 
-fn leading_whitespace_width(line: &str) -> usize {
-    line.chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .count()
-}
-
 #[derive(Debug, Default)]
 struct BlockScalarTracker {
     state: Option<BlockScalarState>,
@@ -190,54 +188,14 @@ fn compute_next_content_indents(lines: &[LineInfo]) -> Vec<Option<usize>> {
 }
 
 fn strip_trailing_comment_for_block(content: &str) -> &str {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
-    for (idx, ch) in content.char_indices() {
-        if ch == '\\' && !in_single {
-            escaped = !escaped;
-            continue;
-        }
-
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\'' if !in_double => {
-                in_single = !in_single;
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-            }
-            '#' if !in_single && !in_double => {
-                return content[..idx].trim_end();
-            }
-            _ => {}
-        }
-    }
-    content.trim_end()
+    strip_trailing_comment_preserving_quotes(content)
 }
 
 fn is_block_scalar_indicator(content: &str) -> bool {
-    if content.is_empty() {
-        return false;
-    }
-
-    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    let marker_idx = if trimmed.ends_with("|-")
-        || trimmed.ends_with("|+")
-        || trimmed.ends_with(">-")
-        || trimmed.ends_with(">+")
-    {
-        trimmed.len().saturating_sub(2)
-    } else if trimmed.ends_with('|') || trimmed.ends_with('>') {
-        trimmed.len().saturating_sub(1)
-    } else {
+    let Some(marker_idx) = block_scalar_marker_index(content) else {
         return false;
     };
-
+    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
     let prefix = trimmed[..marker_idx].trim_end();
     prefix.ends_with(':') || prefix.ends_with('-') || prefix.ends_with('?')
 }

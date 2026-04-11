@@ -1,7 +1,7 @@
 use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::span_utils::span_char_index_to_byte;
+use crate::rules::support::span_utils::span_char_index_to_byte;
 
 pub const ID: &str = "float-values";
 

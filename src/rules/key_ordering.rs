@@ -3,7 +3,7 @@ use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::config::YamlLintConfig;
-use crate::rules::mapping_key_walker::Walker;
+use crate::rules::support::mapping_key_walker::Walker;
 
 pub const ID: &str = "key-ordering";
 

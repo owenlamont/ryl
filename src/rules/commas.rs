@@ -3,7 +3,7 @@ use std::ops::Range;
 use saphyr_parser::{Event, Marker, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::span_utils::span_char_index_to_byte;
+use crate::rules::support::span_utils::span_char_index_to_byte;
 
 pub const ID: &str = "commas";
 const TOO_MANY_BEFORE: &str = "too many spaces before comma";
