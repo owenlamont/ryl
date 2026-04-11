@@ -161,7 +161,7 @@ sticking to the quick-status step above.
   character vs byte offset logic.
 - Use meaningful function and variable names in tests—comments are discouraged.
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
-   tests in `tests/` so LLVM regions stay unique.
+  tests in `tests/` so LLVM regions stay unique.
 
 ## Release Checklist
 

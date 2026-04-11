@@ -68,11 +68,11 @@ repos:
         files: package.json
         pass_filenames: false
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.1.66
+    rev: v0.1.69
     hooks:
       - id: rumdl
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.15.9
+    rev: v0.15.10
     hooks:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --show-fixes]
@@ -80,7 +80,7 @@ repos:
       - id: ruff-format
         types_or: [python, pyi, jupyter]
   - repo: https://github.com/owenlamont/ryl-pre-commit
-    rev: v0.4.1
+    rev: v0.5.0
     hooks:
       - id: ryl
   - repo: https://github.com/adhtruong/mirrors-typos
