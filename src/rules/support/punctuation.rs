@@ -75,6 +75,26 @@ pub(crate) fn line_and_column(
     (left + 1, byte_idx - line_start + 1)
 }
 
+pub(crate) fn template_double_curly_end(
+    chars: &[(usize, char)],
+    idx: usize,
+) -> Option<usize> {
+    if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
+        return None;
+    }
+    let mut cursor = idx + 2;
+    while cursor + 1 < chars.len() {
+        if chars[cursor].1 == '}' && chars[cursor + 1].1 == '}' {
+            let inner_contains_mapping =
+                chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
+            return (!inner_contains_mapping).then_some(cursor + 2);
+        }
+        cursor += 1;
+    }
+    let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
+    (!inner_contains_mapping).then_some(chars.len())
+}
+
 struct ScalarRangeCollector {
     ranges: Vec<Range<usize>>,
 }

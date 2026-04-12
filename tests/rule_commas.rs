@@ -238,3 +238,20 @@ fn fix_returns_none_for_empty_input() {
     let fixed = commas::fix("", &cfg);
     assert_eq!(fixed, None);
 }
+
+#[test]
+fn ignores_commas_inside_double_curly_templates() {
+    let cfg = defaults();
+    let diagnostics = commas::check("value: {{ foo(1,2) }}\n", &cfg);
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics inside template: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn fix_ignores_commas_inside_double_curly_templates() {
+    let cfg = defaults();
+    let fixed = commas::fix("value: {{ foo(1,2) }}\n", &cfg);
+    assert_eq!(fixed, None);
+}

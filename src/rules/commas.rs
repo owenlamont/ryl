@@ -1,6 +1,7 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
+    template_double_curly_end,
 };
 use crate::rules::support::span_utils::span_char_index_to_byte;
 
@@ -130,7 +131,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
         match ch {
             '[' => contexts.push(FlowKind::Sequence),
-            '{' => contexts.push(FlowKind::Mapping),
+            '{' => {
+                if let Some(next_idx) = template_double_curly_end(&chars, i) {
+                    i = next_idx;
+                    continue;
+                }
+                contexts.push(FlowKind::Mapping);
+            }
             ']' | '}' => {
                 contexts.pop();
             }
@@ -188,7 +195,13 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 
         match ch {
             '[' => contexts.push(FlowKind::Sequence),
-            '{' => contexts.push(FlowKind::Mapping),
+            '{' => {
+                if let Some(next_idx) = template_double_curly_end(&chars, i) {
+                    i = next_idx;
+                    continue;
+                }
+                contexts.push(FlowKind::Mapping);
+            }
             ']' | '}' => {
                 contexts.pop();
             }

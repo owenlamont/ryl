@@ -4,7 +4,7 @@ use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, line_and_column, skip_comment,
+    build_line_starts, line_and_column, skip_comment, template_double_curly_end,
 };
 use crate::rules::support::span_utils::ranges_to_char_indices;
 
@@ -735,23 +735,6 @@ fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<us
         }
     }
     None
-}
-
-fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usize> {
-    if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
-        return None;
-    }
-    let mut cursor = idx + 2;
-    while cursor + 1 < chars.len() {
-        if chars[cursor].1 == '}' && chars[cursor + 1].1 == '}' {
-            let inner_contains_mapping =
-                chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
-            return (!inner_contains_mapping).then_some(cursor + 2);
-        }
-        cursor += 1;
-    }
-    let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
-    (!inner_contains_mapping).then_some(chars.len())
 }
 
 fn target_spacing(current: usize, min: i64, max: i64) -> usize {
