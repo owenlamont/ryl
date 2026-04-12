@@ -194,3 +194,69 @@ fn fix_missing_file_reports_read_error() {
     );
     assert!(stdout.is_empty(), "expected no stdout: {stdout}");
 }
+
+#[test]
+fn fix_applies_new_safe_spacing_rules() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "root:\n  mapping: {  key: [1 ,2]   }\n  empty: []\n # wrong\n  next: value\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\ncomments-indentation = 'enable'\ncommas = 'enable'\nbraces = 'enable'\n[rules.brackets]\nmin-spaces-inside-empty = 1\nmax-spaces-inside-empty = 1\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    assert_eq!(
+        code, 0,
+        "new spacing fixes should succeed: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("Found 6 problems (6 fixed, 0 remaining)."),
+        "expected all-new-fixes summary in stderr: {stderr}"
+    );
+    assert!(stdout.is_empty(), "expected no stdout: {stdout}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "root:\n  mapping: {key: [1, 2]}\n  empty: [ ]\n  # wrong\n  next: value\n"
+    );
+}
+
+#[test]
+fn fix_comments_indentation_handles_crlf_blank_lines_without_newline_normalization() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "root:\r\n  # first\r\n\r\n # second\r\n  value: 1\r\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nnew-lines = 'disable'\nnew-line-at-end-of-file = 'disable'\ncomments-indentation = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    assert_eq!(
+        code, 0,
+        "comments-indentation fix should succeed on CRLF input: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("Found 1 problem (1 fixed, 0 remaining)."),
+        "expected one fixed CRLF comments-indentation problem: {stderr}"
+    );
+    assert!(stdout.is_empty(), "expected no stdout: {stdout}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "root:\r\n  # first\r\n\r\n  # second\r\n  value: 1\r\n"
+    );
+}

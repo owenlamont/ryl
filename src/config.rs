@@ -160,7 +160,11 @@ pub struct FixConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixRule {
+    Braces,
+    Brackets,
+    Commas,
     Comments,
+    CommentsIndentation,
     NewLineAtEndOfFile,
     NewLines,
 }
@@ -169,7 +173,11 @@ impl FixRule {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Braces => "braces",
+            Self::Brackets => "brackets",
+            Self::Commas => "commas",
             Self::Comments => "comments",
+            Self::CommentsIndentation => "comments-indentation",
             Self::NewLineAtEndOfFile => "new-line-at-end-of-file",
             Self::NewLines => "new-lines",
         }
@@ -177,7 +185,11 @@ impl FixRule {
 
     fn parse(value: &str) -> Option<Self> {
         match value {
+            "braces" => Some(Self::Braces),
+            "brackets" => Some(Self::Brackets),
+            "commas" => Some(Self::Commas),
             "comments" => Some(Self::Comments),
+            "comments-indentation" => Some(Self::CommentsIndentation),
             "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
             "new-lines" => Some(Self::NewLines),
             _ => None,

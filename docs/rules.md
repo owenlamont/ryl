@@ -9,12 +9,12 @@ The following rules are implemented and can be configured in your `.ryl.toml` (o
 | Rule | Description | Fixable |
 | :--- | :--- | :---: |
 | `anchors` | Checks for anchor and alias definitions. | |
-| `braces` | Checks for spaces inside braces. | |
-| `brackets` | Checks for spaces inside brackets. | |
+| `braces` | Checks for spaces inside braces. | ✅ |
+| `brackets` | Checks for spaces inside brackets. | ✅ |
 | `colons` | Checks for spaces around colons. | |
-| `commas` | Checks for spaces around commas. | |
+| `commas` | Checks for spaces around commas. | ✅ |
 | `comments` | Checks for spaces after `#` and before `#`. | ✅ |
-| `comments-indentation` | Checks for indentation of comments. | |
+| `comments-indentation` | Checks for indentation of comments. | ✅ |
 | `document-end` | Checks for the document end marker `...`. | |
 | `document-start` | Checks for the document start marker `---`. | |
 | `empty-lines` | Checks for the number of empty lines. | |
@@ -52,6 +52,10 @@ allow-non-breakable-words = true
 ### Fixable Rules
 
 - `comments`
+- `comments-indentation`
+- `commas`
+- `braces`
+- `brackets`
 - `new-lines`
 - `new-line-at-end-of-file`
 
