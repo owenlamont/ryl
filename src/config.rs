@@ -370,26 +370,12 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn rule_option_str(&self, rule: &str, option: &str) -> Option<&str> {
-        let node = self.rules.get(rule)?;
-        let map = node.as_mapping()?;
-        for (key, value) in map {
-            if key.as_str() == Some(option) {
-                return value.as_str();
-            }
-        }
-        None
+        self.rule_option(rule, option).and_then(YamlOwned::as_str)
     }
 
     #[must_use]
     pub fn rule_option(&self, rule: &str, option: &str) -> Option<&YamlOwned> {
-        let node = self.rules.get(rule)?;
-        let map = node.as_mapping()?;
-        for (key, value) in map {
-            if key.as_str() == Some(option) {
-                return Some(value);
-            }
-        }
-        None
+        self.rules.get(rule)?.as_mapping_get(option)
     }
 
     #[must_use]
@@ -639,22 +625,7 @@ impl YamlLintConfig {
                     continue;
                 };
                 validate_rule_value(name, v)?;
-                if let Some(dst) = cfg.rules.get_mut(name) {
-                    deep_merge_yaml_owned(dst, v);
-                } else {
-                    cfg.rules.insert(name.to_owned(), v.clone());
-                }
-                cfg.refresh_rule_filter(name);
-                let mut seen = false;
-                for e in &cfg.rule_names {
-                    if e == name {
-                        seen = true;
-                        break;
-                    }
-                }
-                if !seen {
-                    cfg.rule_names.push(name.to_owned());
-                }
+                cfg.merge_rule(name, v);
             }
         }
 
@@ -667,15 +638,7 @@ impl YamlLintConfig {
         self.ignore_from_files.append(&mut other.ignore_from_files);
         // Merge rules deeply and accumulate names
         for (name, val) in other.rules {
-            if let Some(dst) = self.rules.get_mut(&name) {
-                deep_merge_yaml_owned(dst, &val);
-            } else {
-                self.rules.insert(name.clone(), val.clone());
-            }
-            self.refresh_rule_filter(&name);
-            if !self.rule_names.iter().any(|e| e == &name) {
-                self.rule_names.push(name);
-            }
+            self.merge_rule(&name, &val);
         }
         if !other.yaml_file_patterns.is_empty() {
             self.yaml_file_patterns = other.yaml_file_patterns;
@@ -841,6 +804,18 @@ impl YamlLintConfig {
         }
         Ok(())
     }
+
+    fn merge_rule(&mut self, name: &str, value: &YamlOwned) {
+        if let Some(dst) = self.rules.get_mut(name) {
+            deep_merge_yaml_owned(dst, value);
+        } else {
+            self.rules.insert(name.to_owned(), value.clone());
+        }
+        self.refresh_rule_filter(name);
+        if !self.rule_names.iter().any(|entry| entry == name) {
+            self.rule_names.push(name.to_owned());
+        }
+    }
 }
 
 fn build_rule_filter(
@@ -949,33 +924,21 @@ fn parse_fix_selector_list(
     node: &YamlOwned,
     option_name: &str,
 ) -> Result<Vec<FixRuleSelector>, String> {
-    let Some(seq) = node.as_sequence() else {
-        return Err(format!(
-            "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
-        ));
-    };
-
-    let mut rules = Vec::with_capacity(seq.len());
-    for item in seq {
-        let Some(rule) = item.as_str() else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
-            ));
-        };
-        let Some(selector) = FixRuleSelector::parse(rule) else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
-            ));
-        };
-        rules.push(selector);
-    }
-    Ok(rules)
+    parse_fix_list(node, option_name, FixRuleSelector::parse)
 }
 
 fn parse_fix_rule_list(
     node: &YamlOwned,
     option_name: &str,
 ) -> Result<Vec<FixRule>, String> {
+    parse_fix_list(node, option_name, FixRule::parse)
+}
+
+fn parse_fix_list<T>(
+    node: &YamlOwned,
+    option_name: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Result<Vec<T>, String> {
     let Some(seq) = node.as_sequence() else {
         return Err(format!(
             "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
@@ -989,7 +952,7 @@ fn parse_fix_rule_list(
                 "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
             ));
         };
-        let Some(rule) = FixRule::parse(rule) else {
+        let Some(rule) = parse(rule) else {
             return Err(format!(
                 "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
             ));
