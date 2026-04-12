@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use crate::config::YamlLintConfig;
 use crate::decoder;
-use crate::rules::{comments, new_line_at_end_of_file, new_lines};
+use crate::rules::{
+    braces, brackets, commas, comments, comments_indentation, new_line_at_end_of_file,
+    new_lines,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixSafety {
@@ -15,20 +18,34 @@ struct RuleFix {
     safety: FixSafety,
 }
 
-const SAFE_FIX_RULES: [RuleFix; 3] = [
-    RuleFix {
-        rule: new_lines::ID,
-        safety: FixSafety::Safe,
-    },
-    RuleFix {
-        rule: comments::ID,
-        safety: FixSafety::Safe,
-    },
-    RuleFix {
-        rule: new_line_at_end_of_file::ID,
-        safety: FixSafety::Safe,
-    },
-];
+const NEW_LINES_FIX: RuleFix = RuleFix {
+    rule: new_lines::ID,
+    safety: FixSafety::Safe,
+};
+const COMMENTS_FIX: RuleFix = RuleFix {
+    rule: comments::ID,
+    safety: FixSafety::Safe,
+};
+const COMMENTS_INDENTATION_FIX: RuleFix = RuleFix {
+    rule: comments_indentation::ID,
+    safety: FixSafety::Safe,
+};
+const COMMAS_FIX: RuleFix = RuleFix {
+    rule: commas::ID,
+    safety: FixSafety::Safe,
+};
+const BRACES_FIX: RuleFix = RuleFix {
+    rule: braces::ID,
+    safety: FixSafety::Safe,
+};
+const BRACKETS_FIX: RuleFix = RuleFix {
+    rule: brackets::ID,
+    safety: FixSafety::Safe,
+};
+const FINAL_NEWLINE_FIX: RuleFix = RuleFix {
+    rule: new_line_at_end_of_file::ID,
+    safety: FixSafety::Safe,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FixStats {
@@ -81,31 +98,60 @@ pub fn apply_safe_fixes(
 ) -> String {
     let mut content = input.to_string();
 
-    if rule_enabled(SAFE_FIX_RULES[0], cfg, path, base_dir) {
-        let rule_cfg = new_lines::Config::resolve(cfg);
-        if let Some(updated) =
-            new_lines::fix(&content, rule_cfg, new_lines::platform_newline())
-        {
-            content = updated;
-        }
-    }
-
-    if rule_enabled(SAFE_FIX_RULES[1], cfg, path, base_dir) {
-        let rule_cfg = comments::Config::resolve(cfg);
-        if let Some(updated) = comments::fix(&content, &rule_cfg) {
-            content = updated;
-        }
-    }
-
-    if rule_enabled(SAFE_FIX_RULES[2], cfg, path, base_dir) {
-        let newline = target_newline(&content, cfg, path, base_dir);
-        if let Some(updated) = new_line_at_end_of_file::fix(&content, newline.as_str())
-        {
-            content = updated;
-        }
-    }
+    content = apply_rule_fix(content, NEW_LINES_FIX, cfg, path, base_dir, |buffer| {
+        new_lines::fix(
+            buffer,
+            new_lines::Config::resolve(cfg),
+            new_lines::platform_newline(),
+        )
+    });
+    content = apply_rule_fix(content, COMMENTS_FIX, cfg, path, base_dir, |buffer| {
+        comments::fix(buffer, &comments::Config::resolve(cfg))
+    });
+    content = apply_rule_fix(
+        content,
+        COMMENTS_INDENTATION_FIX,
+        cfg,
+        path,
+        base_dir,
+        |buffer| {
+            comments_indentation::fix(
+                buffer,
+                &comments_indentation::Config::resolve(cfg),
+            )
+        },
+    );
+    content = apply_rule_fix(content, COMMAS_FIX, cfg, path, base_dir, |buffer| {
+        commas::fix(buffer, &commas::Config::resolve(cfg))
+    });
+    content = apply_rule_fix(content, BRACES_FIX, cfg, path, base_dir, |buffer| {
+        braces::fix(buffer, &braces::Config::resolve(cfg))
+    });
+    content = apply_rule_fix(content, BRACKETS_FIX, cfg, path, base_dir, |buffer| {
+        brackets::fix(buffer, &brackets::Config::resolve(cfg))
+    });
+    content =
+        apply_rule_fix(content, FINAL_NEWLINE_FIX, cfg, path, base_dir, |buffer| {
+            let newline = target_newline(buffer, cfg, path, base_dir);
+            new_line_at_end_of_file::fix(buffer, newline.as_str())
+        });
 
     content
+}
+
+fn apply_rule_fix(
+    content: String,
+    rule: RuleFix,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    fix: impl FnOnce(&str) -> Option<String>,
+) -> String {
+    if !rule_enabled(rule, cfg, path, base_dir) {
+        return content;
+    }
+
+    fix(&content).unwrap_or(content)
 }
 
 fn rule_enabled(

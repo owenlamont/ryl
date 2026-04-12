@@ -168,3 +168,35 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
     assert_eq!(fs::read_to_string(&second).unwrap(), "alpha: beta\n");
     assert_eq!(stats.changed_files, 2);
 }
+
+#[test]
+fn apply_safe_fixes_runs_comments_indentation_and_commas() {
+    let cfg = config(
+        "rules:\n  comments-indentation: enable\n  commas: enable\n  new-line-at-end-of-file: disable\n",
+    );
+
+    let fixed = apply_safe_fixes(
+        "items: [1 ,2]\n # wrong\n  next: value\n",
+        &cfg,
+        std::path::Path::new("input.yaml"),
+        std::path::Path::new("."),
+    );
+
+    assert_eq!(fixed, "items: [1, 2]\n  # wrong\n  next: value\n");
+}
+
+#[test]
+fn apply_safe_fixes_runs_flow_collection_spacing_fixes() {
+    let cfg = config(
+        "rules:\n  braces:\n    min-spaces-inside-empty: 1\n    max-spaces-inside-empty: 1\n  brackets:\n    min-spaces-inside-empty: 1\n    max-spaces-inside-empty: 1\n  new-line-at-end-of-file: disable\n",
+    );
+
+    let fixed = apply_safe_fixes(
+        "mapping: {  key: value   }\nsequence: []\n",
+        &cfg,
+        std::path::Path::new("input.yaml"),
+        std::path::Path::new("."),
+    );
+
+    assert_eq!(fixed, "mapping: {key: value}\nsequence: [ ]\n");
+}

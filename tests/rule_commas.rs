@@ -203,3 +203,38 @@ fn bare_carriage_return_before_comma_is_ignored() {
         "unexpected diagnostics: {diagnostics:?}"
     );
 }
+
+#[test]
+fn fix_normalizes_spacing_around_commas() {
+    let cfg = defaults();
+    let fixed = commas::fix("[1 ,2,  3]\n", &cfg);
+    assert_eq!(fixed, Some("[1, 2, 3]\n".to_string()));
+}
+
+#[test]
+fn fix_handles_flow_mapping_entries() {
+    let cfg = defaults();
+    let fixed = commas::fix("{foo: 1 ,bar: 2}\n", &cfg);
+    assert_eq!(fixed, Some("{foo: 1, bar: 2}\n".to_string()));
+}
+
+#[test]
+fn fix_ignores_commas_inside_scalars_and_comments() {
+    let cfg = defaults();
+    let fixed = commas::fix("[\"café, menu\", # comment\n  3]\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_respects_relaxed_spacing_config() {
+    let cfg = Config::new_for_tests(-1, 0, -1);
+    let fixed = commas::fix("[1   ,2]\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_returns_none_for_empty_input() {
+    let cfg = defaults();
+    let fixed = commas::fix("", &cfg);
+    assert_eq!(fixed, None);
+}

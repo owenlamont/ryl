@@ -54,3 +54,36 @@ pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
         None
     }
 }
+
+pub(crate) fn split_lines_preserve_endings(
+    buffer: &str,
+) -> impl Iterator<Item = (usize, &str, &str)> {
+    let mut start = 0usize;
+    let mut line_idx = 0usize;
+    std::iter::from_fn(move || {
+        if start == buffer.len() {
+            return None;
+        }
+
+        let bytes = buffer.as_bytes();
+        let mut idx = start;
+        while idx < bytes.len() && bytes[idx] != b'\n' {
+            idx += 1;
+        }
+
+        let (line, ending, next_start) = if idx < bytes.len() {
+            if idx > start && bytes[idx - 1] == b'\r' {
+                (&buffer[start..idx - 1], &buffer[idx - 1..=idx], idx + 1)
+            } else {
+                (&buffer[start..idx], &buffer[idx..=idx], idx + 1)
+            }
+        } else {
+            (&buffer[start..], "", bytes.len())
+        };
+
+        let current = (line_idx, line, ending);
+        line_idx += 1;
+        start = next_start;
+        Some(current)
+    })
+}

@@ -1,6 +1,6 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, leading_whitespace_width,
+    block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,
     strip_trailing_comment_preserving_quotes,
 };
 
@@ -80,6 +80,71 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
     }
 
     diagnostics
+}
+
+#[must_use]
+pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
+    if buffer.is_empty() {
+        return None;
+    }
+
+    let mut block_tracker = BlockScalarTracker::default();
+    let mut lines: Vec<LineInfo> = Vec::new();
+
+    for raw_line in buffer.lines() {
+        let indent = leading_whitespace_width(raw_line);
+        let content = &raw_line[indent..];
+
+        let consumed = block_tracker.consume_line(indent, content);
+        let kind = if consumed {
+            LineKind::BlockScalarContent
+        } else {
+            classify_line_kind(content)
+        };
+
+        lines.push(LineInfo { indent, kind });
+        block_tracker.observe_indicator(indent, content);
+    }
+
+    let prev_content_indents = compute_prev_content_indents(&lines);
+    let next_content_indents = compute_next_content_indents(&lines);
+
+    let mut changed = false;
+    let mut last_comment_indent: Option<usize> = None;
+    let mut output = String::with_capacity(buffer.len());
+
+    for ((line_idx, raw_line, ending), line) in
+        split_lines_preserve_endings(buffer).zip(lines.iter())
+    {
+        match line.kind {
+            LineKind::Comment => {
+                let prev_indent = prev_content_indents[line_idx].unwrap_or(0);
+                let next_indent = next_content_indents[line_idx].unwrap_or(0);
+                let reference_indent =
+                    last_comment_indent.unwrap_or_else(|| prev_indent.max(next_indent));
+                let target_indent =
+                    if line.indent != reference_indent && line.indent != next_indent {
+                        changed = true;
+                        reference_indent
+                    } else {
+                        line.indent
+                    };
+                last_comment_indent = Some(target_indent);
+                output.push_str(&" ".repeat(target_indent));
+                output.push_str(raw_line.trim_start_matches([' ', '\t']));
+            }
+            LineKind::Other | LineKind::DirectiveComment => {
+                last_comment_indent = None;
+                output.push_str(raw_line);
+            }
+            LineKind::Empty | LineKind::BlockScalarContent => {
+                output.push_str(raw_line);
+            }
+        }
+        output.push_str(ending);
+    }
+
+    changed.then_some(output)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

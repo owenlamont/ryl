@@ -52,13 +52,51 @@ fn toml_config_parses_fix_policy() {
 }
 
 #[test]
+fn toml_config_parses_new_safe_fix_rules() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "[fix]\nfixable = ['braces', 'brackets', 'commas', 'comments-indentation']\nunfixable = ['braces']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should parse new fix rules");
+
+    assert_eq!(
+        ctx.config.fix().fixable(),
+        [
+            FixRuleSelector::Rule(FixRule::Braces),
+            FixRuleSelector::Rule(FixRule::Brackets),
+            FixRuleSelector::Rule(FixRule::Commas),
+            FixRuleSelector::Rule(FixRule::CommentsIndentation),
+        ]
+    );
+    assert_eq!(ctx.config.fix().unfixable(), [FixRule::Braces]);
+    assert!(!ctx.config.fix().allows_rule("braces"));
+    assert!(ctx.config.fix().allows_rule("brackets"));
+    assert!(ctx.config.fix().allows_rule("commas"));
+    assert!(ctx.config.fix().allows_rule("comments-indentation"));
+}
+
+#[test]
 fn default_fix_policy_allows_all_rules() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join("input.yaml");
     std::fs::write(&file, "key: value\n").unwrap();
 
     let ctx = discover_config(&[file], &Overrides::default()).expect("default config");
+    assert!(ctx.config.fix().allows_rule("braces"));
+    assert!(ctx.config.fix().allows_rule("brackets"));
+    assert!(ctx.config.fix().allows_rule("commas"));
     assert!(ctx.config.fix().allows_rule("comments"));
+    assert!(ctx.config.fix().allows_rule("comments-indentation"));
     assert!(ctx.config.fix().allows_rule("new-lines"));
     assert!(!ctx.config.fix().allows_rule("indentation"));
     assert_eq!(ctx.config.fix().fixable(), [FixRuleSelector::All]);
