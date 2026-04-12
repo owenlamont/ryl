@@ -72,7 +72,9 @@ def count_lines(data: bytes) -> int:
     return data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
 
 
-def collect_metrics(root: Path, extensions: set[str]) -> list[FileMetrics]:
+def collect_metrics(
+    base_dir: Path, root: Path, extensions: set[str]
+) -> list[FileMetrics]:
     """Collect byte and line counts for files under a root.
 
     Returns:
@@ -83,7 +85,7 @@ def collect_metrics(root: Path, extensions: set[str]) -> list[FileMetrics]:
         data = path.read_bytes()
         metrics.append(
             FileMetrics(
-                path=path.relative_to(root.parent).as_posix(),
+                path=path.relative_to(base_dir).as_posix(),
                 root=root.name,
                 bytes=len(data),
                 lines=count_lines(data),
@@ -110,7 +112,7 @@ def collect_metrics_by_root(
             raise SystemExit(f"root does not exist: {raw_root}")
         if not root.is_dir():
             raise SystemExit(f"root is not a directory: {raw_root}")
-        metrics_by_root[raw_root] = collect_metrics(root, extensions)
+        metrics_by_root[raw_root] = collect_metrics(base_dir, root, extensions)
     return metrics_by_root
 
 
