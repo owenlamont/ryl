@@ -1082,16 +1082,10 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "indentation" => validate_indentation_option(key, val)?,
                 "line-length" => validate_line_length_option(key, val)?,
                 "trailing-spaces" => {
-                    let key_name = describe_rule_option_key(key);
-                    return Err(format!(
-                        "invalid config: unknown option \"{key_name}\" for rule \"trailing-spaces\""
-                    ));
+                    return Err(unknown_rule_option("trailing-spaces", key));
                 }
                 "comments-indentation" => {
-                    let key_name = describe_rule_option_key(key);
-                    return Err(format!(
-                        "invalid config: unknown option \"{key_name}\" for rule \"comments-indentation\""
-                    ));
+                    return Err(unknown_rule_option("comments-indentation", key));
                 }
                 _ => {}
             }
@@ -1140,36 +1134,14 @@ fn validate_document_end_option(
     key: &YamlOwned,
     val: &YamlOwned,
 ) -> Result<(), String> {
-    match key.as_str() {
-        Some("present") => validate_bool_option(val, "document-end", "present"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"document-end\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"document-end\""
-            ))
-        }
-    }
+    validate_document_presence_option("document-end", key, val)
 }
 
 fn validate_document_start_option(
     key: &YamlOwned,
     val: &YamlOwned,
 ) -> Result<(), String> {
-    match key.as_str() {
-        Some("present") => validate_bool_option(val, "document-start", "present"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"document-start\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"document-start\""
-            ))
-        }
-    }
+    validate_document_presence_option("document-start", key, val)
 }
 
 fn validate_brace_like_option(
@@ -1178,10 +1150,7 @@ fn validate_brace_like_option(
     val: &YamlOwned,
 ) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"{rule}\""
-        ));
+        return Err(unknown_rule_option(rule, key));
     };
 
     match name {
@@ -1210,18 +1179,13 @@ fn validate_brace_like_option(
                 "invalid config: option \"max-spaces-inside-empty\" of \"{rule}\" should be int"
             )
         }),
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"{rule}\""
-        )),
+        _ => Err(unknown_rule_option(rule, key)),
     }
 }
 
 fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"anchors\""
-        ));
+        return Err(unknown_rule_option("anchors", key));
     };
 
     match name {
@@ -1236,9 +1200,7 @@ fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
                 ))
             }
         }
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"anchors\""
-        )),
+        _ => Err(unknown_rule_option("anchors", key)),
     }
 }
 
@@ -1247,24 +1209,13 @@ fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
         Some("max-spaces-after") => val.as_integer().map(|_| ()).ok_or_else(|| {
             "invalid config: option \"max-spaces-after\" of \"hyphens\" should be int".to_string()
         }),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"hyphens\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"hyphens\""
-            ))
-        }
+        _ => Err(unknown_rule_option("hyphens", key)),
     }
 }
 
 fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"commas\""
-        ));
+        return Err(unknown_rule_option("commas", key));
     };
 
     match name {
@@ -1277,9 +1228,7 @@ fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
         "max-spaces-after" => val.as_integer().map(|_| ()).ok_or_else(|| {
             "invalid config: option \"max-spaces-after\" of \"commas\" should be int".to_string()
         }),
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"commas\""
-        )),
+        _ => Err(unknown_rule_option("commas", key)),
     }
 }
 
@@ -1296,9 +1245,7 @@ fn validate_comments_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Stri
             "invalid config: option \"min-spaces-from-content\" of \"comments\" should be int"
                 .to_string()
         }),
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"comments\""
-        )),
+        _ => Err(unknown_rule_option("comments", key)),
     }
 }
 
@@ -1316,15 +1263,7 @@ fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             "invalid config: option \"max-end\" of \"empty-lines\" should be int"
                 .to_string()
         }),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"empty-lines\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"empty-lines\""
-            ))
-        }
+        _ => Err(unknown_rule_option("empty-lines", key)),
     }
 }
 
@@ -1342,24 +1281,13 @@ fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             "line-length",
             "allow-non-breakable-inline-mappings",
         ),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"line-length\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"line-length\""
-            ))
-        }
+        _ => Err(unknown_rule_option("line-length", key)),
     }
 }
 
 fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     if key.as_str() != Some("type") {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"new-lines\""
-        ));
+        return Err(unknown_rule_option("new-lines", key));
     }
 
     let Some(kind) = val.as_str() else {
@@ -1390,15 +1318,7 @@ fn validate_octal_values_option(
         Some("forbid-explicit-octal") => {
             validate_bool_option(val, "octal-values", "forbid-explicit-octal")
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"octal-values\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"octal-values\""
-            ))
-        }
+        _ => Err(unknown_rule_option("octal-values", key)),
     }
 }
 
@@ -1416,15 +1336,7 @@ fn validate_empty_values_option(
         Some("forbid-in-block-sequences") => {
             validate_bool_option(val, "empty-values", "forbid-in-block-sequences")
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"empty-values\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"empty-values\""
-            ))
-        }
+        _ => Err(unknown_rule_option("empty-values", key)),
     }
 }
 
@@ -1441,15 +1353,7 @@ fn validate_float_values_option(
         }
         Some("forbid-nan") => validate_bool_option(val, "float-values", "forbid-nan"),
         Some("forbid-inf") => validate_bool_option(val, "float-values", "forbid-inf"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"float-values\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"float-values\""
-            ))
-        }
+        _ => Err(unknown_rule_option("float-values", key)),
     }
 }
 
@@ -1461,15 +1365,7 @@ fn validate_key_duplicates_option(
         Some("forbid-duplicated-merge-keys") => {
             validate_bool_option(val, "key-duplicates", "forbid-duplicated-merge-keys")
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"key-duplicates\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"key-duplicates\""
-            ))
-        }
+        _ => Err(unknown_rule_option("key-duplicates", key)),
     }
 }
 
@@ -1505,15 +1401,7 @@ fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
                 Ok(())
             }
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"truthy\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
-            ))
-        }
+        _ => Err(unknown_rule_option("truthy", key)),
     }
 }
 
@@ -1552,15 +1440,7 @@ fn validate_key_ordering_option(
                 )
             }
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"key-ordering\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"key-ordering\""
-            ))
-        }
+        _ => Err(unknown_rule_option("key-ordering", key)),
     }
 }
 
@@ -1598,15 +1478,7 @@ fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
                 )
             }
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"indentation\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"indentation\""
-            ))
-        }
+        _ => Err(unknown_rule_option("indentation", key)),
     }
 }
 
@@ -1686,15 +1558,7 @@ fn validate_quoted_strings_option(
             validate_bool_option(val, "quoted-strings", "allow-quoted-quotes")
         }
         Some("check-keys") => validate_bool_option(val, "quoted-strings", "check-keys"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"quoted-strings\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"quoted-strings\""
-            ))
-        }
+        _ => Err(unknown_rule_option("quoted-strings", key)),
     }
 }
 
@@ -1775,6 +1639,22 @@ fn validate_bool_option(
             "invalid config: option \"{option_name}\" of \"{rule_name}\" should be bool"
         ))
     }
+}
+
+fn validate_document_presence_option(
+    rule: &str,
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
+    match key.as_str() {
+        Some("present") => validate_bool_option(val, rule, "present"),
+        _ => Err(unknown_rule_option(rule, key)),
+    }
+}
+
+fn unknown_rule_option(rule: &str, key: &YamlOwned) -> String {
+    let key_name = describe_rule_option_key(key);
+    format!("invalid config: unknown option \"{key_name}\" for rule \"{rule}\"")
 }
 
 fn resolve_extend_path(
