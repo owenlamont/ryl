@@ -57,11 +57,17 @@ ryl is a CLI tool for linting yaml files
   `prek run --all-files`).
 - `prek` already runs the key tooling (e.g., trim/fix whitespace, `cargo fmt`,
   `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
-  invoking those individually—just run `prek` once after code *or* docs updates.
+  invoking those individually. Re-run `prek run --all-files` until the auto-fixes
+  stabilise and a full pass succeeds without modifying files.
 - Whenever source files are edited ensure the full test suite passes (run
   `./scripts/coverage-missing.sh` (Unix) or
   `pwsh ./scripts/coverage-missing.ps1` (Windows) to regenerate coverage; it reports
   uncovered ranges and confirms when coverage is complete)
+- After lint, tests, and coverage are green, review code size changes with
+  `uv run scripts/source_size.py --compare-to <branch-or-ref>` (typically the branch
+  point or `HEAD`). If the size increase looks large relative to the added
+  functionality, look for opportunities to make the implementation DRYer, reuse shared
+  helpers, or simplify it before committing.
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -103,19 +109,36 @@ hunting through scattered tips:
 1. Quick status before pushing: run `./scripts/coverage-missing.sh` (Unix) or
    `pwsh ./scripts/coverage-missing.ps1` (Windows). It reruns the coverage suite and
    prints any uncovered ranges, or explicitly confirms when coverage is complete.
-2. If the script reports files, extend CLI/system tests targeting those ranges until
+2. If the coverage script itself fails, run the relevant test suite manually first,
+   fix the failing tests, then rerun the coverage script.
+3. If the script reports files, extend CLI/system tests targeting those ranges until
    the script produces no output.
-3. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
+4. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
    after running the script. HTML is not easily machine readable though so not
    recommended.
-4. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
+5. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
    that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
-5. When you need to observe the exact flow through an uncovered branch, run the
+6. When you need to observe the exact flow through an uncovered branch, run the
    failing test under `rust-lldb` (ships with the toolchain). Start with
    `cargo test --no-run` and then
    `rust-lldb target/debug/deps/<test-binary> -- <filter args>` to set breakpoints
    on the problematic lines.
-6. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+7. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+
+## Code Size Workflow
+
+After finishing feature work, use this order before committing:
+
+1. Run `prek run --all-files` and rerun it until all automatic fixes have stabilised.
+2. Run `./scripts/coverage-missing.sh` (Unix) or
+   `pwsh ./scripts/coverage-missing.ps1` (Windows) and keep iterating until coverage
+   is back to 100%.
+3. If the coverage command fails for reasons unrelated to uncovered lines, run the
+   affected tests manually, fix them, then rerun the coverage command.
+4. Once lint, tests, and coverage are green, inspect code size with
+   `uv run scripts/source_size.py --compare-to <branch-or-ref>`.
+5. If the growth looks high for the functionality added, look for ways to reduce code
+   size or make the implementation DRYer before committing.
 
 ### Coverage-Friendly Rust Idioms
 
