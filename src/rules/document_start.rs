@@ -14,11 +14,9 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let present = cfg
-            .rule_option(ID, "present")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(true);
-        Self { present }
+        Self {
+            present: cfg.rule_option_bool(ID, "present", true),
+        }
     }
 
     #[must_use]

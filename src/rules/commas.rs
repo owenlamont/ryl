@@ -1,9 +1,8 @@
-use std::ops::Range;
-
-use saphyr_parser::{Event, Marker, Parser, Span, SpannedEventReceiver};
-
 use crate::config::YamlLintConfig;
-use crate::rules::span_utils::span_char_index_to_byte;
+use crate::rules::support::punctuation::{
+    build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
+};
+use crate::rules::support::span_utils::span_char_index_to_byte;
 
 pub const ID: &str = "commas";
 const TOO_MANY_BEFORE: &str = "too many spaces before comma";
@@ -24,23 +23,22 @@ impl Config {
 
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max_spaces_before = cfg
-            .rule_option(ID, "max-spaces-before")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_BEFORE);
-        let min_spaces_after = cfg
-            .rule_option(ID, "min-spaces-after")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MIN_AFTER);
-        let max_spaces_after = cfg
-            .rule_option(ID, "max-spaces-after")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_AFTER);
-
         Self {
-            max_spaces_before,
-            min_spaces_after,
-            max_spaces_after,
+            max_spaces_before: cfg.rule_option_int(
+                ID,
+                "max-spaces-before",
+                Self::DEFAULT_MAX_BEFORE,
+            ),
+            min_spaces_after: cfg.rule_option_int(
+                ID,
+                "min-spaces-after",
+                Self::DEFAULT_MIN_AFTER,
+            ),
+            max_spaces_after: cfg.rule_option_int(
+                ID,
+                "max-spaces-after",
+                Self::DEFAULT_MAX_AFTER,
+            ),
         }
     }
 
@@ -85,38 +83,6 @@ enum FlowKind {
     Mapping,
 }
 
-struct ScalarRangeCollector {
-    ranges: Vec<Range<usize>>,
-}
-
-impl ScalarRangeCollector {
-    const fn new() -> Self {
-        Self { ranges: Vec::new() }
-    }
-
-    fn push_range(&mut self, span: Span) {
-        let start = span.start.index();
-        let end = span.end.index();
-        if start < end {
-            self.ranges.push(start..end);
-        }
-    }
-
-    fn into_sorted(self) -> Vec<Range<usize>> {
-        let mut ranges = self.ranges;
-        ranges.sort_by(|a, b| a.start.cmp(&b.start));
-        ranges
-    }
-}
-
-impl SpannedEventReceiver<'_> for ScalarRangeCollector {
-    fn on_event(&mut self, ev: Event<'_>, span: Span) {
-        if matches!(ev, Event::Scalar(..)) {
-            self.push_range(span);
-        }
-    }
-}
-
 enum BeforeResult {
     SameLine { spaces: usize },
     Ignored,
@@ -133,14 +99,9 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         return Vec::new();
     }
 
-    let mut parser = Parser::new_from_str(buffer);
-    let mut collector = ScalarRangeCollector::new();
-    let _ = parser.load(&mut collector, true);
-    let scalar_ranges = collector.into_sorted();
-
+    let scalar_ranges = collect_scalar_ranges(buffer);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let buffer_len = buffer.len();
-
     let line_starts = build_line_starts(buffer);
 
     let mut violations = Vec::new();
@@ -189,24 +150,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     }
 
     violations
-}
-
-fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
-    idx += 1;
-    while idx < chars.len() {
-        let ch = chars[idx].1;
-        if ch == '\n' {
-            break;
-        }
-        if ch == '\r' {
-            if idx + 1 < chars.len() && chars[idx + 1].1 == '\n' {
-                idx += 1;
-            }
-            break;
-        }
-        idx += 1;
-    }
-    idx
 }
 
 fn evaluate_comma(
@@ -299,47 +242,6 @@ fn compute_spaces_after(chars: &[(usize, char)], comma_idx: usize) -> AfterResul
     AfterResult::Ignored
 }
 
-fn build_line_starts(buffer: &str) -> Vec<usize> {
-    let mut starts = Vec::new();
-    starts.push(0);
-    let bytes = buffer.as_bytes();
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\n' => {
-                starts.push(idx + 1);
-                idx += 1;
-            }
-            b'\r' => {
-                if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
-                    starts.push(idx + 2);
-                    idx += 2;
-                } else {
-                    starts.push(idx + 1);
-                    idx += 1;
-                }
-            }
-            _ => idx += 1,
-        }
-    }
-    starts
-}
-
-fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
-    let mut left = 0usize;
-    let mut right = line_starts.len();
-    while left + 1 < right {
-        let mid = usize::midpoint(left, right);
-        if line_starts[mid] <= byte_idx {
-            left = mid;
-        } else {
-            right = mid;
-        }
-    }
-    let line_start = line_starts[left];
-    (left + 1, byte_idx - line_start + 1)
-}
-
 #[doc(hidden)]
 #[must_use]
 pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<usize> {
@@ -354,9 +256,7 @@ pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<
 #[doc(hidden)]
 #[must_use]
 pub fn coverage_skip_zero_length_span() -> usize {
-    let mut collector = ScalarRangeCollector::new();
-    collector.push_range(Span::empty(Marker::default()));
-    collector.into_sorted().len()
+    collect_scalar_ranges("").len()
 }
 
 #[doc(hidden)]

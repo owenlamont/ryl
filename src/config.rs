@@ -370,26 +370,26 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn rule_option_str(&self, rule: &str, option: &str) -> Option<&str> {
-        let node = self.rules.get(rule)?;
-        let map = node.as_mapping()?;
-        for (key, value) in map {
-            if key.as_str() == Some(option) {
-                return value.as_str();
-            }
-        }
-        None
+        self.rule_option(rule, option).and_then(YamlOwned::as_str)
     }
 
     #[must_use]
     pub fn rule_option(&self, rule: &str, option: &str) -> Option<&YamlOwned> {
-        let node = self.rules.get(rule)?;
-        let map = node.as_mapping()?;
-        for (key, value) in map {
-            if key.as_str() == Some(option) {
-                return Some(value);
-            }
-        }
-        None
+        self.rules.get(rule)?.as_mapping_get(option)
+    }
+
+    #[must_use]
+    pub fn rule_option_bool(&self, rule: &str, option: &str, default: bool) -> bool {
+        self.rule_option(rule, option)
+            .and_then(YamlOwned::as_bool)
+            .unwrap_or(default)
+    }
+
+    #[must_use]
+    pub fn rule_option_int(&self, rule: &str, option: &str, default: i64) -> i64 {
+        self.rule_option(rule, option)
+            .and_then(YamlOwned::as_integer)
+            .unwrap_or(default)
     }
 
     #[must_use]
@@ -625,22 +625,7 @@ impl YamlLintConfig {
                     continue;
                 };
                 validate_rule_value(name, v)?;
-                if let Some(dst) = cfg.rules.get_mut(name) {
-                    deep_merge_yaml_owned(dst, v);
-                } else {
-                    cfg.rules.insert(name.to_owned(), v.clone());
-                }
-                cfg.refresh_rule_filter(name);
-                let mut seen = false;
-                for e in &cfg.rule_names {
-                    if e == name {
-                        seen = true;
-                        break;
-                    }
-                }
-                if !seen {
-                    cfg.rule_names.push(name.to_owned());
-                }
+                cfg.merge_rule(name, v);
             }
         }
 
@@ -653,15 +638,7 @@ impl YamlLintConfig {
         self.ignore_from_files.append(&mut other.ignore_from_files);
         // Merge rules deeply and accumulate names
         for (name, val) in other.rules {
-            if let Some(dst) = self.rules.get_mut(&name) {
-                deep_merge_yaml_owned(dst, &val);
-            } else {
-                self.rules.insert(name.clone(), val.clone());
-            }
-            self.refresh_rule_filter(&name);
-            if !self.rule_names.iter().any(|e| e == &name) {
-                self.rule_names.push(name);
-            }
+            self.merge_rule(&name, &val);
         }
         if !other.yaml_file_patterns.is_empty() {
             self.yaml_file_patterns = other.yaml_file_patterns;
@@ -827,6 +804,18 @@ impl YamlLintConfig {
         }
         Ok(())
     }
+
+    fn merge_rule(&mut self, name: &str, value: &YamlOwned) {
+        if let Some(dst) = self.rules.get_mut(name) {
+            deep_merge_yaml_owned(dst, value);
+        } else {
+            self.rules.insert(name.to_owned(), value.clone());
+        }
+        self.refresh_rule_filter(name);
+        if !self.rule_names.iter().any(|entry| entry == name) {
+            self.rule_names.push(name.to_owned());
+        }
+    }
 }
 
 fn build_rule_filter(
@@ -935,33 +924,21 @@ fn parse_fix_selector_list(
     node: &YamlOwned,
     option_name: &str,
 ) -> Result<Vec<FixRuleSelector>, String> {
-    let Some(seq) = node.as_sequence() else {
-        return Err(format!(
-            "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
-        ));
-    };
-
-    let mut rules = Vec::with_capacity(seq.len());
-    for item in seq {
-        let Some(rule) = item.as_str() else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
-            ));
-        };
-        let Some(selector) = FixRuleSelector::parse(rule) else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
-            ));
-        };
-        rules.push(selector);
-    }
-    Ok(rules)
+    parse_fix_list(node, option_name, FixRuleSelector::parse)
 }
 
 fn parse_fix_rule_list(
     node: &YamlOwned,
     option_name: &str,
 ) -> Result<Vec<FixRule>, String> {
+    parse_fix_list(node, option_name, FixRule::parse)
+}
+
+fn parse_fix_list<T>(
+    node: &YamlOwned,
+    option_name: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Result<Vec<T>, String> {
     let Some(seq) = node.as_sequence() else {
         return Err(format!(
             "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
@@ -975,7 +952,7 @@ fn parse_fix_rule_list(
                 "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
             ));
         };
-        let Some(rule) = FixRule::parse(rule) else {
+        let Some(rule) = parse(rule) else {
             return Err(format!(
                 "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
             ));
@@ -986,45 +963,19 @@ fn parse_fix_rule_list(
 }
 
 fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    if let Some(seq) = node.as_sequence() {
-        for it in seq {
-            let Some(s) = it.as_str() else {
-                return Err(
-                    "invalid config: ignore should contain file patterns".to_string()
-                );
-            };
-            out.extend(patterns_from_scalar(s));
-        }
-    } else if let Some(s) = node.as_str() {
-        out.extend(patterns_from_scalar(s));
-    } else {
-        return Err("invalid config: ignore should contain file patterns".to_string());
-    }
-    Ok(out)
+    parse_string_items(
+        node,
+        "invalid config: ignore should contain file patterns",
+        patterns_from_scalar,
+    )
 }
 
 fn load_ignore_from_files(node: &YamlOwned) -> Result<Vec<String>, String> {
-    if let Some(seq) = node.as_sequence() {
-        let mut files = Vec::new();
-        for it in seq {
-            let Some(s) = it.as_str() else {
-                return Err(
-                    "invalid config: ignore-from-file should contain filename(s), either as a list or string"
-                        .to_string(),
-                );
-            };
-            files.push(s.to_owned());
-        }
-        Ok(files)
-    } else if let Some(s) = node.as_str() {
-        Ok(vec![s.to_owned()])
-    } else {
-        Err(
-            "invalid config: ignore-from-file should contain filename(s), either as a list or string"
-                .to_string(),
-        )
-    }
+    parse_string_items(
+        node,
+        "invalid config: ignore-from-file should contain filename(s), either as a list or string",
+        |value| vec![value.to_owned()],
+    )
 }
 
 fn patterns_from_scalar(value: &str) -> Vec<String> {
@@ -1034,6 +985,27 @@ fn patterns_from_scalar(value: &str) -> Vec<String> {
         .filter(|line| !line.trim().is_empty())
         .map(std::string::ToString::to_string)
         .collect()
+}
+
+fn parse_string_items(
+    node: &YamlOwned,
+    error: &str,
+    map: impl Fn(&str) -> Vec<String>,
+) -> Result<Vec<String>, String> {
+    if let Some(seq) = node.as_sequence() {
+        let mut values = Vec::with_capacity(seq.len());
+        for item in seq {
+            let Some(text) = item.as_str() else {
+                return Err(error.to_string());
+            };
+            values.extend(map(text));
+        }
+        Ok(values)
+    } else if let Some(text) = node.as_str() {
+        Ok(map(text))
+    } else {
+        Err(error.to_string())
+    }
 }
 
 fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
@@ -1105,16 +1077,10 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
                 "indentation" => validate_indentation_option(key, val)?,
                 "line-length" => validate_line_length_option(key, val)?,
                 "trailing-spaces" => {
-                    let key_name = describe_rule_option_key(key);
-                    return Err(format!(
-                        "invalid config: unknown option \"{key_name}\" for rule \"trailing-spaces\""
-                    ));
+                    return Err(unknown_rule_option("trailing-spaces", key));
                 }
                 "comments-indentation" => {
-                    let key_name = describe_rule_option_key(key);
-                    return Err(format!(
-                        "invalid config: unknown option \"{key_name}\" for rule \"comments-indentation\""
-                    ));
+                    return Err(unknown_rule_option("comments-indentation", key));
                 }
                 _ => {}
             }
@@ -1163,36 +1129,14 @@ fn validate_document_end_option(
     key: &YamlOwned,
     val: &YamlOwned,
 ) -> Result<(), String> {
-    match key.as_str() {
-        Some("present") => validate_bool_option(val, "document-end", "present"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"document-end\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"document-end\""
-            ))
-        }
-    }
+    validate_document_presence_option("document-end", key, val)
 }
 
 fn validate_document_start_option(
     key: &YamlOwned,
     val: &YamlOwned,
 ) -> Result<(), String> {
-    match key.as_str() {
-        Some("present") => validate_bool_option(val, "document-start", "present"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"document-start\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"document-start\""
-            ))
-        }
-    }
+    validate_document_presence_option("document-start", key, val)
 }
 
 fn validate_brace_like_option(
@@ -1201,10 +1145,7 @@ fn validate_brace_like_option(
     val: &YamlOwned,
 ) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"{rule}\""
-        ));
+        return Err(unknown_rule_option(rule, key));
     };
 
     match name {
@@ -1233,18 +1174,13 @@ fn validate_brace_like_option(
                 "invalid config: option \"max-spaces-inside-empty\" of \"{rule}\" should be int"
             )
         }),
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"{rule}\""
-        )),
+        _ => Err(unknown_rule_option(rule, key)),
     }
 }
 
 fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"anchors\""
-        ));
+        return Err(unknown_rule_option("anchors", key));
     };
 
     match name {
@@ -1259,9 +1195,7 @@ fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
                 ))
             }
         }
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"anchors\""
-        )),
+        _ => Err(unknown_rule_option("anchors", key)),
     }
 }
 
@@ -1270,24 +1204,13 @@ fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
         Some("max-spaces-after") => val.as_integer().map(|_| ()).ok_or_else(|| {
             "invalid config: option \"max-spaces-after\" of \"hyphens\" should be int".to_string()
         }),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"hyphens\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"hyphens\""
-            ))
-        }
+        _ => Err(unknown_rule_option("hyphens", key)),
     }
 }
 
 fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"commas\""
-        ));
+        return Err(unknown_rule_option("commas", key));
     };
 
     match name {
@@ -1300,9 +1223,7 @@ fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
         "max-spaces-after" => val.as_integer().map(|_| ()).ok_or_else(|| {
             "invalid config: option \"max-spaces-after\" of \"commas\" should be int".to_string()
         }),
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"commas\""
-        )),
+        _ => Err(unknown_rule_option("commas", key)),
     }
 }
 
@@ -1319,9 +1240,7 @@ fn validate_comments_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Stri
             "invalid config: option \"min-spaces-from-content\" of \"comments\" should be int"
                 .to_string()
         }),
-        other => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"comments\""
-        )),
+        _ => Err(unknown_rule_option("comments", key)),
     }
 }
 
@@ -1339,15 +1258,7 @@ fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             "invalid config: option \"max-end\" of \"empty-lines\" should be int"
                 .to_string()
         }),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"empty-lines\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"empty-lines\""
-            ))
-        }
+        _ => Err(unknown_rule_option("empty-lines", key)),
     }
 }
 
@@ -1365,24 +1276,13 @@ fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             "line-length",
             "allow-non-breakable-inline-mappings",
         ),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"line-length\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"line-length\""
-            ))
-        }
+        _ => Err(unknown_rule_option("line-length", key)),
     }
 }
 
 fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     if key.as_str() != Some("type") {
-        let key_name = describe_rule_option_key(key);
-        return Err(format!(
-            "invalid config: unknown option \"{key_name}\" for rule \"new-lines\""
-        ));
+        return Err(unknown_rule_option("new-lines", key));
     }
 
     let Some(kind) = val.as_str() else {
@@ -1413,15 +1313,7 @@ fn validate_octal_values_option(
         Some("forbid-explicit-octal") => {
             validate_bool_option(val, "octal-values", "forbid-explicit-octal")
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"octal-values\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"octal-values\""
-            ))
-        }
+        _ => Err(unknown_rule_option("octal-values", key)),
     }
 }
 
@@ -1439,15 +1331,7 @@ fn validate_empty_values_option(
         Some("forbid-in-block-sequences") => {
             validate_bool_option(val, "empty-values", "forbid-in-block-sequences")
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"empty-values\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"empty-values\""
-            ))
-        }
+        _ => Err(unknown_rule_option("empty-values", key)),
     }
 }
 
@@ -1464,15 +1348,7 @@ fn validate_float_values_option(
         }
         Some("forbid-nan") => validate_bool_option(val, "float-values", "forbid-nan"),
         Some("forbid-inf") => validate_bool_option(val, "float-values", "forbid-inf"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"float-values\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"float-values\""
-            ))
-        }
+        _ => Err(unknown_rule_option("float-values", key)),
     }
 }
 
@@ -1484,15 +1360,7 @@ fn validate_key_duplicates_option(
         Some("forbid-duplicated-merge-keys") => {
             validate_bool_option(val, "key-duplicates", "forbid-duplicated-merge-keys")
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"key-duplicates\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"key-duplicates\""
-            ))
-        }
+        _ => Err(unknown_rule_option("key-duplicates", key)),
     }
 }
 
@@ -1528,15 +1396,7 @@ fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
                 Ok(())
             }
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"truthy\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"truthy\""
-            ))
-        }
+        _ => Err(unknown_rule_option("truthy", key)),
     }
 }
 
@@ -1545,45 +1405,16 @@ fn validate_key_ordering_option(
     val: &YamlOwned,
 ) -> Result<(), String> {
     match key.as_str() {
-        Some("ignored-keys") => {
-            if let Some(seq) = val.as_sequence() {
-                for entry in seq {
-                    let Some(text) = entry.as_str() else {
-                        return Err(
-                            "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings"
-                                .to_string(),
-                        );
-                    };
-                    Regex::new(text).map_err(|err| {
-                        format!(
-                            "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
-                        )
-                    })?;
-                }
-                Ok(())
-            } else if let Some(text) = val.as_str() {
-                Regex::new(text).map_err(|err| {
-                    format!(
-                        "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
-                    )
-                })?;
-                Ok(())
-            } else {
-                Err(
-                    "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings"
-                        .to_string(),
+        Some("ignored-keys") => validate_regex_strings(
+            val,
+            "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings",
+            |text, err| {
+                format!(
+                    "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
                 )
-            }
-        }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"key-ordering\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"key-ordering\""
-            ))
-        }
+            },
+        ),
+        _ => Err(unknown_rule_option("key-ordering", key)),
     }
 }
 
@@ -1621,15 +1452,7 @@ fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
                 )
             }
         }
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"indentation\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"indentation\""
-            ))
-        }
+        _ => Err(unknown_rule_option("indentation", key)),
     }
 }
 
@@ -1709,15 +1532,7 @@ fn validate_quoted_strings_option(
             validate_bool_option(val, "quoted-strings", "allow-quoted-quotes")
         }
         Some("check-keys") => validate_bool_option(val, "quoted-strings", "check-keys"),
-        Some(other) => Err(format!(
-            "invalid config: unknown option \"{other}\" for rule \"quoted-strings\""
-        )),
-        None => {
-            let key_name = describe_rule_option_key(key);
-            Err(format!(
-                "invalid config: unknown option \"{key_name}\" for rule \"quoted-strings\""
-            ))
-        }
+        _ => Err(unknown_rule_option("quoted-strings", key)),
     }
 }
 
@@ -1766,24 +1581,18 @@ fn validate_regex_list_option(
     count_slot: &mut Option<usize>,
 ) -> Result<(), String> {
     let Some(seq) = val.as_sequence() else {
-        return Err(format!(
-            "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-        ));
+        return Err(quoted_strings_regex_type_error(option_name));
     };
     *count_slot = Some(seq.len());
-    for entry in seq {
-        let Some(text) = entry.as_str() else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-            ));
-        };
-        Regex::new(text).map_err(|err| {
+    validate_regex_strings(
+        val,
+        &quoted_strings_regex_type_error(option_name),
+        |text, err| {
             format!(
                 "invalid config: regex \"{text}\" in option \"{option_name}\" of \"quoted-strings\" is invalid: {err}"
             )
-        })?;
-    }
-    Ok(())
+        },
+    )
 }
 
 fn validate_bool_option(
@@ -1798,6 +1607,40 @@ fn validate_bool_option(
             "invalid config: option \"{option_name}\" of \"{rule_name}\" should be bool"
         ))
     }
+}
+
+fn validate_document_presence_option(
+    rule: &str,
+    key: &YamlOwned,
+    val: &YamlOwned,
+) -> Result<(), String> {
+    match key.as_str() {
+        Some("present") => validate_bool_option(val, rule, "present"),
+        _ => Err(unknown_rule_option(rule, key)),
+    }
+}
+
+fn unknown_rule_option(rule: &str, key: &YamlOwned) -> String {
+    let key_name = describe_rule_option_key(key);
+    format!("invalid config: unknown option \"{key_name}\" for rule \"{rule}\"")
+}
+
+fn validate_regex_strings(
+    val: &YamlOwned,
+    type_error: &str,
+    invalid_regex: impl Fn(&str, regex::Error) -> String,
+) -> Result<(), String> {
+    let values = parse_string_items(val, type_error, |text| vec![text.to_owned()])?;
+    for text in values {
+        Regex::new(&text).map_err(|err| invalid_regex(&text, err))?;
+    }
+    Ok(())
+}
+
+fn quoted_strings_regex_type_error(option_name: &str) -> String {
+    format!(
+        "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
+    )
 }
 
 fn resolve_extend_path(

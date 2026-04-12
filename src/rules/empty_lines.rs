@@ -1,7 +1,5 @@
 use std::convert::TryFrom;
 
-use saphyr::YamlOwned;
-
 use crate::config::YamlLintConfig;
 
 pub const ID: &str = "empty-lines";
@@ -16,23 +14,10 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max = cfg
-            .rule_option(ID, "max")
-            .and_then(YamlOwned::as_integer)
-            .unwrap_or(2);
-        let max_start = cfg
-            .rule_option(ID, "max-start")
-            .and_then(YamlOwned::as_integer)
-            .unwrap_or(0);
-        let max_end = cfg
-            .rule_option(ID, "max-end")
-            .and_then(YamlOwned::as_integer)
-            .unwrap_or(0);
-
         Self {
-            max,
-            max_start,
-            max_end,
+            max: cfg.rule_option_int(ID, "max", 2),
+            max_start: cfg.rule_option_int(ID, "max-start", 0),
+            max_end: cfg.rule_option_int(ID, "max-end", 0),
         }
     }
 

@@ -3,7 +3,112 @@ use std::ops::Range;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::span_utils::ranges_to_char_indices;
+use crate::rules::support::punctuation::{
+    build_line_starts, line_and_column, skip_comment,
+};
+use crate::rules::support::span_utils::ranges_to_char_indices;
+
+macro_rules! define_rule {
+    (
+        $rule_id:literal,
+        $open:literal,
+        $close:literal,
+        $forbid_message:literal,
+        $min_message:literal,
+        $max_message:literal,
+        $min_empty_message:literal,
+        $max_empty_message:literal $(,)?
+    ) => {
+        pub use $crate::rules::support::flow_collection::{Forbid, Violation};
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub struct Config($crate::rules::support::flow_collection::Config);
+
+        pub const ID: &str = $rule_id;
+
+        const DESCRIPTOR:
+            $crate::rules::support::flow_collection::FlowCollectionDescriptor =
+            $crate::rules::support::flow_collection::FlowCollectionDescriptor {
+                open: $open,
+                close: $close,
+                forbid_message: $forbid_message,
+                min_message: $min_message,
+                max_message: $max_message,
+                min_empty_message: $min_empty_message,
+                max_empty_message: $max_empty_message,
+            };
+
+        #[must_use]
+        pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+            $crate::rules::support::flow_collection::check(
+                buffer,
+                cfg.inner(),
+                &DESCRIPTOR,
+            )
+        }
+
+        impl Config {
+            #[must_use]
+            pub fn resolve(cfg: &$crate::config::YamlLintConfig) -> Self {
+                Self(
+                    $crate::rules::support::flow_collection::Config::resolve_for(
+                        cfg, ID,
+                    ),
+                )
+            }
+
+            #[must_use]
+            pub const fn new_for_tests(
+                forbid: Forbid,
+                min_spaces_inside: i64,
+                max_spaces_inside: i64,
+                min_spaces_inside_empty: i64,
+                max_spaces_inside_empty: i64,
+            ) -> Self {
+                Self(
+                    $crate::rules::support::flow_collection::Config::new_for_tests(
+                        forbid,
+                        min_spaces_inside,
+                        max_spaces_inside,
+                        min_spaces_inside_empty,
+                        max_spaces_inside_empty,
+                    ),
+                )
+            }
+
+            #[must_use]
+            pub const fn effective_min_empty(&self) -> i64 {
+                self.0.effective_min_empty()
+            }
+
+            #[must_use]
+            pub const fn effective_max_empty(&self) -> i64 {
+                self.0.effective_max_empty()
+            }
+
+            #[must_use]
+            pub const fn forbid(&self) -> Forbid {
+                self.0.forbid()
+            }
+
+            #[must_use]
+            pub const fn min_spaces_inside(&self) -> i64 {
+                self.0.min_spaces_inside()
+            }
+
+            #[must_use]
+            pub const fn max_spaces_inside(&self) -> i64 {
+                self.0.max_spaces_inside()
+            }
+
+            const fn inner(&self) -> &$crate::rules::support::flow_collection::Config {
+                &self.0
+            }
+        }
+    };
+}
+
+pub(crate) use define_rule;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Forbid {
@@ -37,29 +142,28 @@ impl Config {
                 _ => Forbid::None,
             });
 
-        let min_spaces_inside = cfg
-            .rule_option(rule_id, "min-spaces-inside")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MIN_SPACES_INSIDE);
-        let max_spaces_inside = cfg
-            .rule_option(rule_id, "max-spaces-inside")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_SPACES_INSIDE);
-        let min_spaces_inside_empty = cfg
-            .rule_option(rule_id, "min-spaces-inside-empty")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MIN_SPACES_INSIDE_EMPTY);
-        let max_spaces_inside_empty = cfg
-            .rule_option(rule_id, "max-spaces-inside-empty")
-            .and_then(saphyr::YamlOwned::as_integer)
-            .unwrap_or(Self::DEFAULT_MAX_SPACES_INSIDE_EMPTY);
-
         Self {
             forbid,
-            min_spaces_inside,
-            max_spaces_inside,
-            min_spaces_inside_empty,
-            max_spaces_inside_empty,
+            min_spaces_inside: cfg.rule_option_int(
+                rule_id,
+                "min-spaces-inside",
+                Self::DEFAULT_MIN_SPACES_INSIDE,
+            ),
+            max_spaces_inside: cfg.rule_option_int(
+                rule_id,
+                "max-spaces-inside",
+                Self::DEFAULT_MAX_SPACES_INSIDE,
+            ),
+            min_spaces_inside_empty: cfg.rule_option_int(
+                rule_id,
+                "min-spaces-inside-empty",
+                Self::DEFAULT_MIN_SPACES_INSIDE_EMPTY,
+            ),
+            max_spaces_inside_empty: cfg.rule_option_int(
+                rule_id,
+                "max-spaces-inside-empty",
+                Self::DEFAULT_MAX_SPACES_INSIDE_EMPTY,
+            ),
         }
     }
 
@@ -485,24 +589,6 @@ fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<us
     None
 }
 
-fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
-    idx += 1;
-    while idx < chars.len() {
-        let ch = chars[idx].1;
-        if ch == '\n' {
-            break;
-        }
-        if ch == '\r' {
-            if idx + 1 < chars.len() && chars[idx + 1].1 == '\n' {
-                idx += 1;
-            }
-            break;
-        }
-        idx += 1;
-    }
-    idx
-}
-
 fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usize> {
     if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
         return None;
@@ -518,45 +604,4 @@ fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usiz
     }
     let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
     (!inner_contains_mapping).then_some(chars.len())
-}
-
-fn build_line_starts(buffer: &str) -> Vec<usize> {
-    let mut starts = Vec::new();
-    starts.push(0);
-    let bytes = buffer.as_bytes();
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\n' => {
-                starts.push(idx + 1);
-                idx += 1;
-            }
-            b'\r' => {
-                if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
-                    starts.push(idx + 2);
-                    idx += 2;
-                } else {
-                    starts.push(idx + 1);
-                    idx += 1;
-                }
-            }
-            _ => idx += 1,
-        }
-    }
-    starts
-}
-
-fn line_and_column(line_starts: &[usize], byte_idx: usize) -> (usize, usize) {
-    let mut left = 0usize;
-    let mut right = line_starts.len();
-    while left + 1 < right {
-        let mid = usize::midpoint(left, right);
-        if line_starts[mid] <= byte_idx {
-            left = mid;
-        } else {
-            right = mid;
-        }
-    }
-    let line_start = line_starts[left];
-    (left + 1, byte_idx - line_start + 1)
 }

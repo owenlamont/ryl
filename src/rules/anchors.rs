@@ -17,23 +17,22 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let forbid_undeclared_aliases = cfg
-            .rule_option(ID, "forbid-undeclared-aliases")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(true);
-        let forbid_duplicated_anchors = cfg
-            .rule_option(ID, "forbid-duplicated-anchors")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-        let forbid_unused_anchors = cfg
-            .rule_option(ID, "forbid-unused-anchors")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
         Self {
-            forbid_undeclared_aliases,
-            forbid_duplicated_anchors,
-            forbid_unused_anchors,
+            forbid_undeclared_aliases: cfg.rule_option_bool(
+                ID,
+                "forbid-undeclared-aliases",
+                true,
+            ),
+            forbid_duplicated_anchors: cfg.rule_option_bool(
+                ID,
+                "forbid-duplicated-anchors",
+                false,
+            ),
+            forbid_unused_anchors: cfg.rule_option_bool(
+                ID,
+                "forbid-unused-anchors",
+                false,
+            ),
         }
     }
 
@@ -222,7 +221,6 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
                             explicit_indent: explicit,
                             required_indent: None,
                             activate_next_line: true,
-                            active: false,
                         });
                     }
                     idx += 1;
@@ -262,16 +260,16 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
     }
 
     fn handle_block_state(&mut self, indent_count: usize, line: &str) -> bool {
+        let is_blank = line.trim().is_empty();
         if let Some(block) = self.block_state.as_mut() {
             if block.activate_next_line {
                 block.activate_next_line = false;
-                block.active = true;
-                if line.trim().is_empty() {
+                if is_blank {
                     return true;
                 }
             }
 
-            if line.trim().is_empty() {
+            if is_blank {
                 return true;
             }
             let explicit_indent =
@@ -314,16 +312,12 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
                 || candidate.get(3).is_some_and(|ch| ch.is_whitespace()))
         {
             self.finish_doc();
-            self.reset_block_and_quotes();
+            self.block_state = None;
+            self.in_single_quote = false;
+            self.in_double_quote = false;
             return true;
         }
         false
-    }
-
-    const fn reset_block_and_quotes(&mut self) {
-        self.block_state = None;
-        self.in_single_quote = false;
-        self.in_double_quote = false;
     }
 
     fn register_anchor(&mut self, name: &str, line: usize, column: usize) {
@@ -447,7 +441,6 @@ struct BlockState {
     explicit_indent: Option<usize>,
     required_indent: Option<usize>,
     activate_next_line: bool,
-    active: bool,
 }
 
 fn parse_name(chars: &[char], start: usize) -> Option<(String, usize)> {

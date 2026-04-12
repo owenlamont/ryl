@@ -18,25 +18,22 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let forbid_block_mappings = cfg
-            .rule_option(ID, "forbid-in-block-mappings")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(true);
-
-        let forbid_flow_mappings = cfg
-            .rule_option(ID, "forbid-in-flow-mappings")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(true);
-
-        let forbid_block_sequences = cfg
-            .rule_option(ID, "forbid-in-block-sequences")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(true);
-
         Self {
-            forbid_block_mappings,
-            forbid_flow_mappings,
-            forbid_block_sequences,
+            forbid_block_mappings: cfg.rule_option_bool(
+                ID,
+                "forbid-in-block-mappings",
+                true,
+            ),
+            forbid_flow_mappings: cfg.rule_option_bool(
+                ID,
+                "forbid-in-flow-mappings",
+                true,
+            ),
+            forbid_block_sequences: cfg.rule_option_bool(
+                ID,
+                "forbid-in-block-sequences",
+                true,
+            ),
         }
     }
 }

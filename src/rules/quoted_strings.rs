@@ -3,6 +3,7 @@ use saphyr::Yaml;
 use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::mapping_key_walker::Walker;
 
 pub const ID: &str = "quoted-strings";
 
@@ -187,8 +188,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
 struct QuotedStringsState<'cfg> {
     config: &'cfg Config,
     buffer: &'cfg str,
-    containers: Vec<ContainerState>,
-    key_depth: usize,
+    walker: Walker<(), bool>,
 }
 
 impl<'cfg> QuotedStringsState<'cfg> {
@@ -196,51 +196,32 @@ impl<'cfg> QuotedStringsState<'cfg> {
         Self {
             config,
             buffer,
-            containers: Vec::new(),
-            key_depth: 0,
+            walker: Walker::new(),
         }
     }
 
     fn reset_stream(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn document_start(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn document_end(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn enter_mapping(&mut self, flow: bool) {
-        let active_key = self.begin_node();
-        self.containers.push(ContainerState {
-            kind: ContainerKind::Mapping { expect_key: true },
-            key_context: active_key,
-            flow,
-        });
+        self.walker.enter_mapping((), flow);
     }
 
     fn enter_sequence(&mut self, flow: bool) {
-        let active_key = self.begin_node();
-        self.containers.push(ContainerState {
-            kind: ContainerKind::Sequence,
-            key_context: active_key,
-            flow,
-        });
+        self.walker.enter_sequence(flow);
     }
 
     fn exit_container(&mut self) {
-        if let Some(container) = self.containers.pop()
-            && container.key_context
-            && self.key_depth > 0
-        {
-            self.key_depth -= 1;
-        }
+        self.walker.exit_container();
     }
 
     fn handle_scalar(
@@ -251,14 +232,15 @@ impl<'cfg> QuotedStringsState<'cfg> {
         span: Span,
         diagnostics: &mut Vec<Violation>,
     ) {
-        let active_key = self.begin_node();
+        let context = self.walker.begin_node();
+        let active_key = context.active();
         let resolves_to_string = matches!(
             Yaml::value_from_str(value),
             Yaml::Value(saphyr::Scalar::String(_))
         );
 
         if self.should_skip_scalar(style, tag, active_key, resolves_to_string) {
-            self.finish_scalar(active_key);
+            self.walker.finish_node(context);
             return;
         }
 
@@ -268,39 +250,11 @@ impl<'cfg> QuotedStringsState<'cfg> {
             diagnostics.push(violation);
         }
 
-        self.finish_scalar(active_key);
+        self.walker.finish_node(context);
     }
 
     fn in_flow(&self) -> bool {
-        self.containers.iter().any(|container| container.flow)
-    }
-
-    fn begin_node(&mut self) -> bool {
-        let mut is_key_node = false;
-        if let Some(ContainerState {
-            kind: ContainerKind::Mapping { expect_key },
-            ..
-        }) = self.containers.last_mut()
-        {
-            if *expect_key {
-                is_key_node = true;
-                *expect_key = false;
-            } else {
-                *expect_key = true;
-            }
-        }
-
-        let active_key = is_key_node || self.key_depth > 0;
-        if active_key {
-            self.key_depth += 1;
-        }
-        active_key
-    }
-
-    const fn finish_scalar(&mut self, active_key: bool) {
-        if active_key && self.key_depth > 0 {
-            self.key_depth -= 1;
-        }
+        self.walker.any_metadata(|flow| *flow)
     }
 
     fn should_skip_scalar(
@@ -437,17 +391,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
         !(self.config.quote_type.matches(Some(style_kind))
             || (self.config.allow_quoted_quotes && has_quoted_quotes))
     }
-}
-
-struct ContainerState {
-    kind: ContainerKind,
-    key_context: bool,
-    flow: bool,
-}
-
-enum ContainerKind {
-    Mapping { expect_key: bool },
-    Sequence,
 }
 
 fn build_violation(span: Span, message: String) -> Violation {

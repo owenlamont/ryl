@@ -11,7 +11,7 @@ ryl is a CLI tool for linting yaml files
 - **/src/** – All application code lives here.
 - **/tests/** – Unit and integration tests.
 - **pyproject.toml** - Package configuration
-- **.pre-commit-config.yaml** - Prek managed linters and some configuration
+- **prek.toml** - Prek managed linters and some configuration
 
 ## Coding Standards
 

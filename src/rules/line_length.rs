@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 
-use saphyr::YamlOwned;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
@@ -17,21 +16,11 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max = cfg
-            .rule_option(ID, "max")
-            .and_then(YamlOwned::as_integer)
-            .unwrap_or(80);
-
-        let allow_inline = cfg
-            .rule_option(ID, "allow-non-breakable-inline-mappings")
-            .and_then(YamlOwned::as_bool)
-            .unwrap_or(false);
-
-        let allow_words = cfg
-            .rule_option(ID, "allow-non-breakable-words")
-            .and_then(YamlOwned::as_bool)
-            .unwrap_or(true)
-            || allow_inline;
+        let max = cfg.rule_option_int(ID, "max", 80);
+        let allow_inline =
+            cfg.rule_option_bool(ID, "allow-non-breakable-inline-mappings", false);
+        let allow_words =
+            cfg.rule_option_bool(ID, "allow-non-breakable-words", true) || allow_inline;
 
         Self {
             max,

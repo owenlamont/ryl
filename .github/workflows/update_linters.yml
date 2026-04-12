@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  refresh-pre-commit-config:
+  refresh-prek-config:
     runs-on: ubuntu-latest
     environment: automation
     permissions:
@@ -24,10 +24,10 @@ jobs:
       - name: Run prek autoupdate
         run: prek autoupdate
 
-      - name: Check for changes in .pre-commit-config.yaml
+      - name: Check for changes in prek.toml
         id: check_diff
         run: |
-          if git diff --quiet .pre-commit-config.yaml; then
+          if git diff --quiet -- prek.toml; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -41,16 +41,16 @@ jobs:
           app-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
 
-      - name: Create PR with updated .pre-commit-config.yaml
+      - name: Create PR with updated prek.toml
         if: steps.check_diff.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0
         with:
           token: ${{ steps.generate-token.outputs.token }}
-          commit-message: "chore: refresh .pre-commit-config.yaml"
-          title: "chore: refresh .pre-commit-config.yaml"
+          commit-message: "chore: refresh prek.toml"
+          title: "chore: refresh prek.toml"
           body: |
-            This PR updates `.pre-commit-config.yaml` by running `prek autoupdate`.
+            This PR updates `prek.toml` by running `prek autoupdate`.
             It was triggered automatically (or manually) to keep linters up-to-date.
-          branch: bot/pre-commit-config-refresh
+          branch: bot/prek-config-refresh
           author: GitHub Actions <actions@github.com>
           delete-branch: true

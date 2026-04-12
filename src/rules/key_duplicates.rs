@@ -1,6 +1,7 @@
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::mapping_key_walker::Walker;
 
 pub const ID: &str = "key-duplicates";
 
@@ -12,13 +13,12 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let forbid_duplicated_merge_keys = cfg
-            .rule_option(ID, "forbid-duplicated-merge-keys")
-            .and_then(saphyr::YamlOwned::as_bool)
-            .unwrap_or(false);
-
         Self {
-            forbid_duplicated_merge_keys,
+            forbid_duplicated_merge_keys: cfg.rule_option_bool(
+                ID,
+                "forbid-duplicated-merge-keys",
+                false,
+            ),
         }
     }
 }
@@ -73,57 +73,39 @@ impl SpannedEventReceiver<'_> for KeyDuplicatesReceiver<'_> {
 
 struct KeyDuplicatesState<'cfg> {
     config: &'cfg Config,
-    containers: Vec<ContainerState>,
-    key_depth: usize,
+    walker: Walker<MappingState>,
 }
 
 impl<'cfg> KeyDuplicatesState<'cfg> {
     const fn new(config: &'cfg Config) -> Self {
         Self {
             config,
-            containers: Vec::new(),
-            key_depth: 0,
+            walker: Walker::new(),
         }
     }
 
     fn reset_stream(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn document_start(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn document_end(&mut self) {
-        self.containers.clear();
-        self.key_depth = 0;
+        self.walker.reset();
     }
 
     fn enter_mapping(&mut self) {
-        let context = self.begin_node();
-        self.containers.push(ContainerState {
-            key_context: context.active,
-            mapping: Some(MappingState::new()),
-        });
+        self.walker.enter_mapping(MappingState::new(), ());
     }
 
     fn enter_sequence(&mut self) {
-        let context = self.begin_node();
-        self.containers.push(ContainerState {
-            key_context: context.active,
-            mapping: None,
-        });
+        self.walker.enter_sequence(());
     }
 
     fn exit_container(&mut self) {
-        if let Some(container) = self.containers.pop()
-            && container.key_context
-            && self.key_depth > 0
-        {
-            self.key_depth -= 1;
-        }
+        self.walker.exit_container();
     }
 
     fn handle_scalar(
@@ -132,16 +114,15 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
         span: Span,
         diagnostics: &mut Vec<Violation>,
     ) {
-        let context = self.begin_node();
-        if !context.key_root {
-            self.finish_node(context);
+        let context = self.walker.begin_node();
+        if !context.key_root() {
+            self.walker.finish_node(context);
             return;
         }
 
         let state = self
-            .containers
-            .last_mut()
-            .and_then(|container| container.mapping.as_mut())
+            .walker
+            .current_mapping_mut()
             .expect("mapping state should exist when key_root is active");
 
         let is_duplicate = state.seen_keys.iter().any(|key| key == value);
@@ -156,63 +137,23 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
             state.seen_keys.push(value.to_owned());
         }
 
-        self.finish_node(context);
-    }
-
-    fn begin_node(&mut self) -> NodeContext {
-        let mut key_root = false;
-        if let Some(ContainerState {
-            mapping: Some(mapping),
-            ..
-        }) = self.containers.last_mut()
-        {
-            if mapping.expect_key {
-                key_root = true;
-                mapping.expect_key = false;
-            } else {
-                mapping.expect_key = true;
-            }
-        }
-        let active = key_root || self.key_depth > 0;
-        if active {
-            self.key_depth += 1;
-        }
-        NodeContext { active, key_root }
-    }
-
-    const fn finish_node(&mut self, context: NodeContext) {
-        if context.active && self.key_depth > 0 {
-            self.key_depth -= 1;
-        }
+        self.walker.finish_node(context);
     }
 
     fn handle_alias(&mut self) {
-        let context = self.begin_node();
-        self.finish_node(context);
+        let context = self.walker.begin_node();
+        self.walker.finish_node(context);
     }
 }
 
-struct ContainerState {
-    key_context: bool,
-    mapping: Option<MappingState>,
-}
-
 struct MappingState {
-    expect_key: bool,
     seen_keys: Vec<String>,
 }
 
 impl MappingState {
     const fn new() -> Self {
         Self {
-            expect_key: true,
             seen_keys: Vec::new(),
         }
     }
-}
-
-#[derive(Copy, Clone)]
-struct NodeContext {
-    active: bool,
-    key_root: bool,
 }
