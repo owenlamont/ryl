@@ -102,3 +102,51 @@ fn relaxed_spacing_allows_compact_flow() {
     assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
 }
+
+#[test]
+fn double_curly_template_is_ignored() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("template.yaml");
+    fs::write(&file, "---\nvalue: {{ foo(1,2) }}\n").unwrap();
+    let config = dir.path().join("config.yml");
+    fs::write(
+        &config,
+        "rules:\n  document-start: disable\n  commas: enable\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    assert_eq!(
+        code, 0,
+        "template commas should be ignored: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
+    assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
+}
+
+#[test]
+fn fix_leaves_double_curly_template_unchanged() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("template.yaml");
+    fs::write(&file, "value: {{ foo(1,2) }}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncommas = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+    assert_eq!(
+        code, 0,
+        "template fix should be a no-op: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
+    assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "value: {{ foo(1,2) }}\n"
+    );
+}

@@ -115,7 +115,7 @@ fn to_toml_includes_fix_policy() {
     let cfg_path = td.path().join(".ryl.toml");
     fs::write(
         &cfg_path,
-        "[fix]\nfixable = ['ALL', 'comments', 'new-lines']\nunfixable = ['new-line-at-end-of-file']\n",
+        "[fix]\nfixable = ['ALL', 'braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-lines']\nunfixable = ['braces', 'new-line-at-end-of-file']\n",
     )
     .unwrap();
 
@@ -132,8 +132,13 @@ fn to_toml_includes_fix_policy() {
     assert!(toml.contains("[fix]"));
     assert!(toml.contains("fixable = ["));
     assert!(toml.contains("\"ALL\""));
+    assert!(toml.contains("\"braces\""));
+    assert!(toml.contains("\"brackets\""));
+    assert!(toml.contains("\"commas\""));
     assert!(toml.contains("\"comments\""));
+    assert!(toml.contains("\"comments-indentation\""));
     assert!(toml.contains("\"new-lines\""));
     assert!(toml.contains("unfixable = ["));
+    assert!(toml.contains("\"braces\""));
     assert!(toml.contains("\"new-line-at-end-of-file\""));
 }

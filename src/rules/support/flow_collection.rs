@@ -4,7 +4,7 @@ use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, line_and_column, skip_comment,
+    build_line_starts, line_and_column, skip_comment, template_double_curly_end,
 };
 use crate::rules::support::span_utils::ranges_to_char_indices;
 
@@ -41,6 +41,15 @@ macro_rules! define_rule {
         #[must_use]
         pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             $crate::rules::support::flow_collection::check(
+                buffer,
+                cfg.inner(),
+                &DESCRIPTOR,
+            )
+        }
+
+        #[must_use]
+        pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+            $crate::rules::support::flow_collection::fix(
                 buffer,
                 cfg.inner(),
                 &DESCRIPTOR,
@@ -379,6 +388,85 @@ pub fn check(
     violations
 }
 
+#[must_use]
+pub fn fix(
+    buffer: &str,
+    cfg: &Config,
+    desc: &FlowCollectionDescriptor,
+) -> Option<String> {
+    if buffer.is_empty() || cfg.forbid() != Forbid::None {
+        return None;
+    }
+
+    let mut parser = Parser::new_from_str(buffer);
+    let mut collector = ScalarRangeCollector::new();
+    let _ = parser.load(&mut collector, true);
+    let scalar_ranges = collector.into_sorted();
+
+    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let buffer_len = buffer.len();
+    let scalar_ranges = ranges_to_char_indices(scalar_ranges, &chars, buffer_len);
+
+    let mut range_idx = 0usize;
+    let mut idx = 0usize;
+    let mut stack: Vec<CollectionState> = Vec::new();
+    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
+
+    while idx < chars.len() {
+        while range_idx < scalar_ranges.len() && scalar_ranges[range_idx].end <= idx {
+            range_idx += 1;
+        }
+
+        if let Some(range) = scalar_ranges.get(range_idx)
+            && idx >= range.start
+            && idx < range.end
+        {
+            if idx == range.start
+                && let Some(state) = stack.last_mut()
+            {
+                state.is_empty = false;
+            }
+            idx = range.end;
+            continue;
+        }
+
+        let ch = chars[idx].1;
+        if desc.open == '{'
+            && let Some(next_idx) = template_double_curly_end(&chars, idx)
+        {
+            idx = next_idx;
+            continue;
+        }
+
+        if ch == desc.open {
+            if let Some(state) = stack.last_mut() {
+                state.is_empty = false;
+            }
+            let state = fix_open(cfg, desc, &chars, idx, &mut replacements);
+            stack.push(state);
+        } else if ch == desc.close {
+            fix_close(cfg, &chars, idx, &mut stack, &mut replacements);
+        } else {
+            match ch {
+                '#' => {
+                    idx = skip_comment(&chars, idx);
+                    continue;
+                }
+                ',' | ' ' | '\t' | '\n' | '\r' => {}
+                _ => {
+                    if let Some(state) = stack.last_mut() {
+                        state.is_empty = false;
+                    }
+                }
+            }
+        }
+
+        idx += 1;
+    }
+
+    apply_replacements(buffer, replacements)
+}
+
 fn handle_open(
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
@@ -459,6 +547,40 @@ fn handle_open(
     stack.push(state);
 }
 
+fn fix_open(
+    cfg: &Config,
+    desc: &FlowCollectionDescriptor,
+    chars: &[(usize, char)],
+    idx: usize,
+    replacements: &mut Vec<(usize, usize, String)>,
+) -> CollectionState {
+    let next_significant = next_significant_index(chars, idx);
+    let mut state = CollectionState {
+        is_empty: matches!(next_significant.map(|j| chars[j].1), Some(close) if close == desc.close),
+    };
+
+    if let AfterResult::SameLine { spaces, next_idx } =
+        compute_spaces_after_open(chars, idx)
+    {
+        let target = if state.is_empty && chars[next_idx].1 == desc.close {
+            target_spacing(spaces, cfg.effective_min_empty(), cfg.effective_max_empty())
+        } else {
+            state.is_empty = false;
+            target_spacing(spaces, cfg.min_spaces_inside(), cfg.max_spaces_inside())
+        };
+
+        if target != spaces {
+            replacements.push((
+                chars[idx].0 + chars[idx].1.len_utf8(),
+                chars[next_idx].0,
+                " ".repeat(target),
+            ));
+        }
+    }
+
+    state
+}
+
 fn handle_close(
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
@@ -476,7 +598,7 @@ fn handle_close(
         return;
     }
 
-    if let Some(spaces) = compute_spaces_before_close(chars, idx) {
+    if let Some((spaces, _start_idx)) = compute_spaces_before_close(chars, idx) {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         let close_byte = chars[idx].0;
         let (line, close_column) = line_and_column(line_starts, close_byte);
@@ -496,6 +618,32 @@ fn handle_close(
             });
         }
     }
+}
+
+fn fix_close(
+    cfg: &Config,
+    chars: &[(usize, char)],
+    idx: usize,
+    stack: &mut Vec<CollectionState>,
+    replacements: &mut Vec<(usize, usize, String)>,
+) {
+    let Some(state) = stack.pop() else {
+        return;
+    };
+
+    if state.is_empty {
+        return;
+    }
+
+    let Some((spaces, start_idx)) = compute_spaces_before_close(chars, idx) else {
+        return;
+    };
+    let target =
+        target_spacing(spaces, cfg.min_spaces_inside(), cfg.max_spaces_inside());
+    if target == spaces {
+        return;
+    }
+    replacements.push((chars[start_idx].0, chars[idx].0, " ".repeat(target)));
 }
 
 fn record_after_spacing(
@@ -549,7 +697,7 @@ fn compute_spaces_after_open(chars: &[(usize, char)], open_idx: usize) -> AfterR
 fn compute_spaces_before_close(
     chars: &[(usize, char)],
     close_idx: usize,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     let mut spaces = 0usize;
     let mut idx = close_idx;
     loop {
@@ -559,7 +707,7 @@ fn compute_spaces_before_close(
         match chars[idx].1 {
             ' ' | '\t' => spaces += 1,
             '\n' | '\r' | '#' => return None,
-            _ => return Some(spaces),
+            _ => return Some((spaces, idx + 1)),
         }
     }
 }
@@ -589,19 +737,25 @@ fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<us
     None
 }
 
-fn template_double_curly_end(chars: &[(usize, char)], idx: usize) -> Option<usize> {
-    if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
+fn target_spacing(current: usize, min: i64, max: i64) -> usize {
+    let min_spaces = usize::try_from(min).ok().unwrap_or(0);
+    let max_spaces = usize::try_from(max).ok().unwrap_or(usize::MAX);
+    current.max(min_spaces).min(max_spaces)
+}
+
+fn apply_replacements(
+    buffer: &str,
+    mut replacements: Vec<(usize, usize, String)>,
+) -> Option<String> {
+    if replacements.is_empty() {
         return None;
     }
-    let mut cursor = idx + 2;
-    while cursor + 1 < chars.len() {
-        if chars[cursor].1 == '}' && chars[cursor + 1].1 == '}' {
-            let inner_contains_mapping =
-                chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
-            return (!inner_contains_mapping).then_some(cursor + 2);
-        }
-        cursor += 1;
+
+    replacements.sort_by(|left, right| right.0.cmp(&left.0));
+
+    let mut output = buffer.to_string();
+    for (start, end, replacement) in replacements {
+        output.replace_range(start..end, &replacement);
     }
-    let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
-    (!inner_contains_mapping).then_some(chars.len())
+    Some(output)
 }

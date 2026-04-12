@@ -125,3 +125,50 @@ fn empty_block_scalar_resets_state() {
         "empty block scalars should not cause diagnostics: {hits:?}"
     );
 }
+
+#[test]
+fn fix_aligns_misindented_comment() {
+    let input = "obj:\n # wrong\n  value: 1\n";
+    let fixed = comments_indentation::fix(input, &Config);
+    assert_eq!(fixed, Some("obj:\n  # wrong\n  value: 1\n".to_string()));
+}
+
+#[test]
+fn fix_aligns_comment_block_to_content_indent() {
+    let input = "obj1:\n  a: 1\n# heading\n  # misplaced\nobj2: no\n";
+    let fixed = comments_indentation::fix(input, &Config);
+    assert_eq!(
+        fixed,
+        Some("obj1:\n  a: 1\n# heading\n# misplaced\nobj2: no\n".to_string())
+    );
+}
+
+#[test]
+fn fix_ignores_block_scalar_regions() {
+    let input = "rule:\n  - pattern: |\n      body\n    # example\n  - other: value\n";
+    let fixed = comments_indentation::fix(input, &Config);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_returns_none_when_already_aligned() {
+    let input = "obj:\n  # ok\n  value: 1\n";
+    let fixed = comments_indentation::fix(input, &Config);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_returns_none_for_empty_input() {
+    let fixed = comments_indentation::fix("", &Config);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn fix_preserves_comment_alignment_state_across_crlf_blank_lines() {
+    let input = "root:\r\n  # first\r\n\r\n # second\r\n  value: 1\r\n";
+    let fixed = comments_indentation::fix(input, &Config);
+    assert_eq!(
+        fixed,
+        Some("root:\r\n  # first\r\n\r\n  # second\r\n  value: 1\r\n".to_string())
+    );
+}

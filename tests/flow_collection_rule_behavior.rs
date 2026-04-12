@@ -284,3 +284,66 @@ fn brackets_rule_suite() {
         }],
     );
 }
+
+#[test]
+fn braces_fix_normalizes_spacing() {
+    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, 1, 2);
+    let fixed = braces::fix("object: {  key: 1   }\nempty: {}\n", &cfg);
+    assert_eq!(fixed, Some("object: {key: 1}\nempty: { }\n".to_string()));
+}
+
+#[test]
+fn braces_fix_skips_forbid_configs() {
+    let cfg = BracesConfig::new_for_tests(Forbid::All, 0, 0, -1, -1);
+    let fixed = braces::fix("object: { key: 1 }\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn brackets_fix_normalizes_spacing() {
+    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, 1, 2);
+    let fixed = brackets::fix("object: [  1, 2   ]\nempty: []\n", &cfg);
+    assert_eq!(fixed, Some("object: [1, 2]\nempty: [ ]\n".to_string()));
+}
+
+#[test]
+fn brackets_fix_ignores_comments_and_newlines() {
+    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let fixed = brackets::fix("object: [1, # comment\n  2]\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn braces_fix_skips_template_double_curly_sequences() {
+    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let fixed = braces::fix("value: {{ github.token }}\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn braces_fix_handles_nested_flow_collections() {
+    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let fixed = braces::fix("outer: { inner: {  key: 1 } }\n", &cfg);
+    assert_eq!(fixed, Some("outer: {inner: {key: 1}}\n".to_string()));
+}
+
+#[test]
+fn brackets_fix_handles_crlf_and_unmatched_closing() {
+    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    assert_eq!(brackets::fix("object: [1,\r\n  2]\r\n", &cfg), None);
+    assert_eq!(brackets::fix("]\n", &cfg), None);
+}
+
+#[test]
+fn braces_fix_returns_none_for_clean_multiline_collection() {
+    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let fixed = braces::fix("object: {key: 1,\r\n  other: 2}\r\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
+fn brackets_fix_returns_none_for_multiline_collection() {
+    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let fixed = brackets::fix("seq: [\n  1,\n  2\n]\n", &cfg);
+    assert_eq!(fixed, None);
+}
