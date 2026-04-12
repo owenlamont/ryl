@@ -162,3 +162,13 @@ fn fix_returns_none_for_empty_input() {
     let fixed = comments_indentation::fix("", &Config);
     assert_eq!(fixed, None);
 }
+
+#[test]
+fn fix_preserves_comment_alignment_state_across_crlf_blank_lines() {
+    let input = "root:\r\n  # first\r\n\r\n # second\r\n  value: 1\r\n";
+    let fixed = comments_indentation::fix(input, &Config);
+    assert_eq!(
+        fixed,
+        Some("root:\r\n  # first\r\n\r\n  # second\r\n  value: 1\r\n".to_string())
+    );
+}

@@ -92,8 +92,9 @@ pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
     let mut lines: Vec<LineInfo> = Vec::new();
 
     for raw_line in buffer.lines() {
-        let indent = leading_whitespace_width(raw_line);
-        let content = &raw_line[indent..];
+        let line = raw_line.trim_end_matches('\r');
+        let indent = leading_whitespace_width(line);
+        let content = &line[indent..];
 
         let consumed = block_tracker.consume_line(indent, content);
         let kind = if consumed {

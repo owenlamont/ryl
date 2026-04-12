@@ -58,7 +58,7 @@ ryl is a CLI tool for linting yaml files
 - `prek` already runs the key tooling (e.g., trim/fix whitespace, `cargo fmt`,
   `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
   invoking those individually. Re-run `prek run --all-files` until the auto-fixes
-  stabilise and a full pass succeeds without modifying files.
+  stabilise and a full pass succeeds without modifying files before running coverage.
 - Whenever source files are edited ensure the full test suite passes (run
   `./scripts/coverage-missing.sh` (Unix) or
   `pwsh ./scripts/coverage-missing.ps1` (Windows) to regenerate coverage; it reports
@@ -106,24 +106,26 @@ ryl is a CLI tool for linting yaml files
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
 hunting through scattered tips:
 
-1. Quick status before pushing: run `./scripts/coverage-missing.sh` (Unix) or
+1. First run `prek run --all-files` and rerun it until all automatic fixes have
+   stabilised and a full pass succeeds without modifying files.
+2. Quick status before pushing: run `./scripts/coverage-missing.sh` (Unix) or
    `pwsh ./scripts/coverage-missing.ps1` (Windows). It reruns the coverage suite and
    prints any uncovered ranges, or explicitly confirms when coverage is complete.
-2. If the coverage script itself fails, run the relevant test suite manually first,
+3. If the coverage script itself fails, run the relevant test suite manually first,
    fix the failing tests, then rerun the coverage script.
-3. If the script reports files, extend CLI/system tests targeting those ranges until
+4. If the script reports files, extend CLI/system tests targeting those ranges until
    the script produces no output.
-4. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
+5. For richer artifacts (HTML, LCOV, etc.), follow the cargo-llvm-cov documentation
    after running the script. HTML is not easily machine readable though so not
    recommended.
-5. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
+6. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
    that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
-6. When you need to observe the exact flow through an uncovered branch, run the
+7. When you need to observe the exact flow through an uncovered branch, run the
    failing test under `rust-lldb` (ships with the toolchain). Start with
    `cargo test --no-run` and then
    `rust-lldb target/debug/deps/<test-binary> -- <filter args>` to set breakpoints
    on the problematic lines.
-7. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+8. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
 
 ## Code Size Workflow
 
