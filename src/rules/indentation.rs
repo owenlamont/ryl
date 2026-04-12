@@ -205,13 +205,7 @@ impl<'a> Analyzer<'a> {
             }
             let expected = state.expected_indent(indent, &mut self.spaces);
             if indent != expected {
-                self.diagnostics.push(Violation {
-                    line: line_number,
-                    column: indent + 1,
-                    message: format!(
-                        "wrong indentation: expected {expected} but found {indent}"
-                    ),
-                });
+                push_wrong_indent(&mut self.diagnostics, line_number, indent, expected);
             }
             return true;
         }
@@ -291,11 +285,11 @@ impl<'a> Analyzer<'a> {
                 });
         }
 
-        if is_compact_sequence_start(content) {
+        if syntax::is_compact_sequence_start(content) {
             self.transient.compact_sequence_parent_indent = Some(indent);
         }
         if let Some(continuation_indent) =
-            compact_flow_mapping_continuation_indent(content, indent)
+            syntax::compact_flow_mapping_continuation_indent(content, indent)
         {
             self.transient.compact_flow_mapping = Some(CompactFlowMapping {
                 parent_indent: indent,
@@ -501,10 +495,10 @@ enum LineKind {
 impl LineAnalysis {
     fn analyze(content: &str) -> Self {
         let trimmed = strip_trailing_comment_preserving_quotes(content).trim();
-        let is_sequence_entry = is_sequence_entry(trimmed);
-        let (is_mapping_key, opens_block) = classify_mapping(trimmed);
+        let is_sequence_entry = syntax::is_sequence_entry(trimmed);
+        let (is_mapping_key, opens_block) = syntax::classify_mapping(trimmed);
         let sequence_offset = if is_mapping_key {
-            sequence_prefix_width(trimmed)
+            syntax::sequence_prefix_width(trimmed)
         } else {
             0
         };
@@ -609,28 +603,24 @@ impl SpacesRuntime {
             SpacesSetting::Fixed(value) => {
                 let delta = found.saturating_sub(base);
                 if !delta.is_multiple_of(value) {
-                    let expected = base.saturating_add(value);
-                    diagnostics.push(Violation {
+                    push_wrong_indent(
+                        diagnostics,
                         line,
-                        column: found + 1,
-                        message: format!(
-                            "wrong indentation: expected {expected} but found {found}"
-                        ),
-                    });
+                        found,
+                        base.saturating_add(value),
+                    );
                 }
             }
             SpacesSetting::Consistent => {
                 let delta = found.saturating_sub(base);
                 if let Some(val) = self.value {
                     if !delta.is_multiple_of(val) {
-                        let expected = base.saturating_add(val);
-                        diagnostics.push(Violation {
+                        push_wrong_indent(
+                            diagnostics,
                             line,
-                            column: found + 1,
-                            message: format!(
-                                "wrong indentation: expected {expected} but found {found}"
-                            ),
-                        });
+                            found,
+                            base.saturating_add(val),
+                        );
                     }
                 } else {
                     self.value = Some(delta);
@@ -648,29 +638,19 @@ impl SpacesRuntime {
         match self.setting {
             SpacesSetting::Fixed(value) => {
                 if !indent.is_multiple_of(value) {
-                    diagnostics.push(Violation {
+                    push_wrong_indent(
+                        diagnostics,
                         line,
-                        column: indent + 1,
-                        message: format!(
-                            "wrong indentation: expected {} but found {}",
-                            indent / value * value,
-                            indent
-                        ),
-                    });
+                        indent,
+                        indent / value * value,
+                    );
                 }
             }
             SpacesSetting::Consistent => {
                 if let Some(val) = self.value
                     && !indent.is_multiple_of(val)
                 {
-                    let exp = indent / val * val;
-                    diagnostics.push(Violation {
-                        line,
-                        column: indent + 1,
-                        message: format!(
-                            "wrong indentation: expected {exp} but found {indent}"
-                        ),
-                    });
+                    push_wrong_indent(diagnostics, line, indent, indent / val * val);
                 }
             }
         }
@@ -698,24 +678,18 @@ impl IndentSequencesRuntime {
             IndentSequencesSetting::True => {
                 if !is_indented {
                     let expected = expected_indent.unwrap_or(parent_indent + 2);
-                    return Some(format!(
-                        "wrong indentation: expected {expected} but found {found_indent}"
-                    ));
+                    return Some(wrong_indent_message(expected, found_indent));
                 }
                 if let Some(expected) = expected_indent
                     && found_indent != expected
                 {
-                    return Some(format!(
-                        "wrong indentation: expected {expected} but found {found_indent}"
-                    ));
+                    return Some(wrong_indent_message(expected, found_indent));
                 }
                 None
             }
             IndentSequencesSetting::False => {
                 if is_indented {
-                    Some(format!(
-                        "wrong indentation: expected {parent_indent} but found {found_indent}"
-                    ))
+                    Some(wrong_indent_message(parent_indent, found_indent))
                 } else {
                     None
                 }
@@ -726,9 +700,7 @@ impl IndentSequencesRuntime {
                     && is_indented
                     && found_indent != expected
                 {
-                    return Some(format!(
-                        "wrong indentation: expected {expected} but found {found_indent}"
-                    ));
+                    return Some(wrong_indent_message(expected, found_indent));
                 }
                 match state {
                     Some(expected) if *expected == is_indented => None,
@@ -738,9 +710,7 @@ impl IndentSequencesRuntime {
                         } else {
                             parent_indent
                         };
-                        Some(format!(
-                            "wrong indentation: expected {exp_indent} but found {found_indent}"
-                        ))
+                        Some(wrong_indent_message(exp_indent, found_indent))
                     }
                     None => {
                         *state = Some(is_indented);
@@ -753,13 +723,10 @@ impl IndentSequencesRuntime {
 }
 
 fn split_indent(line: &str) -> (usize, &str) {
-    let mut count = 0;
-    for ch in line.chars() {
-        match ch {
-            ' ' | '\t' => count += 1,
-            _ => break,
-        }
-    }
+    let count = line
+        .chars()
+        .take_while(|ch| matches!(ch, ' ' | '\t'))
+        .count();
     let content = &line[count..];
     (count, content)
 }
@@ -774,83 +741,100 @@ struct TransientState {
     prev_line_kind: Option<LineKind>,
 }
 
-fn is_sequence_entry(content: &str) -> bool {
-    if !content.starts_with('-') {
-        return false;
-    }
-    matches!(content.chars().nth(1), None | Some(' ' | '\t' | '\r' | '#'))
+fn wrong_indent_message(expected: usize, found: usize) -> String {
+    format!("wrong indentation: expected {expected} but found {found}")
 }
 
-fn is_compact_sequence_start(content: &str) -> bool {
-    let trimmed = content.trim();
-    if !is_sequence_entry(trimmed) {
-        return false;
-    }
-    let stripped = trimmed
-        .strip_prefix('-')
-        .expect("sequence entry starts with '-'");
-    is_sequence_entry(stripped.trim_start())
+fn push_wrong_indent(
+    diagnostics: &mut Vec<Violation>,
+    line: usize,
+    found: usize,
+    expected: usize,
+) {
+    diagnostics.push(Violation {
+        line,
+        column: found + 1,
+        message: wrong_indent_message(expected, found),
+    });
 }
 
-fn classify_mapping(content: &str) -> (bool, bool) {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut brace_depth = 0;
-    let mut bracket_depth = 0;
-    let mut escaped = false;
-    for (idx, ch) in content.char_indices() {
-        match ch {
-            '\\' => escaped = !escaped,
-            '\'' if !escaped && !in_double => in_single = !in_single,
-            '"' if !escaped && !in_single => in_double = !in_double,
-            '{' if !in_single && !in_double => brace_depth += 1,
-            '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
-            '[' if !in_single && !in_double => bracket_depth += 1,
-            ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
-            ':' if !in_single
-                && !in_double
-                && brace_depth == 0
-                && bracket_depth == 0 =>
-            {
-                let before = content[..idx].trim_end();
-                if before.is_empty() {
-                    return (false, false);
-                }
-                let after = content[idx + 1..].trim();
-                let opens_block = after.is_empty();
-                return (true, opens_block);
-            }
-            _ => escaped = false,
+mod syntax {
+    pub(super) fn is_sequence_entry(content: &str) -> bool {
+        if !content.starts_with('-') {
+            return false;
         }
+        matches!(content.chars().nth(1), None | Some(' ' | '\t' | '\r' | '#'))
     }
-    (false, false)
-}
 
-fn sequence_prefix_width(content: &str) -> usize {
-    if !content.starts_with('-') {
-        return 0;
+    pub(super) fn is_compact_sequence_start(content: &str) -> bool {
+        let trimmed = content.trim();
+        if !is_sequence_entry(trimmed) {
+            return false;
+        }
+        let stripped = trimmed
+            .strip_prefix('-')
+            .expect("sequence entry starts with '-'");
+        is_sequence_entry(stripped.trim_start())
     }
-    1 + content
-        .chars()
-        .skip(1)
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .count()
-}
 
-fn compact_flow_mapping_continuation_indent(
-    content: &str,
-    indent: usize,
-) -> Option<usize> {
-    let trimmed = content.trim();
-    if !is_sequence_entry(trimmed) {
-        return None;
+    pub(super) fn classify_mapping(content: &str) -> (bool, bool) {
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut brace_depth = 0;
+        let mut bracket_depth = 0;
+        let mut escaped = false;
+        for (idx, ch) in content.char_indices() {
+            match ch {
+                '\\' => escaped = !escaped,
+                '\'' if !escaped && !in_double => in_single = !in_single,
+                '"' if !escaped && !in_single => in_double = !in_double,
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => {
+                    brace_depth -= 1;
+                }
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double && bracket_depth > 0 => {
+                    bracket_depth -= 1;
+                }
+                ':' if !in_single
+                    && !in_double
+                    && brace_depth == 0
+                    && bracket_depth == 0 =>
+                {
+                    let before = content[..idx].trim_end();
+                    if before.is_empty() {
+                        return (false, false);
+                    }
+                    return (true, content[idx + 1..].trim().is_empty());
+                }
+                _ => escaped = false,
+            }
+        }
+        (false, false)
     }
-    let base_prefix = 1 + trimmed
-        .chars()
-        .skip(1)
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .count();
-    trimmed[base_prefix..]
-        .starts_with('{')
-        .then_some(indent.saturating_add(base_prefix + 1))
+
+    pub(super) fn sequence_prefix_width(content: &str) -> usize {
+        if !content.starts_with('-') {
+            return 0;
+        }
+        1 + content
+            .chars()
+            .skip(1)
+            .take_while(|ch| matches!(ch, ' ' | '\t'))
+            .count()
+    }
+
+    pub(super) fn compact_flow_mapping_continuation_indent(
+        content: &str,
+        indent: usize,
+    ) -> Option<usize> {
+        let trimmed = content.trim();
+        if !is_sequence_entry(trimmed) {
+            return None;
+        }
+        let base_prefix = sequence_prefix_width(trimmed);
+        trimmed[base_prefix..]
+            .starts_with('{')
+            .then_some(indent.saturating_add(base_prefix + 1))
+    }
 }
