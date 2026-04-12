@@ -963,45 +963,19 @@ fn parse_fix_list<T>(
 }
 
 fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    if let Some(seq) = node.as_sequence() {
-        for it in seq {
-            let Some(s) = it.as_str() else {
-                return Err(
-                    "invalid config: ignore should contain file patterns".to_string()
-                );
-            };
-            out.extend(patterns_from_scalar(s));
-        }
-    } else if let Some(s) = node.as_str() {
-        out.extend(patterns_from_scalar(s));
-    } else {
-        return Err("invalid config: ignore should contain file patterns".to_string());
-    }
-    Ok(out)
+    parse_string_items(
+        node,
+        "invalid config: ignore should contain file patterns",
+        patterns_from_scalar,
+    )
 }
 
 fn load_ignore_from_files(node: &YamlOwned) -> Result<Vec<String>, String> {
-    if let Some(seq) = node.as_sequence() {
-        let mut files = Vec::new();
-        for it in seq {
-            let Some(s) = it.as_str() else {
-                return Err(
-                    "invalid config: ignore-from-file should contain filename(s), either as a list or string"
-                        .to_string(),
-                );
-            };
-            files.push(s.to_owned());
-        }
-        Ok(files)
-    } else if let Some(s) = node.as_str() {
-        Ok(vec![s.to_owned()])
-    } else {
-        Err(
-            "invalid config: ignore-from-file should contain filename(s), either as a list or string"
-                .to_string(),
-        )
-    }
+    parse_string_items(
+        node,
+        "invalid config: ignore-from-file should contain filename(s), either as a list or string",
+        |value| vec![value.to_owned()],
+    )
 }
 
 fn patterns_from_scalar(value: &str) -> Vec<String> {
@@ -1011,6 +985,27 @@ fn patterns_from_scalar(value: &str) -> Vec<String> {
         .filter(|line| !line.trim().is_empty())
         .map(std::string::ToString::to_string)
         .collect()
+}
+
+fn parse_string_items(
+    node: &YamlOwned,
+    error: &str,
+    map: impl Fn(&str) -> Vec<String>,
+) -> Result<Vec<String>, String> {
+    if let Some(seq) = node.as_sequence() {
+        let mut values = Vec::with_capacity(seq.len());
+        for item in seq {
+            let Some(text) = item.as_str() else {
+                return Err(error.to_string());
+            };
+            values.extend(map(text));
+        }
+        Ok(values)
+    } else if let Some(text) = node.as_str() {
+        Ok(map(text))
+    } else {
+        Err(error.to_string())
+    }
 }
 
 fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
@@ -1410,36 +1405,15 @@ fn validate_key_ordering_option(
     val: &YamlOwned,
 ) -> Result<(), String> {
     match key.as_str() {
-        Some("ignored-keys") => {
-            if let Some(seq) = val.as_sequence() {
-                for entry in seq {
-                    let Some(text) = entry.as_str() else {
-                        return Err(
-                            "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings"
-                                .to_string(),
-                        );
-                    };
-                    Regex::new(text).map_err(|err| {
-                        format!(
-                            "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
-                        )
-                    })?;
-                }
-                Ok(())
-            } else if let Some(text) = val.as_str() {
-                Regex::new(text).map_err(|err| {
-                    format!(
-                        "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
-                    )
-                })?;
-                Ok(())
-            } else {
-                Err(
-                    "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings"
-                        .to_string(),
+        Some("ignored-keys") => validate_regex_strings(
+            val,
+            "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings",
+            |text, err| {
+                format!(
+                    "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
                 )
-            }
-        }
+            },
+        ),
         _ => Err(unknown_rule_option("key-ordering", key)),
     }
 }
@@ -1607,24 +1581,18 @@ fn validate_regex_list_option(
     count_slot: &mut Option<usize>,
 ) -> Result<(), String> {
     let Some(seq) = val.as_sequence() else {
-        return Err(format!(
-            "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-        ));
+        return Err(quoted_strings_regex_type_error(option_name));
     };
     *count_slot = Some(seq.len());
-    for entry in seq {
-        let Some(text) = entry.as_str() else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-            ));
-        };
-        Regex::new(text).map_err(|err| {
+    validate_regex_strings(
+        val,
+        &quoted_strings_regex_type_error(option_name),
+        |text, err| {
             format!(
                 "invalid config: regex \"{text}\" in option \"{option_name}\" of \"quoted-strings\" is invalid: {err}"
             )
-        })?;
-    }
-    Ok(())
+        },
+    )
 }
 
 fn validate_bool_option(
@@ -1655,6 +1623,24 @@ fn validate_document_presence_option(
 fn unknown_rule_option(rule: &str, key: &YamlOwned) -> String {
     let key_name = describe_rule_option_key(key);
     format!("invalid config: unknown option \"{key_name}\" for rule \"{rule}\"")
+}
+
+fn validate_regex_strings(
+    val: &YamlOwned,
+    type_error: &str,
+    invalid_regex: impl Fn(&str, regex::Error) -> String,
+) -> Result<(), String> {
+    let values = parse_string_items(val, type_error, |text| vec![text.to_owned()])?;
+    for text in values {
+        Regex::new(&text).map_err(|err| invalid_regex(&text, err))?;
+    }
+    Ok(())
+}
+
+fn quoted_strings_regex_type_error(option_name: &str) -> String {
+    format!(
+        "invalid config: option \"{option_name}\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
+    )
 }
 
 fn resolve_extend_path(
