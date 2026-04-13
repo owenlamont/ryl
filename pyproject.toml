@@ -40,6 +40,3 @@ Issues = "https://github.com/owenlamont/ryl/issues"
 [tool.maturin]
 bindings = "bin"
 sdist = true
-
-[tool.uv]
-exclude-newer = "7 days"
