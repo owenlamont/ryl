@@ -47,7 +47,7 @@ ryl is a CLI tool for linting yaml files
 - Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
   so ensure current documentation and/or repo is consulted when working with third party
   dependencies.
-- When mirroring yamllint behaviour, spot-check tricky inputs with the yamllint CLI so
+- When mirroring yamllint behaviour, spot-check tricky inputs with the ryl CLI so
   our diagnostics and message text match (e.g., mixed newline styles or config keys of
   type int/bool/null/tagged scalar).
 
