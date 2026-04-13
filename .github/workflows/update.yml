@@ -1,35 +1,51 @@
-name: Update Rust Dependencies
-
+name: Update Dependencies and Linters
 on:
   schedule:
     - cron: '30 8 * * 0'  # Sunday 18:00 UTC+9:30
   workflow_dispatch:
 
 jobs:
-  upgrade-all:
+  refresh-dependencies-and-linters:
     runs-on: ubuntu-latest
     environment: automation
     permissions:
       contents: write
       pull-requests: write
-
+    env:
+      UV_PYTHON: 3.14
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
-      - name: Install cargo-edit
-        run: cargo install cargo-edit --locked
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.14"
 
-      - name: Upgrade all dependencies to latest (allow majors)
-        run: |
-          cargo upgrade --incompatible --recursive
-          cargo update
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Update Rust dependencies
+        run: cargo update
+
+      - name: Upgrade Python dependencies
+        run: uv lock --upgrade
+
+      - name: Install prek
+        run: uv tool install prek
+
+      - name: Run prek autoupdate
+        run: prek autoupdate --cooldown-days 7
 
       - name: Check for changes
         id: check_diff
         run: |
-          git add -A
-          if git diff --cached --quiet; then
+          if git diff --quiet; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -43,19 +59,18 @@ jobs:
           app-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
 
-      - name: Create PR with upgraded dependencies
+      - name: Create PR with updated deps and linters
         if: steps.check_diff.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0
         with:
           token: ${{ steps.generate-token.outputs.token }}
-          commit-message: "chore: upgrade Rust dependencies to latest (allow majors)"
-          title: "chore: upgrade Rust dependencies to latest (allow majors)"
+          commit-message: "chore: refresh dependencies and linters"
+          title: "chore: refresh dependencies and linters"
           body: |
-            Automated dependency refresh:
-            - Ran `cargo upgrade --incompatible --recursive`
+            Automated dependency and linter refresh:
             - Ran `cargo update`
-
-            Merge if CI is green.
-          branch: bot/rust-deps-max
+            - Ran `uv lock --upgrade`
+            - Ran `prek autoupdate --cooldown-days 7`
+          branch: bot/update-deps-and-linters
           author: GitHub Actions <actions@github.com>
           delete-branch: true
