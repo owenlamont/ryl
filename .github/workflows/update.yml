@@ -42,11 +42,6 @@ jobs:
       - name: Run prek autoupdate
         run: prek autoupdate --cooldown-days 7
 
-      - name: Pin GitHub Actions
-        uses: suzuki-shunsuke/pinact-action@a60b07ee63e41654915780a3297ff9f5f6b6db63 # v0.1.0
-        with:
-          args: run -u --min-age 7
-
       - name: Check for changes
         id: check_diff
         run: |
@@ -76,7 +71,6 @@ jobs:
             - Ran `cargo update`
             - Ran `uv lock --upgrade`
             - Ran `prek autoupdate --cooldown-days 7`
-            - Ran `pinact run -u --min-age 7`
           branch: bot/update-deps-and-linters
           author: GitHub Actions <actions@github.com>
           delete-branch: true
