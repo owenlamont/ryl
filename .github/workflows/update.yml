@@ -33,9 +33,6 @@ jobs:
       - name: Update Rust dependencies
         run: cargo update
 
-      - name: Upgrade Python dependencies
-        run: uv lock --upgrade
-
       - name: Install prek
         run: uv tool install prek
 
@@ -69,7 +66,6 @@ jobs:
           body: |
             Automated dependency and linter refresh:
             - Ran `cargo update`
-            - Ran `uv lock --upgrade`
             - Ran `prek autoupdate --cooldown-days 7`
           branch: bot/update-deps-and-linters
           author: GitHub Actions <actions@github.com>
