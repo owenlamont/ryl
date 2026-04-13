@@ -94,7 +94,7 @@ hooks = [
     pass_filenames = false
   },
   {
-    id = "uvaudit",
+    id = "uv audit",
     name = "uv audit",
     language = "system",
     entry = "uv audit --preview-features audit",
