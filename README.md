@@ -105,6 +105,8 @@ Options:
                                      parsable) [default: auto]
                                      [possible values: auto, standard, colored,
                                      github, parsable]
+      --print-config-schema          Print the JSON Schema for ryl TOML config
+                                     and exit
       --fix                          Apply safe fixes in place before reporting
                                      remaining diagnostics
       --migrate-configs              Convert discovered legacy YAML config files
@@ -170,6 +172,7 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
 - Flags:
   - `-c, --config-file <FILE>`: path to a YAML or TOML config file.
   - `-d, --config-data <YAML>`: inline YAML config (highest precedence).
+  - `--print-config-schema`: print the JSON Schema for `.ryl.toml` / `ryl.toml` / `[tool.ryl]`.
   - `--fix`: apply safe fixes in place before reporting remaining diagnostics.
   - `--list-files`: print files that would be linted after applying ignores and exit.
   - `--migrate-configs`: discover legacy YAML configs and plan TOML migration.
@@ -200,6 +203,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
 - TOML preset examples: see
   [docs/config-presets.md](https://github.com/owenlamont/ryl/blob/main/docs/config-presets.md)
   for `default`/`relaxed` equivalents.
+- Generate a schema artifact for editor integration with
+  `ryl --print-config-schema > ryl.schema.json`.
 
 Example TOML config (`.ryl.toml`):
 

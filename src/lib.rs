@@ -9,6 +9,7 @@
 pub mod cli_support;
 pub mod conf;
 pub mod config;
+pub mod config_schema;
 pub mod decoder;
 pub mod discover;
 pub mod fix;
