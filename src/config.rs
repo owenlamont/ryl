@@ -14,7 +14,8 @@ use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
     ForbidSetting, IndentSequencesSetting, NewLinesType, NormalizedConfig,
     NormalizedFixConfig, QuoteType, QuotedStringsRequiredModeForValidation,
-    SpacesSetting, TomlConfig, TruthyAllowedValue, normalize_toml_config,
+    SpacesSetting, TomlConfig, TruthyAllowedValue, load_ignore_from_files,
+    load_ignore_patterns, normalize_toml_config, parse_string_items,
     parse_toml_config_str, quoted_strings_required_mode_from_yaml_value,
     validate_key_ordering_patterns, validate_quoted_strings_semantics,
     validate_toml_config, yaml_owned_to_toml_value, yaml_value_matches_toml_type,
@@ -847,52 +848,6 @@ fn build_rule_filter(
         None
     };
     Ok(())
-}
-
-fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
-    parse_string_items(
-        node,
-        "invalid config: ignore should contain file patterns",
-        patterns_from_scalar,
-    )
-}
-
-fn load_ignore_from_files(node: &YamlOwned) -> Result<Vec<String>, String> {
-    parse_string_items(
-        node,
-        "invalid config: ignore-from-file should contain filename(s), either as a list or string",
-        |value| vec![value.to_owned()],
-    )
-}
-
-fn patterns_from_scalar(value: &str) -> Vec<String> {
-    value
-        .lines()
-        .map(|line| line.trim_end_matches(['\r']))
-        .filter(|line| !line.trim().is_empty())
-        .map(std::string::ToString::to_string)
-        .collect()
-}
-
-fn parse_string_items(
-    node: &YamlOwned,
-    error: &str,
-    map: impl Fn(&str) -> Vec<String>,
-) -> Result<Vec<String>, String> {
-    if let Some(seq) = node.as_sequence() {
-        let mut values = Vec::with_capacity(seq.len());
-        for item in seq {
-            let Some(text) = item.as_str() else {
-                return Err(error.to_string());
-            };
-            values.extend(map(text));
-        }
-        Ok(values)
-    } else if let Some(text) = node.as_str() {
-        Ok(map(text))
-    } else {
-        Err(error.to_string())
-    }
 }
 
 fn normalize_yaml_doc(doc: &YamlOwned) -> Result<NormalizedConfig, String> {
