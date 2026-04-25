@@ -10,7 +10,9 @@ use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 use toml::{Table as TomlTable, Value as TomlValue};
 
 use crate::config_schema::{
-    parse_toml_config_str, toml_config_to_value, validate_toml_config,
+    FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
+    StringOrVec, TomlConfig, parse_toml_config_str, toml_config_to_value,
+    validate_toml_config,
 };
 use crate::{conf, decoder};
 
@@ -539,9 +541,52 @@ impl YamlLintConfig {
         let Some(raw_doc) = extract_toml_config_doc(&toml, pyproject) else {
             return Ok(None);
         };
-        let doc = typed_toml_config_doc(s, pyproject, &raw_doc)?.unwrap_or(raw_doc);
-        let doc = toml_value_to_yaml_owned(&doc);
+        if let Some(typed) = exact_typed_toml_config(s, pyproject, &raw_doc)? {
+            let _ = (envx, base_dir);
+            return Ok(Some(Self::from_typed_toml_config_with_env(&typed)));
+        }
+
+        let doc = toml_value_to_yaml_owned(&raw_doc);
         Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some)
+    }
+
+    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
+        let mut cfg = Self::default();
+
+        if let Some(ignore) = &config.ignore {
+            cfg.ignore_patterns.clear();
+            cfg.ignore_from_files.clear();
+            cfg.ignore_patterns = string_or_vec_items(ignore);
+        }
+
+        if let Some(ignore_from_file) = &config.ignore_from_file {
+            cfg.ignore_patterns.clear();
+            cfg.ignore_from_files = string_or_vec_items(ignore_from_file);
+        }
+
+        if let Some(yaml_files) = &config.yaml_files {
+            cfg.yaml_file_patterns.clear();
+            cfg.yaml_file_patterns.clone_from(yaml_files);
+        }
+
+        cfg.locale.clone_from(&config.locale);
+
+        if let Some(fix) = &config.fix {
+            cfg.fix = typed_fix_config(fix);
+        }
+
+        if let Some(rules) = config.rules.as_ref() {
+            let rules_value = toml::Value::try_from(rules.clone())
+                .expect("serializing typed TOML rules should succeed");
+            let map = rules_value
+                .as_table()
+                .expect("serializing typed TOML rules should yield a table");
+            for (name, value) in map {
+                cfg.merge_rule(name, &toml_value_to_yaml_owned(value));
+            }
+        }
+
+        cfg
     }
 
     fn from_doc_with_env(
@@ -1754,11 +1799,11 @@ fn extract_toml_config_doc(toml: &TomlTable, pyproject: bool) -> Option<TomlValu
     }
 }
 
-fn typed_toml_config_doc(
+fn exact_typed_toml_config(
     input: &str,
     pyproject: bool,
     raw_doc: &TomlValue,
-) -> Result<Option<TomlValue>, String> {
+) -> Result<Option<TomlConfig>, String> {
     let Some(typed) = parse_toml_config_str(input, pyproject).ok().flatten() else {
         return Ok(None);
     };
@@ -1767,7 +1812,54 @@ fn typed_toml_config_doc(
         return Ok(None);
     }
     validate_toml_config(&typed)?;
-    Ok(Some(typed_doc))
+    Ok(Some(typed))
+}
+
+fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
+    match value {
+        StringOrVec::One(item) => vec![item.clone()],
+        StringOrVec::Many(items) => items.clone(),
+    }
+}
+
+fn typed_fix_config(fix: &crate::config_schema::FixTable) -> FixConfig {
+    let fixable = fix.fixable.as_ref().map_or_else(
+        || FixConfig::default().fixable,
+        |entries| entries.iter().copied().map(typed_fix_selector).collect(),
+    );
+    let unfixable = fix.unfixable.as_ref().map_or_else(Vec::new, |entries| {
+        entries.iter().copied().map(typed_fix_rule).collect()
+    });
+    FixConfig { fixable, unfixable }
+}
+
+fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
+    match selector {
+        TomlFixableRuleSelector::All => FixRuleSelector::All,
+        TomlFixableRuleSelector::Braces => FixRuleSelector::Rule(FixRule::Braces),
+        TomlFixableRuleSelector::Brackets => FixRuleSelector::Rule(FixRule::Brackets),
+        TomlFixableRuleSelector::Commas => FixRuleSelector::Rule(FixRule::Commas),
+        TomlFixableRuleSelector::Comments => FixRuleSelector::Rule(FixRule::Comments),
+        TomlFixableRuleSelector::CommentsIndentation => {
+            FixRuleSelector::Rule(FixRule::CommentsIndentation)
+        }
+        TomlFixableRuleSelector::NewLineAtEndOfFile => {
+            FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile)
+        }
+        TomlFixableRuleSelector::NewLines => FixRuleSelector::Rule(FixRule::NewLines),
+    }
+}
+
+fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
+    match rule {
+        TomlFixRuleName::Braces => FixRule::Braces,
+        TomlFixRuleName::Brackets => FixRule::Brackets,
+        TomlFixRuleName::Commas => FixRule::Commas,
+        TomlFixRuleName::Comments => FixRule::Comments,
+        TomlFixRuleName::CommentsIndentation => FixRule::CommentsIndentation,
+        TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
+        TomlFixRuleName::NewLines => FixRule::NewLines,
+    }
 }
 
 fn yaml_owned_to_toml_value(value: &YamlOwned) -> Result<TomlValue, String> {
