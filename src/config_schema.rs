@@ -1,3 +1,4 @@
+use regex::Regex;
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -493,6 +494,26 @@ pub fn parse_toml_config_str(
         .map_err(|err| format!("failed to parse config data: {err}"))
 }
 
+/// Validate semantic constraints for a typed TOML config model.
+///
+/// # Errors
+/// Returns an error if the typed TOML config violates semantic rules that are
+/// not fully captured by deserialization alone.
+pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
+    if config.ignore.is_some() && config.ignore_from_file.is_some() {
+        return Err(
+            "invalid config: ignore and ignore-from-file keys cannot be used together"
+                .to_string(),
+        );
+    }
+
+    if let Some(rules) = &config.rules {
+        rules.validate()?;
+    }
+
+    Ok(())
+}
+
 /// Convert a typed TOML config model into a TOML value tree.
 ///
 /// # Panics
@@ -520,4 +541,138 @@ pub fn schema_value() -> Value {
 pub fn schema_string_pretty() -> String {
     serde_json::to_string_pretty(&schema())
         .expect("serializing generated schema should succeed")
+}
+
+impl RulesTable {
+    fn validate(&self) -> Result<(), String> {
+        validate_key_ordering_rule(self.key_ordering.as_ref())?;
+        validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
+        Ok(())
+    }
+}
+
+fn validate_key_ordering_rule(
+    entry: Option<&RuleEntry<KeyOrderingOptions>>,
+) -> Result<(), String> {
+    let Some(options) = rule_options(entry) else {
+        return Ok(());
+    };
+    let Some(patterns) = &options.specific.ignored_keys else {
+        return Ok(());
+    };
+
+    for text in patterns {
+        Regex::new(text).map_err(|err| {
+            format!(
+                "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn validate_quoted_strings_rule(
+    entry: Option<&RuleEntry<QuotedStringsOptions>>,
+) -> Result<(), String> {
+    let Some(options) = rule_options(entry) else {
+        return Ok(());
+    };
+    let specific = &options.specific;
+    let required = quoted_strings_required_mode(specific.required.as_ref());
+    let extra_required = specific.extra_required.as_ref().map_or(0, Vec::len);
+    let extra_allowed = specific.extra_allowed.as_ref().map_or(0, Vec::len);
+
+    if matches!(required, QuotedStringsRequiredModeForValidation::True)
+        && extra_allowed > 0
+    {
+        return Err(
+            "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-allowed\""
+                .to_string(),
+        );
+    }
+    if matches!(required, QuotedStringsRequiredModeForValidation::True)
+        && extra_required > 0
+    {
+        return Err(
+            "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
+                .to_string(),
+        );
+    }
+    if matches!(required, QuotedStringsRequiredModeForValidation::False)
+        && extra_allowed > 0
+    {
+        return Err(
+            "invalid config: quoted-strings: cannot use both \"required: false\" and \"extra-allowed\""
+                .to_string(),
+        );
+    }
+
+    validate_regex_list(
+        specific.extra_required.as_deref(),
+        "extra-required",
+        |text, err| {
+            format!(
+                "invalid config: regex \"{text}\" in option \"extra-required\" of \"quoted-strings\" is invalid: {err}"
+            )
+        },
+    )?;
+    validate_regex_list(
+        specific.extra_allowed.as_deref(),
+        "extra-allowed",
+        |text, err| {
+            format!(
+                "invalid config: regex \"{text}\" in option \"extra-allowed\" of \"quoted-strings\" is invalid: {err}"
+            )
+        },
+    )?;
+
+    Ok(())
+}
+
+fn validate_regex_list(
+    patterns: Option<&[String]>,
+    _option_name: &str,
+    invalid_regex: impl Fn(&str, regex::Error) -> String,
+) -> Result<(), String> {
+    let Some(patterns) = patterns else {
+        return Ok(());
+    };
+
+    for text in patterns {
+        Regex::new(text).map_err(|err| invalid_regex(text, err))?;
+    }
+
+    Ok(())
+}
+
+fn rule_options<T>(entry: Option<&RuleEntry<T>>) -> Option<&RuleOptions<T>> {
+    match entry {
+        Some(RuleEntry::Options(options)) => Some(options),
+        Some(RuleEntry::Bool(_) | RuleEntry::Switch(_)) | None => None,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuotedStringsRequiredModeForValidation {
+    True,
+    False,
+    OnlyWhenNeeded,
+}
+
+fn quoted_strings_required_mode(
+    required: Option<&QuotedStringsRequired>,
+) -> QuotedStringsRequiredModeForValidation {
+    match required {
+        None => QuotedStringsRequiredModeForValidation::True,
+        Some(QuotedStringsRequired::Bool(true)) => {
+            QuotedStringsRequiredModeForValidation::True
+        }
+        Some(QuotedStringsRequired::Bool(false)) => {
+            QuotedStringsRequiredModeForValidation::False
+        }
+        Some(QuotedStringsRequired::Mode(
+            QuotedStringsRequiredMode::OnlyWhenNeeded,
+        )) => QuotedStringsRequiredModeForValidation::OnlyWhenNeeded,
+    }
 }

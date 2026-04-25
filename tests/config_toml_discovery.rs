@@ -250,6 +250,52 @@ fn toml_custom_rule_entries_are_preserved() {
 }
 
 #[test]
+fn toml_ignore_and_ignore_from_file_conflict_errors() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",
+    );
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("conflicting top-level ignore settings should fail");
+
+    assert_eq!(
+        err,
+        "invalid config: ignore and ignore-from-file keys cannot be used together"
+    );
+}
+
+#[test]
+fn toml_quoted_strings_conflict_errors() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "[rules.quoted-strings]\nextra-required = ['^http']\n",
+    );
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("conflicting quoted-strings TOML settings should fail");
+
+    assert_eq!(
+        err,
+        "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
+    );
+}
+
+#[test]
 fn toml_float_value_for_locale_reports_string_error() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new()

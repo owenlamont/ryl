@@ -9,7 +9,9 @@ use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 use toml::{Table as TomlTable, Value as TomlValue};
 
-use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
+use crate::config_schema::{
+    parse_toml_config_str, toml_config_to_value, validate_toml_config,
+};
 use crate::{conf, decoder};
 
 /// Abstraction over environment/filesystem to enable full test coverage.
@@ -537,7 +539,7 @@ impl YamlLintConfig {
         let Some(raw_doc) = extract_toml_config_doc(&toml, pyproject) else {
             return Ok(None);
         };
-        let doc = typed_toml_config_doc(s, pyproject, &raw_doc).unwrap_or(raw_doc);
+        let doc = typed_toml_config_doc(s, pyproject, &raw_doc)?.unwrap_or(raw_doc);
         let doc = toml_value_to_yaml_owned(&doc);
         Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some)
     }
@@ -1756,10 +1758,16 @@ fn typed_toml_config_doc(
     input: &str,
     pyproject: bool,
     raw_doc: &TomlValue,
-) -> Option<TomlValue> {
-    let typed = parse_toml_config_str(input, pyproject).ok().flatten()?;
+) -> Result<Option<TomlValue>, String> {
+    let Some(typed) = parse_toml_config_str(input, pyproject).ok().flatten() else {
+        return Ok(None);
+    };
     let typed_doc = toml_config_to_value(&typed);
-    (typed_doc == *raw_doc).then_some(typed_doc)
+    if typed_doc != *raw_doc {
+        return Ok(None);
+    }
+    validate_toml_config(&typed)?;
+    Ok(Some(typed_doc))
 }
 
 fn yaml_owned_to_toml_value(value: &YamlOwned) -> Result<TomlValue, String> {

@@ -1,7 +1,9 @@
 use std::process::Command;
 
 use jsonschema::validator_for;
-use ryl::config_schema::{parse_toml_config_str, schema_value, toml_config_to_value};
+use ryl::config_schema::{
+    parse_toml_config_str, schema_value, toml_config_to_value, validate_toml_config,
+};
 use serde_json::{Value, json};
 
 fn toml_to_json(input: &str) -> Value {
@@ -215,4 +217,77 @@ fn typed_toml_parser_errors_for_invalid_pyproject_toml() {
         .expect_err("invalid pyproject TOML should error");
 
     assert!(err.contains("failed to parse config data:"));
+}
+
+#[test]
+fn typed_toml_validation_rejects_ignore_and_ignore_from_file_together() {
+    let parsed = parse_toml_config_str(
+        "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed)
+        .expect_err("typed validation should reject conflicting ignore settings");
+
+    assert_eq!(
+        err,
+        "invalid config: ignore and ignore-from-file keys cannot be used together"
+    );
+}
+
+#[test]
+fn typed_toml_validation_rejects_invalid_key_ordering_regex() {
+    let parsed =
+        parse_toml_config_str("[rules.key-ordering]\nignored-keys = ['[']\n", false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed)
+        .expect_err("typed validation should reject invalid regex");
+
+    assert!(
+        err.contains("invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '[':"),
+        "unexpected message: {err}"
+    );
+}
+
+#[test]
+fn typed_toml_validation_rejects_quoted_strings_conflicts() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nextra-required = ['^http']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed).expect_err(
+        "typed validation should reject conflicting quoted-strings options",
+    );
+
+    assert_eq!(
+        err,
+        "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
+    );
+}
+
+#[test]
+fn typed_toml_validation_rejects_invalid_quoted_strings_regex() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nrequired = false\nextra-required = ['[']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed)
+        .expect_err("typed validation should reject invalid quoted-strings regex");
+
+    assert!(
+        err.starts_with(
+            "invalid config: regex \"[\" in option \"extra-required\" of \"quoted-strings\" is invalid:"
+        ),
+        "unexpected message: {err}"
+    );
 }
