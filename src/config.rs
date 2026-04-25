@@ -1007,34 +1007,7 @@ fn validate_rule_value(name: &str, value: &YamlOwned) -> Result<(), String> {
             if handle_common_rule_key(name, key, val)? {
                 continue;
             }
-
-            match name {
-                "anchors" => validate_anchors_option(key, val)?,
-                "braces" => validate_brace_like_option("braces", key, val)?,
-                "brackets" => validate_brace_like_option("brackets", key, val)?,
-                "document-end" => validate_document_end_option(key, val)?,
-                "document-start" => validate_document_start_option(key, val)?,
-                "empty-lines" => validate_empty_lines_option(key, val)?,
-                "commas" => validate_commas_option(key, val)?,
-                "comments" => validate_comments_option(key, val)?,
-                "new-lines" => validate_new_lines_option(key, val)?,
-                "octal-values" => validate_octal_values_option(key, val)?,
-                "float-values" => validate_float_values_option(key, val)?,
-                "empty-values" => validate_empty_values_option(key, val)?,
-                "key-duplicates" => validate_key_duplicates_option(key, val)?,
-                "hyphens" => validate_hyphens_option(key, val)?,
-                "truthy" => validate_truthy_option(key, val)?,
-                "key-ordering" => validate_key_ordering_option(key, val)?,
-                "indentation" => validate_indentation_option(key, val)?,
-                "line-length" => validate_line_length_option(key, val)?,
-                "trailing-spaces" => {
-                    return Err(unknown_rule_option("trailing-spaces", key));
-                }
-                "comments-indentation" => {
-                    return Err(unknown_rule_option("comments-indentation", key));
-                }
-                _ => {}
-            }
+            validate_specific_rule_option(name, key, val)?;
         }
         return Ok(());
     }
@@ -1076,18 +1049,110 @@ fn handle_common_rule_key(
     Ok(false)
 }
 
-fn validate_document_end_option(
+fn validate_specific_rule_option(
+    rule: &str,
     key: &YamlOwned,
     val: &YamlOwned,
 ) -> Result<(), String> {
-    validate_document_presence_option("document-end", key, val)
-}
-
-fn validate_document_start_option(
-    key: &YamlOwned,
-    val: &YamlOwned,
-) -> Result<(), String> {
-    validate_document_presence_option("document-start", key, val)
+    match rule {
+        "anchors" => validate_scalar_rule_option(
+            "anchors",
+            key,
+            val,
+            &[
+                "forbid-undeclared-aliases",
+                "forbid-duplicated-anchors",
+                "forbid-unused-anchors",
+            ],
+            &[],
+        ),
+        "braces" => validate_brace_like_option("braces", key, val),
+        "brackets" => validate_brace_like_option("brackets", key, val),
+        "document-end" => {
+            validate_scalar_rule_option("document-end", key, val, &["present"], &[])
+        }
+        "document-start" => {
+            validate_scalar_rule_option("document-start", key, val, &["present"], &[])
+        }
+        "empty-lines" => validate_scalar_rule_option(
+            "empty-lines",
+            key,
+            val,
+            &[],
+            &["max", "max-start", "max-end"],
+        ),
+        "commas" => validate_scalar_rule_option(
+            "commas",
+            key,
+            val,
+            &[],
+            &["max-spaces-before", "min-spaces-after", "max-spaces-after"],
+        ),
+        "comments" => validate_scalar_rule_option_allow_non_string(
+            "comments",
+            key,
+            val,
+            &["require-starting-space", "ignore-shebangs"],
+            &["min-spaces-from-content"],
+        ),
+        "new-lines" => validate_new_lines_option(key, val),
+        "octal-values" => validate_scalar_rule_option(
+            "octal-values",
+            key,
+            val,
+            &["forbid-implicit-octal", "forbid-explicit-octal"],
+            &[],
+        ),
+        "float-values" => validate_scalar_rule_option(
+            "float-values",
+            key,
+            val,
+            &[
+                "require-numeral-before-decimal",
+                "forbid-scientific-notation",
+                "forbid-nan",
+                "forbid-inf",
+            ],
+            &[],
+        ),
+        "empty-values" => validate_scalar_rule_option(
+            "empty-values",
+            key,
+            val,
+            &[
+                "forbid-in-block-mappings",
+                "forbid-in-flow-mappings",
+                "forbid-in-block-sequences",
+            ],
+            &[],
+        ),
+        "key-duplicates" => validate_scalar_rule_option(
+            "key-duplicates",
+            key,
+            val,
+            &["forbid-duplicated-merge-keys"],
+            &[],
+        ),
+        "hyphens" => {
+            validate_scalar_rule_option("hyphens", key, val, &[], &["max-spaces-after"])
+        }
+        "truthy" => validate_truthy_option(key, val),
+        "key-ordering" => validate_key_ordering_option(key, val),
+        "indentation" => validate_indentation_option(key, val),
+        "line-length" => validate_scalar_rule_option(
+            "line-length",
+            key,
+            val,
+            &[
+                "allow-non-breakable-words",
+                "allow-non-breakable-inline-mappings",
+            ],
+            &["max"],
+        ),
+        "trailing-spaces" => Err(unknown_rule_option("trailing-spaces", key)),
+        "comments-indentation" => Err(unknown_rule_option("comments-indentation", key)),
+        _ => Ok(()),
+    }
 }
 
 fn validate_brace_like_option(
@@ -1121,81 +1186,39 @@ fn validate_brace_like_option(
     }
 }
 
-fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
+fn validate_scalar_rule_option(
+    rule: &str,
+    key: &YamlOwned,
+    val: &YamlOwned,
+    bool_options: &[&str],
+    int_options: &[&str],
+) -> Result<(), String> {
     let Some(name) = key.as_str() else {
-        return Err(unknown_rule_option("anchors", key));
+        return Err(unknown_rule_option(rule, key));
     };
 
-    match name {
-        "forbid-undeclared-aliases"
-        | "forbid-duplicated-anchors"
-        | "forbid-unused-anchors" => validate_bool_option(val, "anchors", name),
-        _ => Err(unknown_rule_option("anchors", key)),
+    if bool_options.contains(&name) {
+        return validate_bool_option(val, rule, name);
     }
+    if int_options.contains(&name) {
+        return validate_int_option(val, rule, name);
+    }
+
+    Err(unknown_rule_option(rule, key))
 }
 
-fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
-    match key.as_str() {
-        Some("max-spaces-after") => {
-            validate_int_option(val, "hyphens", "max-spaces-after")
-        }
-        _ => Err(unknown_rule_option("hyphens", key)),
-    }
-}
-
-fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
-    let Some(name) = key.as_str() else {
-        return Err(unknown_rule_option("commas", key));
-    };
-
-    match name {
-        "max-spaces-before" => validate_int_option(val, "commas", "max-spaces-before"),
-        "min-spaces-after" => validate_int_option(val, "commas", "min-spaces-after"),
-        "max-spaces-after" => validate_int_option(val, "commas", "max-spaces-after"),
-        _ => Err(unknown_rule_option("commas", key)),
-    }
-}
-
-fn validate_comments_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
-    let Some(name) = key.as_str() else {
-        // Non-string keys are ignored during deep merge, matching yamllint.
+fn validate_scalar_rule_option_allow_non_string(
+    rule: &str,
+    key: &YamlOwned,
+    val: &YamlOwned,
+    bool_options: &[&str],
+    int_options: &[&str],
+) -> Result<(), String> {
+    if key.as_str().is_none() {
         return Ok(());
-    };
-
-    match name {
-        "require-starting-space" => {
-            validate_bool_option(val, "comments", "require-starting-space")
-        }
-        "ignore-shebangs" => validate_bool_option(val, "comments", "ignore-shebangs"),
-        "min-spaces-from-content" => {
-            validate_int_option(val, "comments", "min-spaces-from-content")
-        }
-        _ => Err(unknown_rule_option("comments", key)),
     }
-}
 
-fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
-    match key.as_str() {
-        Some("max") => validate_int_option(val, "empty-lines", "max"),
-        Some("max-start") => validate_int_option(val, "empty-lines", "max-start"),
-        Some("max-end") => validate_int_option(val, "empty-lines", "max-end"),
-        _ => Err(unknown_rule_option("empty-lines", key)),
-    }
-}
-
-fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
-    match key.as_str() {
-        Some("max") => validate_int_option(val, "line-length", "max"),
-        Some("allow-non-breakable-words") => {
-            validate_bool_option(val, "line-length", "allow-non-breakable-words")
-        }
-        Some("allow-non-breakable-inline-mappings") => validate_bool_option(
-            val,
-            "line-length",
-            "allow-non-breakable-inline-mappings",
-        ),
-        _ => Err(unknown_rule_option("line-length", key)),
-    }
+    validate_scalar_rule_option(rule, key, val, bool_options, int_options)
 }
 
 fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
@@ -1210,68 +1233,6 @@ fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Str
             "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
                 .to_string(),
         )
-    }
-}
-
-fn validate_octal_values_option(
-    key: &YamlOwned,
-    val: &YamlOwned,
-) -> Result<(), String> {
-    match key.as_str() {
-        Some("forbid-implicit-octal") => {
-            validate_bool_option(val, "octal-values", "forbid-implicit-octal")
-        }
-        Some("forbid-explicit-octal") => {
-            validate_bool_option(val, "octal-values", "forbid-explicit-octal")
-        }
-        _ => Err(unknown_rule_option("octal-values", key)),
-    }
-}
-
-fn validate_empty_values_option(
-    key: &YamlOwned,
-    val: &YamlOwned,
-) -> Result<(), String> {
-    match key.as_str() {
-        Some("forbid-in-block-mappings") => {
-            validate_bool_option(val, "empty-values", "forbid-in-block-mappings")
-        }
-        Some("forbid-in-flow-mappings") => {
-            validate_bool_option(val, "empty-values", "forbid-in-flow-mappings")
-        }
-        Some("forbid-in-block-sequences") => {
-            validate_bool_option(val, "empty-values", "forbid-in-block-sequences")
-        }
-        _ => Err(unknown_rule_option("empty-values", key)),
-    }
-}
-
-fn validate_float_values_option(
-    key: &YamlOwned,
-    val: &YamlOwned,
-) -> Result<(), String> {
-    match key.as_str() {
-        Some("require-numeral-before-decimal") => {
-            validate_bool_option(val, "float-values", "require-numeral-before-decimal")
-        }
-        Some("forbid-scientific-notation") => {
-            validate_bool_option(val, "float-values", "forbid-scientific-notation")
-        }
-        Some("forbid-nan") => validate_bool_option(val, "float-values", "forbid-nan"),
-        Some("forbid-inf") => validate_bool_option(val, "float-values", "forbid-inf"),
-        _ => Err(unknown_rule_option("float-values", key)),
-    }
-}
-
-fn validate_key_duplicates_option(
-    key: &YamlOwned,
-    val: &YamlOwned,
-) -> Result<(), String> {
-    match key.as_str() {
-        Some("forbid-duplicated-merge-keys") => {
-            validate_bool_option(val, "key-duplicates", "forbid-duplicated-merge-keys")
-        }
-        _ => Err(unknown_rule_option("key-duplicates", key)),
     }
 }
 
@@ -1472,17 +1433,6 @@ fn validate_option_type<T: DeserializeOwned>(
         Err(format!(
             "invalid config: option \"{option_name}\" of \"{rule_name}\" should be {expected_type}"
         ))
-    }
-}
-
-fn validate_document_presence_option(
-    rule: &str,
-    key: &YamlOwned,
-    val: &YamlOwned,
-) -> Result<(), String> {
-    match key.as_str() {
-        Some("present") => validate_bool_option(val, rule, "present"),
-        _ => Err(unknown_rule_option(rule, key)),
     }
 }
 
