@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
+use serde::de::DeserializeOwned;
 use toml::Value as TomlValue;
 
 use crate::config_schema::{
@@ -1108,22 +1109,14 @@ fn validate_brace_like_option(
                 ))
             }
         }
-        "min-spaces-inside" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            format!("invalid config: option \"min-spaces-inside\" of \"{rule}\" should be int")
-        }),
-        "max-spaces-inside" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            format!("invalid config: option \"max-spaces-inside\" of \"{rule}\" should be int")
-        }),
-        "min-spaces-inside-empty" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            format!(
-                "invalid config: option \"min-spaces-inside-empty\" of \"{rule}\" should be int"
-            )
-        }),
-        "max-spaces-inside-empty" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            format!(
-                "invalid config: option \"max-spaces-inside-empty\" of \"{rule}\" should be int"
-            )
-        }),
+        "min-spaces-inside" => validate_int_option(val, rule, "min-spaces-inside"),
+        "max-spaces-inside" => validate_int_option(val, rule, "max-spaces-inside"),
+        "min-spaces-inside-empty" => {
+            validate_int_option(val, rule, "min-spaces-inside-empty")
+        }
+        "max-spaces-inside-empty" => {
+            validate_int_option(val, rule, "max-spaces-inside-empty")
+        }
         _ => Err(unknown_rule_option(rule, key)),
     }
 }
@@ -1136,24 +1129,16 @@ fn validate_anchors_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Strin
     match name {
         "forbid-undeclared-aliases"
         | "forbid-duplicated-anchors"
-        | "forbid-unused-anchors" => {
-            if val.as_bool().is_some() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "invalid config: option \"{name}\" of \"anchors\" should be bool"
-                ))
-            }
-        }
+        | "forbid-unused-anchors" => validate_bool_option(val, "anchors", name),
         _ => Err(unknown_rule_option("anchors", key)),
     }
 }
 
 fn validate_hyphens_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
-        Some("max-spaces-after") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-spaces-after\" of \"hyphens\" should be int".to_string()
-        }),
+        Some("max-spaces-after") => {
+            validate_int_option(val, "hyphens", "max-spaces-after")
+        }
         _ => Err(unknown_rule_option("hyphens", key)),
     }
 }
@@ -1164,15 +1149,9 @@ fn validate_commas_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
     };
 
     match name {
-        "max-spaces-before" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-spaces-before\" of \"commas\" should be int".to_string()
-        }),
-        "min-spaces-after" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"min-spaces-after\" of \"commas\" should be int".to_string()
-        }),
-        "max-spaces-after" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-spaces-after\" of \"commas\" should be int".to_string()
-        }),
+        "max-spaces-before" => validate_int_option(val, "commas", "max-spaces-before"),
+        "min-spaces-after" => validate_int_option(val, "commas", "min-spaces-after"),
+        "max-spaces-after" => validate_int_option(val, "commas", "max-spaces-after"),
         _ => Err(unknown_rule_option("commas", key)),
     }
 }
@@ -1184,40 +1163,29 @@ fn validate_comments_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Stri
     };
 
     match name {
-        "require-starting-space" => validate_bool_option(val, "comments", "require-starting-space"),
+        "require-starting-space" => {
+            validate_bool_option(val, "comments", "require-starting-space")
+        }
         "ignore-shebangs" => validate_bool_option(val, "comments", "ignore-shebangs"),
-        "min-spaces-from-content" => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"min-spaces-from-content\" of \"comments\" should be int"
-                .to_string()
-        }),
+        "min-spaces-from-content" => {
+            validate_int_option(val, "comments", "min-spaces-from-content")
+        }
         _ => Err(unknown_rule_option("comments", key)),
     }
 }
 
 fn validate_empty_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
-        Some("max") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max\" of \"empty-lines\" should be int"
-                .to_string()
-        }),
-        Some("max-start") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-start\" of \"empty-lines\" should be int"
-                .to_string()
-        }),
-        Some("max-end") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max-end\" of \"empty-lines\" should be int"
-                .to_string()
-        }),
+        Some("max") => validate_int_option(val, "empty-lines", "max"),
+        Some("max-start") => validate_int_option(val, "empty-lines", "max-start"),
+        Some("max-end") => validate_int_option(val, "empty-lines", "max-end"),
         _ => Err(unknown_rule_option("empty-lines", key)),
     }
 }
 
 fn validate_line_length_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
-        Some("max") => val.as_integer().map(|_| ()).ok_or_else(|| {
-            "invalid config: option \"max\" of \"line-length\" should be int"
-                .to_string()
-        }),
+        Some("max") => validate_int_option(val, "line-length", "max"),
         Some("allow-non-breakable-words") => {
             validate_bool_option(val, "line-length", "allow-non-breakable-words")
         }
@@ -1318,16 +1286,7 @@ fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String
                 ))
             }
         }
-        Some("check-keys") => {
-            if val.as_bool().is_none() {
-                Err(
-                    "invalid config: option \"check-keys\" of \"truthy\" should be bool"
-                        .to_string(),
-                )
-            } else {
-                Ok(())
-            }
-        }
+        Some("check-keys") => validate_bool_option(val, "truthy", "check-keys"),
         _ => Err(unknown_rule_option("truthy", key)),
     }
 }
@@ -1372,14 +1331,7 @@ fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             }
         }
         Some("check-multi-line-strings") => {
-            if val.as_bool().is_some() {
-                Ok(())
-            } else {
-                Err(
-                    "invalid config: option \"check-multi-line-strings\" of \"indentation\" should be bool"
-                        .to_string(),
-                )
-            }
+            validate_bool_option(val, "indentation", "check-multi-line-strings")
         }
         _ => Err(unknown_rule_option("indentation", key)),
     }
@@ -1497,11 +1449,28 @@ fn validate_bool_option(
     rule_name: &str,
     option_name: &str,
 ) -> Result<(), String> {
-    if val.as_bool().is_some() {
+    validate_option_type::<bool>(val, rule_name, option_name, "bool")
+}
+
+fn validate_int_option(
+    val: &YamlOwned,
+    rule_name: &str,
+    option_name: &str,
+) -> Result<(), String> {
+    validate_option_type::<i64>(val, rule_name, option_name, "int")
+}
+
+fn validate_option_type<T: DeserializeOwned>(
+    val: &YamlOwned,
+    rule_name: &str,
+    option_name: &str,
+    expected_type: &str,
+) -> Result<(), String> {
+    if yaml_value_matches_toml_type::<T>(val) {
         Ok(())
     } else {
         Err(format!(
-            "invalid config: option \"{option_name}\" of \"{rule_name}\" should be bool"
+            "invalid config: option \"{option_name}\" of \"{rule_name}\" should be {expected_type}"
         ))
     }
 }
