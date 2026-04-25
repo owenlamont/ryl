@@ -12,12 +12,12 @@ use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    ForbidSetting, IndentSequencesSetting, NewLinesType, NormalizedFixConfig,
-    QuoteType, QuotedStringsRequiredModeForValidation, SpacesSetting, TomlConfig,
-    TruthyAllowedValue, normalize_toml_config, parse_toml_config_str,
-    quoted_strings_required_mode_from_yaml_value, validate_key_ordering_patterns,
-    validate_quoted_strings_semantics, validate_toml_config, yaml_owned_to_toml_value,
-    yaml_value_matches_toml_type,
+    ForbidSetting, IndentSequencesSetting, NewLinesType, NormalizedConfig,
+    NormalizedFixConfig, QuoteType, QuotedStringsRequiredModeForValidation,
+    SpacesSetting, TomlConfig, TruthyAllowedValue, normalize_toml_config,
+    parse_toml_config_str, quoted_strings_required_mode_from_yaml_value,
+    validate_key_ordering_patterns, validate_quoted_strings_semantics,
+    validate_toml_config, yaml_owned_to_toml_value, yaml_value_matches_toml_type,
 };
 use crate::{conf, decoder};
 
@@ -537,33 +537,7 @@ impl YamlLintConfig {
     fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
         let normalized = normalize_toml_config(config);
         let mut cfg = Self::default();
-
-        if let Some(ignore) = normalized.ignore_patterns {
-            cfg.ignore_patterns.clear();
-            cfg.ignore_from_files.clear();
-            cfg.ignore_patterns = ignore;
-        }
-
-        if let Some(ignore_from_file) = normalized.ignore_from_files {
-            cfg.ignore_patterns.clear();
-            cfg.ignore_from_files = ignore_from_file;
-        }
-
-        if let Some(yaml_files) = normalized.yaml_file_patterns {
-            cfg.yaml_file_patterns.clear();
-            cfg.yaml_file_patterns = yaml_files;
-        }
-
-        cfg.locale = normalized.locale;
-
-        if let Some(fix) = normalized.fix.as_ref() {
-            cfg.fix = typed_fix_config(fix);
-        }
-
-        for (name, value) in &normalized.rules {
-            cfg.merge_rule(name, value);
-        }
-
+        cfg.apply_normalized_config(normalized);
         cfg
     }
 
@@ -581,75 +555,7 @@ impl YamlLintConfig {
         if let Some(extends) = doc.as_mapping_get("extends") {
             cfg.apply_extends(extends, envx, base_dir)?;
         }
-
-        let ignore = doc.as_mapping_get("ignore");
-        let ignore_from_file = doc.as_mapping_get("ignore-from-file");
-        if ignore.is_some() && ignore_from_file.is_some() {
-            return Err(
-                "invalid config: ignore and ignore-from-file keys cannot be used together"
-                    .to_string(),
-            );
-        }
-
-        if let Some(node) = ignore {
-            cfg.ignore_patterns.clear();
-            cfg.ignore_from_files.clear();
-            let mut patterns = load_ignore_patterns(node)?;
-            cfg.ignore_patterns.append(&mut patterns);
-        }
-
-        if let Some(node) = ignore_from_file {
-            cfg.ignore_patterns.clear();
-            cfg.ignore_from_files = load_ignore_from_files(node)?;
-        }
-
-        let yaml_files = doc.as_mapping_get("yaml-files");
-        if let Some(yf) = yaml_files
-            && let Some(seq) = yf.as_sequence()
-        {
-            cfg.yaml_file_patterns.clear();
-            for it in seq {
-                let Some(s) = it.as_str() else {
-                    return Err(
-                        "invalid config: yaml-files should be a list of file patterns"
-                            .to_string(),
-                    );
-                };
-                cfg.yaml_file_patterns.push(s.to_owned());
-            }
-        } else if yaml_files.is_some() {
-            return Err(
-                "invalid config: yaml-files should be a list of file patterns"
-                    .to_string(),
-            );
-        }
-
-        if let Some(locale) = doc.as_mapping_get("locale") {
-            let Some(loc) = locale.as_str() else {
-                return Err("invalid config: locale should be a string".to_string());
-            };
-            cfg.locale = Some(loc.to_owned());
-        }
-
-        if let Some(fix) = doc.as_mapping_get("fix") {
-            let _ = fix;
-            return Err(
-                "invalid config: fix is only supported in TOML configuration"
-                    .to_string(),
-            );
-        }
-
-        if let Some(rules) = doc.as_mapping_get("rules")
-            && let Some(map) = rules.as_mapping()
-        {
-            for (k, v) in map {
-                let Some(name) = k.as_str() else {
-                    continue;
-                };
-                validate_rule_value(name, v)?;
-                cfg.merge_rule(name, v);
-            }
-        }
+        cfg.apply_normalized_config(normalize_yaml_doc(doc)?);
 
         Ok(cfg)
     }
@@ -667,6 +573,36 @@ impl YamlLintConfig {
         }
         if self.locale.is_none() {
             self.locale = other.locale;
+        }
+    }
+
+    fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
+        if let Some(ignore) = normalized.ignore_patterns {
+            self.ignore_patterns.clear();
+            self.ignore_from_files.clear();
+            self.ignore_patterns = ignore;
+        }
+
+        if let Some(ignore_from_file) = normalized.ignore_from_files {
+            self.ignore_patterns.clear();
+            self.ignore_from_files = ignore_from_file;
+        }
+
+        if let Some(yaml_files) = normalized.yaml_file_patterns {
+            self.yaml_file_patterns.clear();
+            self.yaml_file_patterns = yaml_files;
+        }
+
+        if let Some(locale) = normalized.locale {
+            self.locale = Some(locale);
+        }
+
+        if let Some(fix) = normalized.fix.as_ref() {
+            self.fix = typed_fix_config(fix);
+        }
+
+        for (name, value) in &normalized.rules {
+            self.merge_rule(name, value);
         }
     }
 
@@ -957,6 +893,78 @@ fn parse_string_items(
     } else {
         Err(error.to_string())
     }
+}
+
+fn normalize_yaml_doc(doc: &YamlOwned) -> Result<NormalizedConfig, String> {
+    let ignore = doc.as_mapping_get("ignore");
+    let ignore_from_file = doc.as_mapping_get("ignore-from-file");
+    if ignore.is_some() && ignore_from_file.is_some() {
+        return Err(
+            "invalid config: ignore and ignore-from-file keys cannot be used together"
+                .to_string(),
+        );
+    }
+
+    let yaml_file_patterns = match doc.as_mapping_get("yaml-files") {
+        Some(yaml_files) => {
+            let Some(seq) = yaml_files.as_sequence() else {
+                return Err(
+                    "invalid config: yaml-files should be a list of file patterns"
+                        .to_string(),
+                );
+            };
+            let mut patterns = Vec::with_capacity(seq.len());
+            for item in seq {
+                let Some(pattern) = item.as_str() else {
+                    return Err(
+                        "invalid config: yaml-files should be a list of file patterns"
+                            .to_string(),
+                    );
+                };
+                patterns.push(pattern.to_owned());
+            }
+            Some(patterns)
+        }
+        None => None,
+    };
+
+    let locale = match doc.as_mapping_get("locale") {
+        Some(locale) => {
+            let Some(locale) = locale.as_str() else {
+                return Err("invalid config: locale should be a string".to_string());
+            };
+            Some(locale.to_owned())
+        }
+        None => None,
+    };
+
+    if doc.as_mapping_get("fix").is_some() {
+        return Err(
+            "invalid config: fix is only supported in TOML configuration".to_string(),
+        );
+    }
+
+    let mut normalized = NormalizedConfig {
+        ignore_patterns: ignore.map(load_ignore_patterns).transpose()?,
+        ignore_from_files: ignore_from_file.map(load_ignore_from_files).transpose()?,
+        yaml_file_patterns,
+        locale,
+        ..NormalizedConfig::default()
+    };
+
+    if let Some(rules) = doc.as_mapping_get("rules")
+        && let Some(map) = rules.as_mapping()
+    {
+        for (key, value) in map {
+            let Some(name) = key.as_str() else {
+                continue;
+            };
+            validate_rule_value(name, value)?;
+            normalized.rules.insert(name.to_owned(), value.clone());
+        }
+    }
+
+    Ok(normalized)
 }
 
 fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
