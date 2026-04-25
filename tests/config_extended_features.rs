@@ -174,6 +174,54 @@ fn rule_ignore_handles_direct_ignore_whitelist_and_parent_fallback() {
 }
 
 #[test]
+fn typed_yaml_surface_handles_extends_and_known_top_level_fields() {
+    let td = tempdir().unwrap();
+    let base_cfg = td.path().join("base.yaml");
+    let child_cfg = td.path().join("child.yaml");
+    let ignore_file = td.path().join(".typed-ignore");
+    fs::write(
+        &base_cfg,
+        "ignore: ['base.yaml']\nyaml-files: []\nrules: {}\n",
+    )
+    .unwrap();
+    fs::write(&ignore_file, "child.yaml\n").unwrap();
+    fs::write(
+        &child_cfg,
+        "extends: base.yaml\nignore-from-file: .typed-ignore\nyaml-files: ['*.yaml']\nlocale: en_US.UTF-8\nrules:\n  comments:\n    level: warning\n    require-starting-space: true\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(child_cfg),
+            config_data: None,
+        },
+    )
+    .expect("config parse");
+    let base = ctx.base_dir.clone();
+
+    assert_eq!(ctx.config.locale(), Some("en_US.UTF-8"));
+    assert_eq!(
+        ctx.config.rule_level("comments"),
+        Some(ryl::config::RuleLevel::Warning)
+    );
+    assert!(
+        ctx.config
+            .rule_option_bool("comments", "require-starting-space", false)
+    );
+    assert!(
+        ctx.config
+            .is_file_ignored(&td.path().join("child.yaml"), &base)
+    );
+    assert!(
+        !ctx.config
+            .is_file_ignored(&td.path().join("base.yaml"), &base),
+        "child ignore-from-file should replace parent ignore patterns"
+    );
+}
+
+#[test]
 fn extends_resolves_relative_file_paths() {
     let td = tempdir().unwrap();
     let base_cfg = td.path().join("base.yaml");

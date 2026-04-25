@@ -1,4 +1,7 @@
+use std::fs;
+
 use ryl::config::{Overrides, RuleLevel, YamlLintConfig, discover_config};
+use tempfile::tempdir;
 
 #[test]
 fn rule_level_returns_none_for_disable() {
@@ -143,5 +146,48 @@ rules:
     assert!(
         err.contains("should be 'enable', 'disable', or a mapping"),
         "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn custom_toml_rule_level_defaults_to_error_for_unknown_string_value() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join(".ryl.toml");
+    fs::write(&cfg, "[rules]\ncustom-rule = 'other'\n").unwrap();
+
+    let context = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+    )
+    .expect("config");
+
+    assert_eq!(
+        context.config.rule_level("custom-rule"),
+        Some(RuleLevel::Error)
+    );
+}
+
+#[test]
+fn custom_yaml_rule_level_defaults_to_error_for_non_string_mapping_keys() {
+    let cfg = r#"
+rules:
+  custom-rule:
+    1: value
+"#;
+    let context = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(cfg.into()),
+        },
+    )
+    .expect("config");
+
+    assert_eq!(
+        context.config.rule_level("custom-rule"),
+        Some(RuleLevel::Error)
     );
 }

@@ -7,7 +7,7 @@ use super::{
     TomlConfig,
 };
 
-fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
+pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
     match value {
         StringOrVec::One(item) => vec![item.clone()],
         StringOrVec::Many(items) => items.clone(),
@@ -96,14 +96,20 @@ pub(crate) fn yaml_owned_to_toml_value(
     Err("cannot convert this YAML node to TOML".to_string())
 }
 
-pub(crate) fn yaml_value_matches_toml_type<T>(value: &YamlOwned) -> bool
+pub(crate) fn yaml_owned_to_toml_type<T>(value: &YamlOwned) -> Option<T>
 where
     T: DeserializeOwned,
 {
     yaml_owned_to_toml_value(value)
         .ok()
         .and_then(|value| value.try_into::<T>().ok())
-        .is_some()
+}
+
+pub(crate) fn yaml_value_matches_toml_type<T>(value: &YamlOwned) -> bool
+where
+    T: DeserializeOwned,
+{
+    yaml_owned_to_toml_type::<T>(value).is_some()
 }
 
 /// Normalize a typed TOML config into a shared post-parse representation.
