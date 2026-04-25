@@ -10,9 +10,10 @@ use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedConfig, NormalizedFixConfig, TomlConfig, load_ignore_from_files,
-    load_ignore_patterns, normalize_toml_config, normalize_yaml_config,
-    parse_toml_config_str, validate_toml_config, yaml_owned_to_toml_value,
+    NormalizedConfig, NormalizedFixConfig, TomlConfig, load_extends_entries,
+    load_ignore_from_files, load_ignore_patterns, normalize_toml_config,
+    normalize_yaml_config, parse_toml_config_str, validate_toml_config,
+    yaml_owned_to_toml_value,
 };
 use crate::{conf, decoder};
 
@@ -281,20 +282,8 @@ impl YamlLintConfig {
     ) -> Result<(), String> {
         let base_path = base_dir.unwrap_or_else(|| Path::new(""));
 
-        match node {
-            YamlOwned::Value(value) => {
-                if let Some(ext) = value.as_str() {
-                    self.extend_from_entry(ext, envx, base_path)?;
-                }
-            }
-            YamlOwned::Sequence(seq) => {
-                for item in seq {
-                    if let Some(ext) = item.as_str() {
-                        self.extend_from_entry(ext, envx, base_path)?;
-                    }
-                }
-            }
-            _ => {}
+        for entry in load_extends_entries(node) {
+            self.extend_from_entry(&entry, envx, base_path)?;
         }
         Ok(())
     }

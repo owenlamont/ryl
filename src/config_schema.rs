@@ -671,6 +671,23 @@ pub(crate) fn load_yaml_file_patterns(node: &YamlOwned) -> Result<Vec<String>, S
     )
 }
 
+#[must_use]
+pub(crate) fn load_extends_entries(node: &YamlOwned) -> Vec<String> {
+    match node {
+        YamlOwned::Value(value) => value
+            .as_str()
+            .map(std::string::ToString::to_string)
+            .into_iter()
+            .collect(),
+        YamlOwned::Sequence(seq) => seq
+            .iter()
+            .filter_map(YamlOwned::as_str)
+            .map(std::string::ToString::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn patterns_from_scalar(value: &str) -> Vec<String> {
     value
         .lines()
