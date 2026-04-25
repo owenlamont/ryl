@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use jsonschema::validator_for;
-use ryl::config_schema::schema_value;
+use ryl::config_schema::{parse_toml_config_str, schema_value, toml_config_to_value};
 use serde_json::{Value, json};
 
 fn toml_to_json(input: &str) -> Value {
@@ -142,4 +142,77 @@ fn generated_schema_serializes_as_json_schema_document() {
 
     assert_eq!(schema.get("title"), Some(&json!("ryl TOML config")));
     assert!(schema.get("$schema").is_some());
+}
+
+#[test]
+fn typed_toml_parser_reads_project_toml() {
+    let parsed = parse_toml_config_str(
+        r#"
+yaml-files = ["*.yaml"]
+
+[rules]
+document-start = "disable"
+"#,
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let value = toml_config_to_value(&parsed);
+    let document_start = value
+        .get("rules")
+        .and_then(|rules| rules.get("document-start"))
+        .and_then(toml::Value::as_str);
+
+    assert_eq!(document_start, Some("disable"));
+}
+
+#[test]
+fn typed_toml_parser_extracts_tool_ryl_from_pyproject() {
+    let parsed = parse_toml_config_str(
+        r#"
+[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.ryl]
+locale = "it_IT.UTF-8"
+"#,
+        true,
+    )
+    .expect("typed pyproject parse should succeed")
+    .expect("tool.ryl should be present");
+
+    assert_eq!(parsed.locale.as_deref(), Some("it_IT.UTF-8"));
+}
+
+#[test]
+fn typed_toml_parser_returns_none_for_missing_pyproject_section() {
+    let parsed = parse_toml_config_str(
+        r#"
+[project]
+name = "demo"
+version = "0.1.0"
+"#,
+        true,
+    )
+    .expect("typed pyproject parse should succeed");
+
+    assert!(parsed.is_none());
+}
+
+#[test]
+fn typed_toml_parser_errors_for_invalid_project_toml() {
+    let err = parse_toml_config_str("rules = [", false)
+        .expect_err("invalid TOML should error");
+
+    assert!(err.contains("failed to parse config data:"));
+}
+
+#[test]
+fn typed_toml_parser_errors_for_invalid_pyproject_toml() {
+    let err = parse_toml_config_str("[tool.ryl]\nrules = [", true)
+        .expect_err("invalid pyproject TOML should error");
+
+    assert!(err.contains("failed to parse config data:"));
 }

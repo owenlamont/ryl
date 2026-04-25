@@ -1,9 +1,9 @@
 use schemars::{JsonSchema, Schema, schema_for};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// JSON Schema root for `ryl` TOML configuration.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(title = "ryl TOML config")]
 pub struct TomlConfig {
     /// Glob patterns used to identify YAML files while scanning directories.
@@ -22,8 +22,19 @@ pub struct TomlConfig {
     pub rules: Option<RulesTable>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct PyProjectToml {
+    #[serde(default)]
+    tool: PyProjectToolTable,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct PyProjectToolTable {
+    ryl: Option<TomlConfig>,
+}
+
 /// A TOML field that accepts either one string or a list of strings.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum StringOrVec {
     One(String),
@@ -31,7 +42,7 @@ pub enum StringOrVec {
 }
 
 /// Rule severity override.
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum RuleLevel {
     #[serde(rename = "error")]
     Error,
@@ -40,7 +51,7 @@ pub enum RuleLevel {
 }
 
 /// Shorthand rule enable/disable syntax.
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum RuleSwitch {
     #[serde(rename = "enable")]
     Enable,
@@ -49,7 +60,7 @@ pub enum RuleSwitch {
 }
 
 /// Common rule entry shape used by TOML config.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum RuleEntry<T> {
     Bool(bool),
@@ -58,7 +69,7 @@ pub enum RuleEntry<T> {
 }
 
 /// Common rule fields plus rule-specific options.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RuleOptions<T> {
     pub level: Option<RuleLevel>,
@@ -70,19 +81,19 @@ pub struct RuleOptions<T> {
 }
 
 /// Empty rule-specific table for rules that only support common fields.
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NoOptions {}
 
 /// TOML `[fix]` table.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct FixTable {
     pub fixable: Option<Vec<FixableRuleSelector>>,
     pub unfixable: Option<Vec<FixRuleName>>,
 }
 
 /// A rule selector accepted by `fix.fixable`.
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum FixableRuleSelector {
     #[serde(rename = "ALL")]
     All,
@@ -103,7 +114,7 @@ pub enum FixableRuleSelector {
 }
 
 /// A fixable rule name accepted by `fix.unfixable`.
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum FixRuleName {
     #[serde(rename = "braces")]
     Braces,
@@ -122,7 +133,7 @@ pub enum FixRuleName {
 }
 
 /// Built-in rule table for TOML config.
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub struct RulesTable {
     pub anchors: Option<RuleEntry<AnchorsOptions>>,
     pub braces: Option<RuleEntry<BraceLikeOptions>>,
@@ -163,7 +174,7 @@ pub struct RulesTable {
     pub truthy: Option<RuleEntry<TruthyOptions>>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AnchorsOptions {
     #[serde(rename = "forbid-undeclared-aliases")]
@@ -174,7 +185,7 @@ pub struct AnchorsOptions {
     pub forbid_unused_anchors: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BraceLikeOptions {
     pub forbid: Option<ForbidSetting>,
@@ -188,20 +199,20 @@ pub struct BraceLikeOptions {
     pub max_spaces_inside_empty: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ForbidSetting {
     Bool(bool),
     Mode(ForbidMode),
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum ForbidMode {
     #[serde(rename = "non-empty")]
     NonEmpty,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ColonsOptions {
     #[serde(rename = "max-spaces-before")]
@@ -210,7 +221,7 @@ pub struct ColonsOptions {
     pub max_spaces_after: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommasOptions {
     #[serde(rename = "max-spaces-before")]
@@ -221,7 +232,7 @@ pub struct CommasOptions {
     pub max_spaces_after: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommentsOptions {
     #[serde(rename = "require-starting-space")]
@@ -232,13 +243,13 @@ pub struct CommentsOptions {
     pub min_spaces_from_content: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentPresenceOptions {
     pub present: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EmptyLinesOptions {
     pub max: Option<i64>,
@@ -248,7 +259,7 @@ pub struct EmptyLinesOptions {
     pub max_end: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EmptyValuesOptions {
     #[serde(rename = "forbid-in-block-mappings")]
@@ -259,7 +270,7 @@ pub struct EmptyValuesOptions {
     pub forbid_in_block_sequences: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FloatValuesOptions {
     #[serde(rename = "require-numeral-before-decimal")]
@@ -272,14 +283,14 @@ pub struct FloatValuesOptions {
     pub forbid_inf: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HyphensOptions {
     #[serde(rename = "max-spaces-after")]
     pub max_spaces_after: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IndentationOptions {
     pub spaces: Option<SpacesSetting>,
@@ -289,27 +300,27 @@ pub struct IndentationOptions {
     pub check_multi_line_strings: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum SpacesSetting {
     Int(i64),
     Mode(SpacesMode),
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum SpacesMode {
     #[serde(rename = "consistent")]
     Consistent,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum IndentSequencesSetting {
     Bool(bool),
     Mode(IndentSequencesMode),
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum IndentSequencesMode {
     #[serde(rename = "whatever")]
     Whatever,
@@ -317,21 +328,21 @@ pub enum IndentSequencesMode {
     Consistent,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct KeyDuplicatesOptions {
     #[serde(rename = "forbid-duplicated-merge-keys")]
     pub forbid_duplicated_merge_keys: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct KeyOrderingOptions {
     #[serde(rename = "ignored-keys")]
     pub ignored_keys: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LineLengthOptions {
     pub max: Option<i64>,
@@ -341,14 +352,14 @@ pub struct LineLengthOptions {
     pub allow_non_breakable_inline_mappings: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewLinesOptions {
     #[serde(rename = "type")]
     pub line_ending: Option<NewLinesType>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum NewLinesType {
     #[serde(rename = "unix")]
     Unix,
@@ -358,7 +369,7 @@ pub enum NewLinesType {
     Platform,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OctalValuesOptions {
     #[serde(rename = "forbid-implicit-octal")]
@@ -367,7 +378,7 @@ pub struct OctalValuesOptions {
     pub forbid_explicit_octal: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct QuotedStringsOptions {
     #[serde(rename = "quote-type")]
@@ -383,7 +394,7 @@ pub struct QuotedStringsOptions {
     pub check_keys: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum QuoteType {
     #[serde(rename = "any")]
     Any,
@@ -393,20 +404,20 @@ pub enum QuoteType {
     Double,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum QuotedStringsRequired {
     Bool(bool),
     Mode(QuotedStringsRequiredMode),
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum QuotedStringsRequiredMode {
     #[serde(rename = "only-when-needed")]
     OnlyWhenNeeded,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TruthyOptions {
     #[serde(rename = "allowed-values")]
@@ -415,7 +426,7 @@ pub struct TruthyOptions {
     pub check_keys: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum TruthyAllowedValue {
     #[serde(rename = "YES")]
     YesUpper,
@@ -458,6 +469,38 @@ pub enum TruthyAllowedValue {
 #[must_use]
 pub fn schema() -> Schema {
     schema_for!(TomlConfig)
+}
+
+/// Deserialize TOML configuration text into the typed schema model.
+///
+/// When `pyproject` is true, this extracts `[tool.ryl]` and returns `Ok(None)`
+/// when the section is absent.
+///
+/// # Errors
+/// Returns an error if the TOML cannot be parsed into the typed config model.
+pub fn parse_toml_config_str(
+    input: &str,
+    pyproject: bool,
+) -> Result<Option<TomlConfig>, String> {
+    if pyproject {
+        return toml::from_str::<PyProjectToml>(input)
+            .map(|doc| doc.tool.ryl)
+            .map_err(|err| format!("failed to parse config data: {err}"));
+    }
+
+    toml::from_str::<TomlConfig>(input)
+        .map(Some)
+        .map_err(|err| format!("failed to parse config data: {err}"))
+}
+
+/// Convert a typed TOML config model into a TOML value tree.
+///
+/// # Panics
+/// Panics if serializing the typed config into TOML unexpectedly fails.
+#[must_use]
+pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
+    toml::Value::try_from(config.clone())
+        .expect("serializing typed TOML config should succeed")
 }
 
 /// Serialize the generated schema to a JSON value.
