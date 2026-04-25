@@ -11,9 +11,9 @@ use toml::Value as TomlValue;
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
     NormalizedConfig, NormalizedFixConfig, TomlConfig, load_extends_entries,
-    load_ignore_from_files, load_ignore_patterns, normalize_toml_config,
-    normalize_yaml_config, parse_toml_config_str, validate_toml_config,
-    yaml_owned_to_toml_value,
+    normalize_toml_config, normalize_yaml_config, parse_toml_config_str,
+    validate_toml_config, yaml_owned_to_toml_value, yaml_rule_filter_patterns,
+    yaml_rule_level,
 };
 use crate::{conf, decoder};
 
@@ -341,8 +341,7 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn rule_level(&self, rule: &str) -> Option<RuleLevel> {
-        let value = self.rules.get(rule)?;
-        determine_rule_level(value)
+        yaml_rule_level(self.rules.get(rule)?)
     }
 
     #[must_use]
@@ -401,25 +400,10 @@ impl YamlLintConfig {
             .get(rule)
             .expect("refresh_rule_filter should only be called for existing rules");
 
-        if node.as_mapping().is_none() {
+        let Some((patterns, from_files)) = yaml_rule_filter_patterns(node) else {
             self.rule_filters.remove(rule);
             return;
-        }
-
-        let patterns = node
-            .as_mapping_get("ignore")
-            .map(|n| {
-                load_ignore_patterns(n)
-                    .expect("ignore patterns validated during parsing")
-            })
-            .unwrap_or_default();
-        let from_files = node
-            .as_mapping_get("ignore-from-file")
-            .map(|n| {
-                load_ignore_from_files(n)
-                    .expect("ignore-from-file entries validated during parsing")
-            })
-            .unwrap_or_default();
+        };
 
         let filter = self.rule_filters.entry(rule.to_owned()).or_default();
         filter.patterns = patterns;
@@ -815,35 +799,6 @@ fn build_rule_filter(
         None
     };
     Ok(())
-}
-
-fn determine_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
-    if let Some(s) = node.as_str() {
-        return if s == "disable" {
-            None
-        } else {
-            Some(RuleLevel::Error)
-        };
-    }
-
-    if let Some(flag) = node.as_bool() {
-        return flag.then_some(RuleLevel::Error);
-    }
-
-    node.as_mapping()
-        .and_then(|map| {
-            map.iter().find_map(|(key, value)| {
-                if key.as_str() != Some("level") {
-                    return None;
-                }
-                Some(if value.as_str() == Some("warning") {
-                    RuleLevel::Warning
-                } else {
-                    RuleLevel::Error
-                })
-            })
-        })
-        .or(Some(RuleLevel::Error))
 }
 
 fn resolve_extend_path(

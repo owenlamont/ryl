@@ -801,6 +801,62 @@ pub(crate) fn normalize_yaml_config(
     Ok(normalized)
 }
 
+#[must_use]
+pub(crate) fn yaml_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
+    if let Some(text) = node.as_str() {
+        return if text == "disable" {
+            None
+        } else {
+            Some(RuleLevel::Error)
+        };
+    }
+
+    if let Some(flag) = node.as_bool() {
+        return flag.then_some(RuleLevel::Error);
+    }
+
+    node.as_mapping()
+        .and_then(|map| {
+            map.iter().find_map(|(key, value)| {
+                if key.as_str() != Some("level") {
+                    return None;
+                }
+                Some(if value.as_str() == Some("warning") {
+                    RuleLevel::Warning
+                } else {
+                    RuleLevel::Error
+                })
+            })
+        })
+        .or(Some(RuleLevel::Error))
+}
+
+#[must_use]
+pub(crate) fn yaml_rule_filter_patterns(
+    node: &YamlOwned,
+) -> Option<(Vec<String>, Vec<String>)> {
+    let map = node.as_mapping()?;
+    let ignore = map
+        .iter()
+        .find_map(|(key, value)| (key.as_str() == Some("ignore")).then_some(value))
+        .map(|value| {
+            load_ignore_patterns(value)
+                .expect("ignore patterns validated during parsing")
+        })
+        .unwrap_or_default();
+    let ignore_from_files = map
+        .iter()
+        .find_map(|(key, value)| {
+            (key.as_str() == Some("ignore-from-file")).then_some(value)
+        })
+        .map(|value| {
+            load_ignore_from_files(value)
+                .expect("ignore-from-file entries validated during parsing")
+        })
+        .unwrap_or_default();
+    Some((ignore, ignore_from_files))
+}
+
 fn insert_serialized<T: Serialize>(
     table: &mut toml::map::Map<String, toml::Value>,
     key: &str,
