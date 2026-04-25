@@ -415,18 +415,9 @@ impl YamlLintConfig {
     /// Matching is performed on the path relative to `base_dir`.
     #[must_use]
     pub fn is_file_ignored(&self, path: &Path, base_dir: &Path) -> bool {
-        let Some(matcher) = &self.ignore_matcher else {
-            return false;
-        };
-        let rel = path.strip_prefix(base_dir).unwrap_or(path);
-        let direct = matcher.matched(rel, false);
-        if direct.is_whitelist() {
-            return false;
-        }
-        if direct.is_ignore() {
-            return true;
-        }
-        matcher.matched_path_or_any_parents(rel, false).is_ignore()
+        self.ignore_matcher
+            .as_ref()
+            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
     }
 
     #[must_use]
@@ -434,18 +425,10 @@ impl YamlLintConfig {
         let Some(filter) = self.rule_filters.get(rule) else {
             return false;
         };
-        let Some(matcher) = &filter.matcher else {
-            return false;
-        };
-        let rel = path.strip_prefix(base_dir).unwrap_or(path);
-        let direct = matcher.matched(rel, false);
-        if direct.is_whitelist() {
-            return false;
-        }
-        if direct.is_ignore() {
-            return true;
-        }
-        matcher.matched_path_or_any_parents(rel, false).is_ignore()
+        filter
+            .matcher
+            .as_ref()
+            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
     }
 
     #[must_use]
@@ -755,6 +738,18 @@ fn build_ignore_matcher(
             .expect("ignore matcher build should not fail after validation")
     });
     Ok((matcher, extra_patterns))
+}
+
+fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> bool {
+    let rel = path.strip_prefix(base_dir).unwrap_or(path);
+    let direct = matcher.matched(rel, false);
+    if direct.is_whitelist() {
+        return false;
+    }
+    if direct.is_ignore() {
+        return true;
+    }
+    matcher.matched_path_or_any_parents(rel, false).is_ignore()
 }
 
 fn resolve_extend_path(
