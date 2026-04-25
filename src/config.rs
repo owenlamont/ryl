@@ -11,9 +11,12 @@ use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedFixConfig, QuotedStringsRequiredModeForValidation, TomlConfig,
-    normalize_toml_config, parse_toml_config_str, validate_key_ordering_patterns,
-    validate_quoted_strings_semantics, validate_toml_config,
+    ForbidSetting, IndentSequencesSetting, NewLinesType, NormalizedFixConfig,
+    QuoteType, QuotedStringsRequiredModeForValidation, SpacesSetting, TomlConfig,
+    TruthyAllowedValue, normalize_toml_config, parse_toml_config_str,
+    quoted_strings_required_mode_from_yaml_value, validate_key_ordering_patterns,
+    validate_quoted_strings_semantics, validate_toml_config, yaml_owned_to_toml_value,
+    yaml_value_matches_toml_type,
 };
 use crate::{conf, decoder};
 
@@ -127,11 +130,6 @@ pub struct YamlLintConfig {
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
-
-const TRUTHY_ALLOWED_VALUES: [&str; 18] = [
-    "YES", "Yes", "yes", "NO", "No", "no", "TRUE", "True", "true", "FALSE", "False",
-    "false", "ON", "On", "on", "OFF", "Off", "off",
-];
 
 const TRUTHY_ALLOWED_VALUES_DISPLAY: &str = "['YES', 'Yes', 'yes', 'NO', 'No', 'no', 'TRUE', 'True', 'true', 'FALSE', 'False', 'false', 'ON', 'On', 'on', 'OFF', 'Off', 'off']";
 
@@ -1102,7 +1100,7 @@ fn validate_brace_like_option(
 
     match name {
         "forbid" => {
-            if val.as_bool().is_some() || matches!(val.as_str(), Some("non-empty")) {
+            if yaml_value_matches_toml_type::<ForbidSetting>(val) {
                 Ok(())
             } else {
                 Err(format!(
@@ -1237,14 +1235,7 @@ fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Str
         return Err(unknown_rule_option("new-lines", key));
     }
 
-    let Some(kind) = val.as_str() else {
-        return Err(
-            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
-                .to_string(),
-        );
-    };
-
-    if matches!(kind, "unix" | "dos" | "platform") {
+    if yaml_value_matches_toml_type::<NewLinesType>(val) {
         Ok(())
     } else {
         Err(
@@ -1319,24 +1310,13 @@ fn validate_key_duplicates_option(
 fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
         Some("allowed-values") => {
-            let Some(seq) = val.as_sequence() else {
-                return Err(format!(
+            if yaml_value_matches_toml_type::<Vec<TruthyAllowedValue>>(val) {
+                Ok(())
+            } else {
+                Err(format!(
                     "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                ));
-            };
-            for item in seq {
-                let Some(text) = item.as_str() else {
-                    return Err(format!(
-                        "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                    ));
-                };
-                if !TRUTHY_ALLOWED_VALUES.iter().any(|allowed| allowed == &text) {
-                    return Err(format!(
-                        "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                    ));
-                }
+                ))
             }
-            Ok(())
         }
         Some("check-keys") => {
             if val.as_bool().is_none() {
@@ -1372,7 +1352,7 @@ fn validate_key_ordering_option(
 fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
         Some("spaces") => {
-            if val.as_integer().is_some() || val.as_str() == Some("consistent") {
+            if yaml_value_matches_toml_type::<SpacesSetting>(val) {
                 Ok(())
             } else {
                 Err(
@@ -1382,9 +1362,7 @@ fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), S
             }
         }
         Some("indent-sequences") => {
-            if val.as_bool().is_some()
-                || matches!(val.as_str(), Some("whatever" | "consistent"))
-            {
+            if yaml_value_matches_toml_type::<IndentSequencesSetting>(val) {
                 Ok(())
             } else {
                 Err(
@@ -1469,13 +1447,7 @@ fn validate_quoted_strings_option(
 }
 
 fn validate_quote_type_option(val: &YamlOwned) -> Result<(), String> {
-    let Some(text) = val.as_str() else {
-        return Err(
-            "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')"
-                .to_string(),
-        );
-    };
-    if matches!(text, "any" | "single" | "double") {
+    if yaml_value_matches_toml_type::<QuoteType>(val) {
         Ok(())
     } else {
         Err(
@@ -1489,15 +1461,8 @@ fn validate_required_option(
     val: &YamlOwned,
     state: &mut QuotedStringsValidationState,
 ) -> Result<(), String> {
-    if let Some(flag) = val.as_bool() {
-        state.required = Some(if flag {
-            QuotedStringsRequiredModeForValidation::True
-        } else {
-            QuotedStringsRequiredModeForValidation::False
-        });
-        Ok(())
-    } else if val.as_str() == Some("only-when-needed") {
-        state.required = Some(QuotedStringsRequiredModeForValidation::OnlyWhenNeeded);
+    if let Some(required) = quoted_strings_required_mode_from_yaml_value(val) {
+        state.required = Some(required);
         Ok(())
     } else {
         Err(
@@ -1677,42 +1642,6 @@ fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
         TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
         TomlFixRuleName::NewLines => FixRule::NewLines,
     }
-}
-
-fn yaml_owned_to_toml_value(value: &YamlOwned) -> Result<TomlValue, String> {
-    if let Some(text) = value.as_str() {
-        return Ok(TomlValue::String(text.to_string()));
-    }
-    if let Some(flag) = value.as_bool() {
-        return Ok(TomlValue::Boolean(flag));
-    }
-    if let Some(num) = value.as_integer() {
-        return Ok(TomlValue::Integer(num));
-    }
-    if let Some(num) = value.as_floating_point() {
-        return Ok(TomlValue::Float(num));
-    }
-    if value.is_null() {
-        return Err(
-            "cannot convert null values to TOML (TOML has no null type)".to_string()
-        );
-    }
-    if let Some(items) = value.as_sequence() {
-        let out: Result<Vec<_>, _> =
-            items.iter().map(yaml_owned_to_toml_value).collect();
-        return out.map(TomlValue::Array);
-    }
-    if let Some(map) = value.as_mapping() {
-        let mut out = toml::map::Map::new();
-        for (key, val) in map {
-            let Some(key_text) = key.as_str() else {
-                return Err(format!("cannot convert non-string TOML key: {key:?}"));
-            };
-            out.insert(key_text.to_string(), yaml_owned_to_toml_value(val)?);
-        }
-        return Ok(TomlValue::Table(out));
-    }
-    Err("cannot convert this YAML node to TOML".to_string())
 }
 
 /// Result of configuration discovery.

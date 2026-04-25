@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 use schemars::{JsonSchema, Schema, schema_for};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -598,6 +599,54 @@ pub(crate) fn toml_value_to_yaml_owned(value: &toml::Value) -> YamlOwned {
     }
 }
 
+pub(crate) fn yaml_owned_to_toml_value(
+    value: &YamlOwned,
+) -> Result<toml::Value, String> {
+    if let Some(text) = value.as_str() {
+        return Ok(toml::Value::String(text.to_string()));
+    }
+    if let Some(flag) = value.as_bool() {
+        return Ok(toml::Value::Boolean(flag));
+    }
+    if let Some(num) = value.as_integer() {
+        return Ok(toml::Value::Integer(num));
+    }
+    if let Some(num) = value.as_floating_point() {
+        return Ok(toml::Value::Float(num));
+    }
+    if value.is_null() {
+        return Err(
+            "cannot convert null values to TOML (TOML has no null type)".to_string()
+        );
+    }
+    if let Some(items) = value.as_sequence() {
+        let out: Result<Vec<_>, _> =
+            items.iter().map(yaml_owned_to_toml_value).collect();
+        return out.map(toml::Value::Array);
+    }
+    if let Some(map) = value.as_mapping() {
+        let mut out = toml::map::Map::new();
+        for (key, val) in map {
+            let Some(key_text) = key.as_str() else {
+                return Err(format!("cannot convert non-string TOML key: {key:?}"));
+            };
+            out.insert(key_text.to_string(), yaml_owned_to_toml_value(val)?);
+        }
+        return Ok(toml::Value::Table(out));
+    }
+    Err("cannot convert this YAML node to TOML".to_string())
+}
+
+pub(crate) fn yaml_value_matches_toml_type<T>(value: &YamlOwned) -> bool
+where
+    T: DeserializeOwned,
+{
+    yaml_owned_to_toml_value(value)
+        .ok()
+        .and_then(|value| value.try_into::<T>().ok())
+        .is_some()
+}
+
 /// Normalize a typed TOML config into a shared post-parse representation.
 ///
 /// # Panics
@@ -805,6 +854,16 @@ fn quoted_strings_required_mode(
             QuotedStringsRequiredMode::OnlyWhenNeeded,
         )) => QuotedStringsRequiredModeForValidation::OnlyWhenNeeded,
     }
+}
+
+pub(crate) fn quoted_strings_required_mode_from_yaml_value(
+    value: &YamlOwned,
+) -> Option<QuotedStringsRequiredModeForValidation> {
+    let required = yaml_owned_to_toml_value(value)
+        .ok()?
+        .try_into::<QuotedStringsRequired>()
+        .ok()?;
+    Some(quoted_strings_required_mode(Some(&required)))
 }
 
 pub(crate) fn validate_key_ordering_patterns(

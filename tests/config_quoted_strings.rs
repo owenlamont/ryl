@@ -36,6 +36,18 @@ fn error_when_required_invalid() {
 }
 
 #[test]
+fn error_when_required_is_null() {
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  quoted-strings:\n    required: null\n",
+    )
+    .unwrap_err();
+    assert_eq!(
+        err,
+        "invalid config: option \"required\" of \"quoted-strings\" should be in (True, False, 'only-when-needed')"
+    );
+}
+
+#[test]
 fn error_when_extra_required_not_sequence() {
     let err = YamlLintConfig::from_yaml_str(
         "rules:\n  quoted-strings:\n    extra-required: foo\n",
