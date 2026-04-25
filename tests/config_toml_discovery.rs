@@ -224,6 +224,32 @@ fn toml_integer_scalar_is_accepted_for_unknown_keys() {
 }
 
 #[test]
+fn toml_custom_rule_entries_are_preserved() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "[rules]\nanchors = 'disable'\n[rules.custom-rule]\nflag = true\n",
+    );
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("custom TOML rules should still parse");
+
+    assert!(
+        ctx.config
+            .rule_names()
+            .iter()
+            .any(|name| name == "custom-rule")
+    );
+    assert!(ctx.config.rule_names().iter().any(|name| name == "anchors"));
+}
+
+#[test]
 fn toml_float_value_for_locale_reports_string_error() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new()
