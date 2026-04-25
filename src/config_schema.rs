@@ -530,6 +530,68 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct NormalizedFixConfig {
+    pub fixable: Vec<FixableRuleSelector>,
+    pub unfixable: Vec<FixRuleName>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NormalizedConfig {
+    pub ignore_patterns: Option<Vec<String>>,
+    pub ignore_from_files: Option<Vec<String>>,
+    pub yaml_file_patterns: Option<Vec<String>>,
+    pub locale: Option<String>,
+    pub fix: Option<NormalizedFixConfig>,
+    pub rules: BTreeMap<String, toml::Value>,
+}
+
+fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
+    match value {
+        StringOrVec::One(item) => vec![item.clone()],
+        StringOrVec::Many(items) => items.clone(),
+    }
+}
+
+fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
+    NormalizedFixConfig {
+        fixable: fix
+            .fixable
+            .clone()
+            .unwrap_or_else(|| vec![FixableRuleSelector::All]),
+        unfixable: fix.unfixable.clone().unwrap_or_default(),
+    }
+}
+
+#[must_use]
+/// Normalize a typed TOML config into a shared post-parse representation.
+///
+/// # Panics
+/// Panics if serializing already-validated typed TOML rules unexpectedly stops
+/// producing a TOML table.
+pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
+    let mut normalized = NormalizedConfig {
+        ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
+        ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
+        yaml_file_patterns: config.yaml_files.clone(),
+        locale: config.locale.clone(),
+        fix: config.fix.as_ref().map(normalize_fix_table),
+        ..NormalizedConfig::default()
+    };
+
+    if let Some(rules) = config.rules.as_ref() {
+        let rules = rules_table_to_value(rules);
+        normalized.rules = rules
+            .as_table()
+            .expect("serializing typed TOML rules should yield a table")
+            .clone()
+            .into_iter()
+            .collect();
+    }
+
+    normalized
+}
+
 fn insert_serialized<T: Serialize>(
     table: &mut toml::map::Map<String, toml::Value>,
     key: &str,
@@ -606,11 +668,6 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
     }
     table.extend(config.extra.clone());
     toml::Value::Table(table)
-}
-
-#[must_use]
-pub(crate) fn toml_rules_to_value(rules: &RulesTable) -> toml::Value {
-    rules_table_to_value(rules)
 }
 
 /// Serialize the generated schema to a JSON value.

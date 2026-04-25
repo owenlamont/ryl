@@ -2,7 +2,8 @@ use std::process::Command;
 
 use jsonschema::validator_for;
 use ryl::config_schema::{
-    parse_toml_config_str, schema_value, toml_config_to_value, validate_toml_config,
+    normalize_toml_config, parse_toml_config_str, schema_value, toml_config_to_value,
+    validate_toml_config,
 };
 use serde_json::{Value, json};
 
@@ -255,6 +256,47 @@ locale = "it_IT.UTF-8"
     .expect("tool.ryl should be present");
 
     assert_eq!(parsed.locale.as_deref(), Some("it_IT.UTF-8"));
+}
+
+#[test]
+fn normalize_toml_config_flattens_top_level_fields_and_rules() {
+    let parsed = parse_toml_config_str(
+        r#"
+ignore = "vendor/**"
+yaml-files = ["*.yaml"]
+
+[fix]
+unfixable = ["comments"]
+
+[rules.comments]
+level = "warning"
+require-starting-space = true
+"#,
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let normalized = normalize_toml_config(&parsed);
+
+    assert_eq!(
+        normalized.ignore_patterns,
+        Some(vec!["vendor/**".to_string()])
+    );
+    assert_eq!(
+        normalized.yaml_file_patterns,
+        Some(vec!["*.yaml".to_string()])
+    );
+    assert_eq!(
+        normalized
+            .fix
+            .as_ref()
+            .expect("fix should normalize")
+            .unfixable
+            .len(),
+        1
+    );
+    assert!(normalized.rules.contains_key("comments"));
 }
 
 #[test]

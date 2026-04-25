@@ -11,7 +11,7 @@ use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    StringOrVec, TomlConfig, parse_toml_config_str, toml_rules_to_value,
+    NormalizedFixConfig, TomlConfig, normalize_toml_config, parse_toml_config_str,
     validate_toml_config,
 };
 use crate::{conf, decoder};
@@ -535,38 +535,33 @@ impl YamlLintConfig {
     }
 
     fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
+        let normalized = normalize_toml_config(config);
         let mut cfg = Self::default();
 
-        if let Some(ignore) = &config.ignore {
+        if let Some(ignore) = normalized.ignore_patterns {
             cfg.ignore_patterns.clear();
             cfg.ignore_from_files.clear();
-            cfg.ignore_patterns = string_or_vec_items(ignore);
+            cfg.ignore_patterns = ignore;
         }
 
-        if let Some(ignore_from_file) = &config.ignore_from_file {
+        if let Some(ignore_from_file) = normalized.ignore_from_files {
             cfg.ignore_patterns.clear();
-            cfg.ignore_from_files = string_or_vec_items(ignore_from_file);
+            cfg.ignore_from_files = ignore_from_file;
         }
 
-        if let Some(yaml_files) = &config.yaml_files {
+        if let Some(yaml_files) = normalized.yaml_file_patterns {
             cfg.yaml_file_patterns.clear();
-            cfg.yaml_file_patterns.clone_from(yaml_files);
+            cfg.yaml_file_patterns = yaml_files;
         }
 
-        cfg.locale.clone_from(&config.locale);
+        cfg.locale = normalized.locale;
 
-        if let Some(fix) = &config.fix {
+        if let Some(fix) = normalized.fix.as_ref() {
             cfg.fix = typed_fix_config(fix);
         }
 
-        if let Some(rules) = config.rules.as_ref() {
-            let rules_value = toml_rules_to_value(rules);
-            let map = rules_value
-                .as_table()
-                .expect("serializing typed TOML rules should yield a table");
-            for (name, value) in map {
-                cfg.merge_rule(name, &toml_value_to_yaml_owned(value));
-            }
+        for (name, value) in &normalized.rules {
+            cfg.merge_rule(name, &toml_value_to_yaml_owned(value));
         }
 
         cfg
@@ -1694,21 +1689,14 @@ fn toml_value_to_yaml_owned(value: &TomlValue) -> YamlOwned {
     }
 }
 
-fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
-    match value {
-        StringOrVec::One(item) => vec![item.clone()],
-        StringOrVec::Many(items) => items.clone(),
-    }
-}
-
-fn typed_fix_config(fix: &crate::config_schema::FixTable) -> FixConfig {
-    let fixable = fix.fixable.as_ref().map_or_else(
-        || FixConfig::default().fixable,
-        |entries| entries.iter().copied().map(typed_fix_selector).collect(),
-    );
-    let unfixable = fix.unfixable.as_ref().map_or_else(Vec::new, |entries| {
-        entries.iter().copied().map(typed_fix_rule).collect()
-    });
+fn typed_fix_config(fix: &NormalizedFixConfig) -> FixConfig {
+    let fixable = fix
+        .fixable
+        .iter()
+        .copied()
+        .map(typed_fix_selector)
+        .collect();
+    let unfixable = fix.unfixable.iter().copied().map(typed_fix_rule).collect();
     FixConfig { fixable, unfixable }
 }
 
