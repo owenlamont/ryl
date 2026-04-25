@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use ryl::config::{Overrides, discover_config_with, discover_per_file};
+use ryl::config::{Overrides, RuleLevel, discover_config_with, discover_per_file};
 use tempfile::tempdir;
 
 #[path = "common/mod.rs"]
@@ -49,6 +49,53 @@ fn explicit_pyproject_with_tool_ryl_section_loads() {
     )
     .expect("explicit pyproject [tool.ryl] should load");
     assert_eq!(ctx.config.locale(), Some("en_GB.UTF-8"));
+}
+
+#[test]
+fn exact_typed_toml_preserves_runtime_matchers_and_rule_settings() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "yaml-files = ['configs/**/*.yaml']\nignore = ['vendor/**']\nlocale = 'en_US.UTF-8'\n[rules]\ndocument-start = 'disable'\n[rules.comments]\nlevel = 'warning'\nrequire-starting-space = true\nignore = ['generated/**']\n",
+    );
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("exact typed TOML should load");
+
+    assert_eq!(ctx.config.locale(), Some("en_US.UTF-8"));
+    assert_eq!(ctx.config.rule_level("comments"), Some(RuleLevel::Warning));
+    assert!(
+        ctx.config
+            .rule_option_bool("comments", "require-starting-space", false)
+    );
+    assert!(
+        ctx.config
+            .is_file_ignored(Path::new("/repo/vendor/data.yaml"), Path::new("/repo"),)
+    );
+    assert!(ctx.config.is_yaml_candidate(
+        Path::new("/repo/configs/app.yaml"),
+        Path::new("/repo"),
+    ));
+    assert!(
+        !ctx.config
+            .is_yaml_candidate(Path::new("/repo/docs/app.yaml"), Path::new("/repo"),)
+    );
+    assert!(ctx.config.is_rule_ignored(
+        "comments",
+        Path::new("/repo/generated/out.yaml"),
+        Path::new("/repo"),
+    ));
+    assert!(!ctx.config.is_rule_ignored(
+        "document-start",
+        Path::new("/repo/generated/out.yaml"),
+        Path::new("/repo"),
+    ));
 }
 
 #[test]
