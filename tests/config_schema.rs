@@ -170,6 +170,35 @@ document-start = "disable"
 }
 
 #[test]
+fn typed_toml_parser_round_trips_unknown_scalars_and_custom_rules() {
+    let parsed = parse_toml_config_str(
+        r#"
+flag = true
+
+[rules]
+anchors = "disable"
+
+[rules.custom-rule]
+count = 3
+"#,
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let value = toml_config_to_value(&parsed);
+    assert_eq!(value.get("flag").and_then(toml::Value::as_bool), Some(true));
+    assert_eq!(
+        value
+            .get("rules")
+            .and_then(|rules| rules.get("custom-rule"))
+            .and_then(|rule| rule.get("count"))
+            .and_then(toml::Value::as_integer),
+        Some(3)
+    );
+}
+
+#[test]
 fn typed_toml_parser_extracts_tool_ryl_from_pyproject() {
     let parsed = parse_toml_config_str(
         r#"
@@ -254,6 +283,28 @@ fn typed_toml_validation_rejects_invalid_key_ordering_regex() {
 }
 
 #[test]
+fn typed_toml_validation_accepts_key_ordering_without_ignored_keys() {
+    let parsed =
+        parse_toml_config_str("[rules.key-ordering]\nlevel = 'warning'\n", false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+
+    validate_toml_config(&parsed)
+        .expect("typed validation should allow key-ordering without regexes");
+}
+
+#[test]
+fn typed_toml_validation_accepts_valid_key_ordering_regex() {
+    let parsed =
+        parse_toml_config_str("[rules.key-ordering]\nignored-keys = ['^ok$']\n", false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+
+    validate_toml_config(&parsed)
+        .expect("typed validation should accept valid key-ordering regexes");
+}
+
+#[test]
 fn typed_toml_validation_rejects_quoted_strings_conflicts() {
     let parsed = parse_toml_config_str(
         "[rules.quoted-strings]\nextra-required = ['^http']\n",
@@ -269,6 +320,42 @@ fn typed_toml_validation_rejects_quoted_strings_conflicts() {
     assert_eq!(
         err,
         "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
+    );
+}
+
+#[test]
+fn typed_toml_validation_rejects_required_true_with_extra_allowed() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nrequired = true\nextra-allowed = ['^http']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed)
+        .expect_err("typed validation should reject required true with extra-allowed");
+
+    assert_eq!(
+        err,
+        "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-allowed\""
+    );
+}
+
+#[test]
+fn typed_toml_validation_rejects_required_false_with_extra_allowed() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nrequired = false\nextra-allowed = ['^http']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed)
+        .expect_err("typed validation should reject required false with extra-allowed");
+
+    assert_eq!(
+        err,
+        "invalid config: quoted-strings: cannot use both \"required: false\" and \"extra-allowed\""
     );
 }
 
@@ -290,4 +377,51 @@ fn typed_toml_validation_rejects_invalid_quoted_strings_regex() {
         ),
         "unexpected message: {err}"
     );
+}
+
+#[test]
+fn typed_toml_validation_rejects_invalid_extra_allowed_regex() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-allowed = ['[']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let err = validate_toml_config(&parsed)
+        .expect_err("typed validation should reject invalid extra-allowed regex");
+
+    assert!(
+        err.starts_with(
+            "invalid config: regex \"[\" in option \"extra-allowed\" of \"quoted-strings\" is invalid:"
+        ),
+        "unexpected message: {err}"
+    );
+}
+
+#[test]
+fn typed_toml_validation_accepts_only_when_needed_without_regex_lists() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nrequired = 'only-when-needed'\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    validate_toml_config(&parsed).expect(
+        "typed validation should allow only-when-needed without extra regex lists",
+    );
+}
+
+#[test]
+fn typed_toml_validation_accepts_valid_extra_allowed_regex() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-allowed = ['^cmd$']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    validate_toml_config(&parsed)
+        .expect("typed validation should allow valid extra-allowed regexes");
 }

@@ -86,6 +86,67 @@ fn toml_config_parses_new_safe_fix_rules() {
 }
 
 #[test]
+fn toml_config_parses_exact_typed_fix_variants() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "[fix]\nfixable = ['new-line-at-end-of-file']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should parse typed fix variants");
+
+    assert_eq!(
+        ctx.config.fix().fixable(),
+        [FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile)]
+    );
+    assert_eq!(
+        ctx.config.fix().unfixable(),
+        [
+            FixRule::Brackets,
+            FixRule::Commas,
+            FixRule::CommentsIndentation
+        ]
+    );
+}
+
+#[test]
+fn toml_config_fallback_still_parses_fix_policy() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "stamp = 1979-05-27T07:32:00Z\n[fix]\nfixable = ['ALL']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("fallback TOML config should still parse fix policy");
+
+    assert_eq!(ctx.config.fix().fixable(), [FixRuleSelector::All]);
+    assert_eq!(
+        ctx.config.fix().unfixable(),
+        [
+            FixRule::Brackets,
+            FixRule::Commas,
+            FixRule::CommentsIndentation
+        ]
+    );
+}
+
+#[test]
 fn default_fix_policy_allows_all_rules() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join("input.yaml");

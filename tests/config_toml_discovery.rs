@@ -271,6 +271,29 @@ fn toml_integer_scalar_is_accepted_for_unknown_keys() {
 }
 
 #[test]
+fn exact_typed_toml_supports_single_string_ignore_from_file() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    std::fs::write(root.join(".ignore-list"), "build/**\n").unwrap();
+    std::fs::write(
+        root.join(".ryl.toml"),
+        "ignore-from-file = '.ignore-list'\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
+
+    let ctx = discover_per_file(&root.join("file.yaml"))
+        .expect("typed TOML ignore-from-file should load");
+    let rendered = ctx
+        .config
+        .to_toml_string()
+        .expect("config should render to TOML");
+
+    assert!(rendered.contains("ignore-from-file = ["));
+    assert!(rendered.contains(".ignore-list"));
+}
+
+#[test]
 fn toml_custom_rule_entries_are_preserved() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
@@ -294,6 +317,29 @@ fn toml_custom_rule_entries_are_preserved() {
             .any(|name| name == "custom-rule")
     );
     assert!(ctx.config.rule_names().iter().any(|name| name == "anchors"));
+}
+
+#[test]
+fn toml_fallback_rejects_extends_key() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "extends = 'relaxed'\n[fix]\nfixable = 'comments'\n",
+    );
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("fallback TOML path should still reject extends");
+
+    assert_eq!(
+        err,
+        "invalid config: extends is not supported in TOML configuration"
+    );
 }
 
 #[test]

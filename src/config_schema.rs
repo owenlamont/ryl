@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use regex::Regex;
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,9 @@ pub struct TomlConfig {
     pub fix: Option<FixTable>,
     /// Rule configuration table.
     pub rules: Option<RulesTable>,
+    #[serde(flatten, default)]
+    #[schemars(skip)]
+    extra: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -173,6 +178,9 @@ pub struct RulesTable {
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
+    #[serde(flatten, default)]
+    #[schemars(skip)]
+    extra: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -500,6 +508,13 @@ pub fn parse_toml_config_str(
 /// Returns an error if the typed TOML config violates semantic rules that are
 /// not fully captured by deserialization alone.
 pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
+    if config.extra.contains_key("extends") {
+        return Err(
+            "invalid config: extends is not supported in TOML configuration"
+                .to_string(),
+        );
+    }
+
     if config.ignore.is_some() && config.ignore_from_file.is_some() {
         return Err(
             "invalid config: ignore and ignore-from-file keys cannot be used together"
