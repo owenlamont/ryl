@@ -1226,26 +1226,21 @@ fn validate_new_lines_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), Str
         return Err(unknown_rule_option("new-lines", key));
     }
 
-    if yaml_value_matches_toml_type::<NewLinesType>(val) {
-        Ok(())
-    } else {
-        Err(
-            "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
-                .to_string(),
-        )
-    }
+    validate_typed_option_value::<NewLinesType>(
+        val,
+        "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')",
+    )
 }
 
 fn validate_truthy_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
         Some("allowed-values") => {
-            if yaml_value_matches_toml_type::<Vec<TruthyAllowedValue>>(val) {
-                Ok(())
-            } else {
-                Err(format!(
+            validate_typed_option_value::<Vec<TruthyAllowedValue>>(
+                val,
+                format!(
                     "invalid config: option \"allowed-values\" of \"truthy\" should only contain values in {TRUTHY_ALLOWED_VALUES_DISPLAY}"
-                ))
-            }
+                ),
+            )
         }
         Some("check-keys") => validate_bool_option(val, "truthy", "check-keys"),
         _ => Err(unknown_rule_option("truthy", key)),
@@ -1271,25 +1266,15 @@ fn validate_key_ordering_option(
 
 fn validate_indentation_option(key: &YamlOwned, val: &YamlOwned) -> Result<(), String> {
     match key.as_str() {
-        Some("spaces") => {
-            if yaml_value_matches_toml_type::<SpacesSetting>(val) {
-                Ok(())
-            } else {
-                Err(
-                    "invalid config: option \"spaces\" of \"indentation\" should be in (<class 'int'>, 'consistent')"
-                        .to_string(),
-                )
-            }
-        }
+        Some("spaces") => validate_typed_option_value::<SpacesSetting>(
+            val,
+            "invalid config: option \"spaces\" of \"indentation\" should be in (<class 'int'>, 'consistent')",
+        ),
         Some("indent-sequences") => {
-            if yaml_value_matches_toml_type::<IndentSequencesSetting>(val) {
-                Ok(())
-            } else {
-                Err(
-                    "invalid config: option \"indent-sequences\" of \"indentation\" should be in (<class 'bool'>, 'whatever', 'consistent')"
-                        .to_string(),
-                )
-            }
+            validate_typed_option_value::<IndentSequencesSetting>(
+                val,
+                "invalid config: option \"indent-sequences\" of \"indentation\" should be in (<class 'bool'>, 'whatever', 'consistent')",
+            )
         }
         Some("check-multi-line-strings") => {
             validate_bool_option(val, "indentation", "check-multi-line-strings")
@@ -1360,14 +1345,10 @@ fn validate_quoted_strings_option(
 }
 
 fn validate_quote_type_option(val: &YamlOwned) -> Result<(), String> {
-    if yaml_value_matches_toml_type::<QuoteType>(val) {
-        Ok(())
-    } else {
-        Err(
-            "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')"
-                .to_string(),
-        )
-    }
+    validate_typed_option_value::<QuoteType>(
+        val,
+        "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')",
+    )
 }
 
 fn validate_required_option(
@@ -1433,6 +1414,17 @@ fn validate_option_type<T: DeserializeOwned>(
         Err(format!(
             "invalid config: option \"{option_name}\" of \"{rule_name}\" should be {expected_type}"
         ))
+    }
+}
+
+fn validate_typed_option_value<T: DeserializeOwned>(
+    val: &YamlOwned,
+    error_message: impl Into<String>,
+) -> Result<(), String> {
+    if yaml_value_matches_toml_type::<T>(val) {
+        Ok(())
+    } else {
+        Err(error_message.into())
     }
 }
 
