@@ -551,6 +551,12 @@ pub struct NormalizedConfig {
     pub rules: BTreeMap<String, YamlOwned>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ParsedYamlConfig {
+    pub extends: Vec<String>,
+    pub normalized: NormalizedConfig,
+}
+
 fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
     match value {
         StringOrVec::One(item) => vec![item.clone()],
@@ -802,6 +808,20 @@ pub(crate) fn normalize_yaml_config(
     }
 
     Ok(normalized)
+}
+
+pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, String> {
+    if doc.as_mapping().is_none() {
+        return Err("invalid config: not a mapping".to_string());
+    }
+
+    Ok(ParsedYamlConfig {
+        extends: doc
+            .as_mapping_get("extends")
+            .map(load_extends_entries)
+            .unwrap_or_default(),
+        normalized: normalize_yaml_config(doc)?,
+    })
 }
 
 #[must_use]

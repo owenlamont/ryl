@@ -10,10 +10,9 @@ use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedConfig, NormalizedFixConfig, TomlConfig, load_extends_entries,
-    normalize_toml_config, normalize_yaml_config, parse_toml_config_str,
-    validate_toml_config, yaml_owned_to_toml_value, yaml_rule_filter_patterns,
-    yaml_rule_level,
+    NormalizedConfig, NormalizedFixConfig, TomlConfig, normalize_toml_config,
+    parse_toml_config_str, parse_yaml_config, validate_toml_config,
+    yaml_owned_to_toml_value, yaml_rule_filter_patterns, yaml_rule_level,
 };
 use crate::{conf, decoder};
 
@@ -274,20 +273,6 @@ impl YamlLintConfig {
         Self::from_yaml_str_with_env(s, None, None)
     }
 
-    fn apply_extends(
-        &mut self,
-        node: &YamlOwned,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-    ) -> Result<(), String> {
-        let base_path = base_dir.unwrap_or_else(|| Path::new(""));
-
-        for entry in load_extends_entries(node) {
-            self.extend_from_entry(&entry, envx, base_path)?;
-        }
-        Ok(())
-    }
-
     fn extend_from_entry(
         &mut self,
         entry: &str,
@@ -481,16 +466,13 @@ impl YamlLintConfig {
         envx: Option<&dyn Env>,
         base_dir: Option<&Path>,
     ) -> Result<Self, String> {
+        let parsed = parse_yaml_config(doc)?;
         let mut cfg = Self::default();
-
-        if doc.as_mapping().is_none() {
-            return Err("invalid config: not a mapping".to_string());
+        let base_path = base_dir.unwrap_or_else(|| Path::new(""));
+        for entry in &parsed.extends {
+            cfg.extend_from_entry(entry, envx, base_path)?;
         }
-
-        if let Some(extends) = doc.as_mapping_get("extends") {
-            cfg.apply_extends(extends, envx, base_dir)?;
-        }
-        cfg.apply_normalized_config(normalize_yaml_config(doc)?);
+        cfg.apply_normalized_config(parsed.normalized);
 
         Ok(cfg)
     }
