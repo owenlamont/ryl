@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use regex::Regex;
+use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -543,7 +544,7 @@ pub struct NormalizedConfig {
     pub yaml_file_patterns: Option<Vec<String>>,
     pub locale: Option<String>,
     pub fix: Option<NormalizedFixConfig>,
-    pub rules: BTreeMap<String, toml::Value>,
+    pub rules: BTreeMap<String, YamlOwned>,
 }
 
 fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
@@ -564,6 +565,39 @@ fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
 }
 
 #[must_use]
+pub(crate) fn toml_value_to_yaml_owned(value: &toml::Value) -> YamlOwned {
+    match value {
+        toml::Value::String(text) => {
+            YamlOwned::Value(ScalarOwned::String(text.clone()))
+        }
+        toml::Value::Integer(num) => YamlOwned::Value(ScalarOwned::Integer(*num)),
+        toml::Value::Float(num) => {
+            let rendered = num.to_string();
+            YamlOwned::load_from_str(&rendered)
+                .ok()
+                .and_then(|docs| docs.into_iter().next())
+                .unwrap_or(YamlOwned::Value(ScalarOwned::String(rendered)))
+        }
+        toml::Value::Boolean(flag) => YamlOwned::Value(ScalarOwned::Boolean(*flag)),
+        toml::Value::Datetime(dt) => {
+            YamlOwned::Value(ScalarOwned::String(dt.to_string()))
+        }
+        toml::Value::Array(items) => {
+            YamlOwned::Sequence(items.iter().map(toml_value_to_yaml_owned).collect())
+        }
+        toml::Value::Table(table) => {
+            let mut map = MappingOwned::new();
+            for (key, val) in table {
+                map.insert(
+                    YamlOwned::Value(ScalarOwned::String(key.clone())),
+                    toml_value_to_yaml_owned(val),
+                );
+            }
+            YamlOwned::Mapping(map)
+        }
+    }
+}
+
 /// Normalize a typed TOML config into a shared post-parse representation.
 ///
 /// # Panics
@@ -586,6 +620,7 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
             .expect("serializing typed TOML rules should yield a table")
             .clone()
             .into_iter()
+            .map(|(name, value)| (name, toml_value_to_yaml_owned(&value)))
             .collect();
     }
 
@@ -707,15 +742,7 @@ fn validate_key_ordering_rule(
         return Ok(());
     };
 
-    for text in patterns {
-        Regex::new(text).map_err(|err| {
-            format!(
-                "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
-            )
-        })?;
-    }
-
-    Ok(())
+    validate_key_ordering_patterns(patterns)
 }
 
 fn validate_quoted_strings_rule(
@@ -726,57 +753,14 @@ fn validate_quoted_strings_rule(
     };
     let specific = &options.specific;
     let required = quoted_strings_required_mode(specific.required.as_ref());
-    let extra_required = specific.extra_required.as_ref().map_or(0, Vec::len);
-    let extra_allowed = specific.extra_allowed.as_ref().map_or(0, Vec::len);
-
-    if matches!(required, QuotedStringsRequiredModeForValidation::True)
-        && extra_allowed > 0
-    {
-        return Err(
-            "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-allowed\""
-                .to_string(),
-        );
-    }
-    if matches!(required, QuotedStringsRequiredModeForValidation::True)
-        && extra_required > 0
-    {
-        return Err(
-            "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
-                .to_string(),
-        );
-    }
-    if matches!(required, QuotedStringsRequiredModeForValidation::False)
-        && extra_allowed > 0
-    {
-        return Err(
-            "invalid config: quoted-strings: cannot use both \"required: false\" and \"extra-allowed\""
-                .to_string(),
-        );
-    }
-
-    validate_regex_list(
+    validate_quoted_strings_semantics(
+        required,
         specific.extra_required.as_deref(),
-        "extra-required",
-        |text, err| {
-            format!(
-                "invalid config: regex \"{text}\" in option \"extra-required\" of \"quoted-strings\" is invalid: {err}"
-            )
-        },
-    )?;
-    validate_regex_list(
         specific.extra_allowed.as_deref(),
-        "extra-allowed",
-        |text, err| {
-            format!(
-                "invalid config: regex \"{text}\" in option \"extra-allowed\" of \"quoted-strings\" is invalid: {err}"
-            )
-        },
-    )?;
-
-    Ok(())
+    )
 }
 
-fn validate_regex_list(
+pub(crate) fn validate_regex_list(
     patterns: Option<&[String]>,
     _option_name: &str,
     invalid_regex: impl Fn(&str, regex::Error) -> String,
@@ -800,7 +784,7 @@ fn rule_options<T>(entry: Option<&RuleEntry<T>>) -> Option<&RuleOptions<T>> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum QuotedStringsRequiredModeForValidation {
+pub(crate) enum QuotedStringsRequiredModeForValidation {
     True,
     False,
     OnlyWhenNeeded,
@@ -821,4 +805,61 @@ fn quoted_strings_required_mode(
             QuotedStringsRequiredMode::OnlyWhenNeeded,
         )) => QuotedStringsRequiredModeForValidation::OnlyWhenNeeded,
     }
+}
+
+pub(crate) fn validate_key_ordering_patterns(
+    patterns: &[String],
+) -> Result<(), String> {
+    validate_regex_list(Some(patterns), "ignored-keys", |text, err| {
+        format!(
+            "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
+        )
+    })
+}
+
+pub(crate) fn validate_quoted_strings_semantics(
+    required: QuotedStringsRequiredModeForValidation,
+    extra_required: Option<&[String]>,
+    extra_allowed: Option<&[String]>,
+) -> Result<(), String> {
+    let extra_required_count = extra_required.map_or(0, <[String]>::len);
+    let extra_allowed_count = extra_allowed.map_or(0, <[String]>::len);
+
+    if matches!(required, QuotedStringsRequiredModeForValidation::True)
+        && extra_allowed_count > 0
+    {
+        return Err(
+            "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-allowed\""
+                .to_string(),
+        );
+    }
+    if matches!(required, QuotedStringsRequiredModeForValidation::True)
+        && extra_required_count > 0
+    {
+        return Err(
+            "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
+                .to_string(),
+        );
+    }
+    if matches!(required, QuotedStringsRequiredModeForValidation::False)
+        && extra_allowed_count > 0
+    {
+        return Err(
+            "invalid config: quoted-strings: cannot use both \"required: false\" and \"extra-allowed\""
+                .to_string(),
+        );
+    }
+
+    validate_regex_list(extra_required, "extra-required", |text, err| {
+        format!(
+            "invalid config: regex \"{text}\" in option \"extra-required\" of \"quoted-strings\" is invalid: {err}"
+        )
+    })?;
+    validate_regex_list(extra_allowed, "extra-allowed", |text, err| {
+        format!(
+            "invalid config: regex \"{text}\" in option \"extra-allowed\" of \"quoted-strings\" is invalid: {err}"
+        )
+    })?;
+
+    Ok(())
 }

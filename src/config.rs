@@ -11,8 +11,9 @@ use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedFixConfig, TomlConfig, normalize_toml_config, parse_toml_config_str,
-    validate_toml_config,
+    NormalizedFixConfig, QuotedStringsRequiredModeForValidation, TomlConfig,
+    normalize_toml_config, parse_toml_config_str, validate_key_ordering_patterns,
+    validate_quoted_strings_semantics, validate_toml_config,
 };
 use crate::{conf, decoder};
 
@@ -561,7 +562,7 @@ impl YamlLintConfig {
         }
 
         for (name, value) in &normalized.rules {
-            cfg.merge_rule(name, &toml_value_to_yaml_owned(value));
+            cfg.merge_rule(name, value);
         }
 
         cfg
@@ -1356,15 +1357,14 @@ fn validate_key_ordering_option(
     val: &YamlOwned,
 ) -> Result<(), String> {
     match key.as_str() {
-        Some("ignored-keys") => validate_regex_strings(
-            val,
-            "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings",
-            |text, err| {
-                format!(
-                    "invalid config: option \"ignored-keys\" of \"key-ordering\" contains invalid regex '{text}': {err}"
-                )
-            },
-        ),
+        Some("ignored-keys") => {
+            let patterns = parse_string_items(
+                val,
+                "invalid config: option \"ignored-keys\" of \"key-ordering\" should contain regex strings",
+                |text| vec![text.to_owned()],
+            )?;
+            validate_key_ordering_patterns(&patterns)
+        }
         _ => Err(unknown_rule_option("key-ordering", key)),
     }
 }
@@ -1420,44 +1420,25 @@ fn validate_quoted_strings_rule(map: &MappingOwned) -> Result<(), String> {
 
 #[derive(Default)]
 struct QuotedStringsValidationState {
-    required: Option<QuotedStringsRequired>,
+    required: Option<QuotedStringsRequiredModeForValidation>,
     extra_required_count: Option<usize>,
     extra_allowed_count: Option<usize>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum QuotedStringsRequired {
-    True,
-    False,
-    OnlyWhenNeeded,
-}
-
 impl QuotedStringsValidationState {
     fn finish(&self) -> Result<(), String> {
-        let required = self.required.unwrap_or(QuotedStringsRequired::True);
-        let extra_required = self.extra_required_count.unwrap_or(0);
-        let extra_allowed = self.extra_allowed_count.unwrap_or(0);
-
-        if matches!(required, QuotedStringsRequired::True) && extra_allowed > 0 {
-            return Err(
-                "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-allowed\""
-                    .to_string(),
-            );
-        }
-        if matches!(required, QuotedStringsRequired::True) && extra_required > 0 {
-            return Err(
-                "invalid config: quoted-strings: cannot use both \"required: true\" and \"extra-required\""
-                    .to_string(),
-            );
-        }
-        if matches!(required, QuotedStringsRequired::False) && extra_allowed > 0 {
-            return Err(
-                "invalid config: quoted-strings: cannot use both \"required: false\" and \"extra-allowed\""
-                    .to_string(),
-            );
-        }
-
-        Ok(())
+        let extra_required = self
+            .extra_required_count
+            .map(|count| vec![String::new(); count]);
+        let extra_allowed = self
+            .extra_allowed_count
+            .map(|count| vec![String::new(); count]);
+        validate_quoted_strings_semantics(
+            self.required
+                .unwrap_or(QuotedStringsRequiredModeForValidation::True),
+            extra_required.as_deref(),
+            extra_allowed.as_deref(),
+        )
     }
 }
 
@@ -1510,13 +1491,13 @@ fn validate_required_option(
 ) -> Result<(), String> {
     if let Some(flag) = val.as_bool() {
         state.required = Some(if flag {
-            QuotedStringsRequired::True
+            QuotedStringsRequiredModeForValidation::True
         } else {
-            QuotedStringsRequired::False
+            QuotedStringsRequiredModeForValidation::False
         });
         Ok(())
     } else if val.as_str() == Some("only-when-needed") {
-        state.required = Some(QuotedStringsRequired::OnlyWhenNeeded);
+        state.required = Some(QuotedStringsRequiredModeForValidation::OnlyWhenNeeded);
         Ok(())
     } else {
         Err(
@@ -1655,37 +1636,6 @@ fn describe_rule_option_key(key: &YamlOwned) -> String {
         (None, None, None, true, _) => "None".to_string(),
         (None, None, None, false, Some(text)) => text.to_owned(),
         _ => format!("{key:?}"),
-    }
-}
-
-fn toml_value_to_yaml_owned(value: &TomlValue) -> YamlOwned {
-    match value {
-        TomlValue::String(text) => YamlOwned::Value(ScalarOwned::String(text.clone())),
-        TomlValue::Integer(num) => YamlOwned::Value(ScalarOwned::Integer(*num)),
-        TomlValue::Float(num) => {
-            let rendered = num.to_string();
-            YamlOwned::load_from_str(&rendered)
-                .ok()
-                .and_then(|docs| docs.into_iter().next())
-                .unwrap_or(YamlOwned::Value(ScalarOwned::String(rendered)))
-        }
-        TomlValue::Boolean(flag) => YamlOwned::Value(ScalarOwned::Boolean(*flag)),
-        TomlValue::Datetime(dt) => {
-            YamlOwned::Value(ScalarOwned::String(dt.to_string()))
-        }
-        TomlValue::Array(items) => {
-            YamlOwned::Sequence(items.iter().map(toml_value_to_yaml_owned).collect())
-        }
-        TomlValue::Table(table) => {
-            let mut map = MappingOwned::new();
-            for (key, val) in table {
-                map.insert(
-                    YamlOwned::Value(ScalarOwned::String(key.clone())),
-                    toml_value_to_yaml_owned(val),
-                );
-            }
-            YamlOwned::Mapping(map)
-        }
     }
 }
 
