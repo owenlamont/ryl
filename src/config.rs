@@ -646,66 +646,16 @@ impl YamlLintConfig {
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
-        let mut builder = GitignoreBuilder::new(base_dir);
-        builder.allow_unclosed_class(false);
-        let mut any_pattern = false;
-
-        for pat in &self.ignore_patterns {
-            let normalized = pat.trim_end_matches(['\r']);
-            if let Err(err) = builder.add_line(None, normalized) {
-                return Err(format!(
-                    "invalid config: ignore pattern '{normalized}' is invalid: {err}"
-                ));
-            }
-            any_pattern = true;
-        }
-
-        let mut extra_patterns: Vec<String> = Vec::new();
-        for source in &self.ignore_from_files {
-            let source_path = Path::new(source);
-            let resolved = if source_path.is_absolute() {
-                source_path.to_path_buf()
-            } else {
-                base_dir.join(source_path)
-            };
-            let data = match envx.read_to_string(&resolved) {
-                Ok(text) => text,
-                Err(err) => {
-                    return Err(format!(
-                        "failed to read ignore-from-file {}: {err}",
-                        resolved.display()
-                    ));
-                }
-            };
-            for line in data.lines() {
-                let normalized = line.trim_end_matches(['\r']);
-                if normalized.trim().is_empty() {
-                    continue;
-                }
-                if let Err(err) = builder.add_line(Some(resolved.clone()), normalized) {
-                    return Err(format!(
-                        "invalid config: ignore-from-file pattern in {} is invalid: {err}",
-                        resolved.display()
-                    ));
-                }
-                extra_patterns.push(normalized.to_string());
-                any_pattern = true;
-            }
-        }
-
+        let (matcher, extra_patterns) = build_ignore_matcher(
+            &self.ignore_patterns,
+            &self.ignore_from_files,
+            envx,
+            base_dir,
+        )?;
         if !extra_patterns.is_empty() {
             self.ignore_patterns.extend(extra_patterns);
         }
-
-        self.ignore_matcher = if any_pattern {
-            Some(
-                builder
-                    .build()
-                    .expect("ignore matcher build should not fail after validation"),
-            )
-        } else {
-            None
-        };
+        self.ignore_matcher = matcher;
 
         self.build_yaml_matcher(base_dir);
 
@@ -733,16 +683,30 @@ fn build_rule_filter(
     envx: &dyn Env,
     base_dir: &Path,
 ) -> Result<(), String> {
-    if filter.patterns.is_empty() && filter.from_files.is_empty() {
-        filter.matcher = None;
-        return Ok(());
+    let (matcher, extra_patterns) =
+        build_ignore_matcher(&filter.patterns, &filter.from_files, envx, base_dir)?;
+    if !extra_patterns.is_empty() {
+        filter.patterns.extend(extra_patterns);
+    }
+    filter.matcher = matcher;
+    Ok(())
+}
+
+fn build_ignore_matcher(
+    patterns: &[String],
+    from_files: &[String],
+    envx: &dyn Env,
+    base_dir: &Path,
+) -> Result<(Option<Gitignore>, Vec<String>), String> {
+    if patterns.is_empty() && from_files.is_empty() {
+        return Ok((None, Vec::new()));
     }
 
     let mut builder = GitignoreBuilder::new(base_dir);
     builder.allow_unclosed_class(false);
     let mut any_pattern = false;
 
-    for pat in &filter.patterns {
+    for pat in patterns {
         let normalized = pat.trim_end_matches(['\r']);
         if let Err(err) = builder.add_line(None, normalized) {
             return Err(format!(
@@ -752,8 +716,8 @@ fn build_rule_filter(
         any_pattern = true;
     }
 
-    let mut extra_patterns: Vec<String> = Vec::new();
-    for source in &filter.from_files {
+    let mut extra_patterns = Vec::new();
+    for source in from_files {
         let source_path = Path::new(source);
         let resolved = if source_path.is_absolute() {
             source_path.to_path_buf()
@@ -785,20 +749,12 @@ fn build_rule_filter(
         }
     }
 
-    if !extra_patterns.is_empty() {
-        filter.patterns.extend(extra_patterns);
-    }
-
-    filter.matcher = if any_pattern {
-        Some(
-            builder
-                .build()
-                .expect("rule ignore matcher build should not fail after validation"),
-        )
-    } else {
-        None
-    };
-    Ok(())
+    let matcher = any_pattern.then(|| {
+        builder
+            .build()
+            .expect("ignore matcher build should not fail after validation")
+    });
+    Ok((matcher, extra_patterns))
 }
 
 fn resolve_extend_path(
