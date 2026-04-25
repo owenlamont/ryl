@@ -170,6 +170,20 @@ document-start = "disable"
 }
 
 #[test]
+fn typed_toml_to_value_handles_configs_without_rules() {
+    let parsed = parse_toml_config_str("locale = \"en_US.UTF-8\"\n", false)
+        .expect("typed TOML parse should succeed")
+        .expect("project TOML should produce config");
+
+    let value = toml_config_to_value(&parsed);
+    assert_eq!(
+        value.get("locale").and_then(toml::Value::as_str),
+        Some("en_US.UTF-8")
+    );
+    assert!(value.get("rules").is_none());
+}
+
+#[test]
 fn typed_toml_parser_round_trips_unknown_extras_and_custom_rules() {
     let parsed = parse_toml_config_str(
         r#"

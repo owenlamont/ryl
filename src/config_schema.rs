@@ -93,6 +93,7 @@ pub struct NoOptions {}
 
 /// TOML `[fix]` table.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FixTable {
     pub fixable: Option<Vec<FixableRuleSelector>>,
     pub unfixable: Option<Vec<FixRuleName>>,

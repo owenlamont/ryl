@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
-use toml::{Table as TomlTable, Value as TomlValue};
+use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    StringOrVec, TomlConfig, parse_toml_config_str, toml_config_to_value,
-    toml_rules_to_value, validate_toml_config,
+    StringOrVec, TomlConfig, parse_toml_config_str, toml_rules_to_value,
+    validate_toml_config,
 };
 use crate::{conf, decoder};
 
@@ -215,14 +215,6 @@ impl FixRuleSelector {
             Self::All => "ALL",
             Self::Rule(rule) => rule.as_str(),
         }
-    }
-
-    fn parse(value: &str) -> Option<Self> {
-        if value == "ALL" {
-            return Some(Self::All);
-        }
-
-        FixRule::parse(value).map(Self::Rule)
     }
 }
 
@@ -525,7 +517,7 @@ impl YamlLintConfig {
     ) -> Result<Self, String> {
         let docs = YamlOwned::load_from_str(s)
             .map_err(|e| format!("failed to parse config data: {e}"))?;
-        Self::from_doc_with_env(&docs[0], envx, base_dir, true)
+        Self::from_doc_with_env(&docs[0], envx, base_dir)
     }
 
     fn from_toml_str_with_env(
@@ -534,20 +526,12 @@ impl YamlLintConfig {
         base_dir: Option<&Path>,
         pyproject: bool,
     ) -> Result<Option<Self>, String> {
-        let toml = s
-            .parse::<TomlTable>()
-            .map_err(|e| format!("failed to parse config data: {e}"))?;
-
-        let Some(raw_doc) = extract_toml_config_doc(&toml, pyproject) else {
+        let Some(typed) = parse_toml_config_str(s, pyproject)? else {
             return Ok(None);
         };
-        if let Some(typed) = exact_typed_toml_config(s, pyproject, &raw_doc)? {
-            let _ = (envx, base_dir);
-            return Ok(Some(Self::from_typed_toml_config_with_env(&typed)));
-        }
-
-        let doc = toml_value_to_yaml_owned(&raw_doc);
-        Self::from_doc_with_env(&doc, envx, base_dir, false).map(Some)
+        validate_toml_config(&typed)?;
+        let _ = (envx, base_dir);
+        Ok(Some(Self::from_typed_toml_config_with_env(&typed)))
     }
 
     fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
@@ -592,7 +576,6 @@ impl YamlLintConfig {
         doc: &YamlOwned,
         envx: Option<&dyn Env>,
         base_dir: Option<&Path>,
-        allow_extends: bool,
     ) -> Result<Self, String> {
         let mut cfg = Self::default();
 
@@ -601,12 +584,6 @@ impl YamlLintConfig {
         }
 
         if let Some(extends) = doc.as_mapping_get("extends") {
-            if !allow_extends {
-                return Err(
-                    "invalid config: extends is not supported in TOML configuration"
-                        .into(),
-                );
-            }
             cfg.apply_extends(extends, envx, base_dir)?;
         }
 
@@ -660,13 +637,11 @@ impl YamlLintConfig {
         }
 
         if let Some(fix) = doc.as_mapping_get("fix") {
-            if allow_extends {
-                return Err(
-                    "invalid config: fix is only supported in TOML configuration"
-                        .to_string(),
-                );
-            }
-            cfg.fix = parse_fix_config(fix)?;
+            let _ = fix;
+            return Err(
+                "invalid config: fix is only supported in TOML configuration"
+                    .to_string(),
+            );
         }
 
         if let Some(rules) = doc.as_mapping_get("rules")
@@ -941,77 +916,6 @@ fn build_rule_filter(
         None
     };
     Ok(())
-}
-
-fn parse_fix_config(node: &YamlOwned) -> Result<FixConfig, String> {
-    let Some(map) = node.as_mapping() else {
-        return Err("invalid config: fix should be a mapping".to_string());
-    };
-
-    let mut fix = FixConfig::default();
-
-    for (key, value) in map {
-        let key_name = key
-            .as_str()
-            .expect("TOML table keys should always deserialize as strings");
-        match key_name {
-            "fixable" => {
-                fix.fixable = parse_fix_selector_list(value, "fixable")?;
-            }
-            "unfixable" => {
-                fix.unfixable = parse_fix_rule_list(value, "unfixable")?;
-            }
-            _ => {
-                return Err(format!(
-                    "invalid config: unknown option \"{key_name}\" for table \"fix\""
-                ));
-            }
-        }
-    }
-
-    Ok(fix)
-}
-
-fn parse_fix_selector_list(
-    node: &YamlOwned,
-    option_name: &str,
-) -> Result<Vec<FixRuleSelector>, String> {
-    parse_fix_list(node, option_name, FixRuleSelector::parse)
-}
-
-fn parse_fix_rule_list(
-    node: &YamlOwned,
-    option_name: &str,
-) -> Result<Vec<FixRule>, String> {
-    parse_fix_list(node, option_name, FixRule::parse)
-}
-
-fn parse_fix_list<T>(
-    node: &YamlOwned,
-    option_name: &str,
-    parse: impl Fn(&str) -> Option<T>,
-) -> Result<Vec<T>, String> {
-    let Some(seq) = node.as_sequence() else {
-        return Err(format!(
-            "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
-        ));
-    };
-
-    let mut rules = Vec::with_capacity(seq.len());
-    for item in seq {
-        let Some(rule) = item.as_str() else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"fix\" should be a list of strings"
-            ));
-        };
-        let Some(rule) = parse(rule) else {
-            return Err(format!(
-                "invalid config: option \"{option_name}\" of \"fix\" contains unknown fix rule \"{rule}\""
-            ));
-        };
-        rules.push(rule);
-    }
-    Ok(rules)
 }
 
 fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
@@ -1788,30 +1692,6 @@ fn toml_value_to_yaml_owned(value: &TomlValue) -> YamlOwned {
             YamlOwned::Mapping(map)
         }
     }
-}
-
-fn extract_toml_config_doc(toml: &TomlTable, pyproject: bool) -> Option<TomlValue> {
-    if pyproject {
-        toml.get("tool").and_then(|tool| tool.get("ryl")).cloned()
-    } else {
-        Some(TomlValue::Table(toml.clone()))
-    }
-}
-
-fn exact_typed_toml_config(
-    input: &str,
-    pyproject: bool,
-    raw_doc: &TomlValue,
-) -> Result<Option<TomlConfig>, String> {
-    let Some(typed) = parse_toml_config_str(input, pyproject).ok().flatten() else {
-        return Ok(None);
-    };
-    let typed_doc = toml_config_to_value(&typed);
-    if typed_doc != *raw_doc {
-        return Ok(None);
-    }
-    validate_toml_config(&typed)?;
-    Ok(Some(typed))
 }
 
 fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {

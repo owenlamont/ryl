@@ -271,6 +271,44 @@ fn toml_integer_scalar_is_accepted_for_unknown_keys() {
 }
 
 #[test]
+fn scalar_rules_value_is_rejected() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(cfg.clone(), "rules = 1\n");
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("scalar rules value should be rejected");
+
+    assert!(err.contains("failed to parse config data"));
+}
+
+#[test]
+fn scalar_tool_ryl_pyproject_is_rejected() {
+    let pyproject = PathBuf::from("/repo/pyproject.toml");
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(pyproject.clone(), "[tool]\nryl = 1\n");
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(pyproject),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("scalar [tool.ryl] should be rejected");
+
+    assert!(err.contains("failed to parse config data"));
+}
+
+#[test]
 fn exact_typed_toml_supports_single_string_ignore_from_file() {
     let td = tempdir().unwrap();
     let root = td.path();
@@ -298,7 +336,7 @@ fn toml_custom_rule_entries_are_preserved() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "[rules]\nanchors = 'disable'\n[rules.custom-rule]\nflag = true\n",
+        "[rules]\nanchors = 'disable'\n[rules.custom-rule]\nflag = true\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n",
     );
     let ctx = discover_config_with(
         &[],
@@ -317,28 +355,10 @@ fn toml_custom_rule_entries_are_preserved() {
             .any(|name| name == "custom-rule")
     );
     assert!(ctx.config.rule_names().iter().any(|name| name == "anchors"));
-}
-
-#[test]
-fn toml_fallback_rejects_extends_key() {
-    let cfg = PathBuf::from("/repo/.ryl.toml");
-    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
-        cfg.clone(),
-        "extends = 'relaxed'\n[fix]\nfixable = 'comments'\n",
-    );
-    let err = discover_config_with(
-        &[],
-        &Overrides {
-            config_file: Some(cfg),
-            config_data: None,
-        },
-        &env,
-    )
-    .expect_err("fallback TOML path should still reject extends");
-
     assert_eq!(
-        err,
-        "invalid config: extends is not supported in TOML configuration"
+        ctx.config.rule_option_int("custom-rule", "ratio", -1),
+        -1,
+        "custom float values should remain non-integer options"
     );
 }
 
@@ -403,7 +423,7 @@ fn toml_float_value_for_locale_reports_string_error() {
         &env,
     )
     .unwrap_err();
-    assert!(err.contains("invalid config: locale should be a string"));
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
