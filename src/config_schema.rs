@@ -1,13 +1,19 @@
+mod serialization;
 mod validation;
 
 use std::collections::BTreeMap;
 
-use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
+use saphyr::YamlOwned;
 use schemars::{JsonSchema, Schema, schema_for};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use serialization::{
+    normalize_toml_config, normalized_config_to_toml_value, toml_config_to_value,
+};
+pub(crate) use serialization::{
+    yaml_owned_to_toml_value, yaml_value_matches_toml_type,
+};
 pub(crate) use validation::validate_yaml_rule_value;
 
 /// JSON Schema root for `ryl` TOML configuration.
@@ -557,105 +563,6 @@ pub(crate) struct ParsedYamlConfig {
     pub normalized: NormalizedConfig,
 }
 
-fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
-    match value {
-        StringOrVec::One(item) => vec![item.clone()],
-        StringOrVec::Many(items) => items.clone(),
-    }
-}
-
-fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
-    NormalizedFixConfig {
-        fixable: fix
-            .fixable
-            .clone()
-            .unwrap_or_else(|| vec![FixableRuleSelector::All]),
-        unfixable: fix.unfixable.clone().unwrap_or_default(),
-    }
-}
-
-#[must_use]
-pub(crate) fn toml_value_to_yaml_owned(value: &toml::Value) -> YamlOwned {
-    match value {
-        toml::Value::String(text) => {
-            YamlOwned::Value(ScalarOwned::String(text.clone()))
-        }
-        toml::Value::Integer(num) => YamlOwned::Value(ScalarOwned::Integer(*num)),
-        toml::Value::Float(num) => {
-            let rendered = num.to_string();
-            YamlOwned::load_from_str(&rendered)
-                .ok()
-                .and_then(|docs| docs.into_iter().next())
-                .unwrap_or(YamlOwned::Value(ScalarOwned::String(rendered)))
-        }
-        toml::Value::Boolean(flag) => YamlOwned::Value(ScalarOwned::Boolean(*flag)),
-        toml::Value::Datetime(dt) => {
-            YamlOwned::Value(ScalarOwned::String(dt.to_string()))
-        }
-        toml::Value::Array(items) => {
-            YamlOwned::Sequence(items.iter().map(toml_value_to_yaml_owned).collect())
-        }
-        toml::Value::Table(table) => {
-            let mut map = MappingOwned::new();
-            for (key, val) in table {
-                map.insert(
-                    YamlOwned::Value(ScalarOwned::String(key.clone())),
-                    toml_value_to_yaml_owned(val),
-                );
-            }
-            YamlOwned::Mapping(map)
-        }
-    }
-}
-
-pub(crate) fn yaml_owned_to_toml_value(
-    value: &YamlOwned,
-) -> Result<toml::Value, String> {
-    if let Some(text) = value.as_str() {
-        return Ok(toml::Value::String(text.to_string()));
-    }
-    if let Some(flag) = value.as_bool() {
-        return Ok(toml::Value::Boolean(flag));
-    }
-    if let Some(num) = value.as_integer() {
-        return Ok(toml::Value::Integer(num));
-    }
-    if let Some(num) = value.as_floating_point() {
-        return Ok(toml::Value::Float(num));
-    }
-    if value.is_null() {
-        return Err(
-            "cannot convert null values to TOML (TOML has no null type)".to_string()
-        );
-    }
-    if let Some(items) = value.as_sequence() {
-        let out: Result<Vec<_>, _> =
-            items.iter().map(yaml_owned_to_toml_value).collect();
-        return out.map(toml::Value::Array);
-    }
-    if let Some(map) = value.as_mapping() {
-        let mut out = toml::map::Map::new();
-        for (key, val) in map {
-            let Some(key_text) = key.as_str() else {
-                return Err(format!("cannot convert non-string TOML key: {key:?}"));
-            };
-            out.insert(key_text.to_string(), yaml_owned_to_toml_value(val)?);
-        }
-        return Ok(toml::Value::Table(out));
-    }
-    Err("cannot convert this YAML node to TOML".to_string())
-}
-
-pub(crate) fn yaml_value_matches_toml_type<T>(value: &YamlOwned) -> bool
-where
-    T: DeserializeOwned,
-{
-    yaml_owned_to_toml_value(value)
-        .ok()
-        .and_then(|value| value.try_into::<T>().ok())
-        .is_some()
-}
-
 pub(crate) fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
     parse_string_items(
         node,
@@ -725,35 +632,6 @@ pub(crate) fn parse_string_items(
     } else {
         Err(error.to_string())
     }
-}
-
-/// Normalize a typed TOML config into a shared post-parse representation.
-///
-/// # Panics
-/// Panics if serializing already-validated typed TOML rules unexpectedly stops
-/// producing a TOML table.
-pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
-    let mut normalized = NormalizedConfig {
-        ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
-        ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
-        yaml_file_patterns: config.yaml_files.clone(),
-        locale: config.locale.clone(),
-        fix: config.fix.as_ref().map(normalize_fix_table),
-        ..NormalizedConfig::default()
-    };
-
-    if let Some(rules) = config.rules.as_ref() {
-        let rules = rules_table_to_value(rules);
-        normalized.rules = rules
-            .as_table()
-            .expect("serializing typed TOML rules should yield a table")
-            .clone()
-            .into_iter()
-            .map(|(name, value)| (name, toml_value_to_yaml_owned(&value)))
-            .collect();
-    }
-
-    normalized
 }
 
 pub(crate) fn normalize_yaml_config(
@@ -878,84 +756,6 @@ pub(crate) fn yaml_rule_filter_patterns(
         })
         .unwrap_or_default();
     Some((ignore, ignore_from_files))
-}
-
-fn insert_serialized<T: Serialize>(
-    table: &mut toml::map::Map<String, toml::Value>,
-    key: &str,
-    value: Option<&T>,
-) {
-    if let Some(value) = value {
-        table.insert(
-            key.to_string(),
-            toml::Value::try_from(value)
-                .expect("serializing typed TOML value should succeed"),
-        );
-    }
-}
-
-fn rules_table_to_value(rules: &RulesTable) -> toml::Value {
-    let mut table = toml::map::Map::new();
-    insert_serialized(&mut table, "anchors", rules.anchors.as_ref());
-    insert_serialized(&mut table, "braces", rules.braces.as_ref());
-    insert_serialized(&mut table, "brackets", rules.brackets.as_ref());
-    insert_serialized(&mut table, "colons", rules.colons.as_ref());
-    insert_serialized(&mut table, "commas", rules.commas.as_ref());
-    insert_serialized(&mut table, "comments", rules.comments.as_ref());
-    insert_serialized(
-        &mut table,
-        "comments-indentation",
-        rules.comments_indentation.as_ref(),
-    );
-    insert_serialized(&mut table, "document-end", rules.document_end.as_ref());
-    insert_serialized(&mut table, "document-start", rules.document_start.as_ref());
-    insert_serialized(&mut table, "empty-lines", rules.empty_lines.as_ref());
-    insert_serialized(&mut table, "empty-values", rules.empty_values.as_ref());
-    insert_serialized(&mut table, "float-values", rules.float_values.as_ref());
-    insert_serialized(&mut table, "hyphens", rules.hyphens.as_ref());
-    insert_serialized(&mut table, "indentation", rules.indentation.as_ref());
-    insert_serialized(&mut table, "key-duplicates", rules.key_duplicates.as_ref());
-    insert_serialized(&mut table, "key-ordering", rules.key_ordering.as_ref());
-    insert_serialized(&mut table, "line-length", rules.line_length.as_ref());
-    insert_serialized(
-        &mut table,
-        "new-line-at-end-of-file",
-        rules.new_line_at_end_of_file.as_ref(),
-    );
-    insert_serialized(&mut table, "new-lines", rules.new_lines.as_ref());
-    insert_serialized(&mut table, "octal-values", rules.octal_values.as_ref());
-    insert_serialized(&mut table, "quoted-strings", rules.quoted_strings.as_ref());
-    insert_serialized(
-        &mut table,
-        "trailing-spaces",
-        rules.trailing_spaces.as_ref(),
-    );
-    insert_serialized(&mut table, "truthy", rules.truthy.as_ref());
-    table.extend(rules.extra.clone());
-    toml::Value::Table(table)
-}
-
-/// Convert a typed TOML config model into a TOML value tree.
-///
-/// # Panics
-/// Panics if serializing the typed config into TOML unexpectedly fails.
-#[must_use]
-pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
-    let mut table = toml::map::Map::new();
-    insert_serialized(&mut table, "yaml-files", config.yaml_files.as_ref());
-    insert_serialized(&mut table, "ignore", config.ignore.as_ref());
-    insert_serialized(
-        &mut table,
-        "ignore-from-file",
-        config.ignore_from_file.as_ref(),
-    );
-    insert_serialized(&mut table, "locale", config.locale.as_ref());
-    insert_serialized(&mut table, "fix", config.fix.as_ref());
-    if let Some(rules) = config.rules.as_ref() {
-        table.insert("rules".to_string(), rules_table_to_value(rules));
-    }
-    table.extend(config.extra.clone());
-    toml::Value::Table(table)
 }
 
 /// Serialize the generated schema to a JSON value.

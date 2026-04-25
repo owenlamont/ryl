@@ -1,18 +1,16 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
-use toml::Value as TomlValue;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
     NormalizedConfig, NormalizedFixConfig, TomlConfig, normalize_toml_config,
-    parse_toml_config_str, parse_yaml_config, validate_toml_config,
-    yaml_owned_to_toml_value, yaml_rule_filter_patterns, yaml_rule_level,
+    normalized_config_to_toml_value, parse_toml_config_str, parse_yaml_config,
+    validate_toml_config, yaml_rule_filter_patterns, yaml_rule_level,
 };
 use crate::{conf, decoder};
 
@@ -154,19 +152,6 @@ pub enum FixRule {
 }
 
 impl FixRule {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Braces => "braces",
-            Self::Brackets => "brackets",
-            Self::Commas => "commas",
-            Self::Comments => "comments",
-            Self::CommentsIndentation => "comments-indentation",
-            Self::NewLineAtEndOfFile => "new-line-at-end-of-file",
-            Self::NewLines => "new-lines",
-        }
-    }
-
     fn parse(value: &str) -> Option<Self> {
         match value {
             "braces" => Some(Self::Braces),
@@ -185,16 +170,6 @@ impl FixRule {
 pub enum FixRuleSelector {
     All,
     Rule(FixRule),
-}
-
-impl FixRuleSelector {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::All => "ALL",
-            Self::Rule(rule) => rule.as_str(),
-        }
-    }
 }
 
 impl Default for FixConfig {
@@ -531,83 +506,11 @@ impl YamlLintConfig {
     /// # Panics
     /// Panics if serializing a valid TOML value fails unexpectedly.
     pub fn to_toml_string(&self) -> Result<String, String> {
-        let mut root = toml::map::Map::new();
-
-        root.insert(
-            "yaml-files".to_string(),
-            TomlValue::Array(
-                self.yaml_file_patterns
-                    .iter()
-                    .map(|item| TomlValue::String(item.clone()))
-                    .collect(),
-            ),
-        );
-
-        if !self.ignore_from_files.is_empty() {
-            root.insert(
-                "ignore-from-file".to_string(),
-                TomlValue::Array(
-                    self.ignore_from_files
-                        .iter()
-                        .map(|item| TomlValue::String(item.clone()))
-                        .collect(),
-                ),
-            );
-        } else if !self.ignore_patterns.is_empty() {
-            root.insert(
-                "ignore".to_string(),
-                TomlValue::Array(
-                    self.ignore_patterns
-                        .iter()
-                        .map(|item| TomlValue::String(item.clone()))
-                        .collect(),
-                ),
-            );
-        }
-
-        if let Some(locale) = &self.locale {
-            root.insert("locale".to_string(), TomlValue::String(locale.clone()));
-        }
-
-        if !self.fix.is_default() {
-            let mut fix = toml::map::Map::new();
-            fix.insert(
-                "fixable".to_string(),
-                TomlValue::Array(
-                    self.fix
-                        .fixable
-                        .iter()
-                        .map(|item| TomlValue::String(item.as_str().to_string()))
-                        .collect(),
-                ),
-            );
-            fix.insert(
-                "unfixable".to_string(),
-                TomlValue::Array(
-                    self.fix
-                        .unfixable
-                        .iter()
-                        .map(|item| TomlValue::String(item.as_str().to_string()))
-                        .collect(),
-                ),
-            );
-            root.insert("fix".to_string(), TomlValue::Table(fix));
-        }
-
-        let mut rules: BTreeMap<String, TomlValue> = BTreeMap::new();
-        for (name, value) in &self.rules {
-            let converted = yaml_owned_to_toml_value(value)?;
-            rules.insert(name.clone(), converted);
-        }
-        if !rules.is_empty() {
-            root.insert(
-                "rules".to_string(),
-                TomlValue::Table(toml::map::Map::from_iter(rules)),
-            );
-        }
-
-        Ok(toml::to_string_pretty(&TomlValue::Table(root))
-            .expect("serializing TOML Value should not fail"))
+        let normalized = normalized_config_from_runtime(self);
+        Ok(
+            toml::to_string_pretty(&normalized_config_to_toml_value(&normalized)?)
+                .expect("serializing TOML Value should not fail"),
+        )
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
@@ -790,6 +693,69 @@ fn typed_fix_config(fix: &NormalizedFixConfig) -> FixConfig {
         .collect();
     let unfixable = fix.unfixable.iter().copied().map(typed_fix_rule).collect();
     FixConfig { fixable, unfixable }
+}
+
+fn normalized_fix_config(fix: &FixConfig) -> Option<NormalizedFixConfig> {
+    if fix.is_default() {
+        return None;
+    }
+
+    Some(NormalizedFixConfig {
+        fixable: fix
+            .fixable
+            .iter()
+            .copied()
+            .map(normalized_fix_selector)
+            .collect(),
+        unfixable: fix
+            .unfixable
+            .iter()
+            .copied()
+            .map(normalized_fix_rule)
+            .collect(),
+    })
+}
+
+fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector {
+    match selector {
+        FixRuleSelector::All => TomlFixableRuleSelector::All,
+        FixRuleSelector::Rule(FixRule::Braces) => TomlFixableRuleSelector::Braces,
+        FixRuleSelector::Rule(FixRule::Brackets) => TomlFixableRuleSelector::Brackets,
+        FixRuleSelector::Rule(FixRule::Commas) => TomlFixableRuleSelector::Commas,
+        FixRuleSelector::Rule(FixRule::Comments) => TomlFixableRuleSelector::Comments,
+        FixRuleSelector::Rule(FixRule::CommentsIndentation) => {
+            TomlFixableRuleSelector::CommentsIndentation
+        }
+        FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile) => {
+            TomlFixableRuleSelector::NewLineAtEndOfFile
+        }
+        FixRuleSelector::Rule(FixRule::NewLines) => TomlFixableRuleSelector::NewLines,
+    }
+}
+
+fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
+    match rule {
+        FixRule::Braces => TomlFixRuleName::Braces,
+        FixRule::Brackets => TomlFixRuleName::Brackets,
+        FixRule::Commas => TomlFixRuleName::Commas,
+        FixRule::Comments => TomlFixRuleName::Comments,
+        FixRule::CommentsIndentation => TomlFixRuleName::CommentsIndentation,
+        FixRule::NewLineAtEndOfFile => TomlFixRuleName::NewLineAtEndOfFile,
+        FixRule::NewLines => TomlFixRuleName::NewLines,
+    }
+}
+
+fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
+    NormalizedConfig {
+        ignore_patterns: (!config.ignore_patterns.is_empty())
+            .then(|| config.ignore_patterns.clone()),
+        ignore_from_files: (!config.ignore_from_files.is_empty())
+            .then(|| config.ignore_from_files.clone()),
+        yaml_file_patterns: Some(config.yaml_file_patterns.clone()),
+        locale: config.locale.clone(),
+        fix: normalized_fix_config(&config.fix),
+        rules: config.rules.clone(),
+    }
 }
 
 fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {

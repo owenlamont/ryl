@@ -2,8 +2,8 @@ use std::process::Command;
 
 use jsonschema::validator_for;
 use ryl::config_schema::{
-    normalize_toml_config, parse_toml_config_str, schema_value, toml_config_to_value,
-    validate_toml_config,
+    NormalizedConfig, normalize_toml_config, normalized_config_to_toml_value,
+    parse_toml_config_str, schema_value, toml_config_to_value, validate_toml_config,
 };
 use serde_json::{Value, json};
 
@@ -297,6 +297,26 @@ require-starting-space = true
         1
     );
     assert!(normalized.rules.contains_key("comments"));
+}
+
+#[test]
+fn normalized_config_to_toml_value_skips_yaml_files_when_absent() {
+    let value = normalized_config_to_toml_value(&NormalizedConfig {
+        ignore_patterns: Some(vec!["vendor/**".to_string()]),
+        ..NormalizedConfig::default()
+    })
+    .expect("normalized config should serialize");
+
+    let table = value.as_table().expect("config should serialize as table");
+    assert!(!table.contains_key("yaml-files"));
+    assert_eq!(
+        table
+            .get("ignore")
+            .and_then(toml::Value::as_array)
+            .expect("ignore should serialize as array")
+            .len(),
+        1
+    );
 }
 
 #[test]
