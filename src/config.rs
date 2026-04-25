@@ -12,7 +12,7 @@ use toml::{Table as TomlTable, Value as TomlValue};
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
     StringOrVec, TomlConfig, parse_toml_config_str, toml_config_to_value,
-    validate_toml_config,
+    toml_rules_to_value, validate_toml_config,
 };
 use crate::{conf, decoder};
 
@@ -576,8 +576,7 @@ impl YamlLintConfig {
         }
 
         if let Some(rules) = config.rules.as_ref() {
-            let rules_value = toml::Value::try_from(rules.clone())
-                .expect("serializing typed TOML rules should succeed");
+            let rules_value = toml_rules_to_value(rules);
             let map = rules_value
                 .as_table()
                 .expect("serializing typed TOML rules should yield a table");

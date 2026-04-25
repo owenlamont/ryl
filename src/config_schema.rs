@@ -529,14 +529,87 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn insert_serialized<T: Serialize>(
+    table: &mut toml::map::Map<String, toml::Value>,
+    key: &str,
+    value: Option<&T>,
+) {
+    if let Some(value) = value {
+        table.insert(
+            key.to_string(),
+            toml::Value::try_from(value)
+                .expect("serializing typed TOML value should succeed"),
+        );
+    }
+}
+
+fn rules_table_to_value(rules: &RulesTable) -> toml::Value {
+    let mut table = toml::map::Map::new();
+    insert_serialized(&mut table, "anchors", rules.anchors.as_ref());
+    insert_serialized(&mut table, "braces", rules.braces.as_ref());
+    insert_serialized(&mut table, "brackets", rules.brackets.as_ref());
+    insert_serialized(&mut table, "colons", rules.colons.as_ref());
+    insert_serialized(&mut table, "commas", rules.commas.as_ref());
+    insert_serialized(&mut table, "comments", rules.comments.as_ref());
+    insert_serialized(
+        &mut table,
+        "comments-indentation",
+        rules.comments_indentation.as_ref(),
+    );
+    insert_serialized(&mut table, "document-end", rules.document_end.as_ref());
+    insert_serialized(&mut table, "document-start", rules.document_start.as_ref());
+    insert_serialized(&mut table, "empty-lines", rules.empty_lines.as_ref());
+    insert_serialized(&mut table, "empty-values", rules.empty_values.as_ref());
+    insert_serialized(&mut table, "float-values", rules.float_values.as_ref());
+    insert_serialized(&mut table, "hyphens", rules.hyphens.as_ref());
+    insert_serialized(&mut table, "indentation", rules.indentation.as_ref());
+    insert_serialized(&mut table, "key-duplicates", rules.key_duplicates.as_ref());
+    insert_serialized(&mut table, "key-ordering", rules.key_ordering.as_ref());
+    insert_serialized(&mut table, "line-length", rules.line_length.as_ref());
+    insert_serialized(
+        &mut table,
+        "new-line-at-end-of-file",
+        rules.new_line_at_end_of_file.as_ref(),
+    );
+    insert_serialized(&mut table, "new-lines", rules.new_lines.as_ref());
+    insert_serialized(&mut table, "octal-values", rules.octal_values.as_ref());
+    insert_serialized(&mut table, "quoted-strings", rules.quoted_strings.as_ref());
+    insert_serialized(
+        &mut table,
+        "trailing-spaces",
+        rules.trailing_spaces.as_ref(),
+    );
+    insert_serialized(&mut table, "truthy", rules.truthy.as_ref());
+    table.extend(rules.extra.clone());
+    toml::Value::Table(table)
+}
+
 /// Convert a typed TOML config model into a TOML value tree.
 ///
 /// # Panics
 /// Panics if serializing the typed config into TOML unexpectedly fails.
 #[must_use]
 pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
-    toml::Value::try_from(config.clone())
-        .expect("serializing typed TOML config should succeed")
+    let mut table = toml::map::Map::new();
+    insert_serialized(&mut table, "yaml-files", config.yaml_files.as_ref());
+    insert_serialized(&mut table, "ignore", config.ignore.as_ref());
+    insert_serialized(
+        &mut table,
+        "ignore-from-file",
+        config.ignore_from_file.as_ref(),
+    );
+    insert_serialized(&mut table, "locale", config.locale.as_ref());
+    insert_serialized(&mut table, "fix", config.fix.as_ref());
+    if let Some(rules) = config.rules.as_ref() {
+        table.insert("rules".to_string(), rules_table_to_value(rules));
+    }
+    table.extend(config.extra.clone());
+    toml::Value::Table(table)
+}
+
+#[must_use]
+pub(crate) fn toml_rules_to_value(rules: &RulesTable) -> toml::Value {
+    rules_table_to_value(rules)
 }
 
 /// Serialize the generated schema to a JSON value.

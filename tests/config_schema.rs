@@ -170,16 +170,21 @@ document-start = "disable"
 }
 
 #[test]
-fn typed_toml_parser_round_trips_unknown_scalars_and_custom_rules() {
+fn typed_toml_parser_round_trips_unknown_extras_and_custom_rules() {
     let parsed = parse_toml_config_str(
         r#"
 flag = true
+stamp = 1979-05-27T07:32:00Z
+
+[extra]
+name = "demo"
 
 [rules]
 anchors = "disable"
 
 [rules.custom-rule]
 count = 3
+stamp = 1979-05-27T07:32:00Z
 "#,
         false,
     )
@@ -188,6 +193,19 @@ count = 3
 
     let value = toml_config_to_value(&parsed);
     assert_eq!(value.get("flag").and_then(toml::Value::as_bool), Some(true));
+    assert!(
+        value
+            .get("stamp")
+            .and_then(toml::Value::as_datetime)
+            .is_some()
+    );
+    assert_eq!(
+        value
+            .get("extra")
+            .and_then(|extra| extra.get("name"))
+            .and_then(toml::Value::as_str),
+        Some("demo")
+    );
     assert_eq!(
         value
             .get("rules")
@@ -195,6 +213,14 @@ count = 3
             .and_then(|rule| rule.get("count"))
             .and_then(toml::Value::as_integer),
         Some(3)
+    );
+    assert!(
+        value
+            .get("rules")
+            .and_then(|rules| rules.get("custom-rule"))
+            .and_then(|rule| rule.get("stamp"))
+            .and_then(toml::Value::as_datetime)
+            .is_some()
     );
 }
 

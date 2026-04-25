@@ -118,7 +118,7 @@ fn toml_config_parses_exact_typed_fix_variants() {
 }
 
 #[test]
-fn toml_config_fallback_still_parses_fix_policy() {
+fn toml_config_with_datetime_extra_parses_fix_policy() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
@@ -133,7 +133,7 @@ fn toml_config_fallback_still_parses_fix_policy() {
         },
         &env,
     )
-    .expect("fallback TOML config should still parse fix policy");
+    .expect("TOML config with datetime extra should still parse fix policy");
 
     assert_eq!(ctx.config.fix().fixable(), [FixRuleSelector::All]);
     assert_eq!(
@@ -143,6 +143,30 @@ fn toml_config_fallback_still_parses_fix_policy() {
             FixRule::Commas,
             FixRule::CommentsIndentation
         ]
+    );
+}
+
+#[test]
+fn fallback_toml_path_still_parses_fix_before_later_rule_error() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "stamp = 1979-05-27T07:32:00Z\n[fix]\nfixable = ['ALL']\nunfixable = ['comments']\n[rules.comments]\nrequire-starting-space = 1\n",
+    );
+
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("fallback TOML path should still reach legacy fix parsing");
+
+    assert_eq!(
+        err,
+        "invalid config: option \"require-starting-space\" of \"comments\" should be bool"
     );
 }
 
