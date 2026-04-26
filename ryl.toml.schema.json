@@ -117,7 +117,7 @@
       ],
       "type": "string"
     },
-    "RuleEntry": {
+    "RuleEntryForAnchorsOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -126,12 +126,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions"
+          "$ref": "#/$defs/RuleOptionsForAnchorsOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry10": {
+    "RuleEntryForBraceLikeOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -140,12 +140,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions10"
+          "$ref": "#/$defs/RuleOptionsForBraceLikeOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry11": {
+    "RuleEntryForColonsOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -154,12 +154,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions11"
+          "$ref": "#/$defs/RuleOptionsForColonsOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry12": {
+    "RuleEntryForCommasOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -168,12 +168,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions12"
+          "$ref": "#/$defs/RuleOptionsForCommasOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry13": {
+    "RuleEntryForCommentsOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -182,12 +182,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions13"
+          "$ref": "#/$defs/RuleOptionsForCommentsOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry14": {
+    "RuleEntryForDocumentPresenceOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -196,12 +196,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions14"
+          "$ref": "#/$defs/RuleOptionsForDocumentPresenceOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry15": {
+    "RuleEntryForEmptyLinesOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -210,12 +210,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions15"
+          "$ref": "#/$defs/RuleOptionsForEmptyLinesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry16": {
+    "RuleEntryForEmptyValuesOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -224,12 +224,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions16"
+          "$ref": "#/$defs/RuleOptionsForEmptyValuesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry17": {
+    "RuleEntryForFloatValuesOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -238,12 +238,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions17"
+          "$ref": "#/$defs/RuleOptionsForFloatValuesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry18": {
+    "RuleEntryForHyphensOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -252,12 +252,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions18"
+          "$ref": "#/$defs/RuleOptionsForHyphensOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry19": {
+    "RuleEntryForIndentationOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -266,12 +266,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions19"
+          "$ref": "#/$defs/RuleOptionsForIndentationOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry2": {
+    "RuleEntryForKeyDuplicatesOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -280,12 +280,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions2"
+          "$ref": "#/$defs/RuleOptionsForKeyDuplicatesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry3": {
+    "RuleEntryForKeyOrderingOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -294,12 +294,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions3"
+          "$ref": "#/$defs/RuleOptionsForKeyOrderingOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry4": {
+    "RuleEntryForLineLengthOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -308,12 +308,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions4"
+          "$ref": "#/$defs/RuleOptionsForLineLengthOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry5": {
+    "RuleEntryForNewLinesOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -322,12 +322,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions5"
+          "$ref": "#/$defs/RuleOptionsForNewLinesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry6": {
+    "RuleEntryForNoOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -336,12 +336,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions6"
+          "$ref": "#/$defs/RuleOptionsForNoOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry7": {
+    "RuleEntryForOctalValuesOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -350,12 +350,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions7"
+          "$ref": "#/$defs/RuleOptionsForOctalValuesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry8": {
+    "RuleEntryForQuotedStringsOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -364,12 +364,12 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions8"
+          "$ref": "#/$defs/RuleOptionsForQuotedStringsOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntry9": {
+    "RuleEntryForTruthyOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -378,7 +378,7 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptions9"
+          "$ref": "#/$defs/RuleOptionsForTruthyOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
@@ -391,7 +391,7 @@
       ],
       "type": "string"
     },
-    "RuleOptions": {
+    "RuleOptionsForAnchorsOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -446,7 +446,403 @@
       },
       "type": "object"
     },
-    "RuleOptions10": {
+    "RuleOptionsForBraceLikeOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "forbid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForbidSetting"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max-spaces-inside": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max-spaces-inside-empty": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min-spaces-inside": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min-spaces-inside-empty": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForColonsOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max-spaces-after": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max-spaces-before": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForCommasOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max-spaces-after": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max-spaces-before": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min-spaces-after": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForCommentsOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-shebangs": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "min-spaces-from-content": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "require-starting-space": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForDocumentPresenceOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "present": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForEmptyLinesOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max-end": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max-start": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForEmptyValuesOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "forbid-in-block-mappings": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-in-block-sequences": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-in-flow-mappings": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForFloatValuesOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -507,7 +903,7 @@
       },
       "type": "object"
     },
-    "RuleOptions11": {
+    "RuleOptionsForHyphensOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -551,7 +947,7 @@
       },
       "type": "object"
     },
-    "RuleOptions12": {
+    "RuleOptionsForIndentationOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -614,7 +1010,7 @@
       },
       "type": "object"
     },
-    "RuleOptions13": {
+    "RuleOptionsForKeyDuplicatesOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -657,7 +1053,7 @@
       },
       "type": "object"
     },
-    "RuleOptions14": {
+    "RuleOptionsForKeyOrderingOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -703,7 +1099,7 @@
       },
       "type": "object"
     },
-    "RuleOptions15": {
+    "RuleOptionsForLineLengthOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -759,7 +1155,7 @@
       },
       "type": "object"
     },
-    "RuleOptions16": {
+    "RuleOptionsForNewLinesOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -806,7 +1202,44 @@
       },
       "type": "object"
     },
-    "RuleOptions17": {
+    "RuleOptionsForNoOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForOctalValuesOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -855,7 +1288,7 @@
       },
       "type": "object"
     },
-    "RuleOptions18": {
+    "RuleOptionsForQuotedStringsOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -942,7 +1375,7 @@
       },
       "type": "object"
     },
-    "RuleOptions19": {
+    "RuleOptionsForTruthyOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
@@ -956,439 +1389,6 @@
           ]
         },
         "check-keys": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions2": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "forbid": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ForbidSetting"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "max-spaces-inside": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "max-spaces-inside-empty": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "min-spaces-inside": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "min-spaces-inside-empty": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions3": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "max-spaces-after": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "max-spaces-before": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions4": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "max-spaces-after": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "max-spaces-before": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "min-spaces-after": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions5": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-shebangs": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "min-spaces-from-content": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "require-starting-space": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions6": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions7": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "present": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions8": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "max": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "max-end": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "max-start": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptions9": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "forbid-in-block-mappings": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "forbid-in-block-sequences": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "forbid-in-flow-mappings": {
           "type": [
             "boolean",
             "null"
@@ -1441,7 +1441,7 @@
         "anchors": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry"
+              "$ref": "#/$defs/RuleEntryForAnchorsOptions"
             },
             {
               "type": "null"
@@ -1451,7 +1451,7 @@
         "braces": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry2"
+              "$ref": "#/$defs/RuleEntryForBraceLikeOptions"
             },
             {
               "type": "null"
@@ -1461,7 +1461,7 @@
         "brackets": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry2"
+              "$ref": "#/$defs/RuleEntryForBraceLikeOptions"
             },
             {
               "type": "null"
@@ -1471,7 +1471,7 @@
         "colons": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry3"
+              "$ref": "#/$defs/RuleEntryForColonsOptions"
             },
             {
               "type": "null"
@@ -1481,7 +1481,7 @@
         "commas": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry4"
+              "$ref": "#/$defs/RuleEntryForCommasOptions"
             },
             {
               "type": "null"
@@ -1491,7 +1491,7 @@
         "comments": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry5"
+              "$ref": "#/$defs/RuleEntryForCommentsOptions"
             },
             {
               "type": "null"
@@ -1501,7 +1501,7 @@
         "comments-indentation": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry6"
+              "$ref": "#/$defs/RuleEntryForNoOptions"
             },
             {
               "type": "null"
@@ -1511,7 +1511,7 @@
         "document-end": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry7"
+              "$ref": "#/$defs/RuleEntryForDocumentPresenceOptions"
             },
             {
               "type": "null"
@@ -1521,7 +1521,7 @@
         "document-start": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry7"
+              "$ref": "#/$defs/RuleEntryForDocumentPresenceOptions"
             },
             {
               "type": "null"
@@ -1531,7 +1531,7 @@
         "empty-lines": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry8"
+              "$ref": "#/$defs/RuleEntryForEmptyLinesOptions"
             },
             {
               "type": "null"
@@ -1541,7 +1541,7 @@
         "empty-values": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry9"
+              "$ref": "#/$defs/RuleEntryForEmptyValuesOptions"
             },
             {
               "type": "null"
@@ -1551,7 +1551,7 @@
         "float-values": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry10"
+              "$ref": "#/$defs/RuleEntryForFloatValuesOptions"
             },
             {
               "type": "null"
@@ -1561,7 +1561,7 @@
         "hyphens": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry11"
+              "$ref": "#/$defs/RuleEntryForHyphensOptions"
             },
             {
               "type": "null"
@@ -1571,7 +1571,7 @@
         "indentation": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry12"
+              "$ref": "#/$defs/RuleEntryForIndentationOptions"
             },
             {
               "type": "null"
@@ -1581,7 +1581,7 @@
         "key-duplicates": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry13"
+              "$ref": "#/$defs/RuleEntryForKeyDuplicatesOptions"
             },
             {
               "type": "null"
@@ -1591,7 +1591,7 @@
         "key-ordering": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry14"
+              "$ref": "#/$defs/RuleEntryForKeyOrderingOptions"
             },
             {
               "type": "null"
@@ -1601,7 +1601,7 @@
         "line-length": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry15"
+              "$ref": "#/$defs/RuleEntryForLineLengthOptions"
             },
             {
               "type": "null"
@@ -1611,7 +1611,7 @@
         "new-line-at-end-of-file": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry6"
+              "$ref": "#/$defs/RuleEntryForNoOptions"
             },
             {
               "type": "null"
@@ -1621,7 +1621,7 @@
         "new-lines": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry16"
+              "$ref": "#/$defs/RuleEntryForNewLinesOptions"
             },
             {
               "type": "null"
@@ -1631,7 +1631,7 @@
         "octal-values": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry17"
+              "$ref": "#/$defs/RuleEntryForOctalValuesOptions"
             },
             {
               "type": "null"
@@ -1641,7 +1641,7 @@
         "quoted-strings": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry18"
+              "$ref": "#/$defs/RuleEntryForQuotedStringsOptions"
             },
             {
               "type": "null"
@@ -1651,7 +1651,7 @@
         "trailing-spaces": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry6"
+              "$ref": "#/$defs/RuleEntryForNoOptions"
             },
             {
               "type": "null"
@@ -1661,7 +1661,7 @@
         "truthy": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntry19"
+              "$ref": "#/$defs/RuleEntryForTruthyOptions"
             },
             {
               "type": "null"

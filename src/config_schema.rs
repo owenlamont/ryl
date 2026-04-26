@@ -98,6 +98,7 @@ pub enum RuleSwitch {
 
 /// Common rule entry shape used by TOML config.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(rename = "RuleEntryFor{T}")]
 #[serde(untagged)]
 pub enum RuleEntry<T> {
     Bool(bool),
@@ -107,6 +108,7 @@ pub enum RuleEntry<T> {
 
 /// Common rule fields plus rule-specific options.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(rename = "RuleOptionsFor{T}")]
 #[serde(deny_unknown_fields)]
 pub struct RuleOptions<T> {
     pub level: Option<RuleLevel>,

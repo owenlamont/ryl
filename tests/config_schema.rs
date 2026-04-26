@@ -52,6 +52,26 @@ fn checked_in_schema(path: &str) -> Value {
         .expect("checked-in schema artifact should be valid JSON")
 }
 
+fn assert_readable_rule_wrapper_defs(schema: &Value) {
+    let defs = schema
+        .get("$defs")
+        .and_then(Value::as_object)
+        .expect("schema defs should exist");
+
+    assert!(defs.contains_key("RuleEntryForAnchorsOptions"));
+    assert!(defs.contains_key("RuleOptionsForAnchorsOptions"));
+    assert!(defs.keys().all(|key| {
+        !has_numbered_rule_wrapper_suffix(key, "RuleEntry")
+            && !has_numbered_rule_wrapper_suffix(key, "RuleOptions")
+    }));
+}
+
+fn has_numbered_rule_wrapper_suffix(key: &str, prefix: &str) -> bool {
+    key.strip_prefix(prefix).is_some_and(|suffix| {
+        !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
+    })
+}
+
 fn printed_schema(flag: &str) -> Value {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let out = Command::new(exe)
@@ -145,6 +165,11 @@ fn generated_schema_exposes_known_rule_properties() {
 }
 
 #[test]
+fn generated_schema_uses_readable_rule_wrapper_names() {
+    assert_readable_rule_wrapper_defs(&schema_value());
+}
+
+#[test]
 fn cli_print_toml_config_schema_outputs_generated_schema_without_inputs() {
     assert_eq!(printed_schema("--print-toml-config-schema"), schema_value());
 }
@@ -195,6 +220,11 @@ fn generated_yaml_schema_rejects_invalid_known_field_types() {
         !validator.is_valid(&instance),
         "YAML schema should reject invalid field types"
     );
+}
+
+#[test]
+fn generated_yaml_schema_uses_readable_rule_wrapper_names() {
+    assert_readable_rule_wrapper_defs(&yaml_schema_value());
 }
 
 #[test]
