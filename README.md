@@ -235,6 +235,9 @@ fixable = ["ALL"]
 unfixable = []
 ```
 
+For a fully expanded TOML example that names every built-in rule explicitly, see
+[`/.ryl.toml.example`](https://github.com/owenlamont/ryl/blob/main/.ryl.toml.example).
+
 Migration example:
 
 ```text

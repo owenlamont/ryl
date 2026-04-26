@@ -1,0 +1,132 @@
+yaml-files = ["*.yaml", "*.yml", ".yamllint"]
+ignore = """
+vendor/**
+generated/**
+"""
+locale = "en_US.UTF-8"
+
+[fix]
+fixable = ["ALL"]
+unfixable = ["comments"]
+
+[rules.anchors]
+level = "warning"
+forbid-undeclared-aliases = true
+forbid-duplicated-anchors = true
+forbid-unused-anchors = false
+
+[rules.braces]
+level = "warning"
+forbid = "non-empty"
+min-spaces-inside = 0
+max-spaces-inside = 1
+min-spaces-inside-empty = 0
+max-spaces-inside-empty = 0
+
+[rules.brackets]
+level = "warning"
+forbid = false
+min-spaces-inside = 0
+max-spaces-inside = 0
+min-spaces-inside-empty = 0
+max-spaces-inside-empty = 0
+
+[rules.colons]
+level = "warning"
+max-spaces-before = 0
+max-spaces-after = 1
+
+[rules.commas]
+level = "warning"
+max-spaces-before = 0
+min-spaces-after = 1
+max-spaces-after = 1
+
+[rules.comments]
+level = "warning"
+require-starting-space = true
+ignore-shebangs = true
+min-spaces-from-content = 1
+ignore = ["generated.yaml"]
+
+[rules.comments-indentation]
+level = "warning"
+
+[rules.document-end]
+level = "warning"
+present = false
+
+[rules.document-start]
+level = "warning"
+present = true
+
+[rules.empty-lines]
+level = "warning"
+max = 1
+max-start = 0
+max-end = 0
+
+[rules.empty-values]
+level = "warning"
+forbid-in-block-mappings = false
+forbid-in-flow-mappings = true
+forbid-in-block-sequences = false
+
+[rules.float-values]
+level = "warning"
+require-numeral-before-decimal = true
+forbid-scientific-notation = false
+forbid-nan = true
+forbid-inf = true
+
+[rules.hyphens]
+level = "warning"
+max-spaces-after = 1
+
+[rules.indentation]
+level = "warning"
+spaces = 2
+indent-sequences = "consistent"
+check-multi-line-strings = false
+
+[rules.key-duplicates]
+level = "warning"
+forbid-duplicated-merge-keys = true
+
+[rules.key-ordering]
+level = "warning"
+ignored-keys = ["^x-", "^X-"]
+
+[rules.line-length]
+level = "warning"
+max = 100
+allow-non-breakable-words = true
+allow-non-breakable-inline-mappings = true
+
+[rules.new-line-at-end-of-file]
+level = "warning"
+
+[rules.new-lines]
+level = "warning"
+type = "unix"
+
+[rules.octal-values]
+level = "warning"
+forbid-implicit-octal = true
+forbid-explicit-octal = true
+
+[rules.quoted-strings]
+level = "warning"
+quote-type = "double"
+required = "only-when-needed"
+extra-required = ["^cmd$"]
+allow-quoted-quotes = true
+check-keys = true
+
+[rules.trailing-spaces]
+level = "warning"
+
+[rules.truthy]
+level = "warning"
+allowed-values = ["true", "false", "yes", "no"]
+check-keys = false

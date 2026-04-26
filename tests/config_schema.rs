@@ -52,6 +52,12 @@ fn checked_in_schema(path: &str) -> Value {
         .expect("checked-in schema artifact should be valid JSON")
 }
 
+fn checked_in_text(path: &str) -> String {
+    let root = env!("CARGO_MANIFEST_DIR");
+    fs::read_to_string(format!("{root}/{path}"))
+        .expect("checked-in artifact should exist")
+}
+
 fn assert_readable_rule_wrapper_defs(schema: &Value) {
     let defs = schema
         .get("$defs")
@@ -246,6 +252,39 @@ fn checked_in_yaml_schema_matches_generated_schema() {
         checked_in_schema("ryl.yaml.schema.json"),
         yaml_schema_value()
     );
+}
+
+#[test]
+fn checked_in_toml_example_validates_against_schema() {
+    let schema = checked_in_schema("ryl.toml.schema.json");
+    let validator = validator_for(&schema).expect("checked-in schema should compile");
+    let instance = toml_to_json(&checked_in_text(".ryl.toml.example"));
+
+    assert!(
+        validator.is_valid(&instance),
+        "checked-in TOML example should validate against schema"
+    );
+}
+
+#[test]
+fn checked_in_toml_example_covers_all_builtin_rules() {
+    let schema = schema_value();
+    let rule_properties = properties_for_ref(&schema, "rules")
+        .as_object()
+        .expect("schema rule properties should be an object");
+    let instance = toml_to_json(&checked_in_text(".ryl.toml.example"));
+    let configured_rules = instance
+        .get("rules")
+        .and_then(Value::as_object)
+        .expect("example config should contain rules");
+
+    assert_eq!(configured_rules.len(), rule_properties.len());
+    for rule_name in rule_properties.keys() {
+        assert!(
+            configured_rules.contains_key(rule_name),
+            "example config should include rule {rule_name}"
+        );
+    }
 }
 
 #[test]
