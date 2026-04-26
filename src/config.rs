@@ -117,8 +117,7 @@ pub struct YamlLintConfig {
     #[allow(clippy::struct_field_names)]
     ignore_matcher: Option<Gitignore>,
     rule_names: Vec<String>,
-    rules: std::collections::BTreeMap<String, YamlOwned>,
-    rule_filters: std::collections::BTreeMap<String, RuleFilter>,
+    rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
     yaml_matcher: Option<Gitignore>,
     locale: Option<String>,
@@ -132,6 +131,56 @@ struct RuleFilter {
     patterns: Vec<String>,
     from_files: Vec<String>,
     matcher: Option<Gitignore>,
+}
+
+#[derive(Debug, Clone)]
+struct RuleConfig {
+    value: YamlOwned,
+    filter: Option<RuleFilter>,
+}
+
+impl RuleConfig {
+    fn new(value: YamlOwned) -> Self {
+        Self {
+            filter: rule_filter_from_node(&value),
+            value,
+        }
+    }
+
+    fn merge(&mut self, value: &YamlOwned) {
+        deep_merge_yaml_owned(&mut self.value, value);
+        self.filter = rule_filter_from_node(&self.value);
+    }
+
+    fn level(&self) -> Option<RuleLevel> {
+        yaml_rule_level(&self.value)
+    }
+
+    fn option(&self, option: &str) -> Option<&YamlOwned> {
+        self.value.as_mapping_get(option)
+    }
+
+    fn build_filter(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
+        let Some(filter) = &mut self.filter else {
+            return Ok(());
+        };
+        build_rule_filter(filter, envx, base_dir)
+    }
+
+    fn is_ignored(&self, path: &Path, base_dir: &Path) -> bool {
+        self.filter
+            .as_ref()
+            .and_then(|filter| filter.matcher.as_ref())
+            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
+    }
+}
+
+fn rule_filter_from_node(node: &YamlOwned) -> Option<RuleFilter> {
+    yaml_rule_filter_patterns(node).map(|(patterns, from_files)| RuleFilter {
+        patterns,
+        from_files,
+        matcher: None,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,7 +270,6 @@ impl Default for YamlLintConfig {
             ignore_matcher: None,
             rule_names: Vec::new(),
             rules: std::collections::BTreeMap::new(),
-            rule_filters: std::collections::BTreeMap::new(),
             yaml_file_patterns: DEFAULT_YAML_FILE_PATTERNS
                 .iter()
                 .map(|s| (*s).to_string())
@@ -301,7 +349,7 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn rule_level(&self, rule: &str) -> Option<RuleLevel> {
-        yaml_rule_level(self.rules.get(rule)?)
+        self.rules.get(rule)?.level()
     }
 
     #[must_use]
@@ -311,7 +359,7 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn rule_option(&self, rule: &str, option: &str) -> Option<&YamlOwned> {
-        self.rules.get(rule)?.as_mapping_get(option)
+        self.rules.get(rule)?.option(option)
     }
 
     #[must_use]
@@ -354,23 +402,6 @@ impl YamlLintConfig {
         self.yaml_matcher = builder.build().ok();
     }
 
-    fn refresh_rule_filter(&mut self, rule: &str) {
-        let node = self
-            .rules
-            .get(rule)
-            .expect("refresh_rule_filter should only be called for existing rules");
-
-        let Some((patterns, from_files)) = yaml_rule_filter_patterns(node) else {
-            self.rule_filters.remove(rule);
-            return;
-        };
-
-        let filter = self.rule_filters.entry(rule.to_owned()).or_default();
-        filter.patterns = patterns;
-        filter.from_files = from_files;
-        filter.matcher = None;
-    }
-
     /// Returns true when `path` should be ignored according to config patterns.
     /// Matching is performed on the path relative to `base_dir`.
     #[must_use]
@@ -382,13 +413,9 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
-        let Some(filter) = self.rule_filters.get(rule) else {
-            return false;
-        };
-        filter
-            .matcher
-            .as_ref()
-            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
+        self.rules
+            .get(rule)
+            .is_some_and(|config| config.is_ignored(path, base_dir))
     }
 
     #[must_use]
@@ -457,8 +484,8 @@ impl YamlLintConfig {
         self.ignore_patterns.append(&mut other.ignore_patterns);
         self.ignore_from_files.append(&mut other.ignore_from_files);
         // Merge rules deeply and accumulate names
-        for (name, val) in other.rules {
-            self.merge_rule(&name, &val);
+        for (name, rule) in other.rules {
+            self.merge_rule(&name, &rule.value);
         }
         if !other.yaml_file_patterns.is_empty() {
             self.yaml_file_patterns = other.yaml_file_patterns;
@@ -523,19 +550,19 @@ impl YamlLintConfig {
 
         self.build_yaml_matcher(base_dir);
 
-        for filter in self.rule_filters.values_mut() {
-            build_rule_filter(filter, envx, base_dir)?;
+        for rule in self.rules.values_mut() {
+            rule.build_filter(envx, base_dir)?;
         }
         Ok(())
     }
 
     fn merge_rule(&mut self, name: &str, value: &YamlOwned) {
         if let Some(dst) = self.rules.get_mut(name) {
-            deep_merge_yaml_owned(dst, value);
+            dst.merge(value);
         } else {
-            self.rules.insert(name.to_owned(), value.clone());
+            self.rules
+                .insert(name.to_owned(), RuleConfig::new(value.clone()));
         }
-        self.refresh_rule_filter(name);
         if !self.rule_names.iter().any(|entry| entry == name) {
             self.rule_names.push(name.to_owned());
         }
@@ -750,7 +777,11 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
         yaml_file_patterns: Some(config.yaml_file_patterns.clone()),
         locale: config.locale.clone(),
         fix: normalized_fix_config(&config.fix),
-        rules: config.rules.clone(),
+        rules: config
+            .rules
+            .iter()
+            .map(|(name, rule)| (name.clone(), rule.value.clone()))
+            .collect(),
     }
 }
 

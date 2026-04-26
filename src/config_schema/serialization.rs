@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use super::{
     FixTable, NormalizedConfig, NormalizedFixConfig, RulesTable, StringOrVec,
-    TomlConfig,
+    TomlConfig, YamlConfig,
 };
 
 pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
@@ -101,27 +101,43 @@ pub(crate) fn yaml_owned_to_toml_value(
 /// Panics if serializing already-validated typed TOML rules unexpectedly stops
 /// producing a TOML table.
 pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
-    let mut normalized = NormalizedConfig {
+    NormalizedConfig {
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
         yaml_file_patterns: config.yaml_files.clone(),
         locale: config.locale.clone(),
         fix: config.fix.as_ref().map(normalize_fix_table),
-        ..NormalizedConfig::default()
-    };
-
-    if let Some(rules) = config.rules.as_ref() {
-        let rules = rules_table_to_value(rules);
-        normalized.rules = rules
-            .as_table()
-            .expect("serializing typed TOML rules should yield a table")
-            .clone()
-            .into_iter()
-            .map(|(name, value)| (name, toml_value_to_yaml_owned(&value)))
-            .collect();
+        rules: config
+            .rules
+            .as_ref()
+            .map_or_else(std::collections::BTreeMap::new, normalized_rules_from_table),
     }
+}
 
-    normalized
+pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
+    NormalizedConfig {
+        ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
+        ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
+        yaml_file_patterns: config.yaml_files.as_ref().map(string_or_vec_items),
+        locale: config.locale.clone(),
+        fix: None,
+        rules: config
+            .rules
+            .as_ref()
+            .map_or_else(std::collections::BTreeMap::new, normalized_rules_from_table),
+    }
+}
+
+fn normalized_rules_from_table(
+    rules: &RulesTable,
+) -> std::collections::BTreeMap<String, YamlOwned> {
+    rules_table_to_value(rules)
+        .as_table()
+        .expect("serializing typed rules should yield a table")
+        .clone()
+        .into_iter()
+        .map(|(name, value)| (name, toml_value_to_yaml_owned(&value)))
+        .collect()
 }
 
 fn insert_serialized<T: Serialize>(

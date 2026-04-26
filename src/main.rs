@@ -17,7 +17,7 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
-use ryl::config_schema::schema_string_pretty;
+use ryl::config_schema::{schema_string_pretty, yaml_schema_string_pretty};
 use ryl::fix::apply_safe_fixes_to_files;
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
@@ -158,8 +158,12 @@ struct Cli {
     format: CliFormat,
 
     /// Print the JSON Schema for ryl TOML config and exit
-    #[arg(long = "print-config-schema", default_value_t = false)]
-    print_config_schema: bool,
+    #[arg(long = "print-toml-config-schema", default_value_t = false)]
+    print_toml_config_schema: bool,
+
+    /// Print the JSON Schema for ryl YAML config and exit
+    #[arg(long = "print-yaml-config-schema", default_value_t = false)]
+    print_yaml_config_schema: bool,
 
     /// Convert discovered legacy YAML config files into .ryl.toml files
     #[arg(long = "migrate-configs", default_value_t = false)]
@@ -302,8 +306,13 @@ fn main() -> ExitCode {
 }
 
 fn run_cli(cli: Cli) -> Result<ExitCode, String> {
-    if cli.print_config_schema {
+    if cli.print_toml_config_schema {
         println!("{}", schema_string_pretty());
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if cli.print_yaml_config_schema {
+        println!("{}", yaml_schema_string_pretty());
         return Ok(ExitCode::SUCCESS);
     }
 

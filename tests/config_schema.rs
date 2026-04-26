@@ -1,9 +1,10 @@
-use std::process::Command;
+use std::{fs, process::Command};
 
 use jsonschema::validator_for;
 use ryl::config_schema::{
     NormalizedConfig, normalize_toml_config, normalized_config_to_toml_value,
     parse_toml_config_str, schema_value, toml_config_to_value, validate_toml_config,
+    yaml_schema_value,
 };
 use serde_json::{Value, json};
 
@@ -41,6 +42,38 @@ fn properties_for_ref<'a>(schema: &'a Value, property: &str) -> &'a Value {
         .and_then(|defs| defs.get(definition))
         .and_then(|entry| entry.get("properties"))
         .expect("schema definition properties should exist")
+}
+
+fn checked_in_schema(path: &str) -> Value {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let data = fs::read_to_string(format!("{root}/{path}"))
+        .expect("checked-in schema artifact should exist");
+    serde_json::from_str(&data)
+        .expect("checked-in schema artifact should be valid JSON")
+}
+
+fn printed_schema(flag: &str) -> Value {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let out = Command::new(exe)
+        .arg(flag)
+        .output()
+        .expect("schema command should run");
+
+    assert!(
+        out.status.success(),
+        "schema command should succeed: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stderr.is_empty());
+
+    let stdout =
+        String::from_utf8(out.stdout).expect("schema output should be valid UTF-8");
+    serde_json::from_str(&stdout).expect("schema output should be JSON")
+}
+
+fn assert_schema_document(schema: &Value, title: &str) {
+    assert_eq!(schema.get("title"), Some(&json!(title)));
+    assert!(schema.get("$schema").is_some());
 }
 
 #[test]
@@ -117,34 +150,87 @@ fn generated_schema_exposes_known_rule_properties() {
 }
 
 #[test]
-fn cli_print_config_schema_outputs_generated_schema_without_inputs() {
-    let exe = env!("CARGO_BIN_EXE_ryl");
-    let out = Command::new(exe)
-        .arg("--print-config-schema")
-        .output()
-        .expect("schema command should run");
+fn cli_print_toml_config_schema_outputs_generated_schema_without_inputs() {
+    assert_eq!(printed_schema("--print-toml-config-schema"), schema_value());
+}
+
+#[test]
+fn generated_yaml_schema_accepts_valid_sample_config() {
+    let schema = yaml_schema_value();
+    let validator = validator_for(&schema).expect("generated schema should compile");
+    let instance = json!({
+        "extends": ["default", "relaxed"],
+        "yaml-files": "*.yaml",
+        "ignore": "vendor/**\ngenerated/**",
+        "locale": "en_US.UTF-8",
+        "rules": {
+            "document-start": "disable",
+            "comments": {
+                "level": "warning",
+                "require-starting-space": true,
+                "ignore": ["generated.yaml"]
+            },
+            "quoted-strings": {
+                "required": "only-when-needed",
+                "extra-required": ["^cmd$"]
+            }
+        }
+    });
 
     assert!(
-        out.status.success(),
-        "schema command should succeed: stderr={}",
-        String::from_utf8_lossy(&out.stderr)
+        validator.is_valid(&instance),
+        "YAML schema should accept sample config"
     );
+}
 
-    let stdout =
-        String::from_utf8(out.stdout).expect("schema output should be valid UTF-8");
-    let printed: serde_json::Value =
-        serde_json::from_str(&stdout).expect("schema output should be JSON");
+#[test]
+fn generated_yaml_schema_rejects_invalid_known_field_types() {
+    let schema = yaml_schema_value();
+    let validator = validator_for(&schema).expect("generated schema should compile");
+    let instance = json!({
+        "yaml-files": 5,
+        "rules": {
+            "comments": {
+                "require-starting-space": "yes"
+            }
+        }
+    });
 
-    assert_eq!(printed, schema_value());
-    assert!(out.stderr.is_empty());
+    assert!(
+        !validator.is_valid(&instance),
+        "YAML schema should reject invalid field types"
+    );
+}
+
+#[test]
+fn cli_print_yaml_config_schema_outputs_generated_schema_without_inputs() {
+    assert_eq!(
+        printed_schema("--print-yaml-config-schema"),
+        yaml_schema_value()
+    );
 }
 
 #[test]
 fn generated_schema_serializes_as_json_schema_document() {
-    let schema = schema_value();
+    assert_schema_document(&schema_value(), "ryl TOML config");
+}
 
-    assert_eq!(schema.get("title"), Some(&json!("ryl TOML config")));
-    assert!(schema.get("$schema").is_some());
+#[test]
+fn generated_yaml_schema_serializes_as_json_schema_document() {
+    assert_schema_document(&yaml_schema_value(), "ryl YAML config");
+}
+
+#[test]
+fn checked_in_toml_schema_matches_generated_schema() {
+    assert_eq!(checked_in_schema("ryl.toml.schema.json"), schema_value());
+}
+
+#[test]
+fn checked_in_yaml_schema_matches_generated_schema() {
+    assert_eq!(
+        checked_in_schema("ryl.yaml.schema.json"),
+        yaml_schema_value()
+    );
 }
 
 #[test]

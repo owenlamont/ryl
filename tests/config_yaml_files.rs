@@ -42,6 +42,21 @@ fn yaml_files_invalid_pattern_is_skipped() {
 }
 
 #[test]
+fn yaml_files_scalar_string_is_supported() {
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some("yaml-files: '*.yaml'\n".into()),
+        },
+    )
+    .expect("scalar yaml-files should parse");
+    let base = ctx.base_dir.clone();
+    assert!(ctx.config.is_yaml_candidate(&base.join("file.yaml"), &base));
+    assert!(!ctx.config.is_yaml_candidate(&base.join("file.yml"), &base));
+}
+
+#[test]
 fn yaml_files_negation_excludes_matches() {
     let ctx = discover_config(
         &[],

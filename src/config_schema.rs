@@ -36,6 +36,29 @@ pub struct TomlConfig {
     extra: BTreeMap<String, toml::Value>,
 }
 
+/// JSON Schema root for `ryl` YAML configuration.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(title = "ryl YAML config")]
+pub struct YamlConfig {
+    /// Preset or config files to extend, either as one string or a list.
+    pub extends: Option<StringOrVec>,
+    /// Glob patterns used to identify YAML files while scanning directories.
+    #[serde(rename = "yaml-files")]
+    pub yaml_files: Option<StringOrVec>,
+    /// Ignore patterns, either as one multi-line string or a list of patterns.
+    pub ignore: Option<StringOrVec>,
+    /// Paths to files that contain ignore patterns.
+    #[serde(rename = "ignore-from-file")]
+    pub ignore_from_file: Option<StringOrVec>,
+    /// Locale identifier used by diagnostics.
+    pub locale: Option<String>,
+    /// Rule configuration table.
+    pub rules: Option<RulesTable>,
+    #[serde(flatten, default)]
+    #[schemars(skip)]
+    extra: BTreeMap<String, toml::Value>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 struct PyProjectToml {
     #[serde(default)]
@@ -489,6 +512,11 @@ pub fn schema() -> Schema {
     schema_for!(TomlConfig)
 }
 
+#[must_use]
+pub fn yaml_schema() -> Schema {
+    schema_for!(YamlConfig)
+}
+
 /// Deserialize TOML configuration text into the typed schema model.
 ///
 /// When `pyproject` is true, this extracts `[tool.ryl]` and returns `Ok(None)`
@@ -524,14 +552,39 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         );
     }
 
-    if config.ignore.is_some() && config.ignore_from_file.is_some() {
+    validate_common_config(
+        config.ignore.as_ref(),
+        config.ignore_from_file.as_ref(),
+        config.rules.as_ref(),
+    )
+}
+
+/// Validate semantic constraints for a typed YAML config model.
+///
+/// # Errors
+/// Returns an error if the typed YAML config violates semantic rules that are
+/// not fully captured by deserialization alone.
+pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
+    validate_common_config(
+        config.ignore.as_ref(),
+        config.ignore_from_file.as_ref(),
+        config.rules.as_ref(),
+    )
+}
+
+fn validate_common_config(
+    ignore: Option<&StringOrVec>,
+    ignore_from_file: Option<&StringOrVec>,
+    rules: Option<&RulesTable>,
+) -> Result<(), String> {
+    if ignore.is_some() && ignore_from_file.is_some() {
         return Err(
             "invalid config: ignore and ignore-from-file keys cannot be used together"
                 .to_string(),
         );
     }
 
-    if let Some(rules) = &config.rules {
+    if let Some(rules) = rules {
         rules.validate()?;
     }
 
@@ -561,17 +614,12 @@ pub(crate) struct ParsedYamlConfig {
 }
 
 #[must_use]
-pub(crate) fn load_ignore_patterns(node: &YamlOwned) -> Vec<String> {
+fn load_ignore_patterns(node: &YamlOwned) -> Vec<String> {
     parse_string_items(node, patterns_from_scalar)
 }
 
 #[must_use]
-pub(crate) fn load_ignore_from_files(node: &YamlOwned) -> Vec<String> {
-    parse_string_items(node, |value| vec![value.to_owned()])
-}
-
-#[must_use]
-pub(crate) fn load_yaml_file_patterns(node: &YamlOwned) -> Vec<String> {
+fn load_ignore_from_files(node: &YamlOwned) -> Vec<String> {
     parse_string_items(node, |value| vec![value.to_owned()])
 }
 
@@ -601,7 +649,7 @@ fn patterns_from_scalar(value: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn parse_string_items(
+fn parse_string_items(
     node: &YamlOwned,
     map: impl Fn(&str) -> Vec<String>,
 ) -> Vec<String> {
@@ -634,7 +682,7 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     }
 
     let typed = parse_typed_yaml_config(doc)?;
-    validate_toml_config(&typed)?;
+    validate_yaml_config(&typed)?;
 
     Ok(ParsedYamlConfig {
         extends: doc
@@ -645,7 +693,7 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     })
 }
 
-fn parse_typed_yaml_config(doc: &YamlOwned) -> Result<TomlConfig, String> {
+fn parse_typed_yaml_config(doc: &YamlOwned) -> Result<YamlConfig, String> {
     let mut map = MappingOwned::new();
     for (key, value) in doc.as_mapping().expect(
         "parse_yaml_config should only call parse_typed_yaml_config for mappings",
@@ -658,28 +706,16 @@ fn parse_typed_yaml_config(doc: &YamlOwned) -> Result<TomlConfig, String> {
     let value = yaml_owned_to_toml_value(&YamlOwned::Mapping(map))
         .map_err(|err| format!("failed to parse config data: {err}"))?;
     value
-        .try_into::<TomlConfig>()
+        .try_into::<YamlConfig>()
         .map_err(|err| format!("failed to parse config data: {err}"))
 }
 
 fn normalize_typed_yaml_config(
     doc: &YamlOwned,
-    config: &TomlConfig,
+    config: &YamlConfig,
 ) -> NormalizedConfig {
-    let mut normalized = normalize_toml_config(config);
+    let mut normalized = serialization::normalize_yaml_config(config);
     normalized.ignore_patterns = doc.as_mapping_get("ignore").map(load_ignore_patterns);
-    normalized.ignore_from_files = doc
-        .as_mapping_get("ignore-from-file")
-        .map(load_ignore_from_files);
-    normalized.yaml_file_patterns = doc
-        .as_mapping_get("yaml-files")
-        .map(load_yaml_file_patterns);
-    normalized.locale = doc.as_mapping_get("locale").map(|locale| {
-        locale
-            .as_str()
-            .map(std::string::ToString::to_string)
-            .expect("typed YAML config should have validated locale")
-    });
     normalized
 }
 
@@ -742,6 +778,16 @@ pub fn schema_value() -> Value {
     serde_json::to_value(schema()).expect("serializing generated schema should succeed")
 }
 
+#[must_use]
+/// Serialize the generated YAML schema to a JSON value.
+///
+/// # Panics
+/// Panics if serializing the generated schema unexpectedly fails.
+pub fn yaml_schema_value() -> Value {
+    serde_json::to_value(yaml_schema())
+        .expect("serializing generated schema should succeed")
+}
+
 /// Serialize the generated schema to a pretty-printed JSON string.
 ///
 /// # Panics
@@ -749,5 +795,15 @@ pub fn schema_value() -> Value {
 #[must_use]
 pub fn schema_string_pretty() -> String {
     serde_json::to_string_pretty(&schema())
+        .expect("serializing generated schema should succeed")
+}
+
+#[must_use]
+/// Serialize the generated YAML schema to a pretty-printed JSON string.
+///
+/// # Panics
+/// Panics if serializing the generated schema unexpectedly fails.
+pub fn yaml_schema_string_pretty() -> String {
+    serde_json::to_string_pretty(&yaml_schema())
         .expect("serializing generated schema should succeed")
 }
