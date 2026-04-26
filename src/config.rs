@@ -426,14 +426,14 @@ impl YamlLintConfig {
         };
         validate_toml_config(&typed)?;
         let _ = (envx, base_dir);
-        Ok(Some(Self::from_typed_toml_config_with_env(&typed)?))
+        Ok(Some(Self::from_typed_toml_config_with_env(&typed)))
     }
 
-    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Result<Self, String> {
+    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
         let normalized = normalize_toml_config(config);
         let mut cfg = Self::default();
-        cfg.apply_normalized_config(normalized)?;
-        Ok(cfg)
+        cfg.apply_normalized_config(normalized);
+        cfg
     }
 
     fn from_doc_with_env(
@@ -447,7 +447,7 @@ impl YamlLintConfig {
         for entry in &parsed.extends {
             cfg.extend_from_entry(entry, envx, base_path)?;
         }
-        cfg.apply_normalized_config(parsed.normalized)?;
+        cfg.apply_normalized_config(parsed.normalized);
 
         Ok(cfg)
     }
@@ -468,12 +468,7 @@ impl YamlLintConfig {
         }
     }
 
-    fn apply_normalized_config(
-        &mut self,
-        normalized: NormalizedConfig,
-    ) -> Result<(), String> {
-        validate_rule_filters(&normalized.rules)?;
-
+    fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
         if let Some(ignore) = normalized.ignore_patterns {
             self.ignore_patterns.clear();
             self.ignore_from_files.clear();
@@ -501,7 +496,6 @@ impl YamlLintConfig {
         for (name, value) in &normalized.rules {
             self.merge_rule(name, value);
         }
-        Ok(())
     }
 
     /// Render the effective configuration as TOML.
@@ -559,49 +553,6 @@ fn build_rule_filter(
         filter.patterns.extend(extra_patterns);
     }
     filter.matcher = matcher;
-    Ok(())
-}
-
-fn validate_rule_filters(
-    rules: &std::collections::BTreeMap<String, YamlOwned>,
-) -> Result<(), String> {
-    for (rule_name, node) in rules {
-        let Some(map) = node.as_mapping() else {
-            continue;
-        };
-
-        if let Some(value) = map
-            .iter()
-            .find_map(|(key, value)| (key.as_str() == Some("ignore")).then_some(value))
-        {
-            crate::config_schema::parse_string_items(
-                value,
-                &format!(
-                    "invalid config: option \"ignore\" of \"{rule_name}\" should contain file patterns"
-                ),
-                |text| {
-                    text.lines()
-                        .map(|line| line.trim_end_matches(['\r']))
-                        .filter(|line| !line.trim().is_empty())
-                        .map(std::string::ToString::to_string)
-                        .collect()
-                },
-            )?;
-        }
-
-        if let Some(value) = map.iter().find_map(|(key, value)| {
-            (key.as_str() == Some("ignore-from-file")).then_some(value)
-        }) {
-            crate::config_schema::parse_string_items(
-                value,
-                &format!(
-                    "invalid config: option \"ignore-from-file\" of \"{rule_name}\" should contain filename(s), either as a list or string"
-                ),
-                |text| vec![text.to_owned()],
-            )?;
-        }
-    }
-
     Ok(())
 }
 

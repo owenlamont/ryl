@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use ryl::config::{Overrides, discover_config, discover_config_with};
 use tempfile::tempdir;
@@ -123,6 +126,45 @@ fn custom_toml_rule_ignore_scalar_type_errors() {
         ),
         "{err}"
     );
+}
+
+#[test]
+fn custom_rule_ignore_string_is_allowed() {
+    let yaml = "rules:\n  custom-rule:\n    ignore: docs/**\n";
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(yaml.into()),
+        },
+    )
+    .expect("custom rule ignore string should parse");
+    assert!(ctx.config.is_rule_ignored(
+        "custom-rule",
+        Path::new("docs/file.yaml"),
+        Path::new("."),
+    ));
+}
+
+#[test]
+fn custom_toml_rule_ignore_array_is_allowed() {
+    let td = tempdir().unwrap();
+    let path = td.path().join(".ryl.toml");
+    fs::write(path.clone(), "[rules.custom-rule]\nignore = ['docs/**']\n").unwrap();
+
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(path),
+            config_data: None,
+        },
+    )
+    .expect("custom TOML rule ignore array should parse");
+    assert!(ctx.config.is_rule_ignored(
+        "custom-rule",
+        td.path().join("docs/file.yaml").as_path(),
+        td.path(),
+    ));
 }
 
 #[test]

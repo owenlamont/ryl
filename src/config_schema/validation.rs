@@ -1,4 +1,5 @@
 use regex::Regex;
+use toml::Value;
 
 use super::{
     KeyOrderingOptions, QuotedStringsOptions, QuotedStringsRequired,
@@ -9,8 +10,39 @@ impl RulesTable {
     pub(super) fn validate(&self) -> Result<(), String> {
         validate_key_ordering_rule(self.key_ordering.as_ref())?;
         validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
+        validate_extra_rule_filters(&self.extra)?;
         Ok(())
     }
+}
+
+fn validate_extra_rule_filters(
+    rules: &std::collections::BTreeMap<String, Value>,
+) -> Result<(), String> {
+    for (rule_name, value) in rules {
+        let Value::Table(table) = value else {
+            continue;
+        };
+
+        if let Some(ignore) = table.get("ignore") {
+            validate_string_or_array_of_strings(
+                ignore,
+                &format!(
+                    "invalid config: option \"ignore\" of \"{rule_name}\" should contain file patterns"
+                ),
+            )?;
+        }
+
+        if let Some(ignore_from_file) = table.get("ignore-from-file") {
+            validate_string_or_array_of_strings(
+                ignore_from_file,
+                &format!(
+                    "invalid config: option \"ignore-from-file\" of \"{rule_name}\" should contain filename(s), either as a list or string"
+                ),
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_key_ordering_rule(
@@ -139,4 +171,19 @@ fn validate_regex_list(
     }
 
     Ok(())
+}
+
+fn validate_string_or_array_of_strings(
+    value: &Value,
+    error: &str,
+) -> Result<(), String> {
+    match value {
+        Value::String(_) => Ok(()),
+        Value::Array(items)
+            if items.iter().all(|item| matches!(item, Value::String(_))) =>
+        {
+            Ok(())
+        }
+        _ => Err(error.to_string()),
+    }
 }

@@ -560,28 +560,19 @@ pub(crate) struct ParsedYamlConfig {
     pub normalized: NormalizedConfig,
 }
 
-pub(crate) fn load_ignore_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
-    parse_string_items(
-        node,
-        "invalid config: ignore should contain file patterns",
-        patterns_from_scalar,
-    )
+#[must_use]
+pub(crate) fn load_ignore_patterns(node: &YamlOwned) -> Vec<String> {
+    parse_string_items(node, patterns_from_scalar)
 }
 
-pub(crate) fn load_ignore_from_files(node: &YamlOwned) -> Result<Vec<String>, String> {
-    parse_string_items(
-        node,
-        "invalid config: ignore-from-file should contain filename(s), either as a list or string",
-        |value| vec![value.to_owned()],
-    )
+#[must_use]
+pub(crate) fn load_ignore_from_files(node: &YamlOwned) -> Vec<String> {
+    parse_string_items(node, |value| vec![value.to_owned()])
 }
 
-pub(crate) fn load_yaml_file_patterns(node: &YamlOwned) -> Result<Vec<String>, String> {
-    parse_string_items(
-        node,
-        "invalid config: yaml-files should be a list of file patterns",
-        |value| vec![value.to_owned()],
-    )
+#[must_use]
+pub(crate) fn load_yaml_file_patterns(node: &YamlOwned) -> Vec<String> {
+    parse_string_items(node, |value| vec![value.to_owned()])
 }
 
 #[must_use]
@@ -612,23 +603,23 @@ fn patterns_from_scalar(value: &str) -> Vec<String> {
 
 pub(crate) fn parse_string_items(
     node: &YamlOwned,
-    error: &str,
     map: impl Fn(&str) -> Vec<String>,
-) -> Result<Vec<String>, String> {
+) -> Vec<String> {
     if let Some(seq) = node.as_sequence() {
         let mut values = Vec::with_capacity(seq.len());
         for item in seq {
-            let Some(text) = item.as_str() else {
-                return Err(error.to_string());
-            };
+            let text = item
+                .as_str()
+                .expect("typed config validation should guarantee string items");
             values.extend(map(text));
         }
-        Ok(values)
-    } else if let Some(text) = node.as_str() {
-        Ok(map(text))
-    } else {
-        Err(error.to_string())
+        return values;
     }
+
+    let text = node
+        .as_str()
+        .expect("typed config validation should guarantee string or sequence values");
+    map(text)
 }
 
 pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, String> {
@@ -676,21 +667,13 @@ fn normalize_typed_yaml_config(
     config: &TomlConfig,
 ) -> NormalizedConfig {
     let mut normalized = normalize_toml_config(config);
-    normalized.ignore_patterns = doc
-        .as_mapping_get("ignore")
-        .map(load_ignore_patterns)
-        .transpose()
-        .expect("typed YAML config should have validated ignore patterns");
+    normalized.ignore_patterns = doc.as_mapping_get("ignore").map(load_ignore_patterns);
     normalized.ignore_from_files = doc
         .as_mapping_get("ignore-from-file")
-        .map(load_ignore_from_files)
-        .transpose()
-        .expect("typed YAML config should have validated ignore-from-file");
+        .map(load_ignore_from_files);
     normalized.yaml_file_patterns = doc
         .as_mapping_get("yaml-files")
-        .map(load_yaml_file_patterns)
-        .transpose()
-        .expect("typed YAML config should have validated yaml-files");
+        .map(load_yaml_file_patterns);
     normalized.locale = doc.as_mapping_get("locale").map(|locale| {
         locale
             .as_str()
@@ -738,20 +721,14 @@ pub(crate) fn yaml_rule_filter_patterns(
     let ignore = map
         .iter()
         .find_map(|(key, value)| (key.as_str() == Some("ignore")).then_some(value))
-        .map(|value| {
-            load_ignore_patterns(value)
-                .expect("ignore patterns validated during parsing")
-        })
+        .map(load_ignore_patterns)
         .unwrap_or_default();
     let ignore_from_files = map
         .iter()
         .find_map(|(key, value)| {
             (key.as_str() == Some("ignore-from-file")).then_some(value)
         })
-        .map(|value| {
-            load_ignore_from_files(value)
-                .expect("ignore-from-file entries validated during parsing")
-        })
+        .map(load_ignore_from_files)
         .unwrap_or_default();
     Some((ignore, ignore_from_files))
 }
