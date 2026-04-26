@@ -86,6 +86,67 @@ fn toml_config_parses_new_safe_fix_rules() {
 }
 
 #[test]
+fn toml_config_parses_exact_typed_fix_variants() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "[fix]\nfixable = ['new-line-at-end-of-file']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should parse typed fix variants");
+
+    assert_eq!(
+        ctx.config.fix().fixable(),
+        [FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile)]
+    );
+    assert_eq!(
+        ctx.config.fix().unfixable(),
+        [
+            FixRule::Brackets,
+            FixRule::Commas,
+            FixRule::CommentsIndentation
+        ]
+    );
+}
+
+#[test]
+fn toml_config_with_datetime_extra_parses_fix_policy() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "stamp = 1979-05-27T07:32:00Z\n[fix]\nfixable = ['ALL']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("TOML config with datetime extra should still parse fix policy");
+
+    assert_eq!(ctx.config.fix().fixable(), [FixRuleSelector::All]);
+    assert_eq!(
+        ctx.config.fix().unfixable(),
+        [
+            FixRule::Brackets,
+            FixRule::Commas,
+            FixRule::CommentsIndentation
+        ]
+    );
+}
+
+#[test]
 fn default_fix_policy_allows_all_rules() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join("input.yaml");
@@ -118,7 +179,7 @@ fn toml_config_rejects_non_mapping_fix_table() {
     )
     .expect_err("fix should require a table");
 
-    assert_eq!(err, "invalid config: fix should be a mapping");
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -137,10 +198,7 @@ fn toml_config_rejects_unknown_fix_option() {
     )
     .expect_err("unknown fix option should fail");
 
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"unknown\" for table \"fix\""
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -159,10 +217,7 @@ fn toml_config_rejects_non_list_fixable() {
     )
     .expect_err("fixable should require a list");
 
-    assert_eq!(
-        err,
-        "invalid config: option \"fixable\" of \"fix\" should be a list of strings"
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -181,10 +236,7 @@ fn toml_config_rejects_non_string_fix_rule_entries() {
     )
     .expect_err("fix rule entries should require strings");
 
-    assert_eq!(
-        err,
-        "invalid config: option \"unfixable\" of \"fix\" should be a list of strings"
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -203,10 +255,7 @@ fn toml_config_rejects_unknown_fixable_rule_name() {
     )
     .expect_err("unknown fixable rule should fail");
 
-    assert_eq!(
-        err,
-        "invalid config: option \"fixable\" of \"fix\" contains unknown fix rule \"indentation\""
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -225,10 +274,7 @@ fn toml_config_rejects_all_in_unfixable() {
     )
     .expect_err("ALL should not be valid in unfixable");
 
-    assert_eq!(
-        err,
-        "invalid config: option \"unfixable\" of \"fix\" contains unknown fix rule \"ALL\""
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -247,10 +293,7 @@ fn toml_config_rejects_non_list_unfixable() {
     )
     .expect_err("unfixable should require a list");
 
-    assert_eq!(
-        err,
-        "invalid config: option \"unfixable\" of \"fix\" should be a list of strings"
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]
@@ -269,10 +312,7 @@ fn toml_config_rejects_non_string_fixable_entries() {
     )
     .expect_err("fixable entries should require strings");
 
-    assert_eq!(
-        err,
-        "invalid config: option \"fixable\" of \"fix\" should be a list of strings"
-    );
+    assert!(err.contains("failed to parse config data"));
 }
 
 #[test]

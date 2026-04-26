@@ -15,5 +15,6 @@ rules: {}
         },
     )
     .unwrap_err();
-    assert!(err.contains("invalid config"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("ignore"), "{err}");
 }

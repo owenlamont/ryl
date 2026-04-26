@@ -1,4 +1,7 @@
+use std::fs;
+
 use ryl::config::{Overrides, RuleLevel, YamlLintConfig, discover_config};
+use tempfile::tempdir;
 
 #[test]
 fn rule_level_returns_none_for_disable() {
@@ -100,10 +103,8 @@ rules:
     level: [1]
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(
-        err.contains("level should be \"error\" or \"warning\""),
-        "unexpected error message: {err}"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 
 #[test]
@@ -114,10 +115,8 @@ rules:
     level: invalid
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(
-        err.contains("level should be \"error\" or \"warning\""),
-        "unexpected error message: {err}"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 
 #[test]
@@ -127,10 +126,8 @@ rules:
   new-line-at-end-of-file: 42
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(
-        err.contains("should be 'enable', 'disable', or a mapping"),
-        "unexpected error message: {err}"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 
 #[test]
@@ -140,8 +137,45 @@ rules:
   new-line-at-end-of-file: other
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(
-        err.contains("should be 'enable', 'disable', or a mapping"),
-        "unexpected error message: {err}"
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
+}
+
+#[test]
+fn custom_toml_rule_level_defaults_to_error_for_unknown_string_value() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join(".ryl.toml");
+    fs::write(&cfg, "[rules]\ncustom-rule = 'other'\n").unwrap();
+
+    let context = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+    )
+    .expect("config");
+
+    assert_eq!(
+        context.config.rule_level("custom-rule"),
+        Some(RuleLevel::Error)
     );
+}
+
+#[test]
+fn custom_yaml_rule_with_non_string_mapping_keys_is_rejected() {
+    let cfg = r#"
+rules:
+  custom-rule:
+    1: value
+"#;
+    let err = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(cfg.into()),
+        },
+    )
+    .expect_err("non-string keys should fail typed YAML parsing");
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }

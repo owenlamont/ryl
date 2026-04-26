@@ -77,7 +77,8 @@ fn locale_non_string_errors() {
         },
     )
     .expect_err("non-string locale should error");
-    assert!(err.contains("locale should be a string"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("locale"), "{err}");
 }
 
 #[test]

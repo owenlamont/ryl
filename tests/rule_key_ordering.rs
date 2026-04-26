@@ -138,21 +138,13 @@ fn locale_still_enforces_order_within_single_mapping() {
 }
 
 #[test]
-fn ignored_keys_accepts_scalar_configuration() {
-    let raw = YamlLintConfig::from_yaml_str(
+fn ignored_keys_rejects_scalar_configuration() {
+    let err = YamlLintConfig::from_yaml_str(
         "rules:\n  key-ordering:\n    ignored-keys: \"name\"\n",
     )
-    .expect("config parses");
-    let option = raw
-        .rule_option(key_ordering::ID, "ignored-keys")
-        .expect("option present");
-    assert!(option.as_str().is_some(), "ignored-keys should be scalar");
-    let cfg = key_ordering::Config::resolve(&raw);
-    let hits = key_ordering::check("name: 1\nalpha: 2\n", &cfg);
-    assert!(
-        hits.is_empty(),
-        "scalar ignored key should be skipped: {hits:?}"
-    );
+    .expect_err("config should fail");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.key-ordering"), "{err}");
 }
 
 #[test]

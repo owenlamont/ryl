@@ -11,5 +11,6 @@ fn yaml_files_sequence_all_non_strings_error() {
         },
     )
     .unwrap_err();
-    assert!(err.contains("invalid config"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("yaml-files"), "{err}");
 }

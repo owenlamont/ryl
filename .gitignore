@@ -42,3 +42,6 @@ manual_outputs/benchmarks/
 
 # Local planning / scratch notes
 /scratch/
+
+# Local Python lockfile
+/uv.lock

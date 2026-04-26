@@ -192,7 +192,7 @@ fn build_migration_entries(root: &Path) -> Result<MigrationPlan, String> {
                 config_data: None,
             },
         )?;
-        let rendered = ctx.config.to_toml_string()?;
+        let rendered = ctx.config.to_toml_string();
         let toml = format!("{}\n", rendered.trim_end());
         plan.entries.push(MigrationEntry {
             source: primary,

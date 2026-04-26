@@ -27,10 +27,8 @@ fn invalid_present_value_is_rejected() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  document-start:\n    present: 1\n")
             .expect_err("invalid bool should fail");
-    assert_eq!(
-        err,
-        "invalid config: option \"present\" of \"document-start\" should be bool"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.document-start"), "{err}");
 }
 
 #[test]
@@ -38,18 +36,13 @@ fn unknown_option_is_rejected() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  document-start:\n    extra: true\n")
             .expect_err("unknown option should fail");
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"extra\" for rule \"document-start\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.document-start"), "{err}");
 }
 
 #[test]
 fn non_string_option_key_is_rejected() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  document-start:\n    1: true\n")
         .expect_err("non string key should fail");
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"1\" for rule \"document-start\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }

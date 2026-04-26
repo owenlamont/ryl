@@ -17,10 +17,13 @@ path = "src/main.rs"
 clap = { version = "4.6.0", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
 ignore = "0.4.25"
 rayon = "1.11.0"
+schemars = { version = "1.2.1", features = ["derive"] }
 saphyr-parser = "0.0.6"
 saphyr = "0.0.6"
 dirs-next = "2.0.0"
 regex = "1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
 # Keep preserve_order off to avoid pulling in indexmap/hashbrown 0.16 until
@@ -28,5 +31,6 @@ encoding_rs = "0.8"
 toml = { version = "1.1.2", default-features = false, features = ["display", "parse", "serde"] }
 
 [dev-dependencies]
+jsonschema = "0.46.2"
 semver = "1"
 tempfile = "3"
