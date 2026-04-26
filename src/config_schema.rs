@@ -640,7 +640,7 @@ pub(crate) fn load_extends_entries(node: &YamlOwned) -> Vec<String> {
     }
 }
 
-fn patterns_from_scalar(value: &str) -> Vec<String> {
+pub(super) fn patterns_from_scalar(value: &str) -> Vec<String> {
     value
         .lines()
         .map(|line| line.trim_end_matches(['\r']))

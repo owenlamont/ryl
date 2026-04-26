@@ -329,6 +329,38 @@ fn exact_typed_toml_supports_single_string_ignore_from_file() {
 }
 
 #[test]
+fn exact_typed_toml_splits_multiline_scalar_ignore_patterns() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    std::fs::write(
+        root.join(".ryl.toml"),
+        "ignore = \"\"\"\nvendor/**\ngenerated/**\n\"\"\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
+
+    let ctx = discover_per_file(&root.join("file.yaml"))
+        .expect("typed TOML multiline ignore should load");
+
+    assert_eq!(
+        ctx.config
+            .ignore_patterns()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec!["vendor/**", "generated/**"]
+    );
+    assert!(
+        ctx.config
+            .is_file_ignored(&root.join("vendor/data.yaml"), root)
+    );
+    assert!(
+        ctx.config
+            .is_file_ignored(&root.join("generated/data.yaml"), root)
+    );
+}
+
+#[test]
 fn toml_custom_rule_entries_are_preserved() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(

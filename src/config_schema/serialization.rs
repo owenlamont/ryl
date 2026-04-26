@@ -13,6 +13,16 @@ pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
     }
 }
 
+fn ignore_patterns_from_string_or_vec(value: &StringOrVec) -> Vec<String> {
+    match value {
+        StringOrVec::One(item) => super::patterns_from_scalar(item),
+        StringOrVec::Many(items) => items
+            .iter()
+            .flat_map(|item| super::patterns_from_scalar(item))
+            .collect(),
+    }
+}
+
 fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
     NormalizedFixConfig {
         fixable: fix
@@ -102,7 +112,10 @@ pub(crate) fn yaml_owned_to_toml_value(
 /// producing a TOML table.
 pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     NormalizedConfig {
-        ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
+        ignore_patterns: config
+            .ignore
+            .as_ref()
+            .map(ignore_patterns_from_string_or_vec),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
         yaml_file_patterns: config.yaml_files.clone(),
         locale: config.locale.clone(),
