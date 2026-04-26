@@ -36,9 +36,9 @@ pub struct TomlConfig {
     extra: BTreeMap<String, toml::Value>,
 }
 
-/// JSON Schema root for `ryl` YAML configuration.
+/// JSON Schema root for yamllint-compatible YAML configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[schemars(title = "ryl YAML config")]
+#[schemars(title = "ryl yamllint-compatible YAML config")]
 pub struct YamlConfig {
     /// Preset or config files to extend, either as one string or a list.
     pub extends: Option<StringOrVec>,

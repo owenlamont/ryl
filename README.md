@@ -107,8 +107,8 @@ Options:
                                      github, parsable]
       --print-toml-config-schema     Print the JSON Schema for ryl TOML config
                                      and exit
-      --print-yaml-config-schema     Print the JSON Schema for ryl YAML config
-                                     and exit
+      --print-yaml-config-schema     Print the JSON Schema for yamllint-compatible
+                                     YAML config and exit
       --fix                          Apply safe fixes in place before reporting
                                      remaining diagnostics
       --migrate-configs              Convert discovered legacy YAML config files
@@ -175,8 +175,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   - `-c, --config-file <FILE>`: path to a YAML or TOML config file.
   - `-d, --config-data <YAML>`: inline YAML config (highest precedence).
   - `--print-toml-config-schema`: print the JSON Schema for `.ryl.toml` / `ryl.toml` / `[tool.ryl]`.
-  - `--print-yaml-config-schema`: print the JSON Schema for `.yamllint` /
-    `.yamllint.yml` / `.yamllint.yaml`.
+  - `--print-yaml-config-schema`: print the JSON Schema for yamllint-compatible
+    YAML config files such as `.yamllint` / `.yamllint.yml` / `.yamllint.yaml`.
   - `--fix`: apply safe fixes in place before reporting remaining diagnostics.
   - `--list-files`: print files that would be linted after applying ignores and exit.
   - `--migrate-configs`: discover legacy YAML configs and plan TOML migration.
@@ -209,7 +209,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   for `default`/`relaxed` equivalents.
 - Canonical schema artifacts are checked into this repo as:
   - `ryl.toml.schema.json` for `.ryl.toml` / `ryl.toml` / `[tool.ryl]`
-  - `ryl.yaml.schema.json` for `.yamllint` / `.yamllint.yml` / `.yamllint.yaml`
+  - `ryl.yaml.schema.json` for yamllint-compatible YAML config files such as
+    `.yamllint` / `.yamllint.yml` / `.yamllint.yaml`
 - Regenerate them with:
   - `cargo run --quiet --bin ryl -- --print-toml-config-schema > ryl.toml.schema.json`
   - `cargo run --quiet --bin ryl -- --print-yaml-config-schema > ryl.yaml.schema.json`

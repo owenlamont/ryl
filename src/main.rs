@@ -161,7 +161,7 @@ struct Cli {
     #[arg(long = "print-toml-config-schema", default_value_t = false)]
     print_toml_config_schema: bool,
 
-    /// Print the JSON Schema for ryl YAML config and exit
+    /// Print the JSON Schema for yamllint-compatible YAML config and exit
     #[arg(long = "print-yaml-config-schema", default_value_t = false)]
     print_yaml_config_schema: bool,
 

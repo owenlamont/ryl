@@ -1675,7 +1675,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "JSON Schema root for `ryl` YAML configuration.",
+  "description": "JSON Schema root for yamllint-compatible YAML configuration.",
   "properties": {
     "extends": {
       "anyOf": [
@@ -1740,6 +1740,6 @@
       "description": "Glob patterns used to identify YAML files while scanning directories."
     }
   },
-  "title": "ryl YAML config",
+  "title": "ryl yamllint-compatible YAML config",
   "type": "object"
 }
