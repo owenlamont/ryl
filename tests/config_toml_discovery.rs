@@ -322,10 +322,7 @@ fn exact_typed_toml_supports_single_string_ignore_from_file() {
 
     let ctx = discover_per_file(&root.join("file.yaml"))
         .expect("typed TOML ignore-from-file should load");
-    let rendered = ctx
-        .config
-        .to_toml_string()
-        .expect("config should render to TOML");
+    let rendered = ctx.config.to_toml_string();
 
     assert!(rendered.contains("ignore-from-file = ["));
     assert!(rendered.contains(".ignore-list"));

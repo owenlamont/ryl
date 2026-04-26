@@ -304,8 +304,7 @@ fn normalized_config_to_toml_value_skips_yaml_files_when_absent() {
     let value = normalized_config_to_toml_value(&NormalizedConfig {
         ignore_patterns: Some(vec!["vendor/**".to_string()]),
         ..NormalizedConfig::default()
-    })
-    .expect("normalized config should serialize");
+    });
 
     let table = value.as_table().expect("config should serialize as table");
     assert!(!table.contains_key("yaml-files"));

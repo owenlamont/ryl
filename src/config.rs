@@ -426,14 +426,14 @@ impl YamlLintConfig {
         };
         validate_toml_config(&typed)?;
         let _ = (envx, base_dir);
-        Ok(Some(Self::from_typed_toml_config_with_env(&typed)))
+        Ok(Some(Self::from_typed_toml_config_with_env(&typed)?))
     }
 
-    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
+    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Result<Self, String> {
         let normalized = normalize_toml_config(config);
         let mut cfg = Self::default();
-        cfg.apply_normalized_config(normalized);
-        cfg
+        cfg.apply_normalized_config(normalized)?;
+        Ok(cfg)
     }
 
     fn from_doc_with_env(
@@ -447,7 +447,7 @@ impl YamlLintConfig {
         for entry in &parsed.extends {
             cfg.extend_from_entry(entry, envx, base_path)?;
         }
-        cfg.apply_normalized_config(parsed.normalized);
+        cfg.apply_normalized_config(parsed.normalized)?;
 
         Ok(cfg)
     }
@@ -468,7 +468,12 @@ impl YamlLintConfig {
         }
     }
 
-    fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
+    fn apply_normalized_config(
+        &mut self,
+        normalized: NormalizedConfig,
+    ) -> Result<(), String> {
+        validate_rule_filters(&normalized.rules)?;
+
         if let Some(ignore) = normalized.ignore_patterns {
             self.ignore_patterns.clear();
             self.ignore_from_files.clear();
@@ -496,21 +501,18 @@ impl YamlLintConfig {
         for (name, value) in &normalized.rules {
             self.merge_rule(name, value);
         }
+        Ok(())
     }
 
     /// Render the effective configuration as TOML.
     ///
-    /// # Errors
-    /// Returns an error if a value cannot be represented in TOML.
-    ///
     /// # Panics
-    /// Panics if serializing a valid TOML value fails unexpectedly.
-    pub fn to_toml_string(&self) -> Result<String, String> {
+    /// Panics if serializing a validated config as TOML fails unexpectedly.
+    #[must_use]
+    pub fn to_toml_string(&self) -> String {
         let normalized = normalized_config_from_runtime(self);
-        Ok(
-            toml::to_string_pretty(&normalized_config_to_toml_value(&normalized)?)
-                .expect("serializing TOML Value should not fail"),
-        )
+        toml::to_string_pretty(&normalized_config_to_toml_value(&normalized))
+            .expect("serializing TOML Value should not fail")
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
@@ -557,6 +559,49 @@ fn build_rule_filter(
         filter.patterns.extend(extra_patterns);
     }
     filter.matcher = matcher;
+    Ok(())
+}
+
+fn validate_rule_filters(
+    rules: &std::collections::BTreeMap<String, YamlOwned>,
+) -> Result<(), String> {
+    for (rule_name, node) in rules {
+        let Some(map) = node.as_mapping() else {
+            continue;
+        };
+
+        if let Some(value) = map
+            .iter()
+            .find_map(|(key, value)| (key.as_str() == Some("ignore")).then_some(value))
+        {
+            crate::config_schema::parse_string_items(
+                value,
+                &format!(
+                    "invalid config: option \"ignore\" of \"{rule_name}\" should contain file patterns"
+                ),
+                |text| {
+                    text.lines()
+                        .map(|line| line.trim_end_matches(['\r']))
+                        .filter(|line| !line.trim().is_empty())
+                        .map(std::string::ToString::to_string)
+                        .collect()
+                },
+            )?;
+        }
+
+        if let Some(value) = map.iter().find_map(|(key, value)| {
+            (key.as_str() == Some("ignore-from-file")).then_some(value)
+        }) {
+            crate::config_schema::parse_string_items(
+                value,
+                &format!(
+                    "invalid config: option \"ignore-from-file\" of \"{rule_name}\" should contain filename(s), either as a list or string"
+                ),
+                |text| vec![text.to_owned()],
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -664,9 +709,9 @@ fn resolve_extend_path(
 fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
     if let (Some(_), Some(src_map)) = (dst.as_mapping(), src.as_mapping()) {
         for (k, v) in src_map {
-            let Some(key) = k.as_str() else {
-                continue;
-            };
+            let key = k
+                .as_str()
+                .expect("config parsing should reject non-string mapping keys");
             let merged = dst.as_mapping_get_mut(key).is_some_and(|dv| {
                 deep_merge_yaml_owned(dv, v);
                 true

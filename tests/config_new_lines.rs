@@ -14,76 +14,55 @@ fn discover_with_yaml(yaml: &str) -> Result<(), String> {
 #[test]
 fn unknown_option_errors() {
     let err = discover_with_yaml("rules:\n  new-lines:\n    foo: bar\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"foo\" for rule \"new-lines\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-lines"), "{err}");
 }
 
 #[test]
 fn invalid_type_value_errors() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    type: invalid\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-lines"), "{err}");
 }
 
 #[test]
 fn invalid_type_kind_errors_on_non_string() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    type: [unix]\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"type\" of \"new-lines\" should be in ('unix', 'dos', 'platform')"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.new-lines"), "{err}");
 }
 
 #[test]
 fn unknown_option_reports_numeric_key() {
     let err = discover_with_yaml("rules:\n  new-lines:\n    1: value\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"1\" for rule \"new-lines\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
 
 #[test]
 fn unknown_option_reports_boolean_key() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    true: value\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"true\" for rule \"new-lines\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
 
 #[test]
 fn unknown_option_reports_float_key() {
     let err = discover_with_yaml("rules:\n  new-lines:\n    1.5: value\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"1.5\" for rule \"new-lines\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
 
 #[test]
 fn unknown_option_reports_tagged_key() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    !foo bar: value\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"Tagged(Tag { handle: \"!\", suffix: \"foo\" }, Value(String(\"bar\")))\" for rule \"new-lines\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
 
 #[test]
 fn unknown_option_reports_null_key() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    null: value\n").unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"None\" for rule \"new-lines\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }

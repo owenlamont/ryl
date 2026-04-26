@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use ryl::config::{Overrides, discover_config, discover_config_with};
+use tempfile::tempdir;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -45,7 +46,8 @@ fn ignore_from_file_invalid_mapping_errors() {
         },
     )
     .expect_err("mapping value should error");
-    assert!(err.contains("ignore-from-file should contain"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("ignore-from-file"), "{err}");
 }
 
 #[test]
@@ -59,7 +61,68 @@ fn ignore_patterns_non_string_errors() {
         },
     )
     .expect_err("non-string ignore pattern should error");
-    assert!(err.contains("ignore should contain"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("ignore"), "{err}");
+}
+
+#[test]
+fn custom_rule_ignore_scalar_type_errors() {
+    let yaml = "rules:\n  custom-rule:\n    ignore: 1\n";
+    let err = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(yaml.into()),
+        },
+    )
+    .expect_err("custom rule ignore should reject non-string scalars");
+    assert!(
+        err.contains(
+            "option \"ignore\" of \"custom-rule\" should contain file patterns"
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn custom_rule_ignore_from_file_non_string_sequence_errors() {
+    let yaml = "rules:\n  custom-rule:\n    ignore-from-file: [1]\n";
+    let err = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(yaml.into()),
+        },
+    )
+    .expect_err("custom rule ignore-from-file should reject non-string entries");
+    assert!(
+        err.contains(
+            "option \"ignore-from-file\" of \"custom-rule\" should contain filename(s), either as a list or string"
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn custom_toml_rule_ignore_scalar_type_errors() {
+    let td = tempdir().unwrap();
+    let path = td.path().join(".ryl.toml");
+    fs::write(path.clone(), "[rules.custom-rule]\nignore = 1\n").unwrap();
+
+    let err = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(path),
+            config_data: None,
+        },
+    )
+    .expect_err("custom TOML rule ignore should reject non-string scalars");
+    assert!(
+        err.contains(
+            "option \"ignore\" of \"custom-rule\" should contain file patterns"
+        ),
+        "{err}"
+    );
 }
 
 #[test]

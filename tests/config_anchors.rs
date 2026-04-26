@@ -39,7 +39,8 @@ rules:
     )
     .expect_err("invalid value");
 
-    assert!(err.contains("forbid-duplicated-anchors"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.anchors"), "{err}");
 }
 
 #[test]
@@ -59,7 +60,8 @@ rules:
     )
     .expect_err("unknown option");
 
-    assert!(err.contains("unknown option \"unknown\" for rule \"anchors\""));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.anchors"), "{err}");
 }
 
 #[test]
@@ -80,5 +82,5 @@ rules:
     )
     .expect_err("non-string key");
 
-    assert!(err.contains("unknown option") && err.contains("anchors"));
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }

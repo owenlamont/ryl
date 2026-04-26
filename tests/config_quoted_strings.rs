@@ -7,10 +7,8 @@ fn error_when_quote_type_invalid() {
         "rules:\n  quoted-strings:\n    quote-type: bad\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -18,10 +16,8 @@ fn error_when_quote_type_not_string() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    quote-type: 1\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"quote-type\" of \"quoted-strings\" should be in ('any', 'single', 'double')"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -29,10 +25,8 @@ fn error_when_required_invalid() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    required: 3\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"required\" of \"quoted-strings\" should be in (True, False, 'only-when-needed')"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -41,10 +35,7 @@ fn error_when_required_is_null() {
         "rules:\n  quoted-strings:\n    required: null\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"required\" of \"quoted-strings\" should be in (True, False, 'only-when-needed')"
-    );
+    assert!(err.contains("cannot convert null values to TOML"), "{err}");
 }
 
 #[test]
@@ -53,10 +44,8 @@ fn error_when_extra_required_not_sequence() {
         "rules:\n  quoted-strings:\n    extra-required: foo\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"extra-required\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -65,10 +54,8 @@ fn error_when_extra_required_contains_non_string() {
         "rules:\n  quoted-strings:\n    extra-required: [1]\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"extra-required\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -77,10 +64,8 @@ fn error_when_extra_allowed_contains_non_string() {
         "rules:\n  quoted-strings:\n    extra-allowed: [true]\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"extra-allowed\" of \"quoted-strings\" should only contain values in [<class 'str'>]"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -89,10 +74,8 @@ fn error_when_allow_quoted_quotes_not_bool() {
         "rules:\n  quoted-strings:\n    allow-quoted-quotes: 1\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"allow-quoted-quotes\" of \"quoted-strings\" should be bool"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -100,10 +83,8 @@ fn error_when_check_keys_not_bool() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    check-keys: 2\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"check-keys\" of \"quoted-strings\" should be bool"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -170,7 +151,8 @@ fn error_when_rule_ignore_contains_non_string_pattern() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    ignore: [1]\n")
             .unwrap_err();
-    assert_eq!(err, "invalid config: ignore should contain file patterns");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
@@ -179,20 +161,15 @@ fn error_when_unknown_quoted_strings_option() {
         "rules:\n  quoted-strings:\n    unknown: value\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"unknown\" for rule \"quoted-strings\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
 #[test]
 fn error_when_option_key_not_string() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    1: true\n")
         .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"1\" for rule \"quoted-strings\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
 
 #[test]

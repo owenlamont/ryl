@@ -1,6 +1,5 @@
 use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 use serde::Serialize;
-use serde::de::DeserializeOwned;
 
 use super::{
     FixTable, NormalizedConfig, NormalizedFixConfig, RulesTable, StringOrVec,
@@ -94,22 +93,6 @@ pub(crate) fn yaml_owned_to_toml_value(
         return Ok(toml::Value::Table(out));
     }
     Err("cannot convert this YAML node to TOML".to_string())
-}
-
-pub(crate) fn yaml_owned_to_toml_type<T>(value: &YamlOwned) -> Option<T>
-where
-    T: DeserializeOwned,
-{
-    yaml_owned_to_toml_value(value)
-        .ok()
-        .and_then(|value| value.try_into::<T>().ok())
-}
-
-pub(crate) fn yaml_value_matches_toml_type<T>(value: &YamlOwned) -> bool
-where
-    T: DeserializeOwned,
-{
-    yaml_owned_to_toml_type::<T>(value).is_some()
 }
 
 /// Normalize a typed TOML config into a shared post-parse representation.
@@ -244,21 +227,20 @@ fn normalized_fix_to_toml_value(fix: &NormalizedFixConfig) -> toml::Value {
 
 fn normalized_rules_to_toml_value(
     rules: &std::collections::BTreeMap<String, YamlOwned>,
-) -> Result<toml::Value, String> {
+) -> toml::Value {
     let mut table = toml::map::Map::new();
     for (name, value) in rules {
-        table.insert(name.clone(), yaml_owned_to_toml_value(value)?);
+        table.insert(
+            name.clone(),
+            yaml_owned_to_toml_value(value)
+                .expect("normalized config should only contain TOML-compatible values"),
+        );
     }
-    Ok(toml::Value::Table(table))
+    toml::Value::Table(table)
 }
 
-/// Convert a normalized config into a TOML value tree.
-///
-/// # Errors
-/// Returns an error if a normalized rule value cannot be represented in TOML.
-pub fn normalized_config_to_toml_value(
-    config: &NormalizedConfig,
-) -> Result<toml::Value, String> {
+#[must_use]
+pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value {
     let mut table = toml::map::Map::new();
 
     if let Some(yaml_files) = config.yaml_file_patterns.as_ref() {
@@ -282,9 +264,9 @@ pub fn normalized_config_to_toml_value(
     if !config.rules.is_empty() {
         table.insert(
             "rules".to_string(),
-            normalized_rules_to_toml_value(&config.rules)?,
+            normalized_rules_to_toml_value(&config.rules),
         );
     }
 
-    Ok(toml::Value::Table(table))
+    toml::Value::Table(table)
 }

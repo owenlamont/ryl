@@ -8,10 +8,8 @@ fn error_on_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  trailing-spaces:\n    foo: true\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"foo\" for rule \"trailing-spaces\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.trailing-spaces"), "{err}");
 }
 
 #[test]
@@ -19,7 +17,8 @@ fn error_on_invalid_ignore_type() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  trailing-spaces:\n    ignore: 1\n")
             .unwrap_err();
-    assert_eq!(err, "invalid config: ignore should contain file patterns");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.trailing-spaces"), "{err}");
 }
 
 #[test]
@@ -28,10 +27,8 @@ fn error_on_invalid_ignore_from_file_type() {
         "rules:\n  trailing-spaces:\n    ignore-from-file: 1\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: ignore-from-file should contain filename(s), either as a list or string"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.trailing-spaces"), "{err}");
 }
 
 #[test]

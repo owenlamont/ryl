@@ -19,26 +19,19 @@ impl Config {
     ///
     /// # Panics
     ///
-    /// Panics when `ignored-keys` entries are not strings. Configuration parsing
-    /// validates types before resolution, so this only occurs with manual construction in tests.
+    /// Panics when `ignored-keys` contains non-string entries or invalid regexes.
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
         let mut ignored: Vec<Regex> = Vec::new();
-        if let Some(node) = cfg.rule_option(ID, "ignored-keys") {
-            if let saphyr::YamlOwned::Sequence(seq) = node {
-                for entry in seq {
-                    let pattern = entry
-                        .as_str()
-                        .expect("key-ordering ignored-keys should be strings");
-                    ignored.push(
-                        Regex::new(pattern).expect("key-ordering ignored-keys regex"),
-                    );
-                }
-            }
-            if let saphyr::YamlOwned::Value(value) = node
-                && let Some(text) = value.as_str()
-            {
-                ignored
-                    .push(Regex::new(text).expect("key-ordering ignored-keys regex"));
+        if let Some(node) = cfg.rule_option(ID, "ignored-keys")
+            && let saphyr::YamlOwned::Sequence(seq) = node
+        {
+            for entry in seq {
+                let pattern = entry
+                    .as_str()
+                    .expect("key-ordering ignored-keys should be strings");
+                ignored.push(
+                    Regex::new(pattern).expect("key-ordering ignored-keys regex"),
+                );
             }
         }
 

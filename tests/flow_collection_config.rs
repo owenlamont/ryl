@@ -42,10 +42,11 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
     ))
     .expect_err("config should fail");
     assert!(
-        err.contains(&format!(
-            "option \"forbid\" of \"{}\" should be bool or \"non-empty\"",
-            suite.rule_name
-        )),
+        err.contains("failed to parse config data:"),
+        "unexpected error: {err}"
+    );
+    assert!(
+        err.contains(&format!("rules.{}", suite.rule_name)),
         "unexpected error: {err}"
     );
 
@@ -61,10 +62,11 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
         ))
         .expect_err("config should fail");
         assert!(
-            err.contains(&format!(
-                "option \"{}\" of \"{}\" should be int",
-                option, suite.rule_name
-            )),
+            err.contains("failed to parse config data:"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains(&format!("rules.{}", suite.rule_name)),
             "unexpected error: {err}"
         );
     }
@@ -75,10 +77,11 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
     ))
     .expect_err("config should fail");
     assert!(
-        err.contains(&format!(
-            "invalid config: unknown option \"unexpected-option\" for rule \"{}\"",
-            suite.rule_name
-        )),
+        err.contains("failed to parse config data:"),
+        "unexpected error: {err}"
+    );
+    assert!(
+        err.contains(&format!("rules.{}", suite.rule_name)),
         "unexpected error: {err}"
     );
 
@@ -88,10 +91,7 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
     ))
     .expect_err("config should fail");
     assert!(
-        err.contains(&format!(
-            "invalid config: unknown option \"1\" for rule \"{}\"",
-            suite.rule_name
-        )),
+        err.contains("cannot convert non-string TOML key"),
         "unexpected error: {err}"
     );
 

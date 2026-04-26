@@ -16,7 +16,7 @@ fn to_toml_includes_ignore_and_locale_and_rules() {
         },
     )
     .unwrap();
-    let toml = ctx.config.to_toml_string().unwrap();
+    let toml = ctx.config.to_toml_string();
     assert!(toml.contains("ignore = ["));
     assert!(toml.contains("locale = \"en_US.UTF-8\""));
     assert!(toml.contains("document-start = \"disable\""));
@@ -39,21 +39,20 @@ fn to_toml_includes_ignore_from_file_when_present() {
         },
     )
     .unwrap();
-    let toml = ctx.config.to_toml_string().unwrap();
+    let toml = ctx.config.to_toml_string();
     assert!(toml.contains("ignore-from-file = ["));
 }
 
 #[test]
 fn to_toml_errors_on_null_values() {
-    let ctx = discover_config(
+    let err = discover_config(
         &[],
         &Overrides {
             config_file: None,
             config_data: Some("rules: { custom-rule: { opt: ~ } }\n".to_string()),
         },
     )
-    .unwrap();
-    let err = ctx.config.to_toml_string().unwrap_err();
+    .unwrap_err();
     assert!(err.contains("cannot convert null values to TOML"));
 }
 
@@ -70,7 +69,7 @@ fn to_toml_converts_scalar_sequence_and_mapping_values() {
         },
     )
     .unwrap();
-    let toml = ctx.config.to_toml_string().unwrap();
+    let toml = ctx.config.to_toml_string();
     assert!(toml.contains("flag = true"));
     assert!(toml.contains("count = 3"));
     assert!(toml.contains("ratio = 1.5"));
@@ -81,21 +80,20 @@ fn to_toml_converts_scalar_sequence_and_mapping_values() {
 
 #[test]
 fn to_toml_errors_on_non_string_mapping_keys() {
-    let ctx = discover_config(
+    let err = discover_config(
         &[],
         &Overrides {
             config_file: None,
             config_data: Some("rules:\n  custom-rule:\n    1: x\n".to_string()),
         },
     )
-    .unwrap();
-    let err = ctx.config.to_toml_string().unwrap_err();
+    .unwrap_err();
     assert!(err.contains("cannot convert non-string TOML key"));
 }
 
 #[test]
 fn to_toml_errors_on_tagged_values() {
-    let ctx = discover_config(
+    let err = discover_config(
         &[],
         &Overrides {
             config_file: None,
@@ -104,8 +102,7 @@ fn to_toml_errors_on_tagged_values() {
             ),
         },
     )
-    .unwrap();
-    let err = ctx.config.to_toml_string().unwrap_err();
+    .unwrap_err();
     assert!(err.contains("cannot convert this YAML node to TOML"));
 }
 
@@ -128,7 +125,7 @@ fn to_toml_includes_fix_policy() {
     )
     .unwrap();
 
-    let toml = ctx.config.to_toml_string().unwrap();
+    let toml = ctx.config.to_toml_string();
     assert!(toml.contains("yaml-files = ["));
     assert!(toml.contains("[fix]"));
     assert!(toml.contains("fixable = ["));

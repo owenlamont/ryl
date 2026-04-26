@@ -8,13 +8,10 @@ use schemars::{JsonSchema, Schema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub(crate) use serialization::yaml_owned_to_toml_value;
 pub use serialization::{
     normalize_toml_config, normalized_config_to_toml_value, toml_config_to_value,
 };
-pub(crate) use serialization::{
-    yaml_owned_to_toml_type, yaml_owned_to_toml_value, yaml_value_matches_toml_type,
-};
-pub(crate) use validation::validate_yaml_rule_value;
 
 /// JSON Schema root for `ryl` TOML configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -634,54 +631,6 @@ pub(crate) fn parse_string_items(
     }
 }
 
-pub(crate) fn normalize_yaml_config(
-    doc: &YamlOwned,
-) -> Result<NormalizedConfig, String> {
-    let ignore = doc.as_mapping_get("ignore");
-    let ignore_from_file = doc.as_mapping_get("ignore-from-file");
-    if ignore.is_some() && ignore_from_file.is_some() {
-        return Err(
-            "invalid config: ignore and ignore-from-file keys cannot be used together"
-                .to_string(),
-        );
-    }
-
-    let mut normalized = NormalizedConfig {
-        ignore_patterns: ignore.map(load_ignore_patterns).transpose()?,
-        ignore_from_files: ignore_from_file.map(load_ignore_from_files).transpose()?,
-        yaml_file_patterns: doc
-            .as_mapping_get("yaml-files")
-            .map(load_yaml_file_patterns)
-            .transpose()?,
-        locale: doc
-            .as_mapping_get("locale")
-            .map(|locale| {
-                locale
-                    .as_str()
-                    .map(std::string::ToString::to_string)
-                    .ok_or_else(|| {
-                        "invalid config: locale should be a string".to_string()
-                    })
-            })
-            .transpose()?,
-        ..NormalizedConfig::default()
-    };
-
-    if let Some(rules) = doc.as_mapping_get("rules")
-        && let Some(map) = rules.as_mapping()
-    {
-        for (key, value) in map {
-            let Some(name) = key.as_str() else {
-                continue;
-            };
-            validate_yaml_rule_value(name, value)?;
-            normalized.rules.insert(name.to_owned(), value.clone());
-        }
-    }
-
-    Ok(normalized)
-}
-
 pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, String> {
     if doc.as_mapping().is_none() {
         return Err("invalid config: not a mapping".to_string());
@@ -693,32 +642,33 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
         );
     }
 
+    let typed = parse_typed_yaml_config(doc)?;
+    validate_toml_config(&typed)?;
+
     Ok(ParsedYamlConfig {
         extends: doc
             .as_mapping_get("extends")
             .map(load_extends_entries)
             .unwrap_or_default(),
-        normalized: typed_yaml_config(doc)
-            .filter(|config| validate_toml_config(config).is_ok())
-            .map(|config| normalize_typed_yaml_config(doc, &config))
-            .unwrap_or(normalize_yaml_config(doc)?),
+        normalized: normalize_typed_yaml_config(doc, &typed),
     })
 }
 
-type YamlRuleSurface = RuleEntry<BTreeMap<String, toml::Value>>;
-
-fn typed_yaml_config(doc: &YamlOwned) -> Option<TomlConfig> {
+fn parse_typed_yaml_config(doc: &YamlOwned) -> Result<TomlConfig, String> {
     let mut map = MappingOwned::new();
-    for (key, value) in doc
-        .as_mapping()
-        .expect("parse_yaml_config should only call typed_yaml_config for mappings")
-    {
+    for (key, value) in doc.as_mapping().expect(
+        "parse_yaml_config should only call parse_typed_yaml_config for mappings",
+    ) {
         if key.as_str() == Some("extends") {
             continue;
         }
         map.insert(key.clone(), value.clone());
     }
-    yaml_owned_to_toml_type(&YamlOwned::Mapping(map))
+    let value = yaml_owned_to_toml_value(&YamlOwned::Mapping(map))
+        .map_err(|err| format!("failed to parse config data: {err}"))?;
+    value
+        .try_into::<TomlConfig>()
+        .map_err(|err| format!("failed to parse config data: {err}"))
 }
 
 fn normalize_typed_yaml_config(
@@ -750,26 +700,18 @@ fn normalize_typed_yaml_config(
     normalized
 }
 
-fn typed_yaml_rule_surface(node: &YamlOwned) -> Option<YamlRuleSurface> {
-    yaml_owned_to_toml_type(node)
-}
-
 #[must_use]
 pub(crate) fn yaml_rule_level(node: &YamlOwned) -> Option<RuleLevel> {
-    if let Some(rule) = typed_yaml_rule_surface(node) {
-        return match rule {
-            RuleEntry::Bool(false) | RuleEntry::Switch(RuleSwitch::Disable) => None,
-            RuleEntry::Bool(true) | RuleEntry::Switch(RuleSwitch::Enable) => {
-                Some(RuleLevel::Error)
-            }
-            RuleEntry::Options(options) => {
-                Some(options.level.unwrap_or(RuleLevel::Error))
-            }
+    if let Some(text) = node.as_str() {
+        return if text == "disable" {
+            None
+        } else {
+            Some(RuleLevel::Error)
         };
     }
 
-    if node.as_str().is_some() {
-        return Some(RuleLevel::Error);
+    if let Some(flag) = node.as_bool() {
+        return flag.then_some(RuleLevel::Error);
     }
 
     node.as_mapping()

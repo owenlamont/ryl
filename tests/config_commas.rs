@@ -5,10 +5,8 @@ use ryl::rules::commas::Config;
 fn rejects_unknown_option() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  commas:\n    unexpected: 1\n")
         .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"unexpected\" for rule \"commas\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.commas"), "{err}");
 }
 
 #[test]
@@ -16,10 +14,8 @@ fn rejects_non_integer_max_spaces_before() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  commas:\n    max-spaces-before: []\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"max-spaces-before\" of \"commas\" should be int"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.commas"), "{err}");
 }
 
 #[test]
@@ -28,10 +24,8 @@ fn rejects_non_integer_min_spaces_after() {
         "rules:\n  commas:\n    min-spaces-after: true\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"min-spaces-after\" of \"commas\" should be int"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.commas"), "{err}");
 }
 
 #[test]
@@ -39,10 +33,8 @@ fn rejects_non_integer_max_spaces_after() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  commas:\n    max-spaces-after: []\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"max-spaces-after\" of \"commas\" should be int"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.commas"), "{err}");
 }
 
 #[test]
@@ -50,10 +42,7 @@ fn rejects_non_string_option_key() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  commas:\n    ? [foo, bar]\n    : 1\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"Sequence([Value(String(\"foo\")), Value(String(\"bar\"))])\" for rule \"commas\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
 
 #[test]

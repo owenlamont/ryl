@@ -23,7 +23,8 @@ fn yaml_files_non_sequence_errors() {
         },
     )
     .expect_err("non-list yaml-files should error");
-    assert!(err.contains("yaml-files should be a list"));
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("yaml-files"), "{err}");
 }
 
 #[test]

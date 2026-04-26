@@ -228,7 +228,7 @@ fn indentation_config_rejects_non_string_option_keys() {
         YamlLintConfig::from_yaml_str("rules:\n  indentation:\n    true: false\n")
             .expect_err("expected validation failure");
     assert!(
-        err.contains("unknown option \"true\" for rule \"indentation\""),
+        err.contains("cannot convert non-string TOML key"),
         "unexpected error: {err}"
     );
 }

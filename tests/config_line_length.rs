@@ -5,20 +5,16 @@ fn rejects_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    unexpected: true\n")
             .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"unexpected\" for rule \"line-length\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.line-length"), "{err}");
 }
 
 #[test]
 fn rejects_non_integer_max() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    max: []\n")
         .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"max\" of \"line-length\" should be int"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.line-length"), "{err}");
 }
 
 #[test]
@@ -27,10 +23,8 @@ fn rejects_non_boolean_allow_words() {
         "rules:\n  line-length:\n    allow-non-breakable-words: []\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"allow-non-breakable-words\" of \"line-length\" should be bool"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.line-length"), "{err}");
 }
 
 #[test]
@@ -39,10 +33,8 @@ fn rejects_non_boolean_allow_inline() {
         "rules:\n  line-length:\n    allow-non-breakable-inline-mappings: 1\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: option \"allow-non-breakable-inline-mappings\" of \"line-length\" should be bool"
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.line-length"), "{err}");
 }
 
 #[test]
@@ -58,8 +50,5 @@ fn accepts_valid_configuration() {
 fn rejects_non_string_option_key() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    1: true\n")
         .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"1\" for rule \"line-length\""
-    );
+    assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }

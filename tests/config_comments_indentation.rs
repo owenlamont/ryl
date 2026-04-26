@@ -6,10 +6,8 @@ fn error_on_unknown_option() {
         "rules:\n  comments-indentation:\n    foo: true\n",
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        "invalid config: unknown option \"foo\" for rule \"comments-indentation\""
-    );
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.comments-indentation"), "{err}");
 }
 
 #[test]
