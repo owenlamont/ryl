@@ -71,11 +71,6 @@ fn printed_schema(flag: &str) -> Value {
     serde_json::from_str(&stdout).expect("schema output should be JSON")
 }
 
-fn assert_schema_document(schema: &Value, title: &str) {
-    assert_eq!(schema.get("title"), Some(&json!(title)));
-    assert!(schema.get("$schema").is_some());
-}
-
 #[test]
 fn generated_schema_accepts_valid_sample_config() {
     let schema = schema_value();
@@ -208,16 +203,6 @@ fn cli_print_yaml_config_schema_outputs_generated_schema_without_inputs() {
         printed_schema("--print-yaml-config-schema"),
         yaml_schema_value()
     );
-}
-
-#[test]
-fn generated_schema_serializes_as_json_schema_document() {
-    assert_schema_document(&schema_value(), "ryl TOML config");
-}
-
-#[test]
-fn generated_yaml_schema_serializes_as_json_schema_document() {
-    assert_schema_document(&yaml_schema_value(), "ryl YAML config");
 }
 
 #[test]

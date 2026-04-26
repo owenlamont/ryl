@@ -775,7 +775,7 @@ pub(crate) fn yaml_rule_filter_patterns(
 /// Panics if serializing the generated schema unexpectedly fails.
 #[must_use]
 pub fn schema_value() -> Value {
-    serde_json::to_value(schema()).expect("serializing generated schema should succeed")
+    serialized_schema_value(schema())
 }
 
 #[must_use]
@@ -784,8 +784,7 @@ pub fn schema_value() -> Value {
 /// # Panics
 /// Panics if serializing the generated schema unexpectedly fails.
 pub fn yaml_schema_value() -> Value {
-    serde_json::to_value(yaml_schema())
-        .expect("serializing generated schema should succeed")
+    serialized_schema_value(yaml_schema())
 }
 
 /// Serialize the generated schema to a pretty-printed JSON string.
@@ -794,8 +793,7 @@ pub fn yaml_schema_value() -> Value {
 /// Panics if serializing the generated schema unexpectedly fails.
 #[must_use]
 pub fn schema_string_pretty() -> String {
-    serde_json::to_string_pretty(&schema())
-        .expect("serializing generated schema should succeed")
+    serialized_schema_string_pretty(&schema())
 }
 
 #[must_use]
@@ -804,6 +802,14 @@ pub fn schema_string_pretty() -> String {
 /// # Panics
 /// Panics if serializing the generated schema unexpectedly fails.
 pub fn yaml_schema_string_pretty() -> String {
-    serde_json::to_string_pretty(&yaml_schema())
+    serialized_schema_string_pretty(&yaml_schema())
+}
+
+fn serialized_schema_value(schema: Schema) -> Value {
+    serde_json::to_value(schema).expect("serializing generated schema should succeed")
+}
+
+fn serialized_schema_string_pretty(schema: &Schema) -> String {
+    serde_json::to_string_pretty(schema)
         .expect("serializing generated schema should succeed")
 }
