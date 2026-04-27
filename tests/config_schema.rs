@@ -62,6 +62,66 @@ fn schemastore_yamllint_schema() -> Value {
     checked_in_schema("tests/fixtures/schemastore-yamllint.json")
 }
 
+struct SchemaComparisonCase {
+    name: &'static str,
+    instance: Value,
+    expected: bool,
+}
+
+fn sampled_yaml_schema_comparison_cases() -> Vec<SchemaComparisonCase> {
+    vec![
+        SchemaComparisonCase {
+            name: "extends-string",
+            instance: json!({ "extends": "default" }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "extends-sequence",
+            instance: json!({ "extends": ["default", "relaxed"] }),
+            expected: false,
+        },
+        SchemaComparisonCase {
+            name: "yaml-files-list",
+            instance: json!({ "yaml-files": ["*.yaml", "*.yml"] }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "yaml-files-scalar",
+            instance: json!({ "yaml-files": "*.yaml" }),
+            expected: false,
+        },
+        SchemaComparisonCase {
+            name: "ignore-string",
+            instance: json!({ "ignore": "vendor/**\ngenerated/**" }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "ignore-from-file-list",
+            instance: json!({ "ignore-from-file": [".gitignore", ".yamlignore"] }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "ignore-mutually-exclusive",
+            instance: json!({
+                "ignore": "vendor/**",
+                "ignore-from-file": ".gitignore"
+            }),
+            expected: false,
+        },
+        SchemaComparisonCase {
+            name: "rule-mapping",
+            instance: json!({
+                "rules": {
+                    "line-length": {
+                        "max": 80
+                    }
+                }
+            }),
+            expected: true,
+        },
+    ]
+}
+
 fn assert_readable_rule_wrapper_defs(schema: &Value) {
     let defs = schema
         .get("$defs")
@@ -247,55 +307,14 @@ fn generated_yaml_schema_matches_schemastore_snapshot_for_sampled_configs() {
     let schemastore_schema = schemastore_yamllint_schema();
     let schemastore_validator = validator_for(&schemastore_schema)
         .expect("SchemaStore yamllint snapshot should compile");
-    let cases = [
-        ("extends-string", json!({ "extends": "default" }), true),
-        (
-            "extends-sequence",
-            json!({ "extends": ["default", "relaxed"] }),
-            false,
-        ),
-        (
-            "yaml-files-list",
-            json!({ "yaml-files": ["*.yaml", "*.yml"] }),
-            true,
-        ),
-        (
-            "yaml-files-scalar",
-            json!({ "yaml-files": "*.yaml" }),
-            false,
-        ),
-        (
-            "ignore-string",
-            json!({ "ignore": "vendor/**\ngenerated/**" }),
-            true,
-        ),
-        (
-            "ignore-from-file-list",
-            json!({ "ignore-from-file": [".gitignore", ".yamlignore"] }),
-            true,
-        ),
-        (
-            "ignore-mutually-exclusive",
-            json!({
-                "ignore": "vendor/**",
-                "ignore-from-file": ".gitignore"
-            }),
-            false,
-        ),
-        (
-            "rule-mapping",
-            json!({
-                "rules": {
-                    "line-length": {
-                        "max": 80
-                    }
-                }
-            }),
-            true,
-        ),
-    ];
-
-    for (name, instance, expected) in cases {
+    // This is a sampled verdict comparison, not a full semantic-equivalence check,
+    // because the two schemas use different but plausibly equivalent structures.
+    for SchemaComparisonCase {
+        name,
+        instance,
+        expected,
+    } in sampled_yaml_schema_comparison_cases()
+    {
         assert_eq!(
             local_validator.is_valid(&instance),
             expected,
