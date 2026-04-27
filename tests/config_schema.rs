@@ -58,6 +58,10 @@ fn checked_in_text(path: &str) -> String {
         .expect("checked-in artifact should exist")
 }
 
+fn schemastore_yamllint_schema() -> Value {
+    checked_in_schema("tests/fixtures/schemastore-yamllint.json")
+}
+
 fn assert_readable_rule_wrapper_defs(schema: &Value) {
     let defs = schema
         .get("$defs")
@@ -233,6 +237,76 @@ fn generated_yaml_schema_rejects_invalid_known_field_types() {
 #[test]
 fn generated_yaml_schema_uses_readable_rule_wrapper_names() {
     assert_readable_rule_wrapper_defs(&yaml_schema_value());
+}
+
+#[test]
+fn generated_yaml_schema_matches_schemastore_snapshot_for_sampled_configs() {
+    let local_schema = yaml_schema_value();
+    let local_validator =
+        validator_for(&local_schema).expect("generated YAML schema should compile");
+    let schemastore_schema = schemastore_yamllint_schema();
+    let schemastore_validator = validator_for(&schemastore_schema)
+        .expect("SchemaStore yamllint snapshot should compile");
+    let cases = [
+        ("extends-string", json!({ "extends": "default" }), true),
+        (
+            "extends-sequence",
+            json!({ "extends": ["default", "relaxed"] }),
+            false,
+        ),
+        (
+            "yaml-files-list",
+            json!({ "yaml-files": ["*.yaml", "*.yml"] }),
+            true,
+        ),
+        (
+            "yaml-files-scalar",
+            json!({ "yaml-files": "*.yaml" }),
+            false,
+        ),
+        (
+            "ignore-string",
+            json!({ "ignore": "vendor/**\ngenerated/**" }),
+            true,
+        ),
+        (
+            "ignore-from-file-list",
+            json!({ "ignore-from-file": [".gitignore", ".yamlignore"] }),
+            true,
+        ),
+        (
+            "ignore-mutually-exclusive",
+            json!({
+                "ignore": "vendor/**",
+                "ignore-from-file": ".gitignore"
+            }),
+            false,
+        ),
+        (
+            "rule-mapping",
+            json!({
+                "rules": {
+                    "line-length": {
+                        "max": 80
+                    }
+                }
+            }),
+            true,
+        ),
+    ];
+
+    for (name, instance, expected) in cases {
+        assert_eq!(
+            local_validator.is_valid(&instance),
+            expected,
+            "generated YAML schema drifted on sampled case {name}"
+        );
+        assert_eq!(
+            schemastore_validator.is_valid(&instance),
+            expected,
+            "SchemaStore yamllint snapshot drifted on sampled case {name}"
+        );
+    }
 }
 
 #[test]

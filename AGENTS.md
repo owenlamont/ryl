@@ -187,6 +187,10 @@ sticking to the quick-status step above.
 - Use meaningful function and variable names in tests—comments are discouraged.
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
+- The vendored SchemaStore yamllint snapshot lives at
+  `tests/fixtures/schemastore-yamllint.json`; refresh it with
+  `uv run scripts/update_yamllint_schemastore_snapshot.py` instead of fetching from
+  the network in normal tests.
 
 ## Release Checklist
 
