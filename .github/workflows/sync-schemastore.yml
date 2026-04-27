@@ -211,10 +211,10 @@ jobs:
 
           echo "fork_changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Create or update SchemaStore PR
+      - name: Summarize SchemaStore PR handoff
         if: steps.fork-update.outputs.fork_changed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -245,44 +245,21 @@ jobs:
           EOF
           )
 
-          if EXISTING_PR_NUM=$(gh pr list \
-            --repo "${SCHEMASTORE_UPSTREAM}" \
-            --head "owenlamont:${SCHEMASTORE_BRANCH}" \
-            --state open \
-            --json number \
-            --jq '.[0].number // empty' 2>/dev/null); then
-            if [ -n "${EXISTING_PR_NUM}" ]; then
-              echo "Updated existing PR #${EXISTING_PR_NUM}." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          else
-            {
-              echo "## Manual SchemaStore PR required"
-              echo
-              echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`,"
-              echo "but the GitHub App token could not query \`${SCHEMASTORE_UPSTREAM}\`."
-              echo "Create the PR manually from \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`"
-              echo "to \`${SCHEMASTORE_UPSTREAM}:master\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if gh pr create \
-            --repo "${SCHEMASTORE_UPSTREAM}" \
-            --head "owenlamont:${SCHEMASTORE_BRANCH}" \
-            --title "${PR_TITLE}" \
-            --body "${PR_BODY}"; then
-            echo "Created SchemaStore PR automatically." >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "## Manual SchemaStore PR required"
-              echo
-              echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`,"
-              echo "but automatic PR creation against \`${SCHEMASTORE_UPSTREAM}\` was not permitted."
-              echo "Create the PR manually from \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`"
-              echo "to \`${SCHEMASTORE_UPSTREAM}:master\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          {
+            echo "## Manual SchemaStore PR required"
+            echo
+            echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`."
+            echo "Create the upstream PR manually against \`${SCHEMASTORE_UPSTREAM}:master\`."
+            echo
+            echo "- PR URL: https://github.com/${SCHEMASTORE_UPSTREAM}/compare/master...owenlamont:${SCHEMASTORE_BRANCH}?expand=1"
+            echo "- PR title: \`${PR_TITLE}\`"
+            echo
+            echo "### Suggested PR body"
+            echo
+            echo '```markdown'
+            echo "${PR_BODY}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dry run summary
         if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run == true
