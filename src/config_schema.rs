@@ -514,20 +514,25 @@ pub fn schema() -> Schema {
     schema_for!(TomlConfig)
 }
 
+/// Build the JSON Schema for yamllint-compatible YAML configuration.
+///
+/// # Panics
+/// Panics if schemars stops emitting an object schema root for `YamlConfig`.
 #[must_use]
 pub fn yaml_schema() -> Schema {
     let mut schema = schema_for!(YamlConfig);
-    if let Some(root) = schema.as_object_mut() {
-        root.entry("allOf").or_insert_with(|| {
-            json!([
-                {
-                    "not": {
-                        "required": ["ignore", "ignore-from-file"]
-                    }
+    let root = schema
+        .as_object_mut()
+        .expect("schema root should be an object");
+    root.entry("allOf").or_insert_with(|| {
+        json!([
+            {
+                "not": {
+                    "required": ["ignore", "ignore-from-file"]
                 }
-            ])
-        });
-    }
+            }
+        ])
+    });
     schema
 }
 

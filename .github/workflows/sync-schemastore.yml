@@ -1,0 +1,295 @@
+name: Sync SchemaStore
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      AUTH_APP_CLIENT_ID:
+        required: true
+      AUTH_APP_PRIVATE_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Git ref or SHA to sync"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run mode (compare only, no fork push)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync schema to SchemaStore
+    runs-on: ubuntu-latest
+    environment: automation
+    permissions:
+      contents: read
+    env:
+      SCHEMASTORE_BRANCH: ryl-schema-update
+      SCHEMASTORE_FORK: owenlamont/schemastore
+      SCHEMASTORE_UPSTREAM: SchemaStore/schemastore
+      SCHEMASTORE_SCHEMA_PATH: src/schemas/json/ryl.json
+      SCHEMASTORE_CATALOG_PATH: src/api/json/catalog.json
+      SCHEMASTORE_TEST_DIR: src/test/ryl
+      SCHEMASTORE_NEGATIVE_TEST_DIR: src/negative_test/ryl
+    steps:
+      - name: Checkout ryl
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+
+      - name: Read release version
+        id: version
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())
+          print(f"version={cargo['package']['version']}")
+          PY
+
+      - name: Fetch SchemaStore schema
+        id: fetch
+        env:
+          SCHEMA_URL: https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/ryl.json
+        run: |
+          set -euo pipefail
+          if curl --fail --silent --show-error --location "$SCHEMA_URL" > schemastore-current.json; then
+            echo "remote_schema_exists=true" >> "$GITHUB_OUTPUT"
+            echo "Fetched existing SchemaStore schema."
+          else
+            rm -f schemastore-current.json
+            echo "remote_schema_exists=false" >> "$GITHUB_OUTPUT"
+            echo "No existing SchemaStore schema found; treating this as onboarding."
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+
+      - name: Generate SchemaStore-compatible schema
+        run: uv run scripts/print_ryl_schemastore_schema.py > ryl-schemastore.json
+
+      - name: Compare schemas
+        id: compare
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.fetch.outputs.remote_schema_exists }}" != "true" ]; then
+            echo "schemas_match=false" >> "$GITHUB_OUTPUT"
+            echo "SchemaStore does not have ryl.json yet."
+            exit 0
+          fi
+
+          jq -S '.' ryl-schemastore.json > local-normalized.json
+          jq -S '.' schemastore-current.json > remote-normalized.json
+
+          if diff -q local-normalized.json remote-normalized.json > /dev/null 2>&1; then
+            echo "schemas_match=true" >> "$GITHUB_OUTPUT"
+            echo "SchemaStore is already in sync."
+          else
+            echo "schemas_match=false" >> "$GITHUB_OUTPUT"
+            echo "SchemaStore differs from the local projection."
+            diff -u remote-normalized.json local-normalized.json || true
+          fi
+
+      - name: Generate token for SchemaStore fork
+        if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run != true
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
+        with:
+          app-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: owenlamont
+          repositories: schemastore
+
+      - name: Update SchemaStore fork branch
+        if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run != true
+        id: fork-update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${SCHEMASTORE_FORK}.git" schemastore-repo
+          cd schemastore-repo
+          git remote add upstream "https://github.com/${SCHEMASTORE_UPSTREAM}.git"
+          git fetch upstream master
+          git checkout -B "${SCHEMASTORE_BRANCH}" upstream/master
+
+          npm ci
+
+          mkdir -p \
+            "$(dirname "${SCHEMASTORE_SCHEMA_PATH}")" \
+            "${SCHEMASTORE_TEST_DIR}" \
+            "${SCHEMASTORE_NEGATIVE_TEST_DIR}"
+
+          cp ../ryl-schemastore.json "${SCHEMASTORE_SCHEMA_PATH}"
+          cp ../tests/fixtures/schemastore/ryl-valid.toml "${SCHEMASTORE_TEST_DIR}/01-valid.toml"
+          cp ../tests/fixtures/schemastore/ryl-invalid.toml "${SCHEMASTORE_NEGATIVE_TEST_DIR}/01-invalid.toml"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          catalog_path = Path("src/api/json/catalog.json")
+          catalog = json.loads(catalog_path.read_text())
+          entry = {
+              "name": "ryl",
+              "description": "ryl, a fast YAML linter written in Rust",
+              "fileMatch": ["ryl.toml", ".ryl.toml"],
+              "url": "https://www.schemastore.org/ryl.json",
+          }
+          schemas = [
+              schema
+              for schema in catalog["schemas"]
+              if schema.get("url") != entry["url"] and schema.get("name") != entry["name"]
+          ]
+          schemas.append(entry)
+          catalog["schemas"] = sorted(
+              schemas,
+              key=lambda schema: schema["name"].lower(),
+          )
+          catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
+          PY
+
+          npx prettier --write \
+            "${SCHEMASTORE_SCHEMA_PATH}" \
+            "${SCHEMASTORE_CATALOG_PATH}" \
+            "${SCHEMASTORE_TEST_DIR}/01-valid.toml" \
+            "${SCHEMASTORE_NEGATIVE_TEST_DIR}/01-invalid.toml"
+
+          node cli.js check --schema-name=ryl.json
+
+          if git diff --quiet -- \
+            "${SCHEMASTORE_SCHEMA_PATH}" \
+            "${SCHEMASTORE_CATALOG_PATH}" \
+            "${SCHEMASTORE_TEST_DIR}" \
+            "${SCHEMASTORE_NEGATIVE_TEST_DIR}"; then
+            echo "fork_changed=false" >> "$GITHUB_OUTPUT"
+            echo "SchemaStore fork already matches the generated update."
+            exit 0
+          fi
+
+          if [ "${{ steps.fetch.outputs.remote_schema_exists }}" = "true" ]; then
+            COMMIT_SUBJECT="feat(ryl): update schema to v${VERSION}"
+          else
+            COMMIT_SUBJECT="feat(ryl): add schema for v${VERSION}"
+          fi
+
+          git add \
+            "${SCHEMASTORE_SCHEMA_PATH}" \
+            "${SCHEMASTORE_CATALOG_PATH}" \
+            "${SCHEMASTORE_TEST_DIR}" \
+            "${SCHEMASTORE_NEGATIVE_TEST_DIR}"
+          git commit -m "${COMMIT_SUBJECT}"
+          git push origin "${SCHEMASTORE_BRANCH}" --force
+
+          echo "fork_changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update SchemaStore PR
+        if: steps.fork-update.outputs.fork_changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.fetch.outputs.remote_schema_exists }}" = "true" ]; then
+            PR_TITLE="feat(ryl): update schema to v${VERSION}"
+          else
+            PR_TITLE="feat(ryl): add schema for v${VERSION}"
+          fi
+
+          PR_BODY=$(cat <<EOF
+          Syncs SchemaStore's \`ryl.json\` with the schema released in \`ryl\` v${VERSION}.
+
+          ## Changes
+
+          - Updates \`src/schemas/json/ryl.json\`
+          - Adds or refreshes the catalog entry for \`ryl.toml\` / \`.ryl.toml\`
+          - Adds positive and negative TOML tests under \`src/test/ryl\` and \`src/negative_test/ryl\`
+
+          ## Validation
+
+          - \`node cli.js check --schema-name=ryl.json\`
+
+          ## Source
+
+          - Schema source: https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/ryl.toml.schema.json
+          - Release workflow: https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/.github/workflows/sync-schemastore.yml
+          EOF
+          )
+
+          if EXISTING_PR_NUM=$(gh pr list \
+            --repo "${SCHEMASTORE_UPSTREAM}" \
+            --head "owenlamont:${SCHEMASTORE_BRANCH}" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty' 2>/dev/null); then
+            if [ -n "${EXISTING_PR_NUM}" ]; then
+              echo "Updated existing PR #${EXISTING_PR_NUM}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            {
+              echo "## Manual SchemaStore PR required"
+              echo
+              echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`,"
+              echo "but the GitHub App token could not query \`${SCHEMASTORE_UPSTREAM}\`."
+              echo "Create the PR manually from \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`"
+              echo "to \`${SCHEMASTORE_UPSTREAM}:master\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if gh pr create \
+            --repo "${SCHEMASTORE_UPSTREAM}" \
+            --head "owenlamont:${SCHEMASTORE_BRANCH}" \
+            --title "${PR_TITLE}" \
+            --body "${PR_BODY}"; then
+            echo "Created SchemaStore PR automatically." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Manual SchemaStore PR required"
+              echo
+              echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`,"
+              echo "but automatic PR creation against \`${SCHEMASTORE_UPSTREAM}\` was not permitted."
+              echo "Create the PR manually from \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`"
+              echo "to \`${SCHEMASTORE_UPSTREAM}:master\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Dry run summary
+        if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run == true
+        run: |
+          echo "## Dry run summary" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.fetch.outputs.remote_schema_exists }}" = "true" ]; then
+            diff -u schemastore-current.json ryl-schemastore.json >> "$GITHUB_STEP_SUMMARY" || true
+          else
+            echo "SchemaStore does not have ryl.json yet; the first run would add it." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Already in sync
+        if: steps.compare.outputs.schemas_match == 'true'
+        run: echo "SchemaStore already matches the local ryl projection."

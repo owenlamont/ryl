@@ -211,9 +211,18 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   - `ryl.toml.schema.json` for `.ryl.toml` / `ryl.toml` / `[tool.ryl]`
   - `ryl.yaml.schema.json` for yamllint-compatible YAML config files such as
     `.yamllint` / `.yamllint.yml` / `.yamllint.yaml`
+- SchemaStore sync only targets the native TOML config and publishes a draft-07
+  projection for `ryl.toml` / `.ryl.toml`. SchemaStore cannot target the
+  `[tool.ryl]` table inside `pyproject.toml`, so that remains covered by the
+  broader `pyproject.toml` schema association.
+- Automatic release-time SchemaStore sync is currently left commented out in
+  `release.yml`; run the sync workflow manually to test it in isolation before
+  re-enabling the release hook.
 - Regenerate them with:
   - `cargo run --quiet --bin ryl -- --print-toml-config-schema > ryl.toml.schema.json`
   - `cargo run --quiet --bin ryl -- --print-yaml-config-schema > ryl.yaml.schema.json`
+- Print the SchemaStore projection locally with:
+  - `uv run scripts/print_ryl_schemastore_schema.py > /tmp/ryl.schemastore.json`
 
 Example TOML config (`.ryl.toml`):
 
