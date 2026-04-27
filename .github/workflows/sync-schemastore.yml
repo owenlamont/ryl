@@ -175,11 +175,16 @@ jobs:
               for schema in catalog["schemas"]
               if schema.get("url") != entry["url"] and schema.get("name") != entry["name"]
           ]
-          schemas.append(entry)
-          catalog["schemas"] = sorted(
-              schemas,
-              key=lambda schema: schema["name"].lower(),
+          insert_after = next(
+              (
+                  index + 1
+                  for index, schema in enumerate(schemas)
+                  if schema.get("name") == "rustfmt"
+              ),
+              len(schemas),
           )
+          schemas.insert(insert_after, entry)
+          catalog["schemas"] = schemas
           catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
           PY
 
