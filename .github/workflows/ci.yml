@@ -22,18 +22,18 @@ jobs:
           uv tool install yamllint --force
           yamllint --version
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
 
       - name: Install Rust components
         run: rustup component add rustfmt clippy llvm-tools-preview
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@58e862542551f667fa44c8a2a4a1d64ad477c96a
+        uses: taiki-e/install-action@cf525cb33f51aca27cd6fa02034117ab963ff9f1
         with:
           tool: cargo-nextest
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@58e862542551f667fa44c8a2a4a1d64ad477c96a
+        uses: taiki-e/install-action@cf525cb33f51aca27cd6fa02034117ab963ff9f1
         with:
           tool: cargo-llvm-cov
 

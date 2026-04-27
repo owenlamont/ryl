@@ -490,9 +490,7 @@ impl YamlLintConfig {
         if !other.yaml_file_patterns.is_empty() {
             self.yaml_file_patterns = other.yaml_file_patterns;
         }
-        if self.locale.is_none() {
-            self.locale = other.locale;
-        }
+        self.locale = self.locale.take().or(other.locale);
     }
 
     fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {

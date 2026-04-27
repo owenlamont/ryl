@@ -33,12 +33,18 @@ fn properties_for_ref<'a>(schema: &'a Value, property: &str) -> &'a Value {
                 })
         })
         .expect("schema property should reference a definition");
-    let definition = reference
+    let (definitions_key, definition) = reference
         .strip_prefix("#/$defs/")
-        .expect("schema ref should point into $defs");
+        .map(|definition| ("$defs", definition))
+        .or_else(|| {
+            reference
+                .strip_prefix("#/definitions/")
+                .map(|definition| ("definitions", definition))
+        })
+        .expect("schema ref should point into a definitions map");
 
     schema
-        .get("$defs")
+        .get(definitions_key)
         .and_then(|defs| defs.get(definition))
         .and_then(|entry| entry.get("properties"))
         .expect("schema definition properties should exist")
@@ -58,9 +64,74 @@ fn checked_in_text(path: &str) -> String {
         .expect("checked-in artifact should exist")
 }
 
+fn schemastore_yamllint_schema() -> Value {
+    checked_in_schema("tests/fixtures/schemastore-yamllint.json")
+}
+
+struct SchemaComparisonCase {
+    name: &'static str,
+    instance: Value,
+    expected: bool,
+}
+
+fn sampled_yaml_schema_comparison_cases() -> Vec<SchemaComparisonCase> {
+    vec![
+        SchemaComparisonCase {
+            name: "extends-string",
+            instance: json!({ "extends": "default" }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "extends-sequence",
+            instance: json!({ "extends": ["default", "relaxed"] }),
+            expected: false,
+        },
+        SchemaComparisonCase {
+            name: "yaml-files-list",
+            instance: json!({ "yaml-files": ["*.yaml", "*.yml"] }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "yaml-files-scalar",
+            instance: json!({ "yaml-files": "*.yaml" }),
+            expected: false,
+        },
+        SchemaComparisonCase {
+            name: "ignore-string",
+            instance: json!({ "ignore": "vendor/**\ngenerated/**" }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "ignore-from-file-list",
+            instance: json!({ "ignore-from-file": [".gitignore", ".yamlignore"] }),
+            expected: true,
+        },
+        SchemaComparisonCase {
+            name: "ignore-mutually-exclusive",
+            instance: json!({
+                "ignore": "vendor/**",
+                "ignore-from-file": ".gitignore"
+            }),
+            expected: false,
+        },
+        SchemaComparisonCase {
+            name: "rule-mapping",
+            instance: json!({
+                "rules": {
+                    "line-length": {
+                        "max": 80
+                    }
+                }
+            }),
+            expected: true,
+        },
+    ]
+}
+
 fn assert_readable_rule_wrapper_defs(schema: &Value) {
     let defs = schema
         .get("$defs")
+        .or_else(|| schema.get("definitions"))
         .and_then(Value::as_object)
         .expect("schema defs should exist");
 
@@ -95,6 +166,37 @@ fn printed_schema(flag: &str) -> Value {
     let stdout =
         String::from_utf8(out.stdout).expect("schema output should be valid UTF-8");
     serde_json::from_str(&stdout).expect("schema output should be JSON")
+}
+
+fn printed_schemastore_toml_schema() -> Value {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let out = Command::new("uv")
+        .arg("run")
+        .arg("scripts/print_ryl_schemastore_schema.py")
+        .current_dir(root)
+        .output()
+        .expect("SchemaStore schema script should run");
+
+    assert!(
+        out.status.success(),
+        "SchemaStore schema script should succeed: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stderr.is_empty());
+
+    let stdout =
+        String::from_utf8(out.stdout).expect("schema output should be valid UTF-8");
+    serde_json::from_str(&stdout).expect("schema output should be JSON")
+}
+
+fn schema_contains_int64_format(node: &Value) -> bool {
+    match node {
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            (key == "format" && value == "int64") || schema_contains_int64_format(value)
+        }),
+        Value::Array(values) => values.iter().any(schema_contains_int64_format),
+        _ => false,
+    }
 }
 
 #[test]
@@ -181,12 +283,71 @@ fn cli_print_toml_config_schema_outputs_generated_schema_without_inputs() {
 }
 
 #[test]
+fn schemastore_toml_schema_sets_expected_metadata() {
+    let source_schema = schema_value();
+    let schemastore_schema = printed_schemastore_toml_schema();
+
+    assert_eq!(
+        schemastore_schema.get("$schema").and_then(Value::as_str),
+        Some("http://json-schema.org/draft-07/schema#")
+    );
+    assert_eq!(
+        schemastore_schema.get("$id").and_then(Value::as_str),
+        Some("https://json.schemastore.org/ryl.json")
+    );
+    assert!(schemastore_schema.get("$defs").is_none());
+    assert_eq!(
+        schemastore_schema
+            .get("definitions")
+            .and_then(Value::as_object)
+            .map(|definitions| definitions.len()),
+        source_schema
+            .get("$defs")
+            .and_then(Value::as_object)
+            .map(|definitions| definitions.len())
+    );
+    assert!(!schema_contains_int64_format(&schemastore_schema));
+}
+
+#[test]
+fn schemastore_toml_schema_exposes_known_rule_properties() {
+    let schema = printed_schemastore_toml_schema();
+    let rule_properties = properties_for_ref(&schema, "rules");
+
+    assert!(rule_properties.get("quoted-strings").is_some());
+    assert!(rule_properties.get("new-line-at-end-of-file").is_some());
+    assert!(rule_properties.get("comments-indentation").is_some());
+}
+
+#[test]
+fn schemastore_toml_schema_uses_readable_rule_wrapper_names() {
+    let schema = printed_schemastore_toml_schema();
+    assert_readable_rule_wrapper_defs(&schema);
+}
+
+#[test]
+fn schemastore_toml_schema_validates_repo_fixtures() {
+    let schema = printed_schemastore_toml_schema();
+    let validator =
+        validator_for(&schema).expect("SchemaStore TOML schema should compile");
+    let valid = toml_to_json(&checked_in_text(
+        "tests/fixtures/schemastore/ryl-valid.toml",
+    ));
+    let invalid = toml_to_json(&checked_in_text(
+        "tests/fixtures/schemastore/ryl-invalid.toml",
+    ));
+
+    assert!(validator.is_valid(&valid));
+    assert!(!validator.is_valid(&invalid));
+}
+
+#[test]
 fn generated_yaml_schema_accepts_valid_sample_config() {
     let schema = yaml_schema_value();
     let validator = validator_for(&schema).expect("generated schema should compile");
     let instance = json!({
-        "extends": ["default", "relaxed"],
-        "yaml-files": "*.yaml",
+        "extends": "default",
+        "yaml-files": ["*.yaml"],
         "ignore": "vendor/**\ngenerated/**",
         "locale": "en_US.UTF-8",
         "rules": {
@@ -214,7 +375,9 @@ fn generated_yaml_schema_rejects_invalid_known_field_types() {
     let schema = yaml_schema_value();
     let validator = validator_for(&schema).expect("generated schema should compile");
     let instance = json!({
-        "yaml-files": 5,
+        "yaml-files": "*.yaml",
+        "ignore": "vendor/**",
+        "ignore-from-file": ".gitignore",
         "rules": {
             "comments": {
                 "require-starting-space": "yes"
@@ -231,6 +394,35 @@ fn generated_yaml_schema_rejects_invalid_known_field_types() {
 #[test]
 fn generated_yaml_schema_uses_readable_rule_wrapper_names() {
     assert_readable_rule_wrapper_defs(&yaml_schema_value());
+}
+
+#[test]
+fn generated_yaml_schema_matches_schemastore_snapshot_for_sampled_configs() {
+    let local_schema = yaml_schema_value();
+    let local_validator =
+        validator_for(&local_schema).expect("generated YAML schema should compile");
+    let schemastore_schema = schemastore_yamllint_schema();
+    let schemastore_validator = validator_for(&schemastore_schema)
+        .expect("SchemaStore yamllint snapshot should compile");
+    // This is a sampled verdict comparison, not a full semantic-equivalence check,
+    // because the two schemas use different but plausibly equivalent structures.
+    for SchemaComparisonCase {
+        name,
+        instance,
+        expected,
+    } in sampled_yaml_schema_comparison_cases()
+    {
+        assert_eq!(
+            local_validator.is_valid(&instance),
+            expected,
+            "generated YAML schema drifted on sampled case {name}"
+        );
+        assert_eq!(
+            schemastore_validator.is_valid(&instance),
+            expected,
+            "SchemaStore yamllint snapshot drifted on sampled case {name}"
+        );
+    }
 }
 
 #[test]

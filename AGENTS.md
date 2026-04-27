@@ -187,6 +187,14 @@ sticking to the quick-status step above.
 - Use meaningful function and variable names in tests—comments are discouraged.
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
+- The vendored SchemaStore yamllint snapshot lives at
+  `tests/fixtures/schemastore-yamllint.json`; refresh it with
+  `uv run scripts/update_yamllint_schemastore_snapshot.py` instead of fetching from
+  the network in normal tests.
+- The SchemaStore TOML projection comes from
+  `uv run scripts/print_ryl_schemastore_schema.py`; it targets only
+  `ryl.toml` / `.ryl.toml` because SchemaStore cannot attach directly to
+  `[tool.ryl]` inside `pyproject.toml`.
 
 ## Release Checklist
 
@@ -207,6 +215,13 @@ sticking to the quick-status step above.
   - `.github/workflows/release.yml` validates that the pushed tag version
     matches `Cargo.toml`, `pyproject.toml`, and `package.json` versions
     before release jobs run.
+- `.github/workflows/sync-schemastore.yml` projects `ryl.toml.schema.json`
+  into SchemaStore's draft-07 format, updates the user's SchemaStore fork,
+  and attempts to open or refresh the upstream PR. The release workflow keeps
+  the automatic SchemaStore hook commented out until the manual dispatch path
+  and first upstream PR flow have been proven. If the GitHub App can push to
+  the fork but cannot access `SchemaStore/schemastore`, create the PR manually
+  from `owenlamont/schemastore:ryl-schema-update`.
   - Publishing uses Trusted Publishing for all registries:
     - crates.io via GitHub OIDC (`rust-lang/crates-io-auth-action`)
     - PyPI via Trusted Publishing (`pypa/gh-action-pypi-publish`)

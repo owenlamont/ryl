@@ -131,7 +131,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
     NormalizedConfig {
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
-        yaml_file_patterns: config.yaml_files.as_ref().map(string_or_vec_items),
+        yaml_file_patterns: config.yaml_files.clone(),
         locale: config.locale.clone(),
         fix: None,
         rules: config

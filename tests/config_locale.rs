@@ -82,7 +82,7 @@ fn locale_non_string_errors() {
 }
 
 #[test]
-fn locale_survives_additional_extends() {
+fn locale_with_extends_sequence_errors() {
     let root = PathBuf::from("/workspace");
     let cfg = root.join("config.yml");
     let first = root.join("first.yml");
@@ -107,6 +107,7 @@ fn locale_survives_additional_extends() {
         },
         &env,
     )
-    .expect("multiple extends should parse");
-    assert_eq!(ctx.config.locale(), Some("en_US.UTF-8"));
+    .expect_err("extends sequence should error");
+    assert!(ctx.contains("failed to parse config data:"), "{ctx}");
+    assert!(ctx.contains("extends"), "{ctx}");
 }
