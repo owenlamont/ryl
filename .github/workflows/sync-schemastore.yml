@@ -54,6 +54,10 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source_ref || github.sha }}
 
+      - name: Capture source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Read release version
         id: version
         run: |
@@ -123,6 +127,7 @@ jobs:
         id: fork-update
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -235,8 +240,8 @@ jobs:
 
           ## Source
 
-          - Schema source: https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/ryl.toml.schema.json
-          - Release workflow: https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/.github/workflows/sync-schemastore.yml
+          - Schema source: https://github.com/${GITHUB_REPOSITORY}/blob/${SOURCE_SHA}/ryl.toml.schema.json
+          - Release workflow: https://github.com/${GITHUB_REPOSITORY}/blob/${SOURCE_SHA}/.github/workflows/sync-schemastore.yml
           EOF
           )
 
