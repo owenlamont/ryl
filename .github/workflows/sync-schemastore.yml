@@ -117,7 +117,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
         with:
-          app-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
+          client-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
           owner: owenlamont
           repositories: schemastore
@@ -149,8 +149,14 @@ jobs:
             "${SCHEMASTORE_NEGATIVE_TEST_DIR}"
 
           cp ../ryl-schemastore.json "${SCHEMASTORE_SCHEMA_PATH}"
-          cp ../tests/fixtures/schemastore/ryl-valid.toml "${SCHEMASTORE_TEST_DIR}/01-valid.toml"
-          cp ../tests/fixtures/schemastore/ryl-invalid.toml "${SCHEMASTORE_NEGATIVE_TEST_DIR}/01-invalid.toml"
+          {
+            echo "#:schema ../../schemas/json/ryl.json"
+            sed '/^#:schema /d' ../tests/fixtures/schemastore/ryl-valid.toml
+          } > "${SCHEMASTORE_TEST_DIR}/01-valid.toml"
+          {
+            echo "#:schema ../../schemas/json/ryl.json"
+            sed '/^#:schema /d' ../tests/fixtures/schemastore/ryl-invalid.toml
+          } > "${SCHEMASTORE_NEGATIVE_TEST_DIR}/01-invalid.toml"
 
           python3 - <<'PY'
           import json
@@ -169,11 +175,16 @@ jobs:
               for schema in catalog["schemas"]
               if schema.get("url") != entry["url"] and schema.get("name") != entry["name"]
           ]
-          schemas.append(entry)
-          catalog["schemas"] = sorted(
-              schemas,
-              key=lambda schema: schema["name"].lower(),
+          insert_after = next(
+              (
+                  index + 1
+                  for index, schema in enumerate(schemas)
+                  if schema.get("name") == "rustfmt"
+              ),
+              len(schemas),
           )
+          schemas.insert(insert_after, entry)
+          catalog["schemas"] = schemas
           catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
           PY
 
@@ -211,10 +222,10 @@ jobs:
 
           echo "fork_changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Create or update SchemaStore PR
+      - name: Summarize SchemaStore PR handoff
         if: steps.fork-update.outputs.fork_changed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -245,44 +256,21 @@ jobs:
           EOF
           )
 
-          if EXISTING_PR_NUM=$(gh pr list \
-            --repo "${SCHEMASTORE_UPSTREAM}" \
-            --head "owenlamont:${SCHEMASTORE_BRANCH}" \
-            --state open \
-            --json number \
-            --jq '.[0].number // empty' 2>/dev/null); then
-            if [ -n "${EXISTING_PR_NUM}" ]; then
-              echo "Updated existing PR #${EXISTING_PR_NUM}." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          else
-            {
-              echo "## Manual SchemaStore PR required"
-              echo
-              echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`,"
-              echo "but the GitHub App token could not query \`${SCHEMASTORE_UPSTREAM}\`."
-              echo "Create the PR manually from \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`"
-              echo "to \`${SCHEMASTORE_UPSTREAM}:master\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if gh pr create \
-            --repo "${SCHEMASTORE_UPSTREAM}" \
-            --head "owenlamont:${SCHEMASTORE_BRANCH}" \
-            --title "${PR_TITLE}" \
-            --body "${PR_BODY}"; then
-            echo "Created SchemaStore PR automatically." >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "## Manual SchemaStore PR required"
-              echo
-              echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`,"
-              echo "but automatic PR creation against \`${SCHEMASTORE_UPSTREAM}\` was not permitted."
-              echo "Create the PR manually from \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`"
-              echo "to \`${SCHEMASTORE_UPSTREAM}:master\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          {
+            echo "## Manual SchemaStore PR required"
+            echo
+            echo "The branch was pushed to \`${SCHEMASTORE_FORK}:${SCHEMASTORE_BRANCH}\`."
+            echo "Create the upstream PR manually against \`${SCHEMASTORE_UPSTREAM}:master\`."
+            echo
+            echo "- PR URL: https://github.com/${SCHEMASTORE_UPSTREAM}/compare/master...owenlamont:${SCHEMASTORE_BRANCH}?expand=1"
+            echo "- PR title: \`${PR_TITLE}\`"
+            echo
+            echo "### Suggested PR body"
+            echo
+            echo '```markdown'
+            echo "${PR_BODY}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dry run summary
         if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run == true
