@@ -185,8 +185,8 @@ fn generated_yaml_schema_accepts_valid_sample_config() {
     let schema = yaml_schema_value();
     let validator = validator_for(&schema).expect("generated schema should compile");
     let instance = json!({
-        "extends": ["default", "relaxed"],
-        "yaml-files": "*.yaml",
+        "extends": "default",
+        "yaml-files": ["*.yaml"],
         "ignore": "vendor/**\ngenerated/**",
         "locale": "en_US.UTF-8",
         "rules": {
@@ -214,7 +214,9 @@ fn generated_yaml_schema_rejects_invalid_known_field_types() {
     let schema = yaml_schema_value();
     let validator = validator_for(&schema).expect("generated schema should compile");
     let instance = json!({
-        "yaml-files": 5,
+        "yaml-files": "*.yaml",
+        "ignore": "vendor/**",
+        "ignore-from-file": ".gitignore",
         "rules": {
             "comments": {
                 "require-starting-space": "yes"

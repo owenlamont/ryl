@@ -1675,18 +1675,24 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "not": {
+        "required": [
+          "ignore",
+          "ignore-from-file"
+        ]
+      }
+    }
+  ],
   "description": "JSON Schema root for yamllint-compatible YAML configuration.",
   "properties": {
     "extends": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/StringOrVec"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Preset or config files to extend, either as one string or a list."
+      "description": "Preset or config file to extend.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "ignore": {
       "anyOf": [
@@ -1729,15 +1735,14 @@
       "description": "Rule configuration table."
     },
     "yaml-files": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/StringOrVec"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Glob patterns used to identify YAML files while scanning directories."
+      "description": "Glob patterns used to identify YAML files while scanning directories.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
     }
   },
   "title": "ryl yamllint-compatible YAML config",

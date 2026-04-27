@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use saphyr::{MappingOwned, YamlOwned};
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 pub(crate) use serialization::yaml_owned_to_toml_value;
 pub use serialization::{
@@ -40,11 +40,11 @@ pub struct TomlConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(title = "ryl yamllint-compatible YAML config")]
 pub struct YamlConfig {
-    /// Preset or config files to extend, either as one string or a list.
-    pub extends: Option<StringOrVec>,
+    /// Preset or config file to extend.
+    pub extends: Option<String>,
     /// Glob patterns used to identify YAML files while scanning directories.
     #[serde(rename = "yaml-files")]
-    pub yaml_files: Option<StringOrVec>,
+    pub yaml_files: Option<Vec<String>>,
     /// Ignore patterns, either as one multi-line string or a list of patterns.
     pub ignore: Option<StringOrVec>,
     /// Paths to files that contain ignore patterns.
@@ -516,7 +516,19 @@ pub fn schema() -> Schema {
 
 #[must_use]
 pub fn yaml_schema() -> Schema {
-    schema_for!(YamlConfig)
+    let mut schema = schema_for!(YamlConfig);
+    if let Some(root) = schema.as_object_mut() {
+        root.entry("allOf").or_insert_with(|| {
+            json!([
+                {
+                    "not": {
+                        "required": ["ignore", "ignore-from-file"]
+                    }
+                }
+            ])
+        });
+    }
+    schema
 }
 
 /// Deserialize TOML configuration text into the typed schema model.
@@ -625,23 +637,6 @@ fn load_ignore_from_files(node: &YamlOwned) -> Vec<String> {
     parse_string_items(node, |value| vec![value.to_owned()])
 }
 
-#[must_use]
-pub(crate) fn load_extends_entries(node: &YamlOwned) -> Vec<String> {
-    match node {
-        YamlOwned::Value(value) => value
-            .as_str()
-            .map(std::string::ToString::to_string)
-            .into_iter()
-            .collect(),
-        YamlOwned::Sequence(seq) => seq
-            .iter()
-            .filter_map(YamlOwned::as_str)
-            .map(std::string::ToString::to_string)
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
 pub(super) fn patterns_from_scalar(value: &str) -> Vec<String> {
     value
         .lines()
@@ -687,10 +682,7 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     validate_yaml_config(&typed)?;
 
     Ok(ParsedYamlConfig {
-        extends: doc
-            .as_mapping_get("extends")
-            .map(load_extends_entries)
-            .unwrap_or_default(),
+        extends: typed.extends.iter().cloned().collect(),
         normalized: normalize_typed_yaml_config(doc, &typed),
     })
 }
@@ -700,9 +692,6 @@ fn parse_typed_yaml_config(doc: &YamlOwned) -> Result<YamlConfig, String> {
     for (key, value) in doc.as_mapping().expect(
         "parse_yaml_config should only call parse_typed_yaml_config for mappings",
     ) {
-        if key.as_str() == Some("extends") {
-            continue;
-        }
         map.insert(key.clone(), value.clone());
     }
     let value = yaml_owned_to_toml_value(&YamlOwned::Mapping(map))

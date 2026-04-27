@@ -1,18 +1,16 @@
 use ryl::config::{Overrides, discover_config};
 
 #[test]
-fn extends_sequence_merges_presets_in_order() {
+fn extends_sequence_errors() {
     let cfg = "extends: [default, relaxed]\n";
-    let ctx = discover_config(
+    let err = discover_config(
         &[],
         &Overrides {
             config_file: None,
             config_data: Some(cfg.into()),
         },
     )
-    .expect("parse");
-    // From default
-    assert!(ctx.config.rule_names().contains(&"anchors".to_string()));
-    // From relaxed override
-    assert!(ctx.config.rule_names().contains(&"braces".to_string()));
+    .expect_err("extends sequence should error");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("extends"), "{err}");
 }

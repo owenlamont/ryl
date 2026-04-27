@@ -7,17 +7,18 @@ mod common;
 use common::fake_env::FakeEnv;
 
 #[test]
-fn inline_extends_mapping_is_ignored() {
+fn inline_extends_mapping_errors() {
     let yaml = "extends:\n  invalid: true\nrules: {}\n";
-    let ctx = discover_config(
+    let err = discover_config(
         &[],
         &Overrides {
             config_file: None,
             config_data: Some(yaml.into()),
         },
     )
-    .expect("inline config should parse");
-    assert!(ctx.config.rule_names().is_empty());
+    .expect_err("mapping extends should error");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("extends"), "{err}");
 }
 
 #[test]
@@ -28,28 +29,30 @@ fn extends_requires_env_error() {
 }
 
 #[test]
-fn extends_value_non_string_is_ignored() {
-    let cfg = YamlLintConfig::from_yaml_str("extends: 123\nrules: {}\n")
-        .expect("non-string extends should be ignored");
-    assert!(cfg.rule_names().is_empty());
+fn extends_value_non_string_errors() {
+    let err = YamlLintConfig::from_yaml_str("extends: 123\nrules: {}\n")
+        .expect_err("non-string extends should error");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("extends"), "{err}");
 }
 
 #[test]
-fn inline_extends_sequence_skips_non_strings() {
+fn inline_extends_sequence_errors() {
     let yaml = "extends: [default, 1]\n";
-    let ctx = discover_config(
+    let err = discover_config(
         &[],
         &Overrides {
             config_file: None,
             config_data: Some(yaml.into()),
         },
     )
-    .expect("extends should allow mixed types");
-    assert!(ctx.config.rule_names().iter().any(|r| r == "anchors"));
+    .expect_err("extends sequence should error");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("extends"), "{err}");
 }
 
 #[test]
-fn extends_sequence_missing_entry_errors() {
+fn extends_sequence_is_rejected_before_resolution() {
     let root = PathBuf::from("/workspace");
     let child = root.join("child.yml");
     let base = root.join("base.yml");
@@ -68,8 +71,9 @@ fn extends_sequence_missing_entry_errors() {
         },
         &env,
     )
-    .expect_err("missing extended file should error");
-    assert!(err.contains("failed to read extended config"));
+    .expect_err("extends sequence should error");
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("extends"), "{err}");
 }
 
 #[test]
