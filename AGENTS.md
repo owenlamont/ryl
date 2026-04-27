@@ -216,12 +216,9 @@ sticking to the quick-status step above.
     matches `Cargo.toml`, `pyproject.toml`, and `package.json` versions
     before release jobs run.
 - `.github/workflows/sync-schemastore.yml` projects `ryl.toml.schema.json`
-  into SchemaStore's draft-07 format, updates the user's SchemaStore fork,
-  and attempts to open or refresh the upstream PR. The release workflow keeps
-  the automatic SchemaStore hook commented out until the manual dispatch path
-  and first upstream PR flow have been proven. If the GitHub App can push to
-  the fork but cannot access `SchemaStore/schemastore`, create the PR manually
-  from `owenlamont/schemastore:ryl-schema-update`.
+  into SchemaStore's draft-07 format and updates the user's SchemaStore fork.
+  The release workflow runs it after a successful release and prints a manual
+  upstream PR handoff for `owenlamont/schemastore:ryl-schema-update`.
   - Publishing uses Trusted Publishing for all registries:
     - crates.io via GitHub OIDC (`rust-lang/crates-io-auth-action`)
     - PyPI via Trusted Publishing (`pypa/gh-action-pypi-publish`)

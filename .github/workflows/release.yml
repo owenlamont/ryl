@@ -857,21 +857,19 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release edit "$RELEASE_TAG" -R "${GITHUB_REPOSITORY}" --draft=false
 
-  # TODO: Re-enable after the manual SchemaStore sync path has been tested in
-  # isolation and the first upstream PR flow is confirmed.
-  # sync-schemastore:
-  #   name: Sync SchemaStore
-  #   needs:
-  #     - finalize-github-release
-  #   if: >-
-  #     startsWith(github.ref, 'refs/tags/v') &&
-  #     (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
-  #   uses: ./.github/workflows/sync-schemastore.yml
-  #   with:
-  #     source_ref: ${{ github.sha }}
-  #   secrets:
-  #     AUTH_APP_CLIENT_ID: ${{ secrets.AUTH_APP_CLIENT_ID }}
-  #     AUTH_APP_PRIVATE_KEY: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+  sync-schemastore:
+    name: Sync SchemaStore
+    needs:
+      - finalize-github-release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    uses: ./.github/workflows/sync-schemastore.yml
+    with:
+      source_ref: ${{ github.sha }}
+    secrets:
+      AUTH_APP_CLIENT_ID: ${{ secrets.AUTH_APP_CLIENT_ID }}
+      AUTH_APP_PRIVATE_KEY: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
 
   notify-ryl-pre-commit:
     name: Notify ryl-pre-commit

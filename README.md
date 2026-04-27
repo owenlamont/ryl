@@ -215,9 +215,9 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   projection for `ryl.toml` / `.ryl.toml`. SchemaStore cannot target the
   `[tool.ryl]` table inside `pyproject.toml`, so that remains covered by the
   broader `pyproject.toml` schema association.
-- Automatic release-time SchemaStore sync is currently left commented out in
-  `release.yml`; run the sync workflow manually to test it in isolation before
-  re-enabling the release hook.
+- Release-time SchemaStore sync updates `owenlamont/schemastore:ryl-schema-update`
+  after a release succeeds and prints the manual upstream PR details in the
+  workflow summary.
 - Regenerate them with:
   - `cargo run --quiet --bin ryl -- --print-toml-config-schema > ryl.toml.schema.json`
   - `cargo run --quiet --bin ryl -- --print-yaml-config-schema > ryl.yaml.schema.json`
