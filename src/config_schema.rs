@@ -27,9 +27,9 @@ pub struct TomlConfig {
     pub ignore_from_file: Option<StringOrVec>,
     /// Locale identifier used by diagnostics.
     pub locale: Option<String>,
-    /// Native fix policy, available only in TOML config.
+    /// Native fix policy.
     pub fix: Option<FixTable>,
-    /// Per-file rule ignores, available only in TOML config.
+    /// Per-file rule ignores.
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
     /// Rule configuration table.

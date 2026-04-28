@@ -1767,7 +1767,7 @@
           "type": "null"
         }
       ],
-      "description": "Native fix policy, available only in TOML config."
+      "description": "Native fix policy."
     },
     "ignore": {
       "anyOf": [
@@ -1805,7 +1805,7 @@
         },
         "type": "array"
       },
-      "description": "Per-file rule ignores, available only in TOML config.",
+      "description": "Per-file rule ignores.",
       "type": [
         "object",
         "null"

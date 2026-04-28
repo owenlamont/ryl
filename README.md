@@ -234,6 +234,8 @@ locale = "en_US.UTF-8"
 [per-file-ignores]
 "**/values.yaml" = ["document-start"]
 "**/kustomization.yaml" = ["document-start"]
+# `!` negates the pattern, so this ignores truthy outside Kubernetes manifests.
+"!k8s/**.yaml" = ["truthy"]
 
 [rules]
 document-start = "disable"
