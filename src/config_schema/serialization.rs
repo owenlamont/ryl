@@ -2,7 +2,7 @@ use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
 use serde::Serialize;
 
 use super::{
-    FixTable, NormalizedConfig, NormalizedFixConfig, RulesTable, StringOrVec,
+    FixTable, NormalizedConfig, NormalizedFixConfig, RuleName, RulesTable, StringOrVec,
     TomlConfig, YamlConfig,
 };
 
@@ -31,6 +31,20 @@ fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
             .unwrap_or_else(|| vec![super::FixableRuleSelector::All]),
         unfixable: fix.unfixable.clone().unwrap_or_default(),
     }
+}
+
+fn normalize_per_file_ignores(
+    ignores: &std::collections::BTreeMap<String, Vec<RuleName>>,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    ignores
+        .iter()
+        .map(|(pattern, rules)| {
+            (
+                pattern.clone(),
+                rules.iter().map(|rule| rule.as_str().to_string()).collect(),
+            )
+        })
+        .collect()
 }
 
 #[must_use]
@@ -117,6 +131,10 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
             .as_ref()
             .map(ignore_patterns_from_string_or_vec),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
+        per_file_ignores: config
+            .per_file_ignores
+            .as_ref()
+            .map_or_else(std::collections::BTreeMap::new, normalize_per_file_ignores),
         yaml_file_patterns: config.yaml_files.clone(),
         locale: config.locale.clone(),
         fix: config.fix.as_ref().map(normalize_fix_table),
@@ -131,6 +149,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
     NormalizedConfig {
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
+        per_file_ignores: std::collections::BTreeMap::new(),
         yaml_file_patterns: config.yaml_files.clone(),
         locale: config.locale.clone(),
         fix: None,
@@ -224,6 +243,11 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
     );
     insert_serialized(&mut table, "locale", config.locale.as_ref());
     insert_serialized(&mut table, "fix", config.fix.as_ref());
+    insert_serialized(
+        &mut table,
+        "per-file-ignores",
+        config.per_file_ignores.as_ref(),
+    );
     if let Some(rules) = config.rules.as_ref() {
         table.insert("rules".to_string(), rules_table_to_value(rules));
     }
@@ -290,6 +314,13 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
         table.insert("fix".to_string(), normalized_fix_to_toml_value(fix));
     }
 
+    if !config.per_file_ignores.is_empty() {
+        table.insert(
+            "per-file-ignores".to_string(),
+            normalized_per_file_ignores_to_toml_value(&config.per_file_ignores),
+        );
+    }
+
     if !config.rules.is_empty() {
         table.insert(
             "rules".to_string(),
@@ -298,4 +329,25 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
     }
 
     toml::Value::Table(table)
+}
+
+fn normalized_per_file_ignores_to_toml_value(
+    per_file_ignores: &std::collections::BTreeMap<String, Vec<String>>,
+) -> toml::Value {
+    toml::Value::Table(
+        per_file_ignores
+            .iter()
+            .map(|(pattern, rules)| {
+                (
+                    pattern.clone(),
+                    toml::Value::Array(
+                        rules
+                            .iter()
+                            .map(|rule| toml::Value::String(rule.clone()))
+                            .collect(),
+                    ),
+                )
+            })
+            .collect(),
+    )
 }

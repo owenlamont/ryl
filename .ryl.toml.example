@@ -5,6 +5,10 @@ generated/**
 """
 locale = "en_US.UTF-8"
 
+[per-file-ignores]
+"**/values.yaml" = ["document-start"]
+"**/kustomization.yaml" = ["document-start"]
+
 [fix]
 fixable = ["ALL"]
 unfixable = ["comments"]

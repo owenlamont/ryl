@@ -391,6 +391,35 @@
       ],
       "type": "string"
     },
+    "RuleName": {
+      "description": "A built-in lint rule name.",
+      "enum": [
+        "anchors",
+        "braces",
+        "brackets",
+        "colons",
+        "commas",
+        "comments",
+        "comments-indentation",
+        "document-end",
+        "document-start",
+        "empty-lines",
+        "empty-values",
+        "float-values",
+        "hyphens",
+        "indentation",
+        "key-duplicates",
+        "key-ordering",
+        "line-length",
+        "new-line-at-end-of-file",
+        "new-lines",
+        "octal-values",
+        "quoted-strings",
+        "trailing-spaces",
+        "truthy"
+      ],
+      "type": "string"
+    },
     "RuleOptionsForAnchorsOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1766,6 +1795,19 @@
       "description": "Locale identifier used by diagnostics.",
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "per-file-ignores": {
+      "additionalProperties": {
+        "items": {
+          "$ref": "#/$defs/RuleName"
+        },
+        "type": "array"
+      },
+      "description": "Per-file rule ignores, available only in TOML config.",
+      "type": [
+        "object",
         "null"
       ]
     },

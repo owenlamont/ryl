@@ -209,6 +209,9 @@ yaml-files = ["*.yaml", "*.yml"]
 ignore = ["vendor/**", "generated/**"]
 locale = "en_US.UTF-8"
 
+[per-file-ignores]
+"**/values.yaml" = ["document-start"]
+
 [rules]
 document-start = "disable"
 comments-indentation = true
@@ -253,12 +256,85 @@ require-starting-space = "yes"
 
 [fix]
 fixable = "comments"
+
+[per-file-ignores]
+"values.yaml" = ["not-a-rule"]
 "#,
     );
 
     assert!(
         !validator.is_valid(&instance),
         "schema should reject invalid field types"
+    );
+}
+
+#[test]
+fn normalize_toml_config_preserves_all_per_file_ignore_rule_names() {
+    let typed = parse_toml_config_str(
+        r#"
+[per-file-ignores]
+"all.yaml" = [
+    "anchors",
+    "braces",
+    "brackets",
+    "colons",
+    "commas",
+    "comments",
+    "comments-indentation",
+    "document-end",
+    "document-start",
+    "empty-lines",
+    "empty-values",
+    "float-values",
+    "hyphens",
+    "indentation",
+    "key-duplicates",
+    "key-ordering",
+    "line-length",
+    "new-line-at-end-of-file",
+    "new-lines",
+    "octal-values",
+    "quoted-strings",
+    "trailing-spaces",
+    "truthy",
+]
+"#,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    let normalized = normalize_toml_config(&typed);
+    let rules = normalized
+        .per_file_ignores
+        .get("all.yaml")
+        .expect("per-file rule list should normalize");
+    assert_eq!(
+        rules,
+        &[
+            "anchors",
+            "braces",
+            "brackets",
+            "colons",
+            "commas",
+            "comments",
+            "comments-indentation",
+            "document-end",
+            "document-start",
+            "empty-lines",
+            "empty-values",
+            "float-values",
+            "hyphens",
+            "indentation",
+            "key-duplicates",
+            "key-ordering",
+            "line-length",
+            "new-line-at-end-of-file",
+            "new-lines",
+            "octal-values",
+            "quoted-strings",
+            "trailing-spaces",
+            "truthy",
+        ]
     );
 }
 
