@@ -231,6 +231,7 @@ check-multi-line-strings = false
 quote-type = "double"
 required = "only-when-needed"
 extra-required = ["^cmd$"]
+allow-double-quotes-for-escaping = true
 check-keys = true
 
 [fix]
@@ -468,6 +469,24 @@ fn generated_yaml_schema_rejects_invalid_known_field_types() {
 }
 
 #[test]
+fn generated_yaml_schema_rejects_toml_only_quoted_strings_option() {
+    let schema = yaml_schema_value();
+    let validator = validator_for(&schema).expect("generated schema should compile");
+    let instance = json!({
+        "rules": {
+            "quoted-strings": {
+                "allow-double-quotes-for-escaping": true
+            }
+        }
+    });
+
+    assert!(
+        !validator.is_valid(&instance),
+        "YAML schema should reject ryl-only quoted-strings options"
+    );
+}
+
+#[test]
 fn generated_yaml_schema_uses_readable_rule_wrapper_names() {
     assert_readable_rule_wrapper_defs(&yaml_schema_value());
 }
@@ -576,6 +595,19 @@ document-start = "disable"
         .and_then(toml::Value::as_str);
 
     assert_eq!(document_start, Some("disable"));
+}
+
+#[test]
+fn typed_toml_parser_accepts_toml_only_quoted_strings_option() {
+    let parsed = parse_toml_config_str(
+        "[rules.quoted-strings]\nallow-double-quotes-for-escaping = true\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    validate_toml_config(&parsed)
+        .expect("TOML-only quoted-strings option should validate");
 }
 
 #[test]

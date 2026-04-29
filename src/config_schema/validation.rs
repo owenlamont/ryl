@@ -4,9 +4,44 @@ use toml::Value;
 use super::{
     KeyOrderingOptions, QuotedStringsOptions, QuotedStringsRequired,
     QuotedStringsRequiredMode, RuleEntry, RuleOptions, RulesTable,
+    TomlQuotedStringsOptions,
 };
 
-impl RulesTable {
+pub trait QuotedStringsOptionSet {
+    fn required(&self) -> Option<&QuotedStringsRequired>;
+    fn extra_required(&self) -> Option<&[String]>;
+    fn extra_allowed(&self) -> Option<&[String]>;
+}
+
+impl QuotedStringsOptionSet for QuotedStringsOptions {
+    fn required(&self) -> Option<&QuotedStringsRequired> {
+        self.required.as_ref()
+    }
+
+    fn extra_required(&self) -> Option<&[String]> {
+        self.extra_required.as_deref()
+    }
+
+    fn extra_allowed(&self) -> Option<&[String]> {
+        self.extra_allowed.as_deref()
+    }
+}
+
+impl QuotedStringsOptionSet for TomlQuotedStringsOptions {
+    fn required(&self) -> Option<&QuotedStringsRequired> {
+        self.required.as_ref()
+    }
+
+    fn extra_required(&self) -> Option<&[String]> {
+        self.extra_required.as_deref()
+    }
+
+    fn extra_allowed(&self) -> Option<&[String]> {
+        self.extra_allowed.as_deref()
+    }
+}
+
+impl<Q: QuotedStringsOptionSet> RulesTable<Q> {
     pub(super) fn validate(&self) -> Result<(), String> {
         validate_key_ordering_rule(self.key_ordering.as_ref())?;
         validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
@@ -59,16 +94,16 @@ fn validate_key_ordering_rule(
 }
 
 fn validate_quoted_strings_rule(
-    entry: Option<&RuleEntry<QuotedStringsOptions>>,
+    entry: Option<&RuleEntry<impl QuotedStringsOptionSet>>,
 ) -> Result<(), String> {
     let Some(options) = rule_options(entry) else {
         return Ok(());
     };
     let specific = &options.specific;
     validate_quoted_strings_semantics(
-        quoted_strings_required_mode(specific.required.as_ref()),
-        specific.extra_required.as_deref(),
-        specific.extra_allowed.as_deref(),
+        quoted_strings_required_mode(specific.required()),
+        specific.extra_required(),
+        specific.extra_allowed(),
     )
 }
 

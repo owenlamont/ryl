@@ -125,6 +125,7 @@ quote-type = "double"
 required = "only-when-needed"
 extra-required = ["^cmd$"]
 allow-quoted-quotes = true
+allow-double-quotes-for-escaping = false
 check-keys = true
 
 [rules.trailing-spaces]

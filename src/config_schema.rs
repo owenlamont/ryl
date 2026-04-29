@@ -33,7 +33,7 @@ pub struct TomlConfig {
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
     /// Rule configuration table.
-    pub rules: Option<RulesTable>,
+    pub rules: Option<RulesTable<TomlQuotedStringsOptions>>,
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
@@ -259,7 +259,7 @@ impl RuleName {
 
 /// Built-in rule table for TOML config.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-pub struct RulesTable {
+pub struct RulesTable<Q = QuotedStringsOptions> {
     pub anchors: Option<RuleEntry<AnchorsOptions>>,
     pub braces: Option<RuleEntry<BraceLikeOptions>>,
     pub brackets: Option<RuleEntry<BraceLikeOptions>>,
@@ -293,7 +293,7 @@ pub struct RulesTable {
     #[serde(rename = "octal-values")]
     pub octal_values: Option<RuleEntry<OctalValuesOptions>>,
     #[serde(rename = "quoted-strings")]
-    pub quoted_strings: Option<RuleEntry<QuotedStringsOptions>>,
+    pub quoted_strings: Option<RuleEntry<Q>>,
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
@@ -522,6 +522,24 @@ pub struct QuotedStringsOptions {
     pub check_keys: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TomlQuotedStringsOptions {
+    #[serde(rename = "quote-type")]
+    pub quote_type: Option<QuoteType>,
+    pub required: Option<QuotedStringsRequired>,
+    #[serde(rename = "extra-required")]
+    pub extra_required: Option<Vec<String>>,
+    #[serde(rename = "extra-allowed")]
+    pub extra_allowed: Option<Vec<String>>,
+    #[serde(rename = "allow-quoted-quotes")]
+    pub allow_quoted_quotes: Option<bool>,
+    #[serde(rename = "allow-double-quotes-for-escaping")]
+    pub allow_double_quotes_for_escaping: Option<bool>,
+    #[serde(rename = "check-keys")]
+    pub check_keys: Option<bool>,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum QuoteType {
     #[serde(rename = "any")]
@@ -530,6 +548,8 @@ pub enum QuoteType {
     Single,
     #[serde(rename = "double")]
     Double,
+    #[serde(rename = "consistent")]
+    Consistent,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -676,10 +696,10 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config(
+fn validate_common_config<Q: validation::QuotedStringsOptionSet>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable>,
+    rules: Option<&RulesTable<Q>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(

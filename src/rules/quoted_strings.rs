@@ -12,22 +12,52 @@ enum QuoteType {
     Any,
     Single,
     Double,
-}
-
-impl QuoteType {
-    const fn matches(self, style: Option<QuoteStyle>) -> bool {
-        match self {
-            Self::Any => style.is_some(),
-            Self::Single => matches!(style, Some(QuoteStyle::Single)),
-            Self::Double => matches!(style, Some(QuoteStyle::Double)),
-        }
-    }
+    Consistent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QuoteStyle {
     Single,
     Double,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScalarQuoteFacts {
+    style: Option<QuoteStyle>,
+    has_quoted_quotes: Flag,
+    has_double_quote_escape: Flag,
+    extra_required: Flag,
+    extra_allowed: Flag,
+    quotes_needed: Flag,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Flag(bool);
+
+impl Flag {
+    const fn new(value: bool) -> Self {
+        Self(value)
+    }
+
+    const fn get(self) -> bool {
+        self.0
+    }
+}
+
+fn quote_style(style: ScalarStyle) -> Option<QuoteStyle> {
+    match style {
+        ScalarStyle::SingleQuoted => Some(QuoteStyle::Single),
+        ScalarStyle::DoubleQuoted => Some(QuoteStyle::Double),
+        ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded => None,
+    }
+}
+
+fn quoted_scalar_contains_opposite_quote(style: ScalarStyle, value: &str) -> bool {
+    match style {
+        ScalarStyle::SingleQuoted => value.contains('"'),
+        ScalarStyle::DoubleQuoted => value.contains('\''),
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +75,7 @@ pub struct Config {
     extra_required: Vec<Regex>,
     extra_allowed: Vec<Regex>,
     allow_quoted_quotes: bool,
+    allow_double_quotes_for_escaping: bool,
     pub check_keys: bool,
 }
 
@@ -62,6 +93,7 @@ impl Config {
         {
             Some("single") => (QuoteType::Single, "single"),
             Some("double") => (QuoteType::Double, "double"),
+            Some("consistent") => (QuoteType::Consistent, "consistent"),
             _ => (QuoteType::Any, "any"),
         };
 
@@ -110,6 +142,11 @@ impl Config {
             .and_then(saphyr::YamlOwned::as_bool)
             .unwrap_or(false);
 
+        let allow_double_quotes_for_escaping = cfg
+            .rule_option(ID, "allow-double-quotes-for-escaping")
+            .and_then(saphyr::YamlOwned::as_bool)
+            .unwrap_or(false);
+
         let check_keys = cfg
             .rule_option(ID, "check-keys")
             .and_then(saphyr::YamlOwned::as_bool)
@@ -122,6 +159,7 @@ impl Config {
             extra_required,
             extra_allowed,
             allow_quoted_quotes,
+            allow_double_quotes_for_escaping,
             check_keys,
         }
     }
@@ -189,6 +227,7 @@ struct QuotedStringsState<'cfg> {
     config: &'cfg Config,
     buffer: &'cfg str,
     walker: Walker<(), bool>,
+    consistent_quote_style: Option<QuoteStyle>,
 }
 
 impl<'cfg> QuotedStringsState<'cfg> {
@@ -197,19 +236,23 @@ impl<'cfg> QuotedStringsState<'cfg> {
             config,
             buffer,
             walker: Walker::new(),
+            consistent_quote_style: None,
         }
     }
 
     fn reset_stream(&mut self) {
         self.walker.reset();
+        self.consistent_quote_style = None;
     }
 
     fn document_start(&mut self) {
         self.walker.reset();
+        self.consistent_quote_style = None;
     }
 
     fn document_end(&mut self) {
         self.walker.reset();
+        self.consistent_quote_style = None;
     }
 
     fn enter_mapping(&mut self, flow: bool) {
@@ -282,7 +325,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
     }
 
     fn evaluate_scalar(
-        &self,
+        &mut self,
         style: ScalarStyle,
         value: &str,
         active_key: bool,
@@ -290,106 +333,206 @@ impl<'cfg> QuotedStringsState<'cfg> {
         span: Span,
     ) -> Option<Violation> {
         let node_label = if active_key { "key" } else { "value" };
-        let quote_style = match style {
-            ScalarStyle::SingleQuoted => Some(QuoteStyle::Single),
-            ScalarStyle::DoubleQuoted => Some(QuoteStyle::Double),
-            ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded => None,
-        };
-
-        let has_quoted_quotes = match style {
-            ScalarStyle::SingleQuoted => value.contains('"'),
-            ScalarStyle::DoubleQuoted => value.contains('\''),
-            _ => false,
-        };
-
-        let extra_required = self
-            .config
-            .extra_required
-            .iter()
-            .any(|re| re.is_match(value));
-        let extra_allowed = self
-            .config
-            .extra_allowed
-            .iter()
-            .any(|re| re.is_match(value));
-        let quotes_needed =
-            matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-                && quotes_are_needed(style, value, self.in_flow(), self.buffer, span);
+        let facts = self.scalar_quote_facts(style, value, span);
 
         let message = match self.config.required {
-            RequiredMode::Always => {
-                if quote_style.is_none()
-                    || quote_style.is_some_and(|style_kind| {
-                        self.mismatched_quote(style_kind, has_quoted_quotes)
-                    })
-                {
-                    Some(format!(
-                        "string {node_label} is not quoted with {} quotes",
-                        self.config.quote_type_label
-                    ))
-                } else {
-                    None
-                }
-            }
-            RequiredMode::Never => quote_style.map_or_else(
-                || {
-                    if extra_required {
-                        Some(format!("string {node_label} is not quoted"))
-                    } else {
-                        None
-                    }
-                },
-                |style_kind| {
-                    if self.mismatched_quote(style_kind, has_quoted_quotes) {
-                        Some(format!(
-                            "string {node_label} is not quoted with {} quotes",
-                            self.config.quote_type_label
-                        ))
-                    } else {
-                        None
-                    }
-                },
-            ),
-            RequiredMode::OnlyWhenNeeded => quote_style.map_or_else(
-                || {
-                    if extra_required {
-                        Some(format!("string {node_label} is not quoted"))
-                    } else {
-                        None
-                    }
-                },
-                |style_kind| {
-                    if resolves_to_string && !value.is_empty() && !quotes_needed {
-                        if extra_required || extra_allowed {
-                            None
-                        } else {
-                            Some(format!(
-                                "string {node_label} is redundantly quoted with {} quotes",
-                                self.config.quote_type_label
-                            ))
-                        }
-                    } else if self.mismatched_quote(style_kind, has_quoted_quotes) {
-                        Some(format!(
-                            "string {node_label} is not quoted with {} quotes",
-                            self.config.quote_type_label
-                        ))
-                    } else {
-                        None
-                    }
-                },
+            RequiredMode::Always => self.required_always_message(node_label, facts),
+            RequiredMode::Never => self.required_never_message(node_label, facts),
+            RequiredMode::OnlyWhenNeeded => self.only_when_needed_message(
+                node_label,
+                value,
+                resolves_to_string,
+                facts,
             ),
         }?;
 
         Some(build_violation(span, message))
     }
 
-    const fn mismatched_quote(
+    fn scalar_quote_facts(
         &self,
+        style: ScalarStyle,
+        value: &str,
+        span: Span,
+    ) -> ScalarQuoteFacts {
+        ScalarQuoteFacts {
+            style: quote_style(style),
+            has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
+                style, value,
+            )),
+            has_double_quote_escape: Flag::new(
+                self.has_escaping_in_double_quotes(style, span),
+            ),
+            extra_required: Flag::new(
+                self.config
+                    .extra_required
+                    .iter()
+                    .any(|re| re.is_match(value)),
+            ),
+            extra_allowed: Flag::new(
+                self.config
+                    .extra_allowed
+                    .iter()
+                    .any(|re| re.is_match(value)),
+            ),
+            quotes_needed: Flag::new(
+                matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
+                    && quotes_are_needed(
+                        style,
+                        value,
+                        self.in_flow(),
+                        self.buffer,
+                        span,
+                    ),
+            ),
+        }
+    }
+
+    fn required_always_message(
+        &mut self,
+        node_label: &str,
+        facts: ScalarQuoteFacts,
+    ) -> Option<String> {
+        if facts.style.is_none()
+            || facts.style.is_some_and(|style_kind| {
+                self.mismatched_quote(
+                    style_kind,
+                    facts.has_quoted_quotes.get(),
+                    facts.has_double_quote_escape.get(),
+                )
+            })
+        {
+            Some(self.not_quoted_with_message(node_label))
+        } else {
+            None
+        }
+    }
+
+    fn required_never_message(
+        &mut self,
+        node_label: &str,
+        facts: ScalarQuoteFacts,
+    ) -> Option<String> {
+        facts.style.map_or_else(
+            || {
+                facts
+                    .extra_required
+                    .get()
+                    .then(|| format!("string {node_label} is not quoted"))
+            },
+            |style_kind| {
+                self.mismatched_quote(
+                    style_kind,
+                    facts.has_quoted_quotes.get(),
+                    facts.has_double_quote_escape.get(),
+                )
+                .then(|| self.not_quoted_with_message(node_label))
+            },
+        )
+    }
+
+    fn only_when_needed_message(
+        &mut self,
+        node_label: &str,
+        value: &str,
+        resolves_to_string: bool,
+        facts: ScalarQuoteFacts,
+    ) -> Option<String> {
+        facts.style.map_or_else(
+            || {
+                facts
+                    .extra_required
+                    .get()
+                    .then(|| format!("string {node_label} is not quoted"))
+            },
+            |style_kind| {
+                if resolves_to_string && !value.is_empty() && !facts.quotes_needed.get()
+                {
+                    return self.redundant_quote_message(node_label, style_kind, facts);
+                }
+                self.mismatched_quote(
+                    style_kind,
+                    facts.has_quoted_quotes.get(),
+                    facts.has_double_quote_escape.get(),
+                )
+                .then(|| self.not_quoted_with_message(node_label))
+            },
+        )
+    }
+
+    fn redundant_quote_message(
+        &self,
+        node_label: &str,
+        style_kind: QuoteStyle,
+        facts: ScalarQuoteFacts,
+    ) -> Option<String> {
+        let has_escape_exception = self.escaped_double_quote_exception(
+            style_kind,
+            facts.has_double_quote_escape.get(),
+        );
+        if facts.extra_required.get()
+            || facts.extra_allowed.get()
+            || has_escape_exception
+        {
+            None
+        } else {
+            Some(format!(
+                "string {node_label} is redundantly quoted with {} quotes",
+                self.config.quote_type_label
+            ))
+        }
+    }
+
+    fn not_quoted_with_message(&self, node_label: &str) -> String {
+        format!(
+            "string {node_label} is not quoted with {} quotes",
+            self.config.quote_type_label
+        )
+    }
+
+    fn mismatched_quote(
+        &mut self,
         style_kind: QuoteStyle,
         has_quoted_quotes: bool,
+        has_double_quote_escape: bool,
     ) -> bool {
-        !(self.config.quote_type.matches(Some(style_kind))
+        !(self.escaped_double_quote_exception(style_kind, has_double_quote_escape)
+            || self.configured_quote_type_matches(style_kind)
             || (self.config.allow_quoted_quotes && has_quoted_quotes))
+    }
+
+    fn escaped_double_quote_exception(
+        &self,
+        style_kind: QuoteStyle,
+        has_double_quote_escape: bool,
+    ) -> bool {
+        self.config.allow_double_quotes_for_escaping
+            && matches!(style_kind, QuoteStyle::Double)
+            && has_double_quote_escape
+    }
+
+    fn configured_quote_type_matches(&mut self, style_kind: QuoteStyle) -> bool {
+        match self.config.quote_type {
+            QuoteType::Any => true,
+            QuoteType::Single => matches!(style_kind, QuoteStyle::Single),
+            QuoteType::Double => matches!(style_kind, QuoteStyle::Double),
+            QuoteType::Consistent => {
+                let expected = self.consistent_quote_style.get_or_insert(style_kind);
+                *expected == style_kind
+            }
+        }
+    }
+
+    fn has_escaping_in_double_quotes(&self, style: ScalarStyle, span: Span) -> bool {
+        if !matches!(style, ScalarStyle::DoubleQuoted) {
+            return false;
+        }
+
+        let slice_start = span.start.index().saturating_add(1).min(self.buffer.len());
+        let mut slice_end = span.end.index().saturating_sub(1);
+        slice_end = slice_end.min(self.buffer.len());
+        slice_end = slice_end.max(slice_start);
+        self.buffer[slice_start..slice_end].contains('\\')
     }
 }
 
