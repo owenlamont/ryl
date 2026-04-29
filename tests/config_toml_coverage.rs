@@ -101,24 +101,29 @@ fn per_file_ignores_reject_invalid_pattern() {
 }
 
 #[test]
-fn per_file_ignores_reject_invalid_absolute_pattern() {
+fn per_file_ignores_treat_base_dir_glob_chars_as_literals() {
     let td = tempdir().unwrap();
     let root = td.path().join("[root");
     fs::create_dir(&root).unwrap();
+    let file = root.join("file.yaml");
     let cfg = root.join(".ryl.toml");
+    fs::write(&file, "name: value\n").unwrap();
     fs::write(
         &cfg,
         "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'file.yaml' = ['document-start']\n",
     )
     .unwrap();
 
-    let err = discover_config(
-        &[],
+    let ctx = discover_config(
+        std::slice::from_ref(&file),
         &Overrides {
             config_file: Some(cfg),
             config_data: None,
         },
     )
-    .unwrap_err();
-    assert!(err.contains("per-file-ignores pattern 'file.yaml' is invalid"));
+    .expect("per-file ignores with literal metacharacter base directory");
+    assert!(
+        ctx.config
+            .is_rule_ignored("document-start", &file, &ctx.base_dir)
+    );
 }

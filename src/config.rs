@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use globset::{Glob, GlobMatcher};
+use globset::{Glob, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
@@ -156,11 +156,7 @@ impl PerFileIgnore {
         let (negated, pattern) = pattern
             .strip_prefix('!')
             .map_or((false, pattern), |stripped| (true, stripped));
-        let absolute_pattern = if Path::new(pattern).is_absolute() {
-            PathBuf::from(pattern)
-        } else {
-            base_dir.join(pattern)
-        };
+        let absolute_pattern = absolute_glob_pattern(pattern, base_dir);
         let basename_matcher = Glob::new(pattern)
             .map_err(|err| {
                 format!(
@@ -168,12 +164,8 @@ impl PerFileIgnore {
                 )
             })?
             .compile_matcher();
-        let absolute_matcher = Glob::new(&absolute_pattern.to_string_lossy())
-            .map_err(|err| {
-                format!(
-                    "invalid config: per-file-ignores pattern '{pattern}' is invalid: {err}"
-                )
-            })?
+        let absolute_matcher = Glob::new(&absolute_pattern)
+            .expect("absolute per-file ignore pattern should compile after validation")
             .compile_matcher();
         Ok(Self {
             basename_matcher,
@@ -199,6 +191,21 @@ impl PerFileIgnore {
         } else {
             filename_matches || path_matches
         }
+    }
+}
+
+fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
+    if Path::new(pattern).is_absolute() {
+        pattern.to_owned()
+    } else {
+        let mut pattern_with_base = glob_escape(&base_dir.to_string_lossy());
+        if !pattern_with_base.is_empty()
+            && !pattern_with_base.ends_with(std::path::MAIN_SEPARATOR)
+        {
+            pattern_with_base.push(std::path::MAIN_SEPARATOR);
+        }
+        pattern_with_base.push_str(pattern);
+        pattern_with_base
     }
 }
 
