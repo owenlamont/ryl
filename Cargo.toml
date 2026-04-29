@@ -1,6 +1,6 @@
 [package]
 name = "ryl"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 description = "Fast YAML linter inspired by yamllint"
 readme = "README.md"
@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.0", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
+globset = "0.4.18"
 ignore = "0.4.25"
 rayon = "1.11.0"
 schemars = { version = "1.2.1", features = ["derive"] }

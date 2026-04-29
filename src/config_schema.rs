@@ -27,8 +27,11 @@ pub struct TomlConfig {
     pub ignore_from_file: Option<StringOrVec>,
     /// Locale identifier used by diagnostics.
     pub locale: Option<String>,
-    /// Native fix policy, available only in TOML config.
+    /// Native fix policy.
     pub fix: Option<FixTable>,
+    /// Per-file rule ignores.
+    #[serde(rename = "per-file-ignores")]
+    pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
     /// Rule configuration table.
     pub rules: Option<RulesTable>,
     #[serde(flatten, default)]
@@ -170,6 +173,88 @@ pub enum FixRuleName {
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
+}
+
+/// A built-in lint rule name.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+pub enum RuleName {
+    #[serde(rename = "anchors")]
+    Anchors,
+    #[serde(rename = "braces")]
+    Braces,
+    #[serde(rename = "brackets")]
+    Brackets,
+    #[serde(rename = "colons")]
+    Colons,
+    #[serde(rename = "commas")]
+    Commas,
+    #[serde(rename = "comments")]
+    Comments,
+    #[serde(rename = "comments-indentation")]
+    CommentsIndentation,
+    #[serde(rename = "document-end")]
+    DocumentEnd,
+    #[serde(rename = "document-start")]
+    DocumentStart,
+    #[serde(rename = "empty-lines")]
+    EmptyLines,
+    #[serde(rename = "empty-values")]
+    EmptyValues,
+    #[serde(rename = "float-values")]
+    FloatValues,
+    #[serde(rename = "hyphens")]
+    Hyphens,
+    #[serde(rename = "indentation")]
+    Indentation,
+    #[serde(rename = "key-duplicates")]
+    KeyDuplicates,
+    #[serde(rename = "key-ordering")]
+    KeyOrdering,
+    #[serde(rename = "line-length")]
+    LineLength,
+    #[serde(rename = "new-line-at-end-of-file")]
+    NewLineAtEndOfFile,
+    #[serde(rename = "new-lines")]
+    NewLines,
+    #[serde(rename = "octal-values")]
+    OctalValues,
+    #[serde(rename = "quoted-strings")]
+    QuotedStrings,
+    #[serde(rename = "trailing-spaces")]
+    TrailingSpaces,
+    #[serde(rename = "truthy")]
+    Truthy,
+}
+
+impl RuleName {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Anchors => "anchors",
+            Self::Braces => "braces",
+            Self::Brackets => "brackets",
+            Self::Colons => "colons",
+            Self::Commas => "commas",
+            Self::Comments => "comments",
+            Self::CommentsIndentation => "comments-indentation",
+            Self::DocumentEnd => "document-end",
+            Self::DocumentStart => "document-start",
+            Self::EmptyLines => "empty-lines",
+            Self::EmptyValues => "empty-values",
+            Self::FloatValues => "float-values",
+            Self::Hyphens => "hyphens",
+            Self::Indentation => "indentation",
+            Self::KeyDuplicates => "key-duplicates",
+            Self::KeyOrdering => "key-ordering",
+            Self::LineLength => "line-length",
+            Self::NewLineAtEndOfFile => "new-line-at-end-of-file",
+            Self::NewLines => "new-lines",
+            Self::OctalValues => "octal-values",
+            Self::QuotedStrings => "quoted-strings",
+            Self::TrailingSpaces => "trailing-spaces",
+            Self::Truthy => "truthy",
+        }
+    }
 }
 
 /// Built-in rule table for TOML config.
@@ -620,6 +705,7 @@ pub struct NormalizedFixConfig {
 pub struct NormalizedConfig {
     pub ignore_patterns: Option<Vec<String>>,
     pub ignore_from_files: Option<Vec<String>>,
+    pub per_file_ignores: BTreeMap<String, Vec<String>>,
     pub yaml_file_patterns: Option<Vec<String>>,
     pub locale: Option<String>,
     pub fix: Option<NormalizedFixConfig>,

@@ -156,6 +156,8 @@ jobs:
           path: dist
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          save-cache: false
       - name: Install wheel and run CLI
         run: |
           set -euxo pipefail
@@ -241,6 +243,8 @@ jobs:
           path: dist
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          save-cache: false
       - name: Install wheel and run CLI
         shell: bash
         run: |
@@ -289,6 +293,8 @@ jobs:
           path: dist
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          save-cache: false
       - name: Install wheel and run CLI
         run: |
           set -euxo pipefail

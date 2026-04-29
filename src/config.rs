@@ -1,8 +1,10 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use globset::{Glob, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
@@ -116,6 +118,8 @@ pub struct YamlLintConfig {
     ignore_from_files: Vec<String>,
     #[allow(clippy::struct_field_names)]
     ignore_matcher: Option<Gitignore>,
+    per_file_ignores: BTreeMap<String, Vec<String>>,
+    per_file_ignore_matchers: Vec<PerFileIgnore>,
     rule_names: Vec<String>,
     rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
@@ -137,6 +141,72 @@ struct RuleFilter {
 struct RuleConfig {
     value: YamlOwned,
     filter: Option<RuleFilter>,
+}
+
+#[derive(Debug, Clone)]
+struct PerFileIgnore {
+    basename_matcher: GlobMatcher,
+    absolute_matcher: GlobMatcher,
+    negated: bool,
+    rules: Vec<String>,
+}
+
+impl PerFileIgnore {
+    fn new(pattern: &str, rules: Vec<String>, base_dir: &Path) -> Result<Self, String> {
+        let (negated, pattern) = pattern
+            .strip_prefix('!')
+            .map_or((false, pattern), |stripped| (true, stripped));
+        let absolute_pattern = absolute_glob_pattern(pattern, base_dir);
+        let basename_matcher = Glob::new(pattern)
+            .map_err(|err| {
+                format!(
+                    "invalid config: per-file-ignores pattern '{pattern}' is invalid: {err}"
+                )
+            })?
+            .compile_matcher();
+        let absolute_matcher = Glob::new(&absolute_pattern)
+            .expect("absolute per-file ignore pattern should compile after validation")
+            .compile_matcher();
+        Ok(Self {
+            basename_matcher,
+            absolute_matcher,
+            negated,
+            rules,
+        })
+    }
+
+    fn matches(&self, path: &Path, base_dir: &Path) -> bool {
+        let filename_matches = path.file_name().is_some_and(|file_name| {
+            self.basename_matcher.is_match(Path::new(file_name))
+        });
+        let absolute_path = if path.is_absolute() {
+            Cow::Borrowed(path)
+        } else {
+            Cow::Owned(base_dir.join(path))
+        };
+        let path_matches = self.absolute_matcher.is_match(absolute_path.as_ref());
+
+        if self.negated {
+            !filename_matches && !path_matches
+        } else {
+            filename_matches || path_matches
+        }
+    }
+}
+
+fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
+    if Path::new(pattern).is_absolute() {
+        pattern.to_owned()
+    } else {
+        let mut pattern_with_base = glob_escape(&base_dir.to_string_lossy());
+        if !pattern_with_base.is_empty()
+            && !pattern_with_base.ends_with(std::path::MAIN_SEPARATOR)
+        {
+            pattern_with_base.push(std::path::MAIN_SEPARATOR);
+        }
+        pattern_with_base.push_str(pattern);
+        pattern_with_base
+    }
 }
 
 impl RuleConfig {
@@ -268,6 +338,8 @@ impl Default for YamlLintConfig {
             ignore_patterns: Vec::new(),
             ignore_from_files: Vec::new(),
             ignore_matcher: None,
+            per_file_ignores: BTreeMap::new(),
+            per_file_ignore_matchers: Vec::new(),
             rule_names: Vec::new(),
             rules: std::collections::BTreeMap::new(),
             yaml_file_patterns: DEFAULT_YAML_FILE_PATTERNS
@@ -416,6 +488,11 @@ impl YamlLintConfig {
         self.rules
             .get(rule)
             .is_some_and(|config| config.is_ignored(path, base_dir))
+            || self
+                .per_file_ignore_matchers
+                .iter()
+                .filter(|entry| entry.matches(path, base_dir))
+                .any(|entry| entry.rules.iter().any(|candidate| candidate == rule))
     }
 
     #[must_use]
@@ -490,6 +567,8 @@ impl YamlLintConfig {
         if !other.yaml_file_patterns.is_empty() {
             self.yaml_file_patterns = other.yaml_file_patterns;
         }
+        self.per_file_ignores = other.per_file_ignores;
+        self.per_file_ignore_matchers = other.per_file_ignore_matchers;
         self.locale = self.locale.take().or(other.locale);
     }
 
@@ -508,6 +587,10 @@ impl YamlLintConfig {
         if let Some(yaml_files) = normalized.yaml_file_patterns {
             self.yaml_file_patterns.clear();
             self.yaml_file_patterns = yaml_files;
+        }
+
+        if !normalized.per_file_ignores.is_empty() {
+            self.per_file_ignores = normalized.per_file_ignores;
         }
 
         if let Some(locale) = normalized.locale {
@@ -545,6 +628,8 @@ impl YamlLintConfig {
             self.ignore_patterns.extend(extra_patterns);
         }
         self.ignore_matcher = matcher;
+        self.per_file_ignore_matchers =
+            build_per_file_ignores(&self.per_file_ignores, base_dir)?;
 
         self.build_yaml_matcher(base_dir);
 
@@ -644,6 +729,16 @@ fn build_ignore_matcher(
             .expect("ignore matcher build should not fail after validation")
     });
     Ok((matcher, extra_patterns))
+}
+
+fn build_per_file_ignores(
+    per_file_ignores: &BTreeMap<String, Vec<String>>,
+    base_dir: &Path,
+) -> Result<Vec<PerFileIgnore>, String> {
+    per_file_ignores
+        .iter()
+        .map(|(pattern, rules)| PerFileIgnore::new(pattern, rules.clone(), base_dir))
+        .collect()
 }
 
 fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> bool {
@@ -772,6 +867,7 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
             .then(|| config.ignore_patterns.clone()),
         ignore_from_files: (!config.ignore_from_files.is_empty())
             .then(|| config.ignore_from_files.clone()),
+        per_file_ignores: config.per_file_ignores.clone(),
         yaml_file_patterns: Some(config.yaml_file_patterns.clone()),
         locale: config.locale.clone(),
         fix: normalized_fix_config(&config.fix),

@@ -44,6 +44,29 @@ fn to_toml_includes_ignore_from_file_when_present() {
 }
 
 #[test]
+fn to_toml_includes_per_file_ignores_when_present() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join(".ryl.toml");
+    fs::write(
+        &cfg,
+        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'values.yaml' = ['document-start']\n",
+    )
+    .unwrap();
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+    )
+    .unwrap();
+    let toml = ctx.config.to_toml_string();
+    assert!(toml.contains("[per-file-ignores]"));
+    assert!(toml.contains("\"values.yaml\" = ["));
+    assert!(toml.contains("\"document-start\""));
+}
+
+#[test]
 fn to_toml_errors_on_null_values() {
     let err = discover_config(
         &[],

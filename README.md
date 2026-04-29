@@ -197,8 +197,8 @@ Example benchmark figure (5x5 matrix, 5 runs per point):
   for a full list of supported rules and their fixable status.
 - TOML and YAML are not merged during discovery. If a TOML project config is
   found, YAML project config discovery is skipped (and `ryl` prints a warning).
-- Native fix policy is TOML-only. YAML config remains yamllint-compatible and
-  does not support `fix` settings.
+- Native fix policy and per-file ignores are TOML-only. YAML config remains
+  yamllint-compatible and does not support ryl-native settings.
 - Per-file behavior: unless a global config is set via `--config-data`,
   `--config-file`, or `YAMLLINT_CONFIG_FILE`, each file discovers its nearest
   project config. Ignores apply to directory scans and explicit files (parity).
@@ -230,6 +230,12 @@ Example TOML config (`.ryl.toml`):
 yaml-files = ["*.yaml", "*.yml"]
 ignore = ["vendor/**", "generated/**"]
 locale = "en_US.UTF-8"
+
+[per-file-ignores]
+"**/values.yaml" = ["document-start"]
+"**/kustomization.yaml" = ["document-start"]
+# `!` negates the pattern, so this ignores truthy outside Kubernetes manifests.
+"!k8s/**.yaml" = ["truthy"]
 
 [rules]
 document-start = "disable"

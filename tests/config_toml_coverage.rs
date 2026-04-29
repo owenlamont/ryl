@@ -78,3 +78,52 @@ fn explicit_pyproject_config_file_with_tool_ryl_loads() {
     .expect("explicit pyproject [tool.ryl]");
     assert_eq!(ctx.config.locale(), Some("it_IT.UTF-8"));
 }
+
+#[test]
+fn per_file_ignores_reject_invalid_pattern() {
+    let td = tempdir().unwrap();
+    let cfg = td.path().join(".ryl.toml");
+    fs::write(
+        &cfg,
+        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'[' = ['document-start']\n",
+    )
+    .unwrap();
+
+    let err = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("per-file-ignores pattern '[' is invalid"));
+}
+
+#[test]
+fn per_file_ignores_treat_base_dir_glob_chars_as_literals() {
+    let td = tempdir().unwrap();
+    let root = td.path().join("[root");
+    fs::create_dir(&root).unwrap();
+    let file = root.join("file.yaml");
+    let cfg = root.join(".ryl.toml");
+    fs::write(&file, "name: value\n").unwrap();
+    fs::write(
+        &cfg,
+        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'file.yaml' = ['document-start']\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(
+        std::slice::from_ref(&file),
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+    )
+    .expect("per-file ignores with literal metacharacter base directory");
+    assert!(
+        ctx.config
+            .is_rule_ignored("document-start", &file, &ctx.base_dir)
+    );
+}
