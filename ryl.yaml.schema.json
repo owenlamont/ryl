@@ -45,7 +45,8 @@
       "enum": [
         "any",
         "single",
-        "double"
+        "double",
+        "consistent"
       ],
       "type": "string"
     },

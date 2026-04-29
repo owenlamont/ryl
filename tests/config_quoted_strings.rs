@@ -12,6 +12,14 @@ fn error_when_quote_type_invalid() {
 }
 
 #[test]
+fn quote_type_consistent_is_accepted() {
+    YamlLintConfig::from_yaml_str(
+        "rules:\n  quoted-strings:\n    quote-type: consistent\n",
+    )
+    .expect("consistent quote type should be accepted");
+}
+
+#[test]
 fn error_when_quote_type_not_string() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    quote-type: 1\n")
@@ -72,6 +80,16 @@ fn error_when_extra_allowed_contains_non_string() {
 fn error_when_allow_quoted_quotes_not_bool() {
     let err = YamlLintConfig::from_yaml_str(
         "rules:\n  quoted-strings:\n    allow-quoted-quotes: 1\n",
+    )
+    .unwrap_err();
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.quoted-strings"), "{err}");
+}
+
+#[test]
+fn error_when_allow_double_quotes_for_escaping_is_in_yaml_config() {
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  quoted-strings:\n    allow-double-quotes-for-escaping: true\n",
     )
     .unwrap_err();
     assert!(err.contains("failed to parse config data:"), "{err}");

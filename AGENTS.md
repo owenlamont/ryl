@@ -50,6 +50,10 @@ ryl is a CLI tool for linting yaml files
 - When mirroring yamllint behaviour, spot-check tricky inputs with the ryl CLI so
   our diagnostics and message text match (e.g., mixed newline styles or config keys of
   type int/bool/null/tagged scalar).
+- Keep YAML configuration strictly aligned with functionality that yamllint currently
+  supports. Put any ryl-only settings, experimental rule options, or ahead-of-upstream
+  behaviour in TOML configuration so future yamllint additions cannot clash with
+  existing YAML semantics.
 
 ## Code Change Requirements
 

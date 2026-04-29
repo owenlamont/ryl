@@ -65,6 +65,13 @@ fn quoted_strings_rule_matches_yamllint() {
     )
     .unwrap();
 
+    let consistent_cfg = dir.path().join("consistent.yaml");
+    fs::write(
+        &consistent_cfg,
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n",
+    )
+    .unwrap();
+
     let plain_file = dir.path().join("plain.yaml");
     fs::write(&plain_file, "foo: bar\n").unwrap();
 
@@ -82,6 +89,16 @@ fn quoted_strings_rule_matches_yamllint() {
 
     let key_file = dir.path().join("key.yaml");
     fs::write(&key_file, "foo:bar: baz\n").unwrap();
+
+    let consistent_file = dir.path().join("consistent-input.yaml");
+    fs::write(&consistent_file, "first: 'one'\nsecond: \"two\"\n").unwrap();
+
+    let consistent_multi_doc_file = dir.path().join("consistent-multi-doc.yaml");
+    fs::write(
+        &consistent_multi_doc_file,
+        "---\nfirst: 'one'\n---\nsecond: \"two\"\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
 
@@ -120,6 +137,18 @@ fn quoted_strings_rule_matches_yamllint() {
             label: "check-keys",
             config: &check_keys_cfg,
             file: &key_file,
+            exit: 1,
+        },
+        Case {
+            label: "consistent",
+            config: &consistent_cfg,
+            file: &consistent_file,
+            exit: 1,
+        },
+        Case {
+            label: "consistent-multi-doc",
+            config: &consistent_cfg,
+            file: &consistent_multi_doc_file,
             exit: 1,
         },
     ];

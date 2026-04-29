@@ -34,6 +34,52 @@ fn quote_type_single_requires_single_quotes() {
 }
 
 #[test]
+fn quote_type_consistent_uses_first_quoted_style() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n",
+    );
+    let hits = quoted_strings::check("first: 'one'\nsecond: \"two\"\n", &cfg);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].line, 2);
+    assert_eq!(hits[0].column, 9);
+    assert_eq!(
+        hits[0].message,
+        "string value is not quoted with consistent quotes"
+    );
+}
+
+#[test]
+fn quote_type_consistent_ignores_plain_scalars_for_style_choice() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: false\n    quote-type: consistent\n",
+    );
+    let hits =
+        quoted_strings::check("plain: value\nfirst: \"one\"\nsecond: 'two'\n", &cfg);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].line, 3);
+    assert_eq!(hits[0].column, 9);
+    assert_eq!(
+        hits[0].message,
+        "string value is not quoted with consistent quotes"
+    );
+}
+
+#[test]
+fn quote_type_consistent_keeps_style_across_documents() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n",
+    );
+    let hits = quoted_strings::check("---\nfirst: 'one'\n---\nsecond: \"two\"\n", &cfg);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].line, 4);
+    assert_eq!(hits[0].column, 9);
+    assert_eq!(
+        hits[0].message,
+        "string value is not quoted with consistent quotes"
+    );
+}
+
+#[test]
 fn non_string_plain_values_are_ignored() {
     let cfg =
         build_config("rules:\n  document-start: disable\n  quoted-strings: enable\n");

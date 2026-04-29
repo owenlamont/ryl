@@ -97,7 +97,8 @@
       "enum": [
         "any",
         "single",
-        "double"
+        "double",
+        "consistent"
       ],
       "type": "string"
     },
@@ -355,7 +356,7 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntryForQuotedStringsOptions": {
+    "RuleEntryForTomlQuotedStringsOptions": {
       "anyOf": [
         {
           "type": "boolean"
@@ -364,7 +365,7 @@
           "$ref": "#/$defs/RuleSwitch"
         },
         {
-          "$ref": "#/$defs/RuleOptionsForQuotedStringsOptions"
+          "$ref": "#/$defs/RuleOptionsForTomlQuotedStringsOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
@@ -1317,10 +1318,16 @@
       },
       "type": "object"
     },
-    "RuleOptionsForQuotedStringsOptions": {
+    "RuleOptionsForTomlQuotedStringsOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
+        "allow-double-quotes-for-escaping": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "allow-quoted-quotes": {
           "type": [
             "boolean",
@@ -1670,7 +1677,7 @@
         "quoted-strings": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForQuotedStringsOptions"
+              "$ref": "#/$defs/RuleEntryForTomlQuotedStringsOptions"
             },
             {
               "type": "null"

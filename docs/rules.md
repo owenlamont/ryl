@@ -37,6 +37,10 @@ The following rules are implemented and can be configured in your `.ryl.toml` (o
 Most rules follow the standard `yamllint` configuration. For detailed options,
 refer to the [yamllint documentation](https://yamllint.readthedocs.io/en/stable/rules.html).
 
+TOML configuration also supports
+`allow-double-quotes-for-escaping = true` for `quoted-strings`; this option is
+not accepted in YAML config until yamllint supports it.
+
 ### Example: `line-length`
 
 ```toml

@@ -568,7 +568,6 @@ impl YamlLintConfig {
             self.yaml_file_patterns = other.yaml_file_patterns;
         }
         self.per_file_ignores = other.per_file_ignores;
-        self.per_file_ignore_matchers = other.per_file_ignore_matchers;
         self.locale = self.locale.take().or(other.locale);
     }
 
