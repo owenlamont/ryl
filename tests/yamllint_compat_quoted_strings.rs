@@ -93,6 +93,13 @@ fn quoted_strings_rule_matches_yamllint() {
     let consistent_file = dir.path().join("consistent-input.yaml");
     fs::write(&consistent_file, "first: 'one'\nsecond: \"two\"\n").unwrap();
 
+    let consistent_multi_doc_file = dir.path().join("consistent-multi-doc.yaml");
+    fs::write(
+        &consistent_multi_doc_file,
+        "---\nfirst: 'one'\n---\nsecond: \"two\"\n",
+    )
+    .unwrap();
+
     let exe = env!("CARGO_BIN_EXE_ryl");
 
     let cases = [
@@ -136,6 +143,12 @@ fn quoted_strings_rule_matches_yamllint() {
             label: "consistent",
             config: &consistent_cfg,
             file: &consistent_file,
+            exit: 1,
+        },
+        Case {
+            label: "consistent-multi-doc",
+            config: &consistent_cfg,
+            file: &consistent_multi_doc_file,
             exit: 1,
         },
     ];

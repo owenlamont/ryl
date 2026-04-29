@@ -247,12 +247,10 @@ impl<'cfg> QuotedStringsState<'cfg> {
 
     fn document_start(&mut self) {
         self.walker.reset();
-        self.consistent_quote_style = None;
     }
 
     fn document_end(&mut self) {
         self.walker.reset();
-        self.consistent_quote_style = None;
     }
 
     fn enter_mapping(&mut self, flow: bool) {
