@@ -28,7 +28,7 @@ The following rules are implemented and can be configured in your `.ryl.toml` (o
 | `new-line-at-end-of-file` | Checks for a single newline at the end of the file. | ✅ |
 | `new-lines` | Checks for consistent line endings (LF vs CRLF). | ✅ |
 | `octal-values` | Checks for octal value formats. | |
-| `quoted-strings` | Checks for quoted string styles. | |
+| `quoted-strings` | Checks for quoted string styles. | ✅ |
 | `trailing-spaces` | Checks for trailing whitespace. | |
 | `truthy` | Checks for truthy values (e.g., `true`, `false`). | |
 
@@ -62,6 +62,7 @@ allow-non-breakable-words = true
 - `brackets`
 - `new-lines`
 - `new-line-at-end-of-file`
+- `quoted-strings`
 
 ### Configuring Fixes (TOML only)
 

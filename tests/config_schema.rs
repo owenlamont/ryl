@@ -1,6 +1,7 @@
 use std::{fs, process::Command};
 
 use jsonschema::validator_for;
+use ryl::config_schema::FixableRuleSelector::QuotedStrings as SelQuotedStrings;
 use ryl::config_schema::{
     NormalizedConfig, normalize_toml_config, normalized_config_to_toml_value,
     parse_toml_config_str, schema_value, toml_config_to_value, validate_toml_config,
@@ -965,4 +966,23 @@ fn typed_toml_validation_accepts_valid_extra_allowed_regex() {
 
     validate_toml_config(&parsed)
         .expect("typed validation should allow valid extra-allowed regexes");
+}
+
+#[test]
+fn normalize_toml_config_preserves_quoted_strings_in_fixable() {
+    let parsed = parse_toml_config_str(
+        "[fix]\nfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
+
+    let normalized = normalize_toml_config(&parsed);
+    let fix = normalized.fix.expect("fix should normalize");
+    assert_eq!(fix.fixable.len(), 1);
+    assert!(
+        matches!(fix.fixable[0], SelQuotedStrings),
+        "expected QuotedStrings, got {:?}",
+        fix.fixable[0]
+    );
 }

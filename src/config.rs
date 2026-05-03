@@ -268,6 +268,7 @@ pub enum FixRule {
     CommentsIndentation,
     NewLineAtEndOfFile,
     NewLines,
+    QuotedStrings,
 }
 
 impl FixRule {
@@ -280,6 +281,7 @@ impl FixRule {
             "comments-indentation" => Some(Self::CommentsIndentation),
             "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
             "new-lines" => Some(Self::NewLines),
+            "quoted-strings" => Some(Self::QuotedStrings),
             _ => None,
         }
     }
@@ -845,6 +847,9 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
             TomlFixableRuleSelector::NewLineAtEndOfFile
         }
         FixRuleSelector::Rule(FixRule::NewLines) => TomlFixableRuleSelector::NewLines,
+        FixRuleSelector::Rule(FixRule::QuotedStrings) => {
+            TomlFixableRuleSelector::QuotedStrings
+        }
     }
 }
 
@@ -857,6 +862,7 @@ fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
         FixRule::CommentsIndentation => TomlFixRuleName::CommentsIndentation,
         FixRule::NewLineAtEndOfFile => TomlFixRuleName::NewLineAtEndOfFile,
         FixRule::NewLines => TomlFixRuleName::NewLines,
+        FixRule::QuotedStrings => TomlFixRuleName::QuotedStrings,
     }
 }
 
@@ -892,6 +898,9 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
             FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile)
         }
         TomlFixableRuleSelector::NewLines => FixRuleSelector::Rule(FixRule::NewLines),
+        TomlFixableRuleSelector::QuotedStrings => {
+            FixRuleSelector::Rule(FixRule::QuotedStrings)
+        }
     }
 }
 
@@ -904,6 +913,7 @@ fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
         TomlFixRuleName::CommentsIndentation => FixRule::CommentsIndentation,
         TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
         TomlFixRuleName::NewLines => FixRule::NewLines,
+        TomlFixRuleName::QuotedStrings => FixRule::QuotedStrings,
     }
 }
 
