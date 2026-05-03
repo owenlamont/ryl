@@ -9,7 +9,8 @@
         "comments",
         "comments-indentation",
         "new-line-at-end-of-file",
-        "new-lines"
+        "new-lines",
+        "quoted-strings"
       ],
       "type": "string"
     },
@@ -48,7 +49,8 @@
         "comments",
         "comments-indentation",
         "new-line-at-end-of-file",
-        "new-lines"
+        "new-lines",
+        "quoted-strings"
       ],
       "type": "string"
     },

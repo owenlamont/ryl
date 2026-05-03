@@ -200,3 +200,70 @@ fn apply_safe_fixes_runs_flow_collection_spacing_fixes() {
 
     assert_eq!(fixed, "mapping: {key: value}\nsequence: [ ]\n");
 }
+
+#[test]
+fn apply_safe_fixes_runs_quoted_strings_fix() {
+    let cfg = config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+
+    let fixed = apply_safe_fixes(
+        "foo: \"bar\"\n",
+        &cfg,
+        std::path::Path::new("input.yaml"),
+        std::path::Path::new("."),
+    );
+
+    assert_eq!(fixed, "foo: bar\n");
+}
+
+#[test]
+fn apply_safe_fixes_skips_quoted_strings_when_unfixable() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "foo: \"bar\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[fix]\nunfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(std::slice::from_ref(&file), &Overrides::default())
+        .expect("config discovers");
+
+    let fixed = apply_safe_fixes("foo: \"bar\"\n", &ctx.config, &file, &ctx.base_dir);
+
+    assert_eq!(fixed, "foo: \"bar\"\n");
+}
+
+#[test]
+fn fix_config_allows_quoted_strings_when_listed_in_fixable() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "foo: bar\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[fix]\nfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(std::slice::from_ref(&file), &Overrides::default())
+        .expect("config discovers");
+    assert!(ctx.config.fix().allows_rule("quoted-strings"));
+}
+
+#[test]
+fn fix_config_disallows_quoted_strings_when_not_listed() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "foo: bar\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[fix]\nfixable = [\"comments\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let ctx = discover_config(std::slice::from_ref(&file), &Overrides::default())
+        .expect("config discovers");
+    assert!(!ctx.config.fix().allows_rule("quoted-strings"));
+}

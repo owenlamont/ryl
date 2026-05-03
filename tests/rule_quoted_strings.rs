@@ -334,3 +334,366 @@ fn inner_double_quotes_are_preserved() {
     let hits = quoted_strings::check(yaml, &cfg);
     assert!(hits.is_empty(), "embedded quotes should keep outer quoting");
 }
+
+#[test]
+fn fix_only_when_needed_removes_redundant_double_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: \"bar\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: bar\n"));
+}
+
+#[test]
+fn fix_only_when_needed_removes_redundant_single_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: 'bar'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: bar\n"));
+}
+
+#[test]
+fn fix_only_when_needed_converts_double_to_single_when_needed() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: \"{value}\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: '{value}'\n"));
+}
+
+#[test]
+fn fix_only_when_needed_keeps_single_quotes_when_needed_and_correct() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: '{value}'\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_only_when_needed_preserves_quotes_on_values_needing_escaping() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: \"a\\nb\"\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_required_always_adds_single_quotes_to_plain() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'bar'\n"));
+}
+
+#[test]
+fn fix_required_always_converts_double_to_single() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n",
+    );
+    let result = quoted_strings::fix("foo: \"bar\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'bar'\n"));
+}
+
+#[test]
+fn fix_required_always_keeps_correct_single_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n",
+    );
+    let result = quoted_strings::fix("foo: 'bar'\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_required_always_adds_double_quotes_to_plain_when_configured() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"bar\"\n"));
+}
+
+#[test]
+fn fix_required_always_converts_single_to_double() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    );
+    let result = quoted_strings::fix("foo: 'bar'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"bar\"\n"));
+}
+
+#[test]
+fn fix_converts_double_to_single_escaping_inner_single_quote() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n",
+    );
+    let result = quoted_strings::fix("foo: \"it's\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'it''s'\n"));
+}
+
+#[test]
+fn fix_removes_quotes_from_value_with_inner_single_quote_when_not_needed() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: 'it''s'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: it's\n"));
+}
+
+#[test]
+fn fix_consistent_converts_to_first_seen_style() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n",
+    );
+    let result = quoted_strings::fix("first: 'one'\nsecond: \"two\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("first: 'one'\nsecond: 'two'\n"));
+}
+
+#[test]
+fn fix_returns_none_when_no_changes_needed() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_handles_multiple_scalars_in_one_pass() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("a: \"hello\"\nb: 'world'\nc: \"{flow}\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("a: hello\nb: world\nc: '{flow}'\n"));
+}
+
+#[test]
+fn fix_required_never_does_not_remove_matching_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n",
+    );
+    let result = quoted_strings::fix("foo: 'bar'\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_extra_allowed_permits_quotes_but_still_enforces_quote_type() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n    extra-allowed: ['^http']\n",
+    );
+    let result = quoted_strings::fix("foo: \"http://example.com\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'http://example.com'\n"));
+}
+
+#[test]
+fn fix_respects_extra_required() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n    extra-required: ['^http']\n",
+    );
+    let result = quoted_strings::fix("- http://example.com\n", &cfg);
+    assert_eq!(result.as_deref(), Some("- 'http://example.com'\n"));
+}
+
+#[test]
+fn fix_extra_allowed_converts_mismatched() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n    extra-allowed: ['^http']\n",
+    );
+    let result = quoted_strings::fix("foo: \"http://example.com\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'http://example.com'\n"));
+}
+
+#[test]
+fn fix_only_when_needed_removes_quotes_when_value_is_plain_scalar_equivalent() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: \"http://example.com\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: http://example.com\n"));
+}
+
+#[test]
+fn fix_skips_literal_block_scalar() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: |\n  literal\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_skips_tagged_scalar() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: !!str yes\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_required_never_with_extra_required_adds_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n    extra-required: ['^must']\n",
+    );
+    let result = quoted_strings::fix("- must be quoted\n", &cfg);
+    assert_eq!(result.as_deref(), Some("- 'must be quoted'\n"));
+}
+
+#[test]
+fn fix_required_never_converts_mismatched_quote_type() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n",
+    );
+    let result = quoted_strings::fix("foo: \"bar\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'bar'\n"));
+}
+
+#[test]
+fn fix_only_when_needed_extra_required_adds_quotes_to_plain() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n    extra-required: ['foo']\n",
+    );
+    let result = quoted_strings::fix("- foo\n", &cfg);
+    assert_eq!(result.as_deref(), Some("- 'foo'\n"));
+}
+
+#[test]
+fn fix_only_when_needed_extra_allowed_no_mismatch_leaves_alone() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: any\n    required: only-when-needed\n    extra-allowed: ['^safe']\n",
+    );
+    let result = quoted_strings::fix("foo: \"safe-value\"\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_required_always_adds_double_quotes_with_quote_type_double() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"bar\"\n"));
+}
+
+#[test]
+fn fix_converts_single_to_double_escaping_inner_double_quote() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    );
+    let result = quoted_strings::fix("foo: 'he said \"hi\"'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"he said \\\"hi\\\"\"\n"));
+}
+
+#[test]
+fn fix_converts_single_to_double_escaping_backslash() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    );
+    let result = quoted_strings::fix("foo: 'path\\to'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"path\\\\to\"\n"));
+}
+
+#[test]
+fn fix_allow_quoted_quotes_skips_mismatch() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    allow-quoted-quotes: true\n",
+    );
+    let result = quoted_strings::fix("foo: \"he's\"\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_with_document_separator_still_fixes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("---\nfoo: \"bar\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("---\nfoo: bar\n"));
+}
+
+#[test]
+fn fix_consistent_adds_quotes_to_plain_when_required_always() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: 'bar'\n"));
+}
+
+#[test]
+fn fix_only_when_needed_consistent_extra_required_adds_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n    required: only-when-needed\n    extra-required: ['must']\n",
+    );
+    let result = quoted_strings::fix("- must\n", &cfg);
+    assert_eq!(result.as_deref(), Some("- 'must'\n"));
+}
+
+#[test]
+fn fix_converts_single_to_double_with_tab_escaping() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    );
+    let result = quoted_strings::fix("foo: 'a\tb'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"a\\tb\"\n"));
+}
+
+#[test]
+fn fix_required_never_extra_required_adds_single_quotes_to_sequence_item() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n    extra-required: ['^must']\n",
+    );
+    let result = quoted_strings::fix("- must\n", &cfg);
+    assert_eq!(result.as_deref(), Some("- 'must'\n"));
+}
+
+#[test]
+fn fix_required_never_plain_no_extra_returns_none() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_only_when_needed_plain_no_extra_returns_none() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: bar\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_preserves_escaped_double_quotes_when_option_set() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    )
+    .with_allow_double_quotes_for_escaping(true);
+    let result = quoted_strings::fix("foo: \"a\\nb\"\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_converts_unescaped_double_quotes_when_escaping_option_set() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    )
+    .with_allow_double_quotes_for_escaping(true);
+    let result = quoted_strings::fix("foo: \"bar\"\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: bar\n"));
+}
+
+#[test]
+fn fix_escaping_exception_does_not_shield_single_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
+    )
+    .with_allow_double_quotes_for_escaping(true);
+    let result = quoted_strings::fix("foo: 'bar'\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: \"bar\"\n"));
+}

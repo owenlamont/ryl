@@ -154,6 +154,8 @@ pub enum FixableRuleSelector {
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
+    #[serde(rename = "quoted-strings")]
+    QuotedStrings,
 }
 
 /// A fixable rule name accepted by `fix.unfixable`.
@@ -173,6 +175,8 @@ pub enum FixRuleName {
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
+    #[serde(rename = "quoted-strings")]
+    QuotedStrings,
 }
 
 /// A built-in lint rule name.
