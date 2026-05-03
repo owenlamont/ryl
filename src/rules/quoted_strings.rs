@@ -283,7 +283,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
         let active_key = context.active();
         let resolves_to_string = value_resolves_to_string(value);
 
-        if self.should_skip_scalar(style, tag, active_key, resolves_to_string) {
+        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
             return;
         }
@@ -301,30 +301,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
         self.walker.any_metadata(|flow| *flow)
     }
 
-    fn should_skip_scalar(
-        &self,
-        style: ScalarStyle,
-        tag: Option<&Tag>,
-        active_key: bool,
-        resolves_to_string: bool,
-    ) -> bool {
-        if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-            return true;
-        }
-
-        if active_key && !self.config.check_keys {
-            return true;
-        }
-
-        if let Some(tag) = tag
-            && is_core_tag(tag)
-        {
-            return true;
-        }
-
-        matches!(style, ScalarStyle::Plain) && !resolves_to_string
-    }
-
     fn evaluate_scalar(
         &mut self,
         style: ScalarStyle,
@@ -334,7 +310,14 @@ impl<'cfg> QuotedStringsState<'cfg> {
         span: Span,
     ) -> Option<Violation> {
         let node_label = if active_key { "key" } else { "value" };
-        let facts = self.scalar_quote_facts(style, value, span);
+        let facts = scalar_quote_facts(
+            self.config,
+            self.buffer,
+            self.in_flow(),
+            style,
+            value,
+            span,
+        );
 
         let message = match self.config.required {
             RequiredMode::Always => self.required_always_message(node_label, facts),
@@ -348,45 +331,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
         }?;
 
         Some(build_violation(span, message))
-    }
-
-    fn scalar_quote_facts(
-        &self,
-        style: ScalarStyle,
-        value: &str,
-        span: Span,
-    ) -> ScalarQuoteFacts {
-        ScalarQuoteFacts {
-            style: quote_style(style),
-            has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
-                style, value,
-            )),
-            has_double_quote_escape: Flag::new(
-                self.has_escaping_in_double_quotes(style, span),
-            ),
-            extra_required: Flag::new(
-                self.config
-                    .extra_required
-                    .iter()
-                    .any(|re| re.is_match(value)),
-            ),
-            extra_allowed: Flag::new(
-                self.config
-                    .extra_allowed
-                    .iter()
-                    .any(|re| re.is_match(value)),
-            ),
-            quotes_needed: Flag::new(
-                matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-                    && quotes_are_needed(
-                        style,
-                        value,
-                        self.in_flow(),
-                        self.buffer,
-                        span,
-                    ),
-            ),
-        }
     }
 
     fn required_always_message(
@@ -467,7 +411,8 @@ impl<'cfg> QuotedStringsState<'cfg> {
         style_kind: QuoteStyle,
         facts: ScalarQuoteFacts,
     ) -> Option<String> {
-        let has_escape_exception = self.escaped_double_quote_exception(
+        let has_escape_exception = escaped_double_quote_exception(
+            self.config,
             style_kind,
             facts.has_double_quote_escape.get(),
         );
@@ -497,47 +442,15 @@ impl<'cfg> QuotedStringsState<'cfg> {
         has_quoted_quotes: bool,
         has_double_quote_escape: bool,
     ) -> bool {
-        !(self.escaped_double_quote_exception(style_kind, has_double_quote_escape)
-            || self.configured_quote_type_matches(style_kind)
-            || (self.config.allow_quoted_quotes && has_quoted_quotes))
-    }
-
-    fn escaped_double_quote_exception(
-        &self,
-        style_kind: QuoteStyle,
-        has_double_quote_escape: bool,
-    ) -> bool {
-        if !self.config.allow_double_quotes_for_escaping {
-            return false;
-        }
-        if !matches!(style_kind, QuoteStyle::Double) {
-            return false;
-        }
-        has_double_quote_escape
-    }
-
-    fn configured_quote_type_matches(&mut self, style_kind: QuoteStyle) -> bool {
-        match self.config.quote_type {
-            QuoteType::Any => true,
-            QuoteType::Single => matches!(style_kind, QuoteStyle::Single),
-            QuoteType::Double => matches!(style_kind, QuoteStyle::Double),
-            QuoteType::Consistent => {
-                let expected = self.consistent_quote_style.get_or_insert(style_kind);
-                *expected == style_kind
-            }
-        }
-    }
-
-    fn has_escaping_in_double_quotes(&self, style: ScalarStyle, span: Span) -> bool {
-        if !matches!(style, ScalarStyle::DoubleQuoted) {
-            return false;
-        }
-
-        let slice_start = span.start.index().saturating_add(1).min(self.buffer.len());
-        let mut slice_end = span.end.index().saturating_sub(1);
-        slice_end = slice_end.min(self.buffer.len());
-        slice_end = slice_end.max(slice_start);
-        self.buffer[slice_start..slice_end].contains('\\')
+        !(escaped_double_quote_exception(
+            self.config,
+            style_kind,
+            has_double_quote_escape,
+        ) || configured_quote_type_matches(
+            self.config,
+            &mut self.consistent_quote_style,
+            style_kind,
+        ) || (self.config.allow_quoted_quotes && has_quoted_quotes))
     }
 }
 
@@ -577,6 +490,97 @@ fn value_resolves_to_string(value: &str) -> bool {
         Yaml::value_from_str(value),
         Yaml::Value(saphyr::Scalar::String(_))
     )
+}
+
+fn should_skip_scalar(
+    config: &Config,
+    style: ScalarStyle,
+    tag: Option<&Tag>,
+    active_key: bool,
+    resolves_to_string: bool,
+) -> bool {
+    if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        return true;
+    }
+
+    if active_key && !config.check_keys {
+        return true;
+    }
+
+    if let Some(tag) = tag
+        && is_core_tag(tag)
+    {
+        return true;
+    }
+
+    matches!(style, ScalarStyle::Plain) && !resolves_to_string
+}
+
+fn scalar_quote_facts(
+    config: &Config,
+    buffer: &str,
+    in_flow: bool,
+    style: ScalarStyle,
+    value: &str,
+    span: Span,
+) -> ScalarQuoteFacts {
+    ScalarQuoteFacts {
+        style: quote_style(style),
+        has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
+            style, value,
+        )),
+        has_double_quote_escape: Flag::new(has_escaping_in_double_quotes(
+            buffer, style, span,
+        )),
+        extra_required: Flag::new(
+            config.extra_required.iter().any(|re| re.is_match(value)),
+        ),
+        extra_allowed: Flag::new(
+            config.extra_allowed.iter().any(|re| re.is_match(value)),
+        ),
+        quotes_needed: Flag::new(
+            matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
+                && quotes_are_needed(style, value, in_flow, buffer, span),
+        ),
+    }
+}
+
+fn escaped_double_quote_exception(
+    config: &Config,
+    style_kind: QuoteStyle,
+    has_double_quote_escape: bool,
+) -> bool {
+    config.allow_double_quotes_for_escaping
+        && matches!(style_kind, QuoteStyle::Double)
+        && has_double_quote_escape
+}
+
+fn configured_quote_type_matches(
+    config: &Config,
+    consistent_quote_style: &mut Option<QuoteStyle>,
+    style_kind: QuoteStyle,
+) -> bool {
+    match config.quote_type {
+        QuoteType::Any => true,
+        QuoteType::Single => matches!(style_kind, QuoteStyle::Single),
+        QuoteType::Double => matches!(style_kind, QuoteStyle::Double),
+        QuoteType::Consistent => {
+            let expected = consistent_quote_style.get_or_insert(style_kind);
+            *expected == style_kind
+        }
+    }
+}
+
+fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -> bool {
+    if !matches!(style, ScalarStyle::DoubleQuoted) {
+        return false;
+    }
+
+    let slice_start = span.start.index().saturating_add(1).min(buffer.len());
+    let mut slice_end = span.end.index().saturating_sub(1);
+    slice_end = slice_end.min(buffer.len());
+    slice_end = slice_end.max(slice_start);
+    buffer[slice_start..slice_end].contains('\\')
 }
 
 fn quotes_are_needed(
@@ -865,7 +869,7 @@ impl<'cfg> FixState<'cfg> {
         let active_key = context.active();
         let resolves_to_string = value_resolves_to_string(value);
 
-        if self.should_skip_scalar(style, tag, active_key, resolves_to_string) {
+        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
             return None;
         }
@@ -887,82 +891,23 @@ impl<'cfg> FixState<'cfg> {
         let active_key = context.active();
         let resolves_to_string = value_resolves_to_string(value);
 
-        if self.should_skip_scalar(style, tag, active_key, resolves_to_string) {
+        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
             return;
         }
 
         if self.consistent_quote_style.is_none()
             && let Some(style_kind) = quote_style(style)
-            && !self.escaped_double_quote_exception(
+            && !escaped_double_quote_exception(
+                self.config,
                 style_kind,
-                self.has_escaping_in_double_quotes(style, span),
+                has_escaping_in_double_quotes(self.buffer, style, span),
             )
         {
             self.consistent_quote_style = Some(style_kind);
         }
 
         self.walker.finish_node(context);
-    }
-
-    fn should_skip_scalar(
-        &self,
-        style: ScalarStyle,
-        tag: Option<&Tag>,
-        active_key: bool,
-        resolves_to_string: bool,
-    ) -> bool {
-        if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-            return true;
-        }
-        if active_key && !self.config.check_keys {
-            return true;
-        }
-        if let Some(tag) = tag
-            && is_core_tag(tag)
-        {
-            return true;
-        }
-        matches!(style, ScalarStyle::Plain) && !resolves_to_string
-    }
-
-    fn scalar_quote_facts(
-        &self,
-        style: ScalarStyle,
-        value: &str,
-        span: Span,
-    ) -> ScalarQuoteFacts {
-        ScalarQuoteFacts {
-            style: quote_style(style),
-            has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
-                style, value,
-            )),
-            has_double_quote_escape: Flag::new(
-                self.has_escaping_in_double_quotes(style, span),
-            ),
-            extra_required: Flag::new(
-                self.config
-                    .extra_required
-                    .iter()
-                    .any(|re| re.is_match(value)),
-            ),
-            extra_allowed: Flag::new(
-                self.config
-                    .extra_allowed
-                    .iter()
-                    .any(|re| re.is_match(value)),
-            ),
-            quotes_needed: Flag::new(
-                matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-                    && quotes_are_needed(
-                        style,
-                        value,
-                        self.in_flow(),
-                        self.buffer,
-                        span,
-                    ),
-            ),
-        }
     }
 
     fn compute_fix(
@@ -972,7 +917,14 @@ impl<'cfg> FixState<'cfg> {
         resolves_to_string: bool,
         span: Span,
     ) -> Option<Replacement> {
-        let facts = self.scalar_quote_facts(style, value, span);
+        let facts = scalar_quote_facts(
+            self.config,
+            self.buffer,
+            self.in_flow(),
+            style,
+            value,
+            span,
+        );
         let start = span.start.index();
         let end = span.end.index();
 
@@ -1079,7 +1031,8 @@ impl<'cfg> FixState<'cfg> {
         style_kind: QuoteStyle,
         facts: ScalarQuoteFacts,
     ) -> bool {
-        let has_escape_exception = self.escaped_double_quote_exception(
+        let has_escape_exception = escaped_double_quote_exception(
+            self.config,
             style_kind,
             facts.has_double_quote_escape.get(),
         );
@@ -1112,49 +1065,15 @@ impl<'cfg> FixState<'cfg> {
         style_kind: QuoteStyle,
         facts: ScalarQuoteFacts,
     ) -> bool {
-        !(self.escaped_double_quote_exception(
+        !(escaped_double_quote_exception(
+            self.config,
             style_kind,
             facts.has_double_quote_escape.get(),
-        ) || self.configured_quote_type_matches(style_kind)
-            || (self.config.allow_quoted_quotes && facts.has_quoted_quotes.get()))
-    }
-
-    fn escaped_double_quote_exception(
-        &self,
-        style_kind: QuoteStyle,
-        has_double_quote_escape: bool,
-    ) -> bool {
-        if !self.config.allow_double_quotes_for_escaping {
-            return false;
-        }
-        if !matches!(style_kind, QuoteStyle::Double) {
-            return false;
-        }
-        has_double_quote_escape
-    }
-
-    fn configured_quote_type_matches(&mut self, style_kind: QuoteStyle) -> bool {
-        match self.config.quote_type {
-            QuoteType::Any => true,
-            QuoteType::Single => matches!(style_kind, QuoteStyle::Single),
-            QuoteType::Double => matches!(style_kind, QuoteStyle::Double),
-            QuoteType::Consistent => {
-                let expected = self.consistent_quote_style.get_or_insert(style_kind);
-                *expected == style_kind
-            }
-        }
-    }
-
-    fn has_escaping_in_double_quotes(&self, style: ScalarStyle, span: Span) -> bool {
-        if !matches!(style, ScalarStyle::DoubleQuoted) {
-            return false;
-        }
-
-        let slice_start = span.start.index().saturating_add(1).min(self.buffer.len());
-        let mut slice_end = span.end.index().saturating_sub(1);
-        slice_end = slice_end.min(self.buffer.len());
-        slice_end = slice_end.max(slice_start);
-        self.buffer[slice_start..slice_end].contains('\\')
+        ) || configured_quote_type_matches(
+            self.config,
+            &mut self.consistent_quote_style,
+            style_kind,
+        ) || (self.config.allow_quoted_quotes && facts.has_quoted_quotes.get()))
     }
 }
 
@@ -1174,6 +1093,26 @@ fn replacement_for_target(
     Some((start, end, quote_value(value, target)))
 }
 
+const DOUBLE_QUOTE_ESCAPES: &[(char, &str)] = &[
+    ('\\', "\\\\"),
+    ('"', "\\\""),
+    ('\0', "\\0"),
+    ('\u{7}', "\\a"),
+    ('\u{8}', "\\b"),
+    ('\t', "\\t"),
+    ('\n', "\\n"),
+    ('\u{b}', "\\v"),
+    ('\u{c}', "\\f"),
+    ('\r', "\\r"),
+    ('\u{1b}', "\\e"),
+];
+
+fn double_quote_escape(ch: char) -> Option<&'static str> {
+    DOUBLE_QUOTE_ESCAPES
+        .iter()
+        .find_map(|(candidate, escape)| (*candidate == ch).then_some(*escape))
+}
+
 fn quote_value(value: &str, style: QuoteStyle) -> String {
     match style {
         QuoteStyle::Single => {
@@ -1190,18 +1129,15 @@ fn quote_value(value: &str, style: QuoteStyle) -> String {
             result
         }
         QuoteStyle::Double => {
-            let mut result = value.replace('\\', "\\\\");
-            result = result.replace('"', "\\\"");
-            result = result.replace('\0', "\\0");
-            result = result.replace('\u{7}', "\\a");
-            result = result.replace('\u{8}', "\\b");
-            result = result.replace('\t', "\\t");
-            result = result.replace('\n', "\\n");
-            result = result.replace('\u{b}', "\\v");
-            result = result.replace('\u{c}', "\\f");
-            result = result.replace('\r', "\\r");
-            result = result.replace('\u{1b}', "\\e");
-            result.insert(0, '"');
+            let mut result = String::with_capacity(value.len().saturating_add(2));
+            result.push('"');
+            for ch in value.chars() {
+                if let Some(escape) = double_quote_escape(ch) {
+                    result.push_str(escape);
+                } else {
+                    result.push(ch);
+                }
+            }
             result.push('"');
             result
         }
