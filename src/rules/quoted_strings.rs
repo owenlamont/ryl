@@ -163,6 +163,12 @@ impl Config {
             check_keys,
         }
     }
+
+    #[must_use]
+    pub fn with_allow_double_quotes_for_escaping(mut self, value: bool) -> Self {
+        self.allow_double_quotes_for_escaping = value;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,12 +281,9 @@ impl<'cfg> QuotedStringsState<'cfg> {
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let resolves_to_string = matches!(
-            Yaml::value_from_str(value),
-            Yaml::Value(saphyr::Scalar::String(_))
-        );
+        let resolves_to_string = value_resolves_to_string(value);
 
-        if self.should_skip_scalar(style, tag, active_key, resolves_to_string) {
+        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
             return;
         }
@@ -298,30 +301,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
         self.walker.any_metadata(|flow| *flow)
     }
 
-    fn should_skip_scalar(
-        &self,
-        style: ScalarStyle,
-        tag: Option<&Tag>,
-        active_key: bool,
-        resolves_to_string: bool,
-    ) -> bool {
-        if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-            return true;
-        }
-
-        if active_key && !self.config.check_keys {
-            return true;
-        }
-
-        if let Some(tag) = tag
-            && is_core_tag(tag)
-        {
-            return true;
-        }
-
-        matches!(style, ScalarStyle::Plain) && !resolves_to_string
-    }
-
     fn evaluate_scalar(
         &mut self,
         style: ScalarStyle,
@@ -331,7 +310,14 @@ impl<'cfg> QuotedStringsState<'cfg> {
         span: Span,
     ) -> Option<Violation> {
         let node_label = if active_key { "key" } else { "value" };
-        let facts = self.scalar_quote_facts(style, value, span);
+        let facts = scalar_quote_facts(
+            self.config,
+            self.buffer,
+            self.in_flow(),
+            style,
+            value,
+            span,
+        );
 
         let message = match self.config.required {
             RequiredMode::Always => self.required_always_message(node_label, facts),
@@ -345,45 +331,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
         }?;
 
         Some(build_violation(span, message))
-    }
-
-    fn scalar_quote_facts(
-        &self,
-        style: ScalarStyle,
-        value: &str,
-        span: Span,
-    ) -> ScalarQuoteFacts {
-        ScalarQuoteFacts {
-            style: quote_style(style),
-            has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
-                style, value,
-            )),
-            has_double_quote_escape: Flag::new(
-                self.has_escaping_in_double_quotes(style, span),
-            ),
-            extra_required: Flag::new(
-                self.config
-                    .extra_required
-                    .iter()
-                    .any(|re| re.is_match(value)),
-            ),
-            extra_allowed: Flag::new(
-                self.config
-                    .extra_allowed
-                    .iter()
-                    .any(|re| re.is_match(value)),
-            ),
-            quotes_needed: Flag::new(
-                matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-                    && quotes_are_needed(
-                        style,
-                        value,
-                        self.in_flow(),
-                        self.buffer,
-                        span,
-                    ),
-            ),
-        }
     }
 
     fn required_always_message(
@@ -464,7 +411,8 @@ impl<'cfg> QuotedStringsState<'cfg> {
         style_kind: QuoteStyle,
         facts: ScalarQuoteFacts,
     ) -> Option<String> {
-        let has_escape_exception = self.escaped_double_quote_exception(
+        let has_escape_exception = escaped_double_quote_exception(
+            self.config,
             style_kind,
             facts.has_double_quote_escape.get(),
         );
@@ -494,43 +442,15 @@ impl<'cfg> QuotedStringsState<'cfg> {
         has_quoted_quotes: bool,
         has_double_quote_escape: bool,
     ) -> bool {
-        !(self.escaped_double_quote_exception(style_kind, has_double_quote_escape)
-            || self.configured_quote_type_matches(style_kind)
-            || (self.config.allow_quoted_quotes && has_quoted_quotes))
-    }
-
-    fn escaped_double_quote_exception(
-        &self,
-        style_kind: QuoteStyle,
-        has_double_quote_escape: bool,
-    ) -> bool {
-        self.config.allow_double_quotes_for_escaping
-            && matches!(style_kind, QuoteStyle::Double)
-            && has_double_quote_escape
-    }
-
-    fn configured_quote_type_matches(&mut self, style_kind: QuoteStyle) -> bool {
-        match self.config.quote_type {
-            QuoteType::Any => true,
-            QuoteType::Single => matches!(style_kind, QuoteStyle::Single),
-            QuoteType::Double => matches!(style_kind, QuoteStyle::Double),
-            QuoteType::Consistent => {
-                let expected = self.consistent_quote_style.get_or_insert(style_kind);
-                *expected == style_kind
-            }
-        }
-    }
-
-    fn has_escaping_in_double_quotes(&self, style: ScalarStyle, span: Span) -> bool {
-        if !matches!(style, ScalarStyle::DoubleQuoted) {
-            return false;
-        }
-
-        let slice_start = span.start.index().saturating_add(1).min(self.buffer.len());
-        let mut slice_end = span.end.index().saturating_sub(1);
-        slice_end = slice_end.min(self.buffer.len());
-        slice_end = slice_end.max(slice_start);
-        self.buffer[slice_start..slice_end].contains('\\')
+        !(escaped_double_quote_exception(
+            self.config,
+            style_kind,
+            has_double_quote_escape,
+        ) || configured_quote_type_matches(
+            self.config,
+            &mut self.consistent_quote_style,
+            style_kind,
+        ) || (self.config.allow_quoted_quotes && has_quoted_quotes))
     }
 }
 
@@ -565,6 +485,104 @@ fn is_core_tag(tag: &Tag) -> bool {
     tag.handle == "tag:yaml.org,2002:"
 }
 
+fn value_resolves_to_string(value: &str) -> bool {
+    matches!(
+        Yaml::value_from_str(value),
+        Yaml::Value(saphyr::Scalar::String(_))
+    )
+}
+
+fn should_skip_scalar(
+    config: &Config,
+    style: ScalarStyle,
+    tag: Option<&Tag>,
+    active_key: bool,
+    resolves_to_string: bool,
+) -> bool {
+    if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        return true;
+    }
+
+    if active_key && !config.check_keys {
+        return true;
+    }
+
+    if let Some(tag) = tag
+        && is_core_tag(tag)
+    {
+        return true;
+    }
+
+    matches!(style, ScalarStyle::Plain) && !resolves_to_string
+}
+
+fn scalar_quote_facts(
+    config: &Config,
+    buffer: &str,
+    in_flow: bool,
+    style: ScalarStyle,
+    value: &str,
+    span: Span,
+) -> ScalarQuoteFacts {
+    ScalarQuoteFacts {
+        style: quote_style(style),
+        has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
+            style, value,
+        )),
+        has_double_quote_escape: Flag::new(has_escaping_in_double_quotes(
+            buffer, style, span,
+        )),
+        extra_required: Flag::new(
+            config.extra_required.iter().any(|re| re.is_match(value)),
+        ),
+        extra_allowed: Flag::new(
+            config.extra_allowed.iter().any(|re| re.is_match(value)),
+        ),
+        quotes_needed: Flag::new(
+            matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
+                && quotes_are_needed(style, value, in_flow, buffer, span),
+        ),
+    }
+}
+
+fn escaped_double_quote_exception(
+    config: &Config,
+    style_kind: QuoteStyle,
+    has_double_quote_escape: bool,
+) -> bool {
+    config.allow_double_quotes_for_escaping
+        && matches!(style_kind, QuoteStyle::Double)
+        && has_double_quote_escape
+}
+
+fn configured_quote_type_matches(
+    config: &Config,
+    consistent_quote_style: &mut Option<QuoteStyle>,
+    style_kind: QuoteStyle,
+) -> bool {
+    match config.quote_type {
+        QuoteType::Any => true,
+        QuoteType::Single => matches!(style_kind, QuoteStyle::Single),
+        QuoteType::Double => matches!(style_kind, QuoteStyle::Double),
+        QuoteType::Consistent => {
+            let expected = consistent_quote_style.get_or_insert(style_kind);
+            *expected == style_kind
+        }
+    }
+}
+
+fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -> bool {
+    if !matches!(style, ScalarStyle::DoubleQuoted) {
+        return false;
+    }
+
+    let slice_start = span.start.index().saturating_add(1).min(buffer.len());
+    let mut slice_end = span.end.index().saturating_sub(1);
+    slice_end = slice_end.min(buffer.len());
+    slice_end = slice_end.max(slice_start);
+    buffer[slice_start..slice_end].contains('\\')
+}
+
 fn quotes_are_needed(
     style: ScalarStyle,
     value: &str,
@@ -581,6 +599,9 @@ fn quotes_are_needed(
     }
 
     if matches!(style, ScalarStyle::DoubleQuoted) {
+        if value.contains('\t') {
+            return true;
+        }
         if contains_non_printable(value) {
             return true;
         }
@@ -658,4 +679,470 @@ fn has_backslash_line_ending(buffer: &str, span: Span) -> bool {
     let has_unix_backslash = content.contains("\\\n");
     let has_windows_backslash = content.contains("\\\r\n");
     has_unix_backslash || has_windows_backslash
+}
+
+type Replacement = (usize, usize, String);
+
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    let mut parser = Parser::new_from_str(buffer);
+    let mut fixer = QuotedStringsFixer::new(cfg, buffer);
+    let _ = parser.load(&mut fixer, true);
+    fixer.finish()
+}
+
+fn initial_consistent_quote_style(cfg: &Config, buffer: &str) -> Option<QuoteStyle> {
+    if !matches!(cfg.quote_type, QuoteType::Consistent) {
+        return None;
+    }
+
+    let mut parser = Parser::new_from_str(buffer);
+    let mut finder = ConsistentQuoteStyleFinder::new(cfg, buffer);
+    let _ = parser.load(&mut finder, true);
+    finder.finish()
+}
+
+struct ConsistentQuoteStyleFinder<'cfg> {
+    state: FixState<'cfg>,
+}
+
+impl<'cfg> ConsistentQuoteStyleFinder<'cfg> {
+    fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
+        Self {
+            state: FixState::new(cfg, buffer),
+        }
+    }
+
+    fn finish(self) -> Option<QuoteStyle> {
+        self.state.consistent_quote_style
+    }
+}
+
+impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
+    fn on_event(&mut self, event: Event<'_>, span: Span) {
+        match event {
+            Event::StreamStart => self.state.reset_stream(),
+            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentEnd => self.state.document_end(),
+            Event::SequenceStart(_, _) => {
+                let flow = is_flow_sequence(self.state.buffer, span);
+                self.state.enter_sequence(flow);
+            }
+            Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
+            Event::MappingStart(_, _) => {
+                let flow = is_flow_mapping(self.state.buffer, span);
+                self.state.enter_mapping(flow);
+            }
+            Event::Scalar(value, style, _, tag) => {
+                self.state.collect_consistent_quote_style(
+                    style,
+                    value.as_ref(),
+                    tag.as_deref(),
+                    span,
+                );
+            }
+            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+        }
+    }
+}
+
+struct QuotedStringsFixer<'cfg> {
+    state: FixState<'cfg>,
+    replacements: Vec<Replacement>,
+}
+
+impl<'cfg> QuotedStringsFixer<'cfg> {
+    fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
+        Self {
+            state: FixState::with_consistent_quote_style(
+                cfg,
+                buffer,
+                initial_consistent_quote_style(cfg, buffer),
+            ),
+            replacements: Vec::new(),
+        }
+    }
+
+    fn finish(self) -> Option<String> {
+        let mut replacements = self.replacements;
+        if replacements.is_empty() {
+            return None;
+        }
+        replacements.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut output = self.state.buffer.to_owned();
+        for (start, end, replacement) in replacements {
+            output.replace_range(start..end, &replacement);
+        }
+        Some(output)
+    }
+}
+
+impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
+    fn on_event(&mut self, event: Event<'_>, span: Span) {
+        match event {
+            Event::StreamStart => self.state.reset_stream(),
+            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentEnd => self.state.document_end(),
+            Event::SequenceStart(_, _) => {
+                let flow = is_flow_sequence(self.state.buffer, span);
+                self.state.enter_sequence(flow);
+            }
+            Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
+            Event::MappingStart(_, _) => {
+                let flow = is_flow_mapping(self.state.buffer, span);
+                self.state.enter_mapping(flow);
+            }
+            Event::Scalar(value, style, _, tag) => {
+                if let Some(r) =
+                    self.state
+                        .fix_scalar(style, value.as_ref(), tag.as_deref(), span)
+                {
+                    self.replacements.push(r);
+                }
+            }
+            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+        }
+    }
+}
+
+struct FixState<'cfg> {
+    config: &'cfg Config,
+    buffer: &'cfg str,
+    walker: Walker<(), bool>,
+    seeded_consistent_quote_style: Option<QuoteStyle>,
+    consistent_quote_style: Option<QuoteStyle>,
+}
+
+impl<'cfg> FixState<'cfg> {
+    const fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
+        Self::with_consistent_quote_style(config, buffer, None)
+    }
+
+    const fn with_consistent_quote_style(
+        config: &'cfg Config,
+        buffer: &'cfg str,
+        consistent_quote_style: Option<QuoteStyle>,
+    ) -> Self {
+        Self {
+            config,
+            buffer,
+            walker: Walker::new(),
+            seeded_consistent_quote_style: consistent_quote_style,
+            consistent_quote_style,
+        }
+    }
+
+    fn reset_stream(&mut self) {
+        self.walker.reset();
+        self.consistent_quote_style = self.seeded_consistent_quote_style;
+    }
+
+    fn document_start(&mut self) {
+        self.walker.reset();
+    }
+
+    fn document_end(&mut self) {
+        self.walker.reset();
+    }
+
+    fn enter_mapping(&mut self, flow: bool) {
+        self.walker.enter_mapping((), flow);
+    }
+
+    fn enter_sequence(&mut self, flow: bool) {
+        self.walker.enter_sequence(flow);
+    }
+
+    fn exit_container(&mut self) {
+        self.walker.exit_container();
+    }
+
+    fn in_flow(&self) -> bool {
+        self.walker.any_metadata(|flow| *flow)
+    }
+
+    fn fix_scalar(
+        &mut self,
+        style: ScalarStyle,
+        value: &str,
+        tag: Option<&Tag>,
+        span: Span,
+    ) -> Option<Replacement> {
+        let context = self.walker.begin_node();
+        let active_key = context.active();
+        let resolves_to_string = value_resolves_to_string(value);
+
+        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
+            self.walker.finish_node(context);
+            return None;
+        }
+
+        let replacement = self.compute_fix(style, value, resolves_to_string, span);
+
+        self.walker.finish_node(context);
+        replacement
+    }
+
+    fn collect_consistent_quote_style(
+        &mut self,
+        style: ScalarStyle,
+        value: &str,
+        tag: Option<&Tag>,
+        span: Span,
+    ) {
+        let context = self.walker.begin_node();
+        let active_key = context.active();
+        let resolves_to_string = value_resolves_to_string(value);
+
+        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
+            self.walker.finish_node(context);
+            return;
+        }
+
+        if self.consistent_quote_style.is_none()
+            && let Some(style_kind) = quote_style(style)
+            && !escaped_double_quote_exception(
+                self.config,
+                style_kind,
+                has_escaping_in_double_quotes(self.buffer, style, span),
+            )
+        {
+            self.consistent_quote_style = Some(style_kind);
+        }
+
+        self.walker.finish_node(context);
+    }
+
+    fn compute_fix(
+        &mut self,
+        style: ScalarStyle,
+        value: &str,
+        resolves_to_string: bool,
+        span: Span,
+    ) -> Option<Replacement> {
+        let facts = scalar_quote_facts(
+            self.config,
+            self.buffer,
+            self.in_flow(),
+            style,
+            value,
+            span,
+        );
+        let start = span.start.index();
+        let end = span.end.index();
+
+        match self.config.required {
+            RequiredMode::Always => self.fix_required_always(value, facts, start, end),
+            RequiredMode::Never => self.fix_required_never(value, facts, start, end),
+            RequiredMode::OnlyWhenNeeded => {
+                self.fix_only_when_needed(value, resolves_to_string, facts, start, end)
+            }
+        }
+    }
+
+    fn fix_required_always(
+        &mut self,
+        value: &str,
+        facts: ScalarQuoteFacts,
+        start: usize,
+        end: usize,
+    ) -> Option<Replacement> {
+        match facts.style {
+            None => {
+                let target = self.default_quote_style();
+                replacement_for_target(value, start, end, target)
+            }
+            Some(style_kind) => {
+                if self.mismatched_quote(style_kind, facts) {
+                    let target = self.target_quote_style(style_kind);
+                    replacement_for_target(value, start, end, target)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn fix_required_never(
+        &mut self,
+        value: &str,
+        facts: ScalarQuoteFacts,
+        start: usize,
+        end: usize,
+    ) -> Option<Replacement> {
+        match facts.style {
+            None => {
+                if facts.extra_required.get() {
+                    let target = self.default_quote_style();
+                    replacement_for_target(value, start, end, target)
+                } else {
+                    None
+                }
+            }
+            Some(style_kind) => {
+                if self.mismatched_quote(style_kind, facts) {
+                    let target = self.target_quote_style(style_kind);
+                    replacement_for_target(value, start, end, target)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn fix_only_when_needed(
+        &mut self,
+        value: &str,
+        resolves_to_string: bool,
+        facts: ScalarQuoteFacts,
+        start: usize,
+        end: usize,
+    ) -> Option<Replacement> {
+        match facts.style {
+            None => {
+                if facts.extra_required.get() {
+                    let target = self.default_quote_style();
+                    replacement_for_target(value, start, end, target)
+                } else {
+                    None
+                }
+            }
+            Some(style_kind) => {
+                if resolves_to_string && !value.is_empty() && !facts.quotes_needed.get()
+                {
+                    if self.redundant_quote_allowed(style_kind, facts) {
+                        if self.mismatched_quote(style_kind, facts) {
+                            let target = self.target_quote_style(style_kind);
+                            return replacement_for_target(value, start, end, target);
+                        }
+                        return None;
+                    }
+                    return Some((start, end, value.to_owned()));
+                }
+                if self.mismatched_quote(style_kind, facts) {
+                    let target = self.target_quote_style(style_kind);
+                    replacement_for_target(value, start, end, target)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn redundant_quote_allowed(
+        &self,
+        style_kind: QuoteStyle,
+        facts: ScalarQuoteFacts,
+    ) -> bool {
+        let has_escape_exception = escaped_double_quote_exception(
+            self.config,
+            style_kind,
+            facts.has_double_quote_escape.get(),
+        );
+        facts.extra_required.get() || facts.extra_allowed.get() || has_escape_exception
+    }
+
+    fn default_quote_style(&mut self) -> QuoteStyle {
+        match self.config.quote_type {
+            QuoteType::Double => QuoteStyle::Double,
+            QuoteType::Consistent => *self
+                .consistent_quote_style
+                .get_or_insert(QuoteStyle::Single),
+            QuoteType::Single | QuoteType::Any => QuoteStyle::Single,
+        }
+    }
+
+    fn target_quote_style(&mut self, current: QuoteStyle) -> QuoteStyle {
+        match self.config.quote_type {
+            QuoteType::Single | QuoteType::Any => QuoteStyle::Single,
+            QuoteType::Double => QuoteStyle::Double,
+            QuoteType::Consistent => {
+                let expected = self.consistent_quote_style.get_or_insert(current);
+                *expected
+            }
+        }
+    }
+
+    fn mismatched_quote(
+        &mut self,
+        style_kind: QuoteStyle,
+        facts: ScalarQuoteFacts,
+    ) -> bool {
+        !(escaped_double_quote_exception(
+            self.config,
+            style_kind,
+            facts.has_double_quote_escape.get(),
+        ) || configured_quote_type_matches(
+            self.config,
+            &mut self.consistent_quote_style,
+            style_kind,
+        ) || (self.config.allow_quoted_quotes && facts.has_quoted_quotes.get()))
+    }
+}
+
+fn value_needs_double_quotes_for_content(value: &str) -> bool {
+    value.contains('\n') || value.contains('\r') || contains_non_printable(value)
+}
+
+fn replacement_for_target(
+    value: &str,
+    start: usize,
+    end: usize,
+    target: QuoteStyle,
+) -> Option<Replacement> {
+    if target == QuoteStyle::Single && value_needs_double_quotes_for_content(value) {
+        return None;
+    }
+    Some((start, end, quote_value(value, target)))
+}
+
+const DOUBLE_QUOTE_ESCAPES: &[(char, &str)] = &[
+    ('\\', "\\\\"),
+    ('"', "\\\""),
+    ('\0', "\\0"),
+    ('\u{7}', "\\a"),
+    ('\u{8}', "\\b"),
+    ('\t', "\\t"),
+    ('\n', "\\n"),
+    ('\u{b}', "\\v"),
+    ('\u{c}', "\\f"),
+    ('\r', "\\r"),
+    ('\u{1b}', "\\e"),
+];
+
+fn double_quote_escape(ch: char) -> Option<&'static str> {
+    DOUBLE_QUOTE_ESCAPES
+        .iter()
+        .find_map(|(candidate, escape)| (*candidate == ch).then_some(*escape))
+}
+
+fn quote_value(value: &str, style: QuoteStyle) -> String {
+    match style {
+        QuoteStyle::Single => {
+            let mut result = String::with_capacity(value.len().saturating_add(2));
+            result.push('\'');
+            for ch in value.chars() {
+                if ch == '\'' {
+                    result.push_str("''");
+                } else {
+                    result.push(ch);
+                }
+            }
+            result.push('\'');
+            result
+        }
+        QuoteStyle::Double => {
+            let mut result = String::with_capacity(value.len().saturating_add(2));
+            result.push('"');
+            for ch in value.chars() {
+                if let Some(escape) = double_quote_escape(ch) {
+                    result.push_str(escape);
+                } else {
+                    result.push(ch);
+                }
+            }
+            result.push('"');
+            result
+        }
+    }
 }

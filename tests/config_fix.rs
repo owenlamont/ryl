@@ -323,3 +323,48 @@ fn yaml_extends_default_keeps_default_fix_policy() {
     assert_eq!(cfg.fix().fixable(), [FixRuleSelector::All]);
     assert!(cfg.fix().unfixable().is_empty());
 }
+
+#[test]
+fn toml_config_allows_quoted_strings_in_fixable() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new()
+        .with_file(cfg.clone(), "[fix]\nfixable = ['quoted-strings']\n");
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should allow quoted-strings in fixable");
+
+    assert_eq!(
+        ctx.config.fix().fixable(),
+        [FixRuleSelector::Rule(FixRule::QuotedStrings)]
+    );
+    assert!(ctx.config.fix().allows_rule("quoted-strings"));
+}
+
+#[test]
+fn to_toml_string_round_trips_quoted_strings_fix_config() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "[fix]\nfixable = ['quoted-strings']\nunfixable = ['quoted-strings', 'comments']\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should parse");
+
+    let toml_output = ctx.config.to_toml_string();
+    assert!(toml_output.contains("quoted-strings"));
+}

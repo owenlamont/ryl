@@ -4,7 +4,7 @@ use crate::config::YamlLintConfig;
 use crate::decoder;
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, new_line_at_end_of_file,
-    new_lines,
+    new_lines, quoted_strings,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +44,10 @@ const BRACKETS_FIX: RuleFix = RuleFix {
 };
 const FINAL_NEWLINE_FIX: RuleFix = RuleFix {
     rule: new_line_at_end_of_file::ID,
+    safety: FixSafety::Safe,
+};
+const QUOTED_STRINGS_FIX: RuleFix = RuleFix {
+    rule: quoted_strings::ID,
     safety: FixSafety::Safe,
 };
 
@@ -134,6 +138,10 @@ pub fn apply_safe_fixes(
         apply_rule_fix(content, FINAL_NEWLINE_FIX, cfg, path, base_dir, |buffer| {
             let newline = target_newline(buffer, cfg, path, base_dir);
             new_line_at_end_of_file::fix(buffer, newline.as_str())
+        });
+    content =
+        apply_rule_fix(content, QUOTED_STRINGS_FIX, cfg, path, base_dir, |buffer| {
+            quoted_strings::fix(buffer, &quoted_strings::Config::resolve(cfg))
         });
 
     content
