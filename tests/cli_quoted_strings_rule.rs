@@ -159,3 +159,34 @@ fn escaped_double_quote_exception_does_not_set_consistent_style() {
         "escaped exception and single quote baseline should pass: {output}"
     );
 }
+
+#[test]
+fn fix_consistent_ignores_escaped_exception_when_seeding_style() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("data.yaml");
+    fs::write(
+        &file,
+        "escaped: \"line\\nbreak\"\nplain: value\nquoted: 'two'\n",
+    )
+    .unwrap();
+
+    let config = dir.path().join(".ryl.toml");
+    fs::write(
+        &config,
+        "[rules.quoted-strings]\nquote-type = 'consistent'\nallow-double-quotes-for-escaping = true\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("-c")
+        .arg(&config)
+        .arg("--fix")
+        .arg(&file));
+    assert_eq!(code, 0);
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed,
+        "escaped: \"line\\nbreak\"\nplain: 'value'\nquoted: 'two'\n"
+    );
+}

@@ -453,6 +453,18 @@ fn fix_consistent_converts_to_first_seen_style() {
 }
 
 #[test]
+fn fix_consistent_uses_later_existing_style_for_earlier_plain_scalar() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: consistent\n",
+    );
+    let result = quoted_strings::fix("plain: value\nquoted: \"two\"\n", &cfg);
+    assert_eq!(
+        result.as_deref(),
+        Some("plain: \"value\"\nquoted: \"two\"\n")
+    );
+}
+
+#[test]
 fn fix_returns_none_when_no_changes_needed() {
     let cfg = build_config(
         "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
@@ -639,6 +651,15 @@ fn fix_converts_single_to_double_with_tab_escaping() {
     );
     let result = quoted_strings::fix("foo: 'a\tb'\n", &cfg);
     assert_eq!(result.as_deref(), Some("foo: \"a\\tb\"\n"));
+}
+
+#[test]
+fn fix_does_not_convert_non_printable_escape_to_single_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: false\n",
+    );
+    let result = quoted_strings::fix("foo: \"\\a\"\n", &cfg);
+    assert_eq!(result.as_deref(), None);
 }
 
 #[test]

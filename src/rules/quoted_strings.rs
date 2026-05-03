@@ -684,6 +684,61 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     fixer.finish()
 }
 
+fn initial_consistent_quote_style(cfg: &Config, buffer: &str) -> Option<QuoteStyle> {
+    if !matches!(cfg.quote_type, QuoteType::Consistent) {
+        return None;
+    }
+
+    let mut parser = Parser::new_from_str(buffer);
+    let mut finder = ConsistentQuoteStyleFinder::new(cfg, buffer);
+    let _ = parser.load(&mut finder, true);
+    finder.finish()
+}
+
+struct ConsistentQuoteStyleFinder<'cfg> {
+    state: FixState<'cfg>,
+}
+
+impl<'cfg> ConsistentQuoteStyleFinder<'cfg> {
+    fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
+        Self {
+            state: FixState::new(cfg, buffer),
+        }
+    }
+
+    fn finish(self) -> Option<QuoteStyle> {
+        self.state.consistent_quote_style
+    }
+}
+
+impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
+    fn on_event(&mut self, event: Event<'_>, span: Span) {
+        match event {
+            Event::StreamStart => self.state.reset_stream(),
+            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentEnd => self.state.document_end(),
+            Event::SequenceStart(_, _) => {
+                let flow = is_flow_sequence(self.state.buffer, span);
+                self.state.enter_sequence(flow);
+            }
+            Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
+            Event::MappingStart(_, _) => {
+                let flow = is_flow_mapping(self.state.buffer, span);
+                self.state.enter_mapping(flow);
+            }
+            Event::Scalar(value, style, _, tag) => {
+                self.state.collect_consistent_quote_style(
+                    style,
+                    value.as_ref(),
+                    tag.as_deref(),
+                    span,
+                );
+            }
+            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+        }
+    }
+}
+
 struct QuotedStringsFixer<'cfg> {
     state: FixState<'cfg>,
     replacements: Vec<Replacement>,
@@ -692,7 +747,11 @@ struct QuotedStringsFixer<'cfg> {
 impl<'cfg> QuotedStringsFixer<'cfg> {
     fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
         Self {
-            state: FixState::new(cfg, buffer),
+            state: FixState::with_consistent_quote_style(
+                cfg,
+                buffer,
+                initial_consistent_quote_style(cfg, buffer),
+            ),
             replacements: Vec::new(),
         }
     }
@@ -743,22 +802,32 @@ struct FixState<'cfg> {
     config: &'cfg Config,
     buffer: &'cfg str,
     walker: Walker<(), bool>,
+    seeded_consistent_quote_style: Option<QuoteStyle>,
     consistent_quote_style: Option<QuoteStyle>,
 }
 
 impl<'cfg> FixState<'cfg> {
     const fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
+        Self::with_consistent_quote_style(config, buffer, None)
+    }
+
+    const fn with_consistent_quote_style(
+        config: &'cfg Config,
+        buffer: &'cfg str,
+        consistent_quote_style: Option<QuoteStyle>,
+    ) -> Self {
         Self {
             config,
             buffer,
             walker: Walker::new(),
-            consistent_quote_style: None,
+            seeded_consistent_quote_style: consistent_quote_style,
+            consistent_quote_style,
         }
     }
 
     fn reset_stream(&mut self) {
         self.walker.reset();
-        self.consistent_quote_style = None;
+        self.consistent_quote_style = self.seeded_consistent_quote_style;
     }
 
     fn document_start(&mut self) {
@@ -805,6 +874,35 @@ impl<'cfg> FixState<'cfg> {
 
         self.walker.finish_node(context);
         replacement
+    }
+
+    fn collect_consistent_quote_style(
+        &mut self,
+        style: ScalarStyle,
+        value: &str,
+        tag: Option<&Tag>,
+        span: Span,
+    ) {
+        let context = self.walker.begin_node();
+        let active_key = context.active();
+        let resolves_to_string = value_resolves_to_string(value);
+
+        if self.should_skip_scalar(style, tag, active_key, resolves_to_string) {
+            self.walker.finish_node(context);
+            return;
+        }
+
+        if self.consistent_quote_style.is_none()
+            && let Some(style_kind) = quote_style(style)
+            && !self.escaped_double_quote_exception(
+                style_kind,
+                self.has_escaping_in_double_quotes(style, span),
+            )
+        {
+            self.consistent_quote_style = Some(style_kind);
+        }
+
+        self.walker.finish_node(context);
     }
 
     fn should_skip_scalar(
@@ -1061,7 +1159,7 @@ impl<'cfg> FixState<'cfg> {
 }
 
 fn value_needs_double_quotes_for_content(value: &str) -> bool {
-    value.contains('\n') || value.contains('\r')
+    value.contains('\n') || value.contains('\r') || contains_non_printable(value)
 }
 
 fn replacement_for_target(
@@ -1092,16 +1190,18 @@ fn quote_value(value: &str, style: QuoteStyle) -> String {
             result
         }
         QuoteStyle::Double => {
-            let mut result = String::with_capacity(value.len().saturating_add(2));
-            result.push('"');
-            for ch in value.chars() {
-                match ch {
-                    '\\' => result.push_str("\\\\"),
-                    '"' => result.push_str("\\\""),
-                    '\t' => result.push_str("\\t"),
-                    _ => result.push(ch),
-                }
-            }
+            let mut result = value.replace('\\', "\\\\");
+            result = result.replace('"', "\\\"");
+            result = result.replace('\0', "\\0");
+            result = result.replace('\u{7}', "\\a");
+            result = result.replace('\u{8}', "\\b");
+            result = result.replace('\t', "\\t");
+            result = result.replace('\n', "\\n");
+            result = result.replace('\u{b}', "\\v");
+            result = result.replace('\u{c}', "\\f");
+            result = result.replace('\r', "\\r");
+            result = result.replace('\u{1b}', "\\e");
+            result.insert(0, '"');
             result.push('"');
             result
         }
