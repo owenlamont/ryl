@@ -102,6 +102,33 @@ fn fix_preserves_escaped_double_quotes_in_toml_config() {
 }
 
 #[test]
+fn fix_preserves_escaped_tabs_that_would_be_invalid_plain_scalars() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("data.yaml");
+    fs::write(&file, "key: \"a\\tb\"\n").unwrap();
+
+    let config = dir.path().join(".ryl.toml");
+    fs::write(
+        &config,
+        "[rules.quoted-strings]\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-c")
+        .arg(&config)
+        .arg("--fix")
+        .arg(&file));
+    assert_eq!(
+        code, 0,
+        "escaped tab should stay valid after fix: stdout={stdout} stderr={stderr}"
+    );
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(fixed, "key: \"a\\tb\"\n");
+}
+
+#[test]
 fn fix_removes_redundant_quotes_with_cli_fix_flag() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("data.yaml");

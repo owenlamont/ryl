@@ -599,6 +599,9 @@ fn quotes_are_needed(
     }
 
     if matches!(style, ScalarStyle::DoubleQuoted) {
+        if value.contains('\t') {
+            return true;
+        }
         if contains_non_printable(value) {
             return true;
         }
