@@ -576,8 +576,9 @@ fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -
         return false;
     }
 
-    let slice_start = span.start.index().saturating_add(1).min(buffer.len());
-    let mut slice_end = span.end.index().saturating_sub(1);
+    let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
+    let slice_start = scalar_start.saturating_add(1).min(buffer.len());
+    let mut slice_end = scalar_end.saturating_sub(1);
     slice_end = slice_end.min(buffer.len());
     slice_end = slice_end.max(slice_start);
     buffer[slice_start..slice_end].contains('\\')
@@ -595,6 +596,10 @@ fn quotes_are_needed(
             .chars()
             .any(|c| matches!(c, ',' | '[' | ']' | '{' | '}'))
     {
+        return true;
+    }
+
+    if contains_plain_indicator_token(value) {
         return true;
     }
 
@@ -639,6 +644,16 @@ impl<'a> PlainScalarChecker<'a> {
     }
 }
 
+fn contains_plain_indicator_token(value: &str) -> bool {
+    value.split_whitespace().any(|token| {
+        token.len() == 1 && token.chars().next().is_some_and(is_plain_indicator_token)
+    })
+}
+
+const fn is_plain_indicator_token(ch: char) -> bool {
+    matches!(ch, '!' | '&' | '*' | '|' | '>' | '?' | '@' | '%' | '`')
+}
+
 impl SpannedEventReceiver<'_> for PlainScalarChecker<'_> {
     fn on_event(&mut self, event: Event<'_>, _span: Span) {
         if let Event::Scalar(value, style, _, _) = event {
@@ -671,14 +686,74 @@ fn has_backslash_line_ending(buffer: &str, span: Span) -> bool {
         return false;
     }
 
-    let slice_start = span.start.index().saturating_add(1).min(buffer.len());
-    let mut slice_end = span.end.index().saturating_sub(1);
+    let (scalar_start, scalar_end) =
+        scalar_source_bounds(buffer, ScalarStyle::DoubleQuoted, span);
+    let slice_start = scalar_start.saturating_add(1).min(buffer.len());
+    let mut slice_end = scalar_end.saturating_sub(1);
     slice_end = slice_end.min(buffer.len());
     slice_end = slice_end.max(slice_start);
     let content = &buffer[slice_start..slice_end];
     let has_unix_backslash = content.contains("\\\n");
     let has_windows_backslash = content.contains("\\\r\n");
     has_unix_backslash || has_windows_backslash
+}
+
+fn scalar_source_bounds(
+    buffer: &str,
+    style: ScalarStyle,
+    span: Span,
+) -> (usize, usize) {
+    let start = span.start.index().min(buffer.len());
+    let span_end = span.end.index().min(buffer.len());
+    let end = match style {
+        ScalarStyle::SingleQuoted => quoted_scalar_end(buffer, start, b'\''),
+        ScalarStyle::DoubleQuoted => double_quoted_scalar_end(buffer, start),
+        ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded => span_end,
+    };
+    (start, end.max(start))
+}
+
+fn quoted_scalar_end(buffer: &str, start: usize, quote: u8) -> usize {
+    let bytes = buffer.as_bytes();
+    let mut cursor = start.saturating_add(1);
+    let mut closing_quote = None;
+    while cursor < bytes.len() {
+        if bytes[cursor] != quote {
+            cursor += 1;
+            continue;
+        }
+
+        if quote == b'\'' && bytes.get(cursor.saturating_add(1)) == Some(&quote) {
+            cursor += 2;
+            continue;
+        }
+
+        closing_quote = Some(cursor + 1);
+        break;
+    }
+
+    closing_quote.expect("quoted scalar event should include a closing quote")
+}
+
+fn double_quoted_scalar_end(buffer: &str, start: usize) -> usize {
+    let bytes = buffer.as_bytes();
+    let mut cursor = start.saturating_add(1);
+    let mut escaped = false;
+    let mut closing_quote = None;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            _ if escaped => escaped = false,
+            b'\\' => escaped = true,
+            b'"' => {
+                closing_quote = Some(cursor + 1);
+                break;
+            }
+            _ => {}
+        }
+        cursor += 1;
+    }
+
+    closing_quote.expect("double-quoted scalar event should include a closing quote")
 }
 
 type Replacement = (usize, usize, String);
@@ -928,8 +1003,7 @@ impl<'cfg> FixState<'cfg> {
             value,
             span,
         );
-        let start = span.start.index();
-        let end = span.end.index();
+        let (start, end) = scalar_source_bounds(self.buffer, style, span);
 
         match self.config.required {
             RequiredMode::Always => self.fix_required_always(value, facts, start, end),

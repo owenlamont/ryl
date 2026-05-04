@@ -153,6 +153,80 @@ fn fix_removes_redundant_quotes_with_cli_fix_flag() {
 }
 
 #[test]
+fn fix_preserves_inline_comments_when_removing_quotes() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("data.yaml");
+    fs::write(&file, "cron: \"daily\" # Some schedule\n").unwrap();
+
+    let config = dir.path().join(".ryl.toml");
+    fs::write(
+        &config,
+        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("-c")
+        .arg(&config)
+        .arg("--fix")
+        .arg(&file));
+    assert_eq!(code, 0);
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(fixed, "cron: daily # Some schedule\n");
+}
+
+#[test]
+fn fix_keeps_quotes_for_plain_scalar_edge_cases() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join(".ryl.toml");
+    fs::write(
+        &config,
+        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let cases = [
+        ("cron", "cron: '30 21 * * 0'\n"),
+        ("wildcard-token", "value: 'foo * bar'\n"),
+        ("anchor-token", "value: 'foo & bar'\n"),
+        ("tag-token", "value: 'foo ! bar'\n"),
+        ("literal-token", "value: 'foo | bar'\n"),
+        ("folded-token", "value: 'foo > bar'\n"),
+        ("mapping-key-token", "value: 'foo ? bar'\n"),
+        ("reserved-at", "value: 'foo @ bar'\n"),
+        ("reserved-percent", "value: 'foo % bar'\n"),
+        ("reserved-backtick", "value: 'foo ` bar'\n"),
+        ("comment", "value: 'foo # bar'\n"),
+        ("mapping", "value: 'foo: bar'\n"),
+        ("flow-sequence", "value: '[1, 2]'\n"),
+        ("flow-mapping", "value: '{a: 1}'\n"),
+    ];
+
+    for (label, input) in cases {
+        let file = dir.path().join(format!("{label}.yaml"));
+        fs::write(&file, input).unwrap();
+
+        let (code, stdout, stderr) =
+            run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+        assert_eq!(
+            code, 0,
+            "quoted scalar should remain valid for {label}: stdout={stdout} stderr={stderr}"
+        );
+
+        let (code, _stdout, _stderr) = run(Command::new(exe)
+            .arg("-c")
+            .arg(&config)
+            .arg("--fix")
+            .arg(&file));
+        assert_eq!(code, 0, "fix should succeed for {label}");
+        let fixed = fs::read_to_string(&file).unwrap();
+        assert_eq!(fixed, input, "fix should preserve quotes for {label}");
+    }
+}
+
+#[test]
 fn escaped_double_quote_exception_does_not_set_consistent_style() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("data.yaml");
