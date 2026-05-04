@@ -710,6 +710,83 @@ fn fix_converts_unescaped_double_quotes_when_escaping_option_set() {
 }
 
 #[test]
+fn fix_only_when_needed_keeps_quotes_for_indicator_tokens() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let cases = [
+        "cron: '30 21 * * 0'\n",
+        "value: 'foo * bar'\n",
+        "value: 'foo & bar'\n",
+        "value: 'foo ! bar'\n",
+        "value: 'foo | bar'\n",
+        "value: 'foo > bar'\n",
+        "value: 'foo ? bar'\n",
+        "value: 'foo @ bar'\n",
+        "value: 'foo % bar'\n",
+        "value: 'foo ` bar'\n",
+    ];
+
+    for yaml in cases {
+        let result = quoted_strings::fix(yaml, &cfg);
+        assert_eq!(result.as_deref(), None, "quotes should stay for {yaml:?}");
+    }
+}
+
+#[test]
+fn only_when_needed_does_not_flag_indicator_token_content_as_redundant() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
+    );
+    let cases = [
+        "cron: '30 21 * * 0'\n",
+        "value: 'foo & bar'\n",
+        "value: 'foo ! bar'\n",
+        "value: 'foo | bar'\n",
+        "value: 'foo > bar'\n",
+        "value: 'foo ? bar'\n",
+        "value: 'foo @ bar'\n",
+        "value: 'foo % bar'\n",
+        "value: 'foo ` bar'\n",
+    ];
+
+    for yaml in cases {
+        let hits = quoted_strings::check(yaml, &cfg);
+        assert!(
+            hits.is_empty(),
+            "indicator token content should remain quoted: {yaml:?} => {hits:?}"
+        );
+    }
+}
+
+#[test]
+fn fix_only_when_needed_preserves_inline_comments_when_unquoting() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: \"bar\" # trailing comment\n", &cfg);
+    assert_eq!(result.as_deref(), Some("foo: bar # trailing comment\n"));
+}
+
+#[test]
+fn fix_only_when_needed_ignores_unterminated_single_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: 'unterminated\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
+fn fix_only_when_needed_ignores_unterminated_double_quotes() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
+    );
+    let result = quoted_strings::fix("foo: \"unterminated\n", &cfg);
+    assert_eq!(result.as_deref(), None);
+}
+
+#[test]
 fn fix_escaping_exception_does_not_shield_single_quotes() {
     let cfg = build_config(
         "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: double\n",
