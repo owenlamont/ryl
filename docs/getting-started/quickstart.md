@@ -1,0 +1,59 @@
+# Quick start
+
+## Run a lint
+
+Point ryl at a file or directory:
+
+```bash
+# Lint a single file
+ryl path/to/file.yaml
+
+# Lint a project (recursively scans .yml/.yaml, honouring .gitignore)
+ryl .
+```
+
+Exit codes:
+
+- `0` &mdash; no problems found.
+- `1` &mdash; lint errors or invalid YAML.
+- `2` &mdash; usage error (bad arguments, missing files).
+
+## Apply auto-fixes
+
+ryl can automatically fix a subset of rules:
+
+```bash
+ryl --fix .
+```
+
+See the [Rules reference](../rules.md) for which rules are fixable.
+
+## Configure for your project
+
+Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
+configuration is flat &mdash; copy the preset you want from
+[Configuration presets](../config-presets.md) and customise from there:
+
+```toml
+yaml-files = ["*.yaml", "*.yml", ".yamllint"]
+
+# ... rule enable/disable table from the preset ...
+
+[rules.line-length]
+max = 120
+allow-non-breakable-words = true
+```
+
+YAML configuration is also accepted for parity with yamllint and supports
+`extends:` for selecting a preset. Both `.yamllint` and `.ryl.toml` are
+discovered automatically. TOML is the recommended format for ryl-specific
+features (such as fix selection) that have no upstream yamllint
+equivalent.
+
+If you already have a yamllint configuration, use the built-in converter:
+
+```bash
+ryl --migrate-configs --migrate-write
+```
+
+See [Migrating from yamllint](migrating-from-yamllint.md) for details.

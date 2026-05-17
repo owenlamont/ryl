@@ -1,6 +1,6 @@
 line-length = 88
 disable = []
-exclude = ["CLAUDE.md"]
+exclude = ["CLAUDE.md", "docs/**"]
 respect-gitignore = true
 
 [MD004]

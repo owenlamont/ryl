@@ -10,7 +10,9 @@ ryl is a CLI tool for linting yaml files
 
 - **/src/** – All application code lives here.
 - **/tests/** – Unit and integration tests.
+- **/docs/** – Source content for the Zensical documentation site.
 - **pyproject.toml** - Package configuration
+- **zensical.toml** - Documentation site configuration
 - **prek.toml** - Prek managed linters and some configuration
 
 ## Coding Standards
@@ -234,6 +236,18 @@ sticking to the quick-status step above.
   - The workflow keeps GitHub releases as drafts until assets are uploaded and
     supports reruns by skipping crates.io/PyPI publish steps when that exact
     version already exists.
+
+## Documentation Site
+
+- The Zensical documentation source lives under `/docs/` with site
+  configuration in `zensical.toml`. Built output goes to `/site/` (gitignored).
+- Zensical is pinned via the `docs` dependency group in `pyproject.toml` and
+  locked in `uv.lock`. Use the uv group commands so transitive deps stay in
+  sync with the lockfile.
+- Build the site: `uv run --group docs zensical build --clean`.
+- Preview locally with live reload: `uv run --group docs zensical serve`.
+- Bumping Zensical: edit the pin in `pyproject.toml`, run `uv lock`, then
+  rebuild to confirm the new version still renders cleanly.
 
 ## CLI Behavior
 

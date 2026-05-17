@@ -1,75 +1,112 @@
-# ryl Rules
+# ryl Rules Reference
 
-`ryl` aims for parity with [yamllint](https://yamllint.readthedocs.io/en/stable/rules.html).
+## A comprehensive reference of all YAML linting rules
 
-## Supported Rules
+## Introduction
 
-The following rules are implemented and can be configured in your `.ryl.toml` (or YAML equivalent).
+ryl implements 23 rules for checking YAML files. This page is a categorised
+index of every rule with a brief description and a link to its detailed
+documentation. Each rule page covers what the rule does, why it matters,
+configuration options, and (where applicable) automatic fix behaviour.
 
-| Rule | Description | Fixable |
+For configuration discovery, presets, and file selection, see
+[Configuration presets](config-presets.md). For migrating from yamllint, see
+[Migrating from yamllint](getting-started/migrating-from-yamllint.md).
+
+## Rule categories
+
+- [Layout and spacing](#layout-and-spacing) &mdash; whitespace, indentation,
+  line endings, line length
+- [Document structure](#document-structure) &mdash; document markers, empty
+  values, anchors, keys
+- [Comments](#comments) &mdash; comment placement and spacing
+- [Values](#values) &mdash; numeric, string, and boolean value formats
+
+Rules that auto-fix are marked with :wrench: in the **Fix** column.
+
+## Layout and spacing
+
+| Rule | Description | Fix |
 | :--- | :--- | :---: |
-| `anchors` | Checks for anchor and alias definitions. | |
-| `braces` | Checks for spaces inside braces. | ✅ |
-| `brackets` | Checks for spaces inside brackets. | ✅ |
-| `colons` | Checks for spaces around colons. | |
-| `commas` | Checks for spaces around commas. | ✅ |
-| `comments` | Checks for spaces after `#` and before `#`. | ✅ |
-| `comments-indentation` | Checks for indentation of comments. | ✅ |
-| `document-end` | Checks for the document end marker `...`. | |
-| `document-start` | Checks for the document start marker `---`. | |
-| `empty-lines` | Checks for the number of empty lines. | |
-| `empty-values` | Checks for empty values in mappings. | |
-| `float-values` | Checks for float value formats. | |
-| `hyphens` | Checks for spaces around hyphens in sequences. | |
-| `indentation` | Checks for consistent indentation. | |
-| `key-duplicates` | Checks for duplicate keys in mappings. | |
-| `key-ordering` | Checks for alphabetically ordered keys. | |
-| `line-length` | Checks for maximum line length. | |
-| `new-line-at-end-of-file` | Checks for a single newline at the end of the file. | ✅ |
-| `new-lines` | Checks for consistent line endings (LF vs CRLF). | ✅ |
-| `octal-values` | Checks for octal value formats. | |
-| `quoted-strings` | Checks for quoted string styles. | ✅ |
-| `trailing-spaces` | Checks for trailing whitespace. | |
-| `truthy` | Checks for truthy values (e.g., `true`, `false`). | |
+| [`braces`](rules/braces.md) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
+| [`brackets`](rules/brackets.md) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
+| [`colons`](rules/colons.md) | Spaces around mapping colons. |  |
+| [`commas`](rules/commas.md) | Spaces around flow collection commas. | :wrench: |
+| [`empty-lines`](rules/empty-lines.md) | Number of consecutive empty lines. |  |
+| [`hyphens`](rules/hyphens.md) | Spaces after sequence hyphens. |  |
+| [`indentation`](rules/indentation.md) | Block indentation, sequence indentation, multi-line strings. |  |
+| [`line-length`](rules/line-length.md) | Maximum line length. |  |
+| [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A single trailing newline at end of file. | :wrench: |
+| [`new-lines`](rules/new-lines.md) | Consistent line endings (LF vs CRLF). | :wrench: |
+| [`trailing-spaces`](rules/trailing-spaces.md) | Trailing whitespace at end of lines. |  |
 
-## Rule Configuration
+## Document structure
 
-Most rules follow the standard `yamllint` configuration. For detailed options,
-refer to the [yamllint documentation](https://yamllint.readthedocs.io/en/stable/rules.html).
+| Rule | Description | Fix |
+| :--- | :--- | :---: |
+| [`anchors`](rules/anchors.md) | Anchor and alias declarations and usage. |  |
+| [`document-end`](rules/document-end.md) | Document end marker `...`. |  |
+| [`document-start`](rules/document-start.md) | Document start marker `---`. |  |
+| [`empty-values`](rules/empty-values.md) | Empty values in mappings and sequences. |  |
+| [`key-duplicates`](rules/key-duplicates.md) | Duplicate keys in mappings. |  |
+| [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. |  |
 
-TOML configuration also supports
-`allow-double-quotes-for-escaping = true` for `quoted-strings`; this option is
-not accepted in YAML config until yamllint supports it.
+## Comments
 
-### Example: `line-length`
+| Rule | Description | Fix |
+| :--- | :--- | :---: |
+| [`comments`](rules/comments.md) | Spaces after `#` and before inline comments. | :wrench: |
+| [`comments-indentation`](rules/comments-indentation.md) | Comment alignment with surrounding content. | :wrench: |
+
+## Values
+
+| Rule | Description | Fix |
+| :--- | :--- | :---: |
+| [`float-values`](rules/float-values.md) | Float value formats. |  |
+| [`octal-values`](rules/octal-values.md) | Octal value formats. |  |
+| [`quoted-strings`](rules/quoted-strings.md) | Quoted string styles and when to require quotes. | :wrench: |
+| [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. |  |
+
+## Severity levels
+
+Every rule can be configured to report at either `error` (the default for
+most rules) or `warning`. Errors cause `ryl` to exit non-zero; warnings are
+printed but do not fail the run.
+
+Configure the severity inline with the rule:
 
 ```toml
 [rules.line-length]
+level = "warning"
 max = 120
-allow-non-breakable-words = true
 ```
 
-## Automatic Fixing
+## Enabling and disabling rules
 
-`ryl` supports automatic fixing for specific rules when the `--fix` flag is used.
+Toggle a rule on or off with a top-level string in the `[rules]` table:
 
-### Fixable Rules
+```toml
+[rules]
+truthy = "disable"
+key-ordering = "enable"
+```
 
-- `comments`
-- `comments-indentation`
-- `commas`
-- `braces`
-- `brackets`
-- `new-lines`
-- `new-line-at-end-of-file`
-- `quoted-strings`
+Enabling a rule without options applies its defaults. The three built-in
+presets &mdash; `default`, `relaxed`, and `empty` &mdash; cover the common
+starting points; see [Configuration presets](config-presets.md).
 
-### Configuring Fixes (TOML only)
+## Automatic fixing
 
-You can control which rules are automatically fixed in your `.ryl.toml`:
+The `--fix` flag applies safe fixes for rules marked with :wrench: above:
+
+```bash
+ryl --fix .
+```
+
+Control which rules apply fixes with a `[fix]` table:
 
 ```toml
 [fix]
-fixable = ["ALL"]    # Fix all supported rules
-unfixable = ["comments"] # Except for comments
+fixable = ["ALL"]
+unfixable = ["comments"]
 ```
