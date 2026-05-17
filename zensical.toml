@@ -22,6 +22,7 @@ nav = [
   { "Configuration" = [
     { "Presets" = "config-presets.md" },
   ]},
+  { "YAML version compatibility" = "yaml-version.md" },
 ]
 
 [project.theme]

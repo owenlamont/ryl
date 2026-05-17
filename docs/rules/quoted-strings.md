@@ -89,6 +89,22 @@ fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
 
+## YAML 1.2 caveat with `required = "only-when-needed"`
+
+ryl applies YAML 1.2 implicit-type resolution when deciding whether a
+quoted scalar is redundantly quoted. Under YAML 1.2 the barewords `yes`,
+`no`, `on`, `off`, `True`, `False`, and their case variants parse as
+plain strings (only lowercase `true` / `false` are booleans). yamllint
+uses YAML 1.1 semantics, where the longer list is boolean.
+
+The practical consequence is that `"yes"` (with `required:
+"only-when-needed"`, `quote-type: "double"`) is flagged by ryl as
+redundantly quoted but accepted by yamllint. To match yamllint's
+behaviour, set `required = true` so all string scalars are quoted
+regardless of type, or rely on the [`truthy`](truthy.md) rule to flag
+ambiguous barewords and keep `quoted-strings` off. See
+[YAML version compatibility](../yaml-version.md) for more context.
+
 ## Related rules
 
 - [`truthy`](truthy.md) &mdash; complements `quoted-strings` by reporting

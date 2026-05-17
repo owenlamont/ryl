@@ -62,6 +62,18 @@ ryl path/to/file.yaml
 ryl .
 ```
 
+## YAML version compatibility
+
+ryl targets **YAML 1.2** strictly because it is built on the
+[saphyr](https://github.com/saphyr-rs/saphyr) parser. yamllint defaults
+to YAML 1.1 semantics via PyYAML, so a handful of edge cases &mdash;
+notably bareword booleans like `yes` / `no` / `on` / `off` and
+leading-zero integers like `0755` &mdash; behave differently. The same
+1.2 semantics apply to `.yamllint` configuration files.
+
+See [YAML version compatibility](yaml-version.md) for the practical
+implications and how to adjust a configuration migrated from yamllint.
+
 ## Why ryl
 
 ryl started as a fast Rust port of [yamllint][yamllint] focused on parity with

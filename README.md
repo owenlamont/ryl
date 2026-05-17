@@ -7,8 +7,17 @@ parity and edge-case behavior are still maturing.
 Compatibility note:
 
 - `ryl` aims to match `yamllint` behavior and includes many parity tests.
-- `ryl` uses the `saphyr` parser stack, while `yamllint` uses the `PyYAML` parser stack.
+- `ryl` uses the `saphyr` parser stack, while `yamllint` uses the `PyYAML`
+  parser stack.
 - `saphyr` and `PyYAML` do not always agree on which files are valid YAML.
+- **`ryl` targets YAML 1.2 strictly.** `yamllint` defaults to YAML 1.1
+  semantics, so bareword booleans like `yes` / `no` / `on` / `off` (and
+  case variants) are plain strings in `ryl` and booleans in `yamllint`.
+  Leading-zero integers like `0755` are decimal in `ryl` and octal in
+  `yamllint`. The same 1.2 semantics also apply when `ryl` parses
+  `.yamllint` configuration files inherited from `yamllint`. See the
+  [YAML version compatibility](https://owenlamont.github.io/ryl/yaml-version/)
+  page for the practical implications.
 
 ## Quick Start
 
