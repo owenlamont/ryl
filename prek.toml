@@ -106,7 +106,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/rvben/rumdl-pre-commit"
-rev = "v0.1.87"
+rev = "v0.1.91"
 hooks = [
   { id = "rumdl" }
 ]
@@ -140,14 +140,14 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/owenlamont/ryl-pre-commit"
-rev = "v0.8.0"
+rev = "v0.9.1"
 hooks = [
   { id = "ryl" }
 ]
 
 [[repos]]
 repo = "https://github.com/adhtruong/mirrors-typos"
-rev = "v1.46.0"
+rev = "v1.46.1"
 hooks = [
   {
     id = "typos",
