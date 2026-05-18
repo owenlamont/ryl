@@ -8,6 +8,19 @@ license = "MIT"
 repository = "https://github.com/owenlamont/ryl"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["yaml", "lint", "cli", "rust"]
+include = [
+  "/Cargo.lock",
+  "/Cargo.toml",
+  "/LICENSE",
+  "/README.md",
+  "/clippy.toml",
+  "/rust-toolchain.toml",
+  "/rustfmt.toml",
+  "/ryl.toml.schema.json",
+  "/ryl.yaml.schema.json",
+  "/src/**",
+  "/tests/**",
+]
 
 [[bin]]
 name = "ryl"
