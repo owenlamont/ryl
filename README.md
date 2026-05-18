@@ -4,7 +4,7 @@ ryl - the Rust YAML linter - is intended to ultimately be a drop-in
 replacement for [yamllint](https://github.com/adrienverge/yamllint). It is
 usable today, but parity and edge-case behaviour are still maturing.
 
-Full documentation lives at <https://owenlamont.github.io/ryl/>.
+Full documentation lives at <https://ryl-docs.pages.dev/>.
 
 ## Compatibility note
 
@@ -18,7 +18,7 @@ Full documentation lives at <https://owenlamont.github.io/ryl/>.
   Leading-zero integers like `0755` are decimal in `ryl` and octal in
   `yamllint`. The same 1.2 semantics also apply when `ryl` parses
   `.yamllint` configuration files inherited from `yamllint`. See the
-  [YAML version compatibility](https://owenlamont.github.io/ryl/yaml-version/)
+  [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
   page for the practical implications.
 
 ## Quick start
@@ -47,7 +47,7 @@ cargo install ryl                   # cargo
 
 - All 23 yamllint rules are implemented. The current rule reference and
   per-rule pages are at
-  <https://owenlamont.github.io/ryl/rules/>.
+  <https://ryl-docs.pages.dev/rules/>.
 - Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `new-line-at-end-of-file`,
   `new-lines`, and `quoted-strings`. The set of rules that may apply
@@ -61,8 +61,10 @@ cargo install ryl                   # cargo
   the built-in `default`, `relaxed`, and `empty` presets via `extends`.
   An existing yamllint configuration can be converted with
   `ryl --migrate-configs --migrate-write`.
-- The flags `--strict`, `--no-warnings`, and `--list-files` are reserved
-  placeholders for compatibility; they parse but have no effect yet.
+- `--list-files` prints the files ryl would lint (after ignores and
+  config discovery) and exits, without running rules. `--no-warnings`
+  suppresses warning-level diagnostics in the output. `--strict` turns a
+  warning-only run into exit code `2`.
 - Run `ryl --help` for the authoritative CLI reference.
 
 For installation walkthroughs, configuration presets, and per-rule

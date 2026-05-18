@@ -2,7 +2,7 @@
 site_name = "ryl"
 site_description = "A fast YAML linter, written in Rust"
 site_author = "Owen Lamont"
-# site_url = "https://owenlamont.github.io/ryl/"
+site_url = "https://ryl-docs.pages.dev/"
 copyright = """
 Copyright &copy; 2025-2026 Owen Lamont
 """

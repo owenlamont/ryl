@@ -15,8 +15,10 @@ ryl .
 Exit codes:
 
 - `0` &mdash; no problems found.
-- `1` &mdash; lint errors or invalid YAML.
-- `2` &mdash; usage error (bad arguments, missing files).
+- `1` &mdash; lint errors, invalid YAML, or a path that could not be read
+  (including nonexistent files).
+- `2` &mdash; CLI usage error (no inputs provided, bad flags) or
+  `--strict` was set and only warnings were produced.
 
 ## Apply auto-fixes
 
