@@ -8,6 +8,22 @@ license = "MIT"
 repository = "https://github.com/owenlamont/ryl"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["yaml", "lint", "cli", "rust"]
+include = [
+  "/Cargo.lock",
+  "/Cargo.toml",
+  "/LICENSE",
+  "/README.md",
+  "/clippy.toml",
+  # pyproject.toml is required in the maturin-built PyPI sdist so pip can
+  # discover the PEP 517 build backend when installing from source.
+  "/pyproject.toml",
+  "/rust-toolchain.toml",
+  "/rustfmt.toml",
+  "/ryl.toml.schema.json",
+  "/ryl.yaml.schema.json",
+  "/src/**",
+  "/tests/**",
+]
 
 [[bin]]
 name = "ryl"
