@@ -55,7 +55,7 @@ cargo install ryl
 pip install ryl
 
 # Or with npm
-npm install --global ryl
+npm install --global @owenlamont/ryl
 
 # Lint a file or directory
 ryl path/to/file.yaml

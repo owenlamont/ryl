@@ -18,7 +18,7 @@ toolchain.
 === "npm"
 
     ```bash
-    npm install --global ryl
+    npm install --global @owenlamont/ryl
     ```
 
 === "Prebuilt binary"
