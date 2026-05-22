@@ -53,23 +53,37 @@ impl<'i> saphyr_parser::EventReceiver<'i> for NullSink {
 /// # Errors
 ///
 /// Returns `Err(String)` when the file cannot be read.
-#[allow(clippy::too_many_lines)]
 pub fn lint_file(
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
+    Ok(lint_str(&content, path, cfg, base_dir))
+}
 
+/// Lint YAML content held in memory and return diagnostics in yamllint format
+/// order.
+///
+/// `path` is used purely for diagnostic context and per-rule ignore matching;
+/// no filesystem reads are performed.
+#[allow(clippy::too_many_lines)]
+#[must_use]
+pub fn lint_str(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Vec<LintProblem> {
     let mut diagnostics: Vec<LintProblem> = Vec::new();
 
-    collect_document_start_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_document_start_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    collect_document_end_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_document_end_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     if let Some(level) = cfg.rule_level(new_line_at_end_of_file::ID)
         && !cfg.is_rule_ignored(new_line_at_end_of_file::ID, path, base_dir)
-        && let Some(hit) = new_line_at_end_of_file::check(&content)
+        && let Some(hit) = new_line_at_end_of_file::check(content)
     {
         diagnostics.push(LintProblem {
             line: hit.line,
@@ -85,7 +99,7 @@ pub fn lint_file(
     {
         let rule_cfg = new_lines::Config::resolve(cfg);
         if let Some(hit) =
-            new_lines::check(&content, rule_cfg, new_lines::platform_newline())
+            new_lines::check(content, rule_cfg, new_lines::platform_newline())
         {
             diagnostics.push(LintProblem {
                 line: hit.line,
@@ -97,24 +111,24 @@ pub fn lint_file(
         }
     }
 
-    collect_empty_lines_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_empty_lines_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    collect_commas_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_commas_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    collect_colons_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_colons_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    collect_braces_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
-    collect_brackets_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_braces_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+    collect_brackets_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    collect_comments_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_comments_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    collect_anchors_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_anchors_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     if let Some(level) = cfg.rule_level(octal_values::ID)
         && !cfg.is_rule_ignored(octal_values::ID, path, base_dir)
     {
         let rule_cfg = octal_values::Config::resolve(cfg);
-        for hit in octal_values::check(&content, &rule_cfg) {
+        for hit in octal_values::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -129,7 +143,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(float_values::ID, path, base_dir)
     {
         let rule_cfg = float_values::Config::resolve(cfg);
-        for hit in float_values::check(&content, &rule_cfg) {
+        for hit in float_values::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -144,7 +158,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(empty_values::ID, path, base_dir)
     {
         let rule_cfg = empty_values::Config::resolve(cfg);
-        for hit in empty_values::check(&content, &rule_cfg) {
+        for hit in empty_values::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -159,7 +173,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(quoted_strings::ID, path, base_dir)
     {
         let rule_cfg = quoted_strings::Config::resolve(cfg);
-        for hit in quoted_strings::check(&content, &rule_cfg) {
+        for hit in quoted_strings::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -174,7 +188,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(truthy::ID, path, base_dir)
     {
         let rule_cfg = truthy::Config::resolve(cfg);
-        for hit in truthy::check(&content, &rule_cfg) {
+        for hit in truthy::check(content, &rule_cfg) {
             let truthy::Violation {
                 line,
                 column,
@@ -194,7 +208,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(key_duplicates::ID, path, base_dir)
     {
         let rule_cfg = key_duplicates::Config::resolve(cfg);
-        for hit in key_duplicates::check(&content, &rule_cfg) {
+        for hit in key_duplicates::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -209,7 +223,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(key_ordering::ID, path, base_dir)
     {
         let rule_cfg = key_ordering::Config::resolve(cfg);
-        for hit in key_ordering::check(&content, &rule_cfg) {
+        for hit in key_ordering::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -224,7 +238,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(hyphens::ID, path, base_dir)
     {
         let rule_cfg = hyphens::Config::resolve(cfg);
-        for hit in hyphens::check(&content, &rule_cfg) {
+        for hit in hyphens::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -237,7 +251,7 @@ pub fn lint_file(
 
     collect_comments_indentation_diagnostics(
         &mut diagnostics,
-        &content,
+        content,
         cfg,
         path,
         base_dir,
@@ -247,7 +261,7 @@ pub fn lint_file(
         && !cfg.is_rule_ignored(indentation::ID, path, base_dir)
     {
         let rule_cfg = indentation::Config::resolve(cfg);
-        for hit in indentation::check(&content, &rule_cfg) {
+        for hit in indentation::check(content, &rule_cfg) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -258,12 +272,12 @@ pub fn lint_file(
         }
     }
 
-    collect_line_length_diagnostics(&mut diagnostics, &content, cfg, path, base_dir);
+    collect_line_length_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     if let Some(level) = cfg.rule_level(trailing_spaces::ID)
         && !cfg.is_rule_ignored(trailing_spaces::ID, path, base_dir)
     {
-        for hit in trailing_spaces::check(&content) {
+        for hit in trailing_spaces::check(content) {
             diagnostics.push(LintProblem {
                 line: hit.line,
                 column: hit.column,
@@ -274,12 +288,12 @@ pub fn lint_file(
         }
     }
 
-    if let Some(syntax) = syntax_diagnostic(&content) {
+    if let Some(syntax) = syntax_diagnostic(content) {
         diagnostics.clear();
         diagnostics.push(syntax);
     }
 
-    Ok(diagnostics)
+    diagnostics
 }
 
 fn collect_document_end_diagnostics(
