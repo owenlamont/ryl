@@ -301,8 +301,8 @@ fn arb_document() -> impl Strategy<Value = Document> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
-            "proptest-regressions",
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_safe_fix.txt",
         ))),
         ..ProptestConfig::default()
     })]
