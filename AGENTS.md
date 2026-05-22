@@ -107,6 +107,29 @@ ryl is a CLI tool for linting yaml files
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
   tests in `tests/` instead.
 
+### Property Tests For Safe Fixes
+
+`tests/property_safe_fix.rs` runs `proptest`-generated YAML through `apply_safe_fixes`
+and asserts three invariants: idempotence, no remaining safe-fix-rule diagnostics
+after fixing, and parse preservation (input that parses must produce output that
+parses to an equal `YamlOwned` value). A deterministic sibling test pins one
+known-dirty document through the same checks so the property assertions cannot
+silently become a no-op if the generator drifts.
+
+When you add a new `FixSafety::Safe` rule:
+
+1. Add its rule id to `SAFE_FIX_RULES` and to `SAFE_FIX_CONFIG_YAML` in
+   `tests/property_safe_fix.rs`.
+2. Extend the AST / renderer in that file so generated documents exercise the
+   syntax the new fixer targets. Skipping this leaves the property tests green
+   for the wrong reason — the fixer has nothing to do.
+3. Run `cargo test --test property_safe_fix` and resolve any failures before
+   landing the rule.
+
+Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.txt`
+and replayed first on every run. That file is committed to git so the regression
+follows the codebase, not the developer's machine.
+
 ## Coverage Workflow
 
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of

@@ -4,6 +4,8 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
+use ryl::lint::{LintProblem, lint_str};
+use saphyr::{LoadableYamlNode, YamlOwned};
 
 const SAFE_FIX_CONFIG_YAML: &str = "rules:
   new-lines: enable
@@ -16,6 +18,17 @@ const SAFE_FIX_CONFIG_YAML: &str = "rules:
   quoted-strings: enable
 ";
 
+const SAFE_FIX_RULES: &[&str] = &[
+    "new-lines",
+    "comments",
+    "comments-indentation",
+    "commas",
+    "braces",
+    "brackets",
+    "new-line-at-end-of-file",
+    "quoted-strings",
+];
+
 fn safe_fix_config() -> YamlLintConfig {
     YamlLintConfig::from_yaml_str(SAFE_FIX_CONFIG_YAML)
         .expect("safe-fix config string is valid")
@@ -27,6 +40,21 @@ fn synthetic_path() -> &'static Path {
 
 fn synthetic_base_dir() -> &'static Path {
     Path::new(".")
+}
+
+fn safe_fix_rule_diagnostics(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
+    lint_str(content, synthetic_path(), cfg, synthetic_base_dir())
+        .into_iter()
+        .filter(|diag| {
+            diag.rule
+                .map(|rule| SAFE_FIX_RULES.contains(&rule))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+fn parse_for_compare(content: &str) -> Option<Vec<YamlOwned>> {
+    YamlOwned::load_from_str(content).ok()
 }
 
 #[derive(Debug, Clone)]
@@ -294,10 +322,50 @@ proptest! {
             twice
         );
     }
+
+    #[test]
+    fn safe_fix_leaves_no_safe_fix_rule_diagnostics(document in arb_document()) {
+        let input = document.render();
+        let cfg = safe_fix_config();
+        let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
+        if parse_for_compare(&fixed).is_none() {
+            return Ok(());
+        }
+        let remaining = safe_fix_rule_diagnostics(&fixed, &cfg);
+        prop_assert!(
+            remaining.is_empty(),
+            "safe-fix-rule diagnostics survived fix for input {:?}; fixed {:?}; diagnostics {:?}",
+            input,
+            fixed,
+            remaining
+        );
+    }
+
+    #[test]
+    fn safe_fix_preserves_parsed_value(document in arb_document()) {
+        let input = document.render();
+        let Some(before) = parse_for_compare(&input) else {
+            return Ok(());
+        };
+        let cfg = safe_fix_config();
+        let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
+        let after = parse_for_compare(&fixed).ok_or_else(|| {
+            TestCaseError::fail(format!(
+                "safe fix broke a previously-parseable document; input {input:?}; fixed {fixed:?}"
+            ))
+        })?;
+        prop_assert_eq!(
+            &before,
+            &after,
+            "safe fix changed parsed YAML value; input {:?}; fixed {:?}",
+            input,
+            fixed
+        );
+    }
 }
 
 #[test]
-fn renderer_emits_dirty_inputs_that_safe_fix_normalizes() {
+fn safe_fix_properties_hold_for_known_dirty_input() {
     let plain = |name: &str| Node::Scalar(Scalar::Plain(name.to_string()));
     let dirty_flow_seq = Document {
         entries: vec![BlockEntry {
@@ -319,14 +387,21 @@ fn renderer_emits_dirty_inputs_that_safe_fix_normalizes() {
         has_final_newline: false,
     };
     let input = dirty_flow_seq.render();
-    let fixed = apply_safe_fixes(
-        &input,
-        &safe_fix_config(),
-        synthetic_path(),
-        synthetic_base_dir(),
-    );
+    let cfg = safe_fix_config();
+    let before = parse_for_compare(&input).expect("known dirty input must parse");
+    let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
     assert_ne!(
         input, fixed,
         "renderer must emit inputs that exercise safe fixers; input={input:?} fixed={fixed:?}"
     );
+    let after =
+        parse_for_compare(&fixed).expect("safe fix must keep known input parseable");
+    assert_eq!(before, after, "safe fix must preserve parsed value");
+    let remaining = safe_fix_rule_diagnostics(&fixed, &cfg);
+    assert!(
+        remaining.is_empty(),
+        "safe-fix-rule diagnostics must clear after fix on known input: {remaining:?}"
+    );
+    let twice = apply_safe_fixes(&fixed, &cfg, synthetic_path(), synthetic_base_dir());
+    assert_eq!(fixed, twice, "safe fix must be idempotent on known input");
 }
