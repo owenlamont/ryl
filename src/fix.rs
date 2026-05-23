@@ -7,6 +7,8 @@ use crate::rules::{
     new_lines, quoted_strings,
 };
 
+const RULE_FIX_MAX_ITERATIONS: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixSafety {
     Safe,
@@ -153,13 +155,25 @@ fn apply_rule_fix(
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
-    fix: impl FnOnce(&str) -> Option<String>,
+    fix: impl Fn(&str) -> Option<String>,
 ) -> String {
     if !rule_enabled(rule, cfg, path, base_dir) {
         return content;
     }
 
-    fix(&content).unwrap_or(content)
+    // Run the rule's fix to a fixed point. A single pass is not enough for
+    // rules like quoted-strings where one fix exposes a follow-up diagnostic
+    // (e.g. converting double quotes to single quotes leaves a now-redundant
+    // pair that must be removed); without convergence here, the CLI's single
+    // --fix invocation would leave the output non-idempotent. Well-behaved
+    // fix functions signal completion by returning None, so the loop exits
+    // after at most one extra no-op call per rule.
+    let mut current = content;
+    for _ in 0..RULE_FIX_MAX_ITERATIONS {
+        let Some(next) = fix(&current) else { break };
+        current = next;
+    }
+    current
 }
 
 fn rule_enabled(

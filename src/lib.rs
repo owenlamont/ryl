@@ -18,4 +18,4 @@ pub mod migrate;
 pub mod rules;
 
 pub use discover::{gather_yaml_from_dir, is_yaml_path};
-pub use lint::{LintProblem, Severity, lint_file};
+pub use lint::{LintProblem, Severity, lint_file, lint_str};
