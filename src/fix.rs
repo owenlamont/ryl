@@ -163,13 +163,12 @@ fn apply_rule_fix(
     // rules like quoted-strings where one fix exposes a follow-up diagnostic
     // (e.g. converting double quotes to single quotes leaves a now-redundant
     // pair that must be removed); without convergence here, the CLI's single
-    // --fix invocation would leave the output non-idempotent.
+    // --fix invocation would leave the output non-idempotent. Well-behaved
+    // fix functions signal completion by returning None, so the loop exits
+    // after at most one extra no-op call per rule.
     let mut current = content;
     for _ in 0..RULE_FIX_MAX_ITERATIONS {
         let Some(next) = fix(&current) else { break };
-        if next == current {
-            break;
-        }
         current = next;
     }
     current

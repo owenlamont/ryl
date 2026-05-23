@@ -261,7 +261,6 @@ fn fix_comments_indentation_handles_crlf_blank_lines_without_newline_normalizati
     );
 }
 
-
 #[test]
 fn fix_under_best_practice_converges_in_one_invocation_for_escape_sequences() {
     let dir = tempdir().unwrap();

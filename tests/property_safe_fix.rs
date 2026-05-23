@@ -539,8 +539,11 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
             input, fixed,
             "renderer must emit inputs that exercise safe fixers under config '{cfg_name}'; input={input:?} fixed={fixed:?}"
         );
-        let after = parse_for_compare(&fixed)
-            .unwrap_or_else(|| panic!("safe fix broke parseable input under config '{cfg_name}': {fixed:?}"));
+        let after = parse_for_compare(&fixed).unwrap_or_else(|| {
+            panic!(
+                "safe fix broke parseable input under config '{cfg_name}': {fixed:?}"
+            )
+        });
         assert_eq!(
             before, after,
             "safe fix must preserve parsed value under config '{cfg_name}'"
@@ -564,8 +567,7 @@ fn best_practice_retains_quotes_around_yaml_metachars() {
     let input = "schedule: '30 21 * * 0'\n";
     let cfg = named_config("best-practice");
     let before = parse_for_compare(input).expect("input parses");
-    let fixed =
-        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
     let after = parse_for_compare(&fixed)
         .expect("best-practice fix must keep cron-like input parseable");
     assert_eq!(before, after, "parse must be preserved: {fixed:?}");
@@ -580,8 +582,7 @@ fn best_practice_does_not_break_parse_for_escape_sequences() {
     let input = "message: \"line1\\nline2\"\n";
     let cfg = named_config("best-practice");
     let before = parse_for_compare(input).expect("input parses");
-    let fixed =
-        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
     let after = parse_for_compare(&fixed)
         .expect("best-practice fix must keep escape-sequence input parseable");
     assert_eq!(
@@ -595,8 +596,7 @@ fn best_practice_preserves_trailing_comment_when_unquoting() {
     let input = "key: 'value'  # important comment\n";
     let cfg = named_config("best-practice");
     let before = parse_for_compare(input).expect("input parses");
-    let fixed =
-        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
     let after = parse_for_compare(&fixed)
         .expect("best-practice fix must keep quoted-with-comment input parseable");
     assert_eq!(before, after, "parse must be preserved: {fixed:?}");
