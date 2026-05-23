@@ -1,13 +1,16 @@
+use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use ryl::config::YamlLintConfig;
+use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::{LintProblem, lint_str};
 use saphyr::{LoadableYamlNode, YamlOwned};
+use tempfile::TempDir;
 
-const SAFE_FIX_CONFIG_YAML: &str = "rules:
+const COMMON_SAFE_FIX_RULES_YAML: &str = "rules:
   new-lines: enable
   comments: enable
   comments-indentation: enable
@@ -15,8 +18,39 @@ const SAFE_FIX_CONFIG_YAML: &str = "rules:
   braces: enable
   brackets: enable
   new-line-at-end-of-file: enable
-  quoted-strings: enable
 ";
+
+const QUOTED_STRINGS_VARIANTS: &[(&str, &str)] = &[
+    ("yamllint-default", "  quoted-strings: enable\n"),
+    (
+        "best-practice",
+        "  quoted-strings:
+    quote-type: single
+    required: only-when-needed
+",
+    ),
+    (
+        "strict-single",
+        "  quoted-strings:
+    quote-type: single
+    required: true
+",
+    ),
+    (
+        "strict-double",
+        "  quoted-strings:
+    quote-type: double
+    required: true
+",
+    ),
+    (
+        "consistent",
+        "  quoted-strings:
+    quote-type: consistent
+    required: true
+",
+    ),
+];
 
 const SAFE_FIX_RULES: &[&str] = &[
     "new-lines",
@@ -29,9 +63,70 @@ const SAFE_FIX_RULES: &[&str] = &[
     "quoted-strings",
 ];
 
-fn safe_fix_config() -> YamlLintConfig {
-    YamlLintConfig::from_yaml_str(SAFE_FIX_CONFIG_YAML)
-        .expect("safe-fix config string is valid")
+const BEST_PRACTICE_TOML: &str = "[rules]
+new-lines = 'enable'
+comments = 'enable'
+comments-indentation = 'enable'
+commas = 'enable'
+braces = 'enable'
+brackets = 'enable'
+new-line-at-end-of-file = 'enable'
+
+[rules.quoted-strings]
+quote-type = 'single'
+required = 'only-when-needed'
+allow-double-quotes-for-escaping = true
+";
+
+struct PreparedConfig {
+    name: &'static str,
+    cfg: YamlLintConfig,
+    _backing: Option<TempDir>,
+}
+
+static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
+    let mut configs: Vec<PreparedConfig> = QUOTED_STRINGS_VARIANTS
+        .iter()
+        .map(|(name, suffix)| {
+            let yaml = format!("{COMMON_SAFE_FIX_RULES_YAML}{suffix}");
+            let cfg = YamlLintConfig::from_yaml_str(&yaml)
+                .expect("named safe-fix config must parse");
+            PreparedConfig {
+                name,
+                cfg,
+                _backing: None,
+            }
+        })
+        .collect();
+
+    let dir = TempDir::new().expect("create tempdir for TOML config");
+    let toml_path = dir.path().join(".ryl.toml");
+    fs::write(&toml_path, BEST_PRACTICE_TOML).expect("write TOML config");
+    let overrides = Overrides {
+        config_file: Some(toml_path),
+        config_data: None,
+    };
+    let ctx = discover_config(&[], &overrides)
+        .expect("TOML-backed best-practice config must load");
+    configs.push(PreparedConfig {
+        name: "best-practice-toml",
+        cfg: ctx.config,
+        _backing: Some(dir),
+    });
+
+    configs
+});
+
+fn safe_fix_configs() -> &'static [PreparedConfig] {
+    &SAFE_FIX_CONFIGS
+}
+
+fn named_config(name: &str) -> &'static YamlLintConfig {
+    &safe_fix_configs()
+        .iter()
+        .find(|prepared| prepared.name == name)
+        .unwrap_or_else(|| panic!("unknown safe-fix config '{name}'"))
+        .cfg
 }
 
 fn synthetic_path() -> &'static Path {
@@ -131,6 +226,8 @@ impl Scalar {
                     match ch {
                         '"' => buffer.push_str("\\\""),
                         '\\' => buffer.push_str("\\\\"),
+                        '\n' => buffer.push_str("\\n"),
+                        '\t' => buffer.push_str("\\t"),
                         _ => buffer.push(ch),
                     }
                 }
@@ -209,7 +306,7 @@ fn arb_plain_identifier() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_]{0,6}".prop_map(|value| value)
 }
 
-fn arb_quoted_payload() -> impl Strategy<Value = String> {
+fn arb_single_quoted_payload() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
             Just('a'),
@@ -222,6 +319,35 @@ fn arb_quoted_payload() -> impl Strategy<Value = String> {
             Just('}'),
             Just('['),
             Just(']'),
+            Just('*'),
+            Just('?'),
+            Just('&'),
+            Just('!'),
+            Just(':'),
+        ],
+        0usize..=6,
+    )
+    .prop_map(|chars| chars.into_iter().collect())
+}
+
+fn arb_double_quoted_payload() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        prop_oneof![
+            Just('a'),
+            Just('b'),
+            Just('1'),
+            Just(' '),
+            Just('#'),
+            Just(','),
+            Just('{'),
+            Just('}'),
+            Just('['),
+            Just(']'),
+            Just('*'),
+            Just('?'),
+            Just('&'),
+            Just('!'),
+            Just(':'),
         ],
         0usize..=6,
     )
@@ -231,8 +357,8 @@ fn arb_quoted_payload() -> impl Strategy<Value = String> {
 fn arb_scalar() -> impl Strategy<Value = Scalar> {
     prop_oneof![
         arb_plain_identifier().prop_map(Scalar::Plain),
-        arb_quoted_payload().prop_map(Scalar::SingleQuoted),
-        arb_quoted_payload().prop_map(Scalar::DoubleQuoted),
+        arb_single_quoted_payload().prop_map(Scalar::SingleQuoted),
+        arb_double_quoted_payload().prop_map(Scalar::DoubleQuoted),
     ]
 }
 
@@ -310,35 +436,46 @@ proptest! {
     #[test]
     fn safe_fix_is_idempotent(document in arb_document()) {
         let input = document.render();
-        let cfg = safe_fix_config();
-        let once = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
-        let twice = apply_safe_fixes(&once, &cfg, synthetic_path(), synthetic_base_dir());
-        prop_assert_eq!(
-            &once,
-            &twice,
-            "applying safe fixes is not idempotent for input {:?}; once -> {:?}; twice -> {:?}",
-            input,
-            once,
-            twice
-        );
+        for prepared in safe_fix_configs() {
+            let cfg_name = prepared.name;
+            let cfg = &prepared.cfg;
+            let once =
+                apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
+            let twice =
+                apply_safe_fixes(&once, cfg, synthetic_path(), synthetic_base_dir());
+            prop_assert_eq!(
+                &once,
+                &twice,
+                "applying safe fixes is not idempotent under config '{}' for input {:?}; once -> {:?}; twice -> {:?}",
+                cfg_name,
+                input,
+                once,
+                twice
+            );
+        }
     }
 
     #[test]
     fn safe_fix_leaves_no_safe_fix_rule_diagnostics(document in arb_document()) {
         let input = document.render();
-        let cfg = safe_fix_config();
-        let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
-        if parse_for_compare(&fixed).is_none() {
-            return Ok(());
+        for prepared in safe_fix_configs() {
+            let cfg_name = prepared.name;
+            let cfg = &prepared.cfg;
+            let fixed =
+                apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
+            if parse_for_compare(&fixed).is_none() {
+                continue;
+            }
+            let remaining = safe_fix_rule_diagnostics(&fixed, cfg);
+            prop_assert!(
+                remaining.is_empty(),
+                "safe-fix-rule diagnostics survived fix under config '{}' for input {:?}; fixed {:?}; diagnostics {:?}",
+                cfg_name,
+                input,
+                fixed,
+                remaining
+            );
         }
-        let remaining = safe_fix_rule_diagnostics(&fixed, &cfg);
-        prop_assert!(
-            remaining.is_empty(),
-            "safe-fix-rule diagnostics survived fix for input {:?}; fixed {:?}; diagnostics {:?}",
-            input,
-            fixed,
-            remaining
-        );
     }
 
     #[test]
@@ -347,20 +484,25 @@ proptest! {
         let Some(before) = parse_for_compare(&input) else {
             return Ok(());
         };
-        let cfg = safe_fix_config();
-        let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
-        let after = parse_for_compare(&fixed).ok_or_else(|| {
-            TestCaseError::fail(format!(
-                "safe fix broke a previously-parseable document; input {input:?}; fixed {fixed:?}"
-            ))
-        })?;
-        prop_assert_eq!(
-            &before,
-            &after,
-            "safe fix changed parsed YAML value; input {:?}; fixed {:?}",
-            input,
-            fixed
-        );
+        for prepared in safe_fix_configs() {
+            let cfg_name = prepared.name;
+            let cfg = &prepared.cfg;
+            let fixed =
+                apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
+            let after = parse_for_compare(&fixed).ok_or_else(|| {
+                TestCaseError::fail(format!(
+                    "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
+                ))
+            })?;
+            prop_assert_eq!(
+                &before,
+                &after,
+                "safe fix changed parsed YAML value under config '{}'; input {:?}; fixed {:?}",
+                cfg_name,
+                input,
+                fixed
+            );
+        }
     }
 }
 
@@ -387,21 +529,79 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
         has_final_newline: false,
     };
     let input = dirty_flow_seq.render();
-    let cfg = safe_fix_config();
     let before = parse_for_compare(&input).expect("known dirty input must parse");
-    let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
-    assert_ne!(
-        input, fixed,
-        "renderer must emit inputs that exercise safe fixers; input={input:?} fixed={fixed:?}"
-    );
-    let after =
-        parse_for_compare(&fixed).expect("safe fix must keep known input parseable");
-    assert_eq!(before, after, "safe fix must preserve parsed value");
-    let remaining = safe_fix_rule_diagnostics(&fixed, &cfg);
+    for prepared in safe_fix_configs() {
+        let cfg_name = prepared.name;
+        let cfg = &prepared.cfg;
+        let fixed =
+            apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
+        assert_ne!(
+            input, fixed,
+            "renderer must emit inputs that exercise safe fixers under config '{cfg_name}'; input={input:?} fixed={fixed:?}"
+        );
+        let after = parse_for_compare(&fixed)
+            .unwrap_or_else(|| panic!("safe fix broke parseable input under config '{cfg_name}': {fixed:?}"));
+        assert_eq!(
+            before, after,
+            "safe fix must preserve parsed value under config '{cfg_name}'"
+        );
+        let remaining = safe_fix_rule_diagnostics(&fixed, cfg);
+        assert!(
+            remaining.is_empty(),
+            "safe-fix-rule diagnostics must clear after fix under config '{cfg_name}': {remaining:?}"
+        );
+        let twice =
+            apply_safe_fixes(&fixed, cfg, synthetic_path(), synthetic_base_dir());
+        assert_eq!(
+            fixed, twice,
+            "safe fix must be idempotent under config '{cfg_name}'"
+        );
+    }
+}
+
+#[test]
+fn best_practice_retains_quotes_around_yaml_metachars() {
+    let input = "schedule: '30 21 * * 0'\n";
+    let cfg = named_config("best-practice");
+    let before = parse_for_compare(input).expect("input parses");
+    let fixed =
+        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let after = parse_for_compare(&fixed)
+        .expect("best-practice fix must keep cron-like input parseable");
+    assert_eq!(before, after, "parse must be preserved: {fixed:?}");
     assert!(
-        remaining.is_empty(),
-        "safe-fix-rule diagnostics must clear after fix on known input: {remaining:?}"
+        fixed.contains("'30 21 * * 0'"),
+        "best-practice must retain quotes around scalars containing YAML metachars (issue #206): {fixed:?}"
     );
-    let twice = apply_safe_fixes(&fixed, &cfg, synthetic_path(), synthetic_base_dir());
-    assert_eq!(fixed, twice, "safe fix must be idempotent on known input");
+}
+
+#[test]
+fn best_practice_does_not_break_parse_for_escape_sequences() {
+    let input = "message: \"line1\\nline2\"\n";
+    let cfg = named_config("best-practice");
+    let before = parse_for_compare(input).expect("input parses");
+    let fixed =
+        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let after = parse_for_compare(&fixed)
+        .expect("best-practice fix must keep escape-sequence input parseable");
+    assert_eq!(
+        before, after,
+        "safe fix must not change parsed value of escape-bearing scalars (issue #184): {fixed:?}"
+    );
+}
+
+#[test]
+fn best_practice_preserves_trailing_comment_when_unquoting() {
+    let input = "key: 'value'  # important comment\n";
+    let cfg = named_config("best-practice");
+    let before = parse_for_compare(input).expect("input parses");
+    let fixed =
+        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let after = parse_for_compare(&fixed)
+        .expect("best-practice fix must keep quoted-with-comment input parseable");
+    assert_eq!(before, after, "parse must be preserved: {fixed:?}");
+    assert!(
+        fixed.contains("# important comment"),
+        "trailing comment must survive quote removal (issue #206): {fixed:?}"
+    );
 }

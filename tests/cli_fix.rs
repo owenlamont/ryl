@@ -260,3 +260,57 @@ fn fix_comments_indentation_handles_crlf_blank_lines_without_newline_normalizati
         "root:\r\n  # first\r\n\r\n  # second\r\n  value: 1\r\n"
     );
 }
+
+
+#[test]
+fn fix_under_best_practice_converges_in_one_invocation_for_escape_sequences() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: \"a\\ta\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules.quoted-strings]\nquote-type = \"single\"\nrequired = \"only-when-needed\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_, _, _) = run(Command::new(exe).arg("--fix").arg(&file));
+    let first_pass = fs::read_to_string(&file).unwrap();
+
+    let (_, _, _) = run(Command::new(exe).arg("--fix").arg(&file));
+    let second_pass = fs::read_to_string(&file).unwrap();
+
+    assert_eq!(
+        first_pass, second_pass,
+        "one --fix invocation should reach the fixed point; first={first_pass:?} second={second_pass:?}"
+    );
+}
+
+#[test]
+fn fix_with_toml_allow_double_quotes_for_escaping_silences_quoted_strings_diagnostic() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "message: \"line1\\nline2\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules.quoted-strings]\nquote-type = \"single\"\nrequired = \"only-when-needed\"\nallow-double-quotes-for-escaping = true\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    assert_eq!(
+        code, 0,
+        "fix should succeed without quoted-strings diagnostics: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        !stdout.contains("quoted-strings") && !stderr.contains("quoted-strings"),
+        "allow-double-quotes-for-escaping should silence quoted-strings diagnostic: stdout={stdout} stderr={stderr}"
+    );
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(
+        fixed.contains("\"line1\\nline2\""),
+        "double-quoted escape sequence should be retained verbatim: {fixed:?}"
+    );
+}

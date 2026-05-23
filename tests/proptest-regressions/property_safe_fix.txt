@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 690f9ca4ae48c512ddb6131a3d37426288536602c67aae9a864134f107db3b0c # shrinks to document = Document { entries: [BlockEntry { key: "a", value: Scalar(Plain("a")), trailing_inline_comment: None }], newline: Lf, has_final_newline: false }
+cc a0c6ae6f138b81d6ac7efb5c6ec5b92b87db819bbba90f72f6a9a023896e375d # shrinks to document = Document { entries: [BlockEntry { key: "a", value: Scalar(Plain("a")), trailing_inline_comment: None }], newline: Lf, has_final_newline: false }
+cc 108197f47fe7d08b62ee0f097129defa7c33c5ba062cf003dff5658b142ccf12 # shrinks to document = Document { entries: [BlockEntry { key: "a", value: Scalar(Plain("a")), trailing_inline_comment: None }], newline: Lf, has_final_newline: false }
+cc f3c429d76709f5bf40982e897f85b83e19ea5e818d8e862f2d22cb77fb5c69c8 # shrinks to document = Document { entries: [BlockEntry { key: "a", value: Scalar(DoubleQuoted("a\ta")), trailing_inline_comment: None }], newline: Lf, has_final_newline: false }

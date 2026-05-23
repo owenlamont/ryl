@@ -112,19 +112,33 @@ ryl is a CLI tool for linting yaml files
 `tests/property_safe_fix.rs` runs `proptest`-generated YAML through `apply_safe_fixes`
 and asserts three invariants: idempotence, no remaining safe-fix-rule diagnostics
 after fixing, and parse preservation (input that parses must produce output that
-parses to an equal `YamlOwned` value). A deterministic sibling test pins one
-known-dirty document through the same checks so the property assertions cannot
-silently become a no-op if the generator drifts.
+parses to an equal `YamlOwned` value). Deterministic sibling tests pin known-dirty
+documents and known production-bug patterns (issues #184 and #206) through the same
+checks so the property assertions cannot silently become a no-op if the generator
+drifts.
+
+The suite runs against a matrix of named configs to catch config-specific
+regressions: five YAML configs (`yamllint-default`, `best-practice`, `strict-single`,
+`strict-double`, `consistent`) exercising the surface yamllint exposes, plus one
+TOML-backed config (`best-practice-toml`) loaded from a tempfile via
+`discover_config` so ryl-only options like `allow-double-quotes-for-escaping` are
+also covered.
 
 When you add a new `FixSafety::Safe` rule:
 
-1. Add its rule id to `SAFE_FIX_RULES` and to `SAFE_FIX_CONFIG_YAML` in
-   `tests/property_safe_fix.rs`.
+1. Add its rule id to `SAFE_FIX_RULES` and to `COMMON_SAFE_FIX_RULES_YAML` in
+   `tests/property_safe_fix.rs`. If the new rule introduces meaningful config
+   axes, add a variant to `QUOTED_STRINGS_VARIANTS` (or a peer constant for that
+   rule) so the matrix exercises each regime; ryl-only options must go through
+   the TOML slot rather than YAML.
 2. Extend the AST / renderer in that file so generated documents exercise the
    syntax the new fixer targets. Skipping this leaves the property tests green
    for the wrong reason — the fixer has nothing to do.
 3. Run `cargo test --test property_safe_fix` and resolve any failures before
    landing the rule.
+4. Add a focused CLI-level regression test in `tests/cli_fix.rs` (or the
+   rule-specific file) for any production bug discovered along the way, so the
+   property suite is backed by a deterministic guard.
 
 Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.txt`
 and replayed first on every run. That file is committed to git so the regression
