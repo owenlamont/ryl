@@ -81,6 +81,9 @@ allow-double-quotes-for-escaping = true
 struct PreparedConfig {
     name: &'static str,
     cfg: YamlLintConfig,
+    // Holds the tempdir containing the .ryl.toml that `discover_config` was
+    // given; kept alive so the path embedded in `cfg` (used by per-file
+    // ignore matching) stays valid for the lifetime of the LazyLock.
     _backing: Option<TempDir>,
 }
 

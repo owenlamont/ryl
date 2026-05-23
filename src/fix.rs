@@ -7,6 +7,8 @@ use crate::rules::{
     new_lines, quoted_strings,
 };
 
+const RULE_FIX_MAX_ITERATIONS: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixSafety {
     Safe,
@@ -173,8 +175,6 @@ fn apply_rule_fix(
     }
     current
 }
-
-const RULE_FIX_MAX_ITERATIONS: usize = 8;
 
 fn rule_enabled(
     rule: RuleFix,
