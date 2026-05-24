@@ -8,9 +8,13 @@
         "commas",
         "comments",
         "comments-indentation",
+        "document-end",
+        "document-start",
+        "empty-lines",
         "new-line-at-end-of-file",
         "new-lines",
-        "quoted-strings"
+        "quoted-strings",
+        "trailing-spaces"
       ],
       "type": "string"
     },
@@ -48,9 +52,13 @@
         "commas",
         "comments",
         "comments-indentation",
+        "document-end",
+        "document-start",
+        "empty-lines",
         "new-line-at-end-of-file",
         "new-lines",
-        "quoted-strings"
+        "quoted-strings",
+        "trailing-spaces"
       ],
       "type": "string"
     },

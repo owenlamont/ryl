@@ -1,7 +1,7 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,
-    strip_trailing_comment_preserving_quotes,
+    BlockScalarTracker, is_at_value_position, leading_whitespace_width,
+    split_lines_preserve_endings,
 };
 
 pub const ID: &str = "comments";
@@ -152,94 +152,64 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     changed.then_some(output)
 }
 
-#[derive(Debug, Default)]
-struct BlockScalarTracker {
-    state: Option<BlockScalarState>,
-}
-
-#[derive(Debug)]
-struct BlockScalarState {
-    indicator_indent: usize,
-    content_indent: Option<usize>,
-}
-
-impl BlockScalarTracker {
-    fn consume_line(&mut self, indent: usize, content: &str) -> bool {
-        let Some(state) = self.state.as_mut() else {
-            return false;
-        };
-
-        if content.trim().is_empty() {
-            return true;
-        }
-
-        if let Some(content_indent) = state.content_indent {
-            if indent >= content_indent {
-                return true;
-            }
-
-            if indent <= state.indicator_indent {
-                self.state = None;
-                return false;
-            }
-
-            state.content_indent = Some(content_indent.min(indent));
-            return true;
-        }
-
-        if indent > state.indicator_indent {
-            state.content_indent = Some(indent);
-            return true;
-        }
-
-        self.state = None;
-        false
-    }
-
-    fn observe_indicator(&mut self, indent: usize, content: &str) {
-        let candidate = strip_trailing_comment_for_block(content).trim_end();
-        if is_block_scalar_indicator(candidate) {
-            self.state = Some(BlockScalarState {
-                indicator_indent: indent,
-                content_indent: None,
-            });
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 struct QuoteState {
     in_single: bool,
     in_double: bool,
     escaped: bool,
+    flow_depth: u32,
 }
 
 fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
-    for (idx, ch) in line.char_indices() {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let (byte_idx, ch) = chars[i];
+
         if ch == '\\' && !state.in_single {
             state.escaped = !state.escaped;
+            i += 1;
             continue;
         }
 
         if state.escaped {
             state.escaped = false;
+            i += 1;
             continue;
         }
 
         match ch {
             '\'' if !state.in_double => {
-                state.in_single = !state.in_single;
+                if state.in_single {
+                    if chars.get(i + 1).map(|(_, c)| *c) == Some('\'') {
+                        i += 2;
+                        continue;
+                    }
+                    state.in_single = false;
+                } else if is_at_value_position(&chars, i, state.flow_depth) {
+                    state.in_single = true;
+                }
             }
             '"' if !state.in_single => {
-                state.in_double = !state.in_double;
+                if state.in_double || is_at_value_position(&chars, i, state.flow_depth)
+                {
+                    state.in_double = !state.in_double;
+                }
+            }
+            '[' | '{' if !state.in_single && !state.in_double => {
+                state.flow_depth = state.flow_depth.saturating_add(1);
+            }
+            ']' | '}' if !state.in_single && !state.in_double => {
+                state.flow_depth = state.flow_depth.saturating_sub(1);
             }
             '#' if !state.in_single && !state.in_double => {
-                if is_comment_position(line, idx) {
-                    return Some(idx);
+                if is_comment_position(line, byte_idx) {
+                    return Some(byte_idx);
                 }
             }
             _ => {}
         }
+        i += 1;
     }
 
     state.escaped = false;
@@ -272,14 +242,6 @@ fn column_at(line: &str, byte_idx: usize) -> usize {
 
 fn is_comment_position(line: &str, idx: usize) -> bool {
     line[..idx].chars().last().is_none_or(char::is_whitespace)
-}
-
-fn strip_trailing_comment_for_block(content: &str) -> &str {
-    strip_trailing_comment_preserving_quotes(content)
-}
-
-fn is_block_scalar_indicator(content: &str) -> bool {
-    block_scalar_marker_index(content).is_some()
 }
 
 fn fix_comment_line(
