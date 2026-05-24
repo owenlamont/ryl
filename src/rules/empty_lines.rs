@@ -107,7 +107,16 @@ impl SpannedEventReceiver<'_> for ProtectedLineCollector {
         if matches!(event, Event::Scalar(..)) {
             let start = span.start.line();
             let end = span.end.line();
-            for line in start..=end {
+            // saphyr reports a block scalar's span end at (next-line, col=0).
+            // That line is outside the scalar; drop it so subsequent lines
+            // (which may legitimately be a trimmable blank run) remain
+            // unprotected. Mirrors the same adjustment in trailing_spaces.rs.
+            let last = if span.end.col() == 0 && end > start {
+                end - 1
+            } else {
+                end
+            };
+            for line in start..=last {
                 self.protected.insert(line);
             }
         }
