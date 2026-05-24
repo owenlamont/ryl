@@ -157,6 +157,7 @@ struct QuoteState {
     in_single: bool,
     in_double: bool,
     escaped: bool,
+    flow_depth: u32,
 }
 
 fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
@@ -185,14 +186,21 @@ fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
                         continue;
                     }
                     state.in_single = false;
-                } else if is_at_value_position(&chars, i) {
+                } else if is_at_value_position(&chars, i, state.flow_depth) {
                     state.in_single = true;
                 }
             }
             '"' if !state.in_single => {
-                if state.in_double || is_at_value_position(&chars, i) {
+                if state.in_double || is_at_value_position(&chars, i, state.flow_depth)
+                {
                     state.in_double = !state.in_double;
                 }
+            }
+            '[' | '{' if !state.in_single && !state.in_double => {
+                state.flow_depth = state.flow_depth.saturating_add(1);
+            }
+            ']' | '}' if !state.in_single && !state.in_double => {
+                state.flow_depth = state.flow_depth.saturating_sub(1);
             }
             '#' if !state.in_single && !state.in_double => {
                 if is_comment_position(line, byte_idx) {

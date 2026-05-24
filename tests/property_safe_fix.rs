@@ -220,6 +220,7 @@ struct FlowStyle {
     inner_padding: u8,
     spaces_before_comma: u8,
     spaces_after_comma: u8,
+    space_after_colon: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -255,6 +256,10 @@ fn push_spaces(buffer: &mut String, count: u8) {
 }
 
 impl Scalar {
+    fn is_explicitly_quoted(&self) -> bool {
+        matches!(self, Self::SingleQuoted(_) | Self::DoubleQuoted(_))
+    }
+
     fn render(&self, buffer: &mut String) {
         match self {
             Self::Plain(text) => buffer.push_str(text),
@@ -314,7 +319,10 @@ impl Node {
                         push_spaces(buffer, style.spaces_after_comma);
                     }
                     key.render(buffer);
-                    buffer.push_str(": ");
+                    buffer.push(':');
+                    if style.space_after_colon || !key.is_explicitly_quoted() {
+                        buffer.push(' ');
+                    }
                     value.render(buffer);
                 }
                 push_spaces(buffer, style.inner_padding);
@@ -517,11 +525,19 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
 }
 
 fn arb_flow_style() -> impl Strategy<Value = FlowStyle> {
-    (0u8..=2, 0u8..=2, 0u8..=2).prop_map(
-        |(inner_padding, spaces_before_comma, spaces_after_comma)| FlowStyle {
+    (0u8..=2, 0u8..=2, 0u8..=2, any::<bool>()).prop_map(
+        |(
             inner_padding,
             spaces_before_comma,
             spaces_after_comma,
+            space_after_colon,
+        )| {
+            FlowStyle {
+                inner_padding,
+                spaces_before_comma,
+                spaces_after_comma,
+                space_after_colon,
+            }
         },
     )
 }
@@ -733,6 +749,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
                     inner_padding: 1,
                     spaces_before_comma: 1,
                     spaces_after_comma: 2,
+                    space_after_colon: true,
                 },
             ),
             trailing_inline_comment: Some(InlineComment {

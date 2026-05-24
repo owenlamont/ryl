@@ -412,6 +412,48 @@ fn fix_document_start_skips_buffer_without_document_events() {
 }
 
 #[test]
+fn fix_comments_preserves_quoted_value_after_flow_colon_without_space() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "flow: {\"a\":\"b #c\"}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "flow: {\"a\":\"b #c\"}\n",
+        "`#` inside a quoted value immediately after a flow-context `:` must not be treated as a comment: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_empty_lines_preserves_blanks_inside_flow_quoted_value_without_space() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "flow: {\"a\":\"b\n\nc\"}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "flow: {\"a\":\"b\n\nc\"}\n",
+        "blank lines inside a quoted value immediately after a flow-context `:` must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_comments_handles_quote_chars_at_line_start_and_in_plain_scalars() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

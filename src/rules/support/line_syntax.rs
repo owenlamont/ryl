@@ -122,6 +122,7 @@ impl BlockScalarTracker {
 #[derive(Debug, Default)]
 pub(crate) struct MultilineQuoteTracker {
     state: Option<QuoteKind>,
+    flow_depth: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -170,12 +171,23 @@ impl MultilineQuoteTracker {
                     if ch == '#' && prev_is_ws {
                         break;
                     }
-                    if matches!(ch, '\'' | '"') && is_at_value_position(&chars, i) {
-                        self.state = Some(if ch == '\'' {
-                            QuoteKind::Single
-                        } else {
-                            QuoteKind::Double
-                        });
+                    match ch {
+                        '[' | '{' => {
+                            self.flow_depth = self.flow_depth.saturating_add(1);
+                        }
+                        ']' | '}' => {
+                            self.flow_depth = self.flow_depth.saturating_sub(1);
+                        }
+                        '\'' | '"'
+                            if is_at_value_position(&chars, i, self.flow_depth) =>
+                        {
+                            self.state = Some(if ch == '\'' {
+                                QuoteKind::Single
+                            } else {
+                                QuoteKind::Double
+                            });
+                        }
+                        _ => {}
                     }
                     i += 1;
                 }
@@ -184,7 +196,11 @@ impl MultilineQuoteTracker {
     }
 }
 
-pub(crate) fn is_at_value_position(chars: &[(usize, char)], idx: usize) -> bool {
+pub(crate) fn is_at_value_position(
+    chars: &[(usize, char)],
+    idx: usize,
+    flow_depth: u32,
+) -> bool {
     let mut cursor = idx;
     while cursor > 0 {
         let prev = chars[cursor - 1].1;
@@ -193,6 +209,7 @@ pub(crate) fn is_at_value_position(chars: &[(usize, char)], idx: usize) -> bool 
             continue;
         }
         return match prev {
+            ':' if flow_depth > 0 => true,
             ':' | '-' | '?' => cursor < idx,
             '[' | '{' | ',' => true,
             _ => false,
