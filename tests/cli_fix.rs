@@ -433,6 +433,73 @@ fn fix_document_start_skips_buffer_without_document_events() {
 }
 
 #[test]
+fn fix_comments_preserves_top_level_tagged_inline_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "!!str \"a #b\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "!!str \"a #b\"\n",
+        "top-level tagged inline quoted scalar must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_preserves_tagged_inline_quoted_scalar_in_flow_contexts() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "seq: [!!str \"a #b\",!!str \"c #d\"]\nmap: {!!str \"e #f\": 1}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "seq: [!!str \"a #b\",!!str \"c #d\"]\nmap: {!!str \"e #f\": 1}\n",
+        "tagged inline quoted scalars inside flow seq/map (preceded by `[`, `,`, or `{{`) must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_preserves_tagged_inline_quoted_scalar_value() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: !!str \"a #b\"\nanc: &x \"c #d\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: !!str \"a #b\"\nanc: &x \"c #d\"\n",
+        "`#` inside an inline quoted scalar preceded by a tag/anchor must not be treated as a comment: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_comments_preserves_quoted_value_after_flow_colon_without_space() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

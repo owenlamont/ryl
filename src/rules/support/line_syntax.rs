@@ -158,20 +158,43 @@ pub(crate) fn is_at_value_position(
     flow_depth: u32,
 ) -> bool {
     let mut cursor = idx;
-    while cursor > 0 {
-        let prev = chars[cursor - 1].1;
-        if matches!(prev, ' ' | '\t') {
-            cursor -= 1;
-            continue;
-        }
-        return match prev {
-            ':' if flow_depth > 0 => true,
-            ':' | '-' | '?' => cursor < idx,
-            '[' | '{' | ',' => true,
-            _ => false,
-        };
+    let mut had_whitespace_before_quote = false;
+    while cursor > 0 && matches!(chars[cursor - 1].1, ' ' | '\t') {
+        cursor -= 1;
+        had_whitespace_before_quote = true;
     }
-    true
+    if cursor == 0 {
+        return true;
+    }
+    loop {
+        let mut token_start = cursor;
+        while token_start > 0
+            && !matches!(chars[token_start - 1].1, ' ' | '\t' | '[' | '{' | ',')
+        {
+            token_start -= 1;
+        }
+        if !matches!(chars[token_start].1, '!' | '&') {
+            break;
+        }
+        let mut next_cursor = token_start;
+        while next_cursor > 0 && matches!(chars[next_cursor - 1].1, ' ' | '\t') {
+            next_cursor -= 1;
+        }
+        if next_cursor == 0 {
+            return true;
+        }
+        if next_cursor == token_start {
+            let prev = chars[next_cursor - 1].1;
+            return prev == '[' || prev == '{' || prev == ',';
+        }
+        cursor = next_cursor;
+    }
+    match chars[cursor - 1].1 {
+        ':' if flow_depth > 0 => true,
+        ':' | '-' | '?' => had_whitespace_before_quote,
+        '[' | '{' | ',' => true,
+        _ => false,
+    }
 }
 
 pub(crate) fn split_lines_preserve_endings(
