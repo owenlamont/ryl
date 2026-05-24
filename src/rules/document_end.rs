@@ -11,6 +11,7 @@ use std::cmp;
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::buffer_newline;
 
 pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
@@ -82,7 +83,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     {
         return None;
     }
-    let newline = first_newline(buffer);
+    let newline = buffer_newline(buffer);
     let mut output = buffer.to_string();
     if !output.ends_with('\n') {
         output.push_str(newline);
@@ -115,14 +116,6 @@ fn has_inner_document_markers(buffer: &str) -> bool {
         }
     }
     false
-}
-
-fn first_newline(buffer: &str) -> &'static str {
-    if buffer.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    }
 }
 
 struct DocumentEndReceiver<'src, 'cfg> {

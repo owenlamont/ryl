@@ -12,6 +12,7 @@
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::buffer_newline;
 
 pub const ID: &str = "document-start";
 pub const MISSING_MESSAGE: &str = "missing document start \"---\"";
@@ -70,7 +71,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     if check(buffer, cfg).is_empty() {
         return None;
     }
-    let newline = first_newline(rest);
+    let newline = buffer_newline(rest);
     let mut output = String::with_capacity(buffer.len() + 4);
     output.push_str(bom);
     output.push_str("---");
@@ -102,14 +103,6 @@ fn contains_document_markers(buffer: &str) -> bool {
             || trimmed == "..."
             || trimmed.starts_with("... ")
     })
-}
-
-fn first_newline(buffer: &str) -> &'static str {
-    if buffer.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    }
 }
 
 struct DocumentStartReceiver<'cfg> {

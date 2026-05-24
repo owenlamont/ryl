@@ -1,7 +1,65 @@
+use std::collections::HashSet;
+
+use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+
 pub(crate) fn leading_whitespace_width(line: &str) -> usize {
     line.chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))
         .count()
+}
+
+/// Returns `"\r\n"` if the buffer contains a CRLF newline, `"\n"` otherwise.
+pub(crate) fn buffer_newline(buffer: &str) -> &'static str {
+    if buffer.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+/// Collect line numbers (1-based) for every `Scalar` event whose `style` and
+/// span satisfy `filter`. Block-scalar spans end at `(end.line, col=0)`, one
+/// past the last body line; that trailing line is dropped from the range so
+/// callers don't accidentally protect content unrelated to the scalar.
+///
+/// Returns `None` when the buffer cannot be parsed — callers should treat that
+/// as "bail" rather than fix on a partial view of the document.
+pub(crate) fn protected_scalar_lines<F>(
+    buffer: &str,
+    filter: F,
+) -> Option<HashSet<usize>>
+where
+    F: FnMut(ScalarStyle, Span) -> bool,
+{
+    struct Collector<G> {
+        protected: HashSet<usize>,
+        filter: G,
+    }
+    impl<G: FnMut(ScalarStyle, Span) -> bool> SpannedEventReceiver<'_> for Collector<G> {
+        fn on_event(&mut self, event: Event<'_>, span: Span) {
+            if let Event::Scalar(_, style, _, _) = event
+                && (self.filter)(style, span)
+            {
+                let start = span.start.line();
+                let end = span.end.line();
+                let last = if span.end.col() == 0 && end > start {
+                    end - 1
+                } else {
+                    end
+                };
+                for line in start..=last {
+                    self.protected.insert(line);
+                }
+            }
+        }
+    }
+    let mut parser = Parser::new_from_str(buffer);
+    let mut collector = Collector {
+        protected: HashSet::new(),
+        filter,
+    };
+    parser.load(&mut collector, true).ok()?;
+    Some(collector.protected)
 }
 
 pub(crate) fn strip_trailing_comment_preserving_quotes(content: &str) -> &str {

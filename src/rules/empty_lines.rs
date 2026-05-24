@@ -8,13 +8,12 @@
 //! `None`) when the buffer cannot be parsed. Runs outside those contexts
 //! (and the leading/trailing run governed by `max-start`/`max-end`) are
 //! trimmed to the configured maxima.
-use std::collections::HashSet;
 use std::convert::TryFrom;
 
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
-
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::split_lines_preserve_endings;
+use crate::rules::support::line_syntax::{
+    protected_scalar_lines, split_lines_preserve_endings,
+};
 
 pub const ID: &str = "empty-lines";
 
@@ -57,7 +56,7 @@ pub struct Violation {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let protected = protected_scalar_lines(buffer)?;
+    let protected = protected_scalar_lines(buffer, |_style, _span| true)?;
     let mut output = String::with_capacity(buffer.len());
     let mut blank_run: Vec<(&str, &str)> = Vec::new();
     let mut seen_nonblank = false;
@@ -87,40 +86,6 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     flush_blank_run(&mut output, &mut blank_run, cfg.max_end(), &mut changed);
 
     changed.then_some(output)
-}
-
-fn protected_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
-    let mut parser = Parser::new_from_str(buffer);
-    let mut collector = ProtectedLineCollector {
-        protected: HashSet::new(),
-    };
-    parser.load(&mut collector, true).ok()?;
-    Some(collector.protected)
-}
-
-struct ProtectedLineCollector {
-    protected: HashSet<usize>,
-}
-
-impl SpannedEventReceiver<'_> for ProtectedLineCollector {
-    fn on_event(&mut self, event: Event<'_>, span: Span) {
-        if matches!(event, Event::Scalar(..)) {
-            let start = span.start.line();
-            let end = span.end.line();
-            // saphyr reports a block scalar's span end at (next-line, col=0).
-            // That line is outside the scalar; drop it so subsequent lines
-            // (which may legitimately be a trimmable blank run) remain
-            // unprotected. Mirrors the same adjustment in trailing_spaces.rs.
-            let last = if span.end.col() == 0 && end > start {
-                end - 1
-            } else {
-                end
-            };
-            for line in start..=last {
-                self.protected.insert(line);
-            }
-        }
-    }
 }
 
 fn middle_max(seen_nonblank: bool, cfg: &Config) -> i64 {
