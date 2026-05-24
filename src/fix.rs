@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use crate::config::YamlLintConfig;
 use crate::decoder;
 use crate::rules::{
-    braces, brackets, commas, comments, comments_indentation, new_line_at_end_of_file,
-    new_lines, quoted_strings,
+    braces, brackets, commas, comments, comments_indentation, document_end,
+    document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
+    trailing_spaces,
 };
 
 const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -50,6 +51,22 @@ const FINAL_NEWLINE_FIX: RuleFix = RuleFix {
 };
 const QUOTED_STRINGS_FIX: RuleFix = RuleFix {
     rule: quoted_strings::ID,
+    safety: FixSafety::Safe,
+};
+const TRAILING_SPACES_FIX: RuleFix = RuleFix {
+    rule: trailing_spaces::ID,
+    safety: FixSafety::Safe,
+};
+const DOCUMENT_START_FIX: RuleFix = RuleFix {
+    rule: document_start::ID,
+    safety: FixSafety::Safe,
+};
+const DOCUMENT_END_FIX: RuleFix = RuleFix {
+    rule: document_end::ID,
+    safety: FixSafety::Safe,
+};
+const EMPTY_LINES_FIX: RuleFix = RuleFix {
+    rule: empty_lines::ID,
     safety: FixSafety::Safe,
 };
 
@@ -145,6 +162,25 @@ pub fn apply_safe_fixes(
         apply_rule_fix(content, QUOTED_STRINGS_FIX, cfg, path, base_dir, |buffer| {
             quoted_strings::fix(buffer, &quoted_strings::Config::resolve(cfg))
         });
+    content = apply_rule_fix(
+        content,
+        TRAILING_SPACES_FIX,
+        cfg,
+        path,
+        base_dir,
+        trailing_spaces::fix,
+    );
+    content =
+        apply_rule_fix(content, DOCUMENT_START_FIX, cfg, path, base_dir, |buffer| {
+            document_start::fix(buffer, &document_start::Config::resolve(cfg))
+        });
+    content =
+        apply_rule_fix(content, DOCUMENT_END_FIX, cfg, path, base_dir, |buffer| {
+            document_end::fix(buffer, &document_end::Config::resolve(cfg))
+        });
+    content = apply_rule_fix(content, EMPTY_LINES_FIX, cfg, path, base_dir, |buffer| {
+        empty_lines::fix(buffer, &empty_lines::Config::resolve(cfg))
+    });
 
     content
 }

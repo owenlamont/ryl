@@ -55,6 +55,61 @@ pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct BlockScalarTracker {
+    state: Option<BlockScalarState>,
+}
+
+#[derive(Debug)]
+struct BlockScalarState {
+    indicator_indent: usize,
+    content_indent: Option<usize>,
+}
+
+impl BlockScalarTracker {
+    pub(crate) fn consume_line(&mut self, indent: usize, content: &str) -> bool {
+        let Some(state) = self.state.as_mut() else {
+            return false;
+        };
+
+        if content.trim().is_empty() {
+            return true;
+        }
+
+        if let Some(content_indent) = state.content_indent {
+            if indent >= content_indent {
+                return true;
+            }
+
+            if indent <= state.indicator_indent {
+                self.state = None;
+                return false;
+            }
+
+            state.content_indent = Some(content_indent.min(indent));
+            return true;
+        }
+
+        if indent > state.indicator_indent {
+            state.content_indent = Some(indent);
+            return true;
+        }
+
+        self.state = None;
+        false
+    }
+
+    pub(crate) fn observe_indicator(&mut self, indent: usize, content: &str) {
+        let candidate = strip_trailing_comment_preserving_quotes(content).trim_end();
+        if block_scalar_marker_index(candidate).is_some() {
+            self.state = Some(BlockScalarState {
+                indicator_indent: indent,
+                content_indent: None,
+            });
+        }
+    }
+}
+
 pub(crate) fn split_lines_preserve_endings(
     buffer: &str,
 ) -> impl Iterator<Item = (usize, &str, &str)> {

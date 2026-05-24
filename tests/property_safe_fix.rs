@@ -18,6 +18,10 @@ const COMMON_SAFE_FIX_RULES_YAML: &str = "rules:
   braces: enable
   brackets: enable
   new-line-at-end-of-file: enable
+  trailing-spaces: enable
+  document-start: enable
+  document-end: enable
+  empty-lines: enable
 ";
 
 const QUOTED_STRINGS_VARIANTS: &[(&str, &str)] = &[
@@ -61,6 +65,10 @@ const SAFE_FIX_RULES: &[&str] = &[
     "brackets",
     "new-line-at-end-of-file",
     "quoted-strings",
+    "trailing-spaces",
+    "document-start",
+    "document-end",
+    "empty-lines",
 ];
 
 const BEST_PRACTICE_TOML: &str = "[rules]
@@ -71,6 +79,10 @@ commas = 'enable'
 braces = 'enable'
 brackets = 'enable'
 new-line-at-end-of-file = 'enable'
+trailing-spaces = 'enable'
+document-start = 'enable'
+document-end = 'enable'
+empty-lines = 'enable'
 
 [rules.quoted-strings]
 quote-type = 'single'

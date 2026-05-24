@@ -1,3 +1,11 @@
+//! `document-end` rule.
+//!
+//! Safety scope for `--fix`: only the `present: true` (default) case is
+//! rewritten, and only for single-document buffers. Multi-document inputs
+//! (those containing further `---`/`...` markers after the first line) are
+//! left alone because correct placement requires per-document end byte
+//! offsets the rule does not record. The `present: false` case — removing
+//! existing `...` markers — is never auto-fixed.
 use std::cmp;
 
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
@@ -64,6 +72,49 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut receiver = DocumentEndReceiver::new(buffer, cfg);
     let _ = parser.load(&mut receiver, true);
     receiver.violations
+}
+
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    if !cfg.requires_marker()
+        || has_inner_document_markers(buffer)
+        || check(buffer, cfg).is_empty()
+    {
+        return None;
+    }
+    let newline = first_newline(buffer);
+    let mut output = buffer.to_string();
+    if !output.ends_with('\n') {
+        output.push_str(newline);
+    }
+    output.push_str("...");
+    output.push_str(newline);
+    Some(output)
+}
+
+fn has_inner_document_markers(buffer: &str) -> bool {
+    let mut first_line = true;
+    for line in buffer.split_inclusive('\n') {
+        let trimmed = line
+            .trim_end_matches(['\r', '\n'])
+            .trim_start_matches([' ', '\t']);
+        if !first_line && (trimmed == "---" || trimmed.starts_with("--- ")) {
+            return true;
+        }
+        if trimmed == "..." || trimmed.starts_with("... ") {
+            return true;
+        }
+        first_line = false;
+    }
+    false
+}
+
+fn first_newline(buffer: &str) -> &'static str {
+    if buffer.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 struct DocumentEndReceiver<'src, 'cfg> {

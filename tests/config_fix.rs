@@ -368,3 +368,70 @@ fn to_toml_string_round_trips_quoted_strings_fix_config() {
     let toml_output = ctx.config.to_toml_string();
     assert!(toml_output.contains("quoted-strings"));
 }
+
+#[test]
+fn to_toml_string_round_trips_trailing_spaces_fix_config() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "[fix]\nfixable = ['trailing-spaces']\nunfixable = ['trailing-spaces']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should parse trailing-spaces fix selectors");
+
+    assert_eq!(
+        ctx.config.fix().fixable(),
+        [FixRuleSelector::Rule(FixRule::TrailingSpaces)]
+    );
+    assert_eq!(ctx.config.fix().unfixable(), [FixRule::TrailingSpaces]);
+    let toml_output = ctx.config.to_toml_string();
+    assert!(toml_output.contains("trailing-spaces"));
+}
+
+#[test]
+fn to_toml_string_round_trips_document_and_empty_lines_fix_config() {
+    let cfg = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new().with_file(
+        cfg.clone(),
+        "[fix]\nfixable = ['document-start', 'document-end', 'empty-lines']\nunfixable = ['document-start', 'document-end', 'empty-lines']\n",
+    );
+
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("toml config should parse new partial-safe-fix selectors");
+
+    assert_eq!(
+        ctx.config.fix().fixable(),
+        [
+            FixRuleSelector::Rule(FixRule::DocumentStart),
+            FixRuleSelector::Rule(FixRule::DocumentEnd),
+            FixRuleSelector::Rule(FixRule::EmptyLines),
+        ]
+    );
+    assert_eq!(
+        ctx.config.fix().unfixable(),
+        [
+            FixRule::DocumentStart,
+            FixRule::DocumentEnd,
+            FixRule::EmptyLines,
+        ]
+    );
+    let toml_output = ctx.config.to_toml_string();
+    assert!(toml_output.contains("document-start"));
+    assert!(toml_output.contains("document-end"));
+    assert!(toml_output.contains("empty-lines"));
+}

@@ -1,7 +1,6 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,
-    strip_trailing_comment_preserving_quotes,
+    BlockScalarTracker, leading_whitespace_width, split_lines_preserve_endings,
 };
 
 pub const ID: &str = "comments";
@@ -152,61 +151,6 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     changed.then_some(output)
 }
 
-#[derive(Debug, Default)]
-struct BlockScalarTracker {
-    state: Option<BlockScalarState>,
-}
-
-#[derive(Debug)]
-struct BlockScalarState {
-    indicator_indent: usize,
-    content_indent: Option<usize>,
-}
-
-impl BlockScalarTracker {
-    fn consume_line(&mut self, indent: usize, content: &str) -> bool {
-        let Some(state) = self.state.as_mut() else {
-            return false;
-        };
-
-        if content.trim().is_empty() {
-            return true;
-        }
-
-        if let Some(content_indent) = state.content_indent {
-            if indent >= content_indent {
-                return true;
-            }
-
-            if indent <= state.indicator_indent {
-                self.state = None;
-                return false;
-            }
-
-            state.content_indent = Some(content_indent.min(indent));
-            return true;
-        }
-
-        if indent > state.indicator_indent {
-            state.content_indent = Some(indent);
-            return true;
-        }
-
-        self.state = None;
-        false
-    }
-
-    fn observe_indicator(&mut self, indent: usize, content: &str) {
-        let candidate = strip_trailing_comment_for_block(content).trim_end();
-        if is_block_scalar_indicator(candidate) {
-            self.state = Some(BlockScalarState {
-                indicator_indent: indent,
-                content_indent: None,
-            });
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 struct QuoteState {
     in_single: bool,
@@ -272,14 +216,6 @@ fn column_at(line: &str, byte_idx: usize) -> usize {
 
 fn is_comment_position(line: &str, idx: usize) -> bool {
     line[..idx].chars().last().is_none_or(char::is_whitespace)
-}
-
-fn strip_trailing_comment_for_block(content: &str) -> &str {
-    strip_trailing_comment_preserving_quotes(content)
-}
-
-fn is_block_scalar_indicator(content: &str) -> bool {
-    block_scalar_marker_index(content).is_some()
 }
 
 fn fix_comment_line(

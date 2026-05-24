@@ -1,3 +1,14 @@
+//! `trailing-spaces`: report and strip trailing whitespace from lines.
+//!
+//! Safety scope for the `--fix` rewrite: lines inside literal (`|`) or folded
+//! (`>`) block-scalar contexts are left untouched because their trailing
+//! whitespace is part of the scalar's value, and stripping it would change the
+//! parsed YAML. The diagnostic still fires on those lines — users must edit
+//! them by hand.
+use crate::rules::support::line_syntax::{
+    BlockScalarTracker, leading_whitespace_width, split_lines_preserve_endings,
+};
+
 pub const ID: &str = "trailing-spaces";
 pub const MESSAGE: &str = "trailing spaces";
 
@@ -62,4 +73,38 @@ fn process_line(
             column,
         });
     }
+}
+
+#[must_use]
+pub fn fix(buffer: &str) -> Option<String> {
+    let mut tracker = BlockScalarTracker::default();
+    let mut output = String::with_capacity(buffer.len());
+    let mut changed = false;
+
+    for (_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
+        let indent = leading_whitespace_width(raw_line);
+        let content = &raw_line[indent..];
+
+        let consumed = tracker.consume_line(indent, content);
+        let trimmed = if consumed {
+            raw_line
+        } else {
+            let stripped = raw_line.trim_end_matches([' ', '\t']);
+            if stripped.len() < raw_line.len() {
+                changed = true;
+            }
+            stripped
+        };
+
+        if !consumed {
+            let new_indent = leading_whitespace_width(trimmed);
+            let new_content = &trimmed[new_indent..];
+            tracker.observe_indicator(new_indent, new_content);
+        }
+
+        output.push_str(trimmed);
+        output.push_str(ending);
+    }
+
+    changed.then_some(output)
 }

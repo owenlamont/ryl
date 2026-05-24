@@ -313,3 +313,189 @@ fn fix_with_toml_allow_double_quotes_for_escaping_silences_quoted_strings_diagno
         "double-quoted escape sequence should be retained verbatim: {fixed:?}"
     );
 }
+
+#[test]
+fn fix_strips_trailing_spaces_but_preserves_block_scalar_content() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "key: value   \nblock: |\n  line with trailing   \n  line two\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: value\nblock: |\n  line with trailing   \n  line two\n",
+        "trailing space outside block scalar should be stripped, inside preserved: {fixed:?}"
+    );
+    assert_eq!(
+        code, 1,
+        "block-scalar trailing space should remain reported: stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("trailing-spaces"),
+        "block-scalar trailing space should still be flagged: {stderr}"
+    );
+}
+
+#[test]
+fn fix_inserts_document_start_marker_when_required() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\nkey: value\n",
+        "missing --- should be prepended: {fixed:?}"
+    );
+    assert_eq!(code, 0, "fix should succeed: stderr={stderr}");
+}
+
+#[test]
+fn fix_skips_document_start_when_yaml_directive_present() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "%YAML 1.1\nkey: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "%YAML 1.1\nkey: value\n",
+        "fix must not rewrite files with YAML directives: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_appends_document_end_marker_when_required() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "---\nkey: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\nkey: value\n...\n",
+        "missing ... should be appended: {fixed:?}"
+    );
+    assert_eq!(code, 0, "fix should succeed: stderr={stderr}");
+}
+
+#[test]
+fn fix_skips_document_end_for_multi_document_streams() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: a\n---\nkey: b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n---\nkey: b\n",
+        "fix must leave multi-document streams untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_uses_crlf_when_buffer_uses_crlf_line_endings() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value\r\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\ndocument-end = 'enable'\nnew-lines = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\r\nkey: value\r\n...\r\n",
+        "marker insertions must use the buffer's line ending: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_appends_newline_when_buffer_lacks_final_newline() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: value\n...\n",
+        "fix must insert a newline before `...` when buffer lacks one: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_trims_consecutive_blank_lines_outside_block_scalars() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "key: a\n\n\n\n\nblock: |\n  one\n\n\n  two\nlast: z\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nempty-lines = { max = 2, max-start = 0, max-end = 0 }\ndocument-start = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n\n\nblock: |\n  one\n\n\n  two\nlast: z\n",
+        "outside runs trimmed to max=2, inner block-scalar blanks preserved: {fixed:?}"
+    );
+}
