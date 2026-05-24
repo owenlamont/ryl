@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -18,12 +18,15 @@ use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
 use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
 use ryl::config_schema::{schema_string_pretty, yaml_schema_string_pretty};
+use ryl::decoder;
 use ryl::fix::apply_safe_fixes_to_files;
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
 };
-use ryl::{LintProblem, Severity, lint_file};
+use ryl::{LintProblem, Severity, lint_file, lint_str};
+
+const STDIN_LABEL: &str = "<stdin>";
 
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut explicit_files = Vec::new();
@@ -51,6 +54,19 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     (candidates, explicit_files)
 }
 
+fn cli_overrides(cli: &Cli) -> Overrides {
+    Overrides {
+        config_file: cli.config_file.clone(),
+        config_data: cli.config_data.as_ref().map(|raw| {
+            if !raw.is_empty() && !raw.contains(':') {
+                format!("extends: {raw}")
+            } else {
+                raw.clone()
+            }
+        }),
+    }
+}
+
 fn build_global_cfg(
     inputs: &[PathBuf],
     cli: &Cli,
@@ -59,21 +75,7 @@ fn build_global_cfg(
         || cli.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
     {
-        let config_data = cli.config_data.as_ref().map(|raw| {
-            if !raw.is_empty() && !raw.contains(':') {
-                format!("extends: {raw}")
-            } else {
-                raw.clone()
-            }
-        });
-        discover_config(
-            inputs,
-            &Overrides {
-                config_file: cli.config_file.clone(),
-                config_data,
-            },
-        )
-        .map(Some)
+        discover_config(inputs, &cli_overrides(cli)).map(Some)
     } else {
         Ok(None)
     }
@@ -141,9 +143,13 @@ enum CliFormat {
 #[derive(Parser, Debug)]
 #[command(name = "ryl", version, about = "Fast YAML linter written in Rust")]
 struct Cli {
-    /// One or more paths: files and/or directories
+    /// One or more paths: files and/or directories, or `-` to read from stdin
     #[arg(value_name = "PATH_OR_FILE")]
     inputs: Vec<PathBuf>,
+
+    /// Filename used for diagnostics, config discovery, and yaml-files matching when reading stdin
+    #[arg(long = "stdin-filename", value_name = "FILE")]
+    stdin_filename: Option<PathBuf>,
 
     /// Path to configuration file (YAML or TOML)
     #[arg(short = 'c', long = "config-file", value_name = "FILE")]
@@ -324,9 +330,33 @@ fn run_cli(cli: Cli) -> Result<ExitCode, String> {
 }
 
 fn run_lint(cli: Cli) -> Result<ExitCode, String> {
+    let stdin_input = Path::new("-");
+    let has_stdin = cli.inputs.iter().any(|p| p.as_path() == stdin_input);
+    if has_stdin {
+        if cli.inputs.len() > 1 {
+            return Err(
+                "error: `-` (stdin) cannot be combined with other inputs".to_string()
+            );
+        }
+        if cli.lint.fix.fix {
+            return Err(
+                "error: `--fix` is not supported when reading from stdin".to_string()
+            );
+        }
+        return run_stdin_lint(&cli);
+    }
+
+    if cli.stdin_filename.is_some() {
+        return Err(
+            "error: `--stdin-filename` only applies when reading from stdin (`-`)"
+                .to_string(),
+        );
+    }
+
     if cli.inputs.is_empty() {
         return Err(
-            "error: expected one or more paths (files and/or directories)".to_string(),
+            "error: expected one or more paths (files and/or directories), or `-` for stdin"
+                .to_string(),
         );
     }
 
@@ -398,13 +428,84 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         );
     }
 
+    Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
+}
+
+fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
     if summary.has_error {
-        Ok(ExitCode::from(1))
-    } else if summary.has_warning && cli.lint.compatibility.strict {
-        Ok(ExitCode::from(2))
+        ExitCode::from(1)
+    } else if summary.has_warning && strict {
+        ExitCode::from(2)
     } else {
-        Ok(ExitCode::SUCCESS)
+        ExitCode::SUCCESS
     }
+}
+
+fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
+    let (path, base_dir, cfg, apply_yaml_files) = resolve_stdin_ctx(cli)?;
+
+    if apply_yaml_files
+        && (cfg.is_file_ignored(&path, &base_dir)
+            || !cfg.is_yaml_candidate(&path, &base_dir))
+    {
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if cli.lint.compatibility.list_files {
+        println!("{}", path.display());
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let outcome = read_and_lint_stdin(&path, &base_dir, &cfg);
+
+    let files = vec![(path, base_dir, cfg)];
+    let results = vec![(0usize, outcome)];
+
+    let output_format = detect_output_format(cli.format);
+    let summary = process_results(
+        &files,
+        results,
+        output_format,
+        cli.lint.compatibility.no_warnings,
+    );
+    Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
+}
+
+fn read_and_lint_stdin(
+    path: &Path,
+    base_dir: &Path,
+    cfg: &YamlLintConfig,
+) -> Result<Vec<LintProblem>, String> {
+    let mut buf = Vec::new();
+    std::io::stdin()
+        .read_to_end(&mut buf)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    let content = decoder::decode_bytes(&buf)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    Ok(lint_str(&content, path, cfg, base_dir))
+}
+
+fn resolve_stdin_ctx(
+    cli: &Cli,
+) -> Result<(PathBuf, PathBuf, YamlLintConfig, bool), String> {
+    let (path, apply_yaml_files) = match cli.stdin_filename.clone() {
+        Some(name) => (name, true),
+        None => (PathBuf::from(STDIN_LABEL), false),
+    };
+    let anchor = if apply_yaml_files {
+        path.clone()
+    } else {
+        PathBuf::from(".")
+    };
+    let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(cli))?;
+    for notice in &ctx.notices {
+        eprintln!("{notice}");
+    }
+    let mut cfg = ctx.config;
+    if !apply_yaml_files {
+        cfg.disable_path_based_rule_ignores();
+    }
+    Ok((path, ctx.base_dir, cfg, apply_yaml_files))
 }
 
 fn lint_files(

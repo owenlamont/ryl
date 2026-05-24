@@ -227,7 +227,10 @@ pub(crate) fn is_at_value_position(
     loop {
         let mut token_start = cursor;
         while token_start > 0
-            && !matches!(chars[token_start - 1].1, ' ' | '\t' | '[' | '{' | ',')
+            && !matches!(
+                chars[token_start - 1].1,
+                ' ' | '\t' | '[' | '{' | ',' | '"' | '\''
+            )
         {
             token_start -= 1;
         }

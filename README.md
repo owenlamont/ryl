@@ -65,6 +65,13 @@ cargo install ryl                   # cargo
   config discovery) and exits, without running rules. `--no-warnings`
   suppresses warning-level diagnostics in the output. `--strict` turns a
   warning-only run into exit code `2`.
+- Pass `-` as the input to read YAML from stdin (ruff convention). Add
+  `--stdin-filename <PATH>` so diagnostics, project-config discovery,
+  and path-based filtering (`yaml-files`, per-file-ignores, per-rule
+  `ignore`) use that filename. Without it, diagnostics are labelled
+  `<stdin>`, config is anchored at the current working directory, and
+  all path-based filtering is skipped so every enabled rule runs.
+  `-` cannot be combined with other inputs or with `--fix`.
 - Run `ryl --help` for the authoritative CLI reference.
 
 For installation walkthroughs, configuration presets, and per-rule
