@@ -93,18 +93,26 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 fn has_inner_document_markers(buffer: &str) -> bool {
-    let mut first_line = true;
+    let mut seen_real_content = false;
+    let mut start_markers = 0u32;
     for line in buffer.split_inclusive('\n') {
         let trimmed = line
             .trim_end_matches(['\r', '\n'])
             .trim_start_matches([' ', '\t']);
-        if !first_line && (trimmed == "---" || trimmed.starts_with("--- ")) {
-            return true;
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('%') {
+            continue;
         }
         if trimmed == "..." || trimmed.starts_with("... ") {
             return true;
         }
-        first_line = false;
+        if trimmed == "---" || trimmed.starts_with("--- ") {
+            start_markers += 1;
+            if start_markers > 1 || seen_real_content {
+                return true;
+            }
+        } else {
+            seen_real_content = true;
+        }
     }
     false
 }

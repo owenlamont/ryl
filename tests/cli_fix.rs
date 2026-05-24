@@ -585,6 +585,27 @@ fn fix_appends_document_end_marker_when_required() {
 }
 
 #[test]
+fn fix_document_end_appends_marker_when_leading_comments_precede_start_marker() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "# c\n---\nkey: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "# c\n---\nkey: value\n...\n",
+        "leading comments/blanks before the only `---` must not be treated as a separate document — fix must still append `...`: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_skips_document_end_for_multi_document_streams() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
