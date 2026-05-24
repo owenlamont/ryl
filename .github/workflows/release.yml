@@ -897,6 +897,7 @@ jobs:
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
           owner: owenlamont
           repositories: ryl-pre-commit
+          permission-contents: write
 
       - name: Dispatch pypi_release event to ryl-pre-commit
         env:
