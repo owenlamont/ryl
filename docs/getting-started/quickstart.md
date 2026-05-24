@@ -12,6 +12,25 @@ ryl path/to/file.yaml
 ryl .
 ```
 
+## Lint from stdin
+
+Pass `-` as the input to read YAML from standard input &mdash; useful for
+editor integrations where the buffer is not yet on disk:
+
+```bash
+cat file.yaml | ryl -
+
+# Provide a filename so diagnostics, config discovery, and
+# yaml-files / per-file-ignores match the right path:
+cat file.yaml | ryl - --stdin-filename path/to/file.yaml
+```
+
+Without `--stdin-filename`, diagnostics are labelled `<stdin>`, config
+discovery is anchored at the current working directory, and all
+path-based filtering (`yaml-files`, per-file-ignores, per-rule `ignore`
+patterns) is skipped so every enabled rule runs. `-` cannot be combined
+with other inputs or with `--fix`.
+
 Exit codes:
 
 - `0` &mdash; no problems found.

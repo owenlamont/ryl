@@ -493,6 +493,20 @@ impl YamlLintConfig {
             .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
     }
 
+    /// Disable filename-based rule ignores so every enabled rule runs.
+    ///
+    /// Use when linting content that has no real path (e.g. stdin without
+    /// `--stdin-filename`), so per-file-ignores and per-rule `ignore` patterns
+    /// cannot accidentally match the synthetic label.
+    pub fn disable_path_based_rule_ignores(&mut self) {
+        self.per_file_ignore_matchers.clear();
+        for rule in self.rules.values_mut() {
+            if let Some(filter) = rule.filter.as_mut() {
+                filter.matcher = None;
+            }
+        }
+    }
+
     #[must_use]
     pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
         self.rules

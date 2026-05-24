@@ -331,8 +331,17 @@ sticking to the quick-status step above.
 
 ## CLI Behavior
 
-- Accepts one or more inputs: files and/or directories.
+- Accepts one or more inputs: files, directories, or `-` to read from stdin.
 - Directories: recursively scan `.yml`/`.yaml` files, honoring git ignore and
   git exclude; does not follow symlinks.
 - Files: parsed as YAML even if the extension is not `.yml`/`.yaml`.
+- Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
+  detection as files. `-` cannot be combined with other inputs and is not
+  compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets
+  the diagnostic label, anchors project-config discovery at the given path's
+  parent, and runs `yaml-files`, per-file-ignore, and per-rule `ignore`
+  matching against that path. Omitting `--stdin-filename` labels diagnostics
+  as `<stdin>`, anchors config discovery at CWD, and skips all path-based
+  filtering (`yaml-files`, per-file-ignores, per-rule `ignore`) so every
+  enabled rule runs against the input.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
