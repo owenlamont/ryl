@@ -1,13 +1,21 @@
 //! `trailing-spaces`: report and strip trailing whitespace from lines.
 //!
-//! Safety scope for the `--fix` rewrite: lines inside literal (`|`) or folded
-//! (`>`) block-scalar contexts are left untouched because their trailing
-//! whitespace is part of the scalar's value, and stripping it would change the
-//! parsed YAML. The diagnostic still fires on those lines — users must edit
-//! them by hand.
-use crate::rules::support::line_syntax::{
-    BlockScalarTracker, leading_whitespace_width, split_lines_preserve_endings,
-};
+//! Safety scope for the `--fix` rewrite: lines that fall inside a
+//! literal/folded block scalar or a multi-line double-quoted scalar are
+//! left untouched. Block scalars preserve trailing whitespace as part of
+//! their literal value, and multi-line double-quoted scalars treat a
+//! backslash followed by trailing whitespace and a newline differently
+//! from `\<newline>` alone (the latter is a line-continuation escape
+//! that drops the implicit folded space). Trailing whitespace inside
+//! multi-line single-quoted and multi-line plain scalars folds away at
+//! parse time, so those lines remain fixable. The protected line set is
+//! computed via `saphyr_parser`, so the rule bails (returns `None`) when
+//! the buffer cannot be parsed.
+use std::collections::HashSet;
+
+use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
 pub const ID: &str = "trailing-spaces";
 pub const MESSAGE: &str = "trailing spaces";
@@ -77,34 +85,61 @@ fn process_line(
 
 #[must_use]
 pub fn fix(buffer: &str) -> Option<String> {
-    let mut tracker = BlockScalarTracker::default();
+    let protected = protected_scalar_lines(buffer)?;
     let mut output = String::with_capacity(buffer.len());
     let mut changed = false;
 
-    for (_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
-        let indent = leading_whitespace_width(raw_line);
-        let content = &raw_line[indent..];
-
-        let consumed = tracker.consume_line(indent, content);
-        let trimmed = if consumed {
+    for (idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
+        let line_no = idx + 1;
+        let stripped = if protected.contains(&line_no) {
             raw_line
         } else {
-            let stripped = raw_line.trim_end_matches([' ', '\t']);
-            if stripped.len() < raw_line.len() {
+            let trimmed = raw_line.trim_end_matches([' ', '\t']);
+            if trimmed.len() < raw_line.len() {
                 changed = true;
             }
-            stripped
+            trimmed
         };
-
-        if !consumed {
-            let new_indent = leading_whitespace_width(trimmed);
-            let new_content = &trimmed[new_indent..];
-            tracker.observe_indicator(new_indent, new_content);
-        }
-
-        output.push_str(trimmed);
+        output.push_str(stripped);
         output.push_str(ending);
     }
 
     changed.then_some(output)
+}
+
+fn protected_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
+    let mut parser = Parser::new_from_str(buffer);
+    let mut collector = ProtectedLineCollector {
+        protected: HashSet::new(),
+    };
+    parser.load(&mut collector, true).ok()?;
+    Some(collector.protected)
+}
+
+struct ProtectedLineCollector {
+    protected: HashSet<usize>,
+}
+
+impl SpannedEventReceiver<'_> for ProtectedLineCollector {
+    fn on_event(&mut self, event: Event<'_>, span: Span) {
+        if let Event::Scalar(_, style, _, _) = event {
+            let start = span.start.line();
+            let end = span.end.line();
+            let needs_protect = match style {
+                ScalarStyle::Literal | ScalarStyle::Folded => true,
+                ScalarStyle::DoubleQuoted => end > start,
+                _ => false,
+            };
+            if needs_protect {
+                let last = if span.end.col() == 0 && end > start {
+                    end - 1
+                } else {
+                    end
+                };
+                for line in start..=last {
+                    self.protected.insert(line);
+                }
+            }
+        }
+    }
 }

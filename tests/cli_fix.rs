@@ -315,6 +315,27 @@ fn fix_with_toml_allow_double_quotes_for_escaping_silences_quoted_strings_diagno
 }
 
 #[test]
+fn fix_preserves_trailing_spaces_after_backslash_in_multiline_double_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: \"a\\  \n  b\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: \"a\\  \n  b\"\n",
+        "stripping spaces between `\\` and the newline inside a multi-line double-quoted scalar would turn the backslash into a line-continuation escape and change the parsed value: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_strips_trailing_spaces_but_preserves_block_scalar_content() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
@@ -436,10 +457,10 @@ fn fix_comments_preserves_quoted_value_after_flow_colon_without_space() {
 fn fix_does_not_skip_continuation_when_plain_scalar_ends_with_marker_like_suffix() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
-    fs::write(&file, "desc: version >2\n  body   \n").unwrap();
+    fs::write(&file, "desc: version >2\n  body   #c\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -448,8 +469,8 @@ fn fix_does_not_skip_continuation_when_plain_scalar_ends_with_marker_like_suffix
 
     let fixed = fs::read_to_string(&file).unwrap();
     assert_eq!(
-        fixed, "desc: version >2\n  body\n",
-        "plain scalar ending with `>2`/`|2`/`|` must not be treated as a block-scalar header — continuation lines must still get trailing-space stripped: {fixed:?}"
+        fixed, "desc: version >2\n  body   # c\n",
+        "plain scalar ending with `>2`/`|2`/`|` must not be treated as a block-scalar header — continuation lines must still receive comments-rule fixes: {fixed:?}"
     );
 }
 
