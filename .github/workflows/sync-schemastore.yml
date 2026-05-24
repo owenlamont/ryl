@@ -121,6 +121,7 @@ jobs:
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
           owner: owenlamont
           repositories: schemastore
+          permission-contents: write
 
       - name: Update SchemaStore fork branch
         if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run != true
