@@ -454,6 +454,77 @@ fn fix_comments_preserves_quoted_value_after_flow_colon_without_space() {
 }
 
 #[test]
+fn fix_preserves_top_level_tagged_block_scalar_body() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "!!str |\n  body   #c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "!!str |\n  body   #c\n",
+        "top-level tagged block-scalar body must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_rejects_block_marker_without_space_between_colon_and_tag() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    // `:!!str |` is not a valid block-scalar header (`:` needs whitespace before
+    // the tag). The line is fed to `BlockScalarTracker::observe_indicator` while
+    // walking the file; the helper must reject it so the comment scanner can
+    // still see this line as ordinary content rather than a scalar header.
+    fs::write(&file, "key: a\n:!!str |\nkey2: b  #c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(
+        fixed.contains("# c"),
+        "comments rule must still fire after a `:!!str |` line: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_block_scalar_body_with_tag_and_anchor_headers() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "tagged: !!str |\n  body   #c\nanchored: &a >\n  more   #c\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "tagged: !!str |\n  body   #c\nanchored: &a >\n  more   #c\n",
+        "tagged/anchored block-scalar bodies must be recognised and left untouched: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_does_not_skip_continuation_when_plain_scalar_ends_with_marker_like_suffix() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

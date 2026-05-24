@@ -74,6 +74,23 @@ pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
     if !consumed_whitespace {
         return None;
     }
+    loop {
+        let mut token_start = cursor;
+        while token_start > 0 && !matches!(bytes[token_start - 1], b' ' | b'\t') {
+            token_start -= 1;
+        }
+        if !matches!(bytes[token_start], b'!' | b'&') {
+            break;
+        }
+        let mut next_cursor = token_start;
+        while next_cursor > 0 && matches!(bytes[next_cursor - 1], b' ' | b'\t') {
+            next_cursor -= 1;
+        }
+        if next_cursor == 0 {
+            return Some(marker_idx);
+        }
+        cursor = next_cursor;
+    }
     match bytes[cursor - 1] {
         b':' | b'-' | b'?' => Some(marker_idx),
         _ => None,
