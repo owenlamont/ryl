@@ -57,10 +57,26 @@ pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
         }
     }
 
-    if tail > 0 && matches!(bytes[tail - 1], b'|' | b'>') {
-        Some(tail - 1)
-    } else {
-        None
+    if tail == 0 || !matches!(bytes[tail - 1], b'|' | b'>') {
+        return None;
+    }
+    let marker_idx = tail - 1;
+
+    let mut cursor = marker_idx;
+    let mut consumed_whitespace = false;
+    while cursor > 0 && matches!(bytes[cursor - 1], b' ' | b'\t') {
+        cursor -= 1;
+        consumed_whitespace = true;
+    }
+    if cursor == 0 {
+        return Some(marker_idx);
+    }
+    if !consumed_whitespace {
+        return None;
+    }
+    match bytes[cursor - 1] {
+        b':' | b'-' | b'?' => Some(marker_idx),
+        _ => None,
     }
 }
 
