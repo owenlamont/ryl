@@ -1,11 +1,14 @@
 //! `document-start` rule.
 //!
 //! Safety scope for `--fix`: only the `present: true` (default) case is
-//! rewritten, and only when the file does not begin with a `%YAML`/`%TAG`
-//! directive line (where marker placement depends on directive ordering that
-//! the rule does not record). The `present: false` case — removing existing
-//! `---` markers — is never auto-fixed because removal can collide with
-//! multi-document boundaries the rule does not track.
+//! rewritten, and only for single-document buffers that contain no
+//! `---`/`...` markers and do not begin with a `%YAML`/`%TAG` directive
+//! line. Multi-document streams are skipped because a later doc's missing
+//! `---` cannot be repaired by inserting at the start of the buffer
+//! (inserting there would create an extra empty leading document). The
+//! `present: false` case — removing existing `---` markers — is never
+//! auto-fixed because removal can collide with multi-document boundaries
+//! the rule does not track.
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
@@ -55,7 +58,10 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    if !cfg.requires_marker() || starts_with_directive(buffer) {
+    if !cfg.requires_marker()
+        || starts_with_directive(buffer)
+        || contains_document_markers(buffer)
+    {
         return None;
     }
     if check(buffer, cfg).is_empty() {
@@ -74,6 +80,18 @@ fn starts_with_directive(buffer: &str) -> bool {
         .lines()
         .next()
         .is_some_and(|line| line.trim_start().starts_with('%'))
+}
+
+fn contains_document_markers(buffer: &str) -> bool {
+    buffer.split_inclusive('\n').any(|line| {
+        let trimmed = line
+            .trim_end_matches(['\r', '\n'])
+            .trim_start_matches([' ', '\t']);
+        trimmed == "---"
+            || trimmed.starts_with("--- ")
+            || trimmed == "..."
+            || trimmed.starts_with("... ")
+    })
 }
 
 fn first_newline(buffer: &str) -> &'static str {

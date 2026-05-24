@@ -370,6 +370,73 @@ fn fix_inserts_document_start_marker_when_required() {
 }
 
 #[test]
+fn fix_skips_document_start_when_buffer_already_uses_document_markers() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "---\na: b\n...\nb: c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\na: b\n...\nb: c\n",
+        "must not prepend `---` when stream already contains document markers: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_document_start_skips_buffer_without_document_events() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "# just a comment\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "# just a comment\n",
+        "comment-only buffer with no document events must not get a `---` inserted: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_handles_quote_chars_at_line_start_and_in_plain_scalars() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "'quoted-key': value\nplain: a\"b\nother: c #comment\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "'quoted-key': value\nplain: a\"b\nother: c  # comment\n",
+        "quote at line start should toggle quote state cleanly; `\"` inside plain scalar must not toggle; comment fix must run for `other: c #comment`: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_skips_document_start_when_yaml_directive_present() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
@@ -539,6 +606,27 @@ fn fix_preserves_blank_lines_inside_multiline_double_quoted_scalar() {
     assert_eq!(
         fixed, "key: \"a\n\nb\"\n",
         "blank lines inside a multi-line double-quoted scalar must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_trims_blanks_after_plain_scalar_containing_apostrophe() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: it's\n\n\nkey2: b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: it's\nkey2: b\n",
+        "apostrophe inside a plain scalar must not block trimming of subsequent blank-line runs: {fixed:?}"
     );
 }
 

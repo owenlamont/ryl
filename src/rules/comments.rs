@@ -1,6 +1,7 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    BlockScalarTracker, leading_whitespace_width, split_lines_preserve_endings,
+    BlockScalarTracker, is_at_value_position, leading_whitespace_width,
+    split_lines_preserve_endings,
 };
 
 pub const ID: &str = "comments";
@@ -159,31 +160,48 @@ struct QuoteState {
 }
 
 fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
-    for (idx, ch) in line.char_indices() {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let (byte_idx, ch) = chars[i];
+
         if ch == '\\' && !state.in_single {
             state.escaped = !state.escaped;
+            i += 1;
             continue;
         }
 
         if state.escaped {
             state.escaped = false;
+            i += 1;
             continue;
         }
 
         match ch {
             '\'' if !state.in_double => {
-                state.in_single = !state.in_single;
+                if state.in_single {
+                    if chars.get(i + 1).map(|(_, c)| *c) == Some('\'') {
+                        i += 2;
+                        continue;
+                    }
+                    state.in_single = false;
+                } else if is_at_value_position(&chars, i) {
+                    state.in_single = true;
+                }
             }
             '"' if !state.in_single => {
-                state.in_double = !state.in_double;
+                if state.in_double || is_at_value_position(&chars, i) {
+                    state.in_double = !state.in_double;
+                }
             }
             '#' if !state.in_single && !state.in_double => {
-                if is_comment_position(line, idx) {
-                    return Some(idx);
+                if is_comment_position(line, byte_idx) {
+                    return Some(byte_idx);
                 }
             }
             _ => {}
         }
+        i += 1;
     }
 
     state.escaped = false;

@@ -456,6 +456,10 @@ fn arb_plain_identifier() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_]{0,6}".prop_map(|value| value)
 }
 
+fn arb_plain_value() -> impl Strategy<Value = String> {
+    "[a-z][a-z0-9_']{0,6}".prop_map(|value| value)
+}
+
 fn arb_single_quoted_payload() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
@@ -506,7 +510,7 @@ fn arb_double_quoted_payload() -> impl Strategy<Value = String> {
 
 fn arb_scalar() -> impl Strategy<Value = Scalar> {
     prop_oneof![
-        arb_plain_identifier().prop_map(Scalar::Plain),
+        arb_plain_value().prop_map(Scalar::Plain),
         arb_single_quoted_payload().prop_map(Scalar::SingleQuoted),
         arb_double_quoted_payload().prop_map(Scalar::DoubleQuoted),
     ]

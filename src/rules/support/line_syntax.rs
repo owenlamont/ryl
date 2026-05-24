@@ -136,9 +136,12 @@ impl MultilineQuoteTracker {
     }
 
     pub(crate) fn consume_line(&mut self, line: &str) {
-        let mut chars = line.char_indices().peekable();
+        let chars: Vec<(usize, char)> = line.char_indices().collect();
+        let mut i = 0;
         let mut escaped = false;
-        while let Some((_, ch)) = chars.next() {
+
+        while i < chars.len() {
+            let ch = chars[i].1;
             match self.state {
                 Some(QuoteKind::Double) => {
                     if escaped {
@@ -148,25 +151,54 @@ impl MultilineQuoteTracker {
                     } else if ch == '"' {
                         self.state = None;
                     }
+                    i += 1;
                 }
                 Some(QuoteKind::Single) => {
                     if ch == '\'' {
-                        if matches!(chars.peek(), Some(&(_, '\''))) {
-                            chars.next();
+                        if chars.get(i + 1).map(|(_, c)| *c) == Some('\'') {
+                            i += 2;
                         } else {
                             self.state = None;
+                            i += 1;
                         }
+                    } else {
+                        i += 1;
                     }
                 }
-                None => match ch {
-                    '#' => break,
-                    '\'' => self.state = Some(QuoteKind::Single),
-                    '"' => self.state = Some(QuoteKind::Double),
-                    _ => {}
-                },
+                None => {
+                    let prev_is_ws = i == 0 || matches!(chars[i - 1].1, ' ' | '\t');
+                    if ch == '#' && prev_is_ws {
+                        break;
+                    }
+                    if matches!(ch, '\'' | '"') && is_at_value_position(&chars, i) {
+                        self.state = Some(if ch == '\'' {
+                            QuoteKind::Single
+                        } else {
+                            QuoteKind::Double
+                        });
+                    }
+                    i += 1;
+                }
             }
         }
     }
+}
+
+pub(crate) fn is_at_value_position(chars: &[(usize, char)], idx: usize) -> bool {
+    let mut cursor = idx;
+    while cursor > 0 {
+        let prev = chars[cursor - 1].1;
+        if matches!(prev, ' ' | '\t') {
+            cursor -= 1;
+            continue;
+        }
+        return match prev {
+            ':' | '-' | '?' => cursor < idx,
+            '[' | '{' | ',' => true,
+            _ => false,
+        };
+    }
+    true
 }
 
 pub(crate) fn split_lines_preserve_endings(
