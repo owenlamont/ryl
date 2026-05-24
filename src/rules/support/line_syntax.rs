@@ -38,18 +38,27 @@ pub(crate) fn comment_start_preserving_quotes(content: &str) -> Option<usize> {
 
 pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
     let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    if trimmed.is_empty() {
-        return None;
+    let bytes = trimmed.as_bytes();
+
+    let mut tail = bytes.len();
+    let mut saw_digit = false;
+    let mut saw_chomp = false;
+    while tail > 0 {
+        match bytes[tail - 1] {
+            b'-' | b'+' if !saw_chomp => {
+                saw_chomp = true;
+                tail -= 1;
+            }
+            b'1'..=b'9' if !saw_digit => {
+                saw_digit = true;
+                tail -= 1;
+            }
+            _ => break,
+        }
     }
 
-    if trimmed.ends_with("|-")
-        || trimmed.ends_with("|+")
-        || trimmed.ends_with(">-")
-        || trimmed.ends_with(">+")
-    {
-        Some(trimmed.len().saturating_sub(2))
-    } else if trimmed.ends_with('|') || trimmed.ends_with('>') {
-        Some(trimmed.len().saturating_sub(1))
+    if tail > 0 && matches!(bytes[tail - 1], b'|' | b'>') {
+        Some(tail - 1)
     } else {
         None
     }
@@ -106,6 +115,56 @@ impl BlockScalarTracker {
                 indicator_indent: indent,
                 content_indent: None,
             });
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct MultilineQuoteTracker {
+    state: Option<QuoteKind>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum QuoteKind {
+    Single,
+    Double,
+}
+
+impl MultilineQuoteTracker {
+    pub(crate) fn line_starts_inside(&self) -> bool {
+        self.state.is_some()
+    }
+
+    pub(crate) fn consume_line(&mut self, line: &str) {
+        let mut chars = line.char_indices().peekable();
+        let mut escaped = false;
+        while let Some((_, ch)) = chars.next() {
+            match self.state {
+                Some(QuoteKind::Double) => {
+                    if escaped {
+                        escaped = false;
+                    } else if ch == '\\' {
+                        escaped = true;
+                    } else if ch == '"' {
+                        self.state = None;
+                    }
+                }
+                Some(QuoteKind::Single) => {
+                    if ch == '\'' {
+                        if matches!(chars.peek(), Some(&(_, '\''))) {
+                            chars.next();
+                        } else {
+                            self.state = None;
+                        }
+                    }
+                }
+                None => match ch {
+                    '#' => break,
+                    '\'' => self.state = Some(QuoteKind::Single),
+                    '"' => self.state = Some(QuoteKind::Double),
+                    _ => {}
+                },
+            }
         }
     }
 }

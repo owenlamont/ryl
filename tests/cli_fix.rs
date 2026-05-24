@@ -476,6 +476,115 @@ fn fix_appends_newline_when_buffer_lacks_final_newline() {
 }
 
 #[test]
+fn fix_preserves_block_scalar_body_when_marker_carries_indent_indicator() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "literal: |2\n   line with trailing   \n   line two\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "literal: |2\n   line with trailing   \n   line two\n",
+        "explicit-indent block-scalar bodies must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_block_scalar_body_with_chomp_and_indent_indicator() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "folded: >-2\n   first\n\n   second\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "folded: >-2\n   first\n\n   second\n",
+        "explicit-chomp-and-indent block-scalar bodies must keep their blank lines: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_blank_lines_inside_multiline_double_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: \"a\n\nb\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: \"a\n\nb\"\n",
+        "blank lines inside a multi-line double-quoted scalar must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_handles_doubled_quote_escape_in_multiline_single_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: 'a''b\n\nc'\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: 'a''b\n\nc'\n",
+        "doubled '' escape inside a multi-line single-quoted scalar must not exit quote tracking: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_blank_lines_inside_multiline_single_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: 'a\n\nb'\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: 'a\n\nb'\n",
+        "blank lines inside a multi-line single-quoted scalar must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_trims_consecutive_blank_lines_outside_block_scalars() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

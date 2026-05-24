@@ -179,6 +179,40 @@ enum Node {
     Scalar(Scalar),
     FlowSeq(Vec<Node>, FlowStyle),
     FlowMap(Vec<(Scalar, Node)>, FlowStyle),
+    BlockScalar(BlockScalarSpec),
+    MultilineQuoted(MultilineQuotedSpec),
+}
+
+#[derive(Debug, Clone)]
+struct BlockScalarSpec {
+    style: char,
+    chomp: Option<char>,
+    explicit_indent: Option<u8>,
+    body: Vec<BlockBodyLine>,
+}
+
+#[derive(Debug, Clone)]
+enum BlockBodyLine {
+    Content { text: String, trailing_ws: u8 },
+    Blank,
+}
+
+#[derive(Debug, Clone)]
+struct MultilineQuotedSpec {
+    style: MultilineQuoteStyle,
+    lines: Vec<MultilineLine>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MultilineQuoteStyle {
+    Single,
+    Double,
+}
+
+#[derive(Debug, Clone)]
+enum MultilineLine {
+    Content(String),
+    Blank,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -286,6 +320,88 @@ impl Node {
                 push_spaces(buffer, style.inner_padding);
                 buffer.push('}');
             }
+            Self::BlockScalar(_) | Self::MultilineQuoted(_) => {
+                unreachable!("multi-line nodes must be rendered via BlockEntry");
+            }
+        }
+    }
+}
+
+impl BlockScalarSpec {
+    fn render(&self, buffer: &mut String, line_term: &str) {
+        buffer.push(self.style);
+        if let Some(n) = self.explicit_indent {
+            buffer.push((b'0' + n) as char);
+        }
+        if let Some(c) = self.chomp {
+            buffer.push(c);
+        }
+        let indent = self.body_indent();
+        for line in &self.body {
+            buffer.push_str(line_term);
+            if let BlockBodyLine::Content { text, trailing_ws } = line {
+                for _ in 0..indent {
+                    buffer.push(' ');
+                }
+                buffer.push_str(text);
+                for _ in 0..*trailing_ws {
+                    buffer.push(' ');
+                }
+            }
+        }
+    }
+
+    fn body_indent(&self) -> usize {
+        self.explicit_indent.map_or(2, usize::from)
+    }
+}
+
+impl MultilineQuotedSpec {
+    fn render(&self, buffer: &mut String, line_term: &str) {
+        let quote = match self.style {
+            MultilineQuoteStyle::Single => '\'',
+            MultilineQuoteStyle::Double => '"',
+        };
+        buffer.push(quote);
+        for (index, line) in self.lines.iter().enumerate() {
+            if index > 0 {
+                buffer.push_str(line_term);
+            }
+            if let MultilineLine::Content(text) = line {
+                for ch in text.chars() {
+                    match (self.style, ch) {
+                        (MultilineQuoteStyle::Single, '\'') => buffer.push_str("''"),
+                        (MultilineQuoteStyle::Double, '"') => buffer.push_str("\\\""),
+                        (MultilineQuoteStyle::Double, '\\') => buffer.push_str("\\\\"),
+                        _ => buffer.push(ch),
+                    }
+                }
+            }
+        }
+        buffer.push(quote);
+    }
+}
+
+impl Document {
+    fn has_partial_safe_fix_residue(&self) -> bool {
+        self.entries
+            .iter()
+            .any(BlockEntry::has_partial_safe_fix_residue)
+    }
+}
+
+impl BlockEntry {
+    fn has_partial_safe_fix_residue(&self) -> bool {
+        match &self.value {
+            Node::BlockScalar(spec) => spec.body.iter().any(|line| match line {
+                BlockBodyLine::Content { trailing_ws, .. } => *trailing_ws > 0,
+                BlockBodyLine::Blank => true,
+            }),
+            Node::MultilineQuoted(spec) => spec
+                .lines
+                .iter()
+                .any(|line| matches!(line, MultilineLine::Blank)),
+            _ => false,
         }
     }
 }
@@ -301,19 +417,38 @@ impl Document {
             if index > 0 {
                 buffer.push_str(line_terminator);
             }
-            buffer.push_str(&entry.key);
-            buffer.push_str(": ");
-            entry.value.render(&mut buffer);
-            if let Some(comment) = &entry.trailing_inline_comment {
-                buffer.push_str("  #");
-                push_spaces(&mut buffer, comment.spaces_after_hash);
-                buffer.push_str(&comment.text);
-            }
+            entry.render(&mut buffer, line_terminator);
         }
         if self.has_final_newline {
             buffer.push_str(line_terminator);
         }
         buffer
+    }
+}
+
+impl BlockEntry {
+    fn render(&self, buffer: &mut String, line_term: &str) {
+        buffer.push_str(&self.key);
+        buffer.push_str(": ");
+        let allow_trailing_comment = match &self.value {
+            Node::Scalar(_) | Node::FlowSeq(_, _) | Node::FlowMap(_, _) => {
+                self.value.render(buffer);
+                true
+            }
+            Node::BlockScalar(spec) => {
+                spec.render(buffer, line_term);
+                false
+            }
+            Node::MultilineQuoted(spec) => {
+                spec.render(buffer, line_term);
+                false
+            }
+        };
+        if allow_trailing_comment && let Some(comment) = &self.trailing_inline_comment {
+            buffer.push_str("  #");
+            push_spaces(buffer, comment.spaces_after_hash);
+            buffer.push_str(&comment.text);
+        }
     }
 }
 
@@ -405,6 +540,64 @@ fn arb_node() -> impl Strategy<Value = Node> {
     })
 }
 
+fn arb_top_level_node() -> impl Strategy<Value = Node> {
+    prop_oneof![
+        10 => arb_node(),
+        3 => arb_block_scalar_spec().prop_map(Node::BlockScalar),
+        3 => arb_multiline_quoted_spec().prop_map(Node::MultilineQuoted),
+    ]
+}
+
+fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
+    (
+        prop_oneof![Just('|'), Just('>')],
+        prop::option::of(prop_oneof![Just('-'), Just('+')]),
+        prop::option::of(2u8..=4u8),
+        arb_block_body_content(),
+        prop::collection::vec(arb_block_body_line(), 0..=3),
+    )
+        .prop_map(|(style, chomp, explicit_indent, first, rest)| {
+            let mut body = vec![first];
+            body.extend(rest);
+            BlockScalarSpec {
+                style,
+                chomp,
+                explicit_indent,
+                body,
+            }
+        })
+}
+
+fn arb_block_body_content() -> impl Strategy<Value = BlockBodyLine> {
+    ("[a-z][a-z0-9]{0,6}", 0u8..=3)
+        .prop_map(|(text, trailing_ws)| BlockBodyLine::Content { text, trailing_ws })
+}
+
+fn arb_block_body_line() -> impl Strategy<Value = BlockBodyLine> {
+    prop_oneof![
+        3 => arb_block_body_content(),
+        1 => Just(BlockBodyLine::Blank),
+    ]
+}
+
+fn arb_multiline_quoted_spec() -> impl Strategy<Value = MultilineQuotedSpec> {
+    (
+        prop_oneof![
+            Just(MultilineQuoteStyle::Single),
+            Just(MultilineQuoteStyle::Double),
+        ],
+        prop::collection::vec(arb_multiline_line(), 1..=4),
+    )
+        .prop_map(|(style, lines)| MultilineQuotedSpec { style, lines })
+}
+
+fn arb_multiline_line() -> impl Strategy<Value = MultilineLine> {
+    prop_oneof![
+        3 => "[a-z][a-z0-9]{0,5}".prop_map(MultilineLine::Content),
+        1 => Just(MultilineLine::Blank),
+    ]
+}
+
 fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
     (0u8..=2, "[a-z][a-z0-9 ]{0,8}").prop_map(|(spaces_after_hash, text)| {
         InlineComment {
@@ -417,7 +610,7 @@ fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
     (
         arb_plain_identifier(),
-        arb_node(),
+        arb_top_level_node(),
         prop::option::of(arb_inline_comment()),
     )
         .prop_map(|(key, value, trailing_inline_comment)| BlockEntry {
@@ -472,6 +665,9 @@ proptest! {
 
     #[test]
     fn safe_fix_leaves_no_safe_fix_rule_diagnostics(document in arb_document()) {
+        if document.has_partial_safe_fix_residue() {
+            return Ok(());
+        }
         let input = document.render();
         for prepared in safe_fix_configs() {
             let cfg_name = prepared.name;

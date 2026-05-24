@@ -1,15 +1,17 @@
 //! `empty-lines` rule.
 //!
 //! Safety scope for `--fix`: blank-line runs inside literal (`|`) or folded
-//! (`>`) block scalars are left untouched because blank lines inside such
-//! scalars contribute to the parsed value. Runs outside block-scalar
-//! contexts (and the leading/trailing run governed by `max-start`/`max-end`)
-//! are trimmed to the configured maxima.
+//! (`>`) block scalars and inside multi-line single- or double-quoted scalars
+//! are left untouched because blank lines inside such scalars contribute to
+//! the parsed value. Runs outside those contexts (and the leading/trailing
+//! run governed by `max-start`/`max-end`) are trimmed to the configured
+//! maxima.
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    BlockScalarTracker, leading_whitespace_width, split_lines_preserve_endings,
+    BlockScalarTracker, MultilineQuoteTracker, leading_whitespace_width,
+    split_lines_preserve_endings,
 };
 
 pub const ID: &str = "empty-lines";
@@ -53,7 +55,8 @@ pub struct Violation {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let mut tracker = BlockScalarTracker::default();
+    let mut block_tracker = BlockScalarTracker::default();
+    let mut quote_tracker = MultilineQuoteTracker::default();
     let mut output = String::with_capacity(buffer.len());
     let mut blank_run: Vec<(&str, &str)> = Vec::new();
     let mut seen_nonblank = false;
@@ -62,9 +65,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     for (_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
         let indent = leading_whitespace_width(raw_line);
         let content = &raw_line[indent..];
-        let consumed = tracker.consume_line(indent, content);
+        let inside_scalar = block_tracker.consume_line(indent, content)
+            || quote_tracker.line_starts_inside();
+        quote_tracker.consume_line(raw_line);
 
-        if consumed {
+        if inside_scalar {
             flush_blank_run(
                 &mut output,
                 &mut blank_run,
@@ -88,7 +93,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
             output.push_str(raw_line);
             output.push_str(ending);
             seen_nonblank = true;
-            tracker.observe_indicator(indent, content);
+            block_tracker.observe_indicator(indent, content);
         }
     }
 
