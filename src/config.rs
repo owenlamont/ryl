@@ -266,9 +266,13 @@ pub enum FixRule {
     Commas,
     Comments,
     CommentsIndentation,
+    DocumentEnd,
+    DocumentStart,
+    EmptyLines,
     NewLineAtEndOfFile,
     NewLines,
     QuotedStrings,
+    TrailingSpaces,
 }
 
 impl FixRule {
@@ -279,9 +283,13 @@ impl FixRule {
             "commas" => Some(Self::Commas),
             "comments" => Some(Self::Comments),
             "comments-indentation" => Some(Self::CommentsIndentation),
+            "document-end" => Some(Self::DocumentEnd),
+            "document-start" => Some(Self::DocumentStart),
+            "empty-lines" => Some(Self::EmptyLines),
             "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
             "new-lines" => Some(Self::NewLines),
             "quoted-strings" => Some(Self::QuotedStrings),
+            "trailing-spaces" => Some(Self::TrailingSpaces),
             _ => None,
         }
     }
@@ -846,9 +854,21 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
         FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile) => {
             TomlFixableRuleSelector::NewLineAtEndOfFile
         }
+        FixRuleSelector::Rule(FixRule::DocumentEnd) => {
+            TomlFixableRuleSelector::DocumentEnd
+        }
+        FixRuleSelector::Rule(FixRule::DocumentStart) => {
+            TomlFixableRuleSelector::DocumentStart
+        }
+        FixRuleSelector::Rule(FixRule::EmptyLines) => {
+            TomlFixableRuleSelector::EmptyLines
+        }
         FixRuleSelector::Rule(FixRule::NewLines) => TomlFixableRuleSelector::NewLines,
         FixRuleSelector::Rule(FixRule::QuotedStrings) => {
             TomlFixableRuleSelector::QuotedStrings
+        }
+        FixRuleSelector::Rule(FixRule::TrailingSpaces) => {
+            TomlFixableRuleSelector::TrailingSpaces
         }
     }
 }
@@ -860,9 +880,13 @@ fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
         FixRule::Commas => TomlFixRuleName::Commas,
         FixRule::Comments => TomlFixRuleName::Comments,
         FixRule::CommentsIndentation => TomlFixRuleName::CommentsIndentation,
+        FixRule::DocumentEnd => TomlFixRuleName::DocumentEnd,
+        FixRule::DocumentStart => TomlFixRuleName::DocumentStart,
+        FixRule::EmptyLines => TomlFixRuleName::EmptyLines,
         FixRule::NewLineAtEndOfFile => TomlFixRuleName::NewLineAtEndOfFile,
         FixRule::NewLines => TomlFixRuleName::NewLines,
         FixRule::QuotedStrings => TomlFixRuleName::QuotedStrings,
+        FixRule::TrailingSpaces => TomlFixRuleName::TrailingSpaces,
     }
 }
 
@@ -897,9 +921,21 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
         TomlFixableRuleSelector::NewLineAtEndOfFile => {
             FixRuleSelector::Rule(FixRule::NewLineAtEndOfFile)
         }
+        TomlFixableRuleSelector::DocumentEnd => {
+            FixRuleSelector::Rule(FixRule::DocumentEnd)
+        }
+        TomlFixableRuleSelector::DocumentStart => {
+            FixRuleSelector::Rule(FixRule::DocumentStart)
+        }
+        TomlFixableRuleSelector::EmptyLines => {
+            FixRuleSelector::Rule(FixRule::EmptyLines)
+        }
         TomlFixableRuleSelector::NewLines => FixRuleSelector::Rule(FixRule::NewLines),
         TomlFixableRuleSelector::QuotedStrings => {
             FixRuleSelector::Rule(FixRule::QuotedStrings)
+        }
+        TomlFixableRuleSelector::TrailingSpaces => {
+            FixRuleSelector::Rule(FixRule::TrailingSpaces)
         }
     }
 }
@@ -911,9 +947,13 @@ fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
         TomlFixRuleName::Commas => FixRule::Commas,
         TomlFixRuleName::Comments => FixRule::Comments,
         TomlFixRuleName::CommentsIndentation => FixRule::CommentsIndentation,
+        TomlFixRuleName::DocumentEnd => FixRule::DocumentEnd,
+        TomlFixRuleName::DocumentStart => FixRule::DocumentStart,
+        TomlFixRuleName::EmptyLines => FixRule::EmptyLines,
         TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
         TomlFixRuleName::NewLines => FixRule::NewLines,
         TomlFixRuleName::QuotedStrings => FixRule::QuotedStrings,
+        TomlFixRuleName::TrailingSpaces => FixRule::TrailingSpaces,
     }
 }
 

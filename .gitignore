@@ -45,3 +45,6 @@ manual_outputs/benchmarks/
 
 # Zensical build output
 /site/
+
+# Claude Code runtime state (per-session lock files etc.)
+/.claude/

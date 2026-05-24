@@ -41,10 +41,35 @@ key: value···
 
 (Where `···` represents trailing whitespace characters.)
 
+### :wrench: After `ryl --fix`
+
+```yaml
+---
+key: value
+```
+
 ## Automatic fixing
 
-This rule does not auto-fix in ryl. Most editors and pre-commit hooks
-strip trailing whitespace; rely on those when available.
+`ryl --fix` strips trailing spaces and tabs from each line. The fix is
+**partial** by design: lines inside literal/folded block scalars
+(`|`/`>`) and inside multi-line double-quoted scalars are left untouched,
+because in those contexts trailing whitespace can be part of the parsed
+scalar value. The diagnostic still fires on those lines so the
+remaining trailing whitespace is visible after `--fix`; edit them by
+hand if you want them clean. Multi-line single-quoted and plain scalars
+fold trailing whitespace away at parse time, so the fix can safely
+strip those.
+
+The fix bails (leaves the file untouched) when the input cannot be
+parsed as YAML, so a broken document is never made worse.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["trailing-spaces"]
+```
 
 ## Related rules
 

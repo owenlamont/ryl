@@ -1,8 +1,17 @@
+//! `document-end` rule.
+//!
+//! Safety scope for `--fix`: only the `present: true` (default) case is
+//! rewritten, and only for single-document buffers. Multi-document inputs
+//! (those containing further `---`/`...` markers after the first line) are
+//! left alone because correct placement requires per-document end byte
+//! offsets the rule does not record. The `present: false` case — removing
+//! existing `...` markers — is never auto-fixed.
 use std::cmp;
 
 use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::buffer_newline;
 
 pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
@@ -64,6 +73,49 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut receiver = DocumentEndReceiver::new(buffer, cfg);
     let _ = parser.load(&mut receiver, true);
     receiver.violations
+}
+
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    if !cfg.requires_marker()
+        || has_inner_document_markers(buffer)
+        || check(buffer, cfg).is_empty()
+    {
+        return None;
+    }
+    let newline = buffer_newline(buffer);
+    let mut output = buffer.to_string();
+    if !output.ends_with('\n') {
+        output.push_str(newline);
+    }
+    output.push_str("...");
+    output.push_str(newline);
+    Some(output)
+}
+
+fn has_inner_document_markers(buffer: &str) -> bool {
+    let mut seen_real_content = false;
+    let mut start_markers = 0u32;
+    for line in buffer.split_inclusive('\n') {
+        let trimmed = line
+            .trim_end_matches(['\r', '\n'])
+            .trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('%') {
+            continue;
+        }
+        if trimmed == "..." || trimmed.starts_with("... ") {
+            return true;
+        }
+        if trimmed == "---" || trimmed.starts_with("--- ") {
+            start_markers += 1;
+            if start_markers > 1 || seen_real_content {
+                return true;
+            }
+        } else {
+            seen_real_content = true;
+        }
+    }
+    false
 }
 
 struct DocumentEndReceiver<'src, 'cfg> {

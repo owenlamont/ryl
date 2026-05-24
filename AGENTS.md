@@ -144,6 +144,49 @@ Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.tx
 and replayed first on every run. That file is committed to git so the regression
 follows the codebase, not the developer's machine.
 
+### Rules Without A Safe `--fix`
+
+These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the
+one-sentence reason `--fix` cannot rewrite the rule without risking changed
+parsed values or unintended user-visible behaviour. Revisit this list when
+considering a partial safe fix — if you can satisfy the property-test
+invariants for some subset, move the rule into `SAFE_FIX_RULES` and document
+the unsafe-trigger subset in that rule's module-level doc comment instead.
+
+- `anchors` — Fixing requires choosing which anchor an undeclared alias
+  should point at, which duplicate to keep, or whether an "unused" anchor is
+  actually referenced from a template the linter cannot see.
+- `colons` — Collapsing extra space around colons safely needs precise parser
+  context tracking (plain scalars, alias keys, explicit `?`/`:` mappings)
+  equivalent to re-implementing the YAML mapping scanner.
+- `empty-values` — The rule's intent is to force the user to choose between
+  `~`, `null`, or restructuring; auto-inserting a literal contradicts the
+  rule's purpose and would silently change downstream behaviour.
+- `float-values` — Rewrites such as `0.5 → .5`, `.5 → 0.5`, expanding
+  `1e3 → 1000`, or replacing `.nan`/`.inf` all change the scalar's string
+  representation and, in tagged or string-typed consumers, its semantic value.
+- `hyphens` — Collapsing trailing spaces after `-` in a block sequence
+  changes the indent of any nested block mapping/sequence that follows on
+  subsequent lines and so can change the parsed structure.
+- `indentation` — Re-indenting alters the block-structure boundaries the
+  YAML grammar uses to delimit mappings, sequences, and scalars; any
+  non-trivial fix risks changing the parsed value.
+- `key-duplicates` — Resolving a duplicate requires deciding which key (and
+  value) to keep; both choices alter the parsed mapping and need user intent.
+- `key-ordering` — Reordering a mapping silently disassociates any comment
+  the user placed above or beside a key from that key, losing information the
+  YAML grammar does not carry.
+- `line-length` — Splitting an over-long line requires line-folding decisions
+  that depend on whether the scalar is plain, quoted, or block-styled, and on
+  whether folding is semantically allowed; no single rewrite is universally
+  safe.
+- `octal-values` — Resolving `010` requires knowing whether the user meant
+  the integer `8`, the integer `10`, or the string `"010"`; the YAML source
+  alone cannot disambiguate.
+- `truthy` — Rewriting `Yes/No/On/Off` requires choosing between quoting them
+  (preserves the string), normalising to `true/false` (changes type), or
+  rewording — all of which depend on the user's intent.
+
 ## Coverage Workflow
 
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of

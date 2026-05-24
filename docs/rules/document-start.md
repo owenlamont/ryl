@@ -45,9 +45,39 @@ title: example
 title: example
 ```
 
+### :wrench: After `ryl --fix` (with `present: true`)
+
+```yaml
+---
+title: example
+```
+
 ## Automatic fixing
 
-This rule does not auto-fix; add or remove the marker manually.
+`ryl --fix` prepends a `---` start marker when `present: true` and the
+document does not already have one. The fix is **partial** by design:
+it only runs when
+
+- the buffer is a single document (no inner `---`/`...` markers anywhere
+  in the file),
+- the buffer does not begin (after leading comments and blank lines)
+  with a `%YAML`/`%TAG` directive, and
+- a leading UTF-8 BOM, if any, stays at byte 0 with the new `---`
+  inserted after it.
+
+Multi-document streams and files with directives are left for manual
+intervention, because the correct marker placement there depends on
+context the rule does not record. The `present: false` case (removing
+existing `---` markers) is never auto-fixed because removal can collide
+with multi-document boundaries.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["document-start"]
+```
 
 ## Related rules
 

@@ -313,3 +313,671 @@ fn fix_with_toml_allow_double_quotes_for_escaping_silences_quoted_strings_diagno
         "double-quoted escape sequence should be retained verbatim: {fixed:?}"
     );
 }
+
+#[test]
+fn fix_preserves_trailing_spaces_after_backslash_in_multiline_double_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: \"a\\  \n  b\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: \"a\\  \n  b\"\n",
+        "stripping spaces between `\\` and the newline inside a multi-line double-quoted scalar would turn the backslash into a line-continuation escape and change the parsed value: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_strips_trailing_spaces_but_preserves_block_scalar_content() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "key: value   \nblock: |\n  line with trailing   \n  line two\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: value\nblock: |\n  line with trailing   \n  line two\n",
+        "trailing space outside block scalar should be stripped, inside preserved: {fixed:?}"
+    );
+    assert_eq!(
+        code, 1,
+        "block-scalar trailing space should remain reported: stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("trailing-spaces"),
+        "block-scalar trailing space should still be flagged: {stderr}"
+    );
+}
+
+#[test]
+fn fix_inserts_document_start_marker_when_required() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\nkey: value\n",
+        "missing --- should be prepended: {fixed:?}"
+    );
+    assert_eq!(code, 0, "fix should succeed: stderr={stderr}");
+}
+
+#[test]
+fn fix_skips_document_start_when_buffer_already_uses_document_markers() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "---\na: b\n...\nb: c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\na: b\n...\nb: c\n",
+        "must not prepend `---` when stream already contains document markers: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_document_start_skips_buffer_without_document_events() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "# just a comment\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "# just a comment\n",
+        "comment-only buffer with no document events must not get a `---` inserted: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_preserves_top_level_tagged_inline_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "!!str \"a #b\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "!!str \"a #b\"\n",
+        "top-level tagged inline quoted scalar must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_preserves_tagged_inline_quoted_scalar_in_flow_contexts() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "seq: [!!str \"a #b\",!!str \"c #d\"]\nmap: {!!str \"e #f\": 1}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "seq: [!!str \"a #b\",!!str \"c #d\"]\nmap: {!!str \"e #f\": 1}\n",
+        "tagged inline quoted scalars inside flow seq/map (preceded by `[`, `,`, or `{{`) must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_preserves_tagged_inline_quoted_scalar_value() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: !!str \"a #b\"\nanc: &x \"c #d\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: !!str \"a #b\"\nanc: &x \"c #d\"\n",
+        "`#` inside an inline quoted scalar preceded by a tag/anchor must not be treated as a comment: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_preserves_quoted_value_after_flow_colon_without_space() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "flow: {\"a\":\"b #c\"}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "flow: {\"a\":\"b #c\"}\n",
+        "`#` inside a quoted value immediately after a flow-context `:` must not be treated as a comment: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_top_level_tagged_block_scalar_body() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "!!str |\n  body   #c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "!!str |\n  body   #c\n",
+        "top-level tagged block-scalar body must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_rejects_block_marker_without_space_between_colon_and_tag() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    // `:!!str |` is not a valid block-scalar header (`:` needs whitespace before
+    // the tag). The line is fed to `BlockScalarTracker::observe_indicator` while
+    // walking the file; the helper must reject it so the comment scanner can
+    // still see this line as ordinary content rather than a scalar header.
+    fs::write(&file, "key: a\n:!!str |\nkey2: b  #c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(
+        fixed.contains("# c"),
+        "comments rule must still fire after a `:!!str |` line: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_block_scalar_body_with_tag_and_anchor_headers() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "tagged: !!str |\n  body   #c\nanchored: &a >\n  more   #c\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "tagged: !!str |\n  body   #c\nanchored: &a >\n  more   #c\n",
+        "tagged/anchored block-scalar bodies must be recognised and left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_does_not_skip_continuation_when_plain_scalar_ends_with_marker_like_suffix() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "desc: version >2\n  body   #c\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "desc: version >2\n  body   # c\n",
+        "plain scalar ending with `>2`/`|2`/`|` must not be treated as a block-scalar header — continuation lines must still receive comments-rule fixes: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_empty_lines_does_not_collapse_whitespace_only_lines() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: a\n   \nkey2: b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n   \nkey2: b\n",
+        "empty-lines::fix must match check's definition (truly empty lines only); whitespace-only lines belong to trailing-spaces: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_empty_lines_preserves_blanks_inside_multiline_plain_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: a\n\n  b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n\n  b\n",
+        "blank lines inside a multi-line plain scalar are paragraph breaks and must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_empty_lines_preserves_blanks_inside_flow_quoted_value_without_space() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "flow: {\"a\":\"b\n\nc\"}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "flow: {\"a\":\"b\n\nc\"}\n",
+        "blank lines inside a quoted value immediately after a flow-context `:` must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_comments_handles_quote_chars_at_line_start_and_in_plain_scalars() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "'quoted-key': value\nplain: a\"b\nother: c #comment\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "'quoted-key': value\nplain: a\"b\nother: c  # comment\n",
+        "quote at line start should toggle quote state cleanly; `\"` inside plain scalar must not toggle; comment fix must run for `other: c #comment`: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_skips_document_start_when_yaml_directive_present() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "%YAML 1.1\nkey: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "%YAML 1.1\nkey: value\n",
+        "fix must not rewrite files with YAML directives: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_appends_document_end_marker_when_required() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "---\nkey: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\nkey: value\n...\n",
+        "missing ... should be appended: {fixed:?}"
+    );
+    assert_eq!(code, 0, "fix should succeed: stderr={stderr}");
+}
+
+#[test]
+fn fix_document_end_appends_marker_when_leading_comments_precede_start_marker() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "# c\n---\nkey: value\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "# c\n---\nkey: value\n...\n",
+        "leading comments/blanks before the only `---` must not be treated as a separate document — fix must still append `...`: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_skips_document_end_for_multi_document_streams() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: a\n---\nkey: b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n---\nkey: b\n",
+        "fix must leave multi-document streams untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_uses_crlf_when_buffer_uses_crlf_line_endings() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value\r\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\ndocument-end = 'enable'\nnew-lines = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "---\r\nkey: value\r\n...\r\n",
+        "marker insertions must use the buffer's line ending: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_appends_newline_when_buffer_lacks_final_newline() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: value").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: value\n...\n",
+        "fix must insert a newline before `...` when buffer lacks one: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_block_scalar_body_when_marker_carries_indent_indicator() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "literal: |2\n   line with trailing   \n   line two\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "literal: |2\n   line with trailing   \n   line two\n",
+        "explicit-indent block-scalar bodies must be left untouched: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_block_scalar_body_with_chomp_and_indent_indicator() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "folded: >-2\n   first\n\n   second\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "folded: >-2\n   first\n\n   second\n",
+        "explicit-chomp-and-indent block-scalar bodies must keep their blank lines: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_blank_lines_inside_multiline_double_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: \"a\n\nb\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: \"a\n\nb\"\n",
+        "blank lines inside a multi-line double-quoted scalar must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_trims_blanks_after_plain_scalar_containing_apostrophe() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: it's\n\n\nkey2: b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: it's\nkey2: b\n",
+        "apostrophe inside a plain scalar must not block trimming of subsequent blank-line runs: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_handles_doubled_quote_escape_in_multiline_single_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: 'a''b\n\nc'\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: 'a''b\n\nc'\n",
+        "doubled '' escape inside a multi-line single-quoted scalar must not exit quote tracking: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_preserves_blank_lines_inside_multiline_single_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: 'a\n\nb'\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: 'a\n\nb'\n",
+        "blank lines inside a multi-line single-quoted scalar must be preserved: {fixed:?}"
+    );
+}
+
+#[test]
+fn fix_trims_consecutive_blank_lines_outside_block_scalars() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "key: a\n\n\n\n\nblock: |\n  one\n\n\n  two\nlast: z\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nempty-lines = { max = 2, max-start = 0, max-end = 0 }\ndocument-start = 'disable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n\n\nblock: |\n  one\n\n\n  two\nlast: z\n",
+        "outside runs trimmed to max=2, inner block-scalar blanks preserved: {fixed:?}"
+    );
+}

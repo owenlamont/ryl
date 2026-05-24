@@ -150,12 +150,20 @@ pub enum FixableRuleSelector {
     Comments,
     #[serde(rename = "comments-indentation")]
     CommentsIndentation,
+    #[serde(rename = "document-end")]
+    DocumentEnd,
+    #[serde(rename = "document-start")]
+    DocumentStart,
+    #[serde(rename = "empty-lines")]
+    EmptyLines,
     #[serde(rename = "new-line-at-end-of-file")]
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "trailing-spaces")]
+    TrailingSpaces,
 }
 
 /// A fixable rule name accepted by `fix.unfixable`.
@@ -171,12 +179,20 @@ pub enum FixRuleName {
     Comments,
     #[serde(rename = "comments-indentation")]
     CommentsIndentation,
+    #[serde(rename = "document-end")]
+    DocumentEnd,
+    #[serde(rename = "document-start")]
+    DocumentStart,
+    #[serde(rename = "empty-lines")]
+    EmptyLines,
     #[serde(rename = "new-line-at-end-of-file")]
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "trailing-spaces")]
+    TrailingSpaces,
 }
 
 /// A built-in lint rule name.
