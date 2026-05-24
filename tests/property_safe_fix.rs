@@ -181,6 +181,13 @@ enum Node {
     FlowMap(Vec<(Scalar, Node)>, FlowStyle),
     BlockScalar(BlockScalarSpec),
     MultilineQuoted(MultilineQuotedSpec),
+    MultilinePlain(MultilinePlainSpec),
+}
+
+#[derive(Debug, Clone)]
+struct MultilinePlainSpec {
+    first: String,
+    continuations: Vec<MultilineLine>,
 }
 
 #[derive(Debug, Clone)]
@@ -328,7 +335,9 @@ impl Node {
                 push_spaces(buffer, style.inner_padding);
                 buffer.push('}');
             }
-            Self::BlockScalar(_) | Self::MultilineQuoted(_) => {
+            Self::BlockScalar(_)
+            | Self::MultilineQuoted(_)
+            | Self::MultilinePlain(_) => {
                 unreachable!("multi-line nodes must be rendered via BlockEntry");
             }
         }
@@ -390,6 +399,19 @@ impl MultilineQuotedSpec {
     }
 }
 
+impl MultilinePlainSpec {
+    fn render(&self, buffer: &mut String, line_term: &str) {
+        buffer.push_str(&self.first);
+        for line in &self.continuations {
+            buffer.push_str(line_term);
+            if let MultilineLine::Content(text) = line {
+                buffer.push_str("  ");
+                buffer.push_str(text);
+            }
+        }
+    }
+}
+
 impl Document {
     fn has_partial_safe_fix_residue(&self) -> bool {
         self.entries
@@ -407,6 +429,10 @@ impl BlockEntry {
             }),
             Node::MultilineQuoted(spec) => spec
                 .lines
+                .iter()
+                .any(|line| matches!(line, MultilineLine::Blank)),
+            Node::MultilinePlain(spec) => spec
+                .continuations
                 .iter()
                 .any(|line| matches!(line, MultilineLine::Blank)),
             _ => false,
@@ -448,6 +474,10 @@ impl BlockEntry {
                 false
             }
             Node::MultilineQuoted(spec) => {
+                spec.render(buffer, line_term);
+                false
+            }
+            Node::MultilinePlain(spec) => {
                 spec.render(buffer, line_term);
                 false
             }
@@ -565,7 +595,19 @@ fn arb_top_level_node() -> impl Strategy<Value = Node> {
         10 => arb_node(),
         3 => arb_block_scalar_spec().prop_map(Node::BlockScalar),
         3 => arb_multiline_quoted_spec().prop_map(Node::MultilineQuoted),
+        3 => arb_multiline_plain_spec().prop_map(Node::MultilinePlain),
     ]
+}
+
+fn arb_multiline_plain_spec() -> impl Strategy<Value = MultilinePlainSpec> {
+    (
+        "[a-z][a-z0-9]{0,5}",
+        prop::collection::vec(arb_multiline_line(), 1..=3),
+    )
+        .prop_map(|(first, continuations)| MultilinePlainSpec {
+            first,
+            continuations,
+        })
 }
 
 fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {

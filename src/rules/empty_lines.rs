@@ -1,18 +1,20 @@
 //! `empty-lines` rule.
 //!
-//! Safety scope for `--fix`: blank-line runs inside literal (`|`) or folded
-//! (`>`) block scalars and inside multi-line single- or double-quoted scalars
-//! are left untouched because blank lines inside such scalars contribute to
-//! the parsed value. Runs outside those contexts (and the leading/trailing
-//! run governed by `max-start`/`max-end`) are trimmed to the configured
-//! maxima.
+//! Safety scope for `--fix`: blank-line runs that fall inside any multi-line
+//! scalar (literal/folded block scalar, multi-line single- or double-quoted
+//! scalar, or multi-line plain scalar) are left untouched because blank
+//! lines inside such scalars contribute to the parsed value. The protected
+//! line set is computed via `saphyr_parser`, so the rule bails (returns
+//! `None`) when the buffer cannot be parsed. Runs outside those contexts
+//! (and the leading/trailing run governed by `max-start`/`max-end`) are
+//! trimmed to the configured maxima.
+use std::collections::HashSet;
 use std::convert::TryFrom;
 
+use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{
-    BlockScalarTracker, MultilineQuoteTracker, leading_whitespace_width,
-    split_lines_preserve_endings,
-};
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
 pub const ID: &str = "empty-lines";
 
@@ -55,33 +57,17 @@ pub struct Violation {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let mut block_tracker = BlockScalarTracker::default();
-    let mut quote_tracker = MultilineQuoteTracker::default();
+    let protected = protected_scalar_lines(buffer)?;
     let mut output = String::with_capacity(buffer.len());
     let mut blank_run: Vec<(&str, &str)> = Vec::new();
     let mut seen_nonblank = false;
     let mut changed = false;
 
-    for (_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
-        let indent = leading_whitespace_width(raw_line);
-        let content = &raw_line[indent..];
-        let inside_scalar = block_tracker.consume_line(indent, content)
-            || quote_tracker.line_starts_inside();
-        quote_tracker.consume_line(raw_line);
+    for (idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
+        let line_no = idx + 1;
+        let is_blank = raw_line.chars().all(char::is_whitespace);
 
-        if inside_scalar {
-            flush_blank_run(
-                &mut output,
-                &mut blank_run,
-                middle_max(seen_nonblank, cfg),
-                &mut changed,
-            );
-            output.push_str(raw_line);
-            output.push_str(ending);
-            continue;
-        }
-
-        if content.trim().is_empty() {
+        if is_blank && !protected.contains(&line_no) {
             blank_run.push((raw_line, ending));
         } else {
             flush_blank_run(
@@ -92,14 +78,40 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
             );
             output.push_str(raw_line);
             output.push_str(ending);
-            seen_nonblank = true;
-            block_tracker.observe_indicator(indent, content);
+            if !is_blank {
+                seen_nonblank = true;
+            }
         }
     }
 
     flush_blank_run(&mut output, &mut blank_run, cfg.max_end(), &mut changed);
 
     changed.then_some(output)
+}
+
+fn protected_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
+    let mut parser = Parser::new_from_str(buffer);
+    let mut collector = ProtectedLineCollector {
+        protected: HashSet::new(),
+    };
+    parser.load(&mut collector, true).ok()?;
+    Some(collector.protected)
+}
+
+struct ProtectedLineCollector {
+    protected: HashSet<usize>,
+}
+
+impl SpannedEventReceiver<'_> for ProtectedLineCollector {
+    fn on_event(&mut self, event: Event<'_>, span: Span) {
+        if matches!(event, Event::Scalar(..)) {
+            let start = span.start.line();
+            let end = span.end.line();
+            for line in start..=end {
+                self.protected.insert(line);
+            }
+        }
+    }
 }
 
 fn middle_max(seen_nonblank: bool, cfg: &Config) -> i64 {
