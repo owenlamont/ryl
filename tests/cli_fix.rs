@@ -546,6 +546,27 @@ fn fix_does_not_skip_continuation_when_plain_scalar_ends_with_marker_like_suffix
 }
 
 #[test]
+fn fix_empty_lines_does_not_collapse_whitespace_only_lines() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "key: a\n   \nkey2: b\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let _ = run(Command::new(exe).arg("--fix").arg(&file));
+
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "key: a\n   \nkey2: b\n",
+        "empty-lines::fix must match check's definition (truly empty lines only); whitespace-only lines belong to trailing-spaces: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_empty_lines_preserves_blanks_inside_multiline_plain_scalar() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

@@ -65,7 +65,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 
     for (idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
         let line_no = idx + 1;
-        let is_blank = raw_line.chars().all(char::is_whitespace);
+        let is_blank = raw_line.is_empty();
 
         if is_blank && !protected.contains(&line_no) {
             blank_run.push((raw_line, ending));
