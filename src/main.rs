@@ -456,13 +456,7 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let mut buf = Vec::new();
-    std::io::stdin()
-        .read_to_end(&mut buf)
-        .expect("stdin should be readable");
-    let outcome = decoder::decode_bytes(&buf)
-        .map(|content| lint_str(&content, &path, &cfg, &base_dir))
-        .map_err(|err| format!("failed to read {}: {err}", path.display()));
+    let outcome = read_and_lint_stdin(&path, &base_dir, &cfg);
 
     let files = vec![(path, base_dir, cfg)];
     let results = vec![(0usize, outcome)];
@@ -475,6 +469,20 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
         cli.lint.compatibility.no_warnings,
     );
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
+}
+
+fn read_and_lint_stdin(
+    path: &Path,
+    base_dir: &Path,
+    cfg: &YamlLintConfig,
+) -> Result<Vec<LintProblem>, String> {
+    let mut buf = Vec::new();
+    std::io::stdin()
+        .read_to_end(&mut buf)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    let content = decoder::decode_bytes(&buf)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    Ok(lint_str(&content, path, cfg, base_dir))
 }
 
 fn resolve_stdin_ctx(

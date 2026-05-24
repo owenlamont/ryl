@@ -335,6 +335,29 @@ fn stdin_invalid_utf8_reports_decode_error() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn stdin_read_error_reports_lint_failure() {
+    let dir = tempdir().unwrap();
+    let dir_fd = std::fs::File::open(dir.path()).expect("open directory fd");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let out = Command::new(exe)
+        .arg("-")
+        .stdin(Stdio::from(dir_fd))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn ryl");
+    let code = out.status.code().unwrap_or(-1);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(code, 1, "expected lint failure: {stderr}");
+    assert!(
+        stderr.contains("failed to read <stdin>"),
+        "expected stdin read error: {stderr}"
+    );
+}
+
 #[test]
 fn stdin_filename_decode_error_uses_filename_in_message() {
     let exe = env!("CARGO_BIN_EXE_ryl");
