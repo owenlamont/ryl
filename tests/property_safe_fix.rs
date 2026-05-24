@@ -879,3 +879,15 @@ fn best_practice_preserves_trailing_comment_when_unquoting() {
         "trailing comment must survive quote removal (issue #206): {fixed:?}"
     );
 }
+
+#[test]
+fn document_start_fix_keeps_utf8_bom_at_stream_start() {
+    let input = "\u{feff}key: value\n";
+    let cfg = YamlLintConfig::from_yaml_str("rules:\n  document-start: enable\n")
+        .expect("config parses");
+    let fixed = apply_safe_fixes(input, &cfg, synthetic_path(), synthetic_base_dir());
+    assert_eq!(
+        fixed, "\u{feff}---\nkey: value\n",
+        "BOM must stay at byte 0 when --- is prepended: {fixed:?}"
+    );
+}

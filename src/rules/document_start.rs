@@ -58,20 +58,24 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    let (bom, rest) = buffer
+        .strip_prefix('\u{feff}')
+        .map_or(("", buffer), |rest| ("\u{feff}", rest));
     if !cfg.requires_marker()
-        || starts_with_directive(buffer)
-        || contains_document_markers(buffer)
+        || starts_with_directive(rest)
+        || contains_document_markers(rest)
     {
         return None;
     }
     if check(buffer, cfg).is_empty() {
         return None;
     }
-    let newline = first_newline(buffer);
+    let newline = first_newline(rest);
     let mut output = String::with_capacity(buffer.len() + 4);
+    output.push_str(bom);
     output.push_str("---");
     output.push_str(newline);
-    output.push_str(buffer);
+    output.push_str(rest);
     Some(output)
 }
 
