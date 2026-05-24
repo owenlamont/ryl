@@ -48,9 +48,38 @@ this: is the only document
 this: is the only document
 ```
 
+### :wrench: After `ryl --fix` (with `present: true`)
+
+```yaml
+---
+this: is the only document
+...
+```
+
 ## Automatic fixing
 
-This rule does not auto-fix; add or remove the marker manually.
+`ryl --fix` appends a `...` end marker when `present: true` and the
+document does not already have one. The fix is **partial** by design:
+it only runs when the buffer is a single document. A buffer is treated
+as single-document when, after skipping leading blank lines, comments,
+and `%`-directive lines:
+
+- it contains at most one `---` marker, and that marker is not preceded
+  by real (non-comment, non-directive) content, and
+- it contains no `...` marker anywhere.
+
+Multi-document streams are left for manual intervention because each
+document needs its own `...` placed at the correct byte offset, and the
+rule does not record per-document end positions. The `present: false`
+case (removing existing `...` markers) is never auto-fixed.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["document-end"]
+```
 
 ## Related rules
 

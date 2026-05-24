@@ -53,9 +53,35 @@ a: 1
 b: 2
 ```
 
+### :wrench: After `ryl --fix` (defaults)
+
+```yaml
+---
+a: 1
+
+
+b: 2
+```
+
 ## Automatic fixing
 
-This rule does not auto-fix; collapse extra empty lines manually.
+`ryl --fix` trims runs of empty lines down to `max` (or `max-start`
+and `max-end` for the leading and trailing run). The fix is **partial**
+by design: blank lines that fall inside any multi-line scalar — literal
+or folded block scalars (`|`/`>`), multi-line single- or double-quoted
+scalars, or multi-line plain scalars — are left untouched, because
+those blank lines contribute to the parsed value.
+
+The protected line set is computed via the YAML parser, so the fix
+bails (leaves the file untouched) when the input cannot be parsed.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["empty-lines"]
+```
 
 ## Related rules
 

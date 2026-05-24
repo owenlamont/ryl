@@ -32,21 +32,21 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`brackets`](rules/brackets.md) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
 | [`colons`](rules/colons.md) | Spaces around mapping colons. |  |
 | [`commas`](rules/commas.md) | Spaces around flow collection commas. | :wrench: |
-| [`empty-lines`](rules/empty-lines.md) | Number of consecutive empty lines. |  |
+| [`empty-lines`](rules/empty-lines.md) | Number of consecutive empty lines. | :wrench: |
 | [`hyphens`](rules/hyphens.md) | Spaces after sequence hyphens. |  |
 | [`indentation`](rules/indentation.md) | Block indentation, sequence indentation, multi-line strings. |  |
 | [`line-length`](rules/line-length.md) | Maximum line length. |  |
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A single trailing newline at end of file. | :wrench: |
 | [`new-lines`](rules/new-lines.md) | Consistent line endings (LF vs CRLF). | :wrench: |
-| [`trailing-spaces`](rules/trailing-spaces.md) | Trailing whitespace at end of lines. |  |
+| [`trailing-spaces`](rules/trailing-spaces.md) | Trailing whitespace at end of lines. | :wrench: |
 
 ## Document structure
 
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
 | [`anchors`](rules/anchors.md) | Anchor and alias declarations and usage. |  |
-| [`document-end`](rules/document-end.md) | Document end marker `...`. |  |
-| [`document-start`](rules/document-start.md) | Document start marker `---`. |  |
+| [`document-end`](rules/document-end.md) | Document end marker `...`. | :wrench: |
+| [`document-start`](rules/document-start.md) | Document start marker `---`. | :wrench: |
 | [`empty-values`](rules/empty-values.md) | Empty values in mappings and sequences. |  |
 | [`key-duplicates`](rules/key-duplicates.md) | Duplicate keys in mappings. |  |
 | [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. |  |
