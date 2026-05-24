@@ -76,10 +76,16 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 fn starts_with_directive(buffer: &str) -> bool {
-    buffer
-        .lines()
-        .next()
-        .is_some_and(|line| line.trim_start().starts_with('%'))
+    for line in buffer.split_inclusive('\n') {
+        let trimmed = line
+            .trim_end_matches(['\r', '\n'])
+            .trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        return trimmed.starts_with('%');
+    }
+    false
 }
 
 fn contains_document_markers(buffer: &str) -> bool {
