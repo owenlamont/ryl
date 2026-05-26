@@ -254,3 +254,31 @@ fn fix_returns_none_for_empty_input() {
     let fixed = comments::fix("", &resolved);
     assert_eq!(fixed, None);
 }
+
+#[test]
+fn checks_comments_after_undeclared_anchor_alias() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let hits = comments::check("a: *missing\nb: 1 #bad\n", &resolved);
+    assert_eq!(
+        hits,
+        vec![
+            Violation {
+                line: 2,
+                column: 6,
+                message: "too few spaces before comment: expected 2".to_string(),
+            },
+            Violation {
+                line: 2,
+                column: 7,
+                message: "missing starting space in comment".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn fix_inserts_spaces_for_comment_after_undeclared_anchor_alias() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let fixed = comments::fix("a: *missing\nb: 1 #bad\n", &resolved);
+    assert_eq!(fixed, Some("a: *missing\nb: 1  # bad\n".to_string()));
+}
