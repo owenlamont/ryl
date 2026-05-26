@@ -9,7 +9,7 @@
 //! `present: false` case — removing existing `---` markers — is never
 //! auto-fixed because removal can collide with multi-document boundaries
 //! the rule does not track.
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::buffer_newline;

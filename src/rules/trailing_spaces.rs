@@ -9,9 +9,9 @@
 //! that drops the implicit folded space). Trailing whitespace inside
 //! multi-line single-quoted and multi-line plain scalars folds away at
 //! parse time, so those lines remain fixable. The protected line set is
-//! computed via `saphyr_parser`, so the rule bails (returns `None`) when
+//! computed via `granit_parser`, so the rule bails (returns `None`) when
 //! the buffer cannot be parsed.
-use saphyr_parser::ScalarStyle;
+use granit_parser::ScalarStyle;
 
 use crate::rules::support::line_syntax::{
     protected_scalar_lines, split_lines_preserve_endings,

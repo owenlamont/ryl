@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{

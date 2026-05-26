@@ -44,8 +44,8 @@ pub struct LintProblem {
 }
 
 struct NullSink;
-impl<'i> saphyr_parser::EventReceiver<'i> for NullSink {
-    fn on_event(&mut self, _ev: saphyr_parser::Event<'i>) {}
+impl<'i> granit_parser::EventReceiver<'i> for NullSink {
+    fn on_event(&mut self, _ev: granit_parser::Event<'i>) {}
 }
 
 /// Lint a single YAML file and return diagnostics in yamllint format order.
@@ -550,7 +550,7 @@ fn collect_line_length_diagnostics(
 }
 
 fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
-    let mut parser = saphyr_parser::Parser::new_from_str(content);
+    let mut parser = granit_parser::Parser::new_from_str(content);
     let mut sink = NullSink;
     match parser.load(&mut sink, true) {
         Ok(()) => None,

@@ -1,8 +1,6 @@
+use granit_parser::{Event, Parser, Placement, Span};
+
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{
-    BlockScalarTracker, is_at_value_position, leading_whitespace_width,
-    split_lines_preserve_endings,
-};
 
 pub const ID: &str = "comments";
 
@@ -54,237 +52,176 @@ pub struct Violation {
     pub message: String,
 }
 
+/// Run the comments rule against `buffer`.
+///
+/// # Panics
+///
+/// Panics if granit's parser fails to populate byte offsets on comment
+/// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut violations = Vec::new();
-    let mut quote_state = QuoteState::default();
-    let mut block_tracker = BlockScalarTracker::default();
-
-    for (line_idx, line) in buffer.lines().enumerate() {
-        let indent = leading_whitespace_width(line);
-        let content = &line[indent..];
-
-        if block_tracker.consume_line(indent, content) {
-            continue;
-        }
-
-        let Some(comment_start) = find_comment_start(line, &mut quote_state) else {
-            block_tracker.observe_indicator(indent, content);
-            continue;
-        };
+    for comment in collect_comments(buffer) {
+        let line = comment.span.start.line();
+        let hash_column = comment.span.start.col() + 1;
+        let is_inline = comment.placement == Placement::Right;
 
         if let Some(required) = cfg.min_spaces_from_content()
-            && is_inline_comment(line, comment_start)
-            && inline_spacing_width(line, comment_start) < required
+            && is_inline
         {
-            violations.push(Violation {
-                line: line_idx + 1,
-                column: column_at(line, comment_start),
-                message: format!("too few spaces before comment: expected {required}"),
-            });
+            let byte_start =
+                comment.span.start.byte_offset().expect(
+                    "granit Parser::new_from_str always populates byte offsets",
+                );
+            let line_start = line_start_byte(buffer, byte_start);
+            let spacing = buffer[line_start..byte_start]
+                .chars()
+                .rev()
+                .take_while(|ch| matches!(ch, ' ' | '\t'))
+                .count();
+            if spacing < required {
+                violations.push(Violation {
+                    line,
+                    column: hash_column,
+                    message: format!(
+                        "too few spaces before comment: expected {required}"
+                    ),
+                });
+            }
         }
 
         if !cfg.require_starting_space() {
             continue;
         }
 
-        let after_hash_idx = comment_start + skip_hashes(&line[comment_start..]);
-        if after_hash_idx >= line.len() {
+        let extra_hashes_count = comment.text.chars().take_while(|c| *c == '#').count();
+        let after_hashes = comment.text.trim_start_matches('#');
+        let Some(next_char) = after_hashes.chars().next() else {
             continue;
-        }
+        };
 
-        let next_char = line[after_hash_idx..].chars().next().unwrap_or(' ');
-
-        if cfg.ignore_shebangs()
-            && line_idx == 0
-            && comment_start == 0
-            && next_char == '!'
-        {
+        if cfg.ignore_shebangs() && line == 1 && hash_column == 1 && next_char == '!' {
             continue;
         }
 
         if next_char != ' ' {
             violations.push(Violation {
-                line: line_idx + 1,
-                column: column_at(line, after_hash_idx),
+                line,
+                column: hash_column + 1 + extra_hashes_count,
                 message: "missing starting space in comment".to_string(),
             });
         }
-
-        block_tracker.observe_indicator(indent, content);
     }
 
     violations
 }
 
+/// Apply the comments rule's auto-fix to `buffer`.
+///
+/// # Panics
+///
+/// Panics if granit's parser fails to populate byte offsets on comment
+/// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let mut quote_state = QuoteState::default();
-    let mut block_tracker = BlockScalarTracker::default();
-    let mut output = String::with_capacity(buffer.len());
-    let mut changed = false;
+    let mut edits: Vec<(usize, String)> = Vec::new();
 
-    for (line_idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
-        let indent = leading_whitespace_width(raw_line);
-        let content = &raw_line[indent..];
+    for comment in collect_comments(buffer) {
+        let byte_start = comment
+            .span
+            .start
+            .byte_offset()
+            .expect("granit Parser::new_from_str always populates byte offsets");
+        let line = comment.span.start.line();
+        let hash_column = comment.span.start.col() + 1;
+        let is_inline = comment.placement == Placement::Right;
 
-        let consumed = block_tracker.consume_line(indent, content);
-        let updated_line = if consumed {
-            raw_line.to_string()
-        } else if let Some(comment_start) =
-            find_comment_start(raw_line, &mut quote_state)
+        if let Some(required) = cfg.min_spaces_from_content()
+            && is_inline
         {
-            fix_comment_line(raw_line, line_idx, comment_start, cfg, &mut changed)
-        } else {
-            raw_line.to_string()
+            let line_start = line_start_byte(buffer, byte_start);
+            let spacing = buffer[line_start..byte_start]
+                .chars()
+                .rev()
+                .take_while(|ch| matches!(ch, ' ' | '\t'))
+                .count();
+            if spacing < required {
+                edits.push((byte_start, " ".repeat(required - spacing)));
+            }
+        }
+
+        if !cfg.require_starting_space() {
+            continue;
+        }
+
+        let extra_hash_bytes: usize = comment
+            .text
+            .chars()
+            .take_while(|c| *c == '#')
+            .map(char::len_utf8)
+            .sum();
+        let after_hashes = &comment.text[extra_hash_bytes..];
+        let Some(next_char) = after_hashes.chars().next() else {
+            continue;
         };
 
-        if !consumed {
-            let indent = leading_whitespace_width(&updated_line);
-            let content = &updated_line[indent..];
-            block_tracker.observe_indicator(indent, content);
-        }
-
-        output.push_str(&updated_line);
-        output.push_str(ending);
-    }
-
-    changed.then_some(output)
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct QuoteState {
-    in_single: bool,
-    in_double: bool,
-    escaped: bool,
-    flow_depth: u32,
-}
-
-fn find_comment_start(line: &str, state: &mut QuoteState) -> Option<usize> {
-    let chars: Vec<(usize, char)> = line.char_indices().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        let (byte_idx, ch) = chars[i];
-
-        if ch == '\\' && !state.in_single {
-            state.escaped = !state.escaped;
-            i += 1;
+        if cfg.ignore_shebangs() && line == 1 && hash_column == 1 && next_char == '!' {
             continue;
         }
 
-        if state.escaped {
-            state.escaped = false;
-            i += 1;
-            continue;
-        }
-
-        match ch {
-            '\'' if !state.in_double => {
-                if state.in_single {
-                    if chars.get(i + 1).map(|(_, c)| *c) == Some('\'') {
-                        i += 2;
-                        continue;
-                    }
-                    state.in_single = false;
-                } else if is_at_value_position(&chars, i, state.flow_depth) {
-                    state.in_single = true;
-                }
-            }
-            '"' if !state.in_single => {
-                if state.in_double || is_at_value_position(&chars, i, state.flow_depth)
-                {
-                    state.in_double = !state.in_double;
-                }
-            }
-            '[' | '{' if !state.in_single && !state.in_double => {
-                state.flow_depth = state.flow_depth.saturating_add(1);
-            }
-            ']' | '}' if !state.in_single && !state.in_double => {
-                state.flow_depth = state.flow_depth.saturating_sub(1);
-            }
-            '#' if !state.in_single && !state.in_double => {
-                if is_comment_position(line, byte_idx) {
-                    return Some(byte_idx);
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-
-    state.escaped = false;
-    None
-}
-
-fn is_inline_comment(line: &str, comment_start: usize) -> bool {
-    !line[..comment_start].trim().is_empty()
-}
-
-fn inline_spacing_width(line: &str, comment_start: usize) -> usize {
-    line[..comment_start]
-        .chars()
-        .rev()
-        .take_while(|ch| ch.is_whitespace())
-        .count()
-}
-
-fn skip_hashes(slice: &str) -> usize {
-    slice
-        .chars()
-        .take_while(|ch| *ch == '#')
-        .map(char::len_utf8)
-        .sum()
-}
-
-fn column_at(line: &str, byte_idx: usize) -> usize {
-    line[..byte_idx].chars().count() + 1
-}
-
-fn is_comment_position(line: &str, idx: usize) -> bool {
-    line[..idx].chars().last().is_none_or(char::is_whitespace)
-}
-
-fn fix_comment_line(
-    line: &str,
-    line_idx: usize,
-    comment_start: usize,
-    cfg: &Config,
-    changed: &mut bool,
-) -> String {
-    let mut line = line.to_string();
-    let mut inserted_before_comment = 0usize;
-
-    if let Some(required) = cfg.min_spaces_from_content()
-        && is_inline_comment(&line, comment_start)
-    {
-        let spacing = inline_spacing_width(&line, comment_start);
-        if spacing < required {
-            inserted_before_comment = required - spacing;
-            line.insert_str(comment_start, &" ".repeat(inserted_before_comment));
-            *changed = true;
+        if next_char != ' ' {
+            edits.push((
+                byte_start + '#'.len_utf8() + extra_hash_bytes,
+                " ".to_string(),
+            ));
         }
     }
 
-    if !cfg.require_starting_space() {
-        return line;
+    if edits.is_empty() {
+        return None;
     }
 
-    let comment_start = comment_start + inserted_before_comment;
-    let after_hash_idx = comment_start + skip_hashes(&line[comment_start..]);
-    if after_hash_idx >= line.len() {
-        return line;
+    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut output = buffer.to_string();
+    for (offset, text) in edits {
+        output.insert_str(offset, &text);
     }
+    Some(output)
+}
 
-    let next_char = line[after_hash_idx..].chars().next().unwrap_or(' ');
-    if cfg.ignore_shebangs() && line_idx == 0 && comment_start == 0 && next_char == '!'
-    {
-        return line;
+struct CommentInfo {
+    span: Span,
+    text: String,
+    placement: Placement,
+}
+
+fn collect_comments(buffer: &str) -> Vec<CommentInfo> {
+    let mut parser = Parser::new_from_str(buffer);
+    let mut comments = Vec::new();
+    let mut last_err_at: Option<usize> = None;
+    while let Some(res) = parser.next_event() {
+        match res {
+            Ok((Event::Comment(text, placement), span)) => {
+                comments.push(CommentInfo {
+                    span,
+                    text: text.into_owned(),
+                    placement,
+                });
+                last_err_at = None;
+            }
+            Ok(_) => last_err_at = None,
+            Err(e) => {
+                let pos = e.marker().index();
+                if last_err_at == Some(pos) {
+                    break;
+                }
+                last_err_at = Some(pos);
+            }
+        }
     }
+    comments
+}
 
-    if next_char != ' ' {
-        line.insert(after_hash_idx, ' ');
-        *changed = true;
-    }
-
-    line
+fn line_start_byte(buffer: &str, byte_offset: usize) -> usize {
+    buffer[..byte_offset].rfind('\n').map_or(0, |i| i + 1)
 }

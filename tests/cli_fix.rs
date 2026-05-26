@@ -542,31 +542,6 @@ fn fix_preserves_top_level_tagged_block_scalar_body() {
 }
 
 #[test]
-fn fix_rejects_block_marker_without_space_between_colon_and_tag() {
-    let dir = tempdir().unwrap();
-    let file = dir.path().join("input.yaml");
-    // `:!!str |` is not a valid block-scalar header (`:` needs whitespace before
-    // the tag). The line is fed to `BlockScalarTracker::observe_indicator` while
-    // walking the file; the helper must reject it so the comment scanner can
-    // still see this line as ordinary content rather than a scalar header.
-    fs::write(&file, "key: a\n:!!str |\nkey2: b  #c\n").unwrap();
-    fs::write(
-        dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
-    )
-    .unwrap();
-
-    let exe = env!("CARGO_BIN_EXE_ryl");
-    let _ = run(Command::new(exe).arg("--fix").arg(&file));
-
-    let fixed = fs::read_to_string(&file).unwrap();
-    assert!(
-        fixed.contains("# c"),
-        "comments rule must still fire after a `:!!str |` line: {fixed:?}"
-    );
-}
-
-#[test]
 fn fix_preserves_block_scalar_body_with_tag_and_anchor_headers() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

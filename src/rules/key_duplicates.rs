@@ -1,4 +1,4 @@
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
@@ -58,15 +58,15 @@ impl SpannedEventReceiver<'_> for KeyDuplicatesReceiver<'_> {
             Event::StreamStart => self.state.reset_stream(),
             Event::DocumentStart(_) => self.state.document_start(),
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _) => self.state.enter_sequence(),
+            Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _) => self.state.enter_mapping(),
+            Event::MappingStart(_, _, _) => self.state.enter_mapping(),
             Event::Scalar(value, _, _, _) => {
                 self.state
                     .handle_scalar(value.as_ref(), span, &mut self.violations);
             }
             Event::Alias(_) => self.state.handle_alias(),
-            Event::StreamEnd | Event::Nothing => {}
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }

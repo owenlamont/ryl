@@ -1,4 +1,4 @@
-use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::span_utils::span_char_index_to_byte;

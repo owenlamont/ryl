@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::comment_start_preserving_quotes;
@@ -280,9 +280,9 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
             }
             Event::DocumentStart(_) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _) => self.state.enter_sequence(),
+            Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _) => self.state.enter_mapping(),
+            Event::MappingStart(_, _, _) => self.state.enter_mapping(),
             Event::Scalar(value, style, _, tag) => {
                 let tagged = tag.is_some();
                 self.state.handle_scalar(
@@ -293,7 +293,10 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
                     &mut self.diagnostics,
                 );
             }
-            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+            Event::Comment(_, _)
+            | Event::Alias(_)
+            | Event::StreamEnd
+            | Event::Nothing => {}
         }
     }
 }
