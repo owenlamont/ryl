@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::lint::{LintProblem, lint_str};
-use saphyr::{LoadableYamlNode, YamlOwned};
+use ryl::yaml_dom::YamlOwned;
 use tempfile::TempDir;
 
 const COMMON_SAFE_FIX_RULES_YAML: &str = "rules:

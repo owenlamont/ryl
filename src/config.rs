@@ -4,9 +4,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::yaml_dom::{ScalarOwned, YamlOwned};
 use globset::{Glob, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
