@@ -1,5 +1,5 @@
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 use regex::Regex;
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::config::YamlLintConfig;
@@ -148,14 +148,17 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
             Event::StreamStart => self.state.reset_stream(),
             Event::DocumentStart(_) => self.state.document_start(),
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _) => self.state.enter_sequence(),
+            Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _) => self.state.enter_mapping(),
+            Event::MappingStart(_, _, _) => self.state.enter_mapping(),
             Event::Scalar(value, _, _, _) => {
                 self.state
                     .handle_scalar(value.as_ref(), span, &mut self.violations);
             }
-            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+            Event::Comment(_, _)
+            | Event::Alias(_)
+            | Event::StreamEnd
+            | Event::Nothing => {}
         }
     }
 }

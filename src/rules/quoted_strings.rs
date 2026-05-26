@@ -1,6 +1,8 @@
+use granit_parser::{
+    Event, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
+};
 use regex::Regex;
 use saphyr::Yaml;
-use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
@@ -206,14 +208,12 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
             Event::StreamStart => self.state.reset_stream(),
             Event::DocumentStart(_) => self.state.document_start(),
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _) => {
-                let flow = is_flow_sequence(self.state.buffer, span);
-                self.state.enter_sequence(flow);
+            Event::SequenceStart(style, _, _) => {
+                self.state.enter_sequence(style == StructureStyle::Flow);
             }
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _) => {
-                let flow = is_flow_mapping(self.state.buffer, span);
-                self.state.enter_mapping(flow);
+            Event::MappingStart(style, _, _) => {
+                self.state.enter_mapping(style == StructureStyle::Flow);
             }
             Event::Scalar(value, style, _, tag) => {
                 self.state.handle_scalar(
@@ -224,7 +224,10 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
                     &mut self.diagnostics,
                 );
             }
-            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+            Event::Comment(_, _)
+            | Event::Alias(_)
+            | Event::StreamEnd
+            | Event::Nothing => {}
         }
     }
 }
@@ -460,25 +463,6 @@ fn build_violation(span: Span, message: String) -> Violation {
         column: span.start.col() + 1,
         message,
     }
-}
-
-fn is_flow_sequence(buffer: &str, span: Span) -> bool {
-    matches!(
-        next_non_whitespace_char(buffer, span.start.index()),
-        Some('[')
-    )
-}
-
-fn is_flow_mapping(buffer: &str, span: Span) -> bool {
-    matches!(
-        next_non_whitespace_char(buffer, span.start.index()),
-        Some('{')
-    )
-}
-
-fn next_non_whitespace_char(text: &str, byte_idx: usize) -> Option<char> {
-    text.get(byte_idx..)
-        .and_then(|tail| tail.chars().find(|ch| !ch.is_whitespace()))
 }
 
 fn is_core_tag(tag: &Tag) -> bool {
@@ -799,14 +783,12 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
             Event::StreamStart => self.state.reset_stream(),
             Event::DocumentStart(_) => self.state.document_start(),
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _) => {
-                let flow = is_flow_sequence(self.state.buffer, span);
-                self.state.enter_sequence(flow);
+            Event::SequenceStart(style, _, _) => {
+                self.state.enter_sequence(style == StructureStyle::Flow);
             }
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _) => {
-                let flow = is_flow_mapping(self.state.buffer, span);
-                self.state.enter_mapping(flow);
+            Event::MappingStart(style, _, _) => {
+                self.state.enter_mapping(style == StructureStyle::Flow);
             }
             Event::Scalar(value, style, _, tag) => {
                 self.state.collect_consistent_quote_style(
@@ -816,7 +798,10 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
                     span,
                 );
             }
-            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+            Event::Comment(_, _)
+            | Event::Alias(_)
+            | Event::StreamEnd
+            | Event::Nothing => {}
         }
     }
 }
@@ -858,14 +843,12 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
             Event::StreamStart => self.state.reset_stream(),
             Event::DocumentStart(_) => self.state.document_start(),
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _) => {
-                let flow = is_flow_sequence(self.state.buffer, span);
-                self.state.enter_sequence(flow);
+            Event::SequenceStart(style, _, _) => {
+                self.state.enter_sequence(style == StructureStyle::Flow);
             }
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _) => {
-                let flow = is_flow_mapping(self.state.buffer, span);
-                self.state.enter_mapping(flow);
+            Event::MappingStart(style, _, _) => {
+                self.state.enter_mapping(style == StructureStyle::Flow);
             }
             Event::Scalar(value, style, _, tag) => {
                 if let Some(r) =
@@ -875,7 +858,10 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
                     self.replacements.push(r);
                 }
             }
-            Event::Alias(_) | Event::StreamEnd | Event::Nothing => {}
+            Event::Comment(_, _)
+            | Event::Alias(_)
+            | Event::StreamEnd
+            | Event::Nothing => {}
         }
     }
 }

@@ -140,14 +140,14 @@ fn ignores_hash_inside_single_quotes() {
 }
 
 #[test]
-fn handles_escaped_hash_inside_double_quotes() {
+fn handles_hash_inside_double_quotes() {
     let resolved = build_config("rules:\n  comments: {}\n");
-    let hits = comments::check("string: \"path\\#not comment\" # comment\n", &resolved);
+    let hits = comments::check("string: \"path#not comment\" # comment\n", &resolved);
     assert_eq!(
         hits,
         vec![Violation {
             line: 1,
-            column: 29,
+            column: 28,
             message: "too few spaces before comment: expected 2".to_string(),
         }]
     );

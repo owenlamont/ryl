@@ -4,7 +4,7 @@
 //! scalar (literal/folded block scalar, multi-line single- or double-quoted
 //! scalar, or multi-line plain scalar) are left untouched because blank
 //! lines inside such scalars contribute to the parsed value. The protected
-//! line set is computed via `saphyr_parser`, so the rule bails (returns
+//! line set is computed via `granit_parser`, so the rule bails (returns
 //! `None`) when the buffer cannot be parsed. Runs outside those contexts
 //! (and the leading/trailing run governed by `max-start`/`max-end`) are
 //! trimmed to the configured maxima.

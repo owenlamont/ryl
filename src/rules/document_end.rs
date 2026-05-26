@@ -8,7 +8,7 @@
 //! existing `...` markers — is never auto-fixed.
 use std::cmp;
 
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::buffer_newline;

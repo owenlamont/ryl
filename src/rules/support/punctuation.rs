@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<usize>> {
     let mut parser = Parser::new_from_str(buffer);

@@ -1,4 +1,4 @@
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 
@@ -218,11 +218,11 @@ impl SpannedEventReceiver<'_> for EmptyValuesReceiver<'_> {
             | Event::DocumentEnd => {
                 self.reset();
             }
-            Event::MappingStart(_, _) => {
+            Event::MappingStart(_, _, _) => {
                 self.begin_node();
                 self.push_container(span, ContainerKind::Mapping);
             }
-            Event::SequenceStart(_, _) => {
+            Event::SequenceStart(_, _, _) => {
                 self.begin_node();
                 self.push_container(span, ContainerKind::Sequence);
             }
@@ -236,14 +236,14 @@ impl SpannedEventReceiver<'_> for EmptyValuesReceiver<'_> {
             Event::Alias(_) => {
                 self.begin_node();
             }
-            Event::Nothing => {}
+            Event::Comment(_, _) | Event::Nothing => {}
         }
     }
 }
 
 #[allow(dead_code)]
 pub fn coverage_touch_nothing_branch() {
-    use saphyr_parser::{Marker, Span};
+    use granit_parser::{Marker, Span};
 
     let cfg_struct = crate::config::YamlLintConfig::default();
     let config = Config::resolve(&cfg_struct);

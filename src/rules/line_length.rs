@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use saphyr_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 
@@ -294,7 +294,7 @@ impl SpannedEventReceiver<'_> for InlineMappingDetector<'_> {
         }
 
         match event {
-            Event::MappingStart(_, _) => {
+            Event::MappingStart(_, _, _) => {
                 self.mappings.push(MappingState { expect_key: true });
             }
             Event::MappingEnd => {
@@ -302,13 +302,14 @@ impl SpannedEventReceiver<'_> for InlineMappingDetector<'_> {
             }
             Event::Scalar(_, _, _, _) if self.mappings.is_empty() => {}
             Event::Scalar(_, _, _, _) => self.handle_scalar_event(span),
-            Event::SequenceStart(_, _)
+            Event::SequenceStart(_, _, _)
             | Event::SequenceEnd
             | Event::StreamStart
             | Event::StreamEnd
             | Event::DocumentStart(_)
             | Event::DocumentEnd
             | Event::Alias(_)
+            | Event::Comment(_, _)
             | Event::Nothing => {}
         }
     }

@@ -172,3 +172,43 @@ fn fix_preserves_comment_alignment_state_across_crlf_blank_lines() {
         Some("root:\r\n  # first\r\n\r\n  # second\r\n  value: 1\r\n".to_string())
     );
 }
+
+#[test]
+fn recognises_tagged_block_scalar_header() {
+    let input = "key: !!str |\n  body\n  # inside-body\nnext: value\n";
+    let hits = run(input);
+    assert!(
+        hits.is_empty(),
+        "comments inside tagged block scalar should be skipped: {hits:?}"
+    );
+}
+
+#[test]
+fn recognises_anchored_block_scalar_header() {
+    let input = "key: &anchor >\n  body\n  # inside-body\nnext: value\n";
+    let hits = run(input);
+    assert!(
+        hits.is_empty(),
+        "comments inside anchored block scalar should be skipped: {hits:?}"
+    );
+}
+
+#[test]
+fn recognises_top_level_anchor_then_block_scalar_marker() {
+    let input = "&anchor |\n  body\n";
+    let hits = run(input);
+    assert!(
+        hits.is_empty(),
+        "top-level anchored block scalar should parse: {hits:?}"
+    );
+}
+
+#[test]
+fn rejects_block_marker_following_non_indicator_token() {
+    let input = "key: value |\n  more\n";
+    let hits = run(input);
+    assert!(
+        hits.is_empty(),
+        "`|` after a plain scalar is not a block-scalar header: {hits:?}"
+    );
+}

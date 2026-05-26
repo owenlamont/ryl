@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 pub(crate) fn leading_whitespace_width(line: &str) -> usize {
     line.chars()
@@ -152,109 +152,6 @@ pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
     match bytes[cursor - 1] {
         b':' | b'-' | b'?' => Some(marker_idx),
         _ => None,
-    }
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct BlockScalarTracker {
-    state: Option<BlockScalarState>,
-}
-
-#[derive(Debug)]
-struct BlockScalarState {
-    indicator_indent: usize,
-    content_indent: Option<usize>,
-}
-
-impl BlockScalarTracker {
-    pub(crate) fn consume_line(&mut self, indent: usize, content: &str) -> bool {
-        let Some(state) = self.state.as_mut() else {
-            return false;
-        };
-
-        if content.trim().is_empty() {
-            return true;
-        }
-
-        if let Some(content_indent) = state.content_indent {
-            if indent >= content_indent {
-                return true;
-            }
-
-            if indent <= state.indicator_indent {
-                self.state = None;
-                return false;
-            }
-
-            state.content_indent = Some(content_indent.min(indent));
-            return true;
-        }
-
-        if indent > state.indicator_indent {
-            state.content_indent = Some(indent);
-            return true;
-        }
-
-        self.state = None;
-        false
-    }
-
-    pub(crate) fn observe_indicator(&mut self, indent: usize, content: &str) {
-        let candidate = strip_trailing_comment_preserving_quotes(content).trim_end();
-        if block_scalar_marker_index(candidate).is_some() {
-            self.state = Some(BlockScalarState {
-                indicator_indent: indent,
-                content_indent: None,
-            });
-        }
-    }
-}
-
-pub(crate) fn is_at_value_position(
-    chars: &[(usize, char)],
-    idx: usize,
-    flow_depth: u32,
-) -> bool {
-    let mut cursor = idx;
-    let mut had_whitespace_before_quote = false;
-    while cursor > 0 && matches!(chars[cursor - 1].1, ' ' | '\t') {
-        cursor -= 1;
-        had_whitespace_before_quote = true;
-    }
-    if cursor == 0 {
-        return true;
-    }
-    loop {
-        let mut token_start = cursor;
-        while token_start > 0
-            && !matches!(
-                chars[token_start - 1].1,
-                ' ' | '\t' | '[' | '{' | ',' | '"' | '\''
-            )
-        {
-            token_start -= 1;
-        }
-        if !matches!(chars[token_start].1, '!' | '&') {
-            break;
-        }
-        let mut next_cursor = token_start;
-        while next_cursor > 0 && matches!(chars[next_cursor - 1].1, ' ' | '\t') {
-            next_cursor -= 1;
-        }
-        if next_cursor == 0 {
-            return true;
-        }
-        if next_cursor == token_start {
-            let prev = chars[next_cursor - 1].1;
-            return prev == '[' || prev == '{' || prev == ',';
-        }
-        cursor = next_cursor;
-    }
-    match chars[cursor - 1].1 {
-        ':' if flow_depth > 0 => true,
-        ':' | '-' | '?' => had_whitespace_before_quote,
-        '[' | '{' | ',' => true,
-        _ => false,
     }
 }
 

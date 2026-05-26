@@ -35,7 +35,7 @@ globset = "0.4.18"
 ignore = "0.4.25"
 rayon = "1.11.0"
 schemars = { version = "1.2.1", features = ["derive"] }
-saphyr-parser = "0.0.6"
+granit-parser = "0.0.3"
 saphyr = "0.0.6"
 dirs-next = "2.0.0"
 regex = "1"
