@@ -3,18 +3,20 @@
 // actually uses and re-targeted at indexmap::IndexMap. The original is
 // dual-licensed MIT OR Apache-2.0; ryl ships under MIT.
 
-use std::hash::{Hash, Hasher};
-
 use granit_parser::Tag;
-use indexmap::IndexMap;
+use hashlink::LinkedHashMap;
 
 use crate::yaml_dom::loader::load_owned_documents;
 use crate::yaml_dom::scalar::ScalarOwned;
 
 pub type SequenceOwned = Vec<YamlOwned>;
-pub type MappingOwned = IndexMap<YamlOwned, YamlOwned>;
+// `LinkedHashMap` keeps saphyr's insertion-order-sensitive `PartialEq`/`Hash`
+// so the derived `Hash` below stays consistent with equality when a mapping is
+// used as a complex key, and the parse-preservation property test keeps its
+// original structural semantics.
+pub type MappingOwned = LinkedHashMap<YamlOwned, YamlOwned>;
 
-#[derive(Clone, PartialEq, Debug, Eq)]
+#[derive(Clone, PartialEq, Debug, Eq, Hash)]
 pub enum YamlOwned {
     Value(ScalarOwned),
     Sequence(SequenceOwned),
@@ -107,24 +109,4 @@ impl YamlOwned {
 
 fn string_key(key: &str) -> YamlOwned {
     YamlOwned::Value(ScalarOwned::String(key.to_owned()))
-}
-
-impl Hash for YamlOwned {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            Self::Value(scalar) => scalar.hash(state),
-            Self::Sequence(seq) => seq.hash(state),
-            Self::Mapping(map) => {
-                for entry in map {
-                    entry.hash(state);
-                }
-            }
-            Self::Tagged(tag, node) => {
-                tag.hash(state);
-                node.hash(state);
-            }
-            Self::BadValue => {}
-        }
-    }
 }

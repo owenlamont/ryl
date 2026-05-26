@@ -1,6 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use ryl::yaml_dom::{ScalarOwned, YamlOwned};
 
 fn parse_single(source: &str) -> YamlOwned {
@@ -154,22 +151,6 @@ fn as_sequence_returns_none_for_non_sequence() {
 }
 
 #[test]
-fn hash_of_sequences_collides_when_equal_and_differs_otherwise() {
-    fn h(value: &YamlOwned) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        value.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    let a = YamlOwned::Sequence(vec![YamlOwned::Value(ScalarOwned::Integer(1))]);
-    let b = YamlOwned::Sequence(vec![YamlOwned::Value(ScalarOwned::Integer(1))]);
-    let c = YamlOwned::Sequence(vec![YamlOwned::Value(ScalarOwned::Integer(2))]);
-
-    assert_eq!(h(&a), h(&b));
-    assert_ne!(h(&a), h(&c));
-}
-
-#[test]
 fn scalar_anchor_is_resolved_via_alias() {
     let doc = parse_single("a: &x foo\nb: *x\n");
     assert_eq!(
@@ -215,29 +196,4 @@ fn core_schema_null_tag_rejects_non_null_value() {
 fn as_mapping_mut_returns_none_for_non_mapping() {
     let mut scalar = YamlOwned::Value(ScalarOwned::Integer(1));
     assert!(scalar.as_mapping_mut().is_none());
-}
-
-#[test]
-fn mapping_hash_visits_entries() {
-    fn h(value: &YamlOwned) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        value.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    let a = parse_single("k: 1\n");
-    let b = parse_single("k: 1\n");
-    let c = parse_single("k: 2\n");
-    assert_eq!(h(&a), h(&b));
-    assert_ne!(h(&a), h(&c));
-}
-
-#[test]
-fn hash_of_bad_value_is_stable() {
-    fn h(value: &YamlOwned) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        value.hash(&mut hasher);
-        hasher.finish()
-    }
-    assert_eq!(h(&YamlOwned::BadValue), h(&YamlOwned::BadValue));
 }

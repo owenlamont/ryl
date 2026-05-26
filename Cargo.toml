@@ -36,7 +36,7 @@ ignore = "0.4.25"
 rayon = "1.11.0"
 schemars = { version = "1.2.1", features = ["derive"] }
 granit-parser = "0.0.3"
-indexmap = "2"
+hashlink = "0.11.0"
 ordered-float = "5"
 dirs-next = "2.0.0"
 regex = "1"
