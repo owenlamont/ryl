@@ -2,10 +2,10 @@
 
 ## ryl targets YAML 1.2
 
-ryl is built on the [saphyr][saphyr] parser, which implements YAML 1.2
-strictly. yamllint, by comparison, is built on [PyYAML][pyyaml], which
-defaults to YAML 1.1 semantics for boolean and other implicit type
-resolution.
+ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork) and
+resolves scalars per the YAML 1.2 core schema. yamllint, by comparison, is
+built on [PyYAML][pyyaml], which defaults to YAML 1.1 semantics for boolean
+and other implicit type resolution.
 
 Most YAML files do not exercise the parts of the language where the two
 versions disagree, so in practice the difference rarely shows up. The two
@@ -16,18 +16,17 @@ places it matters in ryl are:
 - Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
   configuration files inherited from yamllint.
 
-  [saphyr]: https://github.com/saphyr-rs/saphyr
+  [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
 
 ## What is different in YAML 1.2
 
 | Literal | YAML 1.1 | YAML 1.2 |
 | :--- | :--- | :--- |
-| `yes`, `no`, `on`, `off` (and case variants) | Booleans | Plain strings |
-| `Yes`, `No`, `On`, `Off`, `True`, `False`, `TRUE`, ... | Booleans (case-insensitive) | Plain strings |
-| `true`, `false` (lowercase only) | Booleans | Booleans |
+| `yes`, `no`, `on`, `off` and case variants (`Yes`, `No`, `ON`, ...) | Booleans | Plain strings |
+| `true`, `True`, `TRUE`, `false`, `False`, `FALSE` | Booleans | Booleans |
+| `null`, `Null`, `NULL`, `~` | Null | Null |
 | `0755` (leading zero integer) | Octal | Decimal |
-| `.nan`, `.inf` | Floats | Floats |
 
 ryl applies YAML 1.2 semantics to both linted files and configuration
 files.

@@ -93,9 +93,11 @@ unfixable = ["quoted-strings"]
 
 ryl applies YAML 1.2 implicit-type resolution when deciding whether a
 quoted scalar is redundantly quoted. Under YAML 1.2 the barewords `yes`,
-`no`, `on`, `off`, `True`, `False`, and their case variants parse as
-plain strings (only lowercase `true` / `false` are booleans). yamllint
-uses YAML 1.1 semantics, where the longer list is boolean.
+`no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
+plain strings, whereas YAML 1.1 treats them as booleans. (`true`, `True`,
+`TRUE`, `false`, `False`, and `FALSE` are booleans under both versions, so
+they are unaffected.) yamllint uses YAML 1.1 semantics, where the longer
+list is boolean.
 
 The practical consequence is that `"yes"` (with `required:
 "only-when-needed"`, `quote-type: "double"`) is flagged by ryl as

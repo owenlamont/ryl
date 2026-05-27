@@ -9,9 +9,10 @@ Full documentation lives at <https://ryl-docs.pages.dev/>.
 ## Compatibility note
 
 - `ryl` aims to match `yamllint` behaviour and includes many parity tests.
-- `ryl` uses the `saphyr` parser stack, while `yamllint` uses the `PyYAML`
-  parser stack.
-- `saphyr` and `PyYAML` do not always agree on which files are valid YAML.
+- `ryl` uses the `granit-parser` parser stack, while `yamllint` uses the
+  `PyYAML` parser stack.
+- `granit-parser` and `PyYAML` do not always agree on which files are valid
+  YAML.
 - **`ryl` targets YAML 1.2 strictly.** `yamllint` defaults to YAML 1.1
   semantics, so bareword booleans like `yes` / `no` / `on` / `off` (and
   case variants) are plain strings in `ryl` and booleans in `yamllint`.
@@ -104,10 +105,13 @@ linting and developer automation, especially:
   template to follow for Rust tooling and showing me almost the only dev
   tool I was still using after this that wasn't written in Rust was
   yamllint (which inspired me to tackle this project).
-- [saphyr](https://github.com/saphyr-rs/saphyr) - ryl is built on saphyr
-  and saphyr's developers were very patient in showing some of the
-  nuance and complexity of parsing YAML which I was embarrassingly
-  ignorant of when starting ryl.
+- [saphyr](https://github.com/saphyr-rs/saphyr) - ryl's vendored YAML DOM
+  is derived from saphyr, and saphyr's developers were very patient in
+  showing some of the nuance and complexity of parsing YAML which I was
+  embarrassingly ignorant of when starting ryl.
+- [granit-parser](https://github.com/bourumir-wyngs/granit-parser) - a
+  `saphyr-parser` fork with comment and style metadata that ryl uses for
+  event-stream parsing.
 - [esbuild](https://github.com/evanw/esbuild) and
   [biome](https://github.com/biomejs/biome) - for providing the "binary
   wrapper" blueprint for distributing high-performance native tools via
