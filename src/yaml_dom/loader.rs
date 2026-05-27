@@ -99,11 +99,16 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
                 self.attach(node);
             }
             Event::Alias(id) => {
+                // granit normally rejects unresolved aliases during the scan,
+                // but a linter must never panic on malformed input, so fall
+                // back to `BadValue` rather than relying on that ordering.
+                // `unwrap_or` constructs the unit variant eagerly, keeping the
+                // branch covered without a lazy closure.
                 let node = self
                     .anchor_map
                     .get(&id)
                     .cloned()
-                    .expect("granit emits Alias only after recording the anchor");
+                    .unwrap_or(YamlOwned::BadValue);
                 self.attach(node);
             }
         }
