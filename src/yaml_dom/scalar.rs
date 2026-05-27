@@ -1,7 +1,12 @@
-// Vendored from saphyr v0.0.6 (`saphyr/src/scalar.rs`).
-// Trimmed to the surface ryl needs: `ScalarOwned` with parse helpers, plus the
-// borrowed-lifetime `Scalar` used when parsing scalars from the event stream.
-// The original is dual-licensed MIT OR Apache-2.0; ryl ships under MIT.
+// Derived from saphyr (`saphyr/src/scalar.rs`), dual-licensed MIT OR
+// Apache-2.0; ryl ships under MIT. Trimmed to the surface ryl needs:
+// `ScalarOwned` with parse helpers plus the borrowed-lifetime `Scalar` used
+// when parsing scalars from the event stream.
+//
+// `parse_from_cow` resolves null/bool per the YAML 1.2 core schema (so
+// `True`/`Null` are bool/null, matching saphyr's post-0.0.6 resolver rather
+// than the narrower 0.0.6 release). `Yes`/`No`/`On`/`Off` are intentionally
+// left as strings: those are YAML 1.1 booleans, and ryl targets YAML 1.2.
 
 use std::borrow::Cow;
 
@@ -66,55 +71,33 @@ impl<'input> Scalar<'input> {
 
     #[must_use]
     pub fn parse_from_cow(v: Cow<'input, str>) -> Self {
-        let s = &*v;
-        let bytes = s.as_bytes();
-
-        if bytes.len() >= 2 {
-            match (bytes[0], bytes[1]) {
-                (b'0', b'x') => {
-                    if let Ok(i) = i64::from_str_radix(&s[2..], 16) {
-                        return Self::Integer(i);
-                    }
+        if let Some(number) = v.strip_prefix("0x") {
+            if let Ok(i) = i64::from_str_radix(number, 16) {
+                return Self::Integer(i);
+            }
+        } else if let Some(number) = v.strip_prefix("0o") {
+            if let Ok(i) = i64::from_str_radix(number, 8) {
+                return Self::Integer(i);
+            }
+        } else if let Some(number) = v.strip_prefix('+')
+            && let Ok(i) = number.parse::<i64>()
+        {
+            return Self::Integer(i);
+        }
+        match &*v {
+            "~" | "null" | "Null" | "NULL" => Self::Null,
+            "true" | "True" | "TRUE" => Self::Boolean(true),
+            "false" | "False" | "FALSE" => Self::Boolean(false),
+            _ => {
+                if let Ok(integer) = v.parse::<i64>() {
+                    Self::Integer(integer)
+                } else if let Some(float) = parse_core_schema_fp(&v) {
+                    Self::FloatingPoint(float.into())
+                } else {
+                    Self::String(v)
                 }
-                (b'0', b'o') => {
-                    if let Ok(i) = i64::from_str_radix(&s[2..], 8) {
-                        return Self::Integer(i);
-                    }
-                }
-                (b'+', _) => {
-                    if let Ok(i) = s[1..].parse::<i64>() {
-                        return Self::Integer(i);
-                    }
-                }
-                _ => {}
             }
         }
-
-        match bytes.len() {
-            1 if bytes[0] == b'~' => return Self::Null,
-            4 => {
-                let folded = bytes[0] & 0xDF;
-                if folded == b'N' && matches!(s, "null" | "Null" | "NULL") {
-                    return Self::Null;
-                } else if folded == b'T' && matches!(s, "true" | "True" | "TRUE") {
-                    return Self::Boolean(true);
-                }
-            }
-            5 if matches!(s, "false" | "False" | "FALSE") => {
-                return Self::Boolean(false);
-            }
-            _ => {}
-        }
-
-        if let Ok(integer) = s.parse::<i64>() {
-            return Self::Integer(integer);
-        }
-
-        if let Some(float) = parse_core_schema_fp(s) {
-            return Self::FloatingPoint(float.into());
-        }
-
-        Self::String(v)
     }
 }
 

@@ -36,6 +36,47 @@ fn parses_explicit_positive_integer() {
 }
 
 #[test]
+fn yaml_1_2_core_schema_null_and_bool_spellings_resolve() {
+    for spelling in ["~", "null", "Null", "NULL"] {
+        let doc = parse_single(&format!("v: {spelling}\n"));
+        assert!(
+            doc.as_mapping_get("v").is_some_and(YamlOwned::is_null),
+            "{spelling} should resolve to null"
+        );
+    }
+    for spelling in ["true", "True", "TRUE"] {
+        let doc = parse_single(&format!("v: {spelling}\n"));
+        assert_eq!(
+            doc.as_mapping_get("v").and_then(YamlOwned::as_bool),
+            Some(true),
+            "{spelling} should resolve to true"
+        );
+    }
+    for spelling in ["false", "False", "FALSE"] {
+        let doc = parse_single(&format!("v: {spelling}\n"));
+        assert_eq!(
+            doc.as_mapping_get("v").and_then(YamlOwned::as_bool),
+            Some(false),
+            "{spelling} should resolve to false"
+        );
+    }
+}
+
+#[test]
+fn yaml_1_1_only_booleans_stay_strings() {
+    // ryl targets YAML 1.2; `Yes`/`No`/`On`/`Off` are YAML 1.1 booleans and
+    // must remain strings so they round-trip rather than being retyped.
+    for spelling in ["Yes", "No", "On", "Off", "yes", "no"] {
+        let doc = parse_single(&format!("v: {spelling}\n"));
+        assert_eq!(
+            doc.as_mapping_get("v").and_then(YamlOwned::as_str),
+            Some(spelling),
+            "{spelling} should stay a string under YAML 1.2"
+        );
+    }
+}
+
+#[test]
 fn parses_infinity_floats() {
     let pos = parse_single("v: .inf\n");
     let neg = parse_single("v: -.inf\n");
