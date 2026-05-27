@@ -254,7 +254,7 @@ impl ScalarRangeCollector {
     }
 
     fn into_sorted(mut self) -> Vec<Range<usize>> {
-        self.ranges.sort_by(|a, b| a.0.cmp(&b.0));
+        self.ranges.sort_by_key(|a| a.0);
         self.ranges
             .into_iter()
             .filter_map(|(start, end)| (start <= end).then_some(start..end))
@@ -751,7 +751,7 @@ fn apply_replacements(
         return None;
     }
 
-    replacements.sort_by(|left, right| right.0.cmp(&left.0));
+    replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
 
     let mut output = buffer.to_string();
     for (start, end, replacement) in replacements {

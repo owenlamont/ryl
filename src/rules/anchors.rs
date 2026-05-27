@@ -226,30 +226,17 @@ impl<'cfg, 'src> Analyzer<'cfg, 'src> {
                     idx += 1;
                     column += 1;
                 }
-                '&' => {
-                    if let Some((anchor_name, len)) = parse_name(&chars, idx + 1) {
-                        self.register_anchor(&anchor_name, line_number, column);
-                        idx += len + 1;
-                        column += len + 1;
-                    } else {
-                        idx += 1;
-                        column += 1;
-                    }
+                '&' if let Some((anchor_name, len)) = parse_name(&chars, idx + 1) => {
+                    self.register_anchor(&anchor_name, line_number, column);
+                    idx += len + 1;
+                    column += len + 1;
                 }
-                '*' => {
-                    if self.is_alias_indicator(&chars, idx) {
-                        if let Some((alias_name, len)) = parse_name(&chars, idx + 1) {
-                            self.register_alias(&alias_name, line_number, column);
-                            idx += len + 1;
-                            column += len + 1;
-                        } else {
-                            idx += 1;
-                            column += 1;
-                        }
-                    } else {
-                        idx += 1;
-                        column += 1;
-                    }
+                '*' if self.is_alias_indicator(&chars, idx)
+                    && let Some((alias_name, len)) = parse_name(&chars, idx + 1) =>
+                {
+                    self.register_alias(&alias_name, line_number, column);
+                    idx += len + 1;
+                    column += len + 1;
                 }
                 _ => {
                     idx += 1;

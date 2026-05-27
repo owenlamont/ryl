@@ -113,7 +113,7 @@ impl ScalarRangeCollector {
     }
 
     fn into_sorted(mut self) -> Vec<Range<usize>> {
-        self.ranges.sort_by(|a, b| a.start.cmp(&b.start));
+        self.ranges.sort_by_key(|a| a.start);
         self.ranges
     }
 }

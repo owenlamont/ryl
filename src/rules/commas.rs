@@ -145,10 +145,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                 i = skip_comment(&chars, i);
                 continue;
             }
-            ',' => {
-                if !contexts.is_empty() {
-                    evaluate_comma(cfg, &mut violations, &chars, i, &line_starts);
-                }
+            ',' if !contexts.is_empty() => {
+                evaluate_comma(cfg, &mut violations, &chars, i, &line_starts);
             }
             _ => {}
         }
@@ -387,7 +385,7 @@ fn apply_replacements(
         return None;
     }
 
-    replacements.sort_by(|left, right| right.0.cmp(&left.0));
+    replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
 
     let mut output = buffer.to_string();
     for (start, end, replacement) in replacements {
