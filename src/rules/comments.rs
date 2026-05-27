@@ -181,7 +181,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         return None;
     }
 
-    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.0));
     let mut output = buffer.to_string();
     for (offset, text) in edits {
         output.insert_str(offset, &text);

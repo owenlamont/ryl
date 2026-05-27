@@ -341,15 +341,13 @@ impl<'cfg> QuotedStringsState<'cfg> {
         node_label: &str,
         facts: ScalarQuoteFacts,
     ) -> Option<String> {
-        if facts.style.is_none()
-            || facts.style.is_some_and(|style_kind| {
-                self.mismatched_quote(
-                    style_kind,
-                    facts.has_quoted_quotes.get(),
-                    facts.has_double_quote_escape.get(),
-                )
-            })
-        {
+        if facts.style.is_none_or(|style_kind| {
+            self.mismatched_quote(
+                style_kind,
+                facts.has_quoted_quotes.get(),
+                facts.has_double_quote_escape.get(),
+            )
+        }) {
             Some(self.not_quoted_with_message(node_label))
         } else {
             None
@@ -825,7 +823,7 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
         if replacements.is_empty() {
             return None;
         }
-        replacements.sort_by(|a, b| b.0.cmp(&a.0));
+        replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
         let mut output = self.state.buffer.to_owned();
         for (start, end, replacement) in replacements {
             output.replace_range(start..end, &replacement);
