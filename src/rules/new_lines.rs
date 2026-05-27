@@ -45,16 +45,12 @@ pub struct Violation {
     pub message: String,
 }
 
-#[cfg(windows)]
 #[must_use]
 pub const fn platform_newline() -> &'static str {
-    "\r\n"
-}
-
-#[cfg(not(windows))]
-#[must_use]
-pub const fn platform_newline() -> &'static str {
-    "\n"
+    core::cfg_select! {
+        windows => "\r\n",
+        _ => "\n",
+    }
 }
 
 #[must_use]
