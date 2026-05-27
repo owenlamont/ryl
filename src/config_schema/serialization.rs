@@ -1,4 +1,4 @@
-use saphyr::{LoadableYamlNode, MappingOwned, ScalarOwned, YamlOwned};
+use crate::yaml_dom::{MappingOwned, ScalarOwned, YamlOwned};
 use serde::Serialize;
 
 use super::{

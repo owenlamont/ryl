@@ -64,9 +64,11 @@ ryl .
 
 ## YAML version compatibility
 
-ryl targets **YAML 1.2** strictly because it is built on the
-[saphyr](https://github.com/saphyr-rs/saphyr) parser. yamllint defaults
-to YAML 1.1 semantics via PyYAML, so a handful of edge cases &mdash;
+ryl targets **YAML 1.2** strictly: it parses with
+[granit-parser](https://github.com/bourumir-wyngs/granit-parser) (a
+`saphyr-parser` fork) and resolves scalars per the YAML 1.2 core schema.
+yamllint defaults to YAML 1.1 semantics via PyYAML, so a handful of edge
+cases &mdash;
 notably bareword booleans like `yes` / `no` / `on` / `off` and
 leading-zero integers like `0755` &mdash; behave differently. The same
 1.2 semantics apply to `.yamllint` configuration files.

@@ -3,7 +3,7 @@ mod validation;
 
 use std::collections::BTreeMap;
 
-use saphyr::{MappingOwned, YamlOwned};
+use crate::yaml_dom::{MappingOwned, YamlOwned};
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

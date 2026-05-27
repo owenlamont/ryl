@@ -69,7 +69,7 @@ impl Config {
 
         let check_multi_line_strings = cfg
             .rule_option(ID, "check-multi-line-strings")
-            .and_then(saphyr::YamlOwned::as_bool)
+            .and_then(crate::yaml_dom::YamlOwned::as_bool)
             .unwrap_or(false);
 
         Self {

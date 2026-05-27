@@ -2,10 +2,10 @@ use granit_parser::{
     Event, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
 };
 use regex::Regex;
-use saphyr::Yaml;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
+use crate::yaml_dom::Scalar;
 
 pub const ID: &str = "quoted-strings";
 
@@ -141,17 +141,17 @@ impl Config {
 
         let allow_quoted_quotes = cfg
             .rule_option(ID, "allow-quoted-quotes")
-            .and_then(saphyr::YamlOwned::as_bool)
+            .and_then(crate::yaml_dom::YamlOwned::as_bool)
             .unwrap_or(false);
 
         let allow_double_quotes_for_escaping = cfg
             .rule_option(ID, "allow-double-quotes-for-escaping")
-            .and_then(saphyr::YamlOwned::as_bool)
+            .and_then(crate::yaml_dom::YamlOwned::as_bool)
             .unwrap_or(false);
 
         let check_keys = cfg
             .rule_option(ID, "check-keys")
-            .and_then(saphyr::YamlOwned::as_bool)
+            .and_then(crate::yaml_dom::YamlOwned::as_bool)
             .unwrap_or(false);
 
         Self {
@@ -470,10 +470,7 @@ fn is_core_tag(tag: &Tag) -> bool {
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
-    matches!(
-        Yaml::value_from_str(value),
-        Yaml::Value(saphyr::Scalar::String(_))
-    )
+    matches!(Scalar::parse_from_cow(value.into()), Scalar::String(_))
 }
 
 fn should_skip_scalar(

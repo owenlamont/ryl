@@ -23,7 +23,7 @@ impl Config {
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
         let mut ignored: Vec<Regex> = Vec::new();
         if let Some(node) = cfg.rule_option(ID, "ignored-keys")
-            && let saphyr::YamlOwned::Sequence(seq) = node
+            && let crate::yaml_dom::YamlOwned::Sequence(seq) = node
         {
             for entry in seq {
                 let pattern = entry
