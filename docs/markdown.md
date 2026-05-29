@@ -50,6 +50,24 @@ fenced-blocks = true   # lint yaml / yml fenced blocks
 
 Set either flag to `false` to lint only the other source.
 
+## Other Markdown-family formats (Quarto, RMarkdown, MDX, …)
+
+The `markdown` kind is not tied to the `.md` extension. Front matter is found with
+a format-agnostic line scan and fenced blocks are located with a CommonMark parser,
+so any Markdown-superset format works — just map its extension to the `markdown`
+kind:
+
+```toml
+[files]
+markdown = ["*.md", "*.markdown", "*.qmd", "*.Rmd", "*.mdx"]
+```
+
+This lints the YAML front matter and fenced `yaml`/`yml` blocks in Quarto (`.qmd`),
+RMarkdown (`.Rmd`), MDX (`.mdx`), and similar documents. Format-specific constructs
+that are not CommonMark (e.g. MDX/JSX, Quarto executable `{python}` chunks) are
+simply ignored — only YAML front matter and `yaml`/`yml` fenced blocks are
+extracted.
+
 ## How rules apply
 
 The same rule set and configuration that applies to standalone YAML applies to
@@ -96,8 +114,8 @@ untouched while still reporting their diagnostics.
 
 When `ryl` runs as a pre-commit hook, the hook only sees the file paths
 pre-commit passes to it. The `ryl` hook targets YAML files by default, so to lint
-Markdown you must both (a) enable `[markdown]` in your ryl config and (b) widen
-the hook to pass Markdown files, for example:
+Markdown you must both (a) add a `markdown` glob under `[files]` in your ryl config
+and (b) widen the hook to pass Markdown files, for example:
 
 ```yaml
 - repo: https://github.com/owenlamont/ryl-pre-commit
@@ -111,3 +129,8 @@ pre-commit decides *which* files to pass; `[files]` decides *how* ryl treats eac
 So if the hook passes a `.md` that no `[files]` glob matches, ryl reports an error
 (it was named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow
 the hook's file filter.
+
+`ryl` also applies its `ignore` patterns to **explicitly passed** files, not just
+to files found by scanning a directory. So a file pre-commit hands to `ryl` that
+matches `ignore` is skipped — the equivalent of ruff's `force-exclude`, always on,
+with no separate flag to set.
