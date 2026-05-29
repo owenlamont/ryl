@@ -12,11 +12,15 @@ fn arb_plain_identifier() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_]{0,6}".prop_map(|value| value)
 }
 
+fn arb_multibyte_char() -> impl Strategy<Value = char> {
+    prop_oneof![Just('é'), Just('—'), Just('世'), Just('🦀')]
+}
+
 fn arb_plain_value() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_']{0,6}".prop_map(|value| value)
 }
 
-fn arb_single_quoted_payload() -> impl Strategy<Value = String> {
+fn arb_quoted_payload() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
             Just('a'),
@@ -34,30 +38,7 @@ fn arb_single_quoted_payload() -> impl Strategy<Value = String> {
             Just('&'),
             Just('!'),
             Just(':'),
-        ],
-        0usize..=6,
-    )
-    .prop_map(|chars| chars.into_iter().collect())
-}
-
-fn arb_double_quoted_payload() -> impl Strategy<Value = String> {
-    prop::collection::vec(
-        prop_oneof![
-            Just('a'),
-            Just('b'),
-            Just('1'),
-            Just(' '),
-            Just('#'),
-            Just(','),
-            Just('{'),
-            Just('}'),
-            Just('['),
-            Just(']'),
-            Just('*'),
-            Just('?'),
-            Just('&'),
-            Just('!'),
-            Just(':'),
+            arb_multibyte_char(),
         ],
         0usize..=6,
     )
@@ -67,8 +48,8 @@ fn arb_double_quoted_payload() -> impl Strategy<Value = String> {
 fn arb_scalar() -> impl Strategy<Value = Scalar> {
     prop_oneof![
         arb_plain_value().prop_map(Scalar::Plain),
-        arb_single_quoted_payload().prop_map(Scalar::SingleQuoted),
-        arb_double_quoted_payload().prop_map(Scalar::DoubleQuoted),
+        arb_quoted_payload().prop_map(Scalar::SingleQuoted),
+        arb_quoted_payload().prop_map(Scalar::DoubleQuoted),
     ]
 }
 
@@ -179,12 +160,20 @@ fn arb_multiline_line() -> impl Strategy<Value = MultilineLine> {
 }
 
 fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
-    (0u8..=2, "[a-z][a-z0-9 ]{0,8}").prop_map(|(spaces_after_hash, text)| {
-        InlineComment {
-            spaces_after_hash,
-            text,
-        }
-    })
+    (
+        0u8..=2,
+        "[a-z][a-z0-9 ]{0,8}",
+        prop::option::of(arb_multibyte_char()),
+    )
+        .prop_map(|(spaces_after_hash, mut text, multibyte)| {
+            if let Some(ch) = multibyte {
+                text.push(ch);
+            }
+            InlineComment {
+                spaces_after_hash,
+                text,
+            }
+        })
 }
 
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {

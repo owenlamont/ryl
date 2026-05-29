@@ -307,6 +307,13 @@ fn brackets_fix_normalizes_spacing() {
 }
 
 #[test]
+fn brackets_fix_ignores_brackets_inside_multibyte_scalars() {
+    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let fixed = brackets::fix("a: [['é', \"—[ \"]]\n", &cfg);
+    assert_eq!(fixed, None);
+}
+
+#[test]
 fn brackets_fix_ignores_comments_and_newlines() {
     let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
     let fixed = brackets::fix("object: [1, # comment\n  2]\n", &cfg);

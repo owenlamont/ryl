@@ -219,6 +219,21 @@ fn best_practice_preserves_trailing_comment_when_unquoting() {
 }
 
 #[test]
+fn best_practice_unquotes_after_multibyte_comment() {
+    let input = "# —\nfoo: 'value'\n";
+    let cfg = named_config("best-practice");
+    let before = parse_for_compare(input).expect("input parses");
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    let after = parse_for_compare(&fixed)
+        .expect("multibyte-comment input must remain parseable after fix");
+    assert_eq!(before, after, "parse must be preserved: {fixed:?}");
+    assert!(
+        fixed.contains("# —\n") && fixed.contains("foo: value\n"),
+        "byte offsets after a multibyte comment must not corrupt the fix (issue #232): {fixed:?}"
+    );
+}
+
+#[test]
 fn document_start_fix_keeps_utf8_bom_at_stream_start() {
     let input = "\u{feff}key: value\n";
     let cfg = YamlLintConfig::from_yaml_str("rules:\n  document-start: enable\n")

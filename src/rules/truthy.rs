@@ -4,6 +4,7 @@ use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::comment_start_preserving_quotes;
+use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 pub const ID: &str = "truthy";
 
@@ -101,12 +102,12 @@ struct TruthyState<'cfg> {
     key_depth: usize,
     current_version: (u32, u32),
     bad_truthy: Option<HashSet<String>>,
-    directives: Vec<(usize, (u32, u32))>,
+    directives: Vec<(BytePos, (u32, u32))>,
     directive_index: usize,
 }
 
 impl<'cfg> TruthyState<'cfg> {
-    const fn new(config: &'cfg Config, directives: Vec<(usize, (u32, u32))>) -> Self {
+    const fn new(config: &'cfg Config, directives: Vec<(BytePos, (u32, u32))>) -> Self {
         Self {
             config,
             containers: Vec::new(),
@@ -119,7 +120,8 @@ impl<'cfg> TruthyState<'cfg> {
     }
 
     fn document_start(&mut self, span: Span) {
-        self.current_version = self.version_for_document(span.start.index());
+        self.current_version =
+            self.version_for_document(marker_byte_offset(span.start));
         self.bad_truthy = None;
         self.key_depth = 0;
         self.containers.clear();
@@ -130,7 +132,7 @@ impl<'cfg> TruthyState<'cfg> {
         self.containers.clear();
     }
 
-    fn version_for_document(&mut self, doc_start: usize) -> (u32, u32) {
+    fn version_for_document(&mut self, doc_start: BytePos) -> (u32, u32) {
         let mut version = None;
         while self.directive_index < self.directives.len()
             && self.directives[self.directive_index].0 < doc_start
@@ -262,7 +264,7 @@ struct TruthyReceiver<'cfg> {
 
 #[allow(clippy::missing_const_for_fn)]
 impl<'cfg> TruthyReceiver<'cfg> {
-    fn new(cfg: &'cfg Config, directives: Vec<(usize, (u32, u32))>) -> Self {
+    fn new(cfg: &'cfg Config, directives: Vec<(BytePos, (u32, u32))>) -> Self {
         Self {
             state: TruthyState::new(cfg, directives),
             diagnostics: Vec::new(),
@@ -315,14 +317,14 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     diagnostics
 }
 
-fn collect_yaml_directives(buffer: &str) -> Vec<(usize, (u32, u32))> {
+fn collect_yaml_directives(buffer: &str) -> Vec<(BytePos, (u32, u32))> {
     let mut directives = Vec::new();
     let mut offset = 0;
     for segment in buffer.split_inclusive(['\n']) {
         let line = segment.trim_end_matches(['\n', '\r']);
         if let Some(version) = parse_yaml_directive(line) {
             let leading = line.len() - line.trim_start().len();
-            directives.push((offset + leading, version));
+            directives.push((BytePos::new(offset + leading), version));
         }
         offset += segment.len();
     }

@@ -153,6 +153,40 @@ fn fix_removes_redundant_quotes_with_cli_fix_flag() {
 }
 
 #[test]
+fn fix_handles_multibyte_comment_before_quoted_scalar() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join(".ryl.toml");
+    fs::write(
+        &config,
+        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let cases = [
+        ("# —\nfoo: ''\n", "# —\nfoo: ''\n"),
+        ("# —\nfoo: 'value'\n", "# —\nfoo: value\n"),
+        (
+            "café: \"a\\tb\"\nbar: 'value'\n",
+            "café: a\tb\nbar: value\n",
+        ),
+    ];
+
+    for (input, expected) in cases {
+        let file = dir.path().join("data.yaml");
+        fs::write(&file, input).unwrap();
+        let (code, _stdout, _stderr) = run(Command::new(exe)
+            .arg("-c")
+            .arg(&config)
+            .arg("--fix")
+            .arg(&file));
+        assert_eq!(code, 0, "fix should succeed for {input:?}");
+        let fixed = fs::read_to_string(&file).unwrap();
+        assert_eq!(fixed, expected, "fix mismatch for {input:?}");
+    }
+}
+
+#[test]
 fn fix_preserves_inline_comments_when_removing_quotes() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("data.yaml");

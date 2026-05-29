@@ -1,37 +1,78 @@
 use std::ops::Range;
 
-pub fn ranges_to_char_indices(
-    ranges: Vec<Range<usize>>,
-    chars: &[(usize, char)],
-    buffer_len: usize,
-) -> Vec<Range<usize>> {
-    ranges
-        .into_iter()
-        .map(|range| {
-            let start = byte_index_to_char(chars, range.start, buffer_len);
-            let end = byte_index_to_char(chars, range.end, buffer_len);
-            start..end
-        })
-        .collect()
-}
+use granit_parser::Marker;
 
-pub fn span_char_index_to_byte(
-    chars: &[(usize, char)],
-    char_idx: usize,
-    buffer_len: usize,
-) -> usize {
-    if char_idx >= chars.len() {
-        buffer_len
-    } else {
-        chars[char_idx].0
+/// A byte offset into a UTF-8 buffer. Valid for `&str` slicing and
+/// `String::replace_range`. Construct one only through the helpers here so a
+/// character index can never be silently used as a byte offset (issue #232).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct BytePos(usize);
+
+/// A character index, as reported by granit spans via `Marker::index`. Must be
+/// converted with [`char_pos_to_byte`] before it can address bytes.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct CharPos(usize);
+
+impl BytePos {
+    #[must_use]
+    pub const fn new(offset: usize) -> Self {
+        Self(offset)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
     }
 }
 
-fn byte_index_to_char(
+impl CharPos {
+    #[must_use]
+    pub const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+#[must_use]
+pub fn marker_byte_offset(marker: Marker) -> BytePos {
+    BytePos(
+        marker
+            .byte_offset()
+            .expect("granit Parser::new_from_str always populates byte offsets"),
+    )
+}
+
+#[must_use]
+pub fn char_pos_to_byte(
     chars: &[(usize, char)],
-    byte_idx: usize,
+    pos: CharPos,
     buffer_len: usize,
-) -> usize {
-    let clamped = byte_idx.min(buffer_len);
-    chars.partition_point(|(offset, _)| *offset < clamped)
+) -> BytePos {
+    if pos.0 >= chars.len() {
+        BytePos(buffer_len)
+    } else {
+        BytePos(chars[pos.0].0)
+    }
+}
+
+#[must_use]
+pub fn byte_slice(buffer: &str, range: Range<BytePos>) -> &str {
+    &buffer[range.start.0..range.end.0]
+}
+
+#[must_use]
+pub fn apply_replacements(
+    buffer: &str,
+    mut replacements: Vec<(BytePos, BytePos, String)>,
+) -> String {
+    replacements.sort_by_key(|(start, _, _)| std::cmp::Reverse(start.0));
+    let mut output = buffer.to_owned();
+    for (start, end, text) in replacements {
+        output.replace_range(start.0..end.0, &text);
+    }
+    output
 }

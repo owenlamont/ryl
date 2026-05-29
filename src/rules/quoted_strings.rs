@@ -5,6 +5,9 @@ use regex::Regex;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
+use crate::rules::support::span_utils::{
+    BytePos, apply_replacements, marker_byte_offset,
+};
 use crate::yaml_dom::Scalar;
 
 pub const ID: &str = "quoted-strings";
@@ -556,8 +559,8 @@ fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -
     }
 
     let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
-    let slice_start = scalar_start.saturating_add(1).min(buffer.len());
-    let mut slice_end = scalar_end.saturating_sub(1);
+    let slice_start = scalar_start.get().saturating_add(1).min(buffer.len());
+    let mut slice_end = scalar_end.get().saturating_sub(1);
     slice_end = slice_end.min(buffer.len());
     slice_end = slice_end.max(slice_start);
     buffer[slice_start..slice_end].contains('\\')
@@ -667,8 +670,8 @@ fn has_backslash_line_ending(buffer: &str, span: Span) -> bool {
 
     let (scalar_start, scalar_end) =
         scalar_source_bounds(buffer, ScalarStyle::DoubleQuoted, span);
-    let slice_start = scalar_start.saturating_add(1).min(buffer.len());
-    let mut slice_end = scalar_end.saturating_sub(1);
+    let slice_start = scalar_start.get().saturating_add(1).min(buffer.len());
+    let mut slice_end = scalar_end.get().saturating_sub(1);
     slice_end = slice_end.min(buffer.len());
     slice_end = slice_end.max(slice_start);
     let content = &buffer[slice_start..slice_end];
@@ -681,15 +684,15 @@ fn scalar_source_bounds(
     buffer: &str,
     style: ScalarStyle,
     span: Span,
-) -> (usize, usize) {
-    let start = span.start.index().min(buffer.len());
-    let span_end = span.end.index().min(buffer.len());
+) -> (BytePos, BytePos) {
+    let start = marker_byte_offset(span.start).get().min(buffer.len());
+    let span_end = marker_byte_offset(span.end).get().min(buffer.len());
     let end = match style {
         ScalarStyle::SingleQuoted => quoted_scalar_end(buffer, start, b'\''),
         ScalarStyle::DoubleQuoted => double_quoted_scalar_end(buffer, start),
         ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded => span_end,
     };
-    (start, end.max(start))
+    (BytePos::new(start), BytePos::new(end.max(start)))
 }
 
 fn quoted_scalar_end(buffer: &str, start: usize, quote: u8) -> usize {
@@ -735,7 +738,7 @@ fn double_quoted_scalar_end(buffer: &str, start: usize) -> usize {
     closing_quote.expect("double-quoted scalar event should include a closing quote")
 }
 
-type Replacement = (usize, usize, String);
+type Replacement = (BytePos, BytePos, String);
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
@@ -819,16 +822,10 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
     }
 
     fn finish(self) -> Option<String> {
-        let mut replacements = self.replacements;
-        if replacements.is_empty() {
+        if self.replacements.is_empty() {
             return None;
         }
-        replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
-        let mut output = self.state.buffer.to_owned();
-        for (start, end, replacement) in replacements {
-            output.replace_range(start..end, &replacement);
-        }
-        Some(output)
+        Some(apply_replacements(self.state.buffer, self.replacements))
     }
 }
 
@@ -999,8 +996,8 @@ impl<'cfg> FixState<'cfg> {
         &mut self,
         value: &str,
         facts: ScalarQuoteFacts,
-        start: usize,
-        end: usize,
+        start: BytePos,
+        end: BytePos,
     ) -> Option<Replacement> {
         match facts.style {
             None => {
@@ -1022,8 +1019,8 @@ impl<'cfg> FixState<'cfg> {
         &mut self,
         value: &str,
         facts: ScalarQuoteFacts,
-        start: usize,
-        end: usize,
+        start: BytePos,
+        end: BytePos,
     ) -> Option<Replacement> {
         match facts.style {
             None => {
@@ -1050,8 +1047,8 @@ impl<'cfg> FixState<'cfg> {
         value: &str,
         resolves_to_string: bool,
         facts: ScalarQuoteFacts,
-        start: usize,
-        end: usize,
+        start: BytePos,
+        end: BytePos,
     ) -> Option<Replacement> {
         match facts.style {
             None => {
@@ -1141,8 +1138,8 @@ fn value_needs_double_quotes_for_content(value: &str) -> bool {
 
 fn replacement_for_target(
     value: &str,
-    start: usize,
-    end: usize,
+    start: BytePos,
+    end: BytePos,
     target: QuoteStyle,
 ) -> Option<Replacement> {
     if target == QuoteStyle::Single && value_needs_double_quotes_for_content(value) {

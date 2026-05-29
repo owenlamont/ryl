@@ -12,6 +12,7 @@ use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::buffer_newline;
+use crate::rules::support::span_utils::{byte_slice, marker_byte_offset};
 
 pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
@@ -184,10 +185,10 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
     }
 
     fn marker(&self, span: Span) -> Marker {
-        let start = span.start.index().min(self.source.len());
-        let end = span.end.index().min(self.source.len());
+        let start = marker_byte_offset(span.start);
+        let end = marker_byte_offset(span.end);
         let slice = if start < end {
-            &self.source.as_bytes()[start..end]
+            byte_slice(self.source, start..end).as_bytes()
         } else {
             &[]
         };

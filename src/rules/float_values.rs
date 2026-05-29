@@ -1,7 +1,7 @@
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::span_utils::span_char_index_to_byte;
+use crate::rules::support::span_utils::{CharPos, char_pos_to_byte};
 
 pub const ID: &str = "float-values";
 
@@ -138,12 +138,18 @@ impl<'cfg, 'input> FloatValuesReceiver<'cfg, 'input> {
     }
 
     fn original_scalar<'a>(&'a self, span: Span, fallback: &'a str) -> &'a str {
-        let start_char = span.start.index();
-        let end_char = span.end.index();
-        let start = span_char_index_to_byte(&self.chars, start_char, self.buffer_len);
-        let end = span_char_index_to_byte(&self.chars, end_char, self.buffer_len);
-        let range_start = start.min(end);
-        let range_end = start.max(end);
+        let start = char_pos_to_byte(
+            &self.chars,
+            CharPos::new(span.start.index()),
+            self.buffer_len,
+        );
+        let end = char_pos_to_byte(
+            &self.chars,
+            CharPos::new(span.end.index()),
+            self.buffer_len,
+        );
+        let range_start = start.min(end).get();
+        let range_end = start.max(end).get();
         self.buffer.get(range_start..range_end).unwrap_or(fallback)
     }
 }

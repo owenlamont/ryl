@@ -2,7 +2,9 @@ use std::ops::Range;
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
-pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<usize>> {
+use crate::rules::support::span_utils::CharPos;
+
+pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
     let mut parser = Parser::new_from_str(buffer);
     let mut collector = ScalarRangeCollector::new();
     let _ = parser.load(&mut collector, true);
@@ -96,7 +98,7 @@ pub(crate) fn template_double_curly_end(
 }
 
 struct ScalarRangeCollector {
-    ranges: Vec<Range<usize>>,
+    ranges: Vec<Range<CharPos>>,
 }
 
 impl ScalarRangeCollector {
@@ -105,14 +107,14 @@ impl ScalarRangeCollector {
     }
 
     fn push_range(&mut self, span: Span) {
-        let start = span.start.index();
-        let end = span.end.index();
+        let start = CharPos::new(span.start.index());
+        let end = CharPos::new(span.end.index());
         if start < end {
             self.ranges.push(start..end);
         }
     }
 
-    fn into_sorted(mut self) -> Vec<Range<usize>> {
+    fn into_sorted(mut self) -> Vec<Range<CharPos>> {
         self.ranges.sort_by_key(|a| a.start);
         self.ranges
     }

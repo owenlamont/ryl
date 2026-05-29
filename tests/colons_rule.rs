@@ -30,6 +30,17 @@ fn empty_input_returns_no_violations() {
 }
 
 #[test]
+fn ignores_colon_inside_multibyte_quoted_scalar() {
+    let cfg = Config::new_for_tests(0, 1);
+    let input = format!("key: \"{}:  x\"\n", "—".repeat(8));
+    let points = violation_points(&input, cfg);
+    assert!(
+        points.is_empty(),
+        "a colon inside a multibyte scalar must be ignored: {points:?}"
+    );
+}
+
+#[test]
 fn detects_excess_spaces_before_colon() {
     let cfg = Config::new_for_tests(0, -1);
     let points = violation_points("key : value\n", cfg);
