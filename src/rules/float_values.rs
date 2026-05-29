@@ -1,7 +1,6 @@
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::span_utils::{CharPos, char_pos_to_byte};
 
 pub const ID: &str = "float-values";
 
@@ -70,8 +69,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 struct FloatValuesReceiver<'cfg, 'input> {
     config: &'cfg Config,
     buffer: &'input str,
-    chars: Vec<(usize, char)>,
-    buffer_len: usize,
     diagnostics: Vec<Violation>,
 }
 
@@ -80,8 +77,6 @@ impl<'cfg, 'input> FloatValuesReceiver<'cfg, 'input> {
         Self {
             config,
             buffer,
-            chars: buffer.char_indices().collect(),
-            buffer_len: buffer.len(),
             diagnostics: Vec::new(),
         }
     }
@@ -138,19 +133,7 @@ impl<'cfg, 'input> FloatValuesReceiver<'cfg, 'input> {
     }
 
     fn original_scalar<'a>(&'a self, span: Span, fallback: &'a str) -> &'a str {
-        let start = char_pos_to_byte(
-            &self.chars,
-            CharPos::new(span.start.index()),
-            self.buffer_len,
-        );
-        let end = char_pos_to_byte(
-            &self.chars,
-            CharPos::new(span.end.index()),
-            self.buffer_len,
-        );
-        let range_start = start.min(end).get();
-        let range_end = start.max(end).get();
-        self.buffer.get(range_start..range_end).unwrap_or(fallback)
+        span.slice(self.buffer).unwrap_or(fallback)
     }
 }
 

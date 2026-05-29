@@ -559,11 +559,14 @@ fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -
     }
 
     let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
-    let slice_start = scalar_start.get().saturating_add(1).min(buffer.len());
-    let mut slice_end = scalar_end.get().saturating_sub(1);
-    slice_end = slice_end.min(buffer.len());
-    slice_end = slice_end.max(slice_start);
-    buffer[slice_start..slice_end].contains('\\')
+    inner_quoted_content(buffer, scalar_start, scalar_end).contains('\\')
+}
+
+/// The text between a quoted scalar's surrounding quote bytes.
+fn inner_quoted_content(buffer: &str, start: BytePos, end: BytePos) -> &str {
+    let slice_start = start.get().saturating_add(1).min(buffer.len());
+    let slice_end = end.get().saturating_sub(1).max(slice_start);
+    &buffer[slice_start..slice_end]
 }
 
 fn quotes_are_needed(
@@ -670,11 +673,7 @@ fn has_backslash_line_ending(buffer: &str, span: Span) -> bool {
 
     let (scalar_start, scalar_end) =
         scalar_source_bounds(buffer, ScalarStyle::DoubleQuoted, span);
-    let slice_start = scalar_start.get().saturating_add(1).min(buffer.len());
-    let mut slice_end = scalar_end.get().saturating_sub(1);
-    slice_end = slice_end.min(buffer.len());
-    slice_end = slice_end.max(slice_start);
-    let content = &buffer[slice_start..slice_end];
+    let content = inner_quoted_content(buffer, scalar_start, scalar_end);
     let has_unix_backslash = content.contains("\\\n");
     let has_windows_backslash = content.contains("\\\r\n");
     has_unix_backslash || has_windows_backslash

@@ -8,8 +8,8 @@ use granit_parser::Marker;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct BytePos(usize);
 
-/// A character index, as reported by granit spans via `Marker::index`. Must be
-/// converted with [`char_pos_to_byte`] before it can address bytes.
+/// A character index, as reported by granit spans via `Marker::index`. Used to
+/// navigate a `char_indices` array; never used to address bytes directly.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct CharPos(usize);
 
@@ -47,21 +47,29 @@ pub fn marker_byte_offset(marker: Marker) -> BytePos {
 }
 
 #[must_use]
-pub fn char_pos_to_byte(
-    chars: &[(usize, char)],
-    pos: CharPos,
-    buffer_len: usize,
-) -> BytePos {
-    if pos.0 >= chars.len() {
-        BytePos(buffer_len)
-    } else {
-        BytePos(chars[pos.0].0)
-    }
-}
-
-#[must_use]
 pub fn byte_slice(buffer: &str, range: Range<BytePos>) -> &str {
     &buffer[range.start.0..range.end.0]
+}
+
+/// Advance `cursor` past scalar ranges ending at or before char index `idx`,
+/// then return the scalar range containing `idx`, if any. The flow-rule
+/// scanners call this to skip scalar interiors (where punctuation must be
+/// ignored); `cursor` persists across calls for a single left-to-right scan.
+#[must_use]
+pub fn containing_scalar_range<'a>(
+    ranges: &'a [Range<CharPos>],
+    cursor: &mut usize,
+    idx: usize,
+) -> Option<&'a Range<CharPos>> {
+    while ranges
+        .get(*cursor)
+        .is_some_and(|range| range.end.get() <= idx)
+    {
+        *cursor += 1;
+    }
+    ranges
+        .get(*cursor)
+        .filter(|range| idx >= range.start.get() && idx < range.end.get())
 }
 
 #[must_use]

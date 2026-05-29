@@ -6,7 +6,9 @@ use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, line_and_column, skip_comment, template_double_curly_end,
 };
-use crate::rules::support::span_utils::{BytePos, CharPos, apply_replacements};
+use crate::rules::support::span_utils::{
+    BytePos, CharPos, apply_replacements, containing_scalar_range,
+};
 
 macro_rules! define_rule {
     (
@@ -313,15 +315,8 @@ pub fn check(
     let mut violations = Vec::new();
 
     while idx < chars.len() {
-        while range_idx < scalar_ranges.len()
-            && scalar_ranges[range_idx].end.get() <= idx
-        {
-            range_idx += 1;
-        }
-
-        if let Some(range) = scalar_ranges.get(range_idx)
-            && idx >= range.start.get()
-            && idx < range.end.get()
+        if let Some(range) =
+            containing_scalar_range(&scalar_ranges, &mut range_idx, idx)
         {
             if idx == range.start.get()
                 && let Some(state) = stack.last_mut()
@@ -411,15 +406,8 @@ pub fn fix(
     let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
 
     while idx < chars.len() {
-        while range_idx < scalar_ranges.len()
-            && scalar_ranges[range_idx].end.get() <= idx
-        {
-            range_idx += 1;
-        }
-
-        if let Some(range) = scalar_ranges.get(range_idx)
-            && idx >= range.start.get()
-            && idx < range.end.get()
+        if let Some(range) =
+            containing_scalar_range(&scalar_ranges, &mut range_idx, idx)
         {
             if idx == range.start.get()
                 && let Some(state) = stack.last_mut()
