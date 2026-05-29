@@ -273,6 +273,16 @@ sticking to the quick-status step above.
 - Use meaningful function and variable names in tests—comments are discouraged.
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
+- CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment,
+  where `GITHUB_ACTIONS` makes ryl auto-select the GitHub output format
+  (`::error file=…,line=L,col=C::L:C [rule] message`) rather than the standard format
+  (`  L:C  level  message  (rule)`). Assert **format-agnostically**: match the bare
+  `line:col` (present verbatim in both formats) and the **bare rule id**
+  (`colons`, never `(colons)` — the GitHub format renders it `[colons]`). Do not
+  force `--format` to dodge this and do not assert a specific format's `(rule)`
+  parens or ANSI. The `cli_*_rule` tests follow this; only tests that exercise
+  formatting itself (`cli_format_options`, `yamllint_compat_*`) pin or scrub the
+  format via `--format`/`env_remove`.
 - The vendored SchemaStore yamllint snapshot lives at
   `tests/fixtures/schemastore-yamllint.json`; refresh it with
   `uv run scripts/update_yamllint_schemastore_snapshot.py` instead of fetching from
