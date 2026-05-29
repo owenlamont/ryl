@@ -486,36 +486,10 @@ impl YamlLintConfig {
         &self.fix
     }
 
-    fn build_yaml_matcher(&mut self, base_dir: &Path) {
-        if self.yaml_file_patterns.is_empty() {
-            self.yaml_matcher = None;
-            return;
-        }
-
-        let mut builder = GitignoreBuilder::new(base_dir);
-        builder.allow_unclosed_class(false);
-        for pat in &self.yaml_file_patterns {
-            let normalized = pat.trim_end_matches(['\r']);
-            let _ = builder.add_line(None, normalized);
-        }
-
-        self.yaml_matcher = builder.build().ok();
-    }
-
-    fn build_markdown_matcher(&mut self, base_dir: &Path) {
-        if self.markdown_file_patterns.is_empty() {
-            self.markdown_matcher = None;
-            return;
-        }
-
-        let mut builder = GitignoreBuilder::new(base_dir);
-        builder.allow_unclosed_class(false);
-        for pat in &self.markdown_file_patterns {
-            let normalized = pat.trim_end_matches(['\r']);
-            let _ = builder.add_line(None, normalized);
-        }
-
-        self.markdown_matcher = builder.build().ok();
+    fn build_file_kind_matchers(&mut self, base_dir: &Path) {
+        self.yaml_matcher = build_glob_matcher(base_dir, &self.yaml_file_patterns);
+        self.markdown_matcher =
+            build_glob_matcher(base_dir, &self.markdown_file_patterns);
     }
 
     /// Returns true when `path` should be ignored according to config patterns.
@@ -753,8 +727,7 @@ impl YamlLintConfig {
         self.per_file_ignore_matchers =
             build_per_file_ignores(&self.per_file_ignores, base_dir)?;
 
-        self.build_yaml_matcher(base_dir);
-        self.build_markdown_matcher(base_dir);
+        self.build_file_kind_matchers(base_dir);
 
         for rule in self.rules.values_mut() {
             rule.build_filter(envx, base_dir)?;
@@ -787,6 +760,19 @@ fn build_rule_filter(
     }
     filter.matcher = matcher;
     Ok(())
+}
+
+fn build_glob_matcher(base_dir: &Path, patterns: &[String]) -> Option<Gitignore> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mut builder = GitignoreBuilder::new(base_dir);
+    builder.allow_unclosed_class(false);
+    for pat in patterns {
+        let normalized = pat.trim_end_matches(['\r']);
+        let _ = builder.add_line(None, normalized);
+    }
+    builder.build().ok()
 }
 
 fn build_ignore_matcher(

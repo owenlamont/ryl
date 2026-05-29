@@ -43,6 +43,7 @@ pub struct TomlConfig {
 /// File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which
 /// files are linted as that kind. A file matching more than one kind is an error.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FilesTable {
     /// Glob patterns for files linted directly as YAML.
     pub yaml: Option<Vec<String>>,
@@ -52,6 +53,7 @@ pub struct FilesTable {
 
 /// Markdown embedding behaviour. ryl-only (TOML); yamllint has no equivalent.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MarkdownTable {
     /// Lint the leading YAML front matter block. Defaults to `true`.
     #[serde(rename = "front-matter")]

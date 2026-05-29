@@ -1,6 +1,7 @@
 {
   "$defs": {
     "FilesTable": {
+      "additionalProperties": false,
       "description": "File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which\nfiles are linted as that kind. A file matching more than one kind is an error.",
       "properties": {
         "markdown": {
@@ -122,6 +123,7 @@
       ]
     },
     "MarkdownTable": {
+      "additionalProperties": false,
       "description": "Markdown embedding behaviour. ryl-only (TOML); yamllint has no equivalent.",
       "properties": {
         "fenced-blocks": {

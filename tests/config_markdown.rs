@@ -82,3 +82,24 @@ fn yaml_files_key_is_rejected_in_toml() {
         "{err}"
     );
 }
+
+#[test]
+fn unknown_keys_in_files_and_markdown_tables_are_rejected() {
+    let path = PathBuf::from("/repo/.ryl.toml");
+    for body in [
+        "[files]\nyml = [\"*.md\"]\n",
+        "[markdown]\nfrontmatter = false\n",
+    ] {
+        let env = common::fake_env::FakeEnv::new().with_file(path.clone(), body);
+        let err = discover_config_with(
+            &[],
+            &Overrides {
+                config_file: Some(path.clone()),
+                config_data: None,
+            },
+            &env,
+        )
+        .expect_err("typo'd key must be rejected");
+        assert!(!err.is_empty(), "expected an error for: {body}");
+    }
+}
