@@ -105,6 +105,9 @@ pub fn apply_safe_fixes_to_files(
 ) -> Result<FixStats, String> {
     let mut stats = FixStats::default();
     for (path, base_dir, cfg) in files {
+        if cfg.is_markdown_candidate(path, base_dir) {
+            continue;
+        }
         if apply_safe_fixes_in_place(path, cfg, base_dir)? {
             stats.changed_files += 1;
         }

@@ -10,9 +10,10 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedConfig, NormalizedFixConfig, TomlConfig, normalize_toml_config,
-    normalized_config_to_toml_value, parse_toml_config_str, parse_yaml_config,
-    validate_toml_config, yaml_rule_filter_patterns, yaml_rule_level,
+    NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown, TomlConfig,
+    normalize_toml_config, normalized_config_to_toml_value, parse_toml_config_str,
+    parse_yaml_config, validate_toml_config, yaml_rule_filter_patterns,
+    yaml_rule_level,
 };
 use crate::{conf, decoder};
 
@@ -124,6 +125,10 @@ pub struct YamlLintConfig {
     rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
     yaml_matcher: Option<Gitignore>,
+    markdown_file_patterns: Vec<String>,
+    markdown_matcher: Option<Gitignore>,
+    lint_markdown_front_matter: bool,
+    lint_markdown_fenced_blocks: bool,
     locale: Option<String>,
     fix: FixConfig,
 }
@@ -357,6 +362,10 @@ impl Default for YamlLintConfig {
                 .map(|s| (*s).to_string())
                 .collect(),
             yaml_matcher: None,
+            markdown_file_patterns: Vec::new(),
+            markdown_matcher: None,
+            lint_markdown_front_matter: true,
+            lint_markdown_fenced_blocks: true,
             locale: None,
             fix: FixConfig::default(),
         }
@@ -484,6 +493,22 @@ impl YamlLintConfig {
         self.yaml_matcher = builder.build().ok();
     }
 
+    fn build_markdown_matcher(&mut self, base_dir: &Path) {
+        if self.markdown_file_patterns.is_empty() {
+            self.markdown_matcher = None;
+            return;
+        }
+
+        let mut builder = GitignoreBuilder::new(base_dir);
+        builder.allow_unclosed_class(false);
+        for pat in &self.markdown_file_patterns {
+            let normalized = pat.trim_end_matches(['\r']);
+            let _ = builder.add_line(None, normalized);
+        }
+
+        self.markdown_matcher = builder.build().ok();
+    }
+
     /// Returns true when `path` should be ignored according to config patterns.
     /// Matching is performed on the path relative to `base_dir`.
     #[must_use]
@@ -531,6 +556,32 @@ impl YamlLintConfig {
             return matched.is_ignore();
         }
         crate::discover::is_yaml_path(path)
+    }
+
+    /// Returns true when `path` is a markdown file to scan for embedded YAML.
+    /// Always false when markdown linting is disabled (no `markdown.files`).
+    #[must_use]
+    pub fn is_markdown_candidate(&self, path: &Path, base_dir: &Path) -> bool {
+        let Some(matcher) = &self.markdown_matcher else {
+            return false;
+        };
+        let rel: Cow<'_, Path> = path.strip_prefix(base_dir).map_or_else(
+            |_| Cow::Owned(path.file_name().map(PathBuf::from).unwrap_or_default()),
+            Cow::Borrowed,
+        );
+        matcher
+            .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
+            .is_ignore()
+    }
+
+    #[must_use]
+    pub fn markdown_front_matter(&self) -> bool {
+        self.lint_markdown_front_matter
+    }
+
+    #[must_use]
+    pub fn markdown_fenced_blocks(&self) -> bool {
+        self.lint_markdown_fenced_blocks
     }
 
     fn from_yaml_str_with_env(
@@ -612,6 +663,16 @@ impl YamlLintConfig {
             self.yaml_file_patterns = yaml_files;
         }
 
+        if let Some(markdown) = normalized.markdown {
+            self.markdown_file_patterns = markdown.files;
+            if let Some(front_matter) = markdown.front_matter {
+                self.lint_markdown_front_matter = front_matter;
+            }
+            if let Some(fenced_blocks) = markdown.fenced_blocks {
+                self.lint_markdown_fenced_blocks = fenced_blocks;
+            }
+        }
+
         if !normalized.per_file_ignores.is_empty() {
             self.per_file_ignores = normalized.per_file_ignores;
         }
@@ -655,6 +716,7 @@ impl YamlLintConfig {
             build_per_file_ignores(&self.per_file_ignores, base_dir)?;
 
         self.build_yaml_matcher(base_dir);
+        self.build_markdown_matcher(base_dir);
 
         for rule in self.rules.values_mut() {
             rule.build_filter(envx, base_dir)?;
@@ -912,6 +974,13 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
             .then(|| config.ignore_from_files.clone()),
         per_file_ignores: config.per_file_ignores.clone(),
         yaml_file_patterns: Some(config.yaml_file_patterns.clone()),
+        markdown: (!config.markdown_file_patterns.is_empty()).then(|| {
+            NormalizedMarkdown {
+                files: config.markdown_file_patterns.clone(),
+                front_matter: Some(config.lint_markdown_front_matter),
+                fenced_blocks: Some(config.lint_markdown_fenced_blocks),
+            }
+        }),
         locale: config.locale.clone(),
         fix: normalized_fix_config(&config.fix),
         rules: config

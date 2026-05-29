@@ -5,6 +5,11 @@ generated/**
 """
 locale = "en_US.UTF-8"
 
+[markdown]
+files = ["*.md", "*.markdown"]
+front-matter = true
+fenced-blocks = true
+
 [per-file-ignores]
 "**/values.yaml" = ["document-start"]
 "**/kustomization.yaml" = ["document-start"]

@@ -400,6 +400,14 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
 
     let mut initial_problem_count = 0usize;
     if cli.lint.fix.fix {
+        if files
+            .iter()
+            .any(|(path, base_dir, cfg)| cfg.is_markdown_candidate(path, base_dir))
+        {
+            eprintln!(
+                "note: --fix does not modify markdown files; embedded YAML is checked only"
+            );
+        }
         let initial_results = lint_files(&files);
         initial_problem_count = count_reported_problems(
             &initial_results,
@@ -537,8 +545,9 @@ fn gather_lint_files(
             }
         }
         let ignored = cfg.is_file_ignored(f, &base_dir);
-        let yaml_ok = cfg.is_yaml_candidate(f, &base_dir);
-        if !ignored && yaml_ok {
+        let lintable = cfg.is_yaml_candidate(f, &base_dir)
+            || cfg.is_markdown_candidate(f, &base_dir);
+        if !ignored && lintable {
             files.push((f.clone(), base_dir, cfg));
         }
     }
@@ -551,8 +560,9 @@ fn gather_lint_files(
             }
         }
         let ignored = cfg.is_file_ignored(ef, &base_dir);
-        let yaml_ok = cfg.is_yaml_candidate(ef, &base_dir);
-        if !ignored && yaml_ok {
+        let lintable = cfg.is_yaml_candidate(ef, &base_dir)
+            || cfg.is_markdown_candidate(ef, &base_dir);
+        if !ignored && lintable {
             files.push((ef.clone(), base_dir, cfg));
         }
     }

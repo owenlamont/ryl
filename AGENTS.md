@@ -335,6 +335,15 @@ sticking to the quick-status step above.
 - Directories: recursively scan `.yml`/`.yaml` files, honoring git ignore and
   git exclude; does not follow symlinks.
 - Files: parsed as YAML even if the extension is not `.yml`/`.yaml`.
+- Markdown embedding (TOML-only, off by default): a `[markdown]` table with
+  `files` glob patterns makes ryl extract YAML from matching Markdown files —
+  front matter and fenced `yaml`/`yml` blocks (each linted as its own document)
+  — with diagnostics mapped back to the Markdown file. `front-matter` and
+  `fenced-blocks` booleans (default true) select sources. The extractor lives in
+  `src/markdown_embed/` (fenced blocks via `pulldown-cmark`; front matter via a
+  line scan). `document-start`, `document-end`, `new-line-at-end-of-file`, and
+  `new-lines` are suppressed inside embedded regions. `--fix` skips Markdown
+  files (check-only) and prints a notice. See `docs/markdown.md`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets

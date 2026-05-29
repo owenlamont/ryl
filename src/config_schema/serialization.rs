@@ -2,8 +2,8 @@ use crate::yaml_dom::{MappingOwned, ScalarOwned, YamlOwned};
 use serde::Serialize;
 
 use super::{
-    FixTable, NormalizedConfig, NormalizedFixConfig, RuleName, RulesTable, StringOrVec,
-    TomlConfig, YamlConfig,
+    FixTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
+    RuleName, RulesTable, StringOrVec, TomlConfig, YamlConfig,
 };
 
 pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
@@ -136,6 +136,7 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
             .as_ref()
             .map_or_else(std::collections::BTreeMap::new, normalize_per_file_ignores),
         yaml_file_patterns: config.yaml_files.clone(),
+        markdown: config.markdown.as_ref().map(normalize_markdown_table),
         locale: config.locale.clone(),
         fix: config.fix.as_ref().map(normalize_fix_table),
         rules: config
@@ -145,12 +146,21 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     }
 }
 
+fn normalize_markdown_table(table: &MarkdownTable) -> NormalizedMarkdown {
+    NormalizedMarkdown {
+        files: table.files.clone().unwrap_or_default(),
+        front_matter: table.front_matter,
+        fenced_blocks: table.fenced_blocks,
+    }
+}
+
 pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
     NormalizedConfig {
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
         per_file_ignores: std::collections::BTreeMap::new(),
         yaml_file_patterns: config.yaml_files.clone(),
+        markdown: None,
         locale: config.locale.clone(),
         fix: None,
         rules: config
@@ -300,6 +310,13 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
         insert_string_array(&mut table, "yaml-files", yaml_files);
     }
 
+    if let Some(markdown) = config.markdown.as_ref() {
+        table.insert(
+            "markdown".to_string(),
+            normalized_markdown_to_toml_value(markdown),
+        );
+    }
+
     if let Some(ignore_from_file) = config.ignore_from_files.as_ref() {
         insert_string_array(&mut table, "ignore-from-file", ignore_from_file);
     } else if let Some(ignore) = config.ignore_patterns.as_ref() {
@@ -328,6 +345,20 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
         );
     }
 
+    toml::Value::Table(table)
+}
+
+fn normalized_markdown_to_toml_value(markdown: &NormalizedMarkdown) -> toml::Value {
+    let mut table = toml::map::Map::new();
+    insert_string_array(&mut table, "files", &markdown.files);
+    table.insert(
+        "front-matter".to_string(),
+        toml::Value::Boolean(markdown.front_matter.unwrap_or(true)),
+    );
+    table.insert(
+        "fenced-blocks".to_string(),
+        toml::Value::Boolean(markdown.fenced_blocks.unwrap_or(true)),
+    );
     toml::Value::Table(table)
 }
 

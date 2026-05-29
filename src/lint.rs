@@ -59,7 +59,13 @@ pub fn lint_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    Ok(lint_str(&content, path, cfg, base_dir))
+    if cfg.is_markdown_candidate(path, base_dir) {
+        Ok(crate::markdown_embed::lint_markdown_str(
+            &content, path, cfg, base_dir,
+        ))
+    } else {
+        Ok(lint_str(&content, path, cfg, base_dir))
+    }
 }
 
 /// Lint YAML content held in memory and return diagnostics in yamllint format

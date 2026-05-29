@@ -95,6 +95,36 @@
         }
       ]
     },
+    "MarkdownTable": {
+      "description": "Markdown embedding settings. ryl-only (TOML); yamllint has no equivalent.",
+      "properties": {
+        "fenced-blocks": {
+          "description": "Lint fenced `yaml`/`yml` code blocks. Defaults to `true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "files": {
+          "description": "Glob patterns identifying markdown files to scan for embedded YAML.\nLeaving this empty disables markdown linting.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "front-matter": {
+          "description": "Lint the leading YAML front matter block. Defaults to `true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "NewLinesType": {
       "enum": [
         "unix",
@@ -1814,6 +1844,17 @@
         "string",
         "null"
       ]
+    },
+    "markdown": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MarkdownTable"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Lint YAML embedded in markdown documents (front matter and fenced blocks)."
     },
     "per-file-ignores": {
       "additionalProperties": {

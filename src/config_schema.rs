@@ -20,6 +20,8 @@ pub struct TomlConfig {
     /// Glob patterns used to identify YAML files while scanning directories.
     #[serde(rename = "yaml-files")]
     pub yaml_files: Option<Vec<String>>,
+    /// Lint YAML embedded in markdown documents (front matter and fenced blocks).
+    pub markdown: Option<MarkdownTable>,
     /// Ignore patterns, either as one multi-line string or a list of patterns.
     pub ignore: Option<StringOrVec>,
     /// Paths to files that contain ignore patterns.
@@ -37,6 +39,20 @@ pub struct TomlConfig {
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
+}
+
+/// Markdown embedding settings. ryl-only (TOML); yamllint has no equivalent.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct MarkdownTable {
+    /// Glob patterns identifying markdown files to scan for embedded YAML.
+    /// Leaving this empty disables markdown linting.
+    pub files: Option<Vec<String>>,
+    /// Lint the leading YAML front matter block. Defaults to `true`.
+    #[serde(rename = "front-matter")]
+    pub front_matter: Option<bool>,
+    /// Lint fenced `yaml`/`yml` code blocks. Defaults to `true`.
+    #[serde(rename = "fenced-blocks")]
+    pub fenced_blocks: Option<bool>,
 }
 
 /// JSON Schema root for yamllint-compatible YAML configuration.
@@ -747,9 +763,17 @@ pub struct NormalizedConfig {
     pub ignore_from_files: Option<Vec<String>>,
     pub per_file_ignores: BTreeMap<String, Vec<String>>,
     pub yaml_file_patterns: Option<Vec<String>>,
+    pub markdown: Option<NormalizedMarkdown>,
     pub locale: Option<String>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NormalizedMarkdown {
+    pub files: Vec<String>,
+    pub front_matter: Option<bool>,
+    pub fenced_blocks: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
