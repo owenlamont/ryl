@@ -2,9 +2,7 @@ use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
 };
-use crate::rules::support::span_utils::{
-    ranges_to_char_indices, span_char_index_to_byte,
-};
+use crate::rules::support::span_utils::containing_scalar_range;
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
@@ -84,8 +82,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
     let scalar_ranges = collect_scalar_ranges(buffer);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let buffer_len = buffer.len();
-    let scalar_ranges = ranges_to_char_indices(scalar_ranges, &chars, buffer_len);
     let line_starts = build_line_starts(buffer);
 
     let mut scalar_idx = 0usize;
@@ -93,28 +89,14 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     while idx < chars.len() {
-        let (byte_idx, ch) = chars[idx];
-
-        while scalar_idx < scalar_ranges.len()
-            && span_char_index_to_byte(
-                &chars,
-                scalar_ranges[scalar_idx].end,
-                buffer_len,
-            ) <= byte_idx
+        if let Some(range) =
+            containing_scalar_range(&scalar_ranges, &mut scalar_idx, idx)
         {
-            scalar_idx += 1;
+            idx = range.end.get();
+            continue;
         }
 
-        if let Some(range) = scalar_ranges.get(scalar_idx) {
-            let start_byte = span_char_index_to_byte(&chars, range.start, buffer_len);
-            let end_byte = span_char_index_to_byte(&chars, range.end, buffer_len);
-            if byte_idx >= start_byte && byte_idx < end_byte {
-                idx = range.end;
-                continue;
-            }
-        }
-
-        match ch {
+        match chars[idx].1 {
             '#' => {
                 idx = skip_comment(&chars, idx);
                 continue;

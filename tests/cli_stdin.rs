@@ -11,12 +11,13 @@ fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn ryl");
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(input)
-        .expect("write stdin");
+    if let Err(error) = child.stdin.as_mut().expect("stdin").write_all(input) {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "write stdin: {error}"
+        );
+    }
     let out = child.wait_with_output().expect("wait");
     let code = out.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();

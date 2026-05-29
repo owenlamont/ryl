@@ -3,7 +3,9 @@ use crate::rules::support::punctuation::{
     build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
     template_double_curly_end,
 };
-use crate::rules::support::span_utils::span_char_index_to_byte;
+use crate::rules::support::span_utils::{
+    BytePos, apply_replacements, containing_scalar_range,
+};
 
 pub const ID: &str = "commas";
 const TOO_MANY_BEFORE: &str = "too many spaces before comma";
@@ -102,7 +104,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
     let scalar_ranges = collect_scalar_ranges(buffer);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let buffer_len = buffer.len();
     let line_starts = build_line_starts(buffer);
 
     let mut violations = Vec::new();
@@ -111,25 +112,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut range_idx = 0usize;
 
     while i < chars.len() {
-        let (byte_idx, ch) = chars[i];
-
-        while range_idx < scalar_ranges.len()
-            && span_char_index_to_byte(&chars, scalar_ranges[range_idx].end, buffer_len)
-                <= byte_idx
+        if let Some(range) = containing_scalar_range(&scalar_ranges, &mut range_idx, i)
         {
-            range_idx += 1;
+            i = range.end.get();
+            continue;
         }
 
-        if let Some(range) = scalar_ranges.get(range_idx) {
-            let start_byte = span_char_index_to_byte(&chars, range.start, buffer_len);
-            let end_byte = span_char_index_to_byte(&chars, range.end, buffer_len);
-            if byte_idx >= start_byte && byte_idx < end_byte {
-                i = range.end;
-                continue;
-            }
-        }
-
-        match ch {
+        match chars[i].1 {
             '[' => contexts.push(FlowKind::Sequence),
             '{' => {
                 if let Some(next_idx) = template_double_curly_end(&chars, i) {
@@ -165,33 +154,20 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 
     let scalar_ranges = collect_scalar_ranges(buffer);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let buffer_len = buffer.len();
 
-    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
+    let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
     let mut contexts: Vec<FlowKind> = Vec::new();
     let mut i = 0usize;
     let mut range_idx = 0usize;
 
     while i < chars.len() {
-        let (byte_idx, ch) = chars[i];
-
-        while range_idx < scalar_ranges.len()
-            && span_char_index_to_byte(&chars, scalar_ranges[range_idx].end, buffer_len)
-                <= byte_idx
+        if let Some(range) = containing_scalar_range(&scalar_ranges, &mut range_idx, i)
         {
-            range_idx += 1;
+            i = range.end.get();
+            continue;
         }
 
-        if let Some(range) = scalar_ranges.get(range_idx) {
-            let start_byte = span_char_index_to_byte(&chars, range.start, buffer_len);
-            let end_byte = span_char_index_to_byte(&chars, range.end, buffer_len);
-            if byte_idx >= start_byte && byte_idx < end_byte {
-                i = range.end;
-                continue;
-            }
-        }
-
-        match ch {
+        match chars[i].1 {
             '[' => contexts.push(FlowKind::Sequence),
             '{' => {
                 if let Some(next_idx) = template_double_curly_end(&chars, i) {
@@ -216,7 +192,10 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         i += 1;
     }
 
-    apply_replacements(buffer, replacements)
+    if replacements.is_empty() {
+        return None;
+    }
+    Some(apply_replacements(buffer, replacements))
 }
 
 fn evaluate_comma(
@@ -337,7 +316,7 @@ fn collect_comma_fixes(
     cfg: &Config,
     chars: &[(usize, char)],
     comma_idx: usize,
-    replacements: &mut Vec<(usize, usize, String)>,
+    replacements: &mut Vec<(BytePos, BytePos, String)>,
 ) {
     if let BeforeResult::SameLine { spaces, start_idx } =
         compute_spaces_before(chars, comma_idx)
@@ -346,8 +325,8 @@ fn collect_comma_fixes(
         let target = usize::try_from(cfg.max_spaces_before).unwrap_or(usize::MAX);
         if spaces > target {
             replacements.push((
-                chars[start_idx].0,
-                chars[comma_idx].0,
+                BytePos::new(chars[start_idx].0),
+                BytePos::new(chars[comma_idx].0),
                 " ".repeat(target),
             ));
         }
@@ -359,8 +338,8 @@ fn collect_comma_fixes(
         && target != spaces
     {
         replacements.push((
-            chars[comma_idx].0 + chars[comma_idx].1.len_utf8(),
-            chars[next_char].0,
+            BytePos::new(chars[comma_idx].0 + chars[comma_idx].1.len_utf8()),
+            BytePos::new(chars[next_char].0),
             " ".repeat(target),
         ));
     }
@@ -375,23 +354,6 @@ fn target_spaces_after(cfg: &Config, current: usize) -> Option<usize> {
     };
     let target = current.max(min_spaces).min(max_spaces);
     (target != current).then_some(target)
-}
-
-fn apply_replacements(
-    buffer: &str,
-    mut replacements: Vec<(usize, usize, String)>,
-) -> Option<String> {
-    if replacements.is_empty() {
-        return None;
-    }
-
-    replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
-
-    let mut output = buffer.to_string();
-    for (start, end, replacement) in replacements {
-        output.replace_range(start..end, &replacement);
-    }
-    Some(output)
 }
 
 #[doc(hidden)]

@@ -55,6 +55,17 @@ fn respects_yaml_version_directive() {
 }
 
 #[test]
+fn applies_yaml_version_directive_after_multibyte_comment() {
+    let resolved = build_config("rules:\n  truthy: enable\n");
+    let input = format!("# {}\n%YAML 1.2\n---\non: 1\n", "—".repeat(10));
+    let hits = truthy::check(&input, &resolved);
+    assert!(
+        hits.is_empty(),
+        "the %YAML 1.2 directive must apply despite the multibyte comment: {hits:?}"
+    );
+}
+
+#[test]
 fn skips_keys_when_disabled() {
     let resolved = build_config(
         "rules:\n  truthy:\n    allowed-values: []\n    check-keys: false\n",

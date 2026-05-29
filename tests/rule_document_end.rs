@@ -4,6 +4,17 @@ use ryl::rules::document_end::{
 };
 
 #[test]
+fn detects_end_marker_after_multibyte_comment() {
+    let cfg = Config::new_for_tests(true);
+    let input = "# —\n---\nfoo: bar\n...\n";
+    let hits = document_end::check(input, &cfg);
+    assert!(
+        hits.is_empty(),
+        "end marker after a multibyte comment must be detected: {hits:?}"
+    );
+}
+
+#[test]
 fn reports_missing_marker_at_stream_end() {
     let cfg = Config::new_for_tests(true);
     let input = "---\nwithout:\n  document: end\n";

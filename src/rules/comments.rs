@@ -1,6 +1,7 @@
 use granit_parser::{Event, Parser, Placement, Span};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::span_utils::{BytePos, apply_replacements};
 
 pub const ID: &str = "comments";
 
@@ -124,7 +125,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 /// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let mut edits: Vec<(usize, String)> = Vec::new();
+    let mut edits: Vec<(BytePos, BytePos, String)> = Vec::new();
 
     for comment in collect_comments(buffer) {
         let byte_start = comment
@@ -146,7 +147,8 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
                 .take_while(|ch| matches!(ch, ' ' | '\t'))
                 .count();
             if spacing < required {
-                edits.push((byte_start, " ".repeat(required - spacing)));
+                let at = BytePos::new(byte_start);
+                edits.push((at, at, " ".repeat(required - spacing)));
             }
         }
 
@@ -170,10 +172,8 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         }
 
         if next_char != ' ' {
-            edits.push((
-                byte_start + '#'.len_utf8() + extra_hash_bytes,
-                " ".to_string(),
-            ));
+            let at = BytePos::new(byte_start + '#'.len_utf8() + extra_hash_bytes);
+            edits.push((at, at, " ".to_string()));
         }
     }
 
@@ -181,12 +181,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         return None;
     }
 
-    edits.sort_by_key(|edit| std::cmp::Reverse(edit.0));
-    let mut output = buffer.to_string();
-    for (offset, text) in edits {
-        output.insert_str(offset, &text);
-    }
-    Some(output)
+    Some(apply_replacements(buffer, edits))
 }
 
 struct CommentInfo {

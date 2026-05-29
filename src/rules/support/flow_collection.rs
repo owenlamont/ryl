@@ -6,7 +6,9 @@ use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, line_and_column, skip_comment, template_double_curly_end,
 };
-use crate::rules::support::span_utils::ranges_to_char_indices;
+use crate::rules::support::span_utils::{
+    BytePos, CharPos, apply_replacements, containing_scalar_range,
+};
 
 macro_rules! define_rule {
     (
@@ -245,7 +247,7 @@ pub struct FlowCollectionDescriptor {
 }
 
 struct ScalarRangeCollector {
-    ranges: Vec<(usize, usize)>,
+    ranges: Vec<(CharPos, CharPos)>,
 }
 
 impl ScalarRangeCollector {
@@ -253,7 +255,7 @@ impl ScalarRangeCollector {
         Self { ranges: Vec::new() }
     }
 
-    fn into_sorted(mut self) -> Vec<Range<usize>> {
+    fn into_sorted(mut self) -> Vec<Range<CharPos>> {
         self.ranges.sort_by_key(|a| a.0);
         self.ranges
             .into_iter()
@@ -265,8 +267,8 @@ impl ScalarRangeCollector {
 impl SpannedEventReceiver<'_> for ScalarRangeCollector {
     fn on_event(&mut self, ev: Event<'_>, span: Span) {
         if matches!(ev, Event::Scalar(..)) {
-            let start = span.start.index();
-            let end = span.end.index();
+            let start = CharPos::new(span.start.index());
+            let end = CharPos::new(span.end.index());
             self.ranges.push((start, end));
         }
     }
@@ -305,8 +307,6 @@ pub fn check(
     let scalar_ranges = collector.into_sorted();
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let buffer_len = buffer.len();
-    let scalar_ranges = ranges_to_char_indices(scalar_ranges, &chars, buffer_len);
     let line_starts = build_line_starts(buffer);
 
     let mut range_idx = 0usize;
@@ -315,20 +315,15 @@ pub fn check(
     let mut violations = Vec::new();
 
     while idx < chars.len() {
-        while range_idx < scalar_ranges.len() && scalar_ranges[range_idx].end <= idx {
-            range_idx += 1;
-        }
-
-        if let Some(range) = scalar_ranges.get(range_idx)
-            && idx >= range.start
-            && idx < range.end
+        if let Some(range) =
+            containing_scalar_range(&scalar_ranges, &mut range_idx, idx)
         {
-            if idx == range.start
+            if idx == range.start.get()
                 && let Some(state) = stack.last_mut()
             {
                 state.is_empty = false;
             }
-            idx = range.end;
+            idx = range.end.get();
             continue;
         }
 
@@ -404,29 +399,22 @@ pub fn fix(
     let scalar_ranges = collector.into_sorted();
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let buffer_len = buffer.len();
-    let scalar_ranges = ranges_to_char_indices(scalar_ranges, &chars, buffer_len);
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
     let mut stack: Vec<CollectionState> = Vec::new();
-    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
+    let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
 
     while idx < chars.len() {
-        while range_idx < scalar_ranges.len() && scalar_ranges[range_idx].end <= idx {
-            range_idx += 1;
-        }
-
-        if let Some(range) = scalar_ranges.get(range_idx)
-            && idx >= range.start
-            && idx < range.end
+        if let Some(range) =
+            containing_scalar_range(&scalar_ranges, &mut range_idx, idx)
         {
-            if idx == range.start
+            if idx == range.start.get()
                 && let Some(state) = stack.last_mut()
             {
                 state.is_empty = false;
             }
-            idx = range.end;
+            idx = range.end.get();
             continue;
         }
 
@@ -464,7 +452,10 @@ pub fn fix(
         idx += 1;
     }
 
-    apply_replacements(buffer, replacements)
+    if replacements.is_empty() {
+        return None;
+    }
+    Some(apply_replacements(buffer, replacements))
 }
 
 fn handle_open(
@@ -552,7 +543,7 @@ fn fix_open(
     desc: &FlowCollectionDescriptor,
     chars: &[(usize, char)],
     idx: usize,
-    replacements: &mut Vec<(usize, usize, String)>,
+    replacements: &mut Vec<(BytePos, BytePos, String)>,
 ) -> CollectionState {
     let next_significant = next_significant_index(chars, idx);
     let mut state = CollectionState {
@@ -571,8 +562,8 @@ fn fix_open(
 
         if target != spaces {
             replacements.push((
-                chars[idx].0 + chars[idx].1.len_utf8(),
-                chars[next_idx].0,
+                BytePos::new(chars[idx].0 + chars[idx].1.len_utf8()),
+                BytePos::new(chars[next_idx].0),
                 " ".repeat(target),
             ));
         }
@@ -625,7 +616,7 @@ fn fix_close(
     chars: &[(usize, char)],
     idx: usize,
     stack: &mut Vec<CollectionState>,
-    replacements: &mut Vec<(usize, usize, String)>,
+    replacements: &mut Vec<(BytePos, BytePos, String)>,
 ) {
     let Some(state) = stack.pop() else {
         return;
@@ -643,7 +634,11 @@ fn fix_close(
     if target == spaces {
         return;
     }
-    replacements.push((chars[start_idx].0, chars[idx].0, " ".repeat(target)));
+    replacements.push((
+        BytePos::new(chars[start_idx].0),
+        BytePos::new(chars[idx].0),
+        " ".repeat(target),
+    ));
 }
 
 fn record_after_spacing(
@@ -741,21 +736,4 @@ fn target_spacing(current: usize, min: i64, max: i64) -> usize {
     let min_spaces = usize::try_from(min).ok().unwrap_or(0);
     let max_spaces = usize::try_from(max).ok().unwrap_or(usize::MAX);
     current.max(min_spaces).min(max_spaces)
-}
-
-fn apply_replacements(
-    buffer: &str,
-    mut replacements: Vec<(usize, usize, String)>,
-) -> Option<String> {
-    if replacements.is_empty() {
-        return None;
-    }
-
-    replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
-
-    let mut output = buffer.to_string();
-    for (start, end, replacement) in replacements {
-        output.replace_range(start..end, &replacement);
-    }
-    Some(output)
 }
