@@ -57,6 +57,13 @@ cargo install ryl                   # cargo
   features that have no upstream equivalent: the `[fix]` table,
   `[per-file-ignores]`, and rule options such as
   `allow-double-quotes-for-escaping`.
+- TOML assigns each file a source kind via the `[files]` table
+  (`yaml = [...]`, `markdown = [...]`). The legacy `yaml-files` key is YAML-only;
+  in TOML use `[files].yaml`.
+- YAML embedded in Markdown (front matter and fenced `yaml`/`yml` blocks)
+  can be linted by listing globs under `[files].markdown`; diagnostics map back
+  to the Markdown file. It is off by default and check-only (`--fix` does not
+  modify Markdown). See <https://ryl-docs.pages.dev/markdown/>.
 - yamllint-style YAML configuration is also accepted (`.yamllint`,
   `.yamllint.yml`, `.yamllint.yaml`) for drop-in compatibility, including
   the built-in `default`, `relaxed`, and `empty` presets via `extends`.

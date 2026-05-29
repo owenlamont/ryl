@@ -1,9 +1,16 @@
-yaml-files = ["*.yaml", "*.yml", ".yamllint"]
 ignore = """
 vendor/**
 generated/**
 """
 locale = "en_US.UTF-8"
+
+[files]
+yaml = ["*.yaml", "*.yml", ".yamllint"]
+markdown = ["*.md", "*.markdown"]
+
+[markdown]
+front-matter = true
+fenced-blocks = true
 
 [per-file-ignores]
 "**/values.yaml" = ["document-start"]

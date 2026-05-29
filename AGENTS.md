@@ -273,6 +273,16 @@ sticking to the quick-status step above.
 - Use meaningful function and variable names in tests—comments are discouraged.
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
+- CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment,
+  where `GITHUB_ACTIONS` makes ryl auto-select the GitHub output format
+  (`::error file=…,line=L,col=C::L:C [rule] message`) rather than the standard format
+  (`  L:C  level  message  (rule)`). Assert **format-agnostically**: match the bare
+  `line:col` (present verbatim in both formats) and the **bare rule id**
+  (`colons`, never `(colons)` — the GitHub format renders it `[colons]`). Do not
+  force `--format` to dodge this and do not assert a specific format's `(rule)`
+  parens or ANSI. The `cli_*_rule` tests follow this; only tests that exercise
+  formatting itself (`cli_format_options`, `yamllint_compat_*`) pin or scrub the
+  format via `--format`/`env_remove`.
 - The vendored SchemaStore yamllint snapshot lives at
   `tests/fixtures/schemastore-yamllint.json`; refresh it with
   `uv run scripts/update_yamllint_schemastore_snapshot.py` instead of fetching from
@@ -332,9 +342,25 @@ sticking to the quick-status step above.
 ## CLI Behavior
 
 - Accepts one or more inputs: files, directories, or `-` to read from stdin.
-- Directories: recursively scan `.yml`/`.yaml` files, honoring git ignore and
-  git exclude; does not follow symlinks.
-- Files: parsed as YAML even if the extension is not `.yml`/`.yaml`.
+- Directories: recursively scanned, honoring git ignore and git exclude; does not
+  follow symlinks. Each file's source kind is resolved from the `[files]` globs
+  (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
+- Files named explicitly are linted as their resolved source kind; one that
+  matches no `[files]` kind is rejected with an error (rather than silently
+  treated as YAML).
+- Source kinds (`config::SourceKind`): the `[files]` TOML table maps `yaml` and
+  `markdown` to glob lists (`yaml` defaults to `*.yaml`/`*.yml`/`.yamllint`). A
+  file matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
+  `[files].yaml`); it remains valid in the legacy YAML config.
+- Markdown embedding (off by default; enabled by listing `[files].markdown`
+  globs): ryl extracts front matter and fenced `yaml`/`yml` blocks (each linted as
+  its own document), mapping diagnostics back to the Markdown file. The
+  `[markdown]` table's `front-matter`/`fenced-blocks` booleans (default true)
+  select sources. The extractor lives in `src/markdown_embed/` (fenced blocks via
+  `pulldown-cmark`; front matter via a line scan). `document-start`,
+  `document-end`, `new-line-at-end-of-file`, and `new-lines` are suppressed inside
+  embedded regions. `--fix` skips Markdown files (check-only) and prints a notice.
+  See `docs/markdown.md`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets

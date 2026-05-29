@@ -20,7 +20,7 @@ fn project_toml_overrides_yaml_and_emits_single_warning() {
     fs::write(root.join("dir/b.yaml"), "b: 2\n").unwrap();
     fs::write(
         root.join(".ryl.toml"),
-        "yaml-files = ['**/a.yaml', '**/b.yaml']\n[rules]\nanchors = 'disable'\n",
+        "files = { yaml = ['**/a.yaml', '**/b.yaml'] }\n[rules]\nanchors = 'disable'\n",
     )
     .unwrap();
     fs::write(root.join(".yamllint"), "yaml-files: ['**/a.yaml']\n").unwrap();

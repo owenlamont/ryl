@@ -14,9 +14,13 @@ pub mod decoder;
 pub mod discover;
 pub mod fix;
 pub mod lint;
+pub mod markdown_embed;
 pub mod migrate;
 pub mod rules;
 pub mod yaml_dom;
 
 pub use discover::{gather_yaml_from_dir, is_yaml_path};
-pub use lint::{LintProblem, Severity, lint_file, lint_str};
+pub use lint::{LintProblem, Severity, lint_file, lint_markdown_file, lint_str};
+pub use markdown_embed::{
+    EmbeddedRegion, MarkdownSources, RegionKind, extract_regions, lint_markdown_str,
+};

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::YamlLintConfig;
+use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
@@ -101,10 +101,13 @@ pub fn apply_safe_fixes_in_place(
 ///
 /// Returns an error if any file cannot be read or any fixed contents cannot be written.
 pub fn apply_safe_fixes_to_files(
-    files: &[(PathBuf, PathBuf, YamlLintConfig)],
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
 ) -> Result<FixStats, String> {
     let mut stats = FixStats::default();
-    for (path, base_dir, cfg) in files {
+    for (path, base_dir, cfg, kind) in files {
+        if *kind == SourceKind::Markdown {
+            continue;
+        }
         if apply_safe_fixes_in_place(path, cfg, base_dir)? {
             stats.changed_files += 1;
         }

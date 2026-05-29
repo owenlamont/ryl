@@ -1,6 +1,6 @@
 use std::fs;
 
-use ryl::config::{Overrides, YamlLintConfig, discover_config};
+use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{
     apply_safe_fixes, apply_safe_fixes_in_place, apply_safe_fixes_to_files,
 };
@@ -155,8 +155,18 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
     fs::write(&second, "alpha: beta").unwrap();
     let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
     let files = vec![
-        (first.clone(), dir.path().to_path_buf(), cfg.clone()),
-        (second.clone(), dir.path().to_path_buf(), cfg),
+        (
+            first.clone(),
+            dir.path().to_path_buf(),
+            cfg.clone(),
+            SourceKind::Yaml,
+        ),
+        (
+            second.clone(),
+            dir.path().to_path_buf(),
+            cfg,
+            SourceKind::Yaml,
+        ),
     ];
 
     let stats = apply_safe_fixes_to_files(&files).expect("fixes succeed");

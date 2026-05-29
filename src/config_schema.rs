@@ -17,9 +17,10 @@ pub use serialization::{
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(title = "ryl TOML config")]
 pub struct TomlConfig {
-    /// Glob patterns used to identify YAML files while scanning directories.
-    #[serde(rename = "yaml-files")]
-    pub yaml_files: Option<Vec<String>>,
+    /// Glob patterns assigning files to source kinds (`yaml`, `markdown`).
+    pub files: Option<FilesTable>,
+    /// Behaviour for YAML embedded in markdown (front matter and fenced blocks).
+    pub markdown: Option<MarkdownTable>,
     /// Ignore patterns, either as one multi-line string or a list of patterns.
     pub ignore: Option<StringOrVec>,
     /// Paths to files that contain ignore patterns.
@@ -37,6 +38,29 @@ pub struct TomlConfig {
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
+}
+
+/// File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which
+/// files are linted as that kind. A file matching more than one kind is an error.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FilesTable {
+    /// Glob patterns for files linted directly as YAML.
+    pub yaml: Option<Vec<String>>,
+    /// Glob patterns for markdown files whose embedded YAML is linted.
+    pub markdown: Option<Vec<String>>,
+}
+
+/// Markdown embedding behaviour. ryl-only (TOML); yamllint has no equivalent.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownTable {
+    /// Lint the leading YAML front matter block. Defaults to `true`.
+    #[serde(rename = "front-matter")]
+    pub front_matter: Option<bool>,
+    /// Lint fenced `yaml`/`yml` code blocks. Defaults to `true`.
+    #[serde(rename = "fenced-blocks")]
+    pub fenced_blocks: Option<bool>,
 }
 
 /// JSON Schema root for yamllint-compatible YAML configuration.
@@ -696,6 +720,14 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         );
     }
 
+    if config.extra.contains_key("yaml-files") {
+        return Err(
+            "invalid config: `yaml-files` is not valid in TOML; use `[files]` with \
+             `yaml = [...]` instead"
+                .to_string(),
+        );
+    }
+
     validate_common_config(
         config.ignore.as_ref(),
         config.ignore_from_file.as_ref(),
@@ -747,9 +779,17 @@ pub struct NormalizedConfig {
     pub ignore_from_files: Option<Vec<String>>,
     pub per_file_ignores: BTreeMap<String, Vec<String>>,
     pub yaml_file_patterns: Option<Vec<String>>,
+    pub markdown_file_patterns: Option<Vec<String>>,
+    pub markdown: Option<NormalizedMarkdown>,
     pub locale: Option<String>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NormalizedMarkdown {
+    pub front_matter: Option<bool>,
+    pub fenced_blocks: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]

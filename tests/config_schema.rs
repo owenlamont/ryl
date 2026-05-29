@@ -704,7 +704,7 @@ fn normalize_toml_config_flattens_top_level_fields_and_rules() {
     let parsed = parse_toml_config_str(
         r#"
 ignore = "vendor/**"
-yaml-files = ["*.yaml"]
+files = { yaml = ["*.yaml"] }
 
 [fix]
 unfixable = ["comments"]

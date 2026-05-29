@@ -1,4 +1,5 @@
-yaml-files = [
+[files]
+yaml = [
     "*.yaml",
     "*.yml",
     ".yamllint",
