@@ -16,7 +16,9 @@ use clap::{Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::resolve_ctx;
-use ryl::config::{ConfigContext, Overrides, YamlLintConfig, discover_config};
+use ryl::config::{
+    ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
+};
 use ryl::config_schema::{schema_string_pretty, yaml_schema_string_pretty};
 use ryl::decoder;
 use ryl::fix::apply_safe_fixes_to_files;
@@ -24,7 +26,7 @@ use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
 };
-use ryl::{LintProblem, Severity, lint_file, lint_str};
+use ryl::{LintProblem, Severity, lint_file, lint_markdown_file, lint_str};
 
 const STDIN_LABEL: &str = "<stdin>";
 
@@ -377,7 +379,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
     let mut emitted_notices: HashSet<String> = HashSet::new();
-    let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig)> = Vec::new();
+    let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)> = Vec::new();
     gather_lint_files(
         &candidates,
         &explicit_files,
@@ -400,10 +402,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
 
     let mut initial_problem_count = 0usize;
     if cli.lint.fix.fix {
-        if files
-            .iter()
-            .any(|(path, base_dir, cfg)| cfg.is_markdown_candidate(path, base_dir))
-        {
+        if files.iter().any(|(.., kind)| *kind == SourceKind::Markdown) {
             eprintln!(
                 "note: --fix does not modify markdown files; embedded YAML is checked only"
             );
@@ -466,7 +465,7 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg);
 
-    let files = vec![(path, base_dir, cfg)];
+    let files = vec![(path, base_dir, cfg, SourceKind::Yaml)];
     let results = vec![(0usize, outcome)];
 
     let output_format = detect_output_format(cli.format);
@@ -517,12 +516,18 @@ fn resolve_stdin_ctx(
 }
 
 fn lint_files(
-    files: &[(PathBuf, PathBuf, YamlLintConfig)],
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
 ) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
     let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
         .par_iter()
         .enumerate()
-        .map(|(idx, (path, base_dir, cfg))| (idx, lint_file(path, cfg, base_dir)))
+        .map(|(idx, (path, base_dir, cfg, kind))| {
+            let result = match kind {
+                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+                SourceKind::Yaml => lint_file(path, cfg, base_dir),
+            };
+            (idx, result)
+        })
         .collect();
     results.sort_by_key(|(idx, _)| *idx);
     results
@@ -535,7 +540,7 @@ fn gather_lint_files(
     global_cfg: Option<&ConfigContext>,
     cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
     emitted_notices: &mut HashSet<String>,
-    files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig)>,
+    files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)>,
 ) -> Result<(), String> {
     for f in candidates {
         let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, cache)?;
@@ -544,11 +549,11 @@ fn gather_lint_files(
                 eprintln!("{notice}");
             }
         }
-        let ignored = cfg.is_file_ignored(f, &base_dir);
-        let lintable = cfg.is_yaml_candidate(f, &base_dir)
-            || cfg.is_markdown_candidate(f, &base_dir);
-        if !ignored && lintable {
-            files.push((f.clone(), base_dir, cfg));
+        if cfg.is_file_ignored(f, &base_dir) {
+            continue;
+        }
+        if let Some(kind) = cfg.source_kind(f, &base_dir)? {
+            files.push((f.clone(), base_dir, cfg, kind));
         }
     }
 
@@ -559,11 +564,18 @@ fn gather_lint_files(
                 eprintln!("{notice}");
             }
         }
-        let ignored = cfg.is_file_ignored(ef, &base_dir);
-        let lintable = cfg.is_yaml_candidate(ef, &base_dir)
-            || cfg.is_markdown_candidate(ef, &base_dir);
-        if !ignored && lintable {
-            files.push((ef.clone(), base_dir, cfg));
+        if cfg.is_file_ignored(ef, &base_dir) {
+            continue;
+        }
+        match cfg.source_kind(ef, &base_dir)? {
+            Some(kind) => files.push((ef.clone(), base_dir, cfg, kind)),
+            None => {
+                return Err(format!(
+                    "{}: no source kind matches; add a matching glob under \
+                     [files].yaml or [files].markdown",
+                    ef.display()
+                ));
+            }
         }
     }
 
@@ -571,7 +583,7 @@ fn gather_lint_files(
 }
 
 fn process_results(
-    files: &[(PathBuf, PathBuf, YamlLintConfig)],
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
     output_format: OutputFormat,
     no_warnings: bool,

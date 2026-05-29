@@ -149,7 +149,8 @@ fn to_toml_includes_fix_policy() {
     .unwrap();
 
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("yaml-files = ["));
+    assert!(toml.contains("[files]"));
+    assert!(toml.contains("yaml = ["));
     assert!(toml.contains("[fix]"));
     assert!(toml.contains("fixable = ["));
     assert!(toml.contains("\"ALL\""));

@@ -56,7 +56,7 @@ fn exact_typed_toml_preserves_runtime_matchers_and_rule_settings() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "yaml-files = ['configs/**/*.yaml']\nignore = ['vendor/**']\nlocale = 'en_US.UTF-8'\n[rules]\ndocument-start = 'disable'\n[rules.comments]\nlevel = 'warning'\nrequire-starting-space = true\nignore = ['generated/**']\n",
+        "files = { yaml = ['configs/**/*.yaml'] }\nignore = ['vendor/**']\nlocale = 'en_US.UTF-8'\n[rules]\ndocument-start = 'disable'\n[rules.comments]\nlevel = 'warning'\nrequire-starting-space = true\nignore = ['generated/**']\n",
     );
     let ctx = discover_config_with(
         &[],

@@ -1,12 +1,14 @@
-yaml-files = ["*.yaml", "*.yml", ".yamllint"]
 ignore = """
 vendor/**
 generated/**
 """
 locale = "en_US.UTF-8"
 
+[files]
+yaml = ["*.yaml", "*.yml", ".yamllint"]
+markdown = ["*.md", "*.markdown"]
+
 [markdown]
-files = ["*.md", "*.markdown"]
 front-matter = true
 fenced-blocks = true
 

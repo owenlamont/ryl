@@ -59,13 +59,24 @@ pub fn lint_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    if cfg.is_markdown_candidate(path, base_dir) {
-        Ok(crate::markdown_embed::lint_markdown_str(
-            &content, path, cfg, base_dir,
-        ))
-    } else {
-        Ok(lint_str(&content, path, cfg, base_dir))
-    }
+    Ok(lint_str(&content, path, cfg, base_dir))
+}
+
+/// Lint the YAML embedded in a markdown file and return diagnostics whose
+/// positions point back into the markdown document.
+///
+/// # Errors
+///
+/// Returns `Err(String)` when the file cannot be read.
+pub fn lint_markdown_file(
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Result<Vec<LintProblem>, String> {
+    let content = decoder::read_file(path)?;
+    Ok(crate::markdown_embed::lint_markdown_str(
+        &content, path, cfg, base_dir,
+    ))
 }
 
 /// Lint YAML content held in memory and return diagnostics in yamllint format

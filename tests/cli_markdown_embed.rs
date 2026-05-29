@@ -23,9 +23,9 @@ fn project(
     (dir, file)
 }
 
-const COLONS_AND_DUPES: &str = "markdown = { files = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\nkey-duplicates = \"enable\"\n";
+const COLONS_AND_DUPES: &str = "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\nkey-duplicates = \"enable\"\n";
 const COLONS_ONLY: &str =
-    "markdown = { files = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
 
 #[test]
 fn front_matter_and_fenced_blocks_map_to_host_positions() {
@@ -59,7 +59,7 @@ fn indented_fenced_block_adds_indent_to_column() {
 
 #[test]
 fn front_matter_only_source_skips_fenced_blocks() {
-    let config = "markdown = { files = [\"*.md\"], fenced-blocks = false }\n[rules]\ncolons = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { fenced-blocks = false }\n[rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -72,7 +72,7 @@ fn front_matter_only_source_skips_fenced_blocks() {
 
 #[test]
 fn fenced_blocks_only_source_skips_front_matter() {
-    let config = "markdown = { files = [\"*.md\"], front-matter = false }\n[rules]\ncolons = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -85,7 +85,7 @@ fn fenced_blocks_only_source_skips_front_matter() {
 
 #[test]
 fn file_shape_rules_are_suppressed_in_embedded_regions() {
-    let config = "markdown = { files = [\"*.md\"] }\n[rules]\ndocument-start = \"enable\"\ncolons = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ndocument-start = \"enable\"\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -147,7 +147,7 @@ fn attribute_and_tilde_fences_are_linted() {
 #[test]
 fn whitespace_only_front_matter_is_skipped() {
     let config =
-        "markdown = { files = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
+        "files = { markdown = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
     let body = "---\n   \n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -158,15 +158,15 @@ fn whitespace_only_front_matter_is_skipped() {
 }
 
 #[test]
-fn markdown_not_linted_without_files_pattern() {
+fn explicit_markdown_without_files_pattern_is_rejected() {
     let config = "[rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
 
-    assert_eq!(code, 0, "stderr={err}");
-    assert!(out.is_empty() && err.is_empty(), "out={out} err={err}");
+    assert_eq!(code, 2, "expected usage error: {err}");
+    assert!(err.contains("no source kind matches"), "{err}");
 }
 
 #[test]
@@ -198,4 +198,29 @@ fn directory_scan_discovers_markdown() {
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:4"), "{err}");
+}
+
+#[test]
+fn file_matching_two_kinds_is_a_hard_error() {
+    let config = "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    let body = "---\na:  1\n---\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 2, "expected overlap error: {err}");
+    assert!(err.contains("matches both"), "{err}");
+}
+
+#[test]
+fn directory_scan_overlap_is_a_hard_error() {
+    let config = "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    let body = "---\na:  1\n---\n";
+    let (dir, _file) = project(config, "doc.md", body);
+
+    let (code, _out, err) =
+        run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(dir.path()));
+
+    assert_eq!(code, 2, "expected overlap error: {err}");
+    assert!(err.contains("matches both"), "{err}");
 }

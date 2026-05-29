@@ -21,7 +21,7 @@ fn config_from_toml(body: &str) -> ryl::config::YamlLintConfig {
 
 #[test]
 fn markdown_sources_default_to_enabled() {
-    let cfg = config_from_toml("markdown = { files = [\"*.md\"] }\n");
+    let cfg = config_from_toml("files = { markdown = [\"*.md\"] }\n");
     assert!(cfg.markdown_front_matter());
     assert!(cfg.markdown_fenced_blocks());
 }
@@ -29,7 +29,7 @@ fn markdown_sources_default_to_enabled() {
 #[test]
 fn markdown_source_toggles_are_applied() {
     let cfg = config_from_toml(
-        "markdown = { files = [\"*.md\"], front-matter = false, fenced-blocks = true }\n",
+        "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false, fenced-blocks = true }\n",
     );
     assert!(!cfg.markdown_front_matter());
     assert!(cfg.markdown_fenced_blocks());
@@ -40,7 +40,7 @@ fn markdown_candidate_matches_only_with_files_pattern() {
     let base = PathBuf::from("/repo");
     let doc = PathBuf::from("/repo/readme.md");
 
-    let enabled = config_from_toml("markdown = { files = [\"*.md\"] }\n");
+    let enabled = config_from_toml("files = { markdown = [\"*.md\"] }\n");
     assert!(enabled.is_markdown_candidate(&doc, &base));
     let outside_base = PathBuf::from("/elsewhere/notes.md");
     assert!(enabled.is_markdown_candidate(&outside_base, &base));
@@ -51,12 +51,34 @@ fn markdown_candidate_matches_only_with_files_pattern() {
 
 #[test]
 fn to_toml_string_round_trips_markdown_settings() {
-    let cfg =
-        config_from_toml("markdown = { files = [\"*.md\"], front-matter = false }\n");
+    let cfg = config_from_toml(
+        "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n",
+    );
     let rendered = cfg.to_toml_string();
 
+    assert!(rendered.contains("[files]"), "{rendered}");
+    assert!(rendered.contains("markdown = [\"*.md\"]"), "{rendered}");
     assert!(rendered.contains("[markdown]"), "{rendered}");
-    assert!(rendered.contains("files"), "{rendered}");
     assert!(rendered.contains("front-matter = false"), "{rendered}");
     assert!(rendered.contains("fenced-blocks = true"), "{rendered}");
+}
+
+#[test]
+fn yaml_files_key_is_rejected_in_toml() {
+    let path = PathBuf::from("/repo/.ryl.toml");
+    let env = common::fake_env::FakeEnv::new()
+        .with_file(path.clone(), "yaml-files = [\"*.yaml\"]\n");
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(path),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("yaml-files in TOML must be rejected");
+    assert!(
+        err.contains("yaml-files") && err.contains("[files]"),
+        "{err}"
+    );
 }

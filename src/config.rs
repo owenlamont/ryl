@@ -19,6 +19,15 @@ use crate::{conf, decoder};
 
 pub use crate::config_schema::RuleLevel;
 
+/// How a file should be linted, as resolved from the `[files]` globs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceKind {
+    /// The whole file is one YAML document.
+    Yaml,
+    /// A markdown file whose embedded YAML (front matter, fenced blocks) is linted.
+    Markdown,
+}
+
 /// Abstraction over environment/filesystem to enable full test coverage.
 /// Minimal environment abstraction used by tests to cover file system and env-var behavior.
 pub trait Env {
@@ -559,7 +568,7 @@ impl YamlLintConfig {
     }
 
     /// Returns true when `path` is a markdown file to scan for embedded YAML.
-    /// Always false when markdown linting is disabled (no `markdown.files`).
+    /// Always false when markdown linting is disabled (no `[files].markdown`).
     #[must_use]
     pub fn is_markdown_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         let Some(matcher) = &self.markdown_matcher else {
@@ -572,6 +581,32 @@ impl YamlLintConfig {
         matcher
             .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
             .is_ignore()
+    }
+
+    /// Resolve which source kind `path` should be linted as, per the `[files]`
+    /// globs. Returns `Ok(None)` when no kind matches, and `Err` when a file
+    /// matches more than one kind (an unresolvable configuration).
+    ///
+    /// # Errors
+    /// Returns `Err` if `path` matches both the `yaml` and `markdown` globs.
+    pub fn source_kind(
+        &self,
+        path: &Path,
+        base_dir: &Path,
+    ) -> Result<Option<SourceKind>, String> {
+        match (
+            self.is_yaml_candidate(path, base_dir),
+            self.is_markdown_candidate(path, base_dir),
+        ) {
+            (true, true) => Err(format!(
+                "{}: matches both `yaml` and `markdown` in [files]; a file may \
+                 belong to only one source kind",
+                path.display()
+            )),
+            (true, false) => Ok(Some(SourceKind::Yaml)),
+            (false, true) => Ok(Some(SourceKind::Markdown)),
+            (false, false) => Ok(None),
+        }
     }
 
     #[must_use]
@@ -663,8 +698,11 @@ impl YamlLintConfig {
             self.yaml_file_patterns = yaml_files;
         }
 
+        if let Some(markdown_files) = normalized.markdown_file_patterns {
+            self.markdown_file_patterns = markdown_files;
+        }
+
         if let Some(markdown) = normalized.markdown {
-            self.markdown_file_patterns = markdown.files;
             if let Some(front_matter) = markdown.front_matter {
                 self.lint_markdown_front_matter = front_matter;
             }
@@ -974,13 +1012,14 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
             .then(|| config.ignore_from_files.clone()),
         per_file_ignores: config.per_file_ignores.clone(),
         yaml_file_patterns: Some(config.yaml_file_patterns.clone()),
-        markdown: (!config.markdown_file_patterns.is_empty()).then(|| {
+        markdown_file_patterns: (!config.markdown_file_patterns.is_empty())
+            .then(|| config.markdown_file_patterns.clone()),
+        markdown: (!config.markdown_file_patterns.is_empty()).then_some(
             NormalizedMarkdown {
-                files: config.markdown_file_patterns.clone(),
                 front_matter: Some(config.lint_markdown_front_matter),
                 fenced_blocks: Some(config.lint_markdown_fenced_blocks),
-            }
-        }),
+            },
+        ),
         locale: config.locale.clone(),
         fix: normalized_fix_config(&config.fix),
         rules: config

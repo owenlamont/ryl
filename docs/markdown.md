@@ -13,25 +13,40 @@ diagnostic's line and column point back into the original Markdown file.
 
 This is a ryl-only capability, so it is configured exclusively in **TOML**
 (`ryl.toml`, `.ryl.toml`, or `[tool.ryl]` in `pyproject.toml`). The YAML
-(`yamllint`-compatible) configuration has no `markdown` section.
+(`yamllint`-compatible) configuration uses the legacy `yaml-files` key and has no
+markdown support.
 
-## Enabling it
+## Source kinds and the `[files]` table
 
-Markdown linting is **off by default**. Add a `[markdown]` table whose `files`
-patterns select which Markdown files to scan:
+In TOML, ryl assigns every file a **source kind** via the `[files]` table, which
+maps each kind to a list of gitignore-style glob patterns:
+
+```toml
+[files]
+yaml     = ["*.yaml", "*.yml", ".yamllint"]   # default if [files] is omitted
+markdown = ["*.md", "docs/**/*.md"]           # opt-in: enables markdown linting
+```
+
+- `yaml` defaults to `["*.yaml", "*.yml", ".yamllint"]`; setting it replaces the
+  default.
+- `markdown` is empty by default — listing patterns is what **enables** markdown
+  linting (and scopes it, so only matching files are touched).
+- A file that matches **more than one** kind is a hard error (a file has exactly
+  one kind).
+- A file passed **explicitly** that matches no kind is rejected with an error
+  telling you to add a glob; a file found while scanning a directory that matches
+  no kind is simply skipped.
+
+> The legacy `yaml-files` key is **not** valid in TOML — use `[files].yaml`. It
+> remains valid in the yamllint-compatible YAML config.
+
+Markdown behaviour is tuned in a separate `[markdown]` table (both default `true`):
 
 ```toml
 [markdown]
-files = ["*.md", "*.markdown"]
-front-matter = true   # lint the --- ... --- block (default: true)
-fenced-blocks = true  # lint yaml / yml fenced blocks (default: true)
+front-matter  = true   # lint the --- ... --- block
+fenced-blocks = true   # lint yaml / yml fenced blocks
 ```
-
-| Key | Type | Default | Meaning |
-|-----|------|---------|---------|
-| `files` | list of glob patterns | *(empty — disabled)* | Markdown files to scan. Leaving it empty/absent disables Markdown linting. |
-| `front-matter` | bool | `true` | Lint the leading `---` front matter block. |
-| `fenced-blocks` | bool | `true` | Lint fenced `yaml`/`yml` code blocks. |
 
 Set either flag to `false` to lint only the other source.
 
@@ -92,5 +107,7 @@ the hook to pass Markdown files, for example:
       types_or: [yaml, markdown]
 ```
 
-If a Markdown file is passed but `[markdown].files` does not match it, `ryl`
-simply ignores the file.
+pre-commit decides *which* files to pass; `[files]` decides *how* ryl treats each.
+So if the hook passes a `.md` that no `[files]` glob matches, ryl reports an error
+(it was named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow
+the hook's file filter.

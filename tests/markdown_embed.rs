@@ -1,4 +1,5 @@
-use ryl::{MarkdownSources, RegionKind, extract_regions};
+use ryl::config::YamlLintConfig;
+use ryl::{MarkdownSources, RegionKind, extract_regions, lint_markdown_file};
 
 const BOTH: MarkdownSources = MarkdownSources {
     front_matter: true,
@@ -82,4 +83,16 @@ fn yaml_language_tag_variants_are_recognised() {
         assert_eq!(regions.len(), 1, "fence {fence} should be extracted");
         assert_eq!(regions[0].content, "a: 1\n");
     }
+}
+
+#[test]
+fn lint_markdown_file_reports_read_error() {
+    let cfg = YamlLintConfig::default();
+    let err = lint_markdown_file(
+        std::path::Path::new("/no/such/file.md"),
+        &cfg,
+        std::path::Path::new("/"),
+    )
+    .expect_err("missing markdown file should error");
+    assert!(err.contains("failed to read"), "{err}");
 }

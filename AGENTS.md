@@ -332,18 +332,25 @@ sticking to the quick-status step above.
 ## CLI Behavior
 
 - Accepts one or more inputs: files, directories, or `-` to read from stdin.
-- Directories: recursively scan `.yml`/`.yaml` files, honoring git ignore and
-  git exclude; does not follow symlinks.
-- Files: parsed as YAML even if the extension is not `.yml`/`.yaml`.
-- Markdown embedding (TOML-only, off by default): a `[markdown]` table with
-  `files` glob patterns makes ryl extract YAML from matching Markdown files —
-  front matter and fenced `yaml`/`yml` blocks (each linted as its own document)
-  — with diagnostics mapped back to the Markdown file. `front-matter` and
-  `fenced-blocks` booleans (default true) select sources. The extractor lives in
-  `src/markdown_embed/` (fenced blocks via `pulldown-cmark`; front matter via a
-  line scan). `document-start`, `document-end`, `new-line-at-end-of-file`, and
-  `new-lines` are suppressed inside embedded regions. `--fix` skips Markdown
-  files (check-only) and prints a notice. See `docs/markdown.md`.
+- Directories: recursively scanned, honoring git ignore and git exclude; does not
+  follow symlinks. Each file's source kind is resolved from the `[files]` globs
+  (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
+- Files named explicitly are linted as their resolved source kind; one that
+  matches no `[files]` kind is rejected with an error (rather than silently
+  treated as YAML).
+- Source kinds (`config::SourceKind`): the `[files]` TOML table maps `yaml` and
+  `markdown` to glob lists (`yaml` defaults to `*.yaml`/`*.yml`/`.yamllint`). A
+  file matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
+  `[files].yaml`); it remains valid in the legacy YAML config.
+- Markdown embedding (off by default; enabled by listing `[files].markdown`
+  globs): ryl extracts front matter and fenced `yaml`/`yml` blocks (each linted as
+  its own document), mapping diagnostics back to the Markdown file. The
+  `[markdown]` table's `front-matter`/`fenced-blocks` booleans (default true)
+  select sources. The extractor lives in `src/markdown_embed/` (fenced blocks via
+  `pulldown-cmark`; front matter via a line scan). `document-start`,
+  `document-end`, `new-line-at-end-of-file`, and `new-lines` are suppressed inside
+  embedded regions. `--fix` skips Markdown files (check-only) and prints a notice.
+  See `docs/markdown.md`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets
