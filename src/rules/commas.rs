@@ -211,8 +211,7 @@ fn evaluate_comma(
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_before {
-            let comma_byte = chars[comma_idx].0;
-            let (line, column) = line_and_column(line_starts, comma_byte);
+            let (line, column) = line_and_column(line_starts, comma_idx);
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -226,8 +225,7 @@ fn evaluate_comma(
         compute_spaces_after(chars, comma_idx)
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let next_byte = chars[next_char].0;
-        let (line, column) = line_and_column(line_starts, next_byte);
+        let (line, column) = line_and_column(line_starts, next_char);
         if cfg.max_spaces_after >= 0 && spaces_i64 > cfg.max_spaces_after {
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {

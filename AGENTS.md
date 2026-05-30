@@ -144,6 +144,34 @@ Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.tx
 and replayed first on every run. That file is committed to git so the regression
 follows the codebase, not the developer's machine.
 
+### Property Tests For Rule Checkers
+
+`tests/property_check.rs` property-tests the **detection** path: it runs every
+rule's `check()` (including the unfixable rules above) over generated YAML and
+asserts two oracle-free invariants — `check()` never panics, and every reported
+violation has an in-bounds, **character-aligned** span (`1 <= line <=
+line_count`, `1 <= column <= chars_on_line + 1`). This is the fast,
+yamllint-free complement to the slow `tests/yamllint_compat_*` differential
+suite; it targets ryl's historically fragile byte<->char offset arithmetic
+(issue #232) rather than semantic correctness.
+
+Layout mirrors the safe-fix suite: `property_check/strategy.rs` generates
+documents biased toward triggering every rule (truthy words, octal/float
+scalars, duplicate/unordered keys, flow spacing, anchors, over-long lines, odd
+indentation, trailing spaces) interleaved with multibyte characters and mixed
+LF/CRLF endings (never a bare `\r`, so line counting always agrees with the
+rules). `property_check/harness.rs` holds the trigger-all config (rule options
+are tuned so each rule actually emits), the per-rule `check()` dispatch, and the
+bounds invariant.
+
+When you add a new rule, extend `collect_spans` in `harness.rs` to call its
+`check()` and add a `(rule-id, triggering-input)` row to `RULE_TRIGGERS` in
+`property_check.rs`. The deterministic `each_rule_triggers_and_reports_in_bounds_spans`
+test asserts each rule fires on its crafted input, so the property assertions
+cannot silently pass vacuously if the generator drifts. Failing inputs persist
+to the committed `tests/proptest-regressions/property_check.txt`. Run with
+`cargo test --test property_check`.
+
 ### Rules Without A Safe `--fix`
 
 These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the

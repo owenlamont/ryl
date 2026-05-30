@@ -118,7 +118,7 @@ fn multibyte_front_matter_columns_pass_through() {
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
-    assert!(err.contains("2:8"), "{err}");
+    assert!(err.contains("2:7"), "{err}");
 }
 
 #[test]

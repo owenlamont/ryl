@@ -312,3 +312,16 @@ fn coverage_check_handles_comment_crlf() {
     let result = colons::check("# heading\r\nkey: value\n", &cfg);
     assert!(result.is_empty());
 }
+
+#[test]
+fn columns_count_characters_not_bytes_with_multibyte_key() {
+    let cfg = Config::new_for_tests(0, 1);
+    let points = violation_points("ééé :  1\n", cfg);
+    assert_eq!(
+        points,
+        vec![
+            (1, 4, "too many spaces before colon".to_string()),
+            (1, 7, "too many spaces after colon".to_string()),
+        ]
+    );
+}

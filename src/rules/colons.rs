@@ -140,8 +140,7 @@ fn evaluate_colon(
         if !skip_after_check && cfg.max_spaces_before >= 0 {
             let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
             if spaces_i64 > cfg.max_spaces_before {
-                let colon_byte = chars[colon_idx].0;
-                let (line, column) = line_and_column(line_starts, colon_byte);
+                let (line, column) = line_and_column(line_starts, colon_idx);
                 let highlight_column = column.saturating_sub(1).max(1);
                 violations.push(Violation {
                     line,
@@ -162,8 +161,7 @@ fn evaluate_colon(
         }
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_after {
-            let next_byte = chars[next_char].0;
-            let (line, column) = line_and_column(line_starts, next_byte);
+            let (line, column) = line_and_column(line_starts, next_char);
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -188,8 +186,7 @@ fn evaluate_question_mark(
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_after {
-            let next_byte = chars[next_char].0;
-            let (line, column) = line_and_column(line_starts, next_byte);
+            let (line, column) = line_and_column(line_starts, next_char);
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
