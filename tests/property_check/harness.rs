@@ -1,7 +1,3 @@
-//! Shared machinery for the rule-checker property suite: the trigger-all
-//! config, the per-rule `check()` dispatch, and the two oracle-free
-//! invariants (no panic, in-bounds char-aligned spans).
-
 use std::sync::LazyLock;
 
 use ryl::config::YamlLintConfig;
@@ -14,10 +10,6 @@ pub struct Span {
     pub column: usize,
 }
 
-// Options are chosen so every rule actually emits on triggering input rather
-// than passing vacuously: float-values/anchors/octal-values need their
-// forbid-* flags on, line-length is tightened, quoted-strings runs in
-// only-when-needed mode, and new-lines expects unix endings.
 const TRIGGER_ALL_RULES: &str = "rules:
   anchors:
     forbid-undeclared-aliases: true
@@ -81,10 +73,6 @@ macro_rules! collect_standard {
     }};
 }
 
-/// Run every rule's `check()` over `content` and return each reported
-/// violation's position. Driving the checks directly (rather than `lint_str`)
-/// keeps the spans of rules that fire on input that fails to parse, which
-/// `lint_str` discards in favour of the syntax error.
 #[must_use]
 pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     let mut spans = Vec::new();
@@ -137,9 +125,6 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     spans
 }
 
-/// Per-line character counts (terminator excluded). The count matches the
-/// line count every rule derives because the generator never emits a bare
-/// `\r`, so `\n` alone delimits lines.
 #[must_use]
 pub fn line_char_lengths(content: &str) -> Vec<usize> {
     content
@@ -148,13 +133,6 @@ pub fn line_char_lengths(content: &str) -> Vec<usize> {
         .collect()
 }
 
-/// Assert each span lands inside the document: `1 <= line <= line_count` and
-/// `1 <= column <= chars_on_line + 1` (columns are 1-indexed character
-/// counts, and a rule may legitimately point one past the last character).
-///
-/// # Errors
-///
-/// Returns the offending span description when an invariant is violated.
 pub fn check_spans_in_bounds(content: &str, spans: &[Span]) -> Result<(), String> {
     let lengths = line_char_lengths(content);
     for span in spans {

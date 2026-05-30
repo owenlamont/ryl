@@ -1,25 +1,3 @@
-//! Property-based robustness tests for the rule `check()` functions.
-//!
-//! Two oracle-free invariants are asserted for every rule on arbitrary
-//! generated YAML:
-//!  1. **No panic** — `check()` is total (satisfied implicitly when the test
-//!     body completes).
-//!  2. **In-bounds, char-aligned spans** — every reported violation has
-//!     `1 <= line <= line_count` and `1 <= column <= chars_on_line + 1`,
-//!     measured in characters (issue #232's classic failure modes).
-//!
-//! This complements `tests/property_safe_fix.rs` (the fix path) and the
-//! slow `tests/yamllint_compat_*` differential suite (semantic correctness):
-//! it is a fast, yamllint-free safety/bounds layer.
-//!
-//! Submodules:
-//!  * `strategy` — the triggering YAML generator.
-//!  * `harness` — the trigger-all config, per-rule dispatch, and the bounds
-//!    invariant. Deterministic siblings below pin one triggering input per
-//!    rule (so the property assertions cannot silently pass vacuously if the
-//!    generator drifts) plus the multibyte flow-punctuation regressions that
-//!    guard the issue-#232 char-column fix.
-
 #[path = "property_check/harness.rs"]
 mod harness;
 #[path = "property_check/strategy.rs"]

@@ -1,13 +1,3 @@
-//! Proptest generator for the rule-checker robustness suite.
-//!
-//! It renders small YAML documents biased toward triggering every rule
-//! (truthy words, octal/float scalars, duplicate and unordered keys, flow
-//! spacing, anchors, over-long lines, odd indentation, trailing spaces,
-//! oddly-indented comments), interleaved with multibyte characters and mixed
-//! LF/CRLF line endings so the byte<->char offset math inside each `check()`
-//! is exercised. Bare `\r` is never emitted so a generated document's line
-//! boundaries always agree with every rule's line counting.
-
 use proptest::prelude::*;
 
 #[derive(Debug, Clone, Copy)]

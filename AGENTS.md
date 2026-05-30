@@ -162,7 +162,10 @@ indentation, trailing spaces) interleaved with multibyte characters and mixed
 LF/CRLF endings (never a bare `\r`, so line counting always agrees with the
 rules). `property_check/harness.rs` holds the trigger-all config (rule options
 are tuned so each rule actually emits), the per-rule `check()` dispatch, and the
-bounds invariant.
+bounds invariant. The dispatch calls each `check()` directly rather than
+`lint_str` on purpose: `lint_str` discards every rule's spans in favour of the
+syntax error when a document fails to parse, but this suite must still bounds-check
+the spans rules emit on input that fails to parse.
 
 When you add a new rule, extend `collect_spans` in `harness.rs` to call its
 `check()` and add a `(rule-id, triggering-input)` row to `RULE_TRIGGERS` in
