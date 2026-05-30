@@ -141,6 +141,23 @@ fn fence_nested_in_front_matter_is_not_double_linted() {
 }
 
 #[test]
+fn fence_crossing_front_matter_terminator_is_dropped() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ntags: [x,y]\ndesc: |\n  ```yaml\n  inner: [1,2]\n---\nafter: [3,4]\n```\n\ntext\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(err.contains("2:10"), "front matter is linted: {err}");
+    assert!(
+        !err.contains("5:13") && !err.contains("7:11"),
+        "a fence opened inside front matter and closed after the terminator must \
+         not be linted as a separate region: {err}"
+    );
+}
+
+#[test]
 fn multibyte_front_matter_columns_pass_through() {
     let body = "---\ncaf\u{e9}:  x\n---\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);

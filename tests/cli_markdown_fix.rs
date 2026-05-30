@@ -326,6 +326,22 @@ fn markdown_flag_applies_to_global_config() {
 }
 
 #[test]
+fn fix_drops_fence_crossing_front_matter_terminator() {
+    let body = "---\ntags: [x,y]\ndesc: |\n  ```yaml\n  inner: [1,2]\n---\nafter: [3,4]\n```\n\ntext\n";
+    let (_dir, file) = project(COMMAS, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "---\ntags: [x, y]\ndesc: |\n  ```yaml\n  inner: [1,2]\n---\nafter: [3,4]\n```\n\ntext\n",
+        "only the front matter is fixed; a fence crossing the terminator is left \
+         untouched (no overlapping splice)"
+    );
+}
+
+#[test]
 fn markdown_flag_wins_over_overlapping_yaml_glob() {
     let config = "files = { yaml = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
     let (_dir, file) = project(config, "doc.md", "```yaml\nnums: [1,2]\n```\n");
