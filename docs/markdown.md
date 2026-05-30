@@ -28,7 +28,13 @@ markdown = ["*.md", "docs/**/*.md"]           # opt-in: enables markdown linting
 ```
 
 - `yaml` defaults to `["*.yaml", "*.yml", ".yamllint"]`; setting it replaces the
-  default.
+  default. Add patterns for YAML stored under less-common names or extensions — for
+  example Citation File Format (`*.cff`), clang's `.clang-format` / `.clang-tidy`,
+  or Common Workflow Language (`*.cwl`):
+  `yaml = ["*.yaml", "*.yml", "*.cff", ".clang-format", "*.cwl"]`. Globs match exact
+  filenames and extensionless dotfiles too. (Avoid pointing it at templated
+  pseudo-YAML such as SaltStack `*.sls` or `*.yaml.j2`, which embed Jinja and are not
+  valid standalone YAML.)
 - `markdown` is empty by default — listing patterns is what **enables** markdown
   linting (and scopes it, so only matching files are touched).
 - A file that matches **more than one** kind is a hard error (a file has exactly
@@ -54,19 +60,48 @@ Set either flag to `false` to lint only the other source.
 
 The `markdown` kind is not tied to the `.md` extension. Front matter is found with
 a format-agnostic line scan and fenced blocks are located with a CommonMark parser,
-so any Markdown-superset format works — just map its extension to the `markdown`
-kind:
+so any Markdown-superset format works — map its extension(s) to the `markdown` kind:
 
 ```toml
 [files]
 markdown = ["*.md", "*.markdown", "*.qmd", "*.Rmd", "*.mdx"]
 ```
 
+Or, for a one-off run without editing config, pass `--markdown`, which enables the
+`markdown` kind with those default globs:
+
+```sh
+ryl --markdown docs/        # scan a tree for *.md/*.markdown/*.qmd/*.Rmd/*.mdx
+ryl --markdown report.qmd   # a single Quarto document
+cat SKILL.md | ryl --markdown -   # from stdin (e.g. an editor / pre-commit)
+```
+
 This lints the YAML front matter and fenced `yaml`/`yml` blocks in Quarto (`.qmd`),
 RMarkdown (`.Rmd`), MDX (`.mdx`), and similar documents. Format-specific constructs
-that are not CommonMark (e.g. MDX/JSX, Quarto executable `{python}` chunks) are
-simply ignored — only YAML front matter and `yaml`/`yml` fenced blocks are
+that are not CommonMark (e.g. MDX/JSX, Quarto/RMarkdown executable `{r}`/`{python}`
+chunks) are ignored — only YAML front matter and `yaml`/`yml` fenced blocks are
 extracted.
+
+In practice Quarto and RMarkdown keep their YAML almost entirely in **front matter**
+(their code chunks are ` ```{r} `/` ```{python} `, not ` ```yaml `), so linting them
+mostly exercises the front-matter path. For example, `ryl --markdown report.qmd`
+checks the leading block of:
+
+````qmd
+---
+title: "Quarterly Report"
+format:
+  html:
+    toc:  true
+---
+
+## Section
+````
+
+and reports the extra space after `toc:` at its real line and column inside the
+`.qmd` file. The same applies to **agent skill files**: a `SKILL.md` is YAML front
+matter (`name`, `description`) plus prose, so `ryl --markdown SKILL.md` (or a
+`markdown = ["**/SKILL.md"]` glob) lints that block.
 
 ## How rules apply
 
