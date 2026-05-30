@@ -2,7 +2,7 @@ use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
 };
-use crate::rules::support::span_utils::containing_scalar_range;
+use crate::rules::support::span_utils::{CharPos, containing_scalar_range};
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
@@ -82,7 +82,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
     let scalar_ranges = collect_scalar_ranges(buffer);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(buffer);
+    let line_starts = build_line_starts(&chars);
 
     let mut scalar_idx = 0usize;
     let mut idx = 0usize;
@@ -121,7 +121,7 @@ fn evaluate_colon(
     violations: &mut Vec<Violation>,
     chars: &[(usize, char)],
     colon_idx: usize,
-    line_starts: &[usize],
+    line_starts: &[CharPos],
 ) {
     let mut skip_after_check = false;
 
@@ -140,7 +140,8 @@ fn evaluate_colon(
         if !skip_after_check && cfg.max_spaces_before >= 0 {
             let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
             if spaces_i64 > cfg.max_spaces_before {
-                let (line, column) = line_and_column(line_starts, colon_idx);
+                let (line, column) =
+                    line_and_column(line_starts, CharPos::new(colon_idx));
                 let highlight_column = column.saturating_sub(1).max(1);
                 violations.push(Violation {
                     line,
@@ -161,7 +162,7 @@ fn evaluate_colon(
         }
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_after {
-            let (line, column) = line_and_column(line_starts, next_char);
+            let (line, column) = line_and_column(line_starts, CharPos::new(next_char));
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -177,7 +178,7 @@ fn evaluate_question_mark(
     violations: &mut Vec<Violation>,
     chars: &[(usize, char)],
     question_idx: usize,
-    line_starts: &[usize],
+    line_starts: &[CharPos],
 ) {
     if cfg.max_spaces_after >= 0
         && is_explicit_question_mark(chars, question_idx)
@@ -186,7 +187,7 @@ fn evaluate_question_mark(
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_after {
-            let (line, column) = line_and_column(line_starts, next_char);
+            let (line, column) = line_and_column(line_starts, CharPos::new(next_char));
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -337,7 +338,7 @@ pub fn coverage_is_sequence_indicator(chars: &[(usize, char)], idx: usize) -> bo
 pub fn coverage_evaluate_question_mark(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let mut violations = Vec::new();
-    let line_starts = build_line_starts(buffer);
+    let line_starts = build_line_starts(&chars);
     if let Some((idx, _)) = chars.iter().enumerate().find(|(_, (_, ch))| *ch == '?') {
         evaluate_question_mark(cfg, &mut violations, &chars, idx, &line_starts);
     } else {

@@ -29,37 +29,41 @@ pub(crate) fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
     idx
 }
 
-/// Character indices (not byte offsets) at which each line begins, so columns
-/// derived from them are 1-indexed character counts that match yamllint on
-/// multibyte lines (issue #232).
-pub(crate) fn build_line_starts(buffer: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    let mut chars = buffer.chars().peekable();
-    let mut char_idx = 0usize;
-    while let Some(ch) = chars.next() {
-        char_idx += 1;
-        match ch {
-            '\n' => starts.push(char_idx),
-            '\r' => {
-                if chars.peek() == Some(&'\n') {
-                    chars.next();
-                    char_idx += 1;
-                }
-                starts.push(char_idx);
+/// `CharPos` (not byte offset) at which each line begins, so columns derived
+/// from them are 1-indexed character counts that match yamllint on multibyte
+/// lines (issue #232). Takes the caller's existing `char_indices()` slice so
+/// the buffer is not decoded a second time.
+pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
+    let mut starts = vec![CharPos::new(0)];
+    let mut idx = 0usize;
+    while idx < chars.len() {
+        match chars[idx].1 {
+            '\n' => {
+                starts.push(CharPos::new(idx + 1));
+                idx += 1;
             }
-            _ => {}
+            '\r' => {
+                if chars.get(idx + 1).is_some_and(|(_, ch)| *ch == '\n') {
+                    starts.push(CharPos::new(idx + 2));
+                    idx += 2;
+                } else {
+                    starts.push(CharPos::new(idx + 1));
+                    idx += 1;
+                }
+            }
+            _ => idx += 1,
         }
     }
 
     starts
 }
 
-/// Resolve a character index into a 1-indexed `(line, column)` pair. `char_idx`
-/// must be a character index (e.g. an index into `char_indices()`), never a
-/// byte offset, so the column counts characters rather than bytes (issue #232).
+/// Resolve a `CharPos` into a 1-indexed `(line, column)` pair. Taking a
+/// `CharPos` (rather than a raw `usize`) makes passing a byte offset a compile
+/// error, so the column always counts characters rather than bytes (issue #232).
 pub(crate) fn line_and_column(
-    line_starts: &[usize],
-    char_idx: usize,
+    line_starts: &[CharPos],
+    char_idx: CharPos,
 ) -> (usize, usize) {
     let mut left = 0usize;
     let mut right = line_starts.len();
@@ -74,7 +78,7 @@ pub(crate) fn line_and_column(
     }
 
     let line_start = line_starts[left];
-    (left + 1, char_idx - line_start + 1)
+    (left + 1, char_idx.get() - line_start.get() + 1)
 }
 
 pub(crate) fn template_double_curly_end(

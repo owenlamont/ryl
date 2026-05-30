@@ -4,7 +4,7 @@ use crate::rules::support::punctuation::{
     template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
-    BytePos, apply_replacements, containing_scalar_range,
+    BytePos, CharPos, apply_replacements, containing_scalar_range,
 };
 
 pub const ID: &str = "commas";
@@ -104,7 +104,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
     let scalar_ranges = collect_scalar_ranges(buffer);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(buffer);
+    let line_starts = build_line_starts(&chars);
 
     let mut violations = Vec::new();
     let mut contexts: Vec<FlowKind> = Vec::new();
@@ -203,7 +203,7 @@ fn evaluate_comma(
     violations: &mut Vec<Violation>,
     chars: &[(usize, char)],
     comma_idx: usize,
-    line_starts: &[usize],
+    line_starts: &[CharPos],
 ) {
     if let BeforeResult::SameLine { spaces, .. } =
         compute_spaces_before(chars, comma_idx)
@@ -211,7 +211,7 @@ fn evaluate_comma(
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_before {
-            let (line, column) = line_and_column(line_starts, comma_idx);
+            let (line, column) = line_and_column(line_starts, CharPos::new(comma_idx));
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -225,7 +225,7 @@ fn evaluate_comma(
         compute_spaces_after(chars, comma_idx)
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, column) = line_and_column(line_starts, next_char);
+        let (line, column) = line_and_column(line_starts, CharPos::new(next_char));
         if cfg.max_spaces_after >= 0 && spaces_i64 > cfg.max_spaces_after {
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {

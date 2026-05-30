@@ -307,7 +307,7 @@ pub fn check(
     let scalar_ranges = collector.into_sorted();
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(buffer);
+    let line_starts = build_line_starts(&chars);
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
@@ -463,11 +463,11 @@ fn handle_open(
     desc: &FlowCollectionDescriptor,
     chars: &[(usize, char)],
     idx: usize,
-    line_starts: &[usize],
+    line_starts: &[CharPos],
     stack: &mut Vec<CollectionState>,
     violations: &mut Vec<Violation>,
 ) {
-    let (line, column) = line_and_column(line_starts, idx);
+    let (line, column) = line_and_column(line_starts, CharPos::new(idx));
     let next_significant = next_significant_index(chars, idx);
 
     let mut skip_open_check = false;
@@ -502,7 +502,7 @@ fn handle_open(
         && let AfterResult::SameLine { spaces, next_idx } =
             compute_spaces_after_open(chars, idx)
     {
-        let (line, next_column) = line_and_column(line_starts, next_idx);
+        let (line, next_column) = line_and_column(line_starts, CharPos::new(next_idx));
         if state.is_empty && chars[next_idx].1 == desc.close {
             record_after_spacing(
                 cfg.effective_min_empty(),
@@ -575,7 +575,7 @@ fn handle_close(
     desc: &FlowCollectionDescriptor,
     chars: &[(usize, char)],
     idx: usize,
-    line_starts: &[usize],
+    line_starts: &[CharPos],
     stack: &mut Vec<CollectionState>,
     violations: &mut Vec<Violation>,
 ) {
@@ -589,7 +589,7 @@ fn handle_close(
 
     if let Some((spaces, _start_idx)) = compute_spaces_before_close(chars, idx) {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, close_column) = line_and_column(line_starts, idx);
+        let (line, close_column) = line_and_column(line_starts, CharPos::new(idx));
         if cfg.max_spaces_inside() >= 0 && spaces_i64 > cfg.max_spaces_inside() {
             let highlight = close_column.saturating_sub(1).max(1);
             violations.push(Violation {
