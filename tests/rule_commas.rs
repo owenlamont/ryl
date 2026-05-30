@@ -255,3 +255,16 @@ fn fix_ignores_commas_inside_double_curly_templates() {
     let fixed = commas::fix("value: {{ foo(1,2) }}\n", &cfg);
     assert_eq!(fixed, None);
 }
+
+#[test]
+fn column_counts_characters_not_bytes_before_comma() {
+    let diagnostics = commas::check("[ééé , a]\n", &defaults());
+    assert_eq!(
+        diagnostics,
+        vec![Violation {
+            line: 1,
+            column: 5,
+            message: "too many spaces before comma".to_string(),
+        }]
+    );
+}

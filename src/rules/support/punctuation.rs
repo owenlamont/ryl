@@ -29,24 +29,25 @@ pub(crate) fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
     idx
 }
 
-pub(crate) fn build_line_starts(buffer: &str) -> Vec<usize> {
-    let mut starts = Vec::new();
-    starts.push(0);
-
-    let bytes = buffer.as_bytes();
+/// `CharPos` (not byte offset) at which each line begins, so columns derived
+/// from them are 1-indexed character counts that match yamllint on multibyte
+/// lines (issue #232). Takes the caller's existing `char_indices()` slice so
+/// the buffer is not decoded a second time.
+pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
+    let mut starts = vec![CharPos::new(0)];
     let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\n' => {
-                starts.push(idx + 1);
+    while idx < chars.len() {
+        match chars[idx].1 {
+            '\n' => {
+                starts.push(CharPos::new(idx + 1));
                 idx += 1;
             }
-            b'\r' => {
-                if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
-                    starts.push(idx + 2);
+            '\r' => {
+                if chars.get(idx + 1).is_some_and(|(_, ch)| *ch == '\n') {
+                    starts.push(CharPos::new(idx + 2));
                     idx += 2;
                 } else {
-                    starts.push(idx + 1);
+                    starts.push(CharPos::new(idx + 1));
                     idx += 1;
                 }
             }
@@ -57,16 +58,19 @@ pub(crate) fn build_line_starts(buffer: &str) -> Vec<usize> {
     starts
 }
 
+/// Resolve a `CharPos` into a 1-indexed `(line, column)` pair. Taking a
+/// `CharPos` (rather than a raw `usize`) makes passing a byte offset a compile
+/// error, so the column always counts characters rather than bytes (issue #232).
 pub(crate) fn line_and_column(
-    line_starts: &[usize],
-    byte_idx: usize,
+    line_starts: &[CharPos],
+    char_idx: CharPos,
 ) -> (usize, usize) {
     let mut left = 0usize;
     let mut right = line_starts.len();
 
     while left + 1 < right {
         let mid = usize::midpoint(left, right);
-        if line_starts[mid] <= byte_idx {
+        if line_starts[mid] <= char_idx {
             left = mid;
         } else {
             right = mid;
@@ -74,7 +78,7 @@ pub(crate) fn line_and_column(
     }
 
     let line_start = line_starts[left];
-    (left + 1, byte_idx - line_start + 1)
+    (left + 1, char_idx.get() - line_start.get() + 1)
 }
 
 pub(crate) fn template_double_curly_end(

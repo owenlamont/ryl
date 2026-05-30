@@ -354,3 +354,40 @@ fn brackets_fix_returns_none_for_multiline_collection() {
     let fixed = brackets::fix("seq: [\n  1,\n  2\n]\n", &cfg);
     assert_eq!(fixed, None);
 }
+
+#[test]
+fn brace_columns_count_characters_not_bytes() {
+    let defaults = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    assert_hits(
+        &defaults,
+        "{ééé: 1 }\n",
+        braces::check,
+        vec![BracesViolation {
+            line: 1,
+            column: 8,
+            message: "too many spaces inside braces".to_string(),
+        }],
+    );
+}
+
+#[test]
+fn bracket_columns_count_characters_not_bytes() {
+    let defaults = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    assert_hits(
+        &defaults,
+        "[ 世界 ]\n",
+        brackets::check,
+        vec![
+            BracketsViolation {
+                line: 1,
+                column: 2,
+                message: "too many spaces inside brackets".to_string(),
+            },
+            BracketsViolation {
+                line: 1,
+                column: 5,
+                message: "too many spaces inside brackets".to_string(),
+            },
+        ],
+    );
+}
