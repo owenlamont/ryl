@@ -175,6 +175,33 @@ cannot silently pass vacuously if the generator drifts. Failing inputs persist
 to the committed `tests/proptest-regressions/property_check.txt`. Run with
 `cargo test --test property_check`.
 
+### Property Tests For Markdown `--fix`
+
+`tests/property_markdown_fix.rs` property-tests `fix::fix_markdown_str` — the
+write-back of safe fixes into YAML embedded in Markdown. It reuses the safe-fix
+YAML generator via `#[path]` (`property_safe_fix/{ast,strategy,config}.rs`) and
+wraps generated `Document`s into a Markdown host (`property_markdown_fix/wrap.rs`):
+optional front matter plus prose-separated fenced `yaml`/`yml` blocks at varied
+indent (0–3), fence char, info string, and LF/CRLF. The invariants are
+oracle-free and run across the same config matrix as the safe-fix suite:
+
+1. **Host preservation** — every byte outside the embedded regions is identical
+   after `--fix`, and region count/kinds are stable (the anti-corruption check).
+2. **Parse preservation** — each region's parsed YAML value is unchanged.
+3. **Region correctness** — each region is either left untouched or rewritten to
+   exactly `apply_safe_fixes_filtered(content, …, suppressed_rules(kind))` (markdown
+   path ≡ direct path, modulo re-indent/newline).
+4. **Idempotence** — feeding the fixed output back through `fix_markdown_str`
+   yields no further change.
+
+Deterministic siblings pin a known-dirty front-matter + indented-block document, a
+CRLF block, and a ragged-indent block (asserting the guard skips it), so the random
+invariants cannot pass vacuously. Failing inputs persist to the committed
+`tests/proptest-regressions/property_markdown_fix.txt`. Run with
+`cargo test --test property_markdown_fix`. The new write-back rules already live in
+`SAFE_FIX_RULES`; this suite needs extension only if the Markdown extractor/wrapper
+grows new region shapes (add a `wrap.rs` variant and a deterministic sibling).
+
 ### Rules Without A Safe `--fix`
 
 These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the
@@ -384,21 +411,30 @@ sticking to the quick-status step above.
   file matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
   `[files].yaml`); it remains valid in the legacy YAML config.
 - Markdown embedding (off by default; enabled by listing `[files].markdown`
+  globs, or for one run with the `--markdown` flag which injects default markdown
   globs): ryl extracts front matter and fenced `yaml`/`yml` blocks (each linted as
   its own document), mapping diagnostics back to the Markdown file. The
   `[markdown]` table's `front-matter`/`fenced-blocks` booleans (default true)
   select sources. The extractor lives in `src/markdown_embed/` (fenced blocks via
-  `pulldown-cmark`; front matter via a line scan). `document-start`,
-  `document-end`, `new-line-at-end-of-file`, and `new-lines` are suppressed inside
-  embedded regions. `--fix` skips Markdown files (check-only) and prints a notice.
-  See `docs/markdown.md`.
+  `pulldown-cmark`; front matter via a line scan); each `EmbeddedRegion` carries the
+  raw source `raw_span` used by write-back and the per-line column remap.
+  `document-start`, `document-end`, `new-line-at-end-of-file`, and `new-lines` are
+  suppressed inside embedded regions via `fix::suppressed_rules(kind)` (shared by
+  the check and fix paths). `--fix` writes safe fixes back into the Markdown
+  (`fix::fix_markdown_str`): it re-indents to the fence column, preserves CRLF, and
+  only rewrites a region whose fixed YAML can be re-indented to reproduce the
+  original bytes exactly (the reconstruct-and-verify guard) — ragged/tab/other
+  non-round-trippable regions are reported but left untouched, so write-back cannot
+  corrupt a document. See `docs/markdown.md`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets
   the diagnostic label, anchors project-config discovery at the given path's
-  parent, and runs `yaml-files`, per-file-ignore, and per-rule `ignore`
-  matching against that path. Omitting `--stdin-filename` labels diagnostics
-  as `<stdin>`, anchors config discovery at CWD, and skips all path-based
-  filtering (`yaml-files`, per-file-ignores, per-rule `ignore`) so every
-  enabled rule runs against the input.
+  parent, resolves the source kind from `[files]` (so a `markdown`-matching path
+  is linted as embedded YAML), and runs `yaml-files`, per-file-ignore, and per-rule
+  `ignore` matching against that path. Omitting `--stdin-filename` labels
+  diagnostics as `<stdin>`, anchors config discovery at CWD, and skips all
+  path-based filtering (`yaml-files`, per-file-ignores, per-rule `ignore`) so every
+  enabled rule runs against the input; pass `--markdown` to lint that input as
+  Markdown rather than plain YAML.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

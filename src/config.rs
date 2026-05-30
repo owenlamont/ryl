@@ -143,6 +143,8 @@ pub struct YamlLintConfig {
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
+const DEFAULT_MARKDOWN_FILE_PATTERNS: [&str; 5] =
+    ["*.md", "*.markdown", "*.mdx", "*.qmd", "*.Rmd"];
 
 #[derive(Debug, Clone, Default)]
 struct RuleFilter {
@@ -580,6 +582,21 @@ impl YamlLintConfig {
             (true, false) => Ok(Some(SourceKind::Yaml)),
             (false, true) => Ok(Some(SourceKind::Markdown)),
             (false, false) => Ok(None),
+        }
+    }
+
+    /// Enable markdown linting with default globs (`*.md`, `*.markdown`, `*.mdx`,
+    /// `*.qmd`, `*.Rmd`) when none are configured. Backs the `--markdown` CLI flag
+    /// so embedded YAML can be linted without editing config. A no-op when
+    /// `[files].markdown` already lists globs.
+    pub fn enable_default_markdown(&mut self, base_dir: &Path) {
+        if self.markdown_file_patterns.is_empty() {
+            self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
+                .iter()
+                .map(|pattern| (*pattern).to_string())
+                .collect();
+            self.markdown_matcher =
+                build_glob_matcher(base_dir, &self.markdown_file_patterns);
         }
     }
 

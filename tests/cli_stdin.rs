@@ -422,3 +422,93 @@ fn stdin_no_warnings_suppresses_warning_output() {
     assert!(stdout.trim().is_empty(), "expected empty stdout: {stdout}");
     assert!(stderr.trim().is_empty(), "expected empty stderr: {stderr}");
 }
+
+#[test]
+fn stdin_markdown_filename_lints_embedded_yaml() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .current_dir(dir.path())
+            .arg("-")
+            .arg("--stdin-filename")
+            .arg(dir.path().join("doc.md")),
+        b"---\nfoo:  bar\n---\n",
+    );
+    assert_eq!(code, 1, "embedded YAML must be linted: {stderr}");
+    assert!(
+        stderr.contains("2:6") && stderr.contains("colons"),
+        "front-matter diagnostic maps to host position: {stderr}"
+    );
+}
+
+#[test]
+fn stdin_markdown_flag_lints_embedded_yaml() {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .arg("--markdown")
+            .arg("-")
+            .arg("-d")
+            .arg("rules: {colons: enable}"),
+        b"# t\n\n```yaml\nfoo:  bar\n```\n",
+    );
+    assert_eq!(code, 1, "fenced block must be linted: {stderr}");
+    assert!(
+        stderr.contains("<stdin>") && stderr.contains("4:6"),
+        "fenced diagnostic uses stdin label and host position: {stderr}"
+    );
+}
+
+#[test]
+fn stdin_markdown_filename_ignored_is_skipped() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "files = { markdown = [\"*.md\"] }\nignore = [\"doc.md\"]\n[rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .current_dir(dir.path())
+            .arg("-")
+            .arg("--stdin-filename")
+            .arg(dir.path().join("doc.md")),
+        b"---\nfoo:  bar\n---\n",
+    );
+    assert_eq!(code, 0, "ignored stdin path must be skipped: {stderr}");
+    assert!(
+        stdout.is_empty() && stderr.is_empty(),
+        "out={stdout} err={stderr}"
+    );
+}
+
+#[test]
+fn stdin_markdown_overlap_is_a_hard_error() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .current_dir(dir.path())
+            .arg("-")
+            .arg("--stdin-filename")
+            .arg(dir.path().join("doc.md")),
+        b"foo: bar\n",
+    );
+    assert_eq!(code, 2, "overlap must be a usage error: {stderr}");
+    assert!(stderr.contains("matches both"), "{stderr}");
+}

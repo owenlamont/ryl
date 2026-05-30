@@ -12,6 +12,8 @@ mod lint;
 
 pub use lint::lint_markdown_str;
 
+use std::ops::Range;
+
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 /// Which embedded YAML sources to extract from a markdown document.
@@ -39,6 +41,10 @@ pub struct EmbeddedRegion {
     /// to every diagnostic column. Always 0 for front matter.
     pub col_offset: usize,
     pub content: String,
+    /// Byte span of the region's raw content in the source markdown. Used by
+    /// `--fix` write-back to splice fixed YAML back, and by the per-line column
+    /// remap to recover each line's actually-stripped indent.
+    pub raw_span: Range<usize>,
 }
 
 #[must_use]
@@ -75,6 +81,7 @@ fn front_matter_region(markdown: &str) -> Option<EmbeddedRegion> {
                 line_offset: markdown[..content_start].matches('\n').count(),
                 col_offset: 0,
                 content: markdown[content_start..cursor].to_string(),
+                raw_span: content_start..cursor,
             });
         }
         cursor = line_end + 1;
@@ -108,10 +115,17 @@ fn collect_fenced_blocks(markdown: &str, regions: &mut Vec<EmbeddedRegion>) {
                 if let Some(accumulator) = active.take()
                     && let Some(first_byte) = accumulator.first_byte
                 {
+                    let line_start = line_start_of(markdown, first_byte);
                     regions.push(EmbeddedRegion {
                         kind: RegionKind::FencedBlock,
-                        line_offset: markdown[..first_byte].matches('\n').count(),
-                        col_offset: fence_indent(markdown, first_byte),
+                        line_offset: markdown[..line_start].matches('\n').count(),
+                        col_offset: markdown[line_start..first_byte].chars().count(),
+                        raw_span: line_start
+                            ..fenced_content_end(
+                                markdown,
+                                line_start,
+                                &accumulator.content,
+                            ),
                         content: accumulator.content,
                     });
                 }
@@ -127,15 +141,33 @@ struct FenceAccumulator {
     first_byte: Option<usize>,
 }
 
-/// Characters of leading indentation pulldown stripped from the fenced block,
-/// i.e. the column of its first content byte. The block's content always sits on
-/// a line after its opening fence, so a preceding newline is guaranteed.
-fn fence_indent(markdown: &str, content_start: usize) -> usize {
-    let line_start = markdown[..content_start]
+/// Byte offset of the start of the line containing `content_start`. The block's
+/// content always sits on a line after its opening fence, so a preceding newline
+/// is guaranteed.
+fn line_start_of(markdown: &str, content_start: usize) -> usize {
+    markdown[..content_start]
         .rfind('\n')
         .expect("fenced block content follows its opening fence line")
-        + 1;
-    markdown[line_start..content_start].chars().count()
+        + 1
+}
+
+/// Byte offset where the fenced block's raw content ends (the start of the closing
+/// fence line, or end of input for a block left open at EOF). Found by walking the
+/// same number of source lines the dedented content spans.
+fn fenced_content_end(markdown: &str, start: usize, content: &str) -> usize {
+    // Content without a trailing newline only happens for a block left open at EOF,
+    // whose content runs to the end of input.
+    if !content.ends_with('\n') {
+        return markdown.len();
+    }
+    let mut pos = start;
+    for _ in 0..content.matches('\n').count() {
+        let offset = markdown[pos..]
+            .find('\n')
+            .expect("each content line precedes the closing fence");
+        pos += offset + 1;
+    }
+    pos
 }
 
 fn is_yaml_info(info: &str) -> bool {

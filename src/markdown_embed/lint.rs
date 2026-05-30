@@ -3,26 +3,17 @@
 
 use std::path::Path;
 
-use super::{MarkdownSources, extract_regions};
+use super::{EmbeddedRegion, MarkdownSources, extract_regions};
 use crate::config::YamlLintConfig;
+use crate::fix::suppressed_rules;
 use crate::lint::{LintProblem, lint_str};
-use crate::rules::{document_end, document_start, new_line_at_end_of_file, new_lines};
-
-/// File-shape rules suppressed inside embedded regions: a region is not a
-/// standalone file, so "missing document start/end" and file-newline checks do
-/// not apply (the analog of markdown linters skipping their first-line/EOF rules).
-const SUPPRESSED: [&str; 4] = [
-    new_line_at_end_of_file::ID,
-    new_lines::ID,
-    document_start::ID,
-    document_end::ID,
-];
 
 /// Lint every embedded YAML region in `markdown` and return diagnostics whose
 /// line/column point into the original markdown document.
 ///
 /// Each region is linted as an independent YAML document. File-shape rules that
-/// only make sense for a standalone file are suppressed (see [`is_suppressed`]).
+/// only make sense for a standalone file are suppressed per region kind (see
+/// [`suppressed_rules`]).
 #[must_use]
 pub fn lint_markdown_str(
     markdown: &str,
@@ -40,18 +31,39 @@ pub fn lint_markdown_str(
         if region.content.trim().is_empty() {
             continue;
         }
+        let suppressed = suppressed_rules(region.kind);
+        let stripped = stripped_indents(markdown, &region);
         for mut problem in lint_str(&region.content, path, cfg, base_dir) {
-            if is_suppressed(problem.rule) {
+            if problem.rule.is_some_and(|id| suppressed.contains(&id)) {
                 continue;
             }
+            problem.column += stripped
+                .get(problem.line - 1)
+                .copied()
+                .unwrap_or(region.col_offset);
             problem.line += region.line_offset;
-            problem.column += region.col_offset;
             problems.push(problem);
         }
     }
     problems
 }
 
-fn is_suppressed(rule: Option<&str>) -> bool {
-    rule.is_some_and(|id| SUPPRESSED.contains(&id))
+/// Per content line, the indent pulldown actually stripped (`min(leading spaces on
+/// the raw line, col_offset)`). A uniformly-indented block yields `col_offset` for
+/// every line; a line indented less than the fence yields its own smaller value, so
+/// its column is not over-shifted. Empty for regions with no indent (front matter),
+/// where the `col_offset` fallback (0) applies.
+fn stripped_indents(markdown: &str, region: &EmbeddedRegion) -> Vec<usize> {
+    if region.col_offset == 0 {
+        return Vec::new();
+    }
+    markdown[region.raw_span.clone()]
+        .split('\n')
+        .map(|line| {
+            line.bytes()
+                .take_while(|byte| *byte == b' ')
+                .count()
+                .min(region.col_offset)
+        })
+        .collect()
 }

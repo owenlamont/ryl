@@ -106,9 +106,34 @@ columns include the block's indentation.
 
 ## `--fix`
 
-`--fix` does **not** modify Markdown files; embedded YAML is checked only. When a
-run includes Markdown files, `ryl` prints a one-line note and leaves those files
-untouched while still reporting their diagnostics.
+`--fix` applies the same safe fixes to each embedded region and writes the result
+back into the Markdown document, re-indenting fixed YAML to its fence column and
+preserving the document's line endings (CRLF stays CRLF). The four file-shape rules
+suppressed in check mode are also excluded from fixing, so a fragment never gains a
+`---`/`...` marker or a trailing newline.
+
+Write-back is **conservative by construction**: ryl only rewrites a region when its
+fixed YAML can be re-indented to reproduce the region's original bytes exactly. A
+region it cannot reproduce — ragged indentation (content lines indented less than
+the fence), tab indentation, or other non-uniform layouts — is left **byte-for-byte
+untouched** while still being reported. This guarantees `--fix` can never corrupt a
+Markdown document: the worst case is that an unusual region is reported but not
+auto-fixed.
+
+## Linting Markdown from stdin and the CLI
+
+Markdown linting is normally enabled by listing `[files].markdown` globs, but it can
+also be turned on for a single run from the command line:
+
+- `--markdown` enables Markdown linting using default globs (`*.md`, `*.markdown`,
+  `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is a no-op when
+  `[files].markdown` is already set.
+- Reading from stdin honours the source kind: `ryl - --stdin-filename doc.md` lints
+  the piped bytes as Markdown when `doc.md` matches the `markdown` globs (front
+  matter and fenced blocks are extracted exactly as for a file on disk). Without
+  `--stdin-filename`, pass `--markdown` to treat the piped bytes as Markdown
+  (otherwise stdin is linted as plain YAML). As with files, `--fix` is not supported
+  when reading from stdin.
 
 ## Use with pre-commit
 

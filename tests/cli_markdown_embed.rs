@@ -170,21 +170,22 @@ fn explicit_markdown_without_files_pattern_is_rejected() {
 }
 
 #[test]
-fn fix_skips_markdown_with_notice() {
-    let body = "---\na:  1\n---\n";
-    let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
+fn fix_rewrites_markdown_front_matter() {
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
+    let body = "---\nfoo: bar  \n---\n";
+    let (_dir, file) = project(config, "doc.md", body);
 
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
         .arg("--fix")
         .arg(&file));
 
-    assert_eq!(code, 1, "stderr={err}");
-    assert!(err.contains("does not modify markdown files"), "{err}");
-    assert!(err.contains("(0 fixed, 1 remaining)"), "{err}");
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(!err.contains("does not modify markdown files"), "{err}");
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        body,
-        "file must be unchanged"
+        "---\nfoo: bar\n---\n",
+        "trailing spaces in front matter must be fixed in place"
     );
 }
 

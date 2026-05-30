@@ -26,7 +26,9 @@ use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
 };
-use ryl::{LintProblem, Severity, lint_file, lint_markdown_file, lint_str};
+use ryl::{
+    LintProblem, Severity, lint_file, lint_markdown_file, lint_markdown_str, lint_str,
+};
 
 const STDIN_LABEL: &str = "<stdin>";
 
@@ -191,6 +193,11 @@ struct LintFlags {
 
     #[command(flatten)]
     compatibility: CompatibilityLintFlags,
+
+    /// Lint inputs as Markdown (embedded YAML front matter and fenced yaml/yml
+    /// blocks) using default globs, without configuring `[files].markdown`
+    #[arg(long = "markdown", default_value_t = false)]
+    markdown: bool,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -384,6 +391,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         &candidates,
         &explicit_files,
         global_cfg.as_ref(),
+        cli.lint.markdown,
         &mut cache,
         &mut emitted_notices,
         &mut files,
@@ -402,11 +410,6 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
 
     let mut initial_problem_count = 0usize;
     if cli.lint.fix.fix {
-        if files.iter().any(|(.., kind)| *kind == SourceKind::Markdown) {
-            eprintln!(
-                "note: --fix does not modify markdown files; embedded YAML is checked only"
-            );
-        }
         let initial_results = lint_files(&files);
         initial_problem_count = count_reported_problems(
             &initial_results,
@@ -451,21 +454,19 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
 fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files) = resolve_stdin_ctx(cli)?;
 
-    if apply_yaml_files
-        && (cfg.is_file_ignored(&path, &base_dir)
-            || !cfg.is_yaml_candidate(&path, &base_dir))
-    {
+    let Some(kind) = resolve_stdin_kind(cli, &cfg, &path, &base_dir, apply_yaml_files)?
+    else {
         return Ok(ExitCode::SUCCESS);
-    }
+    };
 
     if cli.lint.compatibility.list_files {
         println!("{}", path.display());
         return Ok(ExitCode::SUCCESS);
     }
 
-    let outcome = read_and_lint_stdin(&path, &base_dir, &cfg);
+    let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
 
-    let files = vec![(path, base_dir, cfg, SourceKind::Yaml)];
+    let files = vec![(path, base_dir, cfg, kind)];
     let results = vec![(0usize, outcome)];
 
     let output_format = detect_output_format(cli.format);
@@ -478,10 +479,34 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
 }
 
+/// Resolve the source kind for stdin, or `None` to skip (ignored / no glob match).
+/// With `--stdin-filename` the kind comes from `[files]` globs; without it, only
+/// `--markdown` selects markdown (there is no path to match), else YAML.
+fn resolve_stdin_kind(
+    cli: &Cli,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    apply_yaml_files: bool,
+) -> Result<Option<SourceKind>, String> {
+    if !apply_yaml_files {
+        return Ok(Some(if cli.lint.markdown {
+            SourceKind::Markdown
+        } else {
+            SourceKind::Yaml
+        }));
+    }
+    if cfg.is_file_ignored(path, base_dir) {
+        return Ok(None);
+    }
+    cfg.source_kind(path, base_dir)
+}
+
 fn read_and_lint_stdin(
     path: &Path,
     base_dir: &Path,
     cfg: &YamlLintConfig,
+    kind: SourceKind,
 ) -> Result<Vec<LintProblem>, String> {
     let mut buf = Vec::new();
     std::io::stdin()
@@ -489,7 +514,10 @@ fn read_and_lint_stdin(
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     let content = decoder::decode_bytes(&buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    Ok(lint_str(&content, path, cfg, base_dir))
+    Ok(match kind {
+        SourceKind::Markdown => lint_markdown_str(&content, path, cfg, base_dir),
+        SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
+    })
 }
 
 fn resolve_stdin_ctx(
@@ -509,6 +537,9 @@ fn resolve_stdin_ctx(
         eprintln!("{notice}");
     }
     let mut cfg = ctx.config;
+    if cli.lint.markdown {
+        cfg.enable_default_markdown(&ctx.base_dir);
+    }
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
@@ -538,16 +569,20 @@ fn gather_lint_files(
     candidates: &[PathBuf],
     explicit_files: &[PathBuf],
     global_cfg: Option<&ConfigContext>,
+    markdown: bool,
     cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
     emitted_notices: &mut HashSet<String>,
     files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)>,
 ) -> Result<(), String> {
     for f in candidates {
-        let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, cache)?;
+        let (base_dir, mut cfg, notices) = resolve_ctx(f, global_cfg, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{notice}");
             }
+        }
+        if markdown {
+            cfg.enable_default_markdown(&base_dir);
         }
         if cfg.is_file_ignored(f, &base_dir) {
             continue;
@@ -558,11 +593,14 @@ fn gather_lint_files(
     }
 
     for ef in explicit_files {
-        let (base_dir, cfg, notices) = resolve_ctx(ef, global_cfg, cache)?;
+        let (base_dir, mut cfg, notices) = resolve_ctx(ef, global_cfg, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{notice}");
             }
+        }
+        if markdown {
+            cfg.enable_default_markdown(&base_dir);
         }
         if cfg.is_file_ignored(ef, &base_dir) {
             continue;
