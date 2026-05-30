@@ -252,80 +252,93 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
-    let mut content = input.to_string();
-    let run = |content: String, rule: RuleFix, fix: &dyn Fn(&str) -> Option<String>| {
-        apply_rule_fix(content, rule, cfg, path, base_dir, skip, fix)
+    let ctx = FixContext {
+        cfg,
+        path,
+        base_dir,
+        skip,
     };
-
-    content = run(content, NEW_LINES_FIX, &|buffer: &str| {
+    let mut content = input.to_string();
+    content = ctx.apply(content, NEW_LINES_FIX, |buffer| {
         new_lines::fix(
             buffer,
             new_lines::Config::resolve(cfg),
             new_lines::platform_newline(),
         )
     });
-    content = run(content, COMMENTS_FIX, &|buffer: &str| {
+    content = ctx.apply(content, COMMENTS_FIX, |buffer| {
         comments::fix(buffer, &comments::Config::resolve(cfg))
     });
-    content = run(content, COMMENTS_INDENTATION_FIX, &|buffer: &str| {
+    content = ctx.apply(content, COMMENTS_INDENTATION_FIX, |buffer| {
         comments_indentation::fix(buffer, &comments_indentation::Config::resolve(cfg))
     });
-    content = run(content, COMMAS_FIX, &|buffer: &str| {
+    content = ctx.apply(content, COMMAS_FIX, |buffer| {
         commas::fix(buffer, &commas::Config::resolve(cfg))
     });
-    content = run(content, BRACES_FIX, &|buffer: &str| {
+    content = ctx.apply(content, BRACES_FIX, |buffer| {
         braces::fix(buffer, &braces::Config::resolve(cfg))
     });
-    content = run(content, BRACKETS_FIX, &|buffer: &str| {
+    content = ctx.apply(content, BRACKETS_FIX, |buffer| {
         brackets::fix(buffer, &brackets::Config::resolve(cfg))
     });
-    content = run(content, FINAL_NEWLINE_FIX, &|buffer: &str| {
+    content = ctx.apply(content, FINAL_NEWLINE_FIX, |buffer| {
         let newline = target_newline(buffer, cfg, path, base_dir);
         new_line_at_end_of_file::fix(buffer, newline.as_str())
     });
-    content = run(content, QUOTED_STRINGS_FIX, &|buffer: &str| {
+    content = ctx.apply(content, QUOTED_STRINGS_FIX, |buffer| {
         quoted_strings::fix(buffer, &quoted_strings::Config::resolve(cfg))
     });
-    content = run(content, TRAILING_SPACES_FIX, &trailing_spaces::fix);
-    content = run(content, DOCUMENT_START_FIX, &|buffer: &str| {
+    content = ctx.apply(content, TRAILING_SPACES_FIX, trailing_spaces::fix);
+    content = ctx.apply(content, DOCUMENT_START_FIX, |buffer| {
         document_start::fix(buffer, &document_start::Config::resolve(cfg))
     });
-    content = run(content, DOCUMENT_END_FIX, &|buffer: &str| {
+    content = ctx.apply(content, DOCUMENT_END_FIX, |buffer| {
         document_end::fix(buffer, &document_end::Config::resolve(cfg))
     });
-    content = run(content, EMPTY_LINES_FIX, &|buffer: &str| {
+    content = ctx.apply(content, EMPTY_LINES_FIX, |buffer| {
         empty_lines::fix(buffer, &empty_lines::Config::resolve(cfg))
     });
 
     content
 }
 
-fn apply_rule_fix(
-    content: String,
-    rule: RuleFix,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-    skip: &[&str],
-    fix: &dyn Fn(&str) -> Option<String>,
-) -> String {
-    if skip.contains(&rule.rule) || !rule_enabled(rule, cfg, path, base_dir) {
-        return content;
-    }
+/// Shared arguments for a sequence of rule fixes, bundled so each per-rule call
+/// site stays short. `apply` is generic over the fix closure — a method can be,
+/// where a capturing closure cannot — so there is no dynamic dispatch.
+struct FixContext<'a> {
+    cfg: &'a YamlLintConfig,
+    path: &'a Path,
+    base_dir: &'a Path,
+    skip: &'a [&'a str],
+}
 
-    // Run the rule's fix to a fixed point. A single pass is not enough for
-    // rules like quoted-strings where one fix exposes a follow-up diagnostic
-    // (e.g. converting double quotes to single quotes leaves a now-redundant
-    // pair that must be removed); without convergence here, the CLI's single
-    // --fix invocation would leave the output non-idempotent. Well-behaved
-    // fix functions signal completion by returning None, so the loop exits
-    // after at most one extra no-op call per rule.
-    let mut current = content;
-    for _ in 0..RULE_FIX_MAX_ITERATIONS {
-        let Some(next) = fix(&current) else { break };
-        current = next;
+impl FixContext<'_> {
+    fn apply(
+        &self,
+        content: String,
+        rule: RuleFix,
+        fix: impl Fn(&str) -> Option<String>,
+    ) -> String {
+        if self.skip.contains(&rule.rule)
+            || !rule_enabled(rule, self.cfg, self.path, self.base_dir)
+        {
+            return content;
+        }
+
+        // Run the rule's fix to a fixed point. A single pass is not enough for
+        // rules like quoted-strings where one fix exposes a follow-up diagnostic
+        // (e.g. converting double quotes to single quotes leaves a now-redundant
+        // pair that must be removed); without convergence here, the CLI's single
+        // --fix invocation would leave the output non-idempotent. Well-behaved
+        // fix functions signal completion by returning None, so the loop exits
+        // after at most one extra no-op call per rule.
+        let mut current = content;
+        for _ in 0..RULE_FIX_MAX_ITERATIONS {
+            let Some(next) = fix(&current) else { break };
+            current = next;
+        }
+        current
     }
-    current
 }
 
 fn rule_enabled(

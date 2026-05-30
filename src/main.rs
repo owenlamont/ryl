@@ -485,10 +485,10 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
 }
 
-/// Resolve the source kind for stdin, or `None` to skip (ignored / no glob match).
-/// `--markdown` forces Markdown (honouring an ignored `--stdin-filename` first);
-/// otherwise, with `--stdin-filename` the kind comes from `[files]` globs, and
-/// without one the input is linted as YAML.
+/// Resolve the source kind for stdin, or `None` to skip an ignored `--stdin-filename`.
+/// `--markdown` forces Markdown; otherwise, with `--stdin-filename` the kind comes
+/// from `[files]` globs (a named file matching no kind is an error, like an
+/// explicitly-passed file), and without one the input is linted as YAML.
 fn resolve_stdin_kind(
     cli: &Cli,
     cfg: &YamlLintConfig,
@@ -505,7 +505,16 @@ fn resolve_stdin_kind(
     if !apply_yaml_files {
         return Ok(Some(SourceKind::Yaml));
     }
-    cfg.source_kind(path, base_dir)
+    match cfg.source_kind(path, base_dir)? {
+        Some(kind) => Ok(Some(kind)),
+        // A named stdin file that matches no kind is an error, the same as an
+        // explicitly-passed file (see `gather_lint_files`).
+        None => Err(format!(
+            "{}: no source kind matches; add a matching glob under \
+             [files].yaml or [files].markdown",
+            path.display()
+        )),
+    }
 }
 
 fn read_and_lint_stdin(

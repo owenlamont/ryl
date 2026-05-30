@@ -103,7 +103,7 @@ fn stdin_filename_appears_in_diagnostics() {
 }
 
 #[test]
-fn stdin_filename_filters_non_yaml_extension() {
+fn stdin_filename_no_source_kind_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
         Command::new(exe)
@@ -112,9 +112,15 @@ fn stdin_filename_filters_non_yaml_extension() {
             .arg("script.sh"),
         b"key:  value\n",
     );
-    assert_eq!(code, 0, "non-yaml ext should be skipped: {stderr}");
+    assert_eq!(
+        code, 2,
+        "unmatched stdin filename errors like an explicit file: {stderr}"
+    );
     assert!(stdout.is_empty(), "stdout should be empty: {stdout}");
-    assert!(stderr.is_empty(), "stderr should be empty: {stderr}");
+    assert!(
+        stderr.contains("no source kind matches"),
+        "expected no-source-kind error: {stderr}"
+    );
 }
 
 #[test]
