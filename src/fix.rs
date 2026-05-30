@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
-use crate::markdown_embed::{MarkdownSources, RegionKind, extract_regions};
+use crate::markdown_embed::{MarkdownSources, extract_regions};
+use crate::rules::support::line_syntax::buffer_newline;
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
@@ -11,33 +12,22 @@ use crate::rules::{
 
 const RULE_FIX_MAX_ITERATIONS: usize = 8;
 
-/// File-shape rules suppressed inside embedded markdown regions, per region kind:
-/// a region is not a standalone file, so "missing document start/end" and the
-/// file-newline checks do not apply, and `--fix` must never inject `---`/`...` or a
-/// trailing newline into a fragment. Front matter and fenced blocks suppress the
-/// same four rules today; the per-kind signature lets them diverge without a
-/// refactor. The single source is shared by the check path ([`lint_markdown_str`])
-/// and the fix path, so the two cannot drift.
-const FRONT_MATTER_SUPPRESSED: [&str; 4] = [
-    document_start::ID,
-    document_end::ID,
-    new_line_at_end_of_file::ID,
-    new_lines::ID,
-];
-const FENCED_BLOCK_SUPPRESSED: [&str; 4] = [
+/// File-shape rules suppressed inside embedded markdown regions: a region is not a
+/// standalone file, so "missing document start/end" and the file-newline checks do
+/// not apply, and `--fix` must never inject `---`/`...` or a trailing newline into a
+/// fragment. Shared by the check path ([`lint_markdown_str`]) and the fix path so
+/// the two cannot drift.
+const SUPPRESSED: [&str; 4] = [
     document_start::ID,
     document_end::ID,
     new_line_at_end_of_file::ID,
     new_lines::ID,
 ];
 
-/// Rules suppressed inside an embedded region of the given kind.
+/// Rules suppressed inside any embedded region.
 #[must_use]
-pub fn suppressed_rules(kind: RegionKind) -> &'static [&'static str] {
-    match kind {
-        RegionKind::FrontMatter => &FRONT_MATTER_SUPPRESSED,
-        RegionKind::FencedBlock => &FENCED_BLOCK_SUPPRESSED,
-    }
+pub fn suppressed_rules() -> &'static [&'static str] {
+    &SUPPRESSED
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,49 +194,35 @@ pub fn fix_markdown_str(
             cfg,
             path,
             base_dir,
-            suppressed_rules(region.kind),
+            suppressed_rules(),
         );
         if fixed == region.content {
             continue;
         }
         let raw = &markdown[region.raw_span.clone()];
-        let newline = detect_newline(raw);
-        if reindent(&region.content, region.col_offset, newline) != raw {
+        let newline = buffer_newline(raw);
+        let indent = " ".repeat(region.col_offset);
+        if reindent(&region.content, &indent, newline) != raw {
             continue;
         }
-        out.replace_range(
-            region.raw_span.clone(),
-            &reindent(&fixed, region.col_offset, newline),
-        );
+        out.replace_range(region.raw_span.clone(), &reindent(&fixed, &indent, newline));
         changed = true;
     }
     changed.then_some(out)
 }
 
-/// The newline style of a raw region: CRLF if the first line ending is `\r\n`,
-/// otherwise LF.
-fn detect_newline(raw: &str) -> &'static str {
-    match raw.find('\n') {
-        Some(index) if raw.as_bytes().get(index.wrapping_sub(1)) == Some(&b'\r') => {
-            "\r\n"
-        }
-        _ => "\n",
-    }
-}
-
-/// Re-encode dedented region content into its host: each non-empty line regains
-/// `col_offset` leading spaces and lines are joined with `newline`. Empty lines
-/// stay empty (matching how the parser dedents blank lines), and the trailing
-/// newline is preserved.
-fn reindent(content: &str, col_offset: usize, newline: &str) -> String {
-    let indent = " ".repeat(col_offset);
+/// Re-encode dedented region content into its host: each non-empty line regains the
+/// region's leading `indent` and lines are joined with `newline`. Empty lines stay
+/// empty (matching how the parser dedents blank lines), and the trailing newline is
+/// preserved.
+fn reindent(content: &str, indent: &str, newline: &str) -> String {
     let mut out = String::with_capacity(content.len());
     for piece in content.replace("\r\n", "\n").split_inclusive('\n') {
         let (line, terminated) = piece
             .strip_suffix('\n')
             .map_or((piece, false), |line| (line, true));
         if !line.is_empty() {
-            out.push_str(&indent);
+            out.push_str(indent);
             out.push_str(line);
         }
         if terminated {

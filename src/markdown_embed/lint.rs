@@ -26,17 +26,20 @@ pub fn lint_markdown_str(
         fenced_blocks: cfg.markdown_fenced_blocks(),
     };
 
+    let suppressed = suppressed_rules();
     let mut problems = Vec::new();
     for region in extract_regions(markdown, sources) {
         if region.content.trim().is_empty() {
             continue;
         }
-        let suppressed = suppressed_rules(region.kind);
+        let mut region_problems = lint_str(&region.content, path, cfg, base_dir);
+        region_problems
+            .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
+        if region_problems.is_empty() {
+            continue;
+        }
         let stripped = stripped_indents(markdown, &region);
-        for mut problem in lint_str(&region.content, path, cfg, base_dir) {
-            if problem.rule.is_some_and(|id| suppressed.contains(&id)) {
-                continue;
-            }
+        for mut problem in region_problems {
             problem.column += stripped
                 .get(problem.line - 1)
                 .copied()
@@ -48,22 +51,21 @@ pub fn lint_markdown_str(
     problems
 }
 
-/// Per content line, the indent pulldown actually stripped (`min(leading spaces on
-/// the raw line, col_offset)`). A uniformly-indented block yields `col_offset` for
-/// every line; a line indented less than the fence yields its own smaller value, so
-/// its column is not over-shifted. Empty for regions with no indent (front matter),
-/// where the `col_offset` fallback (0) applies.
+/// Per content line, the number of characters the `CommonMark` parser stripped from
+/// its start — `chars(raw line) - chars(content line)` — which covers leading
+/// space/tab indentation, blockquote markers, and CRLF normalisation alike. Added
+/// back to each diagnostic column so positions point into the host document, and
+/// correct for ragged blocks (a line dedented less than the fence yields a smaller
+/// value). Front matter content equals its raw span, so every entry is 0.
 fn stripped_indents(markdown: &str, region: &EmbeddedRegion) -> Vec<usize> {
-    if region.col_offset == 0 {
-        return Vec::new();
-    }
     markdown[region.raw_span.clone()]
         .split('\n')
-        .map(|line| {
-            line.bytes()
-                .take_while(|byte| *byte == b' ')
+        .zip(region.content.split('\n'))
+        .map(|(raw, content)| {
+            raw.trim_end_matches('\r')
+                .chars()
                 .count()
-                .min(region.col_offset)
+                .saturating_sub(content.trim_end_matches('\r').chars().count())
         })
         .collect()
 }

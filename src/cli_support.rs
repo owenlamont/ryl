@@ -14,8 +14,12 @@ use crate::config::{ConfigContext, YamlLintConfig, discover_per_file};
 pub fn resolve_ctx<S: BuildHasher>(
     path: &Path,
     global_cfg: Option<&ConfigContext>,
+    markdown: bool,
     cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig), S>,
 ) -> Result<(PathBuf, YamlLintConfig, Vec<String>), String> {
+    // The global config is markdown-enabled once by the caller, so per-file clones
+    // here inherit the built matcher; only freshly-discovered configs need enabling
+    // (done before caching, so the matcher is built once per directory).
     if let Some(gc) = global_cfg {
         return Ok((gc.base_dir.clone(), gc.config.clone(), Vec::new()));
     }
@@ -26,7 +30,11 @@ pub fn resolve_ctx<S: BuildHasher>(
         return Ok((pair.0, pair.1, Vec::new()));
     }
     let ctx = discover_per_file(path)?;
-    let pair = (ctx.base_dir.clone(), ctx.config);
+    let mut cfg = ctx.config;
+    if markdown {
+        cfg.enable_default_markdown(&ctx.base_dir);
+    }
+    let pair = (ctx.base_dir.clone(), cfg);
     let notices = ctx.notices;
     cache.insert(start, pair.clone());
     Ok((pair.0, pair.1, notices))

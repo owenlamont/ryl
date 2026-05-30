@@ -111,6 +111,36 @@ fn crlf_markdown_maps_positions() {
 }
 
 #[test]
+fn blockquoted_fence_column_accounts_for_quote_marker() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ntruthy = \"enable\"\n";
+    let body = "> ```yaml\n> foo: True\n> ```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(
+        err.contains("2:8"),
+        "blockquote `> ` prefix must shift the column to 8: {err}"
+    );
+}
+
+#[test]
+fn fence_nested_in_front_matter_is_not_double_linted() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ntruthy = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n  inner: True\n  ```\n---\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(
+        out.is_empty() && err.is_empty(),
+        "a fence inside a front-matter scalar is string content, not a document: out={out} err={err}"
+    );
+}
+
+#[test]
 fn multibyte_front_matter_columns_pass_through() {
     let body = "---\ncaf\u{e9}:  x\n---\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);

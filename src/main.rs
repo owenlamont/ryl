@@ -370,7 +370,13 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     }
 
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
-    let global_cfg = build_global_cfg(&cli.inputs, &cli)?;
+    let mut global_cfg = build_global_cfg(&cli.inputs, &cli)?;
+    if cli.lint.markdown
+        && let Some(ctx) = global_cfg.as_mut()
+    {
+        // Enable markdown once here so per-file clones inherit the built matcher.
+        ctx.config.enable_default_markdown(&ctx.base_dir);
+    }
     if let Some(cfg) = &global_cfg {
         for notice in &cfg.notices {
             eprintln!("{notice}");
@@ -480,8 +486,9 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
 }
 
 /// Resolve the source kind for stdin, or `None` to skip (ignored / no glob match).
-/// With `--stdin-filename` the kind comes from `[files]` globs; without it, only
-/// `--markdown` selects markdown (there is no path to match), else YAML.
+/// `--markdown` forces Markdown (honouring an ignored `--stdin-filename` first);
+/// otherwise, with `--stdin-filename` the kind comes from `[files]` globs, and
+/// without one the input is linted as YAML.
 fn resolve_stdin_kind(
     cli: &Cli,
     cfg: &YamlLintConfig,
@@ -489,15 +496,14 @@ fn resolve_stdin_kind(
     base_dir: &Path,
     apply_yaml_files: bool,
 ) -> Result<Option<SourceKind>, String> {
-    if !apply_yaml_files {
-        return Ok(Some(if cli.lint.markdown {
-            SourceKind::Markdown
-        } else {
-            SourceKind::Yaml
-        }));
-    }
-    if cfg.is_file_ignored(path, base_dir) {
+    if apply_yaml_files && cfg.is_file_ignored(path, base_dir) {
         return Ok(None);
+    }
+    if cli.lint.markdown {
+        return Ok(Some(SourceKind::Markdown));
+    }
+    if !apply_yaml_files {
+        return Ok(Some(SourceKind::Yaml));
     }
     cfg.source_kind(path, base_dir)
 }
@@ -575,14 +581,11 @@ fn gather_lint_files(
     files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)>,
 ) -> Result<(), String> {
     for f in candidates {
-        let (base_dir, mut cfg, notices) = resolve_ctx(f, global_cfg, cache)?;
+        let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{notice}");
             }
-        }
-        if markdown {
-            cfg.enable_default_markdown(&base_dir);
         }
         if cfg.is_file_ignored(f, &base_dir) {
             continue;
@@ -593,14 +596,11 @@ fn gather_lint_files(
     }
 
     for ef in explicit_files {
-        let (base_dir, mut cfg, notices) = resolve_ctx(ef, global_cfg, cache)?;
+        let (base_dir, cfg, notices) = resolve_ctx(ef, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{notice}");
             }
-        }
-        if markdown {
-            cfg.enable_default_markdown(&base_dir);
         }
         if cfg.is_file_ignored(ef, &base_dir) {
             continue;

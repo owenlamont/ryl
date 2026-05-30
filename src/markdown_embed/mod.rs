@@ -61,6 +61,22 @@ pub fn extract_regions(
     if sources.fenced_blocks {
         collect_fenced_blocks(markdown, &mut regions);
     }
+    // A ```yaml fence inside the front-matter scalar is part of that scalar's
+    // string value, not a standalone document, yet CommonMark still parses it.
+    // Drop fenced regions nested inside the front matter (always the first region
+    // when present) so they are neither double-linted nor, under --fix, rewritten
+    // as spans overlapping the front matter.
+    let front = regions
+        .first()
+        .filter(|region| region.kind == RegionKind::FrontMatter)
+        .map(|region| region.raw_span.clone());
+    if let Some(front) = front {
+        regions.retain(|region| {
+            region.kind == RegionKind::FrontMatter
+                || region.raw_span.start < front.start
+                || region.raw_span.end > front.end
+        });
+    }
     regions
 }
 

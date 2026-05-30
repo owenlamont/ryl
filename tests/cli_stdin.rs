@@ -492,6 +492,31 @@ fn stdin_markdown_filename_ignored_is_skipped() {
 }
 
 #[test]
+fn stdin_markdown_flag_overrides_non_markdown_filename() {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .arg("--markdown")
+            .arg("-")
+            .arg("--stdin-filename")
+            .arg("notes.txt")
+            .arg("-d")
+            .arg("rules: {colons: enable}"),
+        b"---\nfoo:  bar\n---\n",
+    );
+    assert_eq!(
+        code, 1,
+        "--markdown must force markdown regardless of filename: {stderr}"
+    );
+    assert!(
+        stderr.contains("notes.txt")
+            && stderr.contains("2:6")
+            && stderr.contains("colons"),
+        "embedded front matter linted under the provided label: {stderr}"
+    );
+}
+
+#[test]
 fn stdin_markdown_overlap_is_a_hard_error() {
     let dir = tempdir().unwrap();
     fs::write(

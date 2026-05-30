@@ -101,7 +101,7 @@ fn verify_regions(
             cfg,
             synthetic_path(),
             synthetic_base_dir(),
-            suppressed_rules(orig.kind),
+            suppressed_rules(),
         );
         prop_assert!(
             fixd.content == orig.content || fixd.content == safe_fixed,
@@ -176,6 +176,14 @@ fn known_dirty_crlf_block_round_trips() {
         Some("# t\r\n\r\n```yaml\r\nbar: [3, 4]\r\n```\r\n"),
         "CRLF must be preserved through the fix"
     );
+}
+
+#[test]
+fn fence_nested_in_front_matter_does_not_corrupt() {
+    let markdown =
+        "---\nzzz: [9,9]\nfoo: |\n  ```yaml\n  bar: [1,2]\n  ```\n---\n\nbody\n";
+    run_invariants(markdown)
+        .expect("invariants hold when a fence is nested in a front-matter scalar");
 }
 
 #[test]

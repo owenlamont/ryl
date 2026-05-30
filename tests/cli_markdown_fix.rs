@@ -291,6 +291,58 @@ fn fix_markdown_write_error_is_reported() {
 }
 
 #[test]
+fn fix_does_not_corrupt_fence_inside_front_matter() {
+    let body = "---\nzzz: [9,9]\nfoo: |\n  ```yaml\n  bar: [1,2]\n  ```\n---\n";
+    let (_dir, file) = project(COMMAS, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "---\nzzz: [9, 9]\nfoo: |\n  ```yaml\n  bar: [1,2]\n  ```\n---\n",
+        "a fence nested in a front-matter scalar must not be fixed as standalone \
+         YAML or cause overlapping-splice corruption"
+    );
+}
+
+#[test]
+fn markdown_flag_applies_to_global_config() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "```yaml\nnums: [1,2]\n```\n").unwrap();
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("--markdown")
+        .arg("-d")
+        .arg("rules: {commas: enable}")
+        .arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(
+        err.contains("commas"),
+        "--markdown must enable markdown on a -d/-c global config: {err}"
+    );
+}
+
+#[test]
+fn markdown_flag_wins_over_overlapping_yaml_glob() {
+    let config = "files = { yaml = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let (_dir, file) = project(config, "doc.md", "```yaml\nnums: [1,2]\n```\n");
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("--markdown")
+        .arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(err.contains("commas"), "linted as markdown: {err}");
+    assert!(
+        !err.contains("matches both"),
+        "--markdown-injected globs must win over yaml on overlap: {err}"
+    );
+}
+
+#[test]
 fn markdown_flag_enables_fix_without_files_glob() {
     let dir = tempdir().unwrap();
     fs::write(
