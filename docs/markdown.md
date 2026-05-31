@@ -179,23 +179,45 @@ also be turned on for a single run from the command line:
 
 ## Use with pre-commit
 
-When `ryl` runs as a pre-commit hook, the hook only sees the file paths
-pre-commit passes to it. The `ryl` hook targets YAML files by default, so to lint
-Markdown you must both (a) add a `markdown` glob under `[files]` in your ryl config
-and (b) widen the hook to pass Markdown files, for example:
+`ryl` is published as a pre-commit hook at
+[ryl-pre-commit](https://github.com/owenlamont/ryl-pre-commit). The default `ryl`
+hook only sees YAML files. To also lint YAML embedded in Markdown, add the
+dedicated `ryl-markdown` hook — it runs `ryl --markdown`, so it needs **no**
+`[files]` config:
 
 ```yaml
 - repo: https://github.com/owenlamont/ryl-pre-commit
-  rev: <version>
+  rev: v0.11.0
+  hooks:
+    - id: ryl
+    - id: ryl-markdown
+```
+
+The `ryl-markdown` hook targets `.md`, `.markdown`, `.mdx`, `.qmd`, and `.Rmd`
+files and requires `ryl >= 0.11.0`. To autofix the embedded YAML in place, add
+`args: [--fix]`:
+
+```yaml
+    - id: ryl-markdown
+      args: [--fix]
+```
+
+Prefer a single hook? You can instead widen the plain `ryl` hook to also pass
+Markdown files and opt them in via `[files]`:
+
+```yaml
+- repo: https://github.com/owenlamont/ryl-pre-commit
+  rev: v0.11.0
   hooks:
     - id: ryl
       types_or: [yaml, markdown]
 ```
 
-pre-commit decides *which* files to pass; `[files]` decides *how* ryl treats each.
-So if the hook passes a `.md` that no `[files]` glob matches, ryl reports an error
-(it was named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow
-the hook's file filter.
+This route needs a `markdown` glob under `[files]` in your ryl config: pre-commit
+decides *which* files to pass; `[files]` decides *how* ryl treats each. So if the
+hook passes a `.md` that no `[files]` glob matches, ryl reports an error (it was
+named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow the
+hook's file filter.
 
 `ryl` also applies its `ignore` patterns to **explicitly passed** files, not just
 to files found by scanning a directory. So a file pre-commit hands to `ryl` that
