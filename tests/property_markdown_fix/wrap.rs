@@ -71,8 +71,8 @@ impl MarkdownDoc {
     }
 }
 
-/// Append YAML body lines, indenting non-empty lines (blank lines stay empty, the
-/// way the CommonMark parser dedents them) and terminating with `nl`.
+/// Indent each non-blank line; blank lines stay empty (matching how the CommonMark
+/// parser dedents them) so an indented block round-trips.
 fn push_body(out: &mut String, lines: &[String], indent: &str, nl: &str) {
     for line in lines {
         if !line.is_empty() {

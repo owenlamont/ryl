@@ -97,8 +97,12 @@ ryl is a CLI tool for linting yaml files
 
 ## Automated Tests
 
-- Don't use comments in tests, use meaningful function names, and variable names to
-  convey the test purpose.
+- Convey a test's purpose with meaningful function and variable names, and convey
+  what each check verifies with assertion messages. Comments in tests follow the
+  same bar as the rest of the codebase (see Coding Standards): keep them minimal and
+  reserve them for genuinely non-obvious trade-offs, opaque mechanics, or
+  module/harness orientation (e.g. a `//!` header describing a property suite's
+  invariants and reuse) — never to narrate what a self-evident test already says.
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.
@@ -179,28 +183,19 @@ to the committed `tests/proptest-regressions/property_check.txt`. Run with
 
 `tests/property_markdown_fix.rs` property-tests `fix::fix_markdown_str` — the
 write-back of safe fixes into YAML embedded in Markdown. It reuses the safe-fix
-YAML generator via `#[path]` (`property_safe_fix/{ast,strategy,config}.rs`) and
-wraps generated `Document`s into a Markdown host (`property_markdown_fix/wrap.rs`):
-optional front matter plus prose-separated fenced `yaml`/`yml` blocks at varied
-indent (0–3), fence char, info string, and LF/CRLF. The invariants are
-oracle-free and run across the same config matrix as the safe-fix suite:
+generator via `#[path]` (`property_safe_fix/{ast,strategy,config}.rs`), wraps the
+generated `Document`s into a Markdown host (`property_markdown_fix/wrap.rs`), and
+asserts four oracle-free invariants across the safe-fix config matrix: host bytes
+outside regions stay byte-identical (with region count/kinds stable), each region's
+parsed value is preserved, each region is either untouched or rewritten to exactly
+its `apply_safe_fixes_filtered` form, and the operation is idempotent. Deterministic
+siblings pin known-dirty / CRLF / ragged / fence-crossing-front-matter cases so the
+random invariants cannot pass vacuously.
 
-1. **Host preservation** — every byte outside the embedded regions is identical
-   after `--fix`, and region count/kinds are stable (the anti-corruption check).
-2. **Parse preservation** — each region's parsed YAML value is unchanged.
-3. **Region correctness** — each region is either left untouched or rewritten to
-   exactly `apply_safe_fixes_filtered(content, …, suppressed_rules(kind))` (markdown
-   path ≡ direct path, modulo re-indent/newline).
-4. **Idempotence** — feeding the fixed output back through `fix_markdown_str`
-   yields no further change.
-
-Deterministic siblings pin a known-dirty front-matter + indented-block document, a
-CRLF block, and a ragged-indent block (asserting the guard skips it), so the random
-invariants cannot pass vacuously. Failing inputs persist to the committed
-`tests/proptest-regressions/property_markdown_fix.txt`. Run with
-`cargo test --test property_markdown_fix`. The new write-back rules already live in
-`SAFE_FIX_RULES`; this suite needs extension only if the Markdown extractor/wrapper
-grows new region shapes (add a `wrap.rs` variant and a deterministic sibling).
+Extend this suite only when the Markdown extractor/wrapper grows new region shapes:
+add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to the
+committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
+`cargo test --test property_markdown_fix`.
 
 ### Rules Without A Safe `--fix`
 
@@ -271,21 +266,6 @@ hunting through scattered tips:
    on the problematic lines.
 8. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
 
-## Code Size Workflow
-
-After finishing feature work, use this order before committing:
-
-1. Run `prek run --all-files` and rerun it until all automatic fixes have stabilised.
-2. Run `./scripts/coverage-missing.sh` (Unix) or
-   `pwsh ./scripts/coverage-missing.ps1` (Windows) and keep iterating until coverage
-   is back to 100%.
-3. If the coverage command fails for reasons unrelated to uncovered lines, run the
-   affected tests manually, fix them, then rerun the coverage command.
-4. Once lint, tests, and coverage are green, inspect code size with
-   `uv run scripts/source_size.py --compare-to <branch-or-ref>`.
-5. If the growth looks high for the functionality added, look for ways to reduce code
-   size or make the implementation DRYer before committing.
-
 ### Coverage-Friendly Rust Idioms
 
 - Guard invariants with `expect` (or an early `return Err(...)`) when the
@@ -328,7 +308,9 @@ sticking to the quick-status step above.
   helpers in `crate::rules::span_utils` instead of reinventing byte/char conversions.
   When writing tests, prefer inputs like `"café"` or `"å"` to ensure coverage of
   character vs byte offset logic.
-- Use meaningful function and variable names in tests—comments are discouraged.
+- Lean on meaningful function/variable names and assertion messages to make tests
+  self-documenting; add a comment only where it explains a non-obvious trade-off or
+  opaque mechanic that names cannot (the standard minimal-comment bar applies).
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
 - CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment,

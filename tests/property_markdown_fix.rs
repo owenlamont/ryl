@@ -1,19 +1,13 @@
-//! Property-based tests for `fix_markdown_str` — the `--fix` write-back into YAML
-//! embedded in markdown.
-//!
-//! Reuses the safe-fix YAML generator (`ast`/`strategy`/`config`) so the embedded
-//! YAML matches the flat `--fix` suite, and wraps it into a markdown host
-//! (`wrap`). The invariants are self-consistent (no external oracle): the host
-//! bytes outside embedded regions are preserved, region count/kinds are stable,
-//! each region's parsed value is preserved, every region is either left untouched
-//! or rewritten to exactly its safe-fixed form, and the whole operation is
-//! idempotent. Deterministic siblings pin known-dirty documents (front matter,
-//! indented + CRLF fenced blocks) and the guard-skip path (ragged indent) so the
-//! random invariants cannot pass vacuously.
+//! Property tests for `fix_markdown_str` — the `--fix` write-back into YAML embedded
+//! in markdown. The YAML generator is reused from the safe-fix suite via `#[path]`
+//! (`ast`/`strategy`/`config`) and wrapped into a markdown host (`wrap`); the
+//! invariants (`verify_host_preserved`/`verify_regions`/`run_invariants`) are
+//! self-consistent, with no external oracle. Deterministic siblings pin
+//! known-dirty/CRLF/ragged/boundary-crossing cases so the random property cannot
+//! pass vacuously.
 
-// These modules are shared with the safe-fix suite, which exercises every item;
-// this binary reuses only the YAML generator and a few helpers, so allow the rest
-// to be unused here.
+// Shared with the safe-fix suite (which uses every item); this binary reuses only
+// the generator and a few helpers, so allow the rest to be unused.
 #[path = "property_safe_fix/ast.rs"]
 #[allow(dead_code)]
 mod ast;
@@ -44,8 +38,6 @@ fn regions_of(markdown: &str, cfg: &YamlLintConfig) -> Vec<EmbeddedRegion> {
     )
 }
 
-/// Every byte outside the embedded regions is byte-identical, and the regions
-/// line up one-to-one by kind.
 fn verify_host_preserved(
     original: &str,
     fixed: &str,
@@ -80,8 +72,6 @@ fn verify_host_preserved(
     Ok(())
 }
 
-/// Each region preserves its parsed YAML value and is either left untouched or
-/// rewritten to exactly the safe-fixed form of its original content.
 fn verify_regions(
     original: &str,
     fixed: &str,
