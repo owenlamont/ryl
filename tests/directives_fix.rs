@@ -91,6 +91,19 @@ fn fixer_runs_normally_when_a_different_rule_is_disabled() {
 }
 
 #[test]
+fn disable_file_makes_fix_a_noop() {
+    let input = "# ryl disable-file\na: 1   \n[1,2 ,3]\n";
+    assert_eq!(
+        fix(
+            input,
+            "rules:\n  trailing-spaces: enable\n  commas: enable\n"
+        ),
+        input,
+        "a first-line disable-file leaves the whole file untouched"
+    );
+}
+
+#[test]
 fn fix_is_idempotent_with_directives() {
     let input = "# ryl disable rule:trailing-spaces\na: 1   \n\
         # ryl enable rule:trailing-spaces\nb: 2   \n";

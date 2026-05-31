@@ -1,11 +1,12 @@
 //! Inline rule-disable comment directives.
 //!
-//! Mirrors yamllint's `# yamllint disable` / `enable` / `disable-line` directives
-//! (`yamllint/linter.py`) and adds a preferred `# ryl …` spelling kept in lockstep
-//! with the grammar. The lint engine ([`crate::lint::lint_str`]) filters every rule's
-//! diagnostics through [`Directives::is_disabled`], and `--fix` ([`crate::fix`]) keeps
-//! disabled lines untouched via [`Directives::reconcile`], so behaviour is uniform
-//! across all rules.
+//! Mirrors yamllint's `# yamllint disable` / `enable` / `disable-line` /
+//! `disable-file` directives (`yamllint/linter.py`) and adds a preferred `# ryl …`
+//! spelling kept in lockstep with the grammar. The lint engine
+//! ([`crate::lint::lint_str`]) filters every rule's diagnostics through
+//! [`Directives::is_disabled`], and `--fix` ([`crate::fix`]) keeps disabled lines
+//! untouched via [`Directives::reconcile`], so behaviour is uniform across all rules.
+//! A first-line [`disables_file`] directive skips the whole file (and `--fix`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -30,6 +31,18 @@ static DISABLE_LINE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RULE_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"rule:(\S+)").unwrap());
+// `disable-file` is matched on the raw first line (including `#`) and is more lenient
+// than the other directives, exactly mirroring yamllint's `^#\s*yamllint disable-file`.
+static DISABLE_FILE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^#\s*(?:yamllint|ryl) disable-file\s*$").unwrap());
+
+/// Whether the buffer's first line is a `disable-file` directive. Such a file is
+/// skipped entirely &mdash; no diagnostics (not even syntax errors) and no `--fix`
+/// rewrites &mdash; matching yamllint (`yamllint/linter.py`).
+#[must_use]
+pub fn disables_file(buffer: &str) -> bool {
+    DISABLE_FILE.is_match(buffer.lines().next().unwrap_or(""))
+}
 
 enum Action {
     Disable,

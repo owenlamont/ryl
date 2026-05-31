@@ -67,6 +67,18 @@ const CASES: &[(&str, &str)] = &[
         "crlf.yaml",
         "# yamllint disable-line rule:colons\r\na:  1\r\nb:  2\r\n",
     ),
+    (
+        "disable-file.yaml",
+        "# yamllint disable-file\na:  yes\nb: [1\n",
+    ),
+    (
+        "disable-file-lenient.yaml",
+        "#yamllint disable-file\na:  yes\n",
+    ),
+    (
+        "disable-file-not-first.yaml",
+        "a:  yes\n# yamllint disable-file\n",
+    ),
 ];
 
 #[test]

@@ -45,6 +45,20 @@ b:   2                  # not reported
 c:   3                  # reported again
 ```
 
+### Whole file
+
+A `disable-file` directive on the **first line** of a file skips it entirely
+&mdash; no rule reports anything (not even a syntax error), and `--fix` leaves it
+untouched:
+
+```yaml
+# ryl disable-file
+this:   file: is: not: linted
+```
+
+It must be the first line, with no `rule:` tokens. For yamllint parity the `#`
+may be followed by any spacing (`#ryl disable-file` is accepted too).
+
 ### Targeting rules
 
 List one or more rules with `rule:<id>` tokens (the bare rule ids ryl uses, e.g.

@@ -260,6 +260,9 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
+    if crate::directives::disables_file(input) {
+        return input.to_string();
+    }
     let ctx = FixContext {
         cfg,
         path,

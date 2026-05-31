@@ -183,6 +183,57 @@ fn hash_inside_quotes_is_not_a_directive() {
 }
 
 #[test]
+fn disable_file_suppresses_entire_file_including_syntax_errors() {
+    let config = cfg(COLONS);
+    for keyword in ["ryl", "yamllint"] {
+        let input = format!("# {keyword} disable-file\na:  1\nb: [1\n");
+        assert!(
+            lint_str(&input, Path::new("in.yaml"), &config, Path::new(".")).is_empty(),
+            "`# {keyword} disable-file` must suppress every diagnostic"
+        );
+    }
+}
+
+#[test]
+fn disable_file_is_lenient_about_spacing_after_hash() {
+    let config = cfg(COLONS);
+    for first in [
+        "#ryl disable-file",
+        "#   yamllint disable-file",
+        "# ryl disable-file  ",
+    ] {
+        let input = format!("{first}\na:  1\n");
+        assert!(
+            lint_str(&input, Path::new("in.yaml"), &config, Path::new(".")).is_empty(),
+            "lenient disable-file should be honoured: {first:?}"
+        );
+    }
+}
+
+#[test]
+fn disable_file_must_be_first_line_and_exact() {
+    let config = cfg(COLONS);
+    let rejected = [
+        "a:  1\n# ryl disable-file\n", // not the first line
+        "# ryl disable-file rule:colons\na:  1\n", // trailing junk
+        "## ryl disable-file\na:  1\n", // double hash
+    ];
+    for input in rejected {
+        assert!(
+            !lint_str(input, Path::new("in.yaml"), &config, Path::new(".")).is_empty(),
+            "must not suppress: {input:?}"
+        );
+    }
+}
+
+#[test]
+fn disables_file_handles_empty_and_plain_buffers() {
+    assert!(!ryl::directives::disables_file(""));
+    assert!(!ryl::directives::disables_file("a: 1\n"));
+    assert!(ryl::directives::disables_file("# ryl disable-file"));
+}
+
+#[test]
 fn syntax_errors_are_never_suppressed() {
     let config = cfg(COLONS);
     let problems = lint_str(

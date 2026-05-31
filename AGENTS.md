@@ -427,7 +427,9 @@ sticking to the quick-status step above.
 - Inline directives (`src/directives.rs`): `# ryl disable` / `enable` /
   `disable-line` comments (and the `# yamllint …` compat aliases) suppress rules
   for a block or a single line, mirroring yamllint's exact grammar
-  (`yamllint/linter.py`). Handling is global, not per-rule: `lint::lint_str`
+  (`yamllint/linter.py`). A first-line `# ryl/yamllint disable-file`
+  (`directives::disables_file`) skips the whole file &mdash; no diagnostics, not
+  even syntax errors, and no `--fix`. Handling is global, not per-rule: `lint::lint_str`
   filters every diagnostic through `Directives::is_disabled` before the
   syntax-error check, and `fix` reverts a fixer's edits to disabled lines via
   `Directives::reconcile`. Directives work region-locally inside embedded
