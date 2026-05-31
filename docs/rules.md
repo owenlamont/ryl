@@ -95,6 +95,9 @@ Enabling a rule without options applies its defaults. The three built-in
 presets &mdash; `default`, `relaxed`, and `empty` &mdash; cover the common
 starting points; see [Configuration presets](config-presets.md).
 
+To switch rules off for part of a file with `# ryl disable` /
+`# yamllint disable` comments, see [Inline directives](directives.md).
+
 ## Automatic fixing
 
 The `--fix` flag applies safe fixes for rules marked with :wrench: above:

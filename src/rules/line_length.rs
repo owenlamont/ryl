@@ -65,7 +65,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut line_no = 1usize;
     let mut line_start = 0usize;
     let mut idx = 0usize;
-    let mut directive_state = DirectiveState::new();
 
     while idx < bytes.len() {
         if bytes[idx] == b'\n' {
@@ -74,15 +73,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             } else {
                 idx
             };
-            process_line(
-                buffer,
-                line_no,
-                line_start,
-                line_end,
-                cfg,
-                &mut violations,
-                &mut directive_state,
-            );
+            process_line(buffer, line_no, line_start, line_end, cfg, &mut violations);
             idx += 1;
             line_start = idx;
             line_no += 1;
@@ -98,7 +89,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         bytes.len(),
         cfg,
         &mut violations,
-        &mut directive_state,
     );
     violations
 }
@@ -110,33 +100,12 @@ fn process_line(
     end: usize,
     cfg: &Config,
     out: &mut Vec<Violation>,
-    directive_state: &mut DirectiveState,
 ) {
-    let disable_line_applies = std::mem::take(&mut directive_state.disable_next_line);
     if start == end {
         return;
     }
 
     let line = &buffer[start..end];
-    match line_length_directive(line) {
-        Directive::Disable => {
-            directive_state.disabled = true;
-            return;
-        }
-        Directive::DisableLine => {
-            directive_state.disable_next_line = true;
-            return;
-        }
-        Directive::Enable => {
-            directive_state.disabled = false;
-            return;
-        }
-        Directive::None => {}
-    }
-    if directive_state.disabled || disable_line_applies {
-        return;
-    }
-
     let length = line.chars().count();
     let length_i64 = i64::try_from(length).unwrap_or(i64::MAX);
 
@@ -187,47 +156,6 @@ fn allows_overflow(line: &str, cfg: &Config) -> bool {
     }
 
     cfg.allow_non_breakable_inline_mappings() && check_inline_mapping(line)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Directive {
-    None,
-    Disable,
-    DisableLine,
-    Enable,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct DirectiveState {
-    disabled: bool,
-    disable_next_line: bool,
-}
-
-impl DirectiveState {
-    const fn new() -> Self {
-        Self {
-            disabled: false,
-            disable_next_line: false,
-        }
-    }
-}
-
-fn line_length_directive(line: &str) -> Directive {
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with('#') {
-        return Directive::None;
-    }
-    let payload = trimmed.trim_start_matches('#').trim_start();
-    if payload == "yamllint disable rule:line-length" {
-        return Directive::Disable;
-    }
-    if payload == "yamllint disable-line rule:line-length" {
-        return Directive::DisableLine;
-    }
-    if payload == "yamllint enable rule:line-length" {
-        return Directive::Enable;
-    }
-    Directive::None
 }
 
 fn check_inline_mapping(line: &str) -> bool {

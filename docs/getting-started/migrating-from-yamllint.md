@@ -57,6 +57,10 @@ produced.
   reference them; TOML configs must inline the preset content (see the
   example below). The full preset content is in
   [Configuration presets](../config-presets.md).
+- Inline `# yamllint disable` / `disable-line` / `enable` comments are honoured
+  with the same grammar and semantics, so existing in-file suppressions keep
+  working. The equivalent `# ryl …` spelling is preferred for new files; see
+  [Inline directives](../directives.md).
 
 ## Side-by-side example
 

@@ -1,6 +1,7 @@
-use granit_parser::{Event, Parser, Placement, Span};
+use granit_parser::Placement;
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::comments_scan::collect_comments;
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 
 pub const ID: &str = "comments";
@@ -182,39 +183,6 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     }
 
     Some(apply_replacements(buffer, edits))
-}
-
-struct CommentInfo {
-    span: Span,
-    text: String,
-    placement: Placement,
-}
-
-fn collect_comments(buffer: &str) -> Vec<CommentInfo> {
-    let mut parser = Parser::new_from_str(buffer);
-    let mut comments = Vec::new();
-    let mut last_err_at: Option<usize> = None;
-    while let Some(res) = parser.next_event() {
-        match res {
-            Ok((Event::Comment(text, placement), span)) => {
-                comments.push(CommentInfo {
-                    span,
-                    text: text.into_owned(),
-                    placement,
-                });
-                last_err_at = None;
-            }
-            Ok(_) => last_err_at = None,
-            Err(e) => {
-                let pos = e.marker().index();
-                if last_err_at == Some(pos) {
-                    break;
-                }
-                last_err_at = Some(pos);
-            }
-        }
-    }
-    comments
 }
 
 fn line_start_byte(buffer: &str, byte_offset: usize) -> usize {

@@ -21,6 +21,7 @@ nav = [
   { "Rules" = "rules.md" },
   { "Configuration" = [
     { "Presets" = "config-presets.md" },
+    { "Inline directives" = "directives.md" },
     { "YAML in Markdown" = "markdown.md" },
   ]},
   { "YAML version compatibility" = "yaml-version.md" },

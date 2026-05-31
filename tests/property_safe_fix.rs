@@ -89,6 +89,28 @@ proptest! {
         }
     }
 
+    /// A leading `# ryl disable` mutes every rule, so `apply_safe_fixes` must not
+    /// touch a single line: the output equals the input byte-for-byte under every
+    /// config. This is the strongest form of "--fix never rewrites a disabled line".
+    #[test]
+    fn safe_fix_is_a_noop_under_a_leading_disable(document in arb_document()) {
+        let input = format!("# ryl disable\n{}", document.render());
+        for prepared in safe_fix_configs() {
+            let cfg_name = prepared.name;
+            let cfg = &prepared.cfg;
+            let fixed =
+                apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
+            prop_assert_eq!(
+                &fixed,
+                &input,
+                "leading `# ryl disable` must make safe fixes a no-op under config '{}'; input {:?}; fixed {:?}",
+                cfg_name,
+                input,
+                fixed
+            );
+        }
+    }
+
     #[test]
     fn safe_fix_preserves_parsed_value(document in arb_document()) {
         let input = document.render();

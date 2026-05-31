@@ -305,6 +305,13 @@ pub fn lint_str(
         }
     }
 
+    let directives = crate::directives::Directives::parse(content);
+    diagnostics.retain(|problem| {
+        !problem
+            .rule
+            .is_some_and(|rule| directives.is_disabled(rule, problem.line))
+    });
+
     if let Some(syntax) = syntax_diagnostic(content) {
         diagnostics.clear();
         diagnostics.push(syntax);

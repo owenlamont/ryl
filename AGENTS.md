@@ -114,9 +114,11 @@ ryl is a CLI tool for linting yaml files
 ### Property Tests For Safe Fixes
 
 `tests/property_safe_fix.rs` runs `proptest`-generated YAML through `apply_safe_fixes`
-and asserts three invariants: idempotence, no remaining safe-fix-rule diagnostics
-after fixing, and parse preservation (input that parses must produce output that
-parses to an equal `YamlOwned` value). Deterministic sibling tests pin known-dirty
+and asserts four invariants: idempotence, no remaining safe-fix-rule diagnostics
+after fixing, parse preservation (input that parses must produce output that
+parses to an equal `YamlOwned` value), and that a leading `# ryl disable` makes the
+fix a byte-for-byte no-op (the strongest form of "`--fix` never rewrites a disabled
+line"). Deterministic sibling tests pin known-dirty
 documents and known production-bug patterns (issues #184 and #206) through the same
 checks so the property assertions cannot silently become a no-op if the generator
 drifts.
@@ -154,7 +156,10 @@ follows the codebase, not the developer's machine.
 rule's `check()` (including the unfixable rules above) over generated YAML and
 asserts two oracle-free invariants — `check()` never panics, and every reported
 violation has an in-bounds, **character-aligned** span (`1 <= line <=
-line_count`, `1 <= column <= chars_on_line + 1`). This is the fast,
+line_count`, `1 <= column <= chars_on_line + 1`). Two further invariants exercise
+the directive engine through `lint_str`: a leading `# ryl disable` mutes every
+rule (only a syntax error can survive), and block-disabling a rule that fires on
+a document removes all of that rule's diagnostics. This is the fast,
 yamllint-free complement to the slow `tests/yamllint_compat_*` differential
 suite; it targets ryl's historically fragile byte<->char offset arithmetic
 (issue #232) rather than semantic correctness.
@@ -419,4 +424,14 @@ sticking to the quick-status step above.
   path-based filtering (`yaml-files`, per-file-ignores, per-rule `ignore`) so every
   enabled rule runs against the input; pass `--markdown` to lint that input as
   Markdown rather than plain YAML.
+- Inline directives (`src/directives.rs`): `# ryl disable` / `enable` /
+  `disable-line` comments (and the `# yamllint …` compat aliases) suppress rules
+  for a block or a single line, mirroring yamllint's exact grammar
+  (`yamllint/linter.py`). Handling is global, not per-rule: `lint::lint_str`
+  filters every diagnostic through `Directives::is_disabled` before the
+  syntax-error check, and `fix` reverts a fixer's edits to disabled lines via
+  `Directives::reconcile`. Directives work region-locally inside embedded
+  Markdown. Match yamllint's semantics exactly (validate with
+  `tests/yamllint_compat_directives.rs`); the bare rule ids live in
+  `rules::ALL_RULE_IDS`. User docs: `docs/directives.md`.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
+use crate::directives::Directives;
 use crate::markdown_embed::{MarkdownSources, extract_regions};
 use crate::rules::support::line_syntax::buffer_newline;
 use crate::rules::{
@@ -339,10 +340,28 @@ impl FixContext<'_> {
         // --fix invocation would leave the output non-idempotent. Well-behaved
         // fix functions signal completion by returning None, so the loop exits
         // after at most one extra no-op call per rule.
+        //
+        // When a directive disables this rule on some line, reconcile each pass so the
+        // fixer's edits to those lines are reverted; directives are re-parsed after a
+        // change because structural fixers shift line numbers (and the comments with
+        // them). Directive-free buffers skip all of this via the cheap pre-filter.
         let mut current = content;
+        let mut directives = Directives::parse(&current);
+        let guarded = directives.disables_any(rule.rule);
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
             let Some(next) = fix(&current) else { break };
+            let next = if guarded {
+                directives.reconcile(rule.rule, &current, &next)
+            } else {
+                next
+            };
+            if next == current {
+                break;
+            }
             current = next;
+            if guarded {
+                directives = Directives::parse(&current);
+            }
         }
         current
     }

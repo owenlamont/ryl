@@ -117,6 +117,10 @@ regions, because a region is not a standalone file:
 All other rules (indentation, `key-duplicates`, `colons`, `truthy`,
 `line-length`, `trailing-spaces`, …) run normally.
 
+[Inline directives](directives.md) (`# ryl disable` / `# yamllint disable`) also
+work inside an embedded region; a directive applies within the region that
+contains it.
+
 ## Example
 
 A document with both a front matter block and a fenced `yaml` block:

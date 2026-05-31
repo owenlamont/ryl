@@ -3,11 +3,23 @@ mod harness;
 #[path = "property_check/strategy.rs"]
 mod strategy;
 
+use std::path::Path;
+
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
+use ryl::lint::lint_str;
 
 use harness::{check_spans_in_bounds, collect_spans, trigger_all_config};
 use strategy::arb_document;
+
+fn lint(content: &str) -> Vec<ryl::lint::LintProblem> {
+    lint_str(
+        content,
+        Path::new("in.yaml"),
+        trigger_all_config(),
+        Path::new("."),
+    )
+}
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -24,6 +36,38 @@ proptest! {
         let spans = collect_spans(&content, trigger_all_config());
         if let Err(message) = check_spans_in_bounds(&content, &spans) {
             return Err(TestCaseError::fail(message));
+        }
+    }
+
+    /// A leading `# ryl disable` must mute every rule, so only a syntax error
+    /// (`rule == None`) can survive.
+    #[test]
+    fn leading_disable_directive_suppresses_all_rules(document in arb_document()) {
+        let content = format!("# ryl disable\n{}", document.render());
+        for problem in lint(&content) {
+            prop_assert!(
+                problem.rule.is_none(),
+                "rule {:?} survived a leading `# ryl disable` at {}:{}",
+                problem.rule, problem.line, problem.column
+            );
+        }
+    }
+
+    /// Block-disabling a rule that fires on a document removes every diagnostic for
+    /// that rule (others may shift by one line but are not asserted here).
+    #[test]
+    fn block_disabling_a_present_rule_removes_its_diagnostics(document in arb_document()) {
+        let content = document.render();
+        let Some(rule) = lint(&content).iter().find_map(|problem| problem.rule) else {
+            return Ok(());
+        };
+        let disabled = format!("# ryl disable rule:{rule}\n{content}");
+        for problem in lint(&disabled) {
+            prop_assert!(
+                problem.rule != Some(rule),
+                "rule `{rule}` survived its own block disable at {}:{}",
+                problem.line, problem.column
+            );
         }
     }
 }
