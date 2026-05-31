@@ -191,6 +191,28 @@ fn fence_opening_on_last_front_matter_line_does_not_corrupt() {
 }
 
 #[test]
+fn blockquoted_fence_round_trips() {
+    let markdown = "> ```yaml\n> nums: [1,2]\n> more: [3,4]\n> ```\n";
+    run_invariants(markdown).expect("invariants hold for a blockquoted fence");
+    assert_eq!(
+        fixed_with_default(markdown).as_deref(),
+        Some("> ```yaml\n> nums: [1, 2]\n> more: [3, 4]\n> ```\n"),
+        "a uniform `> ` prefix is preserved on every fixed line"
+    );
+}
+
+#[test]
+fn tab_indented_fence_round_trips() {
+    let markdown = "- item\n\n\t```yaml\n\tnums: [1,2]\n\t```\n";
+    run_invariants(markdown).expect("invariants hold for a tab-indented fence");
+    assert_eq!(
+        fixed_with_default(markdown).as_deref(),
+        Some("- item\n\n\t```yaml\n\tnums: [1, 2]\n\t```\n"),
+        "a uniform tab prefix is preserved when fixing"
+    );
+}
+
+#[test]
 fn ragged_indent_block_is_skipped() {
     let markdown = "text\n\n   ```yaml\n   a: [1,2 ]\n  b: 3\n   ```\n";
     run_invariants(markdown).expect("invariants hold for ragged markdown");

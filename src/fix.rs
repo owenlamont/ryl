@@ -163,12 +163,13 @@ pub fn apply_markdown_safe_fixes_in_place(
 /// results back in, returning the rewritten document (or `None` if nothing
 /// changed).
 ///
-/// File-shape rules are excluded per [`suppressed_rules`]. A region is only
-/// rewritten when its fixed YAML can be re-indented to reproduce the original raw
-/// bytes exactly (the reconstruct-and-verify guard); ragged-indent, tab-indented,
-/// or otherwise non-round-trippable regions are left untouched (still reported in
-/// check mode). Regions are spliced back-to-front so earlier edits do not shift
-/// later offsets.
+/// File-shape rules are excluded per [`suppressed_rules`]. Each line regains the
+/// prefix the parser stripped (leading spaces, a blockquote `> `, or a tab), and a
+/// region is only rewritten when re-applying that prefix reproduces the original raw
+/// bytes exactly (the reconstruct-and-verify guard); a region whose lines do not
+/// share one prefix (ragged indentation) is left untouched (still reported in check
+/// mode). Regions are spliced back-to-front so earlier edits do not shift later
+/// offsets.
 #[must_use]
 pub fn fix_markdown_str(
     markdown: &str,
@@ -201,28 +202,34 @@ pub fn fix_markdown_str(
         }
         let raw = &markdown[region.raw_span.clone()];
         let newline = buffer_newline(raw);
-        let indent = " ".repeat(region.col_offset);
-        if reindent(&region.content, &indent, newline) != raw {
+        // The prefix the parser stripped from each content line — spaces for an
+        // indented fence, `> ` for a blockquoted one, a tab, etc. `raw` starts at the
+        // first content line and `col_offset` (its stripped char count) never spans a
+        // newline, so the first `col_offset` chars of `raw` are exactly that prefix.
+        // The guard below re-checks it reproduces every line, so a non-uniform
+        // (ragged) prefix still fails and is skipped.
+        let prefix: String = raw.chars().take(region.col_offset).collect();
+        if reindent(&region.content, &prefix, newline) != raw {
             continue;
         }
-        out.replace_range(region.raw_span.clone(), &reindent(&fixed, &indent, newline));
+        out.replace_range(region.raw_span.clone(), &reindent(&fixed, &prefix, newline));
         changed = true;
     }
     changed.then_some(out)
 }
 
 /// Re-encode dedented region content into its host: each non-empty line regains the
-/// region's leading `indent` and lines are joined with `newline`. Empty lines stay
+/// region's leading `prefix` and lines are joined with `newline`. Empty lines stay
 /// empty (matching how the parser dedents blank lines), and the trailing newline is
 /// preserved.
-fn reindent(content: &str, indent: &str, newline: &str) -> String {
+fn reindent(content: &str, prefix: &str, newline: &str) -> String {
     let mut out = String::with_capacity(content.len());
     for piece in content.replace("\r\n", "\n").split_inclusive('\n') {
         let (line, terminated) = piece
             .strip_suffix('\n')
             .map_or((piece, false), |line| (line, true));
         if !line.is_empty() {
-            out.push_str(indent);
+            out.push_str(prefix);
             out.push_str(line);
         }
         if terminated {

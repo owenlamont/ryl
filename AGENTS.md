@@ -403,11 +403,11 @@ sticking to the quick-status step above.
   `document-start`, `document-end`, `new-line-at-end-of-file`, and `new-lines` are
   suppressed inside embedded regions via `fix::suppressed_rules(kind)` (shared by
   the check and fix paths). `--fix` writes safe fixes back into the Markdown
-  (`fix::fix_markdown_str`): it re-indents to the fence column, preserves CRLF, and
-  only rewrites a region whose fixed YAML can be re-indented to reproduce the
-  original bytes exactly (the reconstruct-and-verify guard) — ragged/tab/other
-  non-round-trippable regions are reported but left untouched, so write-back cannot
-  corrupt a document. See `docs/markdown.md`.
+  (`fix::fix_markdown_str`): it re-applies each line's stripped prefix (spaces, a
+  blockquote `> `, or a tab), preserves CRLF, and only rewrites a region when that
+  reproduces the original bytes exactly (the reconstruct-and-verify guard) — a
+  region whose lines lack a single shared prefix (ragged) is reported but left
+  untouched, so write-back cannot corrupt a document. See `docs/markdown.md`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets

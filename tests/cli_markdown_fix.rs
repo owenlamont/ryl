@@ -112,18 +112,32 @@ fn fix_skips_ragged_indent_block_but_reports() {
 }
 
 #[test]
-fn fix_skips_tab_indented_block_but_reports() {
+fn fix_rewrites_tab_indented_block_preserving_tab() {
     let body = "- item\n\n\t```yaml\n\tnums: [1,2]\n\t```\n";
     let (_dir, file) = project(COMMAS, "doc.md", body);
 
     let (code, _out, err) = fix(&file);
 
-    assert_eq!(code, 1, "stderr={err}");
-    assert!(err.contains("commas"), "tab block must still report: {err}");
+    assert_eq!(code, 0, "stderr={err}");
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        body,
-        "tab-indented block must be left byte-identical"
+        "- item\n\n\t```yaml\n\tnums: [1, 2]\n\t```\n",
+        "a uniformly tab-indented fence is fixed with its tab prefix preserved"
+    );
+}
+
+#[test]
+fn fix_rewrites_blockquoted_fence_preserving_markers() {
+    let body = "> ```yaml\n> nums: [1,2]\n> more: [3,4]\n> ```\n";
+    let (_dir, file) = project(COMMAS, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "> ```yaml\n> nums: [1, 2]\n> more: [3, 4]\n> ```\n",
+        "a blockquoted fence is fixed with its `> ` prefix preserved on every line"
     );
 }
 

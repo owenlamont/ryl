@@ -142,18 +142,19 @@ columns include the block's indentation.
 ## `--fix`
 
 `--fix` applies the same safe fixes to each embedded region and writes the result
-back into the Markdown document, re-indenting fixed YAML to its fence column and
-preserving the document's line endings (CRLF stays CRLF). The four file-shape rules
-suppressed in check mode are also excluded from fixing, so a fragment never gains a
-`---`/`...` marker or a trailing newline.
+back into the Markdown document, re-applying whatever prefix the parser stripped
+from each line — leading spaces, a blockquote `> `, or a tab — and preserving the
+document's line endings (CRLF stays CRLF). The four file-shape rules suppressed in
+check mode are also excluded from fixing, so a fragment never gains a `---`/`...`
+marker or a trailing newline.
 
-Write-back is **conservative by construction**: ryl only rewrites a region when its
-fixed YAML can be re-indented to reproduce the region's original bytes exactly. A
-region it cannot reproduce — ragged indentation (content lines indented less than
-the fence), tab indentation, or other non-uniform layouts — is left **byte-for-byte
-untouched** while still being reported. This guarantees `--fix` can never corrupt a
-Markdown document: the worst case is that an unusual region is reported but not
-auto-fixed.
+Write-back is **conservative by construction**: ryl only rewrites a region when
+re-applying that prefix reproduces the region's original bytes exactly. A region it
+cannot reproduce — one whose lines do not share a single prefix (ragged indentation
+where content lines are indented less than the fence, or other non-uniform layouts)
+— is left **byte-for-byte untouched** while still being reported. This guarantees
+`--fix` can never corrupt a Markdown document: the worst case is that an unusual
+region is reported but not auto-fixed.
 
 ## Linting Markdown from stdin and the CLI
 
