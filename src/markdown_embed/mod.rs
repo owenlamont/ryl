@@ -52,9 +52,15 @@ pub fn extract_regions(
     markdown: &str,
     sources: MarkdownSources,
 ) -> Vec<EmbeddedRegion> {
+    // Locate the front matter regardless of whether it is linted, so a fence nested
+    // in its scalar is filtered out even when `front-matter = false` (otherwise that
+    // disabled source would still be linted/fixed via the nested fence).
+    let front_matter = front_matter_region(markdown);
+    let front_end = front_matter.as_ref().map(|region| region.raw_span.end);
+
     let mut regions = Vec::new();
     if sources.front_matter
-        && let Some(region) = front_matter_region(markdown)
+        && let Some(region) = front_matter
     {
         regions.push(region);
     }
@@ -64,17 +70,13 @@ pub fn extract_regions(
     // A ```yaml fence that opens inside the front-matter scalar is malformed: its
     // content is partly that scalar's string value, not a standalone document, yet
     // CommonMark still parses it (possibly extending past the `---`/`...` terminator).
-    // Front matter is the leading region, and a real body fence's content always
-    // begins *strictly after* the terminator line, so keep a fence only when its
-    // content starts past the front matter end. Content starting before the end is a
-    // fence inside the scalar; content starting exactly at the end means the opening
-    // fence was the last front-matter line (the terminator is its first content line)
-    // — both are dropped so their content is neither double-linted nor, under --fix,
-    // spliced over the front matter's span.
-    let front_end = regions
-        .first()
-        .filter(|region| region.kind == RegionKind::FrontMatter)
-        .map(|region| region.raw_span.end);
+    // Front matter is at the top, and a real body fence's content always begins
+    // *strictly after* the terminator line, so keep a fence only when its content
+    // starts past the front matter end. Content before the end is a fence inside the
+    // scalar; content exactly at the end means the opening fence was the last
+    // front-matter line (the terminator is its first content line) — both are dropped
+    // so their content is neither double-linted nor, under --fix, spliced over the
+    // front matter's span.
     if let Some(front_end) = front_end {
         regions.retain(|region| {
             region.kind == RegionKind::FrontMatter || region.raw_span.start > front_end

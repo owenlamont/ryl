@@ -356,6 +356,23 @@ fn fix_drops_fence_crossing_front_matter_terminator() {
 }
 
 #[test]
+fn fix_leaves_fence_inside_disabled_front_matter_untouched() {
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n  inner: [1,2]\n  ```\n---\n\ntext\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        body,
+        "front-matter content (including a nested fence) must be untouched when \
+         front-matter is disabled"
+    );
+}
+
+#[test]
 fn fix_drops_fence_opening_on_last_front_matter_line() {
     let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
     let (_dir, file) = project(COMMAS, "doc.md", body);

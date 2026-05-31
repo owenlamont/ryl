@@ -158,6 +158,22 @@ fn fence_crossing_front_matter_terminator_is_dropped() {
 }
 
 #[test]
+fn fence_inside_disabled_front_matter_is_not_linted() {
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n  inner: [1,2]\n  ```\n---\n\ntext\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(
+        out.is_empty() && err.is_empty(),
+        "a fence inside the front-matter scalar must stay unlinted when front-matter \
+         is disabled: out={out} err={err}"
+    );
+}
+
+#[test]
 fn fence_opening_on_last_front_matter_line_is_dropped() {
     let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
     let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
