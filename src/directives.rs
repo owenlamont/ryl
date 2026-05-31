@@ -6,7 +6,8 @@
 //! ([`crate::lint::lint_str`]) filters every rule's diagnostics through
 //! [`Directives::is_disabled`], and `--fix` ([`crate::fix`]) keeps disabled lines
 //! untouched via [`Directives::reconcile`], so behaviour is uniform across all rules.
-//! A first-line [`disables_file`] directive skips the whole file (and `--fix`).
+//! A first-line [`disables_file`] directive skips the whole buffer (a file, or an
+//! embedded Markdown region) for both linting and `--fix`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -36,9 +37,10 @@ static RULE_TOKEN: LazyLock<Regex> =
 static DISABLE_FILE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^#\s*(?:yamllint|ryl) disable-file\s*$").unwrap());
 
-/// Whether the buffer's first line is a `disable-file` directive. Such a file is
+/// Whether the buffer's first line is a `disable-file` directive. The buffer is then
 /// skipped entirely &mdash; no diagnostics (not even syntax errors) and no `--fix`
-/// rewrites &mdash; matching yamllint (`yamllint/linter.py`).
+/// rewrites &mdash; matching yamllint (`yamllint/linter.py`). For embedded Markdown
+/// the buffer is one region, so this disables the region that opens with it.
 #[must_use]
 pub fn disables_file(buffer: &str) -> bool {
     DISABLE_FILE.is_match(buffer.lines().next().unwrap_or(""))
@@ -169,8 +171,14 @@ impl Directives {
     }
 
     /// Rebuild `after` so that any line `rule`'s fixer changed while disabled keeps its
-    /// `before` text. Fixers are pure replace (line count unchanged) or pure
-    /// insert/delete (count changed); both are reconciled per disabled line.
+    /// `before` text, reconciling per disabled line.
+    ///
+    /// Precondition: each fixer is **pure replace** (line count unchanged) **xor**
+    /// **pure insert/delete** (count changed) within a single pass — never a mix that
+    /// both inserts and deletes lines. Every current safe-fix rule satisfies this. The
+    /// equal-length path assumes positional replacement, so a hypothetical fixer that
+    /// reordered lines while keeping the count equal could misalign; introduce a real
+    /// line diff here before adding such a fixer.
     #[must_use]
     pub fn reconcile(&self, rule: &str, before: &str, after: &str) -> String {
         let before_lines: Vec<&str> = before.split_inclusive('\n').collect();

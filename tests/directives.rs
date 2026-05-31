@@ -174,12 +174,18 @@ fn strict_grammar_rejects_malformed_directives() {
 #[test]
 fn hash_inside_quotes_is_not_a_directive() {
     let config = cfg(COLONS);
-    let input = "a:  \"# ryl disable-line rule:colons\"\n";
-    assert_eq!(
-        rule_lines(input, &config),
-        vec![(1, "colons".to_owned())],
-        "a `#` inside a quoted scalar is not a comment"
-    );
+    // Both quote styles: the `#` is part of the scalar, not a comment, so colons
+    // (the 2 spaces after the key colon) still fires and is not suppressed.
+    for input in [
+        "a:  \"# ryl disable-line rule:colons\"\n",
+        "a:  '# ryl disable-line rule:colons'\n",
+    ] {
+        assert_eq!(
+            rule_lines(input, &config),
+            vec![(1, "colons".to_owned())],
+            "a `#` inside a quoted scalar is not a comment: {input:?}"
+        );
+    }
 }
 
 #[test]
@@ -271,13 +277,14 @@ fn directives_apply_inside_embedded_markdown_region() {
 }
 
 #[test]
-fn all_rule_ids_is_unique_and_complete() {
+fn all_rule_ids_are_unique() {
+    // Completeness (ALL_RULE_IDS == the real rule set) is guarded in property_check.rs
+    // via the RULE_TRIGGERS cross-check; here we only assert there are no duplicates.
     let ids = ryl::rules::ALL_RULE_IDS;
     let mut sorted = ids.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.len(), ids.len(), "rule ids must be unique");
-    assert!(ids.contains(&"colons") && ids.contains(&"truthy"));
 }
 
 // --- direct API coverage -------------------------------------------------------

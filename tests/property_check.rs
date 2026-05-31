@@ -98,6 +98,24 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("truthy", "a: Yes\n"),
 ];
 
+/// Guards the hand-maintained `rules::ALL_RULE_IDS` (which a bare `# ryl disable`
+/// expands to) against drift: it must list exactly the rules `RULE_TRIGGERS` does, and
+/// every `RULE_TRIGGERS` entry is proven to actually fire by the test below. A rule
+/// added to one list but not the other &mdash; e.g. a new rule omitted from
+/// `ALL_RULE_IDS`, which would silently make bare `# ryl disable` skip it &mdash; fails
+/// here.
+#[test]
+fn rule_triggers_cover_exactly_all_rule_ids() {
+    use std::collections::BTreeSet;
+    let triggered: BTreeSet<&str> =
+        RULE_TRIGGERS.iter().map(|(rule, _)| *rule).collect();
+    let all: BTreeSet<&str> = ryl::rules::ALL_RULE_IDS.iter().copied().collect();
+    assert_eq!(
+        triggered, all,
+        "RULE_TRIGGERS and rules::ALL_RULE_IDS must list the same rules"
+    );
+}
+
 #[test]
 fn each_rule_triggers_and_reports_in_bounds_spans() {
     for (rule, input) in RULE_TRIGGERS {

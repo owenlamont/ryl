@@ -92,12 +92,16 @@ fn fixer_runs_normally_when_a_different_rule_is_disabled() {
 
 #[test]
 fn disable_file_makes_fix_a_noop() {
-    let input = "# ryl disable-file\na: 1   \n[1,2 ,3]\n";
+    let body = "a: 1   \n[1,2 ,3]\n";
+    let config = "rules:\n  trailing-spaces: enable\n  commas: enable\n";
+    assert_ne!(
+        fix(body, config),
+        body,
+        "control: the body is fixable without a disable-file directive"
+    );
+    let input = format!("# ryl disable-file\n{body}");
     assert_eq!(
-        fix(
-            input,
-            "rules:\n  trailing-spaces: enable\n  commas: enable\n"
-        ),
+        fix(&input, config),
         input,
         "a first-line disable-file leaves the whole file untouched"
     );

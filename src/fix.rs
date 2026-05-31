@@ -268,6 +268,7 @@ pub fn apply_safe_fixes_filtered(
         path,
         base_dir,
         skip,
+        directives: Directives::parse(input),
     };
     let mut content = input.to_string();
     content = ctx.apply(content, NEW_LINES_FIX, |buffer| {
@@ -321,6 +322,10 @@ struct FixContext<'a> {
     path: &'a Path,
     base_dir: &'a Path,
     skip: &'a [&'a str],
+    /// Parsed once from the original input. `disables_any` is stable across fixes
+    /// (no fixer adds or removes a directive comment), so the per-rule guard can be
+    /// read from here without re-parsing for every rule.
+    directives: Directives,
 }
 
 impl FixContext<'_> {
@@ -347,10 +352,14 @@ impl FixContext<'_> {
         // When a directive disables this rule on some line, reconcile each pass so the
         // fixer's edits to those lines are reverted; directives are re-parsed after a
         // change because structural fixers shift line numbers (and the comments with
-        // them). Directive-free buffers skip all of this via the cheap pre-filter.
+        // them). The guard is read from the once-parsed `self.directives`; only a
+        // guarded rule pays for the per-pass re-parse.
+        let guarded = self.directives.disables_any(rule.rule);
         let mut current = content;
-        let mut directives = Directives::parse(&current);
-        let guarded = directives.disables_any(rule.rule);
+        let mut directives = Directives::default();
+        if guarded {
+            directives = Directives::parse(&current);
+        }
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
             let Some(next) = fix(&current) else { break };
             let next = if guarded {
