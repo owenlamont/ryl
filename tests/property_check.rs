@@ -3,11 +3,23 @@ mod harness;
 #[path = "property_check/strategy.rs"]
 mod strategy;
 
+use std::path::Path;
+
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
+use ryl::lint::lint_str;
 
 use harness::{check_spans_in_bounds, collect_spans, trigger_all_config};
 use strategy::arb_document;
+
+fn lint(content: &str) -> Vec<ryl::lint::LintProblem> {
+    lint_str(
+        content,
+        Path::new("in.yaml"),
+        trigger_all_config(),
+        Path::new("."),
+    )
+}
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -24,6 +36,38 @@ proptest! {
         let spans = collect_spans(&content, trigger_all_config());
         if let Err(message) = check_spans_in_bounds(&content, &spans) {
             return Err(TestCaseError::fail(message));
+        }
+    }
+
+    /// A leading `# ryl disable` must mute every rule, so only a syntax error
+    /// (`rule == None`) can survive.
+    #[test]
+    fn leading_disable_directive_suppresses_all_rules(document in arb_document()) {
+        let content = format!("# ryl disable\n{}", document.render());
+        for problem in lint(&content) {
+            prop_assert!(
+                problem.rule.is_none(),
+                "rule {:?} survived a leading `# ryl disable` at {}:{}",
+                problem.rule, problem.line, problem.column
+            );
+        }
+    }
+
+    /// Block-disabling a rule that fires on a document removes every diagnostic for
+    /// that rule (others may shift by one line but are not asserted here).
+    #[test]
+    fn block_disabling_a_present_rule_removes_its_diagnostics(document in arb_document()) {
+        let content = document.render();
+        let Some(rule) = lint(&content).iter().find_map(|problem| problem.rule) else {
+            return Ok(());
+        };
+        let disabled = format!("# ryl disable rule:{rule}\n{content}");
+        for problem in lint(&disabled) {
+            prop_assert!(
+                problem.rule != Some(rule),
+                "rule `{rule}` survived its own block disable at {}:{}",
+                problem.line, problem.column
+            );
         }
     }
 }
@@ -53,6 +97,24 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("trailing-spaces", "a: 1   \n"),
     ("truthy", "a: Yes\n"),
 ];
+
+/// Guards the hand-maintained `rules::ALL_RULE_IDS` (which a bare `# ryl disable`
+/// expands to) against drift: it must list exactly the rules `RULE_TRIGGERS` does, and
+/// every `RULE_TRIGGERS` entry is proven to actually fire by the test below. A rule
+/// added to one list but not the other &mdash; e.g. a new rule omitted from
+/// `ALL_RULE_IDS`, which would silently make bare `# ryl disable` skip it &mdash; fails
+/// here.
+#[test]
+fn rule_triggers_cover_exactly_all_rule_ids() {
+    use std::collections::BTreeSet;
+    let triggered: BTreeSet<&str> =
+        RULE_TRIGGERS.iter().map(|(rule, _)| *rule).collect();
+    let all: BTreeSet<&str> = ryl::rules::ALL_RULE_IDS.iter().copied().collect();
+    assert_eq!(
+        triggered, all,
+        "RULE_TRIGGERS and rules::ALL_RULE_IDS must list the same rules"
+    );
+}
 
 #[test]
 fn each_rule_triggers_and_reports_in_bounds_spans() {

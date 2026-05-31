@@ -92,6 +92,10 @@ pub fn lint_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
+    if crate::directives::disables_file(content) {
+        return Vec::new();
+    }
+
     let mut diagnostics: Vec<LintProblem> = Vec::new();
 
     collect_document_start_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
@@ -141,35 +145,9 @@ pub fn lint_str(
 
     collect_anchors_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    if let Some(level) = cfg.rule_level(octal_values::ID)
-        && !cfg.is_rule_ignored(octal_values::ID, path, base_dir)
-    {
-        let rule_cfg = octal_values::Config::resolve(cfg);
-        for hit in octal_values::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(octal_values::ID),
-            });
-        }
-    }
+    collect_octal_values_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    if let Some(level) = cfg.rule_level(float_values::ID)
-        && !cfg.is_rule_ignored(float_values::ID, path, base_dir)
-    {
-        let rule_cfg = float_values::Config::resolve(cfg);
-        for hit in float_values::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(float_values::ID),
-            });
-        }
-    }
+    collect_float_values_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     if let Some(level) = cfg.rule_level(empty_values::ID)
         && !cfg.is_rule_ignored(empty_values::ID, path, base_dir)
@@ -304,6 +282,13 @@ pub fn lint_str(
             });
         }
     }
+
+    let directives = crate::directives::Directives::parse(content);
+    diagnostics.retain(|problem| {
+        !problem
+            .rule
+            .is_some_and(|rule| directives.is_disabled(rule, problem.line))
+    });
 
     if let Some(syntax) = syntax_diagnostic(content) {
         diagnostics.clear();
@@ -538,6 +523,52 @@ fn collect_comments_indentation_diagnostics(
                 level: level.into(),
                 message: comments_indentation::MESSAGE.to_string(),
                 rule: Some(comments_indentation::ID),
+            });
+        }
+    }
+}
+
+fn collect_octal_values_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(octal_values::ID)
+        && !cfg.is_rule_ignored(octal_values::ID, path, base_dir)
+    {
+        let rule_cfg = octal_values::Config::resolve(cfg);
+        for hit in octal_values::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(octal_values::ID),
+            });
+        }
+    }
+}
+
+fn collect_float_values_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(float_values::ID)
+        && !cfg.is_rule_ignored(float_values::ID, path, base_dir)
+    {
+        let rule_cfg = float_values::Config::resolve(cfg);
+        for hit in float_values::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(float_values::ID),
             });
         }
     }

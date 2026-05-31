@@ -11,6 +11,7 @@ pub mod conf;
 pub mod config;
 pub mod config_schema;
 pub mod decoder;
+pub mod directives;
 pub mod discover;
 pub mod fix;
 pub mod lint;
