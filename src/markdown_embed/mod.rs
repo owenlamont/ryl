@@ -61,20 +61,23 @@ pub fn extract_regions(
     if sources.fenced_blocks {
         collect_fenced_blocks(markdown, &mut regions);
     }
-    // A ```yaml fence that overlaps the front matter (always the leading region when
-    // present) is malformed: it opens inside the front-matter scalar — possibly
-    // closing after the `---`/`...` terminator — so its content is partly that
-    // scalar's string value, not a standalone document, yet CommonMark still parses
-    // it. Front matter starts at the top, so any fence that begins before it ends
-    // intersects it; drop those so their content is neither double-linted nor, under
-    // --fix, spliced over the front matter's span.
+    // A ```yaml fence that opens inside the front-matter scalar is malformed: its
+    // content is partly that scalar's string value, not a standalone document, yet
+    // CommonMark still parses it (possibly extending past the `---`/`...` terminator).
+    // Front matter is the leading region, and a real body fence's content always
+    // begins *strictly after* the terminator line, so keep a fence only when its
+    // content starts past the front matter end. Content starting before the end is a
+    // fence inside the scalar; content starting exactly at the end means the opening
+    // fence was the last front-matter line (the terminator is its first content line)
+    // — both are dropped so their content is neither double-linted nor, under --fix,
+    // spliced over the front matter's span.
     let front_end = regions
         .first()
         .filter(|region| region.kind == RegionKind::FrontMatter)
         .map(|region| region.raw_span.end);
     if let Some(front_end) = front_end {
         regions.retain(|region| {
-            region.kind == RegionKind::FrontMatter || region.raw_span.start >= front_end
+            region.kind == RegionKind::FrontMatter || region.raw_span.start > front_end
         });
     }
     regions

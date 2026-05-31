@@ -158,6 +158,37 @@ fn fence_crossing_front_matter_terminator_is_dropped() {
 }
 
 #[test]
+fn fence_opening_on_last_front_matter_line_is_dropped() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(
+        out.is_empty() && err.is_empty(),
+        "a fence whose opener is the last front-matter line (content starting on the \
+         terminator) must not be linted as a body fence: out={out} err={err}"
+    );
+}
+
+#[test]
+fn body_fence_immediately_after_front_matter_is_linted() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\na: 1\n---\n```yaml\nnums: [1,2]\n```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(
+        err.contains("5:10") && err.contains("commas"),
+        "a real body fence directly after the terminator must still be linted: {err}"
+    );
+}
+
+#[test]
 fn multibyte_front_matter_columns_pass_through() {
     let body = "---\ncaf\u{e9}:  x\n---\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);

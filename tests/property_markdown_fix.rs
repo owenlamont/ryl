@@ -184,6 +184,13 @@ fn fence_crossing_front_matter_terminator_does_not_corrupt() {
 }
 
 #[test]
+fn fence_opening_on_last_front_matter_line_does_not_corrupt() {
+    let markdown = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n\ntext\n";
+    run_invariants(markdown)
+        .expect("invariants hold when a fence opens on the last front-matter line");
+}
+
+#[test]
 fn ragged_indent_block_is_skipped() {
     let markdown = "text\n\n   ```yaml\n   a: [1,2 ]\n  b: 3\n   ```\n";
     run_invariants(markdown).expect("invariants hold for ragged markdown");

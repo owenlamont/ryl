@@ -342,6 +342,22 @@ fn fix_drops_fence_crossing_front_matter_terminator() {
 }
 
 #[test]
+fn fix_drops_fence_opening_on_last_front_matter_line() {
+    let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
+    let (_dir, file) = project(COMMAS, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        body,
+        "a fence opening on the last front-matter line is not a body fence; --fix \
+         must leave the document untouched"
+    );
+}
+
+#[test]
 fn markdown_flag_wins_over_overlapping_yaml_glob() {
     let config = "files = { yaml = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
     let (_dir, file) = project(config, "doc.md", "```yaml\nnums: [1,2]\n```\n");
