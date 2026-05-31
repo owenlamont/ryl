@@ -7,7 +7,7 @@ use ryl::config::YamlLintConfig;
 #[test]
 fn resolve_ctx_handles_path_without_parent() {
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
-    let (base_dir, cfg, notices) = resolve_ctx(Path::new(""), None, &mut cache)
+    let (base_dir, cfg, notices) = resolve_ctx(Path::new(""), None, false, &mut cache)
         .expect("resolve_ctx should fall back to current directory");
     assert_eq!(base_dir, PathBuf::from("."));
     assert!(notices.is_empty());

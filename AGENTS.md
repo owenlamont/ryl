@@ -97,8 +97,12 @@ ryl is a CLI tool for linting yaml files
 
 ## Automated Tests
 
-- Don't use comments in tests, use meaningful function names, and variable names to
-  convey the test purpose.
+- Convey a test's purpose with meaningful function and variable names, and convey
+  what each check verifies with assertion messages. Comments in tests follow the
+  same bar as the rest of the codebase (see Coding Standards): keep them minimal and
+  reserve them for genuinely non-obvious trade-offs, opaque mechanics, or
+  module/harness orientation (e.g. a `//!` header describing a property suite's
+  invariants and reuse) — never to narrate what a self-evident test already says.
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.
@@ -175,6 +179,24 @@ cannot silently pass vacuously if the generator drifts. Failing inputs persist
 to the committed `tests/proptest-regressions/property_check.txt`. Run with
 `cargo test --test property_check`.
 
+### Property Tests For Markdown `--fix`
+
+`tests/property_markdown_fix.rs` property-tests `fix::fix_markdown_str` — the
+write-back of safe fixes into YAML embedded in Markdown. It reuses the safe-fix
+generator via `#[path]` (`property_safe_fix/{ast,strategy,config}.rs`), wraps the
+generated `Document`s into a Markdown host (`property_markdown_fix/wrap.rs`), and
+asserts four oracle-free invariants across the safe-fix config matrix: host bytes
+outside regions stay byte-identical (with region count/kinds stable), each region's
+parsed value is preserved, each region is either untouched or rewritten to exactly
+its `apply_safe_fixes_filtered` form, and the operation is idempotent. Deterministic
+siblings pin known-dirty / CRLF / ragged / fence-crossing-front-matter cases so the
+random invariants cannot pass vacuously.
+
+Extend this suite only when the Markdown extractor/wrapper grows new region shapes:
+add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to the
+committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
+`cargo test --test property_markdown_fix`.
+
 ### Rules Without A Safe `--fix`
 
 These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the
@@ -244,21 +266,6 @@ hunting through scattered tips:
    on the problematic lines.
 8. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
 
-## Code Size Workflow
-
-After finishing feature work, use this order before committing:
-
-1. Run `prek run --all-files` and rerun it until all automatic fixes have stabilised.
-2. Run `./scripts/coverage-missing.sh` (Unix) or
-   `pwsh ./scripts/coverage-missing.ps1` (Windows) and keep iterating until coverage
-   is back to 100%.
-3. If the coverage command fails for reasons unrelated to uncovered lines, run the
-   affected tests manually, fix them, then rerun the coverage command.
-4. Once lint, tests, and coverage are green, inspect code size with
-   `uv run scripts/source_size.py --compare-to <branch-or-ref>`.
-5. If the growth looks high for the functionality added, look for ways to reduce code
-   size or make the implementation DRYer before committing.
-
 ### Coverage-Friendly Rust Idioms
 
 - Guard invariants with `expect` (or an early `return Err(...)`) when the
@@ -301,7 +308,9 @@ sticking to the quick-status step above.
   helpers in `crate::rules::span_utils` instead of reinventing byte/char conversions.
   When writing tests, prefer inputs like `"café"` or `"å"` to ensure coverage of
   character vs byte offset logic.
-- Use meaningful function and variable names in tests—comments are discouraged.
+- Lean on meaningful function/variable names and assertion messages to make tests
+  self-documenting; add a comment only where it explains a non-obvious trade-off or
+  opaque mechanic that names cannot (the standard minimal-comment bar applies).
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
 - CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment,
@@ -384,21 +393,30 @@ sticking to the quick-status step above.
   file matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
   `[files].yaml`); it remains valid in the legacy YAML config.
 - Markdown embedding (off by default; enabled by listing `[files].markdown`
+  globs, or for one run with the `--markdown` flag which injects default markdown
   globs): ryl extracts front matter and fenced `yaml`/`yml` blocks (each linted as
   its own document), mapping diagnostics back to the Markdown file. The
   `[markdown]` table's `front-matter`/`fenced-blocks` booleans (default true)
   select sources. The extractor lives in `src/markdown_embed/` (fenced blocks via
-  `pulldown-cmark`; front matter via a line scan). `document-start`,
-  `document-end`, `new-line-at-end-of-file`, and `new-lines` are suppressed inside
-  embedded regions. `--fix` skips Markdown files (check-only) and prints a notice.
-  See `docs/markdown.md`.
+  `pulldown-cmark`; front matter via a line scan); each `EmbeddedRegion` carries the
+  raw source `raw_span` used by write-back and the per-line column remap.
+  `document-start`, `document-end`, `new-line-at-end-of-file`, and `new-lines` are
+  suppressed inside embedded regions via `fix::suppressed_rules(kind)` (shared by
+  the check and fix paths). `--fix` writes safe fixes back into the Markdown
+  (`fix::fix_markdown_str`): it re-applies each line's stripped prefix (spaces, a
+  blockquote `> `, or a tab), preserves CRLF, and only rewrites a region when that
+  reproduces the original bytes exactly (the reconstruct-and-verify guard) — a
+  region whose lines lack a single shared prefix (ragged) is reported but left
+  untouched, so write-back cannot corrupt a document. See `docs/markdown.md`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets
   the diagnostic label, anchors project-config discovery at the given path's
-  parent, and runs `yaml-files`, per-file-ignore, and per-rule `ignore`
-  matching against that path. Omitting `--stdin-filename` labels diagnostics
-  as `<stdin>`, anchors config discovery at CWD, and skips all path-based
-  filtering (`yaml-files`, per-file-ignores, per-rule `ignore`) so every
-  enabled rule runs against the input.
+  parent, resolves the source kind from `[files]` (so a `markdown`-matching path
+  is linted as embedded YAML), and runs `yaml-files`, per-file-ignore, and per-rule
+  `ignore` matching against that path. Omitting `--stdin-filename` labels
+  diagnostics as `<stdin>`, anchors config discovery at CWD, and skips all
+  path-based filtering (`yaml-files`, per-file-ignores, per-rule `ignore`) so every
+  enabled rule runs against the input; pass `--markdown` to lint that input as
+  Markdown rather than plain YAML.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

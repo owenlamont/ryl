@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
+use crate::markdown_embed::{MarkdownSources, extract_regions};
+use crate::rules::support::line_syntax::buffer_newline;
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
@@ -9,6 +11,24 @@ use crate::rules::{
 };
 
 const RULE_FIX_MAX_ITERATIONS: usize = 8;
+
+/// File-shape rules suppressed inside embedded markdown regions: a region is not a
+/// standalone file, so "missing document start/end" and the file-newline checks do
+/// not apply, and `--fix` must never inject `---`/`...` or a trailing newline into a
+/// fragment. Shared by the check path ([`lint_markdown_str`]) and the fix path so
+/// the two cannot drift.
+const SUPPRESSED: [&str; 4] = [
+    document_start::ID,
+    document_end::ID,
+    new_line_at_end_of_file::ID,
+    new_lines::ID,
+];
+
+/// Rules suppressed inside any embedded region.
+#[must_use]
+pub fn suppressed_rules() -> &'static [&'static str] {
+    &SUPPRESSED
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixSafety {
@@ -105,14 +125,118 @@ pub fn apply_safe_fixes_to_files(
 ) -> Result<FixStats, String> {
     let mut stats = FixStats::default();
     for (path, base_dir, cfg, kind) in files {
-        if *kind == SourceKind::Markdown {
-            continue;
-        }
-        if apply_safe_fixes_in_place(path, cfg, base_dir)? {
+        let changed = match kind {
+            SourceKind::Markdown => {
+                apply_markdown_safe_fixes_in_place(path, cfg, base_dir)?
+            }
+            SourceKind::Yaml => apply_safe_fixes_in_place(path, cfg, base_dir)?,
+        };
+        if changed {
             stats.changed_files += 1;
         }
     }
     Ok(stats)
+}
+
+/// Apply safe fixes to every embedded YAML region of a markdown file in place.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or the rewritten contents cannot be
+/// written.
+pub fn apply_markdown_safe_fixes_in_place(
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Result<bool, String> {
+    let decoded = decoder::read_file_lossless(path)?;
+    match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
+        Some(fixed) => {
+            decoded.write(path, &fixed)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Apply safe fixes to each embedded YAML region of `markdown` and splice the
+/// results back in, returning the rewritten document (or `None` if nothing
+/// changed).
+///
+/// File-shape rules are excluded per [`suppressed_rules`]. Each line regains the
+/// prefix the parser stripped (leading spaces, a blockquote `> `, or a tab), and a
+/// region is only rewritten when re-applying that prefix reproduces the original raw
+/// bytes exactly (the reconstruct-and-verify guard); a region whose lines do not
+/// share one prefix (ragged indentation) is left untouched (still reported in check
+/// mode). Regions are spliced back-to-front so earlier edits do not shift later
+/// offsets.
+#[must_use]
+pub fn fix_markdown_str(
+    markdown: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Option<String> {
+    let sources = MarkdownSources {
+        front_matter: cfg.markdown_front_matter(),
+        fenced_blocks: cfg.markdown_fenced_blocks(),
+    };
+    let mut regions = extract_regions(markdown, sources);
+    regions.sort_by_key(|region| std::cmp::Reverse(region.raw_span.start));
+
+    let mut out = markdown.to_string();
+    let mut changed = false;
+    for region in &regions {
+        if region.content.trim().is_empty() {
+            continue;
+        }
+        let fixed = apply_safe_fixes_filtered(
+            &region.content,
+            cfg,
+            path,
+            base_dir,
+            suppressed_rules(),
+        );
+        if fixed == region.content {
+            continue;
+        }
+        let raw = &markdown[region.raw_span.clone()];
+        let newline = buffer_newline(raw);
+        // The prefix the parser stripped from each content line — spaces for an
+        // indented fence, `> ` for a blockquoted one, a tab, etc. `raw` starts at the
+        // first content line and `col_offset` (its stripped char count) never spans a
+        // newline, so the first `col_offset` chars of `raw` are exactly that prefix.
+        // The guard below re-checks it reproduces every line, so a non-uniform
+        // (ragged) prefix still fails and is skipped.
+        let prefix: String = raw.chars().take(region.col_offset).collect();
+        if reindent(&region.content, &prefix, newline) != raw {
+            continue;
+        }
+        out.replace_range(region.raw_span.clone(), &reindent(&fixed, &prefix, newline));
+        changed = true;
+    }
+    changed.then_some(out)
+}
+
+/// Re-encode dedented region content into its host: each non-empty line regains the
+/// region's leading `prefix` and lines are joined with `newline`. Empty lines stay
+/// empty (matching how the parser dedents blank lines), and the trailing newline is
+/// preserved.
+fn reindent(content: &str, prefix: &str, newline: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    for piece in content.replace("\r\n", "\n").split_inclusive('\n') {
+        let (line, terminated) = piece
+            .strip_suffix('\n')
+            .map_or((piece, false), |line| (line, true));
+        if !line.is_empty() {
+            out.push_str(prefix);
+            out.push_str(line);
+        }
+        if terminated {
+            out.push_str(newline);
+        }
+    }
+    out
 }
 
 #[must_use]
@@ -122,97 +246,106 @@ pub fn apply_safe_fixes(
     path: &Path,
     base_dir: &Path,
 ) -> String {
-    let mut content = input.to_string();
+    apply_safe_fixes_filtered(input, cfg, path, base_dir, &[])
+}
 
-    content = apply_rule_fix(content, NEW_LINES_FIX, cfg, path, base_dir, |buffer| {
+/// Apply safe fixes, skipping any rule whose id is in `skip`. Used by the markdown
+/// write-back path to exclude the file-shape rules (see [`suppressed_rules`]).
+#[must_use]
+pub fn apply_safe_fixes_filtered(
+    input: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    skip: &[&str],
+) -> String {
+    let ctx = FixContext {
+        cfg,
+        path,
+        base_dir,
+        skip,
+    };
+    let mut content = input.to_string();
+    content = ctx.apply(content, NEW_LINES_FIX, |buffer| {
         new_lines::fix(
             buffer,
             new_lines::Config::resolve(cfg),
             new_lines::platform_newline(),
         )
     });
-    content = apply_rule_fix(content, COMMENTS_FIX, cfg, path, base_dir, |buffer| {
+    content = ctx.apply(content, COMMENTS_FIX, |buffer| {
         comments::fix(buffer, &comments::Config::resolve(cfg))
     });
-    content = apply_rule_fix(
-        content,
-        COMMENTS_INDENTATION_FIX,
-        cfg,
-        path,
-        base_dir,
-        |buffer| {
-            comments_indentation::fix(
-                buffer,
-                &comments_indentation::Config::resolve(cfg),
-            )
-        },
-    );
-    content = apply_rule_fix(content, COMMAS_FIX, cfg, path, base_dir, |buffer| {
+    content = ctx.apply(content, COMMENTS_INDENTATION_FIX, |buffer| {
+        comments_indentation::fix(buffer, &comments_indentation::Config::resolve(cfg))
+    });
+    content = ctx.apply(content, COMMAS_FIX, |buffer| {
         commas::fix(buffer, &commas::Config::resolve(cfg))
     });
-    content = apply_rule_fix(content, BRACES_FIX, cfg, path, base_dir, |buffer| {
+    content = ctx.apply(content, BRACES_FIX, |buffer| {
         braces::fix(buffer, &braces::Config::resolve(cfg))
     });
-    content = apply_rule_fix(content, BRACKETS_FIX, cfg, path, base_dir, |buffer| {
+    content = ctx.apply(content, BRACKETS_FIX, |buffer| {
         brackets::fix(buffer, &brackets::Config::resolve(cfg))
     });
-    content =
-        apply_rule_fix(content, FINAL_NEWLINE_FIX, cfg, path, base_dir, |buffer| {
-            let newline = target_newline(buffer, cfg, path, base_dir);
-            new_line_at_end_of_file::fix(buffer, newline.as_str())
-        });
-    content =
-        apply_rule_fix(content, QUOTED_STRINGS_FIX, cfg, path, base_dir, |buffer| {
-            quoted_strings::fix(buffer, &quoted_strings::Config::resolve(cfg))
-        });
-    content = apply_rule_fix(
-        content,
-        TRAILING_SPACES_FIX,
-        cfg,
-        path,
-        base_dir,
-        trailing_spaces::fix,
-    );
-    content =
-        apply_rule_fix(content, DOCUMENT_START_FIX, cfg, path, base_dir, |buffer| {
-            document_start::fix(buffer, &document_start::Config::resolve(cfg))
-        });
-    content =
-        apply_rule_fix(content, DOCUMENT_END_FIX, cfg, path, base_dir, |buffer| {
-            document_end::fix(buffer, &document_end::Config::resolve(cfg))
-        });
-    content = apply_rule_fix(content, EMPTY_LINES_FIX, cfg, path, base_dir, |buffer| {
+    content = ctx.apply(content, FINAL_NEWLINE_FIX, |buffer| {
+        let newline = target_newline(buffer, cfg, path, base_dir);
+        new_line_at_end_of_file::fix(buffer, newline.as_str())
+    });
+    content = ctx.apply(content, QUOTED_STRINGS_FIX, |buffer| {
+        quoted_strings::fix(buffer, &quoted_strings::Config::resolve(cfg))
+    });
+    content = ctx.apply(content, TRAILING_SPACES_FIX, trailing_spaces::fix);
+    content = ctx.apply(content, DOCUMENT_START_FIX, |buffer| {
+        document_start::fix(buffer, &document_start::Config::resolve(cfg))
+    });
+    content = ctx.apply(content, DOCUMENT_END_FIX, |buffer| {
+        document_end::fix(buffer, &document_end::Config::resolve(cfg))
+    });
+    content = ctx.apply(content, EMPTY_LINES_FIX, |buffer| {
         empty_lines::fix(buffer, &empty_lines::Config::resolve(cfg))
     });
 
     content
 }
 
-fn apply_rule_fix(
-    content: String,
-    rule: RuleFix,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-    fix: impl Fn(&str) -> Option<String>,
-) -> String {
-    if !rule_enabled(rule, cfg, path, base_dir) {
-        return content;
-    }
+/// Shared arguments for a sequence of rule fixes, bundled so each per-rule call
+/// site stays short. `apply` is generic over the fix closure — a method can be,
+/// where a capturing closure cannot — so there is no dynamic dispatch.
+struct FixContext<'a> {
+    cfg: &'a YamlLintConfig,
+    path: &'a Path,
+    base_dir: &'a Path,
+    skip: &'a [&'a str],
+}
 
-    // Run the rule's fix to a fixed point. A single pass is not enough for
-    // rules like quoted-strings where one fix exposes a follow-up diagnostic
-    // (e.g. converting double quotes to single quotes leaves a now-redundant
-    // pair that must be removed); without convergence here, the CLI's single
-    // --fix invocation would leave the output non-idempotent. Well-behaved
-    // fix functions signal completion by returning None, so the loop exits
-    // after at most one extra no-op call per rule.
-    let mut current = content;
-    for _ in 0..RULE_FIX_MAX_ITERATIONS {
-        let Some(next) = fix(&current) else { break };
-        current = next;
+impl FixContext<'_> {
+    fn apply(
+        &self,
+        content: String,
+        rule: RuleFix,
+        fix: impl Fn(&str) -> Option<String>,
+    ) -> String {
+        if self.skip.contains(&rule.rule)
+            || !rule_enabled(rule, self.cfg, self.path, self.base_dir)
+        {
+            return content;
+        }
+
+        // Run the rule's fix to a fixed point. A single pass is not enough for
+        // rules like quoted-strings where one fix exposes a follow-up diagnostic
+        // (e.g. converting double quotes to single quotes leaves a now-redundant
+        // pair that must be removed); without convergence here, the CLI's single
+        // --fix invocation would leave the output non-idempotent. Well-behaved
+        // fix functions signal completion by returning None, so the loop exits
+        // after at most one extra no-op call per rule.
+        let mut current = content;
+        for _ in 0..RULE_FIX_MAX_ITERATIONS {
+            let Some(next) = fix(&current) else { break };
+            current = next;
+        }
+        current
     }
-    current
 }
 
 fn rule_enabled(

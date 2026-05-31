@@ -136,6 +136,10 @@ pub struct YamlLintConfig {
     yaml_matcher: Option<Gitignore>,
     markdown_file_patterns: Vec<String>,
     markdown_matcher: Option<Gitignore>,
+    /// Set when the `--markdown` flag injected the default markdown globs; lets
+    /// markdown win over yaml for an overlapping file instead of hard-erroring, so
+    /// the flag can't break a run whose yaml globs happen to match `.md`.
+    markdown_from_flag: bool,
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
     locale: Option<String>,
@@ -143,6 +147,8 @@ pub struct YamlLintConfig {
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
+const DEFAULT_MARKDOWN_FILE_PATTERNS: [&str; 5] =
+    ["*.md", "*.markdown", "*.mdx", "*.qmd", "*.Rmd"];
 
 #[derive(Debug, Clone, Default)]
 struct RuleFilter {
@@ -373,6 +379,7 @@ impl Default for YamlLintConfig {
             yaml_matcher: None,
             markdown_file_patterns: Vec::new(),
             markdown_matcher: None,
+            markdown_from_flag: false,
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             locale: None,
@@ -572,6 +579,9 @@ impl YamlLintConfig {
             self.is_yaml_candidate(path, base_dir),
             self.is_markdown_candidate(path, base_dir),
         ) {
+            // `--markdown` injected the markdown globs, so honour the explicit
+            // request: treat an overlapping file as markdown rather than aborting.
+            (true, true) if self.markdown_from_flag => Ok(Some(SourceKind::Markdown)),
             (true, true) => Err(format!(
                 "{}: matches both `yaml` and `markdown` in [files]; a file may \
                  belong to only one source kind",
@@ -580,6 +590,22 @@ impl YamlLintConfig {
             (true, false) => Ok(Some(SourceKind::Yaml)),
             (false, true) => Ok(Some(SourceKind::Markdown)),
             (false, false) => Ok(None),
+        }
+    }
+
+    /// Enable markdown linting with default globs (`*.md`, `*.markdown`, `*.mdx`,
+    /// `*.qmd`, `*.Rmd`) when none are configured. Backs the `--markdown` CLI flag
+    /// so embedded YAML can be linted without editing config. A no-op when
+    /// `[files].markdown` already lists globs.
+    pub fn enable_default_markdown(&mut self, base_dir: &Path) {
+        if self.markdown_file_patterns.is_empty() {
+            self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
+                .iter()
+                .map(|pattern| (*pattern).to_string())
+                .collect();
+            self.markdown_matcher =
+                build_glob_matcher(base_dir, &self.markdown_file_patterns);
+            self.markdown_from_flag = true;
         }
     }
 

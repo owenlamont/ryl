@@ -111,6 +111,100 @@ fn crlf_markdown_maps_positions() {
 }
 
 #[test]
+fn blockquoted_fence_column_accounts_for_quote_marker() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ntruthy = \"enable\"\n";
+    let body = "> ```yaml\n> foo: True\n> ```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(
+        err.contains("2:8"),
+        "blockquote `> ` prefix must shift the column to 8: {err}"
+    );
+}
+
+#[test]
+fn fence_nested_in_front_matter_is_not_double_linted() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ntruthy = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n  inner: True\n  ```\n---\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(
+        out.is_empty() && err.is_empty(),
+        "a fence inside a front-matter scalar is string content, not a document: out={out} err={err}"
+    );
+}
+
+#[test]
+fn fence_crossing_front_matter_terminator_is_dropped() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ntags: [x,y]\ndesc: |\n  ```yaml\n  inner: [1,2]\n---\nafter: [3,4]\n```\n\ntext\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(err.contains("2:10"), "front matter is linted: {err}");
+    assert!(
+        !err.contains("5:13") && !err.contains("7:11"),
+        "a fence opened inside front matter and closed after the terminator must \
+         not be linted as a separate region: {err}"
+    );
+}
+
+#[test]
+fn fence_inside_disabled_front_matter_is_not_linted() {
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n  inner: [1,2]\n  ```\n---\n\ntext\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(
+        out.is_empty() && err.is_empty(),
+        "a fence inside the front-matter scalar must stay unlinted when front-matter \
+         is disabled: out={out} err={err}"
+    );
+}
+
+#[test]
+fn fence_opening_on_last_front_matter_line_is_dropped() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(
+        out.is_empty() && err.is_empty(),
+        "a fence whose opener is the last front-matter line (content starting on the \
+         terminator) must not be linted as a body fence: out={out} err={err}"
+    );
+}
+
+#[test]
+fn body_fence_immediately_after_front_matter_is_linted() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let body = "---\na: 1\n---\n```yaml\nnums: [1,2]\n```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "stderr={err}");
+    assert!(
+        err.contains("5:10") && err.contains("commas"),
+        "a real body fence directly after the terminator must still be linted: {err}"
+    );
+}
+
+#[test]
 fn multibyte_front_matter_columns_pass_through() {
     let body = "---\ncaf\u{e9}:  x\n---\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
@@ -170,21 +264,22 @@ fn explicit_markdown_without_files_pattern_is_rejected() {
 }
 
 #[test]
-fn fix_skips_markdown_with_notice() {
-    let body = "---\na:  1\n---\n";
-    let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
+fn fix_rewrites_markdown_front_matter() {
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
+    let body = "---\nfoo: bar  \n---\n";
+    let (_dir, file) = project(config, "doc.md", body);
 
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
         .arg("--fix")
         .arg(&file));
 
-    assert_eq!(code, 1, "stderr={err}");
-    assert!(err.contains("does not modify markdown files"), "{err}");
-    assert!(err.contains("(0 fixed, 1 remaining)"), "{err}");
+    assert_eq!(code, 0, "stderr={err}");
+    assert!(!err.contains("does not modify markdown files"), "{err}");
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        body,
-        "file must be unchanged"
+        "---\nfoo: bar\n---\n",
+        "trailing spaces in front matter must be fixed in place"
     );
 }
 
