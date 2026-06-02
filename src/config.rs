@@ -466,6 +466,14 @@ impl YamlLintConfig {
         &self.rule_names
     }
 
+    /// Whether the configuration enables at least one rule (one with a severity
+    /// level). A configuration that enables none would lint nothing; the lint CLI
+    /// rejects that, though config resolution itself (e.g. for migration) does not.
+    #[must_use]
+    pub fn enables_any_rule(&self) -> bool {
+        self.rules.values().any(|rule| rule.level().is_some())
+    }
+
     #[must_use]
     pub fn rule_level(&self, rule: &str) -> Option<RuleLevel> {
         self.rules.get(rule)?.level()

@@ -34,6 +34,14 @@ use ryl::{
 
 const STDIN_LABEL: &str = "<stdin>";
 
+// A resolved config that enables no rules would lint nothing while exiting 0 — a
+// silent no-op that almost always means a misconfiguration. The lint commands fail
+// loudly on it (config resolution itself does not, so `--migrate-configs` can still
+// convert a rule-less config, and `--list-files` still answers its file query). ryl
+// is deliberately stricter than yamllint here, which accepts a rule-less config.
+const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
+     least one rule, or remove the configuration to use the default rule set";
+
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut explicit_files = Vec::new();
     let mut candidates = Vec::new();
@@ -426,6 +434,10 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    if files.iter().any(|(_, _, cfg, _)| !cfg.enables_any_rule()) {
+        return Err(NO_RULES_ENABLED_ERROR.to_string());
+    }
+
     let mut initial_problem_count = 0usize;
     if cli.lint.fix.fix {
         let initial_results = lint_files(&files);
@@ -480,6 +492,10 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     if cli.lint.compatibility.list_files {
         println!("{}", sanitize_control(&path.display().to_string()));
         return Ok(ExitCode::SUCCESS);
+    }
+
+    if !cfg.enables_any_rule() {
+        return Err(NO_RULES_ENABLED_ERROR.to_string());
     }
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);

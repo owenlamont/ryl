@@ -34,6 +34,20 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 }
 
 #[test]
+fn stdin_with_no_enabled_rules_errors() {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe).arg("-").arg("-d").arg("rules: {}\n"),
+        b"key: value\n",
+    );
+    assert_eq!(
+        code, 2,
+        "stdin lint with no enabled rules must error: {stderr}"
+    );
+    assert!(stderr.contains("enables no rules"), "{stderr}");
+}
+
+#[test]
 fn stdin_clean_yaml_succeeds_and_uses_label() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) =
@@ -142,7 +156,7 @@ fn stdin_filename_anchors_project_config_discovery() {
     fs::create_dir(&pkg).unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nkey-duplicates = \"disable\"\n",
+        "[rules]\nkey-duplicates = \"disable\"\ntrailing-spaces = \"enable\"\n",
     )
     .unwrap();
 
@@ -299,10 +313,9 @@ fn stdin_list_files_uses_stdin_filename() {
 fn stdin_honors_config_data_override() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
-        Command::new(exe)
-            .arg("-")
-            .arg("-d")
-            .arg("rules:\n  new-line-at-end-of-file: disable\n"),
+        Command::new(exe).arg("-").arg("-d").arg(
+            "rules:\n  new-line-at-end-of-file: disable\n  key-duplicates: enable\n",
+        ),
         b"key: value",
     );
     assert_eq!(code, 0, "disabled rule should pass: {stderr}");
@@ -398,7 +411,11 @@ fn stdin_with_missing_config_file_errors() {
 #[test]
 fn stdin_emits_legacy_yaml_notice_when_toml_present() {
     let dir = tempdir().unwrap();
-    fs::write(dir.path().join(".ryl.toml"), "[rules]\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ntrailing-spaces = \"enable\"\n",
+    )
+    .unwrap();
     fs::write(
         dir.path().join(".yamllint"),
         "rules:\n  trailing-spaces: enable\n",

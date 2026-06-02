@@ -263,7 +263,14 @@ fn inline_comment_after_value_matches_yamllint() {
     let dir = tempdir().unwrap();
 
     let cfg_path = dir.path().join("colons.yaml");
-    fs::write(&cfg_path, "rules:\n  document-start: disable\n").unwrap();
+    // key-duplicates (enabled, never firing on this input) keeps the config from
+    // resolving to zero rules, which ryl rejects; both tools run the same config so
+    // the differential is unchanged.
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  key-duplicates: enable\n",
+    )
+    .unwrap();
 
     let yaml_path = dir.path().join("inline.yaml");
     fs::write(

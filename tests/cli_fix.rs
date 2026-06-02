@@ -132,7 +132,7 @@ fn fix_reports_summary_for_invalid_yaml() {
     fs::write(&file, "key: [\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\n",
+        "[rules]\ndocument-start = 'disable'\nkey-duplicates = 'enable'\n",
     )
     .unwrap();
 

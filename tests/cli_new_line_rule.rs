@@ -74,7 +74,11 @@ fn disabled_new_line_rule_allows_success() {
     let file = dir.path().join("no_newline.yaml");
     fs::write(&file, "key: value").unwrap();
     let config = dir.path().join("config.yml");
-    fs::write(&config, "rules:\n  new-line-at-end-of-file: disable\n").unwrap();
+    fs::write(
+        &config,
+        "rules:\n  new-line-at-end-of-file: disable\n  key-duplicates: enable\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) =
