@@ -44,6 +44,33 @@ fn front_matter_and_fenced_blocks_map_to_host_positions() {
 }
 
 #[test]
+fn many_fenced_blocks_map_to_correct_host_lines() {
+    // The extractor derives each block's line offset by binary search over
+    // precomputed newline positions; a regression to rescanning from the document
+    // start is quadratic over many blocks. Each 4-line block puts its content (with
+    // a trailing space) on host line `4*i + 2`, so this pins that a block far down
+    // the document still maps to the right host line.
+    let dir = tempdir().unwrap();
+    let body = "```yaml\nk: v  \n```\n\n".repeat(2000);
+    let file = dir.path().join("many.md");
+    fs::write(&file, &body).unwrap();
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("--markdown")
+        .arg(&file));
+
+    assert_eq!(code, 1, "trailing spaces should be reported: {err}");
+    assert!(
+        err.contains("2:5"),
+        "first block trailing-space position: {err}"
+    );
+    assert!(
+        err.contains("7998:5"),
+        "last block (i=1999) must map to host line 4*1999+2 = 7998: {err}"
+    );
+}
+
+#[test]
 fn indented_fenced_block_adds_indent_to_column() {
     let body = "-  item\n\n   ```yaml\n   key:  value\n   ```\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);

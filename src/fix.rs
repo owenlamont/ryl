@@ -96,6 +96,22 @@ pub struct FixStats {
     pub changed_files: usize,
 }
 
+/// `--fix` rewrites a path in place, and `std::fs::write` follows symlinks, so a
+/// symlinked input would let an untrusted tree redirect the write to a file
+/// outside it (e.g. `innocent.yaml -> ~/.bashrc`). Skip symlinks with a warning,
+/// keeping writes confined to real files — consistent with the directory walker's
+/// `follow_links(false)`. Linting (read-only) through symlinks is unaffected.
+fn refuse_symlink(path: &Path) -> bool {
+    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        eprintln!(
+            "skipping {}: refusing to apply --fix through a symlink",
+            path.display()
+        );
+        return true;
+    }
+    false
+}
+
 /// Apply all currently supported safe fixes to `path` in place.
 ///
 /// # Errors
@@ -106,6 +122,9 @@ pub fn apply_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<bool, String> {
+    if refuse_symlink(path) {
+        return Ok(false);
+    }
     let decoded = decoder::read_file_lossless(path)?;
     let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
     if fixed == decoded.content() {
@@ -150,6 +169,9 @@ pub fn apply_markdown_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<bool, String> {
+    if refuse_symlink(path) {
+        return Ok(false);
+    }
     let decoded = decoder::read_file_lossless(path)?;
     match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
         Some(fixed) => {

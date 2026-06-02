@@ -119,6 +119,11 @@ fn is_front_matter_close(line: &str) -> bool {
 }
 
 fn collect_fenced_blocks(markdown: &str, regions: &mut Vec<EmbeddedRegion>) {
+    // Byte offsets of every newline, ascending. A block's line offset is then a
+    // binary search rather than an O(offset) rescan from the document start, which
+    // would be quadratic over a document with many fenced blocks.
+    let newlines: Vec<usize> =
+        markdown.match_indices('\n').map(|(idx, _)| idx).collect();
     let mut active: Option<FenceAccumulator> = None;
     for (event, range) in Parser::new_ext(markdown, Options::empty()).into_offset_iter()
     {
@@ -139,7 +144,7 @@ fn collect_fenced_blocks(markdown: &str, regions: &mut Vec<EmbeddedRegion>) {
                     let line_start = line_start_of(markdown, first_byte);
                     regions.push(EmbeddedRegion {
                         kind: RegionKind::FencedBlock,
-                        line_offset: markdown[..line_start].matches('\n').count(),
+                        line_offset: newlines.partition_point(|&pos| pos < line_start),
                         col_offset: markdown[line_start..first_byte].chars().count(),
                         raw_span: line_start
                             ..fenced_content_end(

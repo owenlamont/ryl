@@ -49,6 +49,12 @@ ryl --fix .
 
 See the [Rules reference](../rules.md) for which rules are fixable.
 
+`--fix` rewrites files in place but never writes through a symlink: a
+symlinked input is linted but skipped for fixing (with a warning on
+stderr), so a symlink in an untrusted tree cannot redirect a write to a
+file outside it. This mirrors directory scanning, which does not follow
+symlinks.
+
 ## Configure for your project
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML

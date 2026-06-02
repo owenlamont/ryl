@@ -626,7 +626,14 @@ impl YamlLintConfig {
     ) -> Result<Self, String> {
         let docs = YamlOwned::load_from_str(s)
             .map_err(|e| format!("failed to parse config data: {e}"))?;
-        Self::from_doc_with_env(&docs[0], envx, base_dir)
+        // An empty document stream (empty/whitespace/comment-only config) yields no
+        // docs; treat it as a non-mapping so it reports "invalid config: not a
+        // mapping" (matching yamllint) instead of panicking on `docs[0]`.
+        Self::from_doc_with_env(
+            docs.first().unwrap_or(&YamlOwned::BadValue),
+            envx,
+            base_dir,
+        )
     }
 
     fn from_toml_str_with_env(
