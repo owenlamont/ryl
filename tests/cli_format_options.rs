@@ -138,6 +138,37 @@ fn github_format_emits_workflow_commands() {
 }
 
 #[test]
+fn github_format_escapes_newlines_to_prevent_command_injection() {
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("config.yml");
+    fs::write(&cfg, "rules:\n  key-duplicates: enable\n").unwrap();
+    let file = dir.path().join("inject.yaml");
+    // A duplicate key whose name embeds a newline and a fake workflow command;
+    // the key text is echoed verbatim into the key-duplicates message.
+    fs::write(
+        &file,
+        "\"x\\n::error::INJECTED\": 1\n\"x\\n::error::INJECTED\": 2\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("github")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert!(
+        stderr.contains("%0A"),
+        "the newline in the key must be encoded as %0A: {stderr}"
+    );
+    assert!(
+        !stderr.contains("\n::error::INJECTED"),
+        "an embedded newline must not start a new ::error:: command: {stderr}"
+    );
+}
+
+#[test]
 fn colored_format_uses_ansi_sequences() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());

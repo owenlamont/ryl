@@ -775,11 +775,30 @@ fn format_colored(problem: &LintProblem) -> String {
     line
 }
 
+// User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
+// Actions workflow-command output, where a raw newline would start a new
+// `::command::` — a command-injection vector in CI. Encode it the way GitHub's
+// `@actions/core` does: data (the message) escapes `%`/CR/LF; properties (the
+// `file=` path) additionally escape `:` and `,`. `%` must be escaped first so the
+// `%XX` sequences are not themselves re-encoded.
+fn github_escape_data(value: &str) -> String {
+    value
+        .replace('%', "%25")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
+}
+
+fn github_escape_property(value: &str) -> String {
+    github_escape_data(value)
+        .replace(':', "%3A")
+        .replace(',', "%2C")
+}
+
 fn format_github(problem: &LintProblem, path: &Path) -> String {
     let mut line = format!(
         "::{} file={},line={},col={}::{}:{} ",
         problem.level.as_str(),
-        path.display(),
+        github_escape_property(&path.display().to_string()),
         problem.line,
         problem.column,
         problem.line,
@@ -790,7 +809,7 @@ fn format_github(problem: &LintProblem, path: &Path) -> String {
         line.push_str(rule);
         line.push_str("] ");
     }
-    line.push_str(&problem.message);
+    line.push_str(&github_escape_data(&problem.message));
     line
 }
 
