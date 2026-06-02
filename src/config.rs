@@ -19,6 +19,12 @@ use crate::{conf, decoder};
 
 pub use crate::config_schema::RuleLevel;
 
+/// Maximum depth of `extends` resolution. A cyclic `extends` (a config that
+/// extends itself, directly or via a chain) would otherwise recurse until the
+/// stack overflows; real chains are only a level or two deep, so this bounds the
+/// recursion far above any legitimate use and turns a cycle into a clean error.
+const MAX_EXTENDS_DEPTH: usize = 32;
+
 /// How a file should be linted, as resolved from the `[files]` globs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -408,6 +414,7 @@ impl YamlLintConfig {
         entry: &str,
         envx: Option<&dyn Env>,
         base_dir: &Path,
+        depth: usize,
     ) -> Result<(), String> {
         if let Some(builtin) = conf::builtin(entry) {
             let base = Self::from_yaml_str(builtin).expect("builtin preset must parse");
@@ -440,7 +447,12 @@ impl YamlLintConfig {
         let parent_dir = resolved
             .parent()
             .map_or_else(|| base_dir.to_path_buf(), Path::to_path_buf);
-        let base = Self::from_yaml_str_with_env(&data, Some(envx), Some(&parent_dir))?;
+        let base = Self::from_yaml_str_with_env_depth(
+            &data,
+            Some(envx),
+            Some(&parent_dir),
+            depth + 1,
+        )?;
         self.merge_from(base);
         Ok(())
     }
@@ -624,6 +636,23 @@ impl YamlLintConfig {
         envx: Option<&dyn Env>,
         base_dir: Option<&Path>,
     ) -> Result<Self, String> {
+        Self::from_yaml_str_with_env_depth(s, envx, base_dir, 0)
+    }
+
+    /// `depth` tracks `extends` recursion so a cycle is rejected (see
+    /// [`MAX_EXTENDS_DEPTH`]) rather than overflowing the stack.
+    fn from_yaml_str_with_env_depth(
+        s: &str,
+        envx: Option<&dyn Env>,
+        base_dir: Option<&Path>,
+        depth: usize,
+    ) -> Result<Self, String> {
+        if depth > MAX_EXTENDS_DEPTH {
+            return Err(
+                "invalid config: extends nested too deeply (possible cyclic extends)"
+                    .to_string(),
+            );
+        }
         let docs = YamlOwned::load_from_str(s)
             .map_err(|e| format!("failed to parse config data: {e}"))?;
         // An empty document stream (empty/whitespace/comment-only config) yields no
@@ -633,6 +662,7 @@ impl YamlLintConfig {
             docs.first().unwrap_or(&YamlOwned::BadValue),
             envx,
             base_dir,
+            depth,
         )
     }
 
@@ -661,12 +691,13 @@ impl YamlLintConfig {
         doc: &YamlOwned,
         envx: Option<&dyn Env>,
         base_dir: Option<&Path>,
+        depth: usize,
     ) -> Result<Self, String> {
         let parsed = parse_yaml_config(doc)?;
         let mut cfg = Self::default();
         let base_path = base_dir.unwrap_or_else(|| Path::new(""));
         for entry in &parsed.extends {
-            cfg.extend_from_entry(entry, envx, base_path)?;
+            cfg.extend_from_entry(entry, envx, base_path, depth)?;
         }
         cfg.apply_normalized_config(parsed.normalized);
 

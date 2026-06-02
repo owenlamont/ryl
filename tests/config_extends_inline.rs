@@ -101,6 +101,30 @@ fn extends_invalid_yaml_propagates_error() {
 }
 
 #[test]
+fn cyclic_extends_is_rejected_without_overflowing_the_stack() {
+    let root = PathBuf::from("/workspace");
+    let a = root.join("a.yml");
+    let b = root.join("b.yml");
+    let env = FakeEnv::new()
+        .with_cwd(root.clone())
+        .with_file(a.clone(), "extends: b.yml\nrules: {}\n")
+        .with_file(b.clone(), "extends: a.yml\nrules: {}\n")
+        .with_exists(a)
+        .with_exists(b);
+
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(root.join("a.yml")),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("a cyclic extends chain must error, not overflow the stack");
+    assert!(err.contains("nested too deeply"), "{err}");
+}
+
+#[test]
 fn extend_prefers_absolute_paths() {
     let root = PathBuf::from("/workspace");
     let abs = PathBuf::from("/configs/base.yml");
