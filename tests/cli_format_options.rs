@@ -169,6 +169,33 @@ fn github_format_escapes_newlines_to_prevent_command_injection() {
 }
 
 #[test]
+fn human_formats_escape_control_characters_in_messages() {
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("config.yml");
+    fs::write(&cfg, "rules:\n  key-duplicates: enable\n").unwrap();
+    let file = dir.path().join("esc.yaml");
+    // A duplicate key carrying a raw ESC (YAML \x1b) — echoed into the message; the
+    // parsable format has no ANSI of its own, so any ESC in the output is the payload.
+    fs::write(&file, "\"\\x1b[2Jx\": 1\n\"\\x1b[2Jx\": 2\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("parsable")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert!(
+        !stderr.contains('\u{1b}'),
+        "a raw ESC control char must not reach the terminal: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("\\u{1b}"),
+        "the control char must be rendered as a visible escape: {stderr}"
+    );
+}
+
+#[test]
 fn colored_format_uses_ansi_sequences() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());

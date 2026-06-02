@@ -6,8 +6,10 @@
     clippy::cognitive_complexity
 )]
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -659,7 +661,7 @@ fn process_results(
 
                 match output_format {
                     OutputFormat::Standard => {
-                        eprintln!("{}", path.display());
+                        eprintln!("{}", sanitize_control(&path.display().to_string()));
                         for problem in problems {
                             eprintln!("{}", format_standard(problem));
                             match problem.level {
@@ -671,7 +673,10 @@ fn process_results(
                         eprintln!();
                     }
                     OutputFormat::Colored => {
-                        eprintln!("\u{001b}[4m{}\u{001b}[0m", path.display());
+                        eprintln!(
+                            "\u{001b}[4m{}\u{001b}[0m",
+                            sanitize_control(&path.display().to_string())
+                        );
                         for problem in problems {
                             eprintln!("{}", format_colored(problem));
                             match problem.level {
@@ -683,7 +688,10 @@ fn process_results(
                         eprintln!();
                     }
                     OutputFormat::Github => {
-                        eprintln!("::group::{}", path.display());
+                        eprintln!(
+                            "::group::{}",
+                            github_escape_data(&path.display().to_string())
+                        );
                         for problem in problems {
                             eprintln!("{}", format_github(problem, path));
                             match problem.level {
@@ -740,12 +748,33 @@ fn pluralize(singular: &str, count: usize) -> &str {
     if count == 1 { singular } else { "problems" }
 }
 
+/// Replace control characters — which a crafted key, value, anchor name, or
+/// filename can carry into a diagnostic — with a visible `\u{..}` escape, so they
+/// cannot inject terminal escape sequences or split a single-line diagnostic.
+/// Printable text (including multibyte Unicode) is untouched, and the common
+/// control-free case borrows without allocating.
+fn sanitize_control(text: &str) -> Cow<'_, str> {
+    if !text.contains(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_control() {
+            write!(out, "\\u{{{:x}}}", ch as u32)
+                .expect("writing to a String is infallible");
+        } else {
+            out.push(ch);
+        }
+    }
+    Cow::Owned(out)
+}
+
 fn format_standard(problem: &LintProblem) -> String {
     let mut line = format!("  {}:{}", problem.line, problem.column);
     line.push_str(&" ".repeat(12usize.saturating_sub(line.len())));
     line.push_str(problem.level.as_str());
     line.push_str(&" ".repeat(21usize.saturating_sub(line.len())));
-    line.push_str(&problem.message);
+    line.push_str(&sanitize_control(&problem.message));
     if let Some(rule) = problem.rule {
         line.push_str("  (");
         line.push_str(rule);
@@ -766,7 +795,7 @@ fn format_colored(problem: &LintProblem) -> String {
     };
     line.push_str(level_str);
     line.push_str(&" ".repeat(38usize.saturating_sub(line.len())));
-    line.push_str(&problem.message);
+    line.push_str(&sanitize_control(&problem.message));
     if let Some(rule) = problem.rule {
         line.push_str("  \u{001b}[2m(");
         line.push_str(rule);
@@ -816,11 +845,11 @@ fn format_github(problem: &LintProblem, path: &Path) -> String {
 fn format_parsable(problem: &LintProblem, path: &Path) -> String {
     let mut line = format!(
         "{}:{}:{}: [{}] {}",
-        path.display(),
+        sanitize_control(&path.display().to_string()),
         problem.line,
         problem.column,
         problem.level.as_str(),
-        problem.message
+        sanitize_control(&problem.message)
     );
     if let Some(rule) = problem.rule {
         line.push_str(" (");
