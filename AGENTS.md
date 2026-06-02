@@ -202,6 +202,24 @@ add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to t
 committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
 `cargo test --test property_markdown_fix`.
 
+### Property Tests For Config Parsing
+
+`tests/property_config.rs` property-tests **configuration robustness** (issue #246
+hardening): `property_config/strategy.rs` generates randomized configs — random
+subsets of rules with random levels and options, mixing valid values with hostile
+ones (invalid regexes, ill-typed/out-of-range scalars, bogus locales) — and renders
+each model to both YAML and TOML. The oracle-free invariant is that the whole
+pipeline errors or succeeds but **never panics**: YAML goes through
+`YamlLintConfig::from_yaml_str` and, when it parses, lints sample documents (driving
+the `.expect()` calls in `key-ordering`/`quoted-strings` `resolve()`); TOML goes
+through `parse_toml_config_str -> validate_toml_config -> normalize_toml_config`.
+Deterministic siblings pin the empty-config (YAML and TOML), invalid-regex,
+billion-laughs, and rich-valid-config cases so the random invariant cannot pass
+vacuously. When a rule gains a config-compiled regex or a new typed option, add its
+real option key(s) to `CATALOG` in `strategy.rs`. Failing inputs persist to the
+committed `tests/proptest-regressions/property_config.txt`; run with
+`cargo test --test property_config`.
+
 ### Rules Without A Safe `--fix`
 
 These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the
