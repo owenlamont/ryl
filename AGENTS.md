@@ -438,18 +438,25 @@ sticking to the quick-status step above.
   YAML config loader (`yaml_dom::loader`, used only for YAML config — `lint_str`
   builds no DOM) bounds alias expansion at `MAX_EXPANDED_NODES`, rejecting
   billion-laughs configs (`-c`/`-d`/discovered `.yamllint`) instead of exhausting
-  memory; an empty/whitespace/comment-only config reports "invalid config: not a
-  mapping" rather than panicking. The markdown extractor derives each fenced
-  block's line offset by binary search over precomputed newline positions
-  (`markdown_embed::collect_fenced_blocks`), not by rescanning from the document
-  start, so a file with many embedded blocks stays linear rather than quadratic.
-  Regression guards: `tests/cli_alias_bomb.rs`, `tests/cli_fix_symlink.rs`,
-  `tests/cli_config_data_error.rs`, `cli_markdown_embed.rs`
-  (`many_fenced_blocks_map_to_correct_host_lines`). granit-parser itself caps
-  nesting recursion (~256), so deep-nesting payloads are rejected before a deep DOM
-  is built. Config-supplied regexes (`key-ordering`, `quoted-strings`) are validated
-  at config-parse time and the `regex` crate is linear-time, so ReDoS is not
-  reachable.
+  memory; cyclic `extends` is bounded by `MAX_EXTENDS_DEPTH` (was a stack overflow).
+  An empty/whitespace/comment-only YAML config reports "not a mapping"; an empty
+  TOML config (incl. an empty `[tool.ryl]`) reports "configuration is empty" instead
+  of silently linting zero rules — neither panics. The markdown extractor derives
+  each fenced block's line offset by binary search over precomputed newline
+  positions (`markdown_embed::collect_fenced_blocks`), not by rescanning from the
+  document start, so many embedded blocks stay linear rather than quadratic. Output
+  is injection-safe: the GitHub format escapes user text (`github_escape_data`/
+  `_property`, covering `::group::` and `file=`) so a crafted key/anchor/filename
+  cannot inject a `::command::` in CI, and the standard/colored/parsable formats run
+  user text through `sanitize_control` so control chars can't inject terminal escapes
+  or split a diagnostic line. Regression guards: `tests/cli_alias_bomb.rs`,
+  `tests/cli_fix_symlink.rs`, `tests/cli_config_data_error.rs`,
+  `tests/cli_toml_config.rs`, `tests/config_extends_inline.rs`,
+  `tests/cli_format_options.rs`, `cli_markdown_embed.rs`, and the randomized
+  `tests/property_config.rs`. granit-parser itself caps nesting recursion (~256), so
+  deep-nesting payloads are rejected before a deep DOM is built. Config-supplied
+  regexes (`key-ordering`, `quoted-strings`) are validated at config-parse time and
+  the `regex` crate is linear-time, so ReDoS is not reachable.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets
