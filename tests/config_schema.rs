@@ -791,6 +791,35 @@ fn typed_toml_parser_errors_for_invalid_pyproject_toml() {
 }
 
 #[test]
+fn empty_project_toml_is_rejected_as_empty() {
+    for input in ["", "   \n", "# only a comment\n"] {
+        let err = parse_toml_config_str(input, false)
+            .expect_err("an empty TOML config configures nothing and must error");
+        assert_eq!(
+            err, "invalid config: configuration is empty",
+            "input={input:?}"
+        );
+    }
+}
+
+#[test]
+fn empty_tool_ryl_in_pyproject_is_rejected_as_empty() {
+    let err = parse_toml_config_str("[tool.ryl]\n", true)
+        .expect_err("an empty [tool.ryl] table configures nothing and must error");
+    assert_eq!(err, "invalid config: configuration is empty");
+}
+
+#[test]
+fn pyproject_without_tool_ryl_is_not_empty_and_yields_no_config() {
+    let parsed = parse_toml_config_str("[project]\nname = 'demo'\n", true)
+        .expect("an absent [tool.ryl] is 'unconfigured', not an empty-config error");
+    assert!(
+        parsed.is_none(),
+        "no [tool.ryl] section should produce no config"
+    );
+}
+
+#[test]
 fn typed_toml_validation_rejects_ignore_and_ignore_from_file_together() {
     let parsed = parse_toml_config_str(
         "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",

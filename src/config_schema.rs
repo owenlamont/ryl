@@ -696,6 +696,15 @@ pub fn parse_toml_config_str(
     input: &str,
     pyproject: bool,
 ) -> Result<Option<TomlConfig>, String> {
+    // An empty config configures no rules, so linting it would silently pass
+    // everything; reject it (like an empty YAML config) rather than surprise the
+    // user. Checking the raw document keeps this correct as `TomlConfig` gains
+    // fields. A `pyproject.toml` with no `[tool.ryl]` is not empty here — that means
+    // "ryl is not configured in this file", which the caller resolves separately.
+    if toml_document_is_empty(input, pyproject) {
+        return Err("invalid config: configuration is empty".to_string());
+    }
+
     if pyproject {
         return toml::from_str::<PyProjectToml>(input)
             .map(|doc| doc.tool.ryl)
@@ -705,6 +714,26 @@ pub fn parse_toml_config_str(
     toml::from_str::<TomlConfig>(input)
         .map(Some)
         .map_err(|err| format!("failed to parse config data: {err}"))
+}
+
+/// Whether the relevant TOML configuration table has no entries: the whole
+/// document for a standalone config, or the `[tool.ryl]` subtable for
+/// `pyproject.toml`. A document that fails to parse is not treated as empty so the
+/// real parse error surfaces below; an absent `[tool.ryl]` is likewise not empty.
+fn toml_document_is_empty(input: &str, pyproject: bool) -> bool {
+    let Ok(table) = input.parse::<toml::Table>() else {
+        return false;
+    };
+    let config = if pyproject {
+        table
+            .get("tool")
+            .and_then(toml::Value::as_table)
+            .and_then(|tool| tool.get("ryl"))
+            .and_then(toml::Value::as_table)
+    } else {
+        Some(&table)
+    };
+    config.is_some_and(toml::map::Map::is_empty)
 }
 
 /// Validate semantic constraints for a typed TOML config model.
