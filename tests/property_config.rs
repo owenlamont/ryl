@@ -9,8 +9,12 @@
 //! succeeds but never panics**:
 //!
 //! - YAML configs are parsed with [`YamlLintConfig::from_yaml_str`] and, when they
-//!   parse, used to lint sample documents — driving the `.expect()` calls in the
-//!   regex-bearing rules' `resolve()` (`key-ordering`, `quoted-strings`).
+//!   parse, used to lint sample documents. Config validation rejects hostile option
+//!   values (invalid regexes, wrong types) before a rule's `resolve()` runs, so the
+//!   `.expect()` calls in `key-ordering`/`quoted-strings` `resolve()` are not
+//!   reachable from a config that parses — the value here is the guard against a
+//!   future *validation gap*: were one introduced, a generated config would carry a
+//!   bad value into `resolve()` and panic the property.
 //! - TOML configs are pushed through `parse -> validate -> normalize`, the
 //!   TOML-specific surface.
 //!

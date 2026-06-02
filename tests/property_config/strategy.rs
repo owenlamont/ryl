@@ -152,10 +152,26 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
         prop::option::of(prop::sample::select(LOCALES)),
     )
         .prop_map(|(rules, ignore, locale)| ConfigModel {
-            rules,
+            // Drop duplicate rule ids: rendering the same id twice produces a
+            // duplicate `[rules.<id>]` table (a hard TOML error) or a duplicate YAML
+            // key, which would bounce a chunk of generated configs off the parser
+            // before they reach validation/normalisation/linting.
+            rules: dedup_rules(rules),
             ignore: ignore.map(|patterns| patterns.into_iter().collect()),
             locale,
         })
+}
+
+fn dedup_rules(rules: Vec<RuleCfg>) -> Vec<RuleCfg> {
+    let mut seen: Vec<&'static str> = Vec::new();
+    let mut deduped = Vec::new();
+    for rule in rules {
+        if !seen.contains(&rule.id) {
+            seen.push(rule.id);
+            deduped.push(rule);
+        }
+    }
+    deduped
 }
 
 fn render_optval_yaml(value: &OptVal) -> String {

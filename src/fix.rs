@@ -97,10 +97,18 @@ pub struct FixStats {
 }
 
 /// `--fix` rewrites a path in place, and `std::fs::write` follows symlinks, so a
-/// symlinked input would let an untrusted tree redirect the write to a file
-/// outside it (e.g. `innocent.yaml -> ~/.bashrc`). Skip symlinks with a warning,
-/// keeping writes confined to real files — consistent with the directory walker's
-/// `follow_links(false)`. Linting (read-only) through symlinks is unaffected.
+/// symlinked input would let an untrusted tree redirect the write to a file outside
+/// it (e.g. `innocent.yaml -> ~/.bashrc`). Skip a symlinked input with a warning —
+/// consistent with the directory walker's `follow_links(false)`, which is the path
+/// by which untrusted trees are scanned. Linting (read-only) through symlinks is
+/// unaffected.
+///
+/// This checks only the final path component (`symlink_metadata` resolves parent
+/// components), and the check is not atomic with the later write. It is therefore
+/// best-effort, not a hard sandbox: an explicitly-named path through a symlinked
+/// parent directory, or an attacker who swaps the file for a symlink between this
+/// check and the write (TOCTOU), is not covered. A complete defense would need
+/// `openat`/`O_NOFOLLOW`, which is not portable here.
 fn refuse_symlink(path: &Path) -> bool {
     if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
         eprintln!(

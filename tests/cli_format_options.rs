@@ -196,6 +196,83 @@ fn human_formats_escape_control_characters_in_messages() {
 }
 
 #[test]
+fn github_format_escapes_control_chars_not_just_newlines() {
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("config.yml");
+    fs::write(&cfg, "rules:\n  key-duplicates: enable\n").unwrap();
+    let file = dir.path().join("esc.yaml");
+    fs::write(&file, "\"\\x1b[31mEVIL\": 1\n\"\\x1b[31mEVIL\": 2\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("github")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    // The GitHub format has no ANSI of its own, so a raw ESC would be the payload
+    // reaching the CI log viewer; it must be rendered as a literal escape, not a
+    // %XX (which the runner would decode back into a control char).
+    assert!(
+        !stderr.contains('\u{1b}'),
+        "raw ESC must not reach the GitHub log: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("\\u{1b}"),
+        "ESC must be rendered as a literal escape in the GitHub format: {stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn github_format_escapes_percent_cr_and_property_delimiters() {
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("config.yml");
+    fs::write(&cfg, "rules:\n  key-duplicates: enable\n").unwrap();
+    // The filename's `:`/`,` exercise the `file=` property escaping; the duplicate
+    // key carries a literal `%` and a CR into the message.
+    let file = dir.path().join("we:ird,name.yaml");
+    fs::write(&file, "\"a%b\\rc\": 1\n\"a%b\\rc\": 2\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("github")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert!(
+        stderr.contains("%3A") && stderr.contains("%2C"),
+        "`:` and `,` in the file= path must be percent-escaped: {stderr}"
+    );
+    assert!(
+        stderr.contains("%25"),
+        "a literal `%` must become %25: {stderr}"
+    );
+    assert!(stderr.contains("%0D"), "a CR must become %0D: {stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn error_message_paths_are_escaped_in_github_format() {
+    // A filename with an embedded newline + a fake workflow command, whose content
+    // is invalid UTF-8 so linting fails and the error message (which embeds the
+    // path) is emitted. The path must be sanitized so the newline cannot start a
+    // new ::command:: in CI.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("evil\n::error::ARM_INJECT.yaml");
+    fs::write(&file, [0x80u8]).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _stdout, stderr) =
+        run(Command::new(exe).arg("--format").arg("github").arg(&file));
+    assert!(
+        !stderr.contains("\n::error::ARM_INJECT"),
+        "an error-message path must not inject a workflow command: {stderr:?}"
+    );
+}
+
+#[test]
 fn colored_format_uses_ansi_sequences() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());

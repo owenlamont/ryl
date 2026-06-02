@@ -803,10 +803,14 @@ fn empty_project_toml_is_rejected_as_empty() {
 }
 
 #[test]
-fn empty_tool_ryl_in_pyproject_is_rejected_as_empty() {
-    let err = parse_toml_config_str("[tool.ryl]\n", true)
-        .expect_err("an empty [tool.ryl] table configures nothing and must error");
-    assert_eq!(err, "invalid config: configuration is empty");
+fn empty_tool_ryl_in_pyproject_is_treated_as_unconfigured() {
+    // An empty `[tool.ryl]` is treated like an absent one (Ok(None)) so config
+    // discovery falls back to defaults instead of aborting the whole run; an
+    // explicit `-c pyproject.toml` still rejects it ("missing [tool.ryl] section")
+    // via the caller, which is exercised in tests/cli_toml_config.rs.
+    let parsed = parse_toml_config_str("[tool.ryl]\n", true)
+        .expect("an empty [tool.ryl] is unconfigured, not an error");
+    assert!(parsed.is_none(), "empty [tool.ryl] should yield no config");
 }
 
 #[test]

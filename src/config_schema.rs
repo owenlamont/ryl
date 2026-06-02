@@ -696,13 +696,19 @@ pub fn parse_toml_config_str(
     input: &str,
     pyproject: bool,
 ) -> Result<Option<TomlConfig>, String> {
-    // An empty config configures no rules, so linting it would silently pass
-    // everything; reject it (like an empty YAML config) rather than surprise the
-    // user. Checking the raw document keeps this correct as `TomlConfig` gains
-    // fields. A `pyproject.toml` with no `[tool.ryl]` is not empty here — that means
-    // "ryl is not configured in this file", which the caller resolves separately.
+    // An empty standalone config configures no rules, so linting it would silently
+    // pass everything; reject it (like an empty YAML config) rather than surprise the
+    // user. An empty `[tool.ryl]` in `pyproject.toml`, however, is treated like an
+    // absent one — "ryl is not configured in this file" (`Ok(None)`) — so config
+    // discovery falls back to defaults instead of aborting the whole run on a stub
+    // section. Checking the raw document keeps this correct as `TomlConfig` gains
+    // fields.
     if toml_document_is_empty(input, pyproject) {
-        return Err("invalid config: configuration is empty".to_string());
+        return if pyproject {
+            Ok(None)
+        } else {
+            Err("invalid config: configuration is empty".to_string())
+        };
     }
 
     if pyproject {

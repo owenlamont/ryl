@@ -75,6 +75,30 @@ fn discovered_empty_toml_config_is_rejected() {
 }
 
 #[test]
+fn discovered_pyproject_with_empty_tool_ryl_falls_back_to_defaults() {
+    // A stub `[tool.ryl]` (header, no keys) found during discovery must behave like
+    // a missing section — fall back to default rules — not abort the whole run the
+    // way a standalone empty config does. Regression guard for the empty-TOML fix.
+    let td = tempdir().unwrap();
+    let root = td.path();
+    fs::write(root.join("pyproject.toml"), "[tool.ryl]\n").unwrap();
+    fs::write(root.join("a.yaml"), "a: 1  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg(root.join("a.yaml")));
+    assert_eq!(
+        code, 1,
+        "stub [tool.ryl] in a discovered pyproject must lint with defaults, not \
+         abort: {stderr}"
+    );
+    assert!(
+        stderr.contains("trailing-spaces")
+            && !stderr.contains("configuration is empty"),
+        "expected default rules to run, not an empty-config abort: {stderr}"
+    );
+}
+
+#[test]
 fn global_config_notice_is_emitted_when_env_var_triggers_global_discovery() {
     let td = tempdir().unwrap();
     let root = td.path();

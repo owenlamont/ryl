@@ -115,22 +115,29 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     };
     let result = migrate_configs(&options)?;
     for warning in result.warnings {
-        eprintln!("{warning}");
+        eprintln!("{}", sanitize_control(&warning));
     }
     if result.entries.is_empty() {
         println!(
             "No legacy YAML config files found under {}",
-            options.root.display()
+            sanitize_control(&options.root.display().to_string())
         );
         return Ok(ExitCode::SUCCESS);
     }
 
     for entry in &result.entries {
-        println!("{} -> {}", entry.source.display(), entry.target.display());
+        println!(
+            "{} -> {}",
+            sanitize_control(&entry.source.display().to_string()),
+            sanitize_control(&entry.target.display().to_string())
+        );
     }
     if options.output_mode == MigrateOutputMode::IncludeToml {
         for entry in &result.entries {
-            println!("# {}", entry.target.display());
+            println!(
+                "# {}",
+                sanitize_control(&entry.target.display().to_string())
+            );
             println!("{}", entry.toml);
         }
     }
@@ -316,7 +323,10 @@ fn main() -> ExitCode {
     match run_cli(cli) {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("{err}");
+            // Usage/config errors embed user-controlled paths and config values;
+            // sanitize so a crafted filename or value cannot inject control
+            // sequences or a CI workflow command.
+            eprintln!("{}", sanitize_control(&err));
             ExitCode::from(2)
         }
     }
@@ -381,7 +391,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     }
     if let Some(cfg) = &global_cfg {
         for notice in &cfg.notices {
-            eprintln!("{notice}");
+            eprintln!("{}", sanitize_control(notice));
         }
     }
     let inputs = cli.inputs;
@@ -407,7 +417,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
 
     if cli.lint.compatibility.list_files {
         for (path, ..) in &files {
-            println!("{}", path.display());
+            println!("{}", sanitize_control(&path.display().to_string()));
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -468,7 +478,7 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     };
 
     if cli.lint.compatibility.list_files {
-        println!("{}", path.display());
+        println!("{}", sanitize_control(&path.display().to_string()));
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -551,7 +561,7 @@ fn resolve_stdin_ctx(
     };
     let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(cli))?;
     for notice in &ctx.notices {
-        eprintln!("{notice}");
+        eprintln!("{}", sanitize_control(notice.as_str()));
     }
     let mut cfg = ctx.config;
     if cli.lint.markdown {
@@ -595,7 +605,7 @@ fn gather_lint_files(
         let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
-                eprintln!("{notice}");
+                eprintln!("{}", sanitize_control(notice.as_str()));
             }
         }
         if cfg.is_file_ignored(f, &base_dir) {
@@ -610,7 +620,7 @@ fn gather_lint_files(
         let (base_dir, cfg, notices) = resolve_ctx(ef, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
-                eprintln!("{notice}");
+                eprintln!("{}", sanitize_control(notice.as_str()));
             }
         }
         if cfg.is_file_ignored(ef, &base_dir) {
@@ -643,7 +653,11 @@ fn process_results(
         let (path, ..) = &files[idx];
         match outcome {
             Err(message) => {
-                eprintln!("{message}");
+                // Error messages embed user-controlled paths/values; sanitize so a
+                // crafted filename cannot inject terminal escapes or (via a newline)
+                // a GitHub workflow command. `sanitize_control` is safe for every
+                // format because it neutralises the newline that injection needs.
+                eprintln!("{}", sanitize_control(&message));
                 summary.has_error = true;
                 summary.problem_count += 1;
             }
@@ -688,12 +702,11 @@ fn process_results(
                         eprintln!();
                     }
                     OutputFormat::Github => {
-                        eprintln!(
-                            "::group::{}",
-                            github_escape_data(&path.display().to_string())
-                        );
+                        let path_str = path.display().to_string();
+                        eprintln!("::group::{}", github_escape(&path_str, false));
+                        let escaped_file = github_escape(&path_str, true);
                         for problem in problems {
-                            eprintln!("{}", format_github(problem, path));
+                            eprintln!("{}", format_github(problem, &escaped_file));
                             match problem.level {
                                 Severity::Error => summary.has_error = true,
                                 Severity::Warning => summary.has_warning = true,
@@ -704,8 +717,10 @@ fn process_results(
                         eprintln!();
                     }
                     OutputFormat::Parsable => {
+                        let sanitized_path =
+                            sanitize_control(&path.display().to_string()).into_owned();
                         for problem in problems {
-                            eprintln!("{}", format_parsable(problem, path));
+                            eprintln!("{}", format_parsable(problem, &sanitized_path));
                             match problem.level {
                                 Severity::Error => summary.has_error = true,
                                 Severity::Warning => summary.has_warning = true,
@@ -807,27 +822,35 @@ fn format_colored(problem: &LintProblem) -> String {
 // User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
 // Actions workflow-command output, where a raw newline would start a new
 // `::command::` — a command-injection vector in CI. Encode it the way GitHub's
-// `@actions/core` does: data (the message) escapes `%`/CR/LF; properties (the
-// `file=` path) additionally escape `:` and `,`. `%` must be escaped first so the
-// `%XX` sequences are not themselves re-encoded.
-fn github_escape_data(value: &str) -> String {
-    value
-        .replace('%', "%25")
-        .replace('\r', "%0D")
-        .replace('\n', "%0A")
+// `@actions/core` does (data escapes `%`/CR/LF; a `property` such as `file=` also
+// escapes `:`/`,`), and additionally render any other control character as a
+// literal `\u{..}` — never a `%XX`, which the runner would decode back into the raw
+// control char and let it drive ANSI sequences in the log viewer.
+fn github_escape(value: &str, property: bool) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '\r' => out.push_str("%0D"),
+            '\n' => out.push_str("%0A"),
+            ':' if property => out.push_str("%3A"),
+            ',' if property => out.push_str("%2C"),
+            c if c.is_control() => {
+                write!(out, "\\u{{{:x}}}", c as u32)
+                    .expect("writing to a String is infallible");
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
-fn github_escape_property(value: &str) -> String {
-    github_escape_data(value)
-        .replace(':', "%3A")
-        .replace(',', "%2C")
-}
-
-fn format_github(problem: &LintProblem, path: &Path) -> String {
+/// `escaped_file` is the `file=` property value, escaped once per file by the
+/// caller (it is identical for every diagnostic in the same file).
+fn format_github(problem: &LintProblem, escaped_file: &str) -> String {
     let mut line = format!(
-        "::{} file={},line={},col={}::{}:{} ",
+        "::{} file={escaped_file},line={},col={}::{}:{} ",
         problem.level.as_str(),
-        github_escape_property(&path.display().to_string()),
         problem.line,
         problem.column,
         problem.line,
@@ -838,14 +861,15 @@ fn format_github(problem: &LintProblem, path: &Path) -> String {
         line.push_str(rule);
         line.push_str("] ");
     }
-    line.push_str(&github_escape_data(&problem.message));
+    line.push_str(&github_escape(&problem.message, false));
     line
 }
 
-fn format_parsable(problem: &LintProblem, path: &Path) -> String {
+/// `sanitized_path` is sanitized once per file by the caller (identical for every
+/// diagnostic in the file).
+fn format_parsable(problem: &LintProblem, sanitized_path: &str) -> String {
     let mut line = format!(
-        "{}:{}:{}: [{}] {}",
-        sanitize_control(&path.display().to_string()),
+        "{sanitized_path}:{}:{}: [{}] {}",
         problem.line,
         problem.column,
         problem.level.as_str(),
