@@ -113,7 +113,7 @@ fn refuse_symlink(path: &Path) -> bool {
     if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
         eprintln!(
             "skipping {}: refusing to apply --fix through a symlink",
-            path.display()
+            crate::cli_support::sanitize_control(&path.display().to_string())
         );
         return true;
     }

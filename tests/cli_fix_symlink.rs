@@ -25,6 +25,33 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 const FIXABLE_YAML: &str = "secret: topsecret   \n";
 
 #[test]
+fn fix_symlink_warning_sanitizes_the_path() {
+    // The skip warning embeds the (user-controlled) path; a newline in a symlink's
+    // name must not break out of the warning line into a forged workflow command.
+    let dir = tempdir().unwrap();
+    let secret = dir.path().join("secret.yaml");
+    fs::write(&secret, FIXABLE_YAML).unwrap();
+    let link = dir.path().join("evil\n::error::INJECT.yaml");
+    symlink(&secret, &link).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _out, err) = run(Command::new(exe).arg("--fix").arg(&link));
+    assert!(
+        err.contains("refusing to apply --fix through a symlink"),
+        "expected the symlink skip warning: {err:?}"
+    );
+    assert!(
+        !err.contains("\n::error::INJECT"),
+        "the warning's path must be sanitized, not injected: {err:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        FIXABLE_YAML,
+        "the symlink target must be left unchanged"
+    );
+}
+
+#[test]
 fn fix_skips_explicit_symlink_arg_and_leaves_target_untouched() {
     let dir = tempdir().unwrap();
     let secret = dir.path().join("secret.yaml");

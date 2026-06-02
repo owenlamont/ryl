@@ -6,7 +6,6 @@
     clippy::cognitive_complexity
 )]
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -17,7 +16,7 @@ use std::process::ExitCode;
 use clap::{Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use ryl::cli_support::resolve_ctx;
+use ryl::cli_support::{resolve_ctx, sanitize_control};
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
 };
@@ -777,27 +776,6 @@ fn count_reported_problems(
 
 fn pluralize(singular: &str, count: usize) -> &str {
     if count == 1 { singular } else { "problems" }
-}
-
-/// Replace control characters — which a crafted key, value, anchor name, or
-/// filename can carry into a diagnostic — with a visible `\u{..}` escape, so they
-/// cannot inject terminal escape sequences or split a single-line diagnostic.
-/// Printable text (including multibyte Unicode) is untouched, and the common
-/// control-free case borrows without allocating.
-fn sanitize_control(text: &str) -> Cow<'_, str> {
-    if !text.contains(char::is_control) {
-        return Cow::Borrowed(text);
-    }
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        if ch.is_control() {
-            write!(out, "\\u{{{:x}}}", ch as u32)
-                .expect("writing to a String is infallible");
-        } else {
-            out.push(ch);
-        }
-    }
-    Cow::Owned(out)
 }
 
 fn format_standard(problem: &LintProblem) -> String {
