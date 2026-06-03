@@ -24,12 +24,17 @@ Full documentation lives at <https://ryl-docs.pages.dev/>.
 
 ## Quick start
 
+ryl enables no rules by default, so it needs a configuration that turns rules on.
+`-d 'extends: default'` opts into yamllint's standard rule set for a one-off run;
+for a project, drop a `.ryl.toml` at the root (see
+[Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
+
 ```bash
 # Using uv (Python)
-uvx ryl .
+uvx ryl -d 'extends: default' .
 
 # Using npx (Node.js)
-npx @owenlamont/ryl .
+npx @owenlamont/ryl -d 'extends: default' .
 ```
 
 For `prek` / `pre-commit` integration, see
