@@ -105,6 +105,12 @@ fn resolves_core_schema_int_tag() {
         doc.as_mapping_get("v").and_then(YamlOwned::as_integer),
         Some(42)
     );
+    assert!(
+        doc.as_mapping_get("v")
+            .and_then(YamlOwned::as_floating_point)
+            .is_none(),
+        "an integer scalar must not be coerced into a float",
+    );
 }
 
 #[test]

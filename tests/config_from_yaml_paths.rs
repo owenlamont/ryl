@@ -11,7 +11,7 @@ ignore:
 yaml-files:
   - "*.yml"
 rules:
-  new_rule: { enabled: true }
+  colons: enable
 "#;
     let ctx = discover_config(
         &[],
@@ -26,7 +26,7 @@ rules:
     assert!(pats.iter().any(|p| p == "a.yml"));
     assert!(pats.iter().any(|p| p == "b.yaml"));
 
-    assert!(ctx.config.rule_names().iter().any(|n| n == "new_rule"));
+    assert!(ctx.config.rule_names().iter().any(|n| n == "colons"));
     assert!(ctx.config.rule_names().iter().any(|n| n == "anchors"));
     assert_eq!(ctx.config.locale(), Some("en_US"));
 }

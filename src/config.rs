@@ -786,6 +786,19 @@ impl YamlLintConfig {
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
+        // Reject unknown/misspelled rule names (matching yamllint's "no such rule").
+        // ryl does not support custom/unrecognised rules: an unknown rule is never
+        // dispatched by `lint_str`, so without this a typo lints nothing and a config
+        // whose only entries are unknown would also slip past the "no rules enabled"
+        // guard.
+        if let Some(unknown) = self
+            .rule_names
+            .iter()
+            .find(|name| !crate::rules::ALL_RULE_IDS.contains(&name.as_str()))
+        {
+            return Err(format!("invalid config: no such rule: \"{unknown}\""));
+        }
+
         let (matcher, extra_patterns) = build_ignore_matcher(
             &self.ignore_patterns,
             &self.ignore_from_files,
