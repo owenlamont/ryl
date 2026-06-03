@@ -36,8 +36,13 @@ Exit codes:
 - `0` &mdash; no problems found.
 - `1` &mdash; lint errors, invalid YAML, or a path that could not be read
   (including nonexistent files).
-- `2` &mdash; CLI usage error (no inputs provided, bad flags) or
+- `2` &mdash; CLI usage error (no inputs provided, bad flags), or
   `--strict` was set and only warnings were produced.
+
+A configuration that enables no rules would lint nothing, so ryl rejects it with
+exit `2` rather than silently passing. Enable at least one rule, or remove the
+configuration to fall back to the default rule set. (This is stricter than yamllint,
+which silently accepts a rule-less config.)
 
 ## Apply auto-fixes
 
@@ -48,6 +53,12 @@ ryl --fix .
 ```
 
 See the [Rules reference](../rules.md) for which rules are fixable.
+
+`--fix` rewrites files in place but never writes through a symlink: a
+symlinked input is linted but skipped for fixing (with a warning on
+stderr), so a symlink in an untrusted tree cannot redirect a write to a
+file outside it. This mirrors directory scanning, which does not follow
+symlinks.
 
 ## Configure for your project
 

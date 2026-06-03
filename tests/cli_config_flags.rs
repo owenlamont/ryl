@@ -19,6 +19,8 @@ fn config_file_ignores_docs_globally() {
     fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
     fs::write(root.join("docs/ignored.yaml"), "x: 0\n").unwrap();
 
+    // `--list-files` answers a file-selection query and is exempt from the
+    // "no rules enabled" lint check, so a rule-less config is fine here.
     let cfg = root.join("cfg.yml");
     fs::write(&cfg, "ignore: ['docs/**']\n").unwrap();
 
@@ -49,6 +51,36 @@ fn config_data_yaml_files_only_lists_dot_yamllint_yml() {
     assert_eq!(code, 0, "expected success: {err}");
     assert!(out.contains(".yamllint.yml"));
     assert!(!out.contains("a.yaml"));
+}
+
+#[test]
+fn config_enabling_no_rules_is_rejected_loudly() {
+    let td = tempdir().unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    // A config that turns every rule off lints nothing; ryl rejects it (stricter than
+    // yamllint, which silently accepts a rule-less config) rather than exit 0 silently.
+    for data in ["rules: {}\n", "rules:\n  document-start: disable\n"] {
+        let (code, _out, err) = run(Command::new(exe).arg("-d").arg(data).arg(&file));
+        assert_eq!(code, 2, "a rule-less config must error: {err}");
+        assert!(
+            err.contains("enables no rules"),
+            "expected the no-rules error: {err}"
+        );
+    }
+
+    // `--list-files` is exempt — it answers a file query, it does not lint.
+    let (code, _out, err) = run(Command::new(exe)
+        .arg("--list-files")
+        .arg("-d")
+        .arg("rules: {}\n")
+        .arg(&file));
+    assert_eq!(
+        code, 0,
+        "--list-files must not require enabled rules: {err}"
+    );
 }
 
 #[test]

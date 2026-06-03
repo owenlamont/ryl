@@ -1,8 +1,35 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
 
 use crate::config::{ConfigContext, YamlLintConfig, discover_per_file};
+
+/// Replace control characters — which a crafted key, value, anchor name, or
+/// filename can carry into a diagnostic, warning, or path — with a visible `\u{..}`
+/// escape, so they cannot inject terminal escape sequences or (via a newline) a
+/// GitHub Actions workflow command, and cannot split a single-line message.
+/// Printable text (including multibyte Unicode) is untouched, and the common
+/// control-free case borrows without allocating. Shared by the CLI output layer and
+/// the `--fix` symlink warning so every user-controlled string is sanitized the same
+/// way.
+#[must_use]
+pub fn sanitize_control(text: &str) -> Cow<'_, str> {
+    if !text.contains(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_control() {
+            write!(out, "\\u{{{:x}}}", ch as u32)
+                .expect("writing to a String is infallible");
+        } else {
+            out.push(ch);
+        }
+    }
+    Cow::Owned(out)
+}
 
 /// Resolve the configuration context for a given file path, optionally using a cached
 /// global configuration.

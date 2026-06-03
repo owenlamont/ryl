@@ -80,28 +80,6 @@ fn to_toml_errors_on_null_values() {
 }
 
 #[test]
-fn to_toml_converts_scalar_sequence_and_mapping_values() {
-    let ctx = discover_config(
-        &[],
-        &Overrides {
-            config_file: None,
-            config_data: Some(
-                "rules:\n  custom-rule:\n    flag: true\n    count: 3\n    ratio: 1.5\n    list: [1, false]\n    nested: { child: 1 }\n"
-                    .to_string(),
-            ),
-        },
-    )
-    .unwrap();
-    let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("flag = true"));
-    assert!(toml.contains("count = 3"));
-    assert!(toml.contains("ratio = 1.5"));
-    assert!(toml.contains("list = ["));
-    assert!(toml.contains("false"));
-    assert!(toml.contains("[rules.custom-rule.nested]"));
-}
-
-#[test]
 fn to_toml_errors_on_non_string_mapping_keys() {
     let err = discover_config(
         &[],

@@ -59,6 +59,38 @@ fn explicit_pyproject_without_tool_ryl_errors() {
 }
 
 #[test]
+fn discovered_empty_toml_config_is_rejected() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    fs::write(root.join(".ryl.toml"), "").unwrap();
+    fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg(root.join("a.yaml")));
+    assert_eq!(
+        code, 2,
+        "an empty config must error, not silently lint nothing: {stderr}"
+    );
+    assert!(stderr.contains("configuration is empty"), "{stderr}");
+}
+
+#[test]
+fn discovered_pyproject_with_empty_tool_ryl_is_rejected() {
+    // A present-but-empty `[tool.ryl]` enables no rules; ryl rejects it rather than
+    // silently handing back the default rule set (rules must be explicitly enabled).
+    // An *absent* `[tool.ryl]` is different — discovery keeps looking.
+    let td = tempdir().unwrap();
+    let root = td.path();
+    fs::write(root.join("pyproject.toml"), "[tool.ryl]\n").unwrap();
+    fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg(root.join("a.yaml")));
+    assert_eq!(code, 2, "an empty [tool.ryl] must be rejected: {stderr}");
+    assert!(stderr.contains("configuration is empty"), "{stderr}");
+}
+
+#[test]
 fn global_config_notice_is_emitted_when_env_var_triggers_global_discovery() {
     let td = tempdir().unwrap();
     let root = td.path();

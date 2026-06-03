@@ -93,9 +93,6 @@ pub(crate) fn yaml_owned_to_toml_value(
     if let Some(num) = value.as_integer() {
         return Ok(toml::Value::Integer(num));
     }
-    if let Some(num) = value.as_floating_point() {
-        return Ok(toml::Value::Float(num));
-    }
     if value.is_null() {
         return Err(
             "cannot convert null values to TOML (TOML has no null type)".to_string()

@@ -35,7 +35,7 @@ fn project_search_supports_relative_home() {
         .with_var("HOME", "userhome".to_string())
         .with_file(
             PathBuf::from("/workspace/userhome/.yamllint"),
-            "rules: { rel: enable }\n",
+            "rules: { colons: enable }\n",
         )
         .with_exists(PathBuf::from("/workspace/userhome/.yamllint"))
         .with_exists(PathBuf::from("/workspace/userhome/project/file.yaml"));
@@ -50,5 +50,5 @@ fn project_search_supports_relative_home() {
         ctx.source.as_deref(),
         Some(Path::new("/workspace/userhome/.yamllint"))
     );
-    assert!(ctx.config.rule_names().iter().any(|r| r == "rel"));
+    assert!(ctx.config.rule_names().iter().any(|r| r == "colons"));
 }

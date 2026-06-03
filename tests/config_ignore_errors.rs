@@ -69,68 +69,8 @@ fn ignore_patterns_non_string_errors() {
 }
 
 #[test]
-fn custom_rule_ignore_scalar_type_errors() {
-    let yaml = "rules:\n  custom-rule:\n    ignore: 1\n";
-    let err = discover_config(
-        &[],
-        &Overrides {
-            config_file: None,
-            config_data: Some(yaml.into()),
-        },
-    )
-    .expect_err("custom rule ignore should reject non-string scalars");
-    assert!(
-        err.contains(
-            "option \"ignore\" of \"custom-rule\" should contain file patterns"
-        ),
-        "{err}"
-    );
-}
-
-#[test]
-fn custom_rule_ignore_from_file_non_string_sequence_errors() {
-    let yaml = "rules:\n  custom-rule:\n    ignore-from-file: [1]\n";
-    let err = discover_config(
-        &[],
-        &Overrides {
-            config_file: None,
-            config_data: Some(yaml.into()),
-        },
-    )
-    .expect_err("custom rule ignore-from-file should reject non-string entries");
-    assert!(
-        err.contains(
-            "option \"ignore-from-file\" of \"custom-rule\" should contain filename(s), either as a list or string"
-        ),
-        "{err}"
-    );
-}
-
-#[test]
-fn custom_toml_rule_ignore_scalar_type_errors() {
-    let td = tempdir().unwrap();
-    let path = td.path().join(".ryl.toml");
-    fs::write(path.clone(), "[rules.custom-rule]\nignore = 1\n").unwrap();
-
-    let err = discover_config(
-        &[],
-        &Overrides {
-            config_file: Some(path),
-            config_data: None,
-        },
-    )
-    .expect_err("custom TOML rule ignore should reject non-string scalars");
-    assert!(
-        err.contains(
-            "option \"ignore\" of \"custom-rule\" should contain file patterns"
-        ),
-        "{err}"
-    );
-}
-
-#[test]
-fn custom_rule_ignore_string_is_allowed() {
-    let yaml = "rules:\n  custom-rule:\n    ignore: docs/**\n";
+fn rule_ignore_string_is_honored() {
+    let yaml = "rules:\n  colons:\n    ignore: docs/**\n";
     let ctx = discover_config(
         &[],
         &Overrides {
@@ -138,19 +78,19 @@ fn custom_rule_ignore_string_is_allowed() {
             config_data: Some(yaml.into()),
         },
     )
-    .expect("custom rule ignore string should parse");
+    .expect("rule ignore string should parse");
     assert!(ctx.config.is_rule_ignored(
-        "custom-rule",
+        "colons",
         Path::new("docs/file.yaml"),
         Path::new("."),
     ));
 }
 
 #[test]
-fn custom_toml_rule_ignore_array_is_allowed() {
+fn toml_rule_ignore_array_is_honored() {
     let td = tempdir().unwrap();
     let path = td.path().join(".ryl.toml");
-    fs::write(path.clone(), "[rules.custom-rule]\nignore = ['docs/**']\n").unwrap();
+    fs::write(path.clone(), "[rules.colons]\nignore = ['docs/**']\n").unwrap();
 
     let ctx = discover_config(
         &[],
@@ -159,9 +99,9 @@ fn custom_toml_rule_ignore_array_is_allowed() {
             config_data: None,
         },
     )
-    .expect("custom TOML rule ignore array should parse");
+    .expect("TOML rule ignore array should parse");
     assert!(ctx.config.is_rule_ignored(
-        "custom-rule",
+        "colons",
         td.path().join("docs/file.yaml").as_path(),
         td.path(),
     ));

@@ -96,6 +96,30 @@ pub struct FixStats {
     pub changed_files: usize,
 }
 
+/// `--fix` rewrites a path in place, and `std::fs::write` follows symlinks, so a
+/// symlinked input would let an untrusted tree redirect the write to a file outside
+/// it (e.g. `innocent.yaml -> ~/.bashrc`). Skip a symlinked input with a warning —
+/// consistent with the directory walker's `follow_links(false)`, which is the path
+/// by which untrusted trees are scanned. Linting (read-only) through symlinks is
+/// unaffected.
+///
+/// This checks only the final path component (`symlink_metadata` resolves parent
+/// components), and the check is not atomic with the later write. It is therefore
+/// best-effort, not a hard sandbox: an explicitly-named path through a symlinked
+/// parent directory, or an attacker who swaps the file for a symlink between this
+/// check and the write (TOCTOU), is not covered. A complete defense would need
+/// `openat`/`O_NOFOLLOW`, which is not portable here.
+fn refuse_symlink(path: &Path) -> bool {
+    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        eprintln!(
+            "skipping {}: refusing to apply --fix through a symlink",
+            crate::cli_support::sanitize_control(&path.display().to_string())
+        );
+        return true;
+    }
+    false
+}
+
 /// Apply all currently supported safe fixes to `path` in place.
 ///
 /// # Errors
@@ -106,6 +130,9 @@ pub fn apply_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<bool, String> {
+    if refuse_symlink(path) {
+        return Ok(false);
+    }
     let decoded = decoder::read_file_lossless(path)?;
     let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
     if fixed == decoded.content() {
@@ -150,6 +177,9 @@ pub fn apply_markdown_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<bool, String> {
+    if refuse_symlink(path) {
+        return Ok(false);
+    }
     let decoded = decoder::read_file_lossless(path)?;
     match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
         Some(fixed) => {

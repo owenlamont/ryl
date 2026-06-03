@@ -55,8 +55,15 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
     let ok = write_file(dir.path(), "ok.yaml", "a: 1\n");
     let bad = write_file(dir.path(), "bad.yaml", "a: [1, 2\n");
 
-    // Disable yamllint rules so we only compare syntax behavior.
-    let cfg = write_file(dir.path(), ".yamllint.yml", "rules: {}\n");
+    // Enable one rule that never fires on these inputs so we effectively compare
+    // syntax behavior only. (A truly rule-less config is rejected by ryl, which is
+    // stricter than yamllint here; both tools run the same single-rule config so the
+    // differential is unaffected.)
+    let cfg = write_file(
+        dir.path(),
+        ".yamllint.yml",
+        "rules:\n  key-duplicates: enable\n",
+    );
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
 

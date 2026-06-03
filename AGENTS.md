@@ -202,6 +202,24 @@ add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to t
 committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
 `cargo test --test property_markdown_fix`.
 
+### Property Tests For Config Parsing
+
+`tests/property_config.rs` property-tests **configuration robustness** (issue #246
+hardening): `property_config/strategy.rs` generates randomized configs — random
+subsets of rules with random levels and options, mixing valid values with hostile
+ones (invalid regexes, ill-typed/out-of-range scalars, bogus locales) — and renders
+each model to both YAML and TOML. The oracle-free invariant is that the whole
+pipeline errors or succeeds but **never panics**: YAML goes through
+`YamlLintConfig::from_yaml_str` and, when it parses, lints sample documents (driving
+the `.expect()` calls in `key-ordering`/`quoted-strings` `resolve()`); TOML goes
+through `parse_toml_config_str -> validate_toml_config -> normalize_toml_config`.
+Deterministic siblings pin the empty-config (YAML and TOML), invalid-regex,
+billion-laughs, and rich-valid-config cases so the random invariant cannot pass
+vacuously. When a rule gains a config-compiled regex or a new typed option, add its
+real option key(s) to `CATALOG` in `strategy.rs`. Failing inputs persist to the
+committed `tests/proptest-regressions/property_config.txt`; run with
+`cargo test --test property_config`.
+
 ### Rules Without A Safe `--fix`
 
 These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the
@@ -413,6 +431,32 @@ sticking to the quick-status step above.
   reproduces the original bytes exactly (the reconstruct-and-verify guard) — a
   region whose lines lack a single shared prefix (ragged) is reported but left
   untouched, so write-back cannot corrupt a document. See `docs/markdown.md`.
+- Malicious-payload hardening (issue #246): `--fix` never writes through a
+  symlink — `fix::refuse_symlink` skips a symlinked input (still linted) with a
+  warning, so an untrusted tree cannot redirect an in-place write outside itself.
+  The write target is always the input path, never derived from YAML content. The
+  YAML config loader (`yaml_dom::loader`, used only for YAML config — `lint_str`
+  builds no DOM) bounds alias expansion at `MAX_EXPANDED_NODES`, rejecting
+  billion-laughs configs (`-c`/`-d`/discovered `.yamllint`) instead of exhausting
+  memory; cyclic `extends` is bounded by `MAX_EXTENDS_DEPTH` (was a stack overflow).
+  An empty/whitespace/comment-only YAML config reports "not a mapping"; an empty
+  TOML config (incl. an empty `[tool.ryl]`) reports "configuration is empty" instead
+  of silently linting zero rules — neither panics. The markdown extractor derives
+  each fenced block's line offset by binary search over precomputed newline
+  positions (`markdown_embed::collect_fenced_blocks`), not by rescanning from the
+  document start, so many embedded blocks stay linear rather than quadratic. Output
+  is injection-safe: the GitHub format escapes user text (`github_escape_data`/
+  `_property`, covering `::group::` and `file=`) so a crafted key/anchor/filename
+  cannot inject a `::command::` in CI, and the standard/colored/parsable formats run
+  user text through `sanitize_control` so control chars can't inject terminal escapes
+  or split a diagnostic line. Regression guards: `tests/cli_alias_bomb.rs`,
+  `tests/cli_fix_symlink.rs`, `tests/cli_config_data_error.rs`,
+  `tests/cli_toml_config.rs`, `tests/config_extends_inline.rs`,
+  `tests/cli_format_options.rs`, `cli_markdown_embed.rs`, and the randomized
+  `tests/property_config.rs`. granit-parser itself caps nesting recursion (~256), so
+  deep-nesting payloads are rejected before a deep DOM is built. Config-supplied
+  regexes (`key-ordering`, `quoted-strings`) are validated at config-parse time and
+  the `regex` crate is linear-time, so ReDoS is not reachable.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding
   detection as files. `-` cannot be combined with other inputs and is not
   compatible with `--fix`. `--stdin-filename <PATH>` (ruff convention) sets
@@ -436,4 +480,11 @@ sticking to the quick-status step above.
   Markdown. Match yamllint's semantics exactly (validate with
   `tests/yamllint_compat_directives.rs`); the bare rule ids live in
   `rules::ALL_RULE_IDS`. User docs: `docs/directives.md`.
+- A resolved config that enables no rules would lint nothing while exiting 0, so the
+  lint commands reject it loudly (`main::NO_RULES_ENABLED_ERROR`, exit 2) via
+  `YamlLintConfig::enables_any_rule`. This is intentionally stricter than yamllint
+  (which silently accepts a rule-less config) and fires only on an explicit/discovered
+  config that turns everything off — the no-config path uses the default preset, which
+  enables rules. `--migrate-configs` (converts configs, does not lint) and
+  `--list-files` (a file query) are exempt; only the actual lint paths enforce it.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

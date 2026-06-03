@@ -101,12 +101,36 @@ fn extends_invalid_yaml_propagates_error() {
 }
 
 #[test]
+fn cyclic_extends_is_rejected_without_overflowing_the_stack() {
+    let root = PathBuf::from("/workspace");
+    let a = root.join("a.yml");
+    let b = root.join("b.yml");
+    let env = FakeEnv::new()
+        .with_cwd(root.clone())
+        .with_file(a.clone(), "extends: b.yml\nrules: {}\n")
+        .with_file(b.clone(), "extends: a.yml\nrules: {}\n")
+        .with_exists(a)
+        .with_exists(b);
+
+    let err = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(root.join("a.yml")),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect_err("a cyclic extends chain must error, not overflow the stack");
+    assert!(err.contains("nested too deeply"), "{err}");
+}
+
+#[test]
 fn extend_prefers_absolute_paths() {
     let root = PathBuf::from("/workspace");
     let abs = PathBuf::from("/configs/base.yml");
     let env = FakeEnv::new()
         .with_cwd(root.clone())
-        .with_file(abs.clone(), "rules:\n  abs_rule: enable\n")
+        .with_file(abs.clone(), "rules:\n  colons: enable\n")
         .with_exists(abs.clone());
 
     let ctx = discover_config_with(
@@ -118,7 +142,7 @@ fn extend_prefers_absolute_paths() {
         &env,
     )
     .expect("absolute extends should resolve");
-    assert!(ctx.config.rule_names().iter().any(|r| r == "abs_rule"));
+    assert!(ctx.config.rule_names().iter().any(|r| r == "colons"));
 }
 
 #[test]
@@ -130,7 +154,7 @@ fn extend_falls_back_to_env_cwd_when_base_dir_missing_entry() {
         .with_cwd(cwd.clone())
         .with_file(cli_cfg.clone(), "extends: config.yml\n")
         .with_exists(cli_cfg.clone())
-        .with_file(cwd.join("config.yml"), "rules:\n  cwd_rule: enable\n")
+        .with_file(cwd.join("config.yml"), "rules:\n  commas: enable\n")
         .with_exists(cwd.join("config.yml"));
 
     let ctx = discover_config_with(
@@ -142,7 +166,7 @@ fn extend_falls_back_to_env_cwd_when_base_dir_missing_entry() {
         &env,
     )
     .expect("extend should fall back to cwd");
-    assert!(ctx.config.rule_names().iter().any(|r| r == "cwd_rule"));
+    assert!(ctx.config.rule_names().iter().any(|r| r == "commas"));
 }
 
 #[test]
@@ -173,7 +197,7 @@ fn extend_relative_entry_uses_base_directory() {
         .with_cwd(project.clone())
         .with_file(child.clone(), "extends: base.yml\n")
         .with_exists(child.clone())
-        .with_file(base.clone(), "rules: { base_rule: enable }\n")
+        .with_file(base.clone(), "rules: { hyphens: enable }\n")
         .with_exists(base.clone());
 
     let ctx = discover_config_with(
@@ -185,5 +209,5 @@ fn extend_relative_entry_uses_base_directory() {
         &env,
     )
     .expect("relative extends should resolve using config directory");
-    assert!(ctx.config.rule_names().iter().any(|r| r == "base_rule"));
+    assert!(ctx.config.rule_names().iter().any(|r| r == "hyphens"));
 }

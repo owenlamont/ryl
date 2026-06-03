@@ -17,7 +17,7 @@ fn env_config_file_is_honored() {
     let cfg = dir.path().join("env-config.yml");
     fs::write(
         &cfg,
-        "rules:\n  new-line-at-end-of-file: disable\n  document-start: disable\n",
+        "rules:\n  new-line-at-end-of-file: disable\n  document-start: disable\n  key-duplicates: enable\n",
     )
     .unwrap();
     let file = dir.path().join("no_newline.yaml");

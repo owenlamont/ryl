@@ -361,37 +361,6 @@ fn exact_typed_toml_splits_multiline_scalar_ignore_patterns() {
 }
 
 #[test]
-fn toml_custom_rule_entries_are_preserved() {
-    let cfg = PathBuf::from("/repo/.ryl.toml");
-    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
-        cfg.clone(),
-        "[rules]\nanchors = 'disable'\n[rules.custom-rule]\nflag = true\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n",
-    );
-    let ctx = discover_config_with(
-        &[],
-        &Overrides {
-            config_file: Some(cfg),
-            config_data: None,
-        },
-        &env,
-    )
-    .expect("custom TOML rules should still parse");
-
-    assert!(
-        ctx.config
-            .rule_names()
-            .iter()
-            .any(|name| name == "custom-rule")
-    );
-    assert!(ctx.config.rule_names().iter().any(|name| name == "anchors"));
-    assert_eq!(
-        ctx.config.rule_option_int("custom-rule", "ratio", -1),
-        -1,
-        "custom float values should remain non-integer options"
-    );
-}
-
-#[test]
 fn toml_ignore_and_ignore_from_file_conflict_errors() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
