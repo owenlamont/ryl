@@ -1,8 +1,8 @@
 # Security Policy
 
-`ryl` is an **unpaid, personal open-source project**. Security reports are genuinely
+`ryl` is a **personal open-source project**. Security reports are genuinely
 welcome and taken seriously, but there is **no service-level agreement and no
-guaranteed response time** — fixes are made on a best-effort basis, in spare time.
+guaranteed response time** — fixes are made on a best-effort basis.
 
 ## Reporting a vulnerability
 
@@ -40,9 +40,9 @@ security backports to older versions — please upgrade to the latest release.
 ## Response expectations
 
 Best-effort only. As a rough guide the maintainer aims to acknowledge a report
-within about 30 days, but **cannot commit to that or to any fix timeline** — this is
-an unpaid project maintained in spare time. Reports are triaged and addressed as
-capacity allows; thank you for your patience.
+within 28 days, but **cannot commit to that or to any fix timeline** — this is
+a project maintained in spare time. Reports are triaged and addressed as capacity
+allows; thank you for your patience.
 
 ## Coordinated disclosure
 
