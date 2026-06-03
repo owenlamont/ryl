@@ -63,7 +63,10 @@ fn linting_alias_bomb_file_does_not_expand_aliases() {
     fs::write(&target, alias_bomb()).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _out, err) = run(Command::new(exe).arg(&target));
+    let (code, _out, err) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  key-duplicates: enable\n")
+        .arg(&target));
     assert!(
         code == 0 || code == 1,
         "linting a billion-laughs file should finish cleanly (no DOM built), got {code}: {err}"

@@ -57,6 +57,8 @@ fn many_fenced_blocks_map_to_correct_host_lines() {
 
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
         .arg("--markdown")
+        .arg("-d")
+        .arg("rules:\n  trailing-spaces: enable\n")
         .arg(&file));
 
     assert_eq!(code, 1, "trailing spaces should be reported: {err}");

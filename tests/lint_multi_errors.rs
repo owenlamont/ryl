@@ -19,12 +19,12 @@ fn multiple_invalid_files_print_multiple_errors() {
     fs::write(root.join("b.yaml"), "b: [2\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _out, err) = run(Command::new(exe).arg(root));
+    let (code, _out, err) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  document-start: enable\n")
+        .arg(root));
     assert_eq!(code, 1, "expected failure");
-    let count = err
-        .lines()
-        .filter(|l| l.trim().ends_with("(syntax)"))
-        .count();
+    let count = err.lines().filter(|l| l.contains("syntax")).count();
     assert!(
         count >= 2,
         "expected at least two syntax error lines, got: {err}"

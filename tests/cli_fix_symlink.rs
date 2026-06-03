@@ -35,7 +35,11 @@ fn fix_symlink_warning_sanitizes_the_path() {
     symlink(&secret, &link).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (_code, _out, err) = run(Command::new(exe).arg("--fix").arg(&link));
+    let (_code, _out, err) = run(Command::new(exe)
+        .arg("--fix")
+        .arg("-d")
+        .arg("rules:\n  trailing-spaces: enable\n")
+        .arg(&link));
     assert!(
         err.contains("refusing to apply --fix through a symlink"),
         "expected the symlink skip warning: {err:?}"
@@ -60,7 +64,11 @@ fn fix_skips_explicit_symlink_arg_and_leaves_target_untouched() {
     symlink(&secret, &link).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (_code, _out, err) = run(Command::new(exe).arg("--fix").arg(&link));
+    let (_code, _out, err) = run(Command::new(exe)
+        .arg("--fix")
+        .arg("-d")
+        .arg("rules:\n  trailing-spaces: enable\n")
+        .arg(&link));
     assert!(
         err.contains("refusing to apply --fix through a symlink"),
         "expected the symlink skip warning: {err}"
@@ -82,7 +90,11 @@ fn fix_skips_symlink_pointing_outside_the_scanned_directory() {
     symlink(&secret, repo.join("innocent.yaml")).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (_code, _out, err) = run(Command::new(exe).arg("--fix").arg(&repo));
+    let (_code, _out, err) = run(Command::new(exe)
+        .arg("--fix")
+        .arg("-d")
+        .arg("rules:\n  trailing-spaces: enable\n")
+        .arg(&repo));
     assert!(
         err.contains("refusing to apply --fix through a symlink"),
         "directory-walk --fix must skip symlinks: {err}"
@@ -104,8 +116,12 @@ fn fix_skips_symlinked_markdown_target() {
     symlink(&secret, &link).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (_code, _out, err) =
-        run(Command::new(exe).arg("--fix").arg("--markdown").arg(&link));
+    let (_code, _out, err) = run(Command::new(exe)
+        .arg("--fix")
+        .arg("--markdown")
+        .arg("-d")
+        .arg("rules:\n  trailing-spaces: enable\n")
+        .arg(&link));
     assert!(
         err.contains("refusing to apply --fix through a symlink"),
         "embedded-markdown --fix must skip symlinks: {err}"

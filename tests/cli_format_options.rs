@@ -264,8 +264,12 @@ fn error_message_paths_are_escaped_in_github_format() {
     fs::write(&file, [0x80u8]).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (_code, _stdout, stderr) =
-        run(Command::new(exe).arg("--format").arg("github").arg(&file));
+    let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("github")
+        .arg("-d")
+        .arg("rules:\n  document-start: enable\n")
+        .arg(&file));
     assert!(
         !stderr.contains("\n::error::ARM_INJECT"),
         "an error-message path must not inject a workflow command: {stderr:?}"
@@ -359,8 +363,12 @@ fn colored_format_matches_reference_layout() {
     fs::write(&file, "list: [1,2]\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("--format").arg("colored").arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("colored")
+        .arg("-d")
+        .arg("extends: default")
+        .arg(&file));
     assert_eq!(code, 1, "colored format should exit 1 when errors occur");
     assert!(
         stdout.is_empty(),

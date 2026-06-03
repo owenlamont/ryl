@@ -24,8 +24,14 @@ fn project_search_respects_home_boundary() {
     )
     .expect("config discovery should succeed");
     assert!(ctx.source.is_none(), "project config should not cross HOME");
-    assert!(ctx.config.rule_names().iter().any(|r| r == "anchors"));
-    assert!(!ctx.config.rule_names().iter().any(|r| r == "custom"));
+    assert!(
+        !ctx.config_found,
+        "no in-boundary config exists, so the search falls back to an empty config",
+    );
+    assert!(
+        !ctx.config.rule_names().iter().any(|r| r == "custom"),
+        "the out-of-boundary .yamllint must not be applied across the HOME boundary",
+    );
 }
 
 #[test]

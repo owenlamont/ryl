@@ -15,9 +15,11 @@ fn env_points_to_missing_file_is_ignored() {
         }
     })
     .expect("discover should succeed");
-    // Missing env config falls back to default preset
+    // A missing env config is ignored; with nothing else found, resolution falls back
+    // to an empty config (explicit-enable model), not the default preset.
     assert!(ctx.source.is_none());
-    assert!(ctx.config.rule_names().iter().any(|r| r == "anchors"));
+    assert!(!ctx.config_found);
+    assert!(ctx.config.rule_names().is_empty());
 }
 
 #[test]
@@ -58,6 +60,7 @@ fn env_tilde_path_without_home_falls_back_to_system_home() {
     })
     .expect("discover should succeed");
 
-    // No config file found; default preset applies.
+    // No config file found; resolution falls back to an empty config.
     assert!(ctx.source.is_none());
+    assert!(!ctx.config_found);
 }

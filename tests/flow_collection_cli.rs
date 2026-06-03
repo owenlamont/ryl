@@ -41,7 +41,10 @@ fn run_cli_suite(suite: CliSuite) {
     let bad = dir.path().join("bad.yaml");
     fs::write(&bad, suite.spaced_input).unwrap();
     assert_command_output(
-        Command::new(exe).arg(&bad),
+        Command::new(exe)
+            .arg("-d")
+            .arg(format!("rules:\n  {}: enable\n", suite.rule_name))
+            .arg(&bad),
         1,
         &[suite.spacing_message, suite.rule_name],
     );

@@ -110,8 +110,18 @@ fn migrate_write_mode_with_rename_suffix_renames_source_file() {
 #[test]
 fn migrate_warns_on_multiple_same_directory_configs() {
     let td = tempdir().unwrap();
-    fs::write(td.path().join(".yamllint.yaml"), "rules: {}\n").unwrap();
-    fs::write(td.path().join(".yamllint.yml"), "rules: {}\n").unwrap();
+    // Both enable a rule so the only warning is the lower-precedence dedup, not the
+    // separate "enables no rules" warning (exercised by its own test below).
+    fs::write(
+        td.path().join(".yamllint.yaml"),
+        "rules:\n  anchors: enable\n",
+    )
+    .unwrap();
+    fs::write(
+        td.path().join(".yamllint.yml"),
+        "rules:\n  anchors: enable\n",
+    )
+    .unwrap();
     let opts = MigrateOptions {
         root: td.path().to_path_buf(),
         write_mode: WriteMode::Preview,
@@ -123,6 +133,26 @@ fn migrate_warns_on_multiple_same_directory_configs() {
     assert_eq!(res.cleanup_only_sources.len(), 1);
     assert_eq!(res.warnings.len(), 1);
     assert!(res.warnings[0].contains("lower-precedence"));
+}
+
+#[test]
+fn migrate_warns_when_migrated_config_enables_no_rules() {
+    let td = tempdir().unwrap();
+    fs::write(td.path().join(".yamllint"), "rules: {}\n").unwrap();
+    let opts = MigrateOptions {
+        root: td.path().to_path_buf(),
+        write_mode: WriteMode::Preview,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Keep,
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert_eq!(res.entries.len(), 1);
+    assert_eq!(res.warnings.len(), 1);
+    assert!(
+        res.warnings[0].contains("enables no rules"),
+        "a migrated rule-less config must warn it will not lint: {:?}",
+        res.warnings,
+    );
 }
 
 #[test]
