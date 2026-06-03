@@ -18,7 +18,10 @@ fn trailing_spaces_reports_error() {
     fs::write(&file, "key: value \n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  trailing-spaces: enable\n")
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { &stdout } else { &stderr };
     assert!(

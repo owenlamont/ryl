@@ -39,7 +39,21 @@ const STDIN_LABEL: &str = "<stdin>";
 // convert a rule-less config, and `--list-files` still answers its file query). ryl
 // is deliberately stricter than yamllint here, which accepts a rule-less config.
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
-     least one rule, or remove the configuration to use the default rule set";
+     least one rule, or use 'extends: default' for the standard rule set";
+
+const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
+     config that enables rules, or use 'extends: default' for the standard rule set";
+
+/// Pick the error for a config that would lint nothing: distinguish "no
+/// configuration was found anywhere" from "a configuration was provided/discovered
+/// but enables no rules". Both name `extends: default` as the escape hatch.
+fn no_rules_error(config_found: bool) -> String {
+    if config_found {
+        NO_RULES_ENABLED_ERROR.to_string()
+    } else {
+        NO_CONFIG_ERROR.to_string()
+    }
+}
 
 fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut explicit_files = Vec::new();
@@ -409,10 +423,10 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     let (candidates, explicit_files) = gather_inputs(&inputs);
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
-    let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig)> = HashMap::new();
+    let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
     let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)> = Vec::new();
-    gather_lint_files(
+    let ruleless_config_found = gather_lint_files(
         &candidates,
         &explicit_files,
         global_cfg.as_ref(),
@@ -433,8 +447,8 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    if files.iter().any(|(_, _, cfg, _)| !cfg.enables_any_rule()) {
-        return Err(NO_RULES_ENABLED_ERROR.to_string());
+    if let Some(config_found) = ruleless_config_found {
+        return Err(no_rules_error(config_found));
     }
 
     let mut initial_problem_count = 0usize;
@@ -481,7 +495,7 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
 }
 
 fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
-    let (path, base_dir, cfg, apply_yaml_files) = resolve_stdin_ctx(cli)?;
+    let (path, base_dir, cfg, apply_yaml_files, config_found) = resolve_stdin_ctx(cli)?;
 
     let Some(kind) = resolve_stdin_kind(cli, &cfg, &path, &base_dir, apply_yaml_files)?
     else {
@@ -494,7 +508,7 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     }
 
     if !cfg.enables_any_rule() {
-        return Err(NO_RULES_ENABLED_ERROR.to_string());
+        return Err(no_rules_error(config_found));
     }
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
@@ -564,7 +578,7 @@ fn read_and_lint_stdin(
 
 fn resolve_stdin_ctx(
     cli: &Cli,
-) -> Result<(PathBuf, PathBuf, YamlLintConfig, bool), String> {
+) -> Result<(PathBuf, PathBuf, YamlLintConfig, bool, bool), String> {
     let (path, apply_yaml_files) = match cli.stdin_filename.clone() {
         Some(name) => (name, true),
         None => (PathBuf::from(STDIN_LABEL), false),
@@ -585,7 +599,7 @@ fn resolve_stdin_ctx(
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
-    Ok((path, ctx.base_dir, cfg, apply_yaml_files))
+    Ok((path, ctx.base_dir, cfg, apply_yaml_files, ctx.config_found))
 }
 
 fn lint_files(
@@ -612,12 +626,18 @@ fn gather_lint_files(
     explicit_files: &[PathBuf],
     global_cfg: Option<&ConfigContext>,
     markdown: bool,
-    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig)>,
+    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)>,
     emitted_notices: &mut HashSet<String>,
     files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)>,
-) -> Result<(), String> {
+) -> Result<Option<bool>, String> {
+    // `config_found` of the first selected file that enables no rules, so a run that
+    // would lint nothing reports the right message *for that file* — "no config
+    // found" vs "config enables no rules" — even when other files did find a config.
+    // `None` means every selected file enables at least one rule.
+    let mut ruleless_config_found = None;
     for f in candidates {
-        let (base_dir, cfg, notices) = resolve_ctx(f, global_cfg, markdown, cache)?;
+        let (base_dir, cfg, notices, found) =
+            resolve_ctx(f, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{}", sanitize_control(notice.as_str()));
@@ -627,12 +647,16 @@ fn gather_lint_files(
             continue;
         }
         if let Some(kind) = cfg.source_kind(f, &base_dir)? {
+            if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
+                ruleless_config_found = Some(found);
+            }
             files.push((f.clone(), base_dir, cfg, kind));
         }
     }
 
     for ef in explicit_files {
-        let (base_dir, cfg, notices) = resolve_ctx(ef, global_cfg, markdown, cache)?;
+        let (base_dir, cfg, notices, found) =
+            resolve_ctx(ef, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{}", sanitize_control(notice.as_str()));
@@ -642,7 +666,12 @@ fn gather_lint_files(
             continue;
         }
         match cfg.source_kind(ef, &base_dir)? {
-            Some(kind) => files.push((ef.clone(), base_dir, cfg, kind)),
+            Some(kind) => {
+                if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
+                    ruleless_config_found = Some(found);
+                }
+                files.push((ef.clone(), base_dir, cfg, kind));
+            }
             None => {
                 return Err(format!(
                     "{}: no source kind matches; add a matching glob under \
@@ -653,7 +682,7 @@ fn gather_lint_files(
         }
     }
 
-    Ok(())
+    Ok(ruleless_config_found)
 }
 
 fn process_results(

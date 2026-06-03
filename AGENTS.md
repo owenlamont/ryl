@@ -480,11 +480,23 @@ sticking to the quick-status step above.
   Markdown. Match yamllint's semantics exactly (validate with
   `tests/yamllint_compat_directives.rs`); the bare rule ids live in
   `rules::ALL_RULE_IDS`. User docs: `docs/directives.md`.
-- A resolved config that enables no rules would lint nothing while exiting 0, so the
-  lint commands reject it loudly (`main::NO_RULES_ENABLED_ERROR`, exit 2) via
-  `YamlLintConfig::enables_any_rule`. This is intentionally stricter than yamllint
-  (which silently accepts a rule-less config) and fires only on an explicit/discovered
-  config that turns everything off — the no-config path uses the default preset, which
-  enables rules. `--migrate-configs` (converts configs, does not lint) and
+- ryl never enables a rule that wasn't explicitly turned on — there are no
+  "default-on" rules. Two cases converge on this, both rejected loudly by the lint
+  commands (exit 2) and both intentionally stricter than yamllint:
+  - **No config found anywhere** (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
+    discovered project/user-global config): resolution falls back to an *empty*
+    config (`config::ConfigContext::config_found == false`) rather than the `default`
+    preset, and the lint paths report `main::NO_CONFIG_ERROR`. yamllint instead lints
+    with `extends: default`.
+  - **A resolved config that enables no rules** (`rules: {}`, an empty
+    `[rules]`/`[tool.ryl]`, a `[files]`-only TOML config, or one disabling
+    everything): reported as `main::NO_RULES_ENABLED_ERROR`. yamllint silently lints
+    nothing.
+  Both checks live in the lint entrypoints via `YamlLintConfig::enables_any_rule`;
+  `main::no_rules_error(config_found)` picks the message. `config_found` flows from
+  `ConfigContext` through `resolve_ctx`/`gather_lint_files` (run-level) and
+  `resolve_stdin_ctx`. The `default`/`relaxed`/`empty` presets stay available as
+  explicit opt-ins via `extends:` (YAML config only). `--migrate-configs` (converts
+  configs, does not lint — it warns when a migrated config enables no rules) and
   `--list-files` (a file query) are exempt; only the actual lint paths enforce it.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

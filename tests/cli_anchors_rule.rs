@@ -18,7 +18,10 @@ fn anchors_reports_error() {
     fs::write(&file, "---\n- *missing\n- &missing value\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  anchors: enable\n")
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -133,7 +136,10 @@ fn alias_value_with_only_indent_prefix_is_supported() {
     fs::write(&file, "---\nvalue: &anchor literal\nalias:\n  *anchor\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  anchors: enable\n")
+        .arg(&file));
     assert_eq!(
         code, 0,
         "alias resolved successfully: stdout={stdout} stderr={stderr}"

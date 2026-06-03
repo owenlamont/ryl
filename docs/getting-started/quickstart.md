@@ -12,6 +12,17 @@ ryl path/to/file.yaml
 ryl .
 ```
 
+ryl does not enable any rules by default, so these commands report `no
+configuration found` (exit `2`) until a configuration enables at least one rule.
+To lint with yamllint's standard rule set straight away, pass it inline:
+
+```bash
+ryl -d 'extends: default' .
+```
+
+or drop a config in your project (see [Configure for your
+project](#configure-for-your-project) below).
+
 ## Lint from stdin
 
 Pass `-` as the input to read YAML from standard input &mdash; useful for
@@ -39,10 +50,19 @@ Exit codes:
 - `2` &mdash; CLI usage error (no inputs provided, bad flags), or
   `--strict` was set and only warnings were produced.
 
-A configuration that enables no rules would lint nothing, so ryl rejects it with
-exit `2` rather than silently passing. Enable at least one rule, or remove the
-configuration to fall back to the default rule set. (This is stricter than yamllint,
-which silently accepts a rule-less config.)
+ryl never enables a rule unless a configuration explicitly turns it on, so two
+cases exit `2` rather than silently linting nothing:
+
+- **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
+  discovered `.ryl.toml`/`.yamllint`). Create a config that enables rules, or pass a
+  YAML config with `extends: default` for yamllint's standard rule set.
+- **A configuration that enables no rules** (`rules: {}`, an empty
+  `[rules]`/`[tool.ryl]`, or one disabling everything). Enable at least one rule, or
+  use `extends: default`.
+
+This is stricter than yamllint, which lints with the `default` preset when no config
+is found and silently accepts a rule-less config. Give ryl a config containing
+`extends: default` to reproduce yamllint's out-of-the-box behaviour.
 
 ## Apply auto-fixes
 

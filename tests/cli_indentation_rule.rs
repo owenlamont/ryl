@@ -18,7 +18,10 @@ fn indentation_reports_error() {
     fs::write(&file, "root:\n- item\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  indentation: enable\n")
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { &stdout } else { &stderr };
     assert!(output.contains("indentation"), "missing rule id: {output}");

@@ -62,6 +62,17 @@ produced.
   working. The equivalent `# ryl …` spelling is preferred for new files; see
   [Inline directives](../directives.md).
 
+## What differs
+
+ryl never enables a rule unless a configuration explicitly turns it on. yamllint,
+run with no configuration, lints with its `default` preset; ryl instead exits `2`
+with `no configuration found`. The presets stay available as explicit opt-ins, so
+the one-line equivalent of yamllint's out-of-the-box behaviour is a YAML config
+containing `extends: default` (or the corresponding TOML preset from
+[Configuration presets](../config-presets.md)). The migration converter flattens an
+`extends: default` source into the generated TOML automatically, and warns when a
+migrated config ends up enabling no rules.
+
 ## Side-by-side example
 
 === "yamllint (.yamllint)"

@@ -1157,6 +1157,12 @@ pub struct ConfigContext {
     pub base_dir: PathBuf,
     pub source: Option<PathBuf>,
     pub notices: Vec<String>,
+    /// Whether an actual configuration source was used (inline data, a config file,
+    /// a discovered project/user-global config, or an env-var config). `false` only
+    /// when nothing was found and resolution fell back to an empty config, which lets
+    /// the lint CLI distinguish "no configuration found" from "a configuration that
+    /// enables no rules".
+    pub config_found: bool,
 }
 
 fn finalize_context(
@@ -1165,6 +1171,7 @@ fn finalize_context(
     base_dir: impl Into<PathBuf>,
     source: Option<PathBuf>,
     notices: Vec<String>,
+    config_found: bool,
 ) -> Result<ConfigContext, String> {
     let base_dir = base_dir.into();
     cfg.finalize(envx, &base_dir)?;
@@ -1173,6 +1180,7 @@ fn finalize_context(
         base_dir,
         source,
         notices,
+        config_found,
     })
 }
 
@@ -1194,7 +1202,8 @@ pub fn discover_config(
 /// Returns an error when a configuration file cannot be read or parsed.
 ///
 /// # Panics
-/// Panics only if built-in preset YAML cannot be parsed, which indicates a programming error.
+/// Panics only if a built-in preset referenced via `extends:` cannot be parsed,
+/// which indicates a programming error.
 pub fn discover_config_with(
     inputs: &[PathBuf],
     overrides: &Overrides,
@@ -1205,7 +1214,7 @@ pub fn discover_config_with(
         let base_dir = envx.current_dir();
         let cfg =
             YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
-        return finalize_context(envx, cfg, base_dir, None, Vec::new());
+        return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
     }
     if let Some(ref file) = overrides.config_file {
         return ctx_from_config_path_core(envx, file, false, Vec::new());
@@ -1227,11 +1236,11 @@ pub fn discover_config_with(
         move || {
             finalize_context(
                 envx,
-                YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
-                    .expect("builtin preset must parse"),
+                YamlLintConfig::default(),
                 cwd,
                 None,
                 Vec::new(),
+                false,
             )
         },
         Ok,
@@ -1244,7 +1253,8 @@ pub fn discover_config_with(
 /// Returns an error when a config file cannot be read or parsed.
 ///
 /// # Panics
-/// Panics only if the built-in default preset is not embedded (programming error).
+/// Panics only if a built-in preset referenced via `extends:` cannot be parsed
+/// (a programming error).
 pub fn discover_config_with_env(
     inputs: &[PathBuf],
     overrides: &Overrides,
@@ -1255,7 +1265,7 @@ pub fn discover_config_with_env(
 
 /// Discover the config for a single file path, ignoring env/global overrides.
 /// Precedence: nearest project config up-tree (TOML-first, YAML fallback),
-/// then user-global, then defaults.
+/// then user-global, then an empty config (no rules enabled).
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
@@ -1265,7 +1275,8 @@ pub fn discover_config_with_env(
 /// Returns an error when a config file cannot be read or parsed.
 ///
 /// # Panics
-/// Panics only if the built-in default preset is not embedded (programming error).
+/// Panics only if a built-in preset referenced via `extends:` cannot be parsed
+/// (a programming error).
 pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
     discover_per_file_with(path, &SystemEnv)
 }
@@ -1276,7 +1287,8 @@ pub fn discover_per_file(path: &Path) -> Result<ConfigContext, String> {
 /// Returns an error when a configuration file cannot be read or parsed.
 ///
 /// # Panics
-/// Panics only if the built-in default preset cannot be parsed.
+/// Panics only if a built-in preset referenced via `extends:` cannot be parsed
+/// (a programming error).
 pub fn discover_per_file_with(
     path: &Path,
     envx: &dyn Env,
@@ -1300,11 +1312,11 @@ pub fn discover_per_file_with(
         || {
             finalize_context(
                 envx,
-                YamlLintConfig::from_yaml_str(conf::builtin("default").unwrap())
-                    .expect("builtin preset must parse"),
+                YamlLintConfig::default(),
                 envx.current_dir(),
                 None,
                 Vec::new(),
+                false,
             )
         },
         Ok,
@@ -1323,7 +1335,7 @@ fn ctx_from_config_path_core(
         .map_or_else(|| envx.current_dir(), Path::to_path_buf);
     let cfg = load_config_from_path_core(envx, p, &base, allow_missing_pyproject)?
         .expect("missing [tool.ryl] should be filtered or returned as an error before this point");
-    finalize_context(envx, cfg, base, Some(p.to_path_buf()), notices)
+    finalize_context(envx, cfg, base, Some(p.to_path_buf()), notices, true)
 }
 
 fn expand_user_path(envx: &dyn Env, raw: &str) -> PathBuf {
@@ -1360,7 +1372,14 @@ fn try_user_global_core(
                 Some(envx),
                 Some(base_dir),
             )?;
-            finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p), Vec::new())
+            finalize_context(
+                envx,
+                cfg,
+                base_dir.to_path_buf(),
+                Some(p),
+                Vec::new(),
+                true,
+            )
         })
         .transpose()
 }

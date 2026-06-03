@@ -180,6 +180,11 @@ fn fix_with_no_warnings_hides_warning_only_summary() {
 fn fix_missing_file_reports_read_error() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("missing.yaml");
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nnew-line-at-end-of-file = 'enable'\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));

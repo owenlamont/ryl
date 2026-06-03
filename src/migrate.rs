@@ -192,6 +192,13 @@ fn build_migration_entries(root: &Path) -> Result<MigrationPlan, String> {
                 config_data: None,
             },
         )?;
+        if !ctx.config.enables_any_rule() {
+            plan.warnings.push(format!(
+                "warning: migrated config {} enables no rules; ryl will not lint with it \
+                 \u{2014} enable at least one rule, or use 'extends: default' for the standard rule set",
+                dir.join(".ryl.toml").display()
+            ));
+        }
         let rendered = ctx.config.to_toml_string();
         let toml = format!("{}\n", rendered.trim_end());
         plan.entries.push(MigrationEntry {

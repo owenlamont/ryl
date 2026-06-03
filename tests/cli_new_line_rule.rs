@@ -18,7 +18,10 @@ fn missing_newline_reports_error() {
     fs::write(&file, "key: value").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  new-line-at-end-of-file: enable\n")
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { &stdout } else { &stderr };
     assert!(
@@ -38,7 +41,10 @@ fn newline_present_succeeds() {
     fs::write(&file, "key: value\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules:\n  new-line-at-end-of-file: enable\n")
+        .arg(&file));
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
 }
 
