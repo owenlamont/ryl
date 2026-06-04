@@ -94,6 +94,7 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("new-lines", "a: 1\r\n"),
     ("octal-values", "a: 010\n"),
     ("quoted-strings", "a: 'plain'\n"),
+    ("tags", "a: !!omap []\n"),
     ("trailing-spaces", "a: 1   \n"),
     ("truthy", "a: Yes\n"),
 ];

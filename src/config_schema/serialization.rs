@@ -228,6 +228,7 @@ fn rules_table_to_value<Q: Serialize>(rules: &RulesTable<Q>) -> toml::Value {
     insert_serialized(&mut table, "new-lines", rules.new_lines.as_ref());
     insert_serialized(&mut table, "octal-values", rules.octal_values.as_ref());
     insert_serialized(&mut table, "quoted-strings", rules.quoted_strings.as_ref());
+    insert_serialized(&mut table, "tags", rules.tags.as_ref());
     insert_serialized(
         &mut table,
         "trailing-spaces",

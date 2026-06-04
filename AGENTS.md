@@ -259,6 +259,9 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
 - `octal-values` — Resolving `010` requires knowing whether the user meant
   the integer `8`, the integer `10`, or the string `"010"`; the YAML source
   alone cannot disambiguate.
+- `tags` — Rewriting or removing a flagged tag changes the node's resolved
+  type (`!!omap` to a plain mapping, `!env` to a string, …) or requires
+  guessing the intended value, so no rewrite is universally safe.
 - `truthy` — Rewriting `Yes/No/On/Off` requires choosing between quoting them
   (preserves the string), normalising to `true/false` (changes type), or
   rewording — all of which depend on the user's intent.

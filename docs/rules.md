@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ryl implements 23 rules for checking YAML files. This page is a categorised
+ryl implements 24 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -18,7 +18,7 @@ For configuration discovery, presets, and file selection, see
 - [Layout and spacing](#layout-and-spacing) &mdash; whitespace, indentation,
   line endings, line length
 - [Document structure](#document-structure) &mdash; document markers, empty
-  values, anchors, keys
+  values, anchors, tags, keys
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
@@ -50,6 +50,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`empty-values`](rules/empty-values.md) | Empty values in mappings and sequences. |  |
 | [`key-duplicates`](rules/key-duplicates.md) | Duplicate keys in mappings. |  |
 | [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. |  |
+| [`tags`](rules/tags.md) | Unsafe and non-portable YAML tags. |  |
 
 ## Comments
 

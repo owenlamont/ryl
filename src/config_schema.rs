@@ -264,6 +264,8 @@ pub enum RuleName {
     OctalValues,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "tags")]
+    Tags,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
     #[serde(rename = "truthy")]
@@ -295,6 +297,7 @@ impl RuleName {
             Self::NewLines => "new-lines",
             Self::OctalValues => "octal-values",
             Self::QuotedStrings => "quoted-strings",
+            Self::Tags => "tags",
             Self::TrailingSpaces => "trailing-spaces",
             Self::Truthy => "truthy",
         }
@@ -338,6 +341,7 @@ pub struct RulesTable<Q = QuotedStringsOptions> {
     pub octal_values: Option<RuleEntry<OctalValuesOptions>>,
     #[serde(rename = "quoted-strings")]
     pub quoted_strings: Option<RuleEntry<Q>>,
+    pub tags: Option<RuleEntry<TagsOptions>>,
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
@@ -512,6 +516,17 @@ pub struct KeyDuplicatesOptions {
 pub struct KeyOrderingOptions {
     #[serde(rename = "ignored-keys")]
     pub ignored_keys: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TagsOptions {
+    #[serde(rename = "forbid-unsafe-tags")]
+    pub forbid_unsafe_tags: Option<bool>,
+    #[serde(rename = "forbid-removed-types")]
+    pub forbid_removed_types: Option<bool>,
+    #[serde(rename = "allowed-tags")]
+    pub allowed_tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]

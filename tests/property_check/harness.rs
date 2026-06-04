@@ -46,6 +46,10 @@ const TRIGGER_ALL_RULES: &str = "rules:
   quoted-strings:
     quote-type: single
     required: only-when-needed
+  tags:
+    forbid-unsafe-tags: true
+    forbid-removed-types: true
+    allowed-tags: ['!keep']
   trailing-spaces: enable
   truthy: enable
 ";
@@ -95,6 +99,7 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::line_length);
     collect_standard!(spans, cfg, content, ryl::rules::octal_values);
     collect_standard!(spans, cfg, content, ryl::rules::quoted_strings);
+    collect_standard!(spans, cfg, content, ryl::rules::tags);
     collect_standard!(spans, cfg, content, ryl::rules::truthy);
 
     if let Some(violation) = new_line_at_end_of_file::check(content) {

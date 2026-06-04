@@ -20,12 +20,13 @@ pub mod new_lines;
 pub mod octal_values;
 pub mod quoted_strings;
 pub(crate) mod support;
+pub mod tags;
 pub mod trailing_spaces;
 pub mod truthy;
 
 /// Every rule id, used by the directive engine to expand a bare `disable`/`enable`
 /// (no `rule:` token) to "all rules". Extend this when adding a rule.
-pub const ALL_RULE_IDS: [&str; 23] = [
+pub const ALL_RULE_IDS: [&str; 24] = [
     anchors::ID,
     braces::ID,
     brackets::ID,
@@ -47,6 +48,7 @@ pub const ALL_RULE_IDS: [&str; 23] = [
     new_lines::ID,
     octal_values::ID,
     quoted_strings::ID,
+    tags::ID,
     trailing_spaces::ID,
     truthy::ID,
 ];
