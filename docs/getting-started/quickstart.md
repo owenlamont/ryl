@@ -87,7 +87,12 @@ configuration is flat &mdash; copy the preset you want from
 [Configuration presets](../config-presets.md) and customise from there:
 
 ```toml
-yaml-files = ["*.yaml", "*.yml", ".yamllint"]
+[files]
+yaml = [
+    "*.yaml",
+    "*.yml",
+    ".yamllint",
+]
 
 # ... rule enable/disable table from the preset ...
 

@@ -6,7 +6,12 @@ These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
 ## `default` (TOML equivalent)
 
 ```toml
-yaml-files = ["*.yaml", "*.yml", ".yamllint"]
+[files]
+yaml = [
+    "*.yaml",
+    "*.yml",
+    ".yamllint",
+]
 
 [rules]
 anchors = "enable"
@@ -45,7 +50,12 @@ level = "warning"
 ## `relaxed` (TOML equivalent, fully expanded)
 
 ```toml
-yaml-files = ["*.yaml", "*.yml", ".yamllint"]
+[files]
+yaml = [
+    "*.yaml",
+    "*.yml",
+    ".yamllint",
+]
 
 [rules]
 anchors = "enable"
