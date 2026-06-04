@@ -93,7 +93,12 @@ migrated config ends up enabling no rules.
 === "ryl (.ryl.toml)"
 
     ```toml
-    yaml-files = ["*.yaml", "*.yml", ".yamllint"]
+    [files]
+    yaml = [
+        "*.yaml",
+        "*.yml",
+        ".yamllint",
+    ]
 
     [rules]
     anchors = "enable"
