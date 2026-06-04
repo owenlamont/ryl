@@ -55,7 +55,10 @@ ryl is a CLI tool for linting yaml files
 - Keep YAML configuration strictly aligned with functionality that yamllint currently
   supports. Put any ryl-only settings, experimental rule options, or ahead-of-upstream
   behaviour in TOML configuration so future yamllint additions cannot clash with
-  existing YAML semantics.
+  existing YAML semantics. A whole ryl-only *rule* (one yamllint lacks, e.g. `tags`)
+  goes in `rules::RYL_ONLY_RULE_IDS`: the YAML config path rejects those rules and
+  `config_schema::yaml_schema` prunes them from the YAML schema, so they are
+  configurable only via TOML (`[rules.<id>]`).
 
 ## Code Change Requirements
 

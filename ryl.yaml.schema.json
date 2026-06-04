@@ -318,20 +318,6 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntryForTagsOptions": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "$ref": "#/$defs/RuleSwitch"
-        },
-        {
-          "$ref": "#/$defs/RuleOptionsForTagsOptions"
-        }
-      ],
-      "description": "Common rule entry shape used by TOML config."
-    },
     "RuleEntryForTruthyOptions": {
       "anyOf": [
         {
@@ -1338,64 +1324,6 @@
       },
       "type": "object"
     },
-    "RuleOptionsForTagsOptions": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "allowed-tags": {
-          "items": {
-            "type": "string"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "forbid-removed-types": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "forbid-unsafe-tags": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
-    },
     "RuleOptionsForTruthyOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1663,16 +1591,6 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RuleEntryForQuotedStringsOptions"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "tags": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleEntryForTagsOptions"
             },
             {
               "type": "null"

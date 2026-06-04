@@ -27,6 +27,12 @@ YAML Company.
 
 ## Configuration
 
+`tags` is a ryl-only rule (yamllint has no equivalent), so it is configured
+**only in TOML** &mdash; `[rules.tags]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.rules.tags]` in `pyproject.toml`. It is rejected in
+yamllint-compatible YAML config (including `-d` data) so the YAML `tags`
+namespace stays reserved for any future yamllint rule.
+
 ```toml
 [rules.tags]
 level = "error"
@@ -44,7 +50,9 @@ allowed-tags = []
 List `allowed-tags` entries in shorthand form (e.g. `!env`). Tag spelling is
 normalised before matching, so shorthand, local, and verbatim (`!<…>`) forms
 are treated alike and core-schema tags always compare as their `!!type` form.
-The non-specific `!` tag is never reported.
+A tag written with a custom `%TAG` handle is matched by its resolved URI (e.g.
+`tag:example.com,2002:env`), not the `!handle!suffix` shorthand. The
+non-specific `!` tag is never reported.
 
 When more than one check matches the same node, a single diagnostic is
 reported in the order: unsafe, removed type, not allowed.

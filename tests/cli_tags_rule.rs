@@ -15,21 +15,25 @@ fn command_output<'a>(stdout: &'a str, stderr: &'a str) -> &'a str {
     if stderr.is_empty() { stdout } else { stderr }
 }
 
-fn lint_with_inline_config(content: &str, config: &str) -> (i32, String) {
+/// `tags` is a ryl-only rule, so it is configured through TOML rather than the
+/// yamllint-compatible YAML config that `-d` carries.
+fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
     let dir = tempdir().unwrap();
     let file = dir.path().join("doc.yaml");
     fs::write(&file, content).unwrap();
+    let config_path = dir.path().join(".ryl.toml");
+    fs::write(&config_path, config).unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-d").arg(config).arg(&file));
+        run(Command::new(exe).arg("-c").arg(&config_path).arg(&file));
     (code, command_output(&stdout, &stderr).to_string())
 }
 
 #[test]
 fn unsafe_tags_flagged_for_core_and_local_namespaces() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "exec: !!python/object/apply:os.system [\"id\"]\nobj: !ruby/object:Foo {}\nplain: !!str value\n",
-        "rules: {tags: {forbid-unsafe-tags: true}}",
+        "[rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(code, 1, "unsafe tags should fail: {output}");
     assert!(
@@ -51,9 +55,9 @@ fn unsafe_tags_flagged_for_core_and_local_namespaces() {
 
 #[test]
 fn removed_yaml_1_1_types_flagged_for_core_schema_only() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "a: !!omap []\nb: !!set {}\nc: !env X\nd: !!str s\n",
-        "rules: {tags: {forbid-removed-types: true}}",
+        "[rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "removed types should fail: {output}");
     assert!(
@@ -78,9 +82,9 @@ fn removed_yaml_1_1_types_flagged_for_core_schema_only() {
 
 #[test]
 fn allowed_tags_flags_only_unlisted_custom_tags() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "a: !env X\nb: !keep Y\nc: !!omap []\nd: !!str s\n",
-        "rules: {tags: {allowed-tags: [\"!keep\"]}}",
+        "[rules.tags]\nallowed-tags = [\"!keep\"]\n",
     );
     assert_eq!(code, 1, "unlisted custom tag should fail: {output}");
     assert!(
@@ -100,9 +104,9 @@ fn allowed_tags_flags_only_unlisted_custom_tags() {
 
 #[test]
 fn enabled_with_all_options_off_reports_nothing() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "a: !env X\nb: !!omap []\nc: !!python/object:Foo {}\n",
-        "rules: {tags: enable}",
+        "[rules]\ntags = \"enable\"\n",
     );
     assert_eq!(code, 0, "no option enabled means no diagnostics: {output}");
     assert!(output.trim().is_empty(), "expected no output: {output}");
@@ -110,9 +114,9 @@ fn enabled_with_all_options_off_reports_nothing() {
 
 #[test]
 fn multibyte_key_column_is_char_based() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "café: !!omap []\n",
-        "rules: {tags: {forbid-removed-types: true}}",
+        "[rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "removed type should fail: {output}");
     assert!(
@@ -123,9 +127,9 @@ fn multibyte_key_column_is_char_based() {
 
 #[test]
 fn tags_rule_does_not_fire_when_not_enabled() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "exec: !!python/object/apply:os.system [\"id\"]\n",
-        "rules: {truthy: enable}",
+        "[rules]\ntruthy = \"enable\"\n",
     );
     assert_eq!(code, 0, "tags off by default: {output}");
     assert!(
@@ -136,9 +140,9 @@ fn tags_rule_does_not_fire_when_not_enabled() {
 
 #[test]
 fn verbatim_and_javax_tag_spellings_are_normalised_and_detected() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "a: !<tag:yaml.org,2002:omap> []\nb: !<!python/object> {}\nc: !!javax.script.ScriptEngineManager {}\n",
-        "rules: {tags: {forbid-unsafe-tags: true, forbid-removed-types: true}}",
+        "[rules.tags]\nforbid-unsafe-tags = true\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "verbatim/javax tags should fail: {output}");
     assert!(
@@ -157,9 +161,9 @@ fn verbatim_and_javax_tag_spellings_are_normalised_and_detected() {
 
 #[test]
 fn custom_tag_directive_handle_is_not_namespace_matched() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "%TAG !e! tag:example.com,2000:\n---\nx: !e!python/object value\n",
-        "rules: {tags: {forbid-unsafe-tags: true}}",
+        "[rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(
         code, 0,
@@ -173,9 +177,9 @@ fn custom_tag_directive_handle_is_not_namespace_matched() {
 
 #[test]
 fn non_specific_bare_tag_is_not_flagged() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "a: ! plain\n",
-        "rules: {tags: {allowed-tags: [\"!keep\"]}}",
+        "[rules.tags]\nallowed-tags = [\"!keep\"]\n",
     );
     assert_eq!(
         code, 0,
@@ -192,9 +196,9 @@ fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
     // granit positions the empty scalar on the blank segment after the final
     // newline; the diagnostic must clamp back to the tag's content line so it
     // is suppressible with a `disable-line` on that line.
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "x: 1\nb: !!omap\n",
-        "rules: {tags: {forbid-removed-types: true}}",
+        "[rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(
         code, 1,
@@ -212,9 +216,9 @@ fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
 
 #[test]
 fn tag_on_implicit_scalar_without_trailing_newline_stays_in_bounds() {
-    let (code, output) = lint_with_inline_config(
+    let (code, output) = lint_with_toml_config(
         "!!python/object",
-        "rules: {tags: {forbid-unsafe-tags: true}}",
+        "[rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(code, 1, "unsafe tag should fail: {output}");
     assert!(
@@ -224,6 +228,34 @@ fn tag_on_implicit_scalar_without_trailing_newline_stays_in_bounds() {
     assert!(
         !output.contains("2:1"),
         "must not report an out-of-bounds line: {output}"
+    );
+}
+
+#[test]
+fn tags_rule_is_rejected_in_yaml_config() {
+    // `tags` is ryl-only; yamllint-compatible YAML config (here via `-d`) must
+    // reject it rather than silently linting or clashing with a future yamllint
+    // `tags` rule.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.yaml");
+    fs::write(&file, "a: !!omap []\n").unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("-d")
+        .arg("rules: {tags: {forbid-removed-types: true}}")
+        .arg(&file));
+    assert_eq!(
+        code, 2,
+        "a ryl-only rule in YAML config is a usage error: stdout={stdout} stderr={stderr}"
+    );
+    let output = command_output(&stdout, &stderr);
+    assert!(
+        output.contains("tags"),
+        "error should name the rule: {output}"
+    );
+    assert!(
+        output.to_lowercase().contains("toml"),
+        "error should point to TOML config: {output}"
     );
 }
 
@@ -258,10 +290,10 @@ fn rule_ignore_skips_file() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "value: !!omap []\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "rules:\n  tags:\n    forbid-removed-types: true\n    ignore:\n      - ignored.yaml\n",
+        "[rules.tags]\nforbid-removed-types = true\nignore = [\"ignored.yaml\"]\n",
     )
     .unwrap();
 
