@@ -128,15 +128,20 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     diagnostics
 }
 
-/// granit positions a tag on an implicit/empty scalar at the start of the
-/// following line, which is one past the last line when the input has no
-/// trailing newline. Clamp that overshoot back onto the last real line so a
-/// diagnostic never points outside the document.
+/// granit positions a tag on an implicit/empty scalar at the start of the line
+/// after its content. When that scalar ends the document the start lands on a
+/// line that does not really exist: the final empty segment a trailing newline
+/// produces, or one past the last line when there is no trailing newline.
+/// Clamp such overshoot back onto the last real line so a diagnostic never
+/// points at a phantom line (or outside the document).
 fn clamp_overshoot(buffer: &str, diagnostics: &mut [Violation]) {
-    let line_count = buffer.split('\n').count();
+    let last_line = buffer
+        .split('\n')
+        .count()
+        .saturating_sub(usize::from(buffer.ends_with('\n')));
     for violation in diagnostics {
-        if violation.line > line_count {
-            violation.line = line_count;
+        if violation.line > last_line {
+            violation.line = last_line;
         }
     }
 }

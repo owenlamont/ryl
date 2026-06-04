@@ -188,6 +188,29 @@ fn non_specific_bare_tag_is_not_flagged() {
 }
 
 #[test]
+fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
+    // granit positions the empty scalar on the blank segment after the final
+    // newline; the diagnostic must clamp back to the tag's content line so it
+    // is suppressible with a `disable-line` on that line.
+    let (code, output) = lint_with_inline_config(
+        "x: 1\nb: !!omap\n",
+        "rules: {tags: {forbid-removed-types: true}}",
+    );
+    assert_eq!(
+        code, 1,
+        "trailing empty tagged scalar should fail: {output}"
+    );
+    assert!(
+        output.contains("2:1"),
+        "must point at the content line (2), not the phantom trailing line 3: {output}"
+    );
+    assert!(
+        !output.contains("3:1"),
+        "must not overshoot onto the trailing empty segment: {output}"
+    );
+}
+
+#[test]
 fn tag_on_implicit_scalar_without_trailing_newline_stays_in_bounds() {
     let (code, output) = lint_with_inline_config(
         "!!python/object",
