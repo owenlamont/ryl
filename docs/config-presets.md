@@ -103,8 +103,9 @@ level = "warning"
 allow-non-breakable-inline-mappings = true
 ```
 
-## `empty` (TOML equivalent)
+## `empty`
 
-```toml
-[rules]
-```
+There is no usable TOML equivalent: ryl requires at least one rule to be
+enabled, so an empty `[rules]` table is rejected with "configuration enables no
+rules". The `empty` preset survives only as a base to `extends:` in YAML config;
+in TOML, list the rules you want under `[rules]` directly.
