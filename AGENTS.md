@@ -92,6 +92,15 @@ ryl is a CLI tool for linting yaml files
   summary threads and `gh api repos/<owner>/<repo>/pulls/<number>/comments` when you
   need inline review details without guesswork. Avoid flags that the GitHub CLI does not
   support (e.g., `--review-comments`).
+- Codex auto-reviews PRs here; re-trigger one by commenting `@codex review` (it takes
+  minutes). It signals its verdict in one of three forms — a new PR review (when it has
+  findings), a new issue comment (often its "no major issues" all-clear), or a 👍
+  reaction on the triggering comment — so poll for **any** of them; watching only one
+  misses the result. Capture baseline counts of Codex reviews, Codex issue comments, and
+  the trigger comment's reactions, then poll (~45s) for any to change, running the poller
+  as a background command since a thorough review can exceed a 10-minute foreground
+  timeout. The bot login is `chatgpt-codex-connector` in reviews and
+  `chatgpt-codex-connector[bot]` in inline review comments.
 - When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
   (e.g. an upstream `yamllint` issue), always use the fully-qualified
   `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo
