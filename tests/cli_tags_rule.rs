@@ -192,6 +192,24 @@ fn non_specific_bare_tag_is_not_flagged() {
 }
 
 #[test]
+fn non_specific_bare_tag_stays_exempt_under_tag_directive() {
+    // A `%TAG` directive must not turn the non-specific `!` into a flagged
+    // custom tag; the exemption keys on the suffix, not the handle.
+    let (code, output) = lint_with_toml_config(
+        "%TAG ! tag:example.com,2000:\n---\na: ! plain\n",
+        "[rules.tags]\nallowed-tags = [\"!keep\"]\n",
+    );
+    assert_eq!(
+        code, 0,
+        "bare ! must stay exempt under a %TAG directive: {output}"
+    );
+    assert!(
+        output.trim().is_empty(),
+        "expected no diagnostics: {output}"
+    );
+}
+
+#[test]
 fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
     // granit positions the empty scalar on the blank segment after the final
     // newline; the diagnostic must clamp back to the tag's content line so it

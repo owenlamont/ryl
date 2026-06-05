@@ -81,8 +81,10 @@ impl Config {
 
     fn diagnose(&self, tag: &Tag) -> Option<String> {
         // The non-specific "!" tag forces local resolution and carries no
-        // safety or portability signal, so no check applies.
-        if tag.handle.is_empty() && tag.suffix == "!" {
+        // safety or portability signal. A `%TAG` directive can resolve a
+        // non-empty handle onto it while leaving the suffix as "!", so key the
+        // exemption on the suffix rather than the handle representation.
+        if tag.suffix == "!" {
             return None;
         }
         let core = core_suffix(tag);
