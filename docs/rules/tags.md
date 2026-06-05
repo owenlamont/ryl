@@ -57,6 +57,10 @@ non-specific `!` tag is never reported.
 When more than one check matches the same node, a single diagnostic is
 reported in the order: unsafe, removed type, not allowed.
 
+A tag heading a block collection is reported at the collection, which may begin
+on the next line, so a `# ryl disable-line` for it must sit on that line, not the
+tag's line.
+
 ## Examples
 
 ### :x: Reported (with `forbid-unsafe-tags: true`)
