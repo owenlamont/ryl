@@ -72,6 +72,32 @@ pub fn containing_scalar_range<'a>(
         .filter(|range| idx >= range.start.get() && idx < range.end.get())
 }
 
+/// Clamp a 1-based `(line, column)` onto a real position within `buffer`.
+///
+/// granit reports an implicit empty scalar (the node after a tag or anchor that
+/// has no written value) at a *virtual* position — the column the value would
+/// occupy, on the line after its property. When such a node ends the document
+/// that position can be past end-of-line or on the empty segment a trailing
+/// newline leaves behind. Rules that surface these nodes (`tags`,
+/// `empty-values`) clamp here so a diagnostic never points outside the document.
+#[must_use]
+pub fn clamp_position(buffer: &str, line: usize, column: usize) -> (usize, usize) {
+    let line_lengths: Vec<usize> = buffer
+        .split('\n')
+        .map(|text| text.strip_suffix('\r').unwrap_or(text).chars().count())
+        .collect();
+    let last_line = line_lengths
+        .len()
+        .saturating_sub(usize::from(buffer.ends_with('\n')));
+    let line = line.min(last_line);
+    let max_column = line_lengths
+        .get(line - 1)
+        .copied()
+        .expect("clamped line always indexes the precomputed line lengths")
+        + 1;
+    (line, column.min(max_column))
+}
+
 #[must_use]
 pub fn apply_replacements(
     buffer: &str,

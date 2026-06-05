@@ -29,6 +29,7 @@
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::span_utils;
 use crate::yaml_dom::YamlOwned;
 
 pub const ID: &str = "tags";
@@ -128,21 +129,15 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     diagnostics
 }
 
-/// granit positions a tag on an implicit/empty scalar at the start of the line
-/// after its content. When that scalar ends the document the start lands on a
-/// line that does not really exist: the final empty segment a trailing newline
-/// produces, or one past the last line when there is no trailing newline.
-/// Clamp such overshoot back onto the last real line so a diagnostic never
-/// points at a phantom line (or outside the document).
+/// A tag on an implicit/empty scalar that ends the document is positioned by
+/// granit at a virtual location that can fall outside the document (see
+/// [`span_utils::clamp_position`]); clamp it back onto a real position.
 fn clamp_overshoot(buffer: &str, diagnostics: &mut [Violation]) {
-    let last_line = buffer
-        .split('\n')
-        .count()
-        .saturating_sub(usize::from(buffer.ends_with('\n')));
     for violation in diagnostics {
-        if violation.line > last_line {
-            violation.line = last_line;
-        }
+        let (line, column) =
+            span_utils::clamp_position(buffer, violation.line, violation.column);
+        violation.line = line;
+        violation.column = column;
     }
 }
 

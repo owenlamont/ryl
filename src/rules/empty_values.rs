@@ -50,7 +50,20 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut parser = Parser::new_from_str(buffer);
     let mut receiver = EmptyValuesReceiver::new(cfg);
     let _ = parser.load(&mut receiver, true);
-    receiver.diagnostics
+    // A tagged/anchored empty value (e.g. `a: !!str`) is an implicit scalar
+    // that granit positions at a virtual spot which can fall past the document;
+    // keep the report on a real position.
+    let mut diagnostics = receiver.diagnostics;
+    for violation in &mut diagnostics {
+        let (line, column) = crate::rules::support::span_utils::clamp_position(
+            buffer,
+            violation.line,
+            violation.column,
+        );
+        violation.line = line;
+        violation.column = column;
+    }
+    diagnostics
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

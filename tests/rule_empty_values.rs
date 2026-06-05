@@ -97,6 +97,25 @@ fn handles_alias_nodes() {
 }
 
 #[test]
+fn clamps_tagged_empty_value_at_eof_into_bounds() {
+    // `a: !!str` is a tagged but empty value; granit positions the implicit
+    // scalar on a non-existent next line. Without a trailing newline the report
+    // must clamp onto the only real line, not overshoot to line 2 (found by the
+    // property-check fuzzer once it began synthesizing tags).
+    let yaml = "a: !!str";
+    let cfg = resolve_config("rules:\n  empty-values: enable\n");
+    let hits = empty_values::check(yaml, &cfg);
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 1,
+            column: 2,
+            message: "empty value in block mapping".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn covers_nothing_event_branch() {
     empty_values::coverage_touch_nothing_branch();
 }

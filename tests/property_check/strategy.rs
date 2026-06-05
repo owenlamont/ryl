@@ -142,7 +142,7 @@ fn arb_key() -> impl Strategy<Value = String> {
     ]
 }
 
-fn arb_value() -> impl Strategy<Value = String> {
+fn arb_bare_value() -> impl Strategy<Value = String> {
     prop_oneof![
         Just(String::new()),
         Just("value".to_string()),
@@ -169,6 +169,40 @@ fn arb_value() -> impl Strategy<Value = String> {
         Just("word ".repeat(8)),
         arb_multibyte().prop_map(|ch| format!("v{ch}")),
     ]
+}
+
+// Tag tokens spanning shorthand, local, verbatim, and non-specific forms. They
+// are synthesized onto values so the no-panic / in-bounds-span invariants run
+// over tagged nodes — exercising `tags::check`, the spelling normalisation, and
+// `clamp_overshoot` across positions, multibyte chars, and LF/CRLF. This suite
+// only asserts those invariants; tag-handling correctness lives in the
+// deterministic CLI tests.
+fn arb_tag() -> impl Strategy<Value = &'static str> {
+    prop_oneof![
+        Just("!!str"),
+        Just("!!omap"),
+        Just("!!set"),
+        Just("!!python/object/apply:os.system"),
+        Just("!!javax.script.ScriptEngineManager"),
+        Just("!env"),
+        Just("!keep"),
+        Just("!ruby/object:Foo"),
+        Just("!<tag:yaml.org,2002:int>"),
+        Just("!<!python/object>"),
+        Just("!"),
+    ]
+}
+
+fn arb_value() -> impl Strategy<Value = String> {
+    (prop::option::weighted(0.35, arb_tag()), arb_bare_value()).prop_map(
+        |(tag, base)| match tag {
+            None => base,
+            // An empty base leaves the tag on an implicit scalar — the
+            // `clamp_overshoot` hot path when it ends the document.
+            Some(tag) if base.is_empty() => tag.to_string(),
+            Some(tag) => format!("{tag} {base}"),
+        },
+    )
 }
 
 fn arb_text() -> impl Strategy<Value = String> {
