@@ -92,6 +92,11 @@ ryl is a CLI tool for linting yaml files
   summary threads and `gh api repos/<owner>/<repo>/pulls/<number>/comments` when you
   need inline review details without guesswork. Avoid flags that the GitHub CLI does not
   support (e.g., `--review-comments`).
+- When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
+  (e.g. an upstream `yamllint` issue), always use the fully-qualified
+  `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo
+  (`owenlamont/ryl#123`) and silently points at the wrong issue. Use a bare `#123` only
+  for ryl's own issues/PRs.
 - Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
   sandboxed, request permission escalation when running `prek`, `cargo test`,
   or coverage commands.
