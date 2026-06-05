@@ -264,6 +264,8 @@ pub enum RuleName {
     OctalValues,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "tags")]
+    Tags,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
     #[serde(rename = "truthy")]
@@ -295,6 +297,7 @@ impl RuleName {
             Self::NewLines => "new-lines",
             Self::OctalValues => "octal-values",
             Self::QuotedStrings => "quoted-strings",
+            Self::Tags => "tags",
             Self::TrailingSpaces => "trailing-spaces",
             Self::Truthy => "truthy",
         }
@@ -338,6 +341,7 @@ pub struct RulesTable<Q = QuotedStringsOptions> {
     pub octal_values: Option<RuleEntry<OctalValuesOptions>>,
     #[serde(rename = "quoted-strings")]
     pub quoted_strings: Option<RuleEntry<Q>>,
+    pub tags: Option<RuleEntry<TagsOptions>>,
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
@@ -516,6 +520,17 @@ pub struct KeyOrderingOptions {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct TagsOptions {
+    #[serde(rename = "forbid-unsafe-tags")]
+    pub forbid_unsafe_tags: Option<bool>,
+    #[serde(rename = "forbid-removed-types")]
+    pub forbid_removed_types: Option<bool>,
+    #[serde(rename = "allowed-tags")]
+    pub allowed_tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LineLengthOptions {
     pub max: Option<i64>,
     #[serde(rename = "allow-non-breakable-words")]
@@ -682,7 +697,85 @@ pub fn yaml_schema() -> Schema {
             }
         ])
     });
+    prune_ryl_only_rules(root);
     schema
+}
+
+/// Remove the ryl-only rule properties (and any `$defs` they leave
+/// unreferenced) from the generated YAML schema, so it advertises only the
+/// yamllint-compatible rule surface. The rules themselves are still rejected at
+/// parse time; see `crate::rules::RYL_ONLY_RULE_IDS`.
+fn prune_ryl_only_rules(root: &mut serde_json::Map<String, Value>) {
+    // Only the rules-table definition carries rule-id-named properties, so
+    // dropping the ryl-only ids from every definition's `properties` targets it
+    // without depending on schemars' generated definition name.
+    let defs = root
+        .get_mut("$defs")
+        .and_then(Value::as_object_mut)
+        .expect("generated YAML schema always has a $defs table");
+    for def in defs.values_mut() {
+        if let Some(properties) =
+            def.get_mut("properties").and_then(Value::as_object_mut)
+        {
+            for rule in crate::rules::RYL_ONLY_RULE_IDS {
+                properties.remove(rule);
+            }
+        }
+    }
+    remove_unreferenced_defs(root);
+}
+
+/// Drop `$defs` entries no longer reachable by any `$ref`, iterating until the
+/// set is stable so reference chains collapse fully.
+fn remove_unreferenced_defs(root: &mut serde_json::Map<String, Value>) {
+    loop {
+        let mut referenced = std::collections::BTreeSet::new();
+        for value in root.values() {
+            collect_defs_refs(value, &mut referenced);
+        }
+        let defs = root
+            .get_mut("$defs")
+            .and_then(Value::as_object_mut)
+            .expect("generated YAML schema always has a $defs table");
+        let orphans: Vec<String> = defs
+            .keys()
+            .filter(|name| !referenced.contains(name.as_str()))
+            .cloned()
+            .collect();
+        if orphans.is_empty() {
+            return;
+        }
+        for orphan in orphans {
+            defs.remove(&orphan);
+        }
+    }
+}
+
+fn collect_defs_refs(
+    value: &Value,
+    referenced: &mut std::collections::BTreeSet<String>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                if key == "$ref" {
+                    let name = child
+                        .as_str()
+                        .and_then(|reference| reference.strip_prefix("#/$defs/"))
+                        .expect("schema $ref always targets a local $defs entry");
+                    referenced.insert(name.to_string());
+                } else {
+                    collect_defs_refs(child, referenced);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_defs_refs(item, referenced);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Deserialize TOML configuration text into the typed schema model.
@@ -883,9 +976,21 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     let typed = parse_typed_yaml_config(doc)?;
     validate_yaml_config(&typed)?;
 
+    let normalized = normalize_typed_yaml_config(doc, &typed);
+    if let Some(rule) = normalized
+        .rules
+        .keys()
+        .find(|name| crate::rules::RYL_ONLY_RULE_IDS.contains(&name.as_str()))
+    {
+        return Err(format!(
+            "invalid config: `{rule}` is a ryl-only rule and is not available in \
+             yamllint-compatible YAML config; configure it in TOML (`[rules.{rule}]`)"
+        ));
+    }
+
     Ok(ParsedYamlConfig {
         extends: typed.extends.iter().cloned().collect(),
-        normalized: normalize_typed_yaml_config(doc, &typed),
+        normalized,
     })
 }
 

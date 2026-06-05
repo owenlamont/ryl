@@ -135,6 +135,12 @@ allow-quoted-quotes = true
 allow-double-quotes-for-escaping = false
 check-keys = true
 
+[rules.tags]
+level = "warning"
+forbid-unsafe-tags = true
+forbid-removed-types = true
+allowed-tags = ["!env", "!include"]
+
 [rules.trailing-spaces]
 level = "warning"
 

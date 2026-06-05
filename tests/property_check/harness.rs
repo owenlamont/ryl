@@ -59,6 +59,23 @@ pub fn trigger_all_config() -> &'static YamlLintConfig {
     &CONFIG
 }
 
+// `tags` is ryl-only, so it is configured through TOML rather than the YAML
+// trigger above (yamllint-compatible YAML config rejects ryl-only rules).
+const TAGS_RULE_TOML: &str = "[rules.tags]
+forbid-unsafe-tags = true
+forbid-removed-types = true
+allowed-tags = [\"!keep\"]
+";
+
+#[must_use]
+pub fn tags_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(TAGS_RULE_TOML)
+            .expect("property-check tags trigger config must parse")
+    });
+    &CONFIG
+}
+
 macro_rules! collect_standard {
     ($spans:ident, $cfg:expr, $content:expr, $module:path) => {{
         use $module as rule;
@@ -95,6 +112,7 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::line_length);
     collect_standard!(spans, cfg, content, ryl::rules::octal_values);
     collect_standard!(spans, cfg, content, ryl::rules::quoted_strings);
+    collect_standard!(spans, tags_config(), content, ryl::rules::tags);
     collect_standard!(spans, cfg, content, ryl::rules::truthy);
 
     if let Some(violation) = new_line_at_end_of_file::check(content) {

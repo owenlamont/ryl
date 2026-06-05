@@ -55,7 +55,10 @@ ryl is a CLI tool for linting yaml files
 - Keep YAML configuration strictly aligned with functionality that yamllint currently
   supports. Put any ryl-only settings, experimental rule options, or ahead-of-upstream
   behaviour in TOML configuration so future yamllint additions cannot clash with
-  existing YAML semantics.
+  existing YAML semantics. A whole ryl-only *rule* (one yamllint lacks, e.g. `tags`)
+  goes in `rules::RYL_ONLY_RULE_IDS`: the YAML config path rejects those rules and
+  `config_schema::yaml_schema` prunes them from the YAML schema, so they are
+  configurable only via TOML (`[rules.<id>]`).
 
 ## Code Change Requirements
 
@@ -89,6 +92,20 @@ ryl is a CLI tool for linting yaml files
   summary threads and `gh api repos/<owner>/<repo>/pulls/<number>/comments` when you
   need inline review details without guesswork. Avoid flags that the GitHub CLI does not
   support (e.g., `--review-comments`).
+- Codex auto-reviews PRs here; re-trigger one by commenting `@codex review` (it takes
+  minutes). It signals its verdict in one of three forms — a new PR review (when it has
+  findings), a new issue comment (often its "no major issues" all-clear), or a 👍
+  reaction on the triggering comment — so poll for **any** of them; watching only one
+  misses the result. Capture baseline counts of Codex reviews, Codex issue comments, and
+  the trigger comment's reactions, then poll (~45s) for any to change, running the poller
+  as a background command since a thorough review can exceed a 10-minute foreground
+  timeout. The bot login is `chatgpt-codex-connector` in reviews and
+  `chatgpt-codex-connector[bot]` in inline review comments.
+- When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
+  (e.g. an upstream `yamllint` issue), always use the fully-qualified
+  `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo
+  (`owenlamont/ryl#123`) and silently points at the wrong issue. Use a bare `#123` only
+  for ryl's own issues/PRs.
 - Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
   sandboxed, request permission escalation when running `prek`, `cargo test`,
   or coverage commands.
@@ -259,6 +276,9 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
 - `octal-values` — Resolving `010` requires knowing whether the user meant
   the integer `8`, the integer `10`, or the string `"010"`; the YAML source
   alone cannot disambiguate.
+- `tags` — Rewriting or removing a flagged tag changes the node's resolved
+  type (`!!omap` to a plain mapping, `!env` to a string, …) or requires
+  guessing the intended value, so no rewrite is universally safe.
 - `truthy` — Rewriting `Yes/No/On/Off` requires choosing between quoting them
   (preserves the string), normalising to `true/false` (changes type), or
   rewording — all of which depend on the user's intent.

@@ -111,6 +111,14 @@ const CATALOG: &[(&str, &[(&str, OptValKind)])] = &[
         "octal-values",
         &[("forbid-implicit-octal", OptValKind::Bool)],
     ),
+    (
+        "tags",
+        &[
+            ("forbid-unsafe-tags", OptValKind::Bool),
+            ("forbid-removed-types", OptValKind::Bool),
+            ("allowed-tags", OptValKind::RegexList),
+        ],
+    ),
 ];
 
 fn arb_rule() -> impl Strategy<Value = RuleCfg> {

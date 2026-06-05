@@ -51,8 +51,9 @@ cargo install ryl                   # cargo
 
 ## Status and scope
 
-- All 23 yamllint rules are implemented. The current rule reference and
-  per-rule pages are at
+- All 23 yamllint rules are implemented, plus a ryl-only `tags` rule (forbids
+  unsafe and non-portable YAML tags; configured in TOML only). The current rule
+  reference and per-rule pages are at
   <https://ryl-docs.pages.dev/rules/>.
 - Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `new-line-at-end-of-file`,

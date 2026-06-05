@@ -409,6 +409,21 @@ impl YamlLintConfig {
         Self::from_yaml_str_with_env(s, None, None)
     }
 
+    /// Build a config from standalone TOML configuration text.
+    ///
+    /// # Errors
+    /// Returns an error when the TOML is empty or cannot be parsed into a valid
+    /// config.
+    ///
+    /// # Panics
+    /// Cannot panic in practice: the `None` result is reserved for an absent
+    /// `[tool.ryl]` table in `pyproject.toml`, which standalone parsing
+    /// (`pyproject = false`) never produces &mdash; an empty config is an error.
+    pub fn from_toml_str(s: &str) -> Result<Self, String> {
+        Self::from_toml_str_with_env(s, None, None, false)
+            .map(|config| config.expect("standalone TOML config is never absent"))
+    }
+
     fn extend_from_entry(
         &mut self,
         entry: &str,

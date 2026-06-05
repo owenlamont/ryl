@@ -6,7 +6,7 @@ use crate::rules::{
     anchors, braces, brackets, colons, commas, comments, comments_indentation,
     document_end, document_start, empty_lines, empty_values, float_values, hyphens,
     indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file,
-    new_lines, octal_values, quoted_strings, trailing_spaces, truthy,
+    new_lines, octal_values, quoted_strings, tags, trailing_spaces, truthy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +144,8 @@ pub fn lint_str(
     collect_comments_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     collect_anchors_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+
+    collect_tags_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     collect_octal_values_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
@@ -500,6 +502,29 @@ fn collect_anchors_diagnostics(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(anchors::ID),
+            });
+        }
+    }
+}
+
+fn collect_tags_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(tags::ID)
+        && !cfg.is_rule_ignored(tags::ID, path, base_dir)
+    {
+        let rule_cfg = tags::Config::resolve(cfg);
+        for hit in tags::check(content, &rule_cfg) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(tags::ID),
             });
         }
     }
