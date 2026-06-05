@@ -122,6 +122,10 @@ jobs:
           owner: owenlamont
           repositories: schemastore
           permission-contents: write
+          # The branch is built on upstream/master, so it carries upstream's
+          # .github/workflows files; pushing them needs workflows write even
+          # though only ryl's own files change in the commit.
+          permission-workflows: write
 
       - name: Update SchemaStore fork branch
         if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run != true
