@@ -219,6 +219,38 @@ fn canonical_treats_a_default_core_tag_as_untagged() {
 }
 
 #[test]
+fn canonical_recognizes_an_explicitly_tagged_merge_key() {
+    // A `<<` carrying an explicit `!!merge` tag is a merge directive even though
+    // it is quoted, so its sources are expanded and the collision is found.
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "a: &a {x: 1}\nb: &b {x: 2}\nc:\n  !!merge '<<': [*a, *b]\n",
+    );
+    assert_eq!(
+        code, 1,
+        "expected collision via explicit merge tag: {output}"
+    );
+    assert!(
+        output.contains("duplication of key \"x\" in merged mappings"),
+        "an !!merge-tagged key must drive merge expansion: {output}"
+    );
+}
+
+#[test]
+fn canonical_treats_a_non_merge_tagged_double_angle_as_a_string_key() {
+    // `!!str '<<'` is an ordinary string key, not a merge directive, so its
+    // value is not expanded as a merge.
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "base: &b {k: 1}\nm:\n  !!str '<<': *b\n  k: 2\n",
+    );
+    assert_eq!(
+        code, 0,
+        "a non-merge-tagged `<<` must not drive merge expansion: {output}"
+    );
+}
+
+#[test]
 fn canonical_merges_a_repeated_alias_at_most_once() {
     // Two `<<: *b` keys merge the same anchor; it contributes once (idempotent),
     // so there is no merge-vs-merge collision and the duplicate `<<` is exempt.
