@@ -114,19 +114,16 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
             Event::Scalar(value, style, aid, tag) => {
                 let node = match tag.as_ref() {
                     Some(tag_ref) if !tag_ref.is_yaml_core_schema() => {
-                        let inner =
-                            Scalar::parse_from_cow_and_metadata(value, style, None)
-                                .map_or(YamlOwned::BadValue, |scalar| {
-                                    YamlOwned::Value(scalar.into_owned())
-                                });
-                        YamlOwned::Tagged(tag_ref.as_ref().clone(), Box::new(inner))
-                    }
-                    _ => {
-                        Scalar::parse_from_cow_and_metadata(value, style, tag.as_ref())
+                        let inner = Scalar::resolve_scalar(value, style, None)
                             .map_or(YamlOwned::BadValue, |scalar| {
                                 YamlOwned::Value(scalar.into_owned())
-                            })
+                            });
+                        YamlOwned::Tagged(tag_ref.as_ref().clone(), Box::new(inner))
                     }
+                    _ => Scalar::resolve_scalar(value, style, tag.as_ref())
+                        .map_or(YamlOwned::BadValue, |scalar| {
+                            YamlOwned::Value(scalar.into_owned())
+                        }),
                 };
                 if aid > 0 {
                     self.anchor_map.insert(aid, node.clone());

@@ -118,8 +118,7 @@ fn key_id(
 ) -> KeyId {
     if canonical
         && tag.is_none_or(|tag| tag.is_yaml_core_schema())
-        && let Some(scalar) =
-            Scalar::parse_from_cow_and_metadata(Cow::Borrowed(value), style, tag)
+        && let Some(scalar) = Scalar::resolve_scalar(Cow::Borrowed(value), style, tag)
     {
         return KeyId::Resolved(scalar.into_owned());
     }

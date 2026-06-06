@@ -3,7 +3,7 @@
 // `ScalarOwned` with parse helpers plus the borrowed-lifetime `Scalar` used
 // when parsing scalars from the event stream.
 //
-// `parse_from_cow` resolves null/bool per the YAML 1.2 core schema (so
+// `resolve_plain_scalar` resolves null/bool per the YAML 1.2 core schema (so
 // `True`/`Null` are bool/null, matching saphyr's post-0.0.6 resolver rather
 // than the narrower 0.0.6 release). `Yes`/`No`/`On`/`Off` are intentionally
 // left as strings: those are YAML 1.1 booleans, and ryl targets YAML 1.2.
@@ -43,7 +43,7 @@ impl<'input> Scalar<'input> {
         }
     }
 
-    pub fn parse_from_cow_and_metadata(
+    pub fn resolve_scalar(
         v: Cow<'input, str>,
         style: ScalarStyle,
         tag: Option<&Cow<'input, Tag>>,
@@ -66,14 +66,22 @@ impl<'input> Scalar<'input> {
                 _ => None,
             },
             _ if style != ScalarStyle::Plain => Some(Self::String(v)),
-            _ => Some(Self::parse_from_cow(v)),
+            _ => Some(Self::resolve_plain_scalar(v)),
         }
     }
 
     #[must_use]
-    pub fn parse_from_cow(v: Cow<'input, str>) -> Self {
+    pub fn resolve_plain_scalar(v: Cow<'input, str>) -> Self {
         if let Some(integer) = parse_core_schema_int(&v) {
             return Self::Integer(integer);
+        }
+        // A decimal integer that overflows `i64` keeps its exact text rather than
+        // being reparsed as `f64`, which would collapse distinct large integers
+        // onto one value (a false-positive duplicate key under `check-canonical`).
+        // Hex/octal overflow spellings already fall through to a string below
+        // because they cannot parse as `f64`.
+        if is_decimal_integer_spelling(&v) {
+            return Self::String(v);
         }
         if is_core_schema_null(&v) {
             return Self::Null;
@@ -109,6 +117,15 @@ pub fn parse_core_schema_bool(v: &str) -> Option<bool> {
 #[must_use]
 pub fn is_core_schema_null(v: &str) -> bool {
     matches!(v, "" | "~" | "null" | "Null" | "NULL")
+}
+
+/// Whether `v` is a decimal integer spelling (`[-+]?[0-9]+`). Reached only after
+/// `parse_core_schema_int` fails, so `true` means a valid integer that overflows
+/// `i64` and must keep its exact text instead of collapsing to an `f64`.
+#[must_use]
+fn is_decimal_integer_spelling(v: &str) -> bool {
+    let digits = v.strip_prefix(['+', '-']).unwrap_or(v);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Parse a YAML 1.2 core-schema integer, honouring the `0x`/`0o` radix prefixes

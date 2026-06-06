@@ -473,7 +473,10 @@ fn is_core_tag(tag: &Tag) -> bool {
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
-    matches!(Scalar::parse_from_cow(value.into()), Scalar::String(_))
+    matches!(
+        Scalar::resolve_plain_scalar(value.into()),
+        Scalar::String(_)
+    )
 }
 
 fn should_skip_scalar(

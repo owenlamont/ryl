@@ -281,6 +281,30 @@ fn canonical_treats_an_empty_plain_key_as_null() {
 }
 
 #[test]
+fn canonical_keeps_overflowing_integers_as_distinct_keys() {
+    // Integers beyond i64 keep their exact text instead of collapsing to f64, so
+    // two distinct large integers are not a duplicate (no false positive); the
+    // same integer written two ways is a safe miss, not a false hit.
+    let (distinct, out1) = run_toml(
+        "check-canonical = true\n",
+        "9223372036854775808: a\n9223372036854775809: b\n",
+    );
+    assert_eq!(
+        distinct, 0,
+        "distinct large integers must not collide: {out1}"
+    );
+
+    let (signed, out2) = run_toml(
+        "check-canonical = true\n",
+        "+9223372036854775808: a\n9223372036854775808: b\n",
+    );
+    assert_eq!(
+        signed, 0,
+        "differently signed spellings stay distinct: {out2}"
+    );
+}
+
+#[test]
 fn canonical_treats_a_default_core_tag_as_untagged() {
     let (code, output) = run_toml(
         "check-canonical = true\n",
