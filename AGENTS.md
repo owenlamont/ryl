@@ -107,8 +107,10 @@ ryl is a CLI tool for linting yaml files
   trigger comment's reactions, then poll (~45s) for any to change, running the poller
   as a background command since a thorough review can exceed a 10-minute foreground
   timeout.
-  The bot login is `chatgpt-codex-connector` in reviews and
-  `chatgpt-codex-connector[bot]` in inline review comments.
+  The bot login is `chatgpt-codex-connector[bot]` for PR reviews, inline review
+  comments, issue comments, and reactions alike. Filter reviews/comments with
+  `select(.user.login=="chatgpt-codex-connector[bot]")` (the bare
+  `chatgpt-codex-connector` without the `[bot]` suffix matches nothing).
 - When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
   (e.g. an upstream `yamllint` issue), always use the fully-qualified
   `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo
