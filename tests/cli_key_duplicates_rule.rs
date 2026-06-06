@@ -192,6 +192,21 @@ fn canonical_distinguishes_a_non_default_core_tag() {
 }
 
 #[test]
+fn canonical_resolves_explicitly_tagged_integer_radixes() {
+    // An explicit !!int must canonicalize the same spellings as an untagged
+    // integer, so `!!int 0xB` (and `!!int 0o13`) collide with `11`.
+    for tagged in ["!!int 0xB", "!!int 0o13"] {
+        let (code, output) =
+            run_toml("check-canonical = true\n", &format!("{tagged}: a\n11: b\n"));
+        assert_eq!(code, 1, "expected `{tagged}` to collide with 11: {output}");
+        assert!(
+            output.contains("duplication of key \"11\" in mapping"),
+            "`{tagged}` should canonicalize to integer 11: {output}"
+        );
+    }
+}
+
+#[test]
 fn canonical_treats_a_default_core_tag_as_untagged() {
     let (code, output) = run_toml(
         "check-canonical = true\n",
