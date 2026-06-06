@@ -92,12 +92,15 @@ ryl is a CLI tool for linting yaml files
   summary threads and `gh api repos/<owner>/<repo>/pulls/<number>/comments` when you
   need inline review details without guesswork. Avoid flags that the GitHub CLI does not
   support (e.g., `--review-comments`).
-- Codex auto-reviews PRs here; re-trigger one by commenting `@codex review` (it takes
-  minutes). Confirm it actually picked the PR up: within ~1 minute of opening the PR (or
-  of an `@codex review` comment) Codex adds an 👀 reaction (`eyes`, from
-  `chatgpt-codex-connector[bot]`) on the PR/triggering comment to acknowledge it has
-  started. If that 👀 has not appeared after ~1 minute, the auto-review did not fire —
-  comment `@codex review` to prompt it, and re-check for the 👀. Once the review
+- Codex reviews must be triggered with an `@codex review` comment; do **not** rely on
+  auto-review. Only the initial PR open *sometimes* auto-triggers one — every subsequent
+  review, including after each push you want re-reviewed, must be prompted by commenting
+  `@codex review` (it takes minutes). So after pushing changes for review, always post the
+  comment rather than waiting for an auto-review that will not come. Confirm Codex picked
+  it up: within ~1 minute of the `@codex review` comment Codex adds an 👀 reaction (`eyes`,
+  from `chatgpt-codex-connector[bot]`) on the triggering comment to acknowledge it has
+  started. If that 👀 has not appeared after ~1 minute, the trigger did not take —
+  comment `@codex review` again, and re-check for the 👀. Once the review
   finishes, Codex removes the 👀 and signals its verdict in one of three forms — a new PR
   review (when it has findings), a new issue comment (often its "no major issues"
   all-clear), or a 👍 reaction on the triggering comment — so poll for **any** of them;
