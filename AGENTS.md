@@ -21,6 +21,16 @@ ryl is a CLI tool for linting yaml files
   using this repo and able to get all the necessary context from the documentation and
   code with no surprising behaviour or pitfalls (this is the pit of success principle -
   the most likely way to do something is also the correct way).
+- Before implementing a new or changed rule — or any non-trivial feature — propose a
+  short plan and agree the approach before writing code; don't jump straight to
+  implementation.
+- Separate judgment calls from mechanical work. When a change turns on user-facing
+  behaviour or a spec/standard choice (what to flag, which YAML schema applies, a
+  false-positive-vs-false-negative trade-off), lay out the options and let the maintainer
+  decide rather than picking silently. Carry out mechanical fixes and clear-cut review
+  feedback without asking.
+- If you notice anything inaccurate or stale in this `AGENTS.md` while working, fix it as
+  part of the change rather than leaving it for later.
 - In relation to maintainability / readability keep the code as succinct as practical.
   Every line of code has a maintenance and read time cost (so try to keep code readable
   with good naming of files, functions, structures, and variable instead of using
@@ -49,6 +59,11 @@ ryl is a CLI tool for linting yaml files
 - Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
   so ensure current documentation and/or repo is consulted when working with third party
   dependencies.
+- Verify behaviour against an authoritative source before asserting it — to the
+  maintainer as much as in code. Prefer the ryl CLI, real `yamllint`, the play.yaml.com
+  reference parser, or a resolving loader (see the references below) over reasoning from
+  memory; and if an earlier claim or piece of guidance turns out wrong, correct the
+  record explicitly instead of quietly moving on.
 - When mirroring yamllint behaviour, spot-check tricky inputs with the ryl CLI so
   our diagnostics and message text match (e.g., mixed newline styles or config keys of
   type int/bool/null/tagged scalar).
