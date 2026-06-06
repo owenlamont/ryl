@@ -227,10 +227,8 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
                     &mut self.diagnostics,
                 );
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -275,6 +273,10 @@ impl<'cfg> QuotedStringsState<'cfg> {
 
     fn exit_container(&mut self) {
         self.walker.exit_container();
+    }
+
+    fn skip_node(&mut self) {
+        self.walker.skip_node();
     }
 
     fn handle_scalar(
@@ -795,10 +797,8 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
                     span,
                 );
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -849,10 +849,8 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
                     self.replacements.push(r);
                 }
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -907,6 +905,10 @@ impl<'cfg> FixState<'cfg> {
 
     fn exit_container(&mut self) {
         self.walker.exit_container();
+    }
+
+    fn skip_node(&mut self) {
+        self.walker.skip_node();
     }
 
     fn in_flow(&self) -> bool {

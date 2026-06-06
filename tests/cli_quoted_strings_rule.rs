@@ -47,6 +47,36 @@ fn quoted_strings_reports_redundant_quotes() {
 }
 
 #[test]
+fn alias_value_does_not_desync_value_checking() {
+    // An alias value (`ref: *a`) must advance the key/value alternation; if it
+    // does not, the following key is misread as a value and the redundantly
+    // quoted value after it is misclassified as a key and silently skipped.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("data.yaml");
+    fs::write(&file, "anchor: &a 1\nref: *a\nval: \"x\"\n").unwrap();
+
+    let config = dir.path().join("config.yaml");
+    fs::write(
+        &config,
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    assert_eq!(
+        code, 1,
+        "redundant quotes after an alias value must still be flagged: stdout={stdout} stderr={stderr}"
+    );
+    let output = command_output(&stdout, &stderr);
+    assert!(
+        output.contains("3:6") && output.contains("redundantly quoted"),
+        "expected the quoted value on line 3 to be flagged: {output}"
+    );
+}
+
+#[test]
 fn toml_allows_escaped_double_quotes_as_single_quote_exception() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("data.yaml");
