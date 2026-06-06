@@ -48,9 +48,9 @@ impl<'input> Scalar<'input> {
         style: ScalarStyle,
         tag: Option<&Cow<'input, Tag>>,
     ) -> Option<Self> {
-        if style != ScalarStyle::Plain {
-            return Some(Self::String(v));
-        }
+        // An explicit core-schema tag fixes the type regardless of quoting style
+        // (`!!int "1"` is the integer 1, not the string "1"), so it is resolved
+        // before the non-plain-is-a-string fallback.
         match tag.map(Cow::as_ref) {
             Some(tag) if tag.is_yaml_core_schema() => match tag.suffix.as_str() {
                 "bool" => v.parse::<bool>().ok().map(Self::Boolean),
@@ -65,6 +65,7 @@ impl<'input> Scalar<'input> {
                 "str" => Some(Self::String(v)),
                 _ => None,
             },
+            _ if style != ScalarStyle::Plain => Some(Self::String(v)),
             _ => Some(Self::parse_from_cow(v)),
         }
     }

@@ -207,6 +207,28 @@ fn canonical_resolves_explicitly_tagged_integer_radixes() {
 }
 
 #[test]
+fn canonical_resolves_explicit_core_tags_on_quoted_scalars() {
+    // An explicit core tag fixes the type regardless of quoting: `!!int "1"` is
+    // integer 1, so it is distinct from the string `"1"` but equal to plain `1`.
+    let (distinct_code, distinct) =
+        run_toml("check-canonical = true\n", "!!int \"1\": a\n\"1\": b\n");
+    assert_eq!(
+        distinct_code, 0,
+        "`!!int \"1\"` (int) must not collide with the string `\"1\"`: {distinct}"
+    );
+    let (same_code, same) =
+        run_toml("check-canonical = true\n", "!!int \"1\": a\n1: b\n");
+    assert_eq!(
+        same_code, 1,
+        "`!!int \"1\"` must collide with plain `1`: {same}"
+    );
+    assert!(
+        same.contains("duplication of key \"1\" in mapping"),
+        "`!!int \"1\"` should canonicalize to integer 1: {same}"
+    );
+}
+
+#[test]
 fn canonical_treats_a_default_core_tag_as_untagged() {
     let (code, output) = run_toml(
         "check-canonical = true\n",

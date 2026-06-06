@@ -37,11 +37,6 @@
 //! the YAML config loader (issue #246). Identities are built only when a merge
 //! knob is on; the default path compares key text alone. There is no safe
 //! `--fix` (see AGENTS.md "Rules Without A Safe `--fix`").
-//!
-//! Known limitation: an explicit core tag on a *non-plain* scalar (e.g.
-//! `!!int "1"`) is identified by its quoted text rather than re-resolved by the
-//! tag, so it can share an identity with the plain string &mdash; a missed
-//! (never spurious) collision for that rare construct.
 
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
