@@ -254,6 +254,33 @@ fn canonical_resolves_all_core_bool_and_null_spellings() {
 }
 
 #[test]
+fn canonical_treats_an_explicit_merge_tag_as_a_plain_merge_key() {
+    // `!!merge '<<'` is the same merge key as plain `<<`; with both knobs on,
+    // the two spellings in one mapping are duplicated merge keys.
+    let (code, output) = run_toml(
+        "check-canonical = true\nforbid-duplicated-merge-keys = true\n",
+        "base: &b {x: 1}\nhost:\n  <<: *b\n  !!merge \"<<\": *b\n",
+    );
+    assert_eq!(code, 1, "expected duplicated merge keys: {output}");
+    assert!(
+        output.contains("duplication of key \"<<\" in mapping"),
+        "`!!merge \"<<\"` should share identity with plain `<<`: {output}"
+    );
+}
+
+#[test]
+fn canonical_treats_an_empty_plain_key_as_null() {
+    // The core schema resolves an empty plain scalar to null, so an empty key
+    // collides with `~`.
+    let (code, output) = run_toml("check-canonical = true\n", ": a\n~: b\n");
+    assert_eq!(code, 1, "expected empty-key/null collision: {output}");
+    assert!(
+        output.contains("duplication of key \"~\" in mapping"),
+        "an empty plain key should canonicalize to null: {output}"
+    );
+}
+
+#[test]
 fn canonical_treats_a_default_core_tag_as_untagged() {
     let (code, output) = run_toml(
         "check-canonical = true\n",

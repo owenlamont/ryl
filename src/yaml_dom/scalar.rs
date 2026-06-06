@@ -59,7 +59,10 @@ impl<'input> Scalar<'input> {
                     .map(OrderedFloat)
                     .map(Self::FloatingPoint),
                 "null" => is_core_schema_null(&v).then_some(Self::Null),
-                "str" => Some(Self::String(v)),
+                // `merge` resolves `!!merge '<<'` to the same string identity as a
+                // plain `<<` so the two merge-key spellings are recognised as one
+                // key (e.g. for `forbid-duplicated-merge-keys`).
+                "str" | "merge" => Some(Self::String(v)),
                 _ => None,
             },
             _ if style != ScalarStyle::Plain => Some(Self::String(v)),
@@ -98,12 +101,14 @@ pub fn parse_core_schema_bool(v: &str) -> Option<bool> {
     }
 }
 
-/// Whether `v` is a YAML 1.2 core-schema null spelling (`~|null|Null|NULL`).
-/// Shared so an explicitly `!!null`-tagged scalar resolves the same spellings as
-/// an untagged one (`!!null NULL` == `~`).
+/// Whether `v` is a YAML 1.2 core-schema null spelling (`~|null|Null|NULL`, plus
+/// the empty plain scalar). Shared so an explicitly `!!null`-tagged scalar
+/// resolves the same spellings as an untagged one (`!!null NULL` == `~`); a
+/// quoted empty scalar stays a string because non-plain scalars are resolved
+/// before this is reached.
 #[must_use]
 pub fn is_core_schema_null(v: &str) -> bool {
-    matches!(v, "~" | "null" | "Null" | "NULL")
+    matches!(v, "" | "~" | "null" | "Null" | "NULL")
 }
 
 /// Parse a YAML 1.2 core-schema integer, honouring the `0x`/`0o` radix prefixes
