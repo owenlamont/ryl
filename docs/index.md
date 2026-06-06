@@ -109,6 +109,6 @@ behaviour.
 
 -   [:octicons-gear-24: __Configuration presets__](config-presets.md)
 
-    `default`, `relaxed`, and `empty` as TOML or YAML.
+    `default` and `relaxed` as TOML or YAML, plus the YAML-only `empty`.
 
 </div>

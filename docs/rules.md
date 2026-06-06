@@ -92,9 +92,10 @@ truthy = "disable"
 key-ordering = "enable"
 ```
 
-Enabling a rule without options applies its defaults. The three built-in
-presets &mdash; `default`, `relaxed`, and `empty` &mdash; cover the common
-starting points; see [Configuration presets](config-presets.md).
+Enabling a rule without options applies its defaults. The built-in `default`
+and `relaxed` presets cover the common starting points (the `empty` preset is
+YAML-`extends:` only, with no usable TOML form); see
+[Configuration presets](config-presets.md).
 
 To switch rules off for part of a file with `# ryl disable` /
 `# yamllint disable` comments, see [Inline directives](directives.md).

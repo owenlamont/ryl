@@ -54,8 +54,9 @@ produced.
   directory.
 - The three built-in presets &mdash; `default`, `relaxed`, and `empty` &mdash;
   match yamllint's behaviour. YAML configs can still use `extends:` to
-  reference them; TOML configs must inline the preset content (see the
-  example below). The full preset content is in
+  reference them; TOML configs must inline the `default`/`relaxed` content (see
+  the example below). `empty` has no usable TOML form because ryl rejects a
+  config that enables no rules. The full preset content is in
   [Configuration presets](../config-presets.md).
 - Inline `# yamllint disable` / `disable-line` / `enable` comments are honoured
   with the same grammar and semantics, so existing in-file suppressions keep
