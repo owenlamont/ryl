@@ -21,6 +21,16 @@ ryl is a CLI tool for linting yaml files
   using this repo and able to get all the necessary context from the documentation and
   code with no surprising behaviour or pitfalls (this is the pit of success principle -
   the most likely way to do something is also the correct way).
+- Before implementing a new or changed rule — or any non-trivial feature — propose a
+  short plan and agree the approach before writing code; don't jump straight to
+  implementation.
+- Separate judgment calls from mechanical work. When a change turns on user-facing
+  behaviour or a spec/standard choice (what to flag, which YAML schema applies, a
+  false-positive-vs-false-negative trade-off), lay out the options and let the maintainer
+  decide rather than picking silently. Carry out mechanical fixes and clear-cut review
+  feedback without asking.
+- If you notice anything inaccurate or stale in this `AGENTS.md` while working, fix it as
+  part of the change rather than leaving it for later.
 - In relation to maintainability / readability keep the code as succinct as practical.
   Every line of code has a maintenance and read time cost (so try to keep code readable
   with good naming of files, functions, structures, and variable instead of using
@@ -49,9 +59,27 @@ ryl is a CLI tool for linting yaml files
 - Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
   so ensure current documentation and/or repo is consulted when working with third party
   dependencies.
+- Verify behaviour against an authoritative source before asserting it — to the
+  maintainer as much as in code. Prefer the ryl CLI, real `yamllint`, the play.yaml.com
+  reference parser, or a resolving loader (see the references below) over reasoning from
+  memory; and if an earlier claim or piece of guidance turns out wrong, correct the
+  record explicitly instead of quietly moving on.
 - When mirroring yamllint behaviour, spot-check tricky inputs with the ryl CLI so
   our diagnostics and message text match (e.g., mixed newline styles or config keys of
   type int/bool/null/tagged scalar).
+- For questions about how YAML *itself* should parse (is an input valid, and what
+  event/structure does it produce?), the source of truth is the YAML Parser Playground
+  at <https://play.yaml.com/>: paste YAML in the top-left pane and read the canonical
+  **Reference Parser** output in the bottom-left pane (the test-suite event stream —
+  `+STR/+DOC/+MAP/+SEQ`, `=VAL`, `=ALI`, `&anchor`, tags, or a parse error such as
+  "Parser finished before end of input"). The other panes are alternative parsers that
+  need a local sandbox server and are normally left unconnected. Input can be driven via
+  the URL hash as base64 of the YAML (`https://play.yaml.com/#<base64>`), which is handy
+  for scripted/browser-automation checks. Scope caveat: the playground reports the
+  *parse/event* layer (validity and structure), not *schema resolution* — it shows
+  `=VAL :011`, never "int vs string". For type-resolution questions (does `011` resolve
+  to int 11, an empty scalar to null, etc.) use a resolving loader instead (e.g.
+  `ruamel.yaml` in 1.2 mode or PyYAML), since ryl targets the YAML 1.2 **core** schema.
 - Keep YAML configuration strictly aligned with functionality that yamllint currently
   supports. Put any ryl-only settings, experimental rule options, or ahead-of-upstream
   behaviour in TOML configuration so future yamllint additions cannot clash with
@@ -92,15 +120,28 @@ ryl is a CLI tool for linting yaml files
   summary threads and `gh api repos/<owner>/<repo>/pulls/<number>/comments` when you
   need inline review details without guesswork. Avoid flags that the GitHub CLI does not
   support (e.g., `--review-comments`).
-- Codex auto-reviews PRs here; re-trigger one by commenting `@codex review` (it takes
-  minutes). It signals its verdict in one of three forms — a new PR review (when it has
-  findings), a new issue comment (often its "no major issues" all-clear), or a 👍
-  reaction on the triggering comment — so poll for **any** of them; watching only one
-  misses the result. Capture baseline counts of Codex reviews, Codex issue comments, and
-  the trigger comment's reactions, then poll (~45s) for any to change, running the poller
+- Codex reviews must be triggered with an `@codex review` comment; do **not** rely on
+  auto-review. Only the initial PR open *sometimes* auto-triggers one — every subsequent
+  review, including after each push you want re-reviewed, must be prompted by commenting
+  `@codex review` (it takes minutes). So after pushing changes for review, always post the
+  comment rather than waiting for an auto-review that will not come. Confirm Codex picked
+  it up: within ~1 minute of the `@codex review` comment Codex adds an 👀 reaction (`eyes`,
+  from `chatgpt-codex-connector[bot]`) on the triggering comment to acknowledge it has
+  started. If that 👀 has not appeared after ~1 minute, the trigger did not take —
+  comment `@codex review` again, and re-check for the 👀. Once the review
+  finishes, Codex removes the 👀 and signals its verdict in one of three forms — a new PR
+  review (when it has findings), a new issue comment (often its "no major issues"
+  all-clear), or a 👍 reaction on the triggering comment — so poll for **any** of them;
+  watching only one misses the result. (Codex can be slow: a verdict occasionally takes
+  20+ minutes even after the 👀, so keep polling past a short timeout rather than assuming
+  it failed.) Capture baseline counts of Codex reviews, Codex issue comments, and the
+  trigger comment's reactions, then poll (~45s) for any to change, running the poller
   as a background command since a thorough review can exceed a 10-minute foreground
-  timeout. The bot login is `chatgpt-codex-connector` in reviews and
-  `chatgpt-codex-connector[bot]` in inline review comments.
+  timeout.
+  The bot login is `chatgpt-codex-connector[bot]` for PR reviews, inline review
+  comments, issue comments, and reactions alike. Filter reviews/comments with
+  `select(.user.login=="chatgpt-codex-connector[bot]")` (the bare
+  `chatgpt-codex-connector` without the `[bot]` suffix matches nothing).
 - When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
   (e.g. an upstream `yamllint` issue), always use the fully-qualified
   `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo
@@ -127,6 +168,16 @@ ryl is a CLI tool for linting yaml files
   compiled alongside the library create duplicate LLVM coverage instantiations and break
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
   tests in `tests/` instead.
+- When implementing a new rule or changing an existing one, extend the relevant
+  property-test generator(s) so the new/updated syntax is actually exercised (each suite
+  below lists exactly what to extend and the deterministic guard to add), then do a
+  one-off **~1000× thorough run** before committing: e.g.
+  `PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites'
+  in-CI default is 512 cases — tuned for speed, not exhaustiveness). Build `--release`
+  and run it in the background; it routinely flushes rare interleavings the small count
+  misses (a 512k-case run on #252 surfaced a pre-existing alias/key-value desync bug in
+  `key-ordering` and `quoted-strings`). Commit only once it is green, and keep any
+  newly-persisted seeds in `tests/proptest-regressions/`.
 
 ### Property Tests For Safe Fixes
 
@@ -341,6 +392,19 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   fallback to `.`.
 - Flow scanners in rules: always reconcile parser byte spans with `char_indices()` via
   `crate::rules::span_utils` to avoid off-by-byte bugs when UTF-8 characters appear.
+- Rules using the shared `crate::rules::support::mapping_key_walker::Walker` to track
+  key/value position must advance it for *every* node-producing event, including
+  `Event::Alias` (call `Walker::skip_node`). An alias in value position (`k: *a`, or a
+  `<<: *base` merge) that does not advance the walker desyncs the key/value alternation,
+  so the following key is read as a value and vice-versa (this caused a phantom-key bug
+  in `key-ordering` and key/value misclassification in `quoted-strings`). Exercise rules
+  with aliases in both key and value position.
+- Resolving a scalar to its typed value (int/bool/null/float/string) is centralised in
+  `crate::yaml_dom::scalar` (`resolve_scalar` / `resolve_plain_scalar`); reuse it rather
+  than reinventing parsing. ryl resolves scalars per the YAML 1.2 **core** schema
+  everywhere (leading-zero decimal is an int, an empty plain scalar is null, `0x`/`0o`
+  radixes, full bool/null spelling sets); keep that schema choice consistent across rules
+  instead of switching to JSON/1.1 semantics in any single rule.
 
 CI will fail the build on any missed line or region, so keep local runs green by
 sticking to the quick-status step above.

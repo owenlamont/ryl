@@ -138,6 +138,13 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("café".to_string()),
         Just("Yes".to_string()),
         Just("On".to_string()),
+        // `<<`, `0xB`, `11`, `~` exercise `key-duplicates: check-canonical`
+        // (standalone `<<` handling and canonical scalar equality); coherent
+        // merge structures come from `arb_merge_block`.
+        Just("<<".to_string()),
+        Just("0xB".to_string()),
+        Just("11".to_string()),
+        Just("~".to_string()),
         arb_multibyte().prop_map(|ch| format!("k{ch}")),
     ]
 }
@@ -280,13 +287,64 @@ fn arb_newline() -> impl Strategy<Value = Newline> {
     prop_oneof![Just(Newline::Lf), Just(Newline::Crlf)]
 }
 
-pub fn arb_document() -> impl Strategy<Value = Document> {
+fn merge_entry(indent: u8, key: &str, value: String) -> Line {
+    Line::Entry {
+        indent,
+        key: key.to_string(),
+        spaces_before_colon: 0,
+        spaces_after_colon: 1,
+        value,
+        comment: None,
+        trailing_spaces: 0,
+    }
+}
+
+/// A coherent merge structure the flat line generator never assembles by chance:
+/// two anchored flow-mapping bases sharing the key `dup`, then a host that merges
+/// them (optionally also defining `dup` explicitly). Exercises `key-duplicates`
+/// merge expansion and value-aware collision detection — both merge-vs-merge and
+/// explicit-vs-merge shadowing — under the canonical config in `collect_spans`.
+fn arb_merge_block() -> impl Strategy<Value = Vec<Line>> {
     (
-        prop::collection::vec((arb_line(), arb_newline()), 1..=8),
-        any::<bool>(),
+        arb_bare_value(),
+        arb_bare_value(),
+        0u8..=2,
+        prop::option::of(arb_bare_value()),
     )
-        .prop_map(|(lines, has_final_newline)| Document {
-            lines,
-            has_final_newline,
+        .prop_map(|(v0, v1, shape, shadow)| {
+            let merge_value = match shape {
+                0 => "*m0",
+                1 => "[*m0, *m1]",
+                _ => "[*m0, *m0]",
+            }
+            .to_string();
+            let mut lines = vec![
+                merge_entry(0, "b0", format!("&m0 {{dup: {v0}}}")),
+                merge_entry(0, "b1", format!("&m1 {{dup: {v1}}}")),
+                merge_entry(0, "h", String::new()),
+                merge_entry(2, "<<", merge_value),
+            ];
+            if let Some(shadow) = shadow {
+                lines.push(merge_entry(2, "dup", shadow));
+            }
+            lines
         })
+}
+
+fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
+    prop_oneof![
+        10 => (arb_line(), arb_newline()).prop_map(|pair| vec![pair]),
+        1 => (arb_merge_block(), arb_newline()).prop_map(|(lines, newline)| {
+            lines.into_iter().map(|line| (line, newline)).collect()
+        }),
+    ]
+}
+
+pub fn arb_document() -> impl Strategy<Value = Document> {
+    (prop::collection::vec(arb_fragment(), 1..=8), any::<bool>()).prop_map(
+        |(fragments, has_final_newline)| Document {
+            lines: fragments.into_iter().flatten().collect(),
+            has_final_newline,
+        },
+    )
 }

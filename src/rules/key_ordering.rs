@@ -155,10 +155,8 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
                 self.state
                     .handle_scalar(value.as_ref(), span, &mut self.violations);
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -195,6 +193,10 @@ impl<'cfg> KeyOrderingState<'cfg> {
 
     fn enter_sequence(&mut self) {
         self.walker.enter_sequence(());
+    }
+
+    fn skip_node(&mut self) {
+        self.walker.skip_node();
     }
 
     fn exit_container(&mut self) {

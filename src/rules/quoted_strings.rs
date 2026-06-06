@@ -227,10 +227,8 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
                     &mut self.diagnostics,
                 );
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -275,6 +273,10 @@ impl<'cfg> QuotedStringsState<'cfg> {
 
     fn exit_container(&mut self) {
         self.walker.exit_container();
+    }
+
+    fn skip_node(&mut self) {
+        self.walker.skip_node();
     }
 
     fn handle_scalar(
@@ -471,7 +473,10 @@ fn is_core_tag(tag: &Tag) -> bool {
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
-    matches!(Scalar::parse_from_cow(value.into()), Scalar::String(_))
+    matches!(
+        Scalar::resolve_plain_scalar(value.into()),
+        Scalar::String(_)
+    )
 }
 
 fn should_skip_scalar(
@@ -795,10 +800,8 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
                     span,
                 );
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -849,10 +852,8 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
                     self.replacements.push(r);
                 }
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            Event::Alias(_) => self.state.skip_node(),
+            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
         }
     }
 }
@@ -907,6 +908,10 @@ impl<'cfg> FixState<'cfg> {
 
     fn exit_container(&mut self) {
         self.walker.exit_container();
+    }
+
+    fn skip_node(&mut self) {
+        self.walker.skip_node();
     }
 
     fn in_flow(&self) -> bool {

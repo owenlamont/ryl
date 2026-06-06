@@ -132,6 +132,21 @@ fn each_rule_triggers_and_reports_in_bounds_spans() {
 }
 
 #[test]
+fn generated_merge_blocks_reach_canonical_merge_detection() {
+    // The structure `arb_merge_block` emits must actually drive key-duplicates'
+    // merge-collision path, so the `<<` syntax is not fuzzed vacuously: two
+    // anchored bases whose shared key differs collide once merged.
+    let merge = "b0: &m0 {dup: 1}\nb1: &m1 {dup: 2}\nh:\n  <<: [*m0, *m1]\n";
+    let spans = collect_spans(merge, trigger_all_config());
+    assert!(
+        spans.iter().any(|span| span.rule == "key-duplicates"),
+        "a generated merge block must trigger a key-duplicates collision: {spans:?}"
+    );
+    check_spans_in_bounds(merge, &spans)
+        .unwrap_or_else(|message| panic!("merge block spans out of bounds: {message}"));
+}
+
+#[test]
 fn multibyte_flow_punctuation_spans_stay_in_bounds() {
     let inputs = [
         "{ééé: 1 }\n",

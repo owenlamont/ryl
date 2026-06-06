@@ -103,6 +103,8 @@ check-multi-line-strings = false
 [rules.key-duplicates]
 level = "warning"
 forbid-duplicated-merge-keys = true
+check-canonical = false
+forbid-merge-key-shadowing = false
 
 [rules.key-ordering]
 level = "warning"

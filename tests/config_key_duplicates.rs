@@ -25,3 +25,39 @@ fn error_on_non_string_option_key() {
         .unwrap_err();
     assert!(err.contains("cannot convert non-string TOML key"), "{err}");
 }
+
+#[test]
+fn error_when_check_canonical_in_yaml_config() {
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-duplicates:\n    check-canonical: true\n",
+    )
+    .unwrap_err();
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.key-duplicates"), "{err}");
+}
+
+#[test]
+fn error_when_forbid_merge_key_shadowing_in_yaml_config() {
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  key-duplicates:\n    forbid-merge-key-shadowing: true\n",
+    )
+    .unwrap_err();
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.key-duplicates"), "{err}");
+}
+
+#[test]
+fn toml_config_accepts_ryl_only_options() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[rules.key-duplicates]\ncheck-canonical = true\nforbid-merge-key-shadowing = true\n",
+    )
+    .expect("TOML config should accept the ryl-only options");
+    assert!(
+        cfg.rule_option_bool("key-duplicates", "check-canonical", false),
+        "check-canonical should round-trip through TOML config"
+    );
+    assert!(
+        cfg.rule_option_bool("key-duplicates", "forbid-merge-key-shadowing", false),
+        "forbid-merge-key-shadowing should round-trip through TOML config"
+    );
+}

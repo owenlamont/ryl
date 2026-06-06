@@ -57,3 +57,29 @@ fn ignored_keys_skip_enforcement() {
     assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
 }
+
+#[test]
+fn alias_value_does_not_desync_key_ordering() {
+    // An alias in value position is a full node; if the walker is not advanced
+    // past it the key/value alternation desyncs and the next value is misread as
+    // an out-of-order key reported past end-of-file (regression: a `<<: *m0`
+    // merge value followed by another key surfaced via the property suite).
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("alias.yaml");
+    fs::write(&file, "base: &m0 {dup: 1}\nhost:\n  <<: *m0\n  z: ok\n").unwrap();
+
+    let cfg = dir.path().join("config.yml");
+    fs::write(
+        &cfg,
+        "rules:\n  document-start: disable\n  key-ordering: enable\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    assert_eq!(
+        code, 0,
+        "an alias value must not desync ordering: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
+}

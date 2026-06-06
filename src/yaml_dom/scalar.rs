@@ -3,7 +3,7 @@
 // `ScalarOwned` with parse helpers plus the borrowed-lifetime `Scalar` used
 // when parsing scalars from the event stream.
 //
-// `parse_from_cow` resolves null/bool per the YAML 1.2 core schema (so
+// `resolve_plain_scalar` resolves null/bool per the YAML 1.2 core schema (so
 // `True`/`Null` are bool/null, matching saphyr's post-0.0.6 resolver rather
 // than the narrower 0.0.6 release). `Yes`/`No`/`On`/`Off` are intentionally
 // left as strings: those are YAML 1.1 booleans, and ryl targets YAML 1.2.
@@ -43,61 +43,102 @@ impl<'input> Scalar<'input> {
         }
     }
 
-    pub fn parse_from_cow_and_metadata(
+    pub fn resolve_scalar(
         v: Cow<'input, str>,
         style: ScalarStyle,
         tag: Option<&Cow<'input, Tag>>,
     ) -> Option<Self> {
-        if style != ScalarStyle::Plain {
-            return Some(Self::String(v));
-        }
+        // An explicit core-schema tag fixes the type regardless of quoting style
+        // (`!!int "1"` is the integer 1, not the string "1"), so it is resolved
+        // before the non-plain-is-a-string fallback.
         match tag.map(Cow::as_ref) {
             Some(tag) if tag.is_yaml_core_schema() => match tag.suffix.as_str() {
-                "bool" => v.parse::<bool>().ok().map(Self::Boolean),
-                "int" => v.parse::<i64>().ok().map(Self::Integer),
+                "bool" => parse_core_schema_bool(&v).map(Self::Boolean),
+                "int" => parse_core_schema_int(&v).map(Self::Integer),
                 "float" => parse_core_schema_fp(&v)
                     .map(OrderedFloat)
                     .map(Self::FloatingPoint),
-                "null" => match v.as_ref() {
-                    "~" | "null" => Some(Self::Null),
-                    _ => None,
-                },
-                "str" => Some(Self::String(v)),
+                "null" => is_core_schema_null(&v).then_some(Self::Null),
+                // `merge` resolves `!!merge '<<'` to the same string identity as a
+                // plain `<<` so the two merge-key spellings are recognised as one
+                // key (e.g. for `forbid-duplicated-merge-keys`).
+                "str" | "merge" => Some(Self::String(v)),
                 _ => None,
             },
-            _ => Some(Self::parse_from_cow(v)),
+            _ if style != ScalarStyle::Plain => Some(Self::String(v)),
+            _ => Some(Self::resolve_plain_scalar(v)),
         }
     }
 
     #[must_use]
-    pub fn parse_from_cow(v: Cow<'input, str>) -> Self {
-        if let Some(number) = v.strip_prefix("0x") {
-            if let Ok(i) = i64::from_str_radix(number, 16) {
-                return Self::Integer(i);
-            }
-        } else if let Some(number) = v.strip_prefix("0o") {
-            if let Ok(i) = i64::from_str_radix(number, 8) {
-                return Self::Integer(i);
-            }
-        } else if let Some(number) = v.strip_prefix('+')
-            && let Ok(i) = number.parse::<i64>()
-        {
-            return Self::Integer(i);
+    pub fn resolve_plain_scalar(v: Cow<'input, str>) -> Self {
+        if let Some(integer) = parse_core_schema_int(&v) {
+            return Self::Integer(integer);
         }
-        match &*v {
-            "~" | "null" | "Null" | "NULL" => Self::Null,
-            "true" | "True" | "TRUE" => Self::Boolean(true),
-            "false" | "False" | "FALSE" => Self::Boolean(false),
-            _ => {
-                if let Ok(integer) = v.parse::<i64>() {
-                    Self::Integer(integer)
-                } else if let Some(float) = parse_core_schema_fp(&v) {
-                    Self::FloatingPoint(float.into())
-                } else {
-                    Self::String(v)
-                }
-            }
+        // A decimal integer that overflows `i64` keeps its exact text rather than
+        // being reparsed as `f64`, which would collapse distinct large integers
+        // onto one value (a false-positive duplicate key under `check-canonical`).
+        // Hex/octal overflow spellings already fall through to a string below
+        // because they cannot parse as `f64`.
+        if is_decimal_integer_spelling(&v) {
+            return Self::String(v);
         }
+        if is_core_schema_null(&v) {
+            return Self::Null;
+        }
+        if let Some(boolean) = parse_core_schema_bool(&v) {
+            return Self::Boolean(boolean);
+        }
+        parse_core_schema_fp(&v).map_or_else(
+            || Self::String(v),
+            |float| Self::FloatingPoint(float.into()),
+        )
+    }
+}
+
+/// Parse a YAML 1.2 core-schema boolean, accepting every spelling the schema's
+/// `true|True|TRUE|false|False|FALSE` production allows. Shared so an explicitly
+/// `!!bool`-tagged scalar resolves the same spellings as an untagged one
+/// (`!!bool TRUE` == `true`).
+#[must_use]
+pub fn parse_core_schema_bool(v: &str) -> Option<bool> {
+    match v {
+        "true" | "True" | "TRUE" => Some(true),
+        "false" | "False" | "FALSE" => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether `v` is a YAML 1.2 core-schema null spelling (`~|null|Null|NULL`, plus
+/// the empty plain scalar). Shared so an explicitly `!!null`-tagged scalar
+/// resolves the same spellings as an untagged one (`!!null NULL` == `~`); a
+/// quoted empty scalar stays a string because non-plain scalars are resolved
+/// before this is reached.
+#[must_use]
+pub fn is_core_schema_null(v: &str) -> bool {
+    matches!(v, "" | "~" | "null" | "Null" | "NULL")
+}
+
+/// Whether `v` is a decimal integer spelling (`[-+]?[0-9]+`). Reached only after
+/// `parse_core_schema_int` fails, so `true` means a valid integer that overflows
+/// `i64` and must keep its exact text instead of collapsing to an `f64`.
+#[must_use]
+fn is_decimal_integer_spelling(v: &str) -> bool {
+    let digits = v.strip_prefix(['+', '-']).unwrap_or(v);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Parse a YAML 1.2 core-schema integer, honouring the `0x`/`0o` radix prefixes
+/// and a leading `+`. Shared so an explicitly `!!int`-tagged scalar resolves the
+/// same spellings as an untagged one (`!!int 0xB` == `11`).
+#[must_use]
+pub fn parse_core_schema_int(v: &str) -> Option<i64> {
+    if let Some(hex) = v.strip_prefix("0x") {
+        i64::from_str_radix(hex, 16).ok()
+    } else if let Some(octal) = v.strip_prefix("0o") {
+        i64::from_str_radix(octal, 8).ok()
+    } else {
+        v.parse::<i64>().ok()
     }
 }
 

@@ -320,6 +320,34 @@ fn fix_with_toml_allow_double_quotes_for_escaping_silences_quoted_strings_diagno
 }
 
 #[test]
+fn fix_handles_alias_value_without_desyncing_quoted_strings() {
+    // Both quoted-strings fix passes (the consistent-style finder and the fixer)
+    // must advance past an alias value; otherwise the key/value alternation
+    // desyncs and the redundantly quoted value after it is misread as a key and
+    // left unfixed.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "anchor: &a 1\nref: *a\nval: \"x\"\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = \"disable\"\n[rules.quoted-strings]\nquote-type = \"consistent\"\nrequired = \"only-when-needed\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+    assert_eq!(
+        code, 0,
+        "fix should succeed: stdout={stdout} stderr={stderr}"
+    );
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        fixed, "anchor: &a 1\nref: *a\nval: x\n",
+        "the redundant quotes after an alias value must be removed: {fixed:?}"
+    );
+}
+
+#[test]
 fn fix_preserves_trailing_spaces_after_backslash_in_multiline_double_quoted_scalar() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
