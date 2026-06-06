@@ -367,6 +367,19 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   fallback to `.`.
 - Flow scanners in rules: always reconcile parser byte spans with `char_indices()` via
   `crate::rules::span_utils` to avoid off-by-byte bugs when UTF-8 characters appear.
+- Rules using the shared `crate::rules::support::mapping_key_walker::Walker` to track
+  key/value position must advance it for *every* node-producing event, including
+  `Event::Alias` (call `Walker::skip_node`). An alias in value position (`k: *a`, or a
+  `<<: *base` merge) that does not advance the walker desyncs the key/value alternation,
+  so the following key is read as a value and vice-versa (this caused a phantom-key bug
+  in `key-ordering` and key/value misclassification in `quoted-strings`). Exercise rules
+  with aliases in both key and value position.
+- Resolving a scalar to its typed value (int/bool/null/float/string) is centralised in
+  `crate::yaml_dom::scalar` (`resolve_scalar` / `resolve_plain_scalar`); reuse it rather
+  than reinventing parsing. ryl resolves scalars per the YAML 1.2 **core** schema
+  everywhere (leading-zero decimal is an int, an empty plain scalar is null, `0x`/`0o`
+  radixes, full bool/null spelling sets); keep that schema choice consistent across rules
+  instead of switching to JSON/1.1 semantics in any single rule.
 
 CI will fail the build on any missed line or region, so keep local runs green by
 sticking to the quick-status step above.
