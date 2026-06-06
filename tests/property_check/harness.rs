@@ -76,6 +76,24 @@ pub fn tags_config() -> &'static YamlLintConfig {
     &CONFIG
 }
 
+// `check-canonical` / `forbid-merge-key-shadowing` are ryl-only (TOML), so the
+// canonical/merge paths of `key-duplicates` are fuzzed through this config in
+// addition to the default YAML one above.
+const KEY_DUPLICATES_CANONICAL_TOML: &str = "[rules.key-duplicates]
+check-canonical = true
+forbid-merge-key-shadowing = true
+forbid-duplicated-merge-keys = true
+";
+
+#[must_use]
+pub fn key_duplicates_canonical_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(KEY_DUPLICATES_CANONICAL_TOML)
+            .expect("property-check key-duplicates canonical config must parse")
+    });
+    &CONFIG
+}
+
 macro_rules! collect_standard {
     ($spans:ident, $cfg:expr, $content:expr, $module:path) => {{
         use $module as rule;
@@ -108,6 +126,12 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::hyphens);
     collect_standard!(spans, cfg, content, ryl::rules::indentation);
     collect_standard!(spans, cfg, content, ryl::rules::key_duplicates);
+    collect_standard!(
+        spans,
+        key_duplicates_canonical_config(),
+        content,
+        ryl::rules::key_duplicates
+    );
     collect_standard!(spans, cfg, content, ryl::rules::key_ordering);
     collect_standard!(spans, cfg, content, ryl::rules::line_length);
     collect_standard!(spans, cfg, content, ryl::rules::octal_values);

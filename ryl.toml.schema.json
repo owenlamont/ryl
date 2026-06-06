@@ -330,20 +330,6 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntryForKeyDuplicatesOptions": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "$ref": "#/$defs/RuleSwitch"
-        },
-        {
-          "$ref": "#/$defs/RuleOptionsForKeyDuplicatesOptions"
-        }
-      ],
-      "description": "Common rule entry shape used by TOML config."
-    },
     "RuleEntryForKeyOrderingOptions": {
       "anyOf": [
         {
@@ -424,6 +410,20 @@
         },
         {
           "$ref": "#/$defs/RuleOptionsForTagsOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
+    "RuleEntryForTomlKeyDuplicatesOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForTomlKeyDuplicatesOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
@@ -1113,49 +1113,6 @@
       },
       "type": "object"
     },
-    "RuleOptionsForKeyDuplicatesOptions": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "forbid-duplicated-merge-keys": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
-    },
     "RuleOptionsForKeyOrderingOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1411,6 +1368,61 @@
           ]
         },
         "forbid-unsafe-tags": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForTomlKeyDuplicatesOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "check-canonical": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-duplicated-merge-keys": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-merge-key-shadowing": {
           "type": [
             "boolean",
             "null"
@@ -1748,7 +1760,7 @@
         "key-duplicates": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForKeyDuplicatesOptions"
+              "$ref": "#/$defs/RuleEntryForTomlKeyDuplicatesOptions"
             },
             {
               "type": "null"

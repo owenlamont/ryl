@@ -80,6 +80,12 @@ impl<T, M> Walker<T, M> {
             .map(|mapping| &mut mapping.payload)
     }
 
+    pub(crate) fn current_metadata_mut(&mut self) -> Option<&mut M> {
+        self.containers
+            .last_mut()
+            .map(|container| &mut container.metadata)
+    }
+
     pub(crate) fn any_metadata(&self, mut predicate: impl FnMut(&M) -> bool) -> bool {
         self.containers
             .iter()

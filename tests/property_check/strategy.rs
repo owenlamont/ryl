@@ -138,6 +138,13 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("café".to_string()),
         Just("Yes".to_string()),
         Just("On".to_string()),
+        // `<<`, `0xB`, `11`, `~` exercise `key-duplicates: check-canonical`
+        // (merge expansion and canonical scalar equality) under the canonical
+        // config in `harness::collect_spans`.
+        Just("<<".to_string()),
+        Just("0xB".to_string()),
+        Just("11".to_string()),
+        Just("~".to_string()),
         arb_multibyte().prop_map(|ch| format!("k{ch}")),
     ]
 }

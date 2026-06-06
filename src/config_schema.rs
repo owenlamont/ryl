@@ -34,7 +34,7 @@ pub struct TomlConfig {
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
     /// Rule configuration table.
-    pub rules: Option<RulesTable<TomlQuotedStringsOptions>>,
+    pub rules: Option<RulesTable<TomlQuotedStringsOptions, TomlKeyDuplicatesOptions>>,
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
@@ -306,7 +306,7 @@ impl RuleName {
 
 /// Built-in rule table for TOML config.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-pub struct RulesTable<Q = QuotedStringsOptions> {
+pub struct RulesTable<Q = QuotedStringsOptions, K = KeyDuplicatesOptions> {
     pub anchors: Option<RuleEntry<AnchorsOptions>>,
     pub braces: Option<RuleEntry<BraceLikeOptions>>,
     pub brackets: Option<RuleEntry<BraceLikeOptions>>,
@@ -328,7 +328,7 @@ pub struct RulesTable<Q = QuotedStringsOptions> {
     pub hyphens: Option<RuleEntry<HyphensOptions>>,
     pub indentation: Option<RuleEntry<IndentationOptions>>,
     #[serde(rename = "key-duplicates")]
-    pub key_duplicates: Option<RuleEntry<KeyDuplicatesOptions>>,
+    pub key_duplicates: Option<RuleEntry<K>>,
     #[serde(rename = "key-ordering")]
     pub key_ordering: Option<RuleEntry<KeyOrderingOptions>>,
     #[serde(rename = "line-length")]
@@ -509,6 +509,21 @@ pub enum IndentSequencesMode {
 pub struct KeyDuplicatesOptions {
     #[serde(rename = "forbid-duplicated-merge-keys")]
     pub forbid_duplicated_merge_keys: Option<bool>,
+}
+
+/// `key-duplicates` options for TOML config. Extends the yamllint-compatible
+/// surface with the ryl-only `check-canonical` and `forbid-merge-key-shadowing`
+/// knobs (TOML-only, so future yamllint additions cannot clash with the YAML
+/// schema; see `crate::config_schema::KeyDuplicatesOptions`).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TomlKeyDuplicatesOptions {
+    #[serde(rename = "forbid-duplicated-merge-keys")]
+    pub forbid_duplicated_merge_keys: Option<bool>,
+    #[serde(rename = "check-canonical")]
+    pub check_canonical: Option<bool>,
+    #[serde(rename = "forbid-merge-key-shadowing")]
+    pub forbid_merge_key_shadowing: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -872,10 +887,10 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config<Q: validation::QuotedStringsOptionSet>(
+fn validate_common_config<Q: validation::QuotedStringsOptionSet, K>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable<Q>>,
+    rules: Option<&RulesTable<Q, K>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(
