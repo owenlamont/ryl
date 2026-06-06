@@ -229,6 +229,31 @@ fn canonical_resolves_explicit_core_tags_on_quoted_scalars() {
 }
 
 #[test]
+fn canonical_resolves_all_core_bool_and_null_spellings() {
+    // An explicit !!bool / !!null must canonicalize every core-schema spelling
+    // the untagged path accepts, so uppercase tagged forms collide with their
+    // plain equivalents (`!!bool TRUE` == `true`, `!!null NULL` == `~`).
+    for (tagged, plain) in [
+        ("!!bool TRUE", "true"),
+        ("!!bool False", "false"),
+        ("!!null NULL", "~"),
+    ] {
+        let (code, output) = run_toml(
+            "check-canonical = true\n",
+            &format!("{tagged}: a\n{plain}: b\n"),
+        );
+        assert_eq!(
+            code, 1,
+            "expected `{tagged}` to collide with `{plain}`: {output}"
+        );
+        assert!(
+            output.contains(&format!("duplication of key \"{plain}\" in mapping")),
+            "`{tagged}` should canonicalize to the same key as `{plain}`: {output}"
+        );
+    }
+}
+
+#[test]
 fn canonical_treats_a_default_core_tag_as_untagged() {
     let (code, output) = run_toml(
         "check-canonical = true\n",

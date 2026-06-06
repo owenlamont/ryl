@@ -53,15 +53,12 @@ impl<'input> Scalar<'input> {
         // before the non-plain-is-a-string fallback.
         match tag.map(Cow::as_ref) {
             Some(tag) if tag.is_yaml_core_schema() => match tag.suffix.as_str() {
-                "bool" => v.parse::<bool>().ok().map(Self::Boolean),
+                "bool" => parse_core_schema_bool(&v).map(Self::Boolean),
                 "int" => parse_core_schema_int(&v).map(Self::Integer),
                 "float" => parse_core_schema_fp(&v)
                     .map(OrderedFloat)
                     .map(Self::FloatingPoint),
-                "null" => match v.as_ref() {
-                    "~" | "null" => Some(Self::Null),
-                    _ => None,
-                },
+                "null" => is_core_schema_null(&v).then_some(Self::Null),
                 "str" => Some(Self::String(v)),
                 _ => None,
             },
@@ -75,16 +72,38 @@ impl<'input> Scalar<'input> {
         if let Some(integer) = parse_core_schema_int(&v) {
             return Self::Integer(integer);
         }
-        match &*v {
-            "~" | "null" | "Null" | "NULL" => Self::Null,
-            "true" | "True" | "TRUE" => Self::Boolean(true),
-            "false" | "False" | "FALSE" => Self::Boolean(false),
-            _ => parse_core_schema_fp(&v).map_or_else(
-                || Self::String(v),
-                |float| Self::FloatingPoint(float.into()),
-            ),
+        if is_core_schema_null(&v) {
+            return Self::Null;
         }
+        if let Some(boolean) = parse_core_schema_bool(&v) {
+            return Self::Boolean(boolean);
+        }
+        parse_core_schema_fp(&v).map_or_else(
+            || Self::String(v),
+            |float| Self::FloatingPoint(float.into()),
+        )
     }
+}
+
+/// Parse a YAML 1.2 core-schema boolean, accepting every spelling the schema's
+/// `true|True|TRUE|false|False|FALSE` production allows. Shared so an explicitly
+/// `!!bool`-tagged scalar resolves the same spellings as an untagged one
+/// (`!!bool TRUE` == `true`).
+#[must_use]
+pub fn parse_core_schema_bool(v: &str) -> Option<bool> {
+    match v {
+        "true" | "True" | "TRUE" => Some(true),
+        "false" | "False" | "FALSE" => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether `v` is a YAML 1.2 core-schema null spelling (`~|null|Null|NULL`).
+/// Shared so an explicitly `!!null`-tagged scalar resolves the same spellings as
+/// an untagged one (`!!null NULL` == `~`).
+#[must_use]
+pub fn is_core_schema_null(v: &str) -> bool {
+    matches!(v, "~" | "null" | "Null" | "NULL")
 }
 
 /// Parse a YAML 1.2 core-schema integer, honouring the `0x`/`0o` radix prefixes
