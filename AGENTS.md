@@ -153,6 +153,16 @@ ryl is a CLI tool for linting yaml files
   compiled alongside the library create duplicate LLVM coverage instantiations and break
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
   tests in `tests/` instead.
+- When implementing a new rule or changing an existing one, extend the relevant
+  property-test generator(s) so the new/updated syntax is actually exercised (each suite
+  below lists exactly what to extend and the deterministic guard to add), then do a
+  one-off **~1000× thorough run** before committing: e.g.
+  `PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites'
+  in-CI default is 512 cases — tuned for speed, not exhaustiveness). Build `--release`
+  and run it in the background; it routinely flushes rare interleavings the small count
+  misses (a 512k-case run on #252 surfaced a pre-existing alias/key-value desync bug in
+  `key-ordering` and `quoted-strings`). Commit only once it is green, and keep any
+  newly-persisted seeds in `tests/proptest-regressions/`.
 
 ### Property Tests For Safe Fixes
 
