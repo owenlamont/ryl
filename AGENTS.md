@@ -52,6 +52,19 @@ ryl is a CLI tool for linting yaml files
 - When mirroring yamllint behaviour, spot-check tricky inputs with the ryl CLI so
   our diagnostics and message text match (e.g., mixed newline styles or config keys of
   type int/bool/null/tagged scalar).
+- For questions about how YAML *itself* should parse (is an input valid, and what
+  event/structure does it produce?), the source of truth is the YAML Parser Playground
+  at <https://play.yaml.com/>: paste YAML in the top-left pane and read the canonical
+  **Reference Parser** output in the bottom-left pane (the test-suite event stream —
+  `+STR/+DOC/+MAP/+SEQ`, `=VAL`, `=ALI`, `&anchor`, tags, or a parse error such as
+  "Parser finished before end of input"). The other panes are alternative parsers that
+  need a local sandbox server and are normally left unconnected. Input can be driven via
+  the URL hash as base64 of the YAML (`https://play.yaml.com/#<base64>`), which is handy
+  for scripted/browser-automation checks. Scope caveat: the playground reports the
+  *parse/event* layer (validity and structure), not *schema resolution* — it shows
+  `=VAL :011`, never "int vs string". For type-resolution questions (does `011` resolve
+  to int 11, an empty scalar to null, etc.) use a resolving loader instead (e.g.
+  `ruamel.yaml` in 1.2 mode or PyYAML), since ryl targets the YAML 1.2 **core** schema.
 - Keep YAML configuration strictly aligned with functionality that yamllint currently
   supports. Put any ryl-only settings, experimental rule options, or ahead-of-upstream
   behaviour in TOML configuration so future yamllint additions cannot clash with
