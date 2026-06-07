@@ -34,7 +34,13 @@ pub struct TomlConfig {
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
     /// Rule configuration table.
-    pub rules: Option<RulesTable<TomlQuotedStringsOptions, TomlKeyDuplicatesOptions>>,
+    pub rules: Option<
+        RulesTable<
+            TomlQuotedStringsOptions,
+            TomlKeyDuplicatesOptions,
+            TomlAnchorsOptions,
+        >,
+    >,
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
@@ -309,8 +315,12 @@ impl RuleName {
 
 /// Built-in rule table for TOML config.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-pub struct RulesTable<Q = QuotedStringsOptions, K = KeyDuplicatesOptions> {
-    pub anchors: Option<RuleEntry<AnchorsOptions>>,
+pub struct RulesTable<
+    Q = QuotedStringsOptions,
+    K = KeyDuplicatesOptions,
+    A = AnchorsOptions,
+> {
+    pub anchors: Option<RuleEntry<A>>,
     pub braces: Option<RuleEntry<BraceLikeOptions>>,
     pub brackets: Option<RuleEntry<BraceLikeOptions>>,
     pub colons: Option<RuleEntry<ColonsOptions>>,
@@ -364,6 +374,21 @@ pub struct AnchorsOptions {
     pub forbid_duplicated_anchors: Option<bool>,
     #[serde(rename = "forbid-unused-anchors")]
     pub forbid_unused_anchors: Option<bool>,
+}
+
+/// TOML-only `anchors` options: the yamllint-compatible set plus ryl's
+/// `forbid-ambiguous-anchor-alias-names`, which has no YAML-config equivalent.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TomlAnchorsOptions {
+    #[serde(rename = "forbid-undeclared-aliases")]
+    pub forbid_undeclared_aliases: Option<bool>,
+    #[serde(rename = "forbid-duplicated-anchors")]
+    pub forbid_duplicated_anchors: Option<bool>,
+    #[serde(rename = "forbid-unused-anchors")]
+    pub forbid_unused_anchors: Option<bool>,
+    #[serde(rename = "forbid-ambiguous-anchor-alias-names")]
+    pub forbid_ambiguous_anchor_alias_names: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -892,10 +917,10 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config<Q: validation::QuotedStringsOptionSet, K>(
+fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable<Q, K>>,
+    rules: Option<&RulesTable<Q, K, A>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(

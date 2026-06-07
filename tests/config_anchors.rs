@@ -1,4 +1,5 @@
-use ryl::config::{Overrides, discover_config};
+use ryl::config::{Overrides, YamlLintConfig, discover_config};
+use ryl::rules::anchors;
 
 #[test]
 fn anchors_allows_boolean_options() {
@@ -59,6 +60,42 @@ rules:
         },
     )
     .expect_err("unknown option");
+
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.anchors"), "{err}");
+}
+
+#[test]
+fn anchors_toml_enables_ambiguous_names() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n",
+    )
+    .expect("toml parse");
+    let resolved = anchors::Config::resolve(&cfg);
+    let hits = anchors::check("a: &foo: 1\n", &resolved);
+    assert_eq!(hits.len(), 1, "expected one ambiguous diagnostic: {hits:?}");
+    assert!(
+        hits[0].message.contains("ambiguous anchor name \"foo:\""),
+        "unexpected message: {hits:?}"
+    );
+}
+
+#[test]
+fn anchors_yaml_config_rejects_ambiguous_names_option() {
+    let cfg = r#"
+rules:
+  anchors:
+    forbid-ambiguous-anchor-alias-names: true
+"#;
+
+    let err = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(cfg.into()),
+        },
+    )
+    .expect_err("ryl-only option");
 
     assert!(err.contains("failed to parse config data:"), "{err}");
     assert!(err.contains("rules.anchors"), "{err}");

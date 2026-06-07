@@ -686,7 +686,29 @@ pub(crate) fn parse_error(content: &str) -> Option<LintProblem> {
 fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     match scan(content) {
         Ok(()) => None,
-        Err(err) if err.info() == "while parsing node, found unknown anchor" => None,
+        Err(err) if err.info() == "while parsing node, found unknown anchor" => {
+            // The parser stops at the tolerated undefined alias, which would mask a
+            // later lexical error (e.g. an empty anchor name). The scanner tokenises
+            // undefined aliases without erroring, so it surfaces that real syntax
+            // error; a clean scan means the only problem is the alias (lint reports
+            // it via the `anchors` rule, matching yamllint).
+            scanner_error(content).map(|err| syntax_problem(&err))
+        }
         Err(err) => Some(syntax_problem(&err)),
+    }
+}
+
+/// The first lexical scan error in `content`, or `None`. Used by
+/// [`syntax_diagnostic`] to find a malformed-token error the parser cannot reach
+/// because it halts on an earlier (tolerated) undefined alias.
+fn scanner_error(content: &str) -> Option<granit_parser::ScanError> {
+    let mut scanner =
+        granit_parser::Scanner::new(granit_parser::StrInput::new(content));
+    loop {
+        match scanner.next_token() {
+            Ok(Some(_)) => {}
+            Ok(None) => return None,
+            Err(err) => return Some(err),
+        }
     }
 }

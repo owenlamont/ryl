@@ -40,7 +40,7 @@ impl QuotedStringsOptionSet for TomlQuotedStringsOptions {
     }
 }
 
-impl<Q: QuotedStringsOptionSet, K> RulesTable<Q, K> {
+impl<Q: QuotedStringsOptionSet, K, A> RulesTable<Q, K, A> {
     pub(super) fn validate(&self) -> Result<(), String> {
         validate_key_ordering_rule(self.key_ordering.as_ref())?;
         validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
