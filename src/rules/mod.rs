@@ -15,6 +15,7 @@ pub mod indentation;
 pub mod key_duplicates;
 pub mod key_ordering;
 pub mod line_length;
+pub mod merge_keys;
 pub mod new_line_at_end_of_file;
 pub mod new_lines;
 pub mod octal_values;
@@ -27,7 +28,7 @@ pub mod unicode_line_breaks;
 
 /// Every rule id, used by the directive engine to expand a bare `disable`/`enable`
 /// (no `rule:` token) to "all rules". Extend this when adding a rule.
-pub const ALL_RULE_IDS: [&str; 25] = [
+pub const ALL_RULE_IDS: [&str; 26] = [
     anchors::ID,
     braces::ID,
     brackets::ID,
@@ -45,6 +46,7 @@ pub const ALL_RULE_IDS: [&str; 25] = [
     key_duplicates::ID,
     key_ordering::ID,
     line_length::ID,
+    merge_keys::ID,
     new_line_at_end_of_file::ID,
     new_lines::ID,
     octal_values::ID,
@@ -60,4 +62,5 @@ pub const ALL_RULE_IDS: [&str; 25] = [
 /// out of the YAML schema so the YAML `rules` namespace stays reserved for
 /// yamllint's own definitions (see `AGENTS.md`). Extend this when adding a rule
 /// that yamllint does not have.
-pub const RYL_ONLY_RULE_IDS: [&str; 2] = [tags::ID, unicode_line_breaks::ID];
+pub const RYL_ONLY_RULE_IDS: [&str; 3] =
+    [merge_keys::ID, tags::ID, unicode_line_breaks::ID];

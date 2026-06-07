@@ -94,6 +94,7 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("key-duplicates", "a: 1\na: 2\n"),
     ("key-ordering", "b: 1\na: 2\n"),
     ("line-length", "a: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"),
+    ("merge-keys", "a: &a {x: 1}\nb:\n  <<: *a\n"),
     ("new-line-at-end-of-file", "a: 1"),
     ("new-lines", "a: 1\r\n"),
     ("octal-values", "a: 010\n"),

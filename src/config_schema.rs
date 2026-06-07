@@ -262,6 +262,8 @@ pub enum RuleName {
     KeyOrdering,
     #[serde(rename = "line-length")]
     LineLength,
+    #[serde(rename = "merge-keys")]
+    MergeKeys,
     #[serde(rename = "new-line-at-end-of-file")]
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
@@ -301,6 +303,7 @@ impl RuleName {
             Self::KeyDuplicates => "key-duplicates",
             Self::KeyOrdering => "key-ordering",
             Self::LineLength => "line-length",
+            Self::MergeKeys => "merge-keys",
             Self::NewLineAtEndOfFile => "new-line-at-end-of-file",
             Self::NewLines => "new-lines",
             Self::OctalValues => "octal-values",
@@ -346,6 +349,8 @@ pub struct RulesTable<
     pub key_ordering: Option<RuleEntry<KeyOrderingOptions>>,
     #[serde(rename = "line-length")]
     pub line_length: Option<RuleEntry<LineLengthOptions>>,
+    #[serde(rename = "merge-keys")]
+    pub merge_keys: Option<RuleEntry<NoOptions>>,
     #[serde(rename = "new-line-at-end-of-file")]
     pub new_line_at_end_of_file: Option<RuleEntry<NoOptions>>,
     #[serde(rename = "new-lines")]

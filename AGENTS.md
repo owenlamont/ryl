@@ -343,6 +343,10 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   that depend on whether the scalar is plain, quoted, or block-styled, and on
   whether folding is semantically allowed; no single rewrite is universally
   safe.
+- `merge-keys` — Removing a `<<` merge requires inlining the merged mapping's
+  resolved keys/values (which the source text alone does not carry) and would
+  change the document's structure; quoting the `<<` silently drops the merge, so
+  no rewrite is universally safe.
 - `octal-values` — Resolving `010` requires knowing whether the user meant
   the integer `8`, the integer `10`, or the string `"010"`; the YAML source
   alone cannot disambiguate.

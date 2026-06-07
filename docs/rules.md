@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ryl implements 25 rules for checking YAML files. This page is a categorised
+ryl implements 26 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -51,6 +51,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`empty-values`](rules/empty-values.md) | Empty values in mappings and sequences. |  |
 | [`key-duplicates`](rules/key-duplicates.md) | Duplicate keys in mappings. |  |
 | [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. |  |
+| [`merge-keys`](rules/merge-keys.md) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
 | [`tags`](rules/tags.md) | Unsafe and non-portable YAML tags. |  |
 
 ## Comments

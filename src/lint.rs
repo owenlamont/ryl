@@ -5,9 +5,9 @@ use crate::decoder;
 use crate::rules::{
     anchors, braces, brackets, colons, commas, comments, comments_indentation,
     document_end, document_start, empty_lines, empty_values, float_values, hyphens,
-    indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file,
-    new_lines, octal_values, quoted_strings, tags, trailing_spaces, truthy,
-    unicode_line_breaks,
+    indentation, key_duplicates, key_ordering, line_length, merge_keys,
+    new_line_at_end_of_file, new_lines, octal_values, quoted_strings, tags,
+    trailing_spaces, truthy, unicode_line_breaks,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -294,6 +294,8 @@ pub fn lint_str(
         base_dir,
     );
 
+    collect_merge_keys_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+
     let directives = crate::directives::Directives::parse(content);
     diagnostics.retain(|problem| {
         !problem
@@ -556,6 +558,28 @@ fn collect_unicode_line_breaks_diagnostics(
                 level: level.into(),
                 message: hit.message,
                 rule: Some(unicode_line_breaks::ID),
+            });
+        }
+    }
+}
+
+fn collect_merge_keys_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(merge_keys::ID)
+        && !cfg.is_rule_ignored(merge_keys::ID, path, base_dir)
+    {
+        for hit in merge_keys::check(content) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(merge_keys::ID),
             });
         }
     }
