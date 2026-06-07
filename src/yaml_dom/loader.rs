@@ -10,6 +10,7 @@ use granit_parser::{
     Event, Marker, Parser, ScanError, Span, SpannedEventReceiver, Tag,
 };
 
+use super::{core_schema_suffix, is_core_schema};
 use crate::yaml_dom::scalar::Scalar;
 use crate::yaml_dom::yaml_owned::{MappingOwned, YamlOwned};
 
@@ -113,7 +114,7 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
             }
             Event::Scalar(value, style, aid, tag) => {
                 let node = match tag.as_ref() {
-                    Some(tag_ref) if !tag_ref.is_yaml_core_schema() => {
+                    Some(tag_ref) if !is_core_schema(tag_ref) => {
                         let inner = Scalar::resolve_scalar(value, style, None)
                             .map_or(YamlOwned::BadValue, |scalar| {
                                 YamlOwned::Value(scalar.into_owned())
@@ -162,15 +163,22 @@ impl Loader {
             size,
         } = frame;
         let self_size = size + 1;
-        let node = match container {
-            Container::Sequence(seq) => YamlOwned::Sequence(seq),
-            Container::Mapping(map, _) => YamlOwned::Mapping(map),
+        // `default_suffix` is the core-schema tag this collection resolves to
+        // implicitly, so an explicit tag equal to it is redundant and dropped.
+        let (node, default_suffix) = match container {
+            Container::Sequence(seq) => (YamlOwned::Sequence(seq), "seq"),
+            Container::Mapping(map, _) => (YamlOwned::Mapping(map), "map"),
         };
+        // Drop only the collection's own default core tag (`!!map` on a mapping,
+        // `!!seq` on a sequence). A mismatched core tag (`!!seq` on a mapping), an
+        // unknown core suffix (`!!custom`), or a local tag is preserved as `Tagged`
+        // so config validation rejects it instead of silently treating the node as
+        // untyped — mirroring the scalar path, which yields `BadValue` for a core
+        // tag that does not match the value.
         let node = match tag {
-            Some(tag) if !tag.is_yaml_core_schema() => {
-                YamlOwned::Tagged(tag, Box::new(node))
-            }
-            _ => node,
+            Some(tag) if core_schema_suffix(&tag) == Some(default_suffix) => node,
+            Some(tag) => YamlOwned::Tagged(tag, Box::new(node)),
+            None => node,
         };
         if anchor_id > 0 {
             self.anchor_map.insert(anchor_id, node.clone());

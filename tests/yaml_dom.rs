@@ -154,6 +154,87 @@ fn unknown_core_schema_tag_is_bad_value() {
     assert!(matches!(v, YamlOwned::BadValue));
 }
 
+// granit scans a verbatim `!<…>` tag to an *empty* handle with the full URI in
+// the suffix, so a core tag must be recognised by suffix rather than handle to
+// resolve like its `!!` shorthand. Verified vs PyYAML + ruamel.yaml (issue #277).
+#[test]
+fn resolves_verbatim_core_schema_int_tag_like_shorthand() {
+    let doc = parse_single("v: !<tag:yaml.org,2002:int> 0xB\n");
+    assert_eq!(
+        doc.as_mapping_get("v").and_then(YamlOwned::as_integer),
+        Some(11),
+        "a verbatim core int tag must resolve, not stay a Tagged node"
+    );
+}
+
+#[test]
+fn resolves_verbatim_core_schema_str_tag_forces_string() {
+    let doc = parse_single("v: !<tag:yaml.org,2002:str> 42\n");
+    assert_eq!(
+        doc.as_mapping_get("v").and_then(YamlOwned::as_str),
+        Some("42")
+    );
+}
+
+// The loader wraps only *non*-core tags as `Tagged`; a verbatim core collection
+// tag must unwrap to the plain collection just like the shorthand does.
+#[test]
+fn verbatim_core_schema_seq_tag_unwraps_like_shorthand() {
+    let doc = parse_single("v: !<tag:yaml.org,2002:seq>\n  - 1\n  - 2\n");
+    let seq = doc
+        .as_mapping_get("v")
+        .and_then(YamlOwned::as_sequence)
+        .expect("verbatim core seq tag resolves to a sequence, not a Tagged node");
+    assert_eq!(seq.len(), 2);
+}
+
+// A core tag matching the node kind is the node's implicit tag, so it is dropped
+// (the collection resolves as itself); both spellings behave the same.
+#[test]
+fn matching_core_collection_tag_unwraps() {
+    for src in ["v: !!map {a: b}\n", "v: !<tag:yaml.org,2002:map> {a: b}\n"] {
+        assert!(
+            matches!(
+                parse_single(src).as_mapping_get("v"),
+                Some(YamlOwned::Mapping(_))
+            ),
+            "{src:?} should resolve to a plain mapping"
+        );
+    }
+    for src in ["v: !!seq [1, 2]\n", "v: !<tag:yaml.org,2002:seq> [1, 2]\n"] {
+        assert!(
+            matches!(
+                parse_single(src).as_mapping_get("v"),
+                Some(YamlOwned::Sequence(_))
+            ),
+            "{src:?} should resolve to a plain sequence"
+        );
+    }
+}
+
+// A core tag that does NOT match the node kind (`!!seq` on a mapping) or an unknown
+// core suffix (`!!custom`) is not the implicit tag, so it is preserved as `Tagged`
+// (→ rejected by config validation) rather than silently discarded — matching the
+// scalar path's `BadValue` and the local-tag path, in both shorthand and verbatim
+// spellings (issue #277 review).
+#[test]
+fn mismatched_or_unknown_core_collection_tag_stays_tagged() {
+    for src in [
+        "v: !!seq {a: b}\n",
+        "v: !<tag:yaml.org,2002:seq> {a: b}\n",
+        "v: !!custom {a: b}\n",
+        "v: !<tag:yaml.org,2002:custom> {a: b}\n",
+    ] {
+        assert!(
+            matches!(
+                parse_single(src).as_mapping_get("v"),
+                Some(YamlOwned::Tagged(_, _))
+            ),
+            "{src:?} should preserve the non-matching core tag as Tagged"
+        );
+    }
+}
+
 #[test]
 fn non_core_tagged_scalar_wraps_in_tagged() {
     let doc = parse_single("v: !foo bar\n");

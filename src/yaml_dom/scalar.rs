@@ -13,6 +13,8 @@ use std::borrow::Cow;
 use granit_parser::{ScalarStyle, Tag};
 use ordered_float::OrderedFloat;
 
+use super::core_schema_suffix;
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum Scalar<'input> {
     Null,
@@ -50,23 +52,25 @@ impl<'input> Scalar<'input> {
     ) -> Option<Self> {
         // An explicit core-schema tag fixes the type regardless of quoting style
         // (`!!int "1"` is the integer 1, not the string "1"), so it is resolved
-        // before the non-plain-is-a-string fallback.
-        match tag.map(Cow::as_ref) {
-            Some(tag) if tag.is_yaml_core_schema() => match tag.suffix.as_str() {
-                "bool" => parse_core_schema_bool(&v).map(Self::Boolean),
-                "int" => parse_core_schema_int(&v).map(Self::Integer),
-                "float" => parse_core_schema_fp(&v)
-                    .map(OrderedFloat)
-                    .map(Self::FloatingPoint),
-                "null" => is_core_schema_null(&v).then_some(Self::Null),
-                // `merge` resolves `!!merge '<<'` to the same string identity as a
-                // plain `<<` so the two merge-key spellings are recognised as one
-                // key (e.g. for `forbid-duplicated-merge-keys`).
-                "str" | "merge" => Some(Self::String(v)),
-                _ => None,
-            },
-            _ if style != ScalarStyle::Plain => Some(Self::String(v)),
-            _ => Some(Self::resolve_plain_scalar(v)),
+        // before the non-plain-is-a-string fallback. Matching on the core-schema
+        // *suffix* (not the handle) means a verbatim `!<tag:yaml.org,2002:int>`
+        // resolves identically to the `!!int` shorthand (issue #277).
+        match tag.map(Cow::as_ref).and_then(core_schema_suffix) {
+            Some("bool") => parse_core_schema_bool(&v).map(Self::Boolean),
+            Some("int") => parse_core_schema_int(&v).map(Self::Integer),
+            Some("float") => parse_core_schema_fp(&v)
+                .map(OrderedFloat)
+                .map(Self::FloatingPoint),
+            Some("null") => is_core_schema_null(&v).then_some(Self::Null),
+            // `merge` resolves a `!!merge '<<'` to the same string identity as a
+            // plain `<<` so the two merge-key spellings are recognised as one key
+            // (e.g. for `forbid-duplicated-merge-keys`).
+            Some("str" | "merge") => Some(Self::String(v)),
+            // A core tag naming a non-scalar type (`!!seq`, `!!map`) cannot resolve
+            // a scalar value.
+            Some(_) => None,
+            None if style != ScalarStyle::Plain => Some(Self::String(v)),
+            None => Some(Self::resolve_plain_scalar(v)),
         }
     }
 

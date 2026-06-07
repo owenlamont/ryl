@@ -47,7 +47,7 @@ use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver, Tag}
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
-use crate::yaml_dom::{Scalar, ScalarOwned};
+use crate::yaml_dom::{Scalar, ScalarOwned, core_schema_suffix, is_core_schema};
 
 pub const ID: &str = "key-duplicates";
 
@@ -117,7 +117,7 @@ fn key_id(
     canonical: bool,
 ) -> KeyId {
     if canonical
-        && tag.is_none_or(|tag| tag.is_yaml_core_schema())
+        && tag.is_none_or(|tag| is_core_schema(tag))
         && let Some(scalar) = Scalar::resolve_scalar(Cow::Borrowed(value), style, tag)
     {
         return KeyId::Resolved(scalar.into_owned());
@@ -159,9 +159,13 @@ const DEFAULT_TAG_SUFFIXES: [&str; 7] =
 /// the implicit default tags do not.
 fn tag_vid(tag: Option<&Cow<'_, Tag>>) -> Vid {
     match tag.map(Cow::as_ref) {
+        // `core_schema_suffix`, not granit's handle-only check, so a verbatim core
+        // default tag is recognised as non-distinguishing too (#277).
         Some(tag)
-            if !(tag.is_yaml_core_schema()
-                && DEFAULT_TAG_SUFFIXES.contains(&tag.suffix.as_str())) =>
+            if !matches!(
+                core_schema_suffix(tag),
+                Some(suffix) if DEFAULT_TAG_SUFFIXES.contains(&suffix)
+            ) =>
         {
             hash_of(tag)
         }

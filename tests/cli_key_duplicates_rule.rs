@@ -41,6 +41,25 @@ fn canonical_treats_numeric_spellings_of_one_integer_as_duplicate() {
 }
 
 #[test]
+fn canonical_resolves_verbatim_core_int_tag() {
+    // A verbatim `!<tag:yaml.org,2002:int>` resolves to the same integer as the
+    // shorthand, so `0xB` (int 11) collides with `11` even in long-form. Pre-#277
+    // the handle-only `is_yaml_core_schema` left the verbatim key as raw text.
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "? !<tag:yaml.org,2002:int> 0xB\n: a\n11: b\n",
+    );
+    assert_eq!(
+        code, 1,
+        "verbatim core int key should canonicalize: {output}"
+    );
+    assert!(
+        output.contains("duplication of key \"11\" in mapping"),
+        "verbatim !!int 0xB should collide with 11: {output}"
+    );
+}
+
+#[test]
 fn canonical_reports_each_duplicate_integer_spelling() {
     let (code, output) =
         run_toml("check-canonical = true\n", "0xB: a\n11: b\n0o13: c\n");
