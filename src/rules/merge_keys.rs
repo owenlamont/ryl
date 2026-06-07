@@ -17,6 +17,11 @@
 //! (verified against `PyYAML` and ruamel.yaml) and is the portable way to use the
 //! literal text, so it is not flagged.
 //!
+//! Detection covers merge keys whose key node is a *scalar* (every merge key in
+//! practice). A merge tag on a non-scalar key — the pathological
+//! `!!merge {k: 1}: *base` — is not detected, since the key arrives as a
+//! mapping/sequence event rather than a scalar.
+//!
 //! Sources: YAML 1.2.2 changes page; YAML merge type (yaml.org/type/merge.html).
 //! There is no safe `--fix`: removing a merge requires inlining the merged
 //! mapping's resolved values (see AGENTS.md "Rules Without A Safe `--fix`").

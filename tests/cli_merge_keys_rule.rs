@@ -96,6 +96,24 @@ fn flags_explicitly_tagged_merge_key_regardless_of_text() {
 }
 
 #[test]
+fn flags_verbatim_merge_tag() {
+    // A verbatim-spelled core merge tag merges identically (verified in PyYAML and
+    // ruamel) but resolves to an empty handle, so it is matched by the tag's full
+    // URI rather than granit's handle-only `is_yaml_core_schema`.
+    let (code, output) = lint_with_toml_config(
+        "base: &b {x: 1}\n!<tag:yaml.org,2002:merge> foo: *b\n",
+        ENABLE,
+    );
+    assert_eq!(code, 1, "a verbatim merge tag should fail: {output}");
+    assert!(
+        output.contains("2:28")
+            && output.contains("forbidden merge key \"foo\"")
+            && output.contains("merge-keys"),
+        "verbatim merge tag flagged with the actual key text: {output}"
+    );
+}
+
+#[test]
 fn rule_does_not_fire_when_not_enabled() {
     let (code, output) = lint_with_toml_config(
         "base: &b {x: 1}\nchild:\n  <<: *b\n",
