@@ -81,6 +81,24 @@ pub fn tags_config() -> &'static YamlLintConfig {
 // `check-canonical` / `forbid-merge-key-shadowing` are ryl-only (TOML), so the
 // canonical/merge paths of `key-duplicates` are fuzzed through this config in
 // addition to the default YAML one above.
+//
+// `forbid-ambiguous-anchor-alias-names` is ryl-only (TOML), so the ambiguous-name
+// path of `anchors` is fuzzed through this config too. Undeclared aliases are
+// disabled here so this dispatch contributes only ambiguous-name spans.
+const ANCHORS_AMBIGUOUS_TOML: &str = "[rules.anchors]
+forbid-undeclared-aliases = false
+forbid-ambiguous-anchor-alias-names = true
+";
+
+#[must_use]
+pub fn anchors_ambiguous_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(ANCHORS_AMBIGUOUS_TOML)
+            .expect("property-check anchors ambiguous config must parse")
+    });
+    &CONFIG
+}
+
 const KEY_DUPLICATES_CANONICAL_TOML: &str = "[rules.key-duplicates]
 check-canonical = true
 forbid-merge-key-shadowing = true
@@ -114,6 +132,12 @@ macro_rules! collect_standard {
 pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_standard!(spans, cfg, content, ryl::rules::anchors);
+    collect_standard!(
+        spans,
+        anchors_ambiguous_config(),
+        content,
+        ryl::rules::anchors
+    );
     collect_standard!(spans, cfg, content, ryl::rules::braces);
     collect_standard!(spans, cfg, content, ryl::rules::brackets);
     collect_standard!(spans, cfg, content, ryl::rules::colons);

@@ -176,20 +176,6 @@
       ],
       "type": "string"
     },
-    "RuleEntryForAnchorsOptions": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "$ref": "#/$defs/RuleSwitch"
-        },
-        {
-          "$ref": "#/$defs/RuleOptionsForAnchorsOptions"
-        }
-      ],
-      "description": "Common rule entry shape used by TOML config."
-    },
     "RuleEntryForBraceLikeOptions": {
       "anyOf": [
         {
@@ -414,6 +400,20 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
+    "RuleEntryForTomlAnchorsOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForTomlAnchorsOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
     "RuleEntryForTomlKeyDuplicatesOptions": {
       "anyOf": [
         {
@@ -494,61 +494,6 @@
         "unicode-line-breaks"
       ],
       "type": "string"
-    },
-    "RuleOptionsForAnchorsOptions": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "forbid-duplicated-anchors": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "forbid-undeclared-aliases": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "forbid-unused-anchors": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
     },
     "RuleOptionsForBraceLikeOptions": {
       "additionalProperties": false,
@@ -1407,6 +1352,67 @@
       },
       "type": "object"
     },
+    "RuleOptionsForTomlAnchorsOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "forbid-ambiguous-anchor-alias-names": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-duplicated-anchors": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-undeclared-aliases": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-unused-anchors": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RuleOptionsForTomlKeyDuplicatesOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1621,7 +1627,7 @@
         "anchors": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForAnchorsOptions"
+              "$ref": "#/$defs/RuleEntryForTomlAnchorsOptions"
             },
             {
               "type": "null"

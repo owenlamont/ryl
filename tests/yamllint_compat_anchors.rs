@@ -56,6 +56,20 @@ fn anchors_rule_matches_yamllint() {
     let unused_file = dir.path().join("unused.yaml");
     fs::write(&unused_file, "---\n- &anchor value\n- 1\n").unwrap();
 
+    let dup_unused_cfg = dir.path().join("anchors-dup-unused.yml");
+    fs::write(
+        &dup_unused_cfg,
+        "rules:\n  document-start: disable\n  anchors:\n    forbid-undeclared-aliases: false\n    forbid-duplicated-anchors: true\n    forbid-unused-anchors: true\n",
+    )
+    .unwrap();
+
+    // A duplicated anchor name whose last declaration is aliased is used (no
+    // unused); two unused declarations of one name report unused once.
+    let dup_used_file = dir.path().join("dup-used.yaml");
+    fs::write(&dup_used_file, "- &b 1\n- &b 2\n- *b\n").unwrap();
+    let dup_unused_file = dir.path().join("dup-unused.yaml");
+    fs::write(&dup_unused_file, "- &b 1\n- &b 2\n").unwrap();
+
     let regex_file = dir.path().join("regex.yaml");
     fs::write(
         &regex_file,
@@ -233,6 +247,32 @@ fn anchors_rule_matches_yamllint() {
             "regex diagnostics mismatch ({})",
             scenario.label
         );
+
+        // Duplicated anchor name vs unused: ryl must match yamllint's name-keyed
+        // model (alias to the last declaration clears unused; an unused name is
+        // reported once, not once per duplicate record).
+        for dup_file in [&dup_used_file, &dup_unused_file] {
+            let mut ryl_dup = build_ryl_command(exe, scenario.ryl_format);
+            ryl_dup.arg("-c").arg(&dup_unused_cfg).arg(dup_file);
+            let (ryl_dup_code, ryl_dup_output) =
+                capture_with_env(ryl_dup, scenario.envs);
+
+            let mut yam_dup = build_yamllint_command(scenario.yam_format);
+            yam_dup.arg("-c").arg(&dup_unused_cfg).arg(dup_file);
+            let (yam_dup_code, yam_dup_output) =
+                capture_with_env(yam_dup, scenario.envs);
+
+            assert_eq!(
+                ryl_dup_code, yam_dup_code,
+                "dup/unused exit mismatch ({})",
+                scenario.label
+            );
+            assert_eq!(
+                ryl_dup_output, yam_dup_output,
+                "dup/unused diagnostics mismatch ({})",
+                scenario.label
+            );
+        }
     }
 }
 
