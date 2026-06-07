@@ -99,13 +99,14 @@ pub struct FixStats {
     pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
 }
 
-/// The result of fixing a single file in place.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FixOutcome {
-    Changed,
-    Unchanged,
-    /// The file does not parse, so it was left untouched; carries the parse error.
-    Skipped(crate::lint::LintProblem),
+/// The result of fixing a single file in place. A file may both have changed and
+/// carry skips: a Markdown file can fix some embedded regions while skipping others
+/// that do not parse. For a plain YAML file `skipped` holds at most one entry (the
+/// whole file's parse error).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FixOutcome {
+    pub changed: bool,
+    pub skipped: Vec<crate::lint::LintProblem>,
 }
 
 /// `--fix` rewrites a path in place, and `std::fs::write` follows symlinks, so a
@@ -143,19 +144,25 @@ pub fn apply_safe_fixes_in_place(
     base_dir: &Path,
 ) -> Result<FixOutcome, String> {
     if refuse_symlink(path) {
-        return Ok(FixOutcome::Unchanged);
+        return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
     if let Some(problem) = crate::lint::parse_error(decoded.content()) {
-        return Ok(FixOutcome::Skipped(problem));
+        return Ok(FixOutcome {
+            changed: false,
+            skipped: vec![problem],
+        });
     }
     let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
     if fixed == decoded.content() {
-        return Ok(FixOutcome::Unchanged);
+        return Ok(FixOutcome::default());
     }
 
     decoded.write(path, &fixed)?;
-    Ok(FixOutcome::Changed)
+    Ok(FixOutcome {
+        changed: true,
+        skipped: Vec::new(),
+    })
 }
 
 /// Apply all currently supported safe fixes to each discovered file in place.
@@ -174,12 +181,11 @@ pub fn apply_safe_fixes_to_files(
             }
             SourceKind::Yaml => apply_safe_fixes_in_place(path, cfg, base_dir)?,
         };
-        match outcome {
-            FixOutcome::Changed => stats.changed_files += 1,
-            FixOutcome::Unchanged => {}
-            FixOutcome::Skipped(problem) => {
-                stats.skipped.push((path.clone(), problem));
-            }
+        if outcome.changed {
+            stats.changed_files += 1;
+        }
+        for problem in outcome.skipped {
+            stats.skipped.push((path.clone(), problem));
         }
     }
     Ok(stats)
@@ -197,16 +203,21 @@ pub fn apply_markdown_safe_fixes_in_place(
     base_dir: &Path,
 ) -> Result<FixOutcome, String> {
     if refuse_symlink(path) {
-        return Ok(FixOutcome::Unchanged);
+        return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
-    match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
+    // Regions that do not parse are skipped by the per-region gate in
+    // `fix_markdown_str`; collect their parse errors (mapped to host coordinates)
+    // so the CLI reports them, like a plain YAML file's whole-file skip.
+    let skipped = crate::markdown_embed::markdown_parse_skips(decoded.content(), cfg);
+    let changed = match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
         Some(fixed) => {
             decoded.write(path, &fixed)?;
-            Ok(FixOutcome::Changed)
+            true
         }
-        None => Ok(FixOutcome::Unchanged),
-    }
+        None => false,
+    };
+    Ok(FixOutcome { changed, skipped })
 }
 
 /// Apply safe fixes to each embedded YAML region of `markdown` and splice the

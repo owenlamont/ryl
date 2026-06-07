@@ -22,7 +22,7 @@ fn apply_safe_fixes_in_place_reports_no_change() {
     let outcome =
         apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
 
-    assert_eq!(outcome, FixOutcome::Unchanged);
+    assert_eq!(outcome, FixOutcome::default());
     assert_eq!(fs::read_to_string(&file).unwrap(), "key: value\n");
 }
 
@@ -36,7 +36,7 @@ fn apply_safe_fixes_in_place_writes_changes() {
     let outcome =
         apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
 
-    assert_eq!(outcome, FixOutcome::Changed);
+    assert!(outcome.changed && outcome.skipped.is_empty());
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "key: value  # comment\n"
@@ -53,14 +53,13 @@ fn apply_safe_fixes_in_place_skips_and_reports_unparsable_file() {
     let outcome =
         apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
 
-    match outcome {
-        FixOutcome::Skipped(problem) => assert!(
-            problem.message.contains("unknown anchor"),
-            "skip carries the parse error: {}",
-            problem.message
-        ),
-        other => panic!("expected Skipped for an unparsable file, got {other:?}"),
-    }
+    assert!(!outcome.changed, "an unparsable file is not changed");
+    assert_eq!(outcome.skipped.len(), 1, "one whole-file parse error");
+    assert!(
+        outcome.skipped[0].message.contains("unknown anchor"),
+        "skip carries the parse error: {}",
+        outcome.skipped[0].message
+    );
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "a: *missing\n",

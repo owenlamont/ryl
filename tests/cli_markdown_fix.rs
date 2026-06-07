@@ -65,6 +65,29 @@ fn fix_preserves_crlf_in_fenced_block() {
 }
 
 #[test]
+fn fix_skips_and_reports_unparsable_embedded_region() {
+    // An embedded region with an undefined alias does not parse, so the strict gate
+    // skips it (its commas issue stays unfixed) and the CLI reports the skip mapped
+    // to the alias's line in the host markdown document.
+    let body = "# title\n\n```yaml\na: *missing\nb: [1,2]\n```\n";
+    let (_dir, file) = project(COMMAS, "doc.md", body);
+
+    let (_code, _out, err) = fix(&file);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        body,
+        "an unparsable embedded region is left unchanged"
+    );
+    assert!(
+        err.contains("skipped by --fix")
+            && err.contains("unknown anchor")
+            && err.contains("doc.md:4:"),
+        "skip notice maps to the alias's host line: {err}"
+    );
+}
+
+#[test]
 fn fix_handles_front_matter_and_multiple_fenced_blocks() {
     let body = "---\nfoo: [1,2]\n---\n\n```yaml\nbar: [3,4]\n```\n\nText\n\n```yaml\nbaz: [5,6]\n```\n";
     let (_dir, file) = project(COMMAS, "doc.md", body);
