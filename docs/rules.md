@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ryl implements 24 rules for checking YAML files. This page is a categorised
+ryl implements 25 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -39,6 +39,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A single trailing newline at end of file. | :wrench: |
 | [`new-lines`](rules/new-lines.md) | Consistent line endings (LF vs CRLF). | :wrench: |
 | [`trailing-spaces`](rules/trailing-spaces.md) | Trailing whitespace at end of lines. | :wrench: |
+| [`unicode-line-breaks`](rules/unicode-line-breaks.md) | Raw NEL / LS / PS characters (not YAML 1.2 line breaks). |  |
 
 ## Document structure
 

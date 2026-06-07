@@ -1,7 +1,9 @@
 use std::sync::LazyLock;
 
 use ryl::config::YamlLintConfig;
-use ryl::rules::{new_line_at_end_of_file, new_lines, trailing_spaces};
+use ryl::rules::{
+    new_line_at_end_of_file, new_lines, trailing_spaces, unicode_line_breaks,
+};
 
 #[derive(Debug, Clone)]
 pub struct Span {
@@ -159,6 +161,13 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     for violation in trailing_spaces::check(content) {
         spans.push(Span {
             rule: trailing_spaces::ID,
+            line: violation.line,
+            column: violation.column,
+        });
+    }
+    for violation in unicode_line_breaks::check(content) {
+        spans.push(Span {
+            rule: unicode_line_breaks::ID,
             line: violation.line,
             column: violation.column,
         });

@@ -246,12 +246,6 @@ impl MultilinePlainSpec {
 }
 
 impl Document {
-    pub fn has_partial_safe_fix_residue(&self) -> bool {
-        self.entries
-            .iter()
-            .any(BlockEntry::has_partial_safe_fix_residue)
-    }
-
     pub fn render(&self) -> String {
         let mut buffer = String::new();
         let line_terminator = match self.newline {
@@ -272,24 +266,6 @@ impl Document {
 }
 
 impl BlockEntry {
-    fn has_partial_safe_fix_residue(&self) -> bool {
-        match &self.value {
-            Node::BlockScalar(spec) => spec.body.iter().any(|line| match line {
-                BlockBodyLine::Content { trailing_ws, .. } => *trailing_ws > 0,
-                BlockBodyLine::Blank => true,
-            }),
-            Node::MultilineQuoted(spec) => spec
-                .lines
-                .iter()
-                .any(|line| matches!(line, MultilineLine::Blank)),
-            Node::MultilinePlain(spec) => spec
-                .continuations
-                .iter()
-                .any(|line| matches!(line, MultilineLine::Blank)),
-            _ => false,
-        }
-    }
-
     fn render(&self, buffer: &mut String, line_term: &str) {
         buffer.push_str(&self.key);
         buffer.push_str(": ");

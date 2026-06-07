@@ -458,7 +458,16 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
             &initial_results,
             cli.lint.compatibility.no_warnings,
         );
-        apply_safe_fixes_to_files(&files)?;
+        let fix_stats = apply_safe_fixes_to_files(&files)?;
+        for (path, problem) in &fix_stats.skipped {
+            eprintln!(
+                "{}:{}:{} skipped by --fix: {}",
+                sanitize_control(&path.display().to_string()),
+                problem.line,
+                problem.column,
+                sanitize_control(&problem.message),
+            );
+        }
     }
 
     let results = lint_files(&files);

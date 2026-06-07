@@ -65,6 +65,64 @@ fn fix_respects_toml_unfixable_rules() {
 }
 
 #[test]
+fn fix_never_mutates_unparsable_yaml() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    // Two root-level flow sequences are not a valid YAML stream. The file also
+    // carries CRLF, trailing spaces and no final newline — each individually
+    // fixable — but `--fix` must leave a non-parsing file byte-for-byte intact.
+    let original = "[1,2 ,3]   \r\n[4,5 ,6]";
+    fs::write(&file, original).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ncommas = 'enable'\ntrailing-spaces = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+    assert_eq!(
+        code, 1,
+        "a syntax error still fails: stdout={stdout} stderr={stderr}"
+    );
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        original.as_bytes(),
+        "unparsable YAML must be left byte-for-byte unchanged by --fix"
+    );
+}
+
+#[test]
+fn fix_skips_and_reports_unparsable_file_with_undefined_alias() {
+    // An undefined alias is not a syntax error in lint (the `anchors` rule reports
+    // it, matching yamllint), but granit cannot resolve it — so the strict `--fix`
+    // gate refuses to mutate the file and prints why, rather than silently skipping
+    // it or rewriting an invalid document. The CRLF endings are NOT normalized.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let original = "a: *missing\r\nb: 1\r\n";
+    fs::write(&file, original).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nnew-lines = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
+
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        original.as_bytes(),
+        "an unparsable file is left byte-for-byte unchanged by --fix"
+    );
+    assert!(
+        stderr.contains("skipped by --fix") && stderr.contains("unknown anchor"),
+        "the skip notice must explain why the file was not fixed: {stderr}"
+    );
+}
+
+#[test]
 fn fix_respects_toml_fixable_allowlist() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");

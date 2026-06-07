@@ -299,6 +299,7 @@ fn normalize_toml_config_preserves_all_per_file_ignore_rule_names() {
     "quoted-strings",
     "trailing-spaces",
     "truthy",
+    "unicode-line-breaks",
 ]
 "#,
         false,
@@ -336,6 +337,7 @@ fn normalize_toml_config_preserves_all_per_file_ignore_rule_names() {
             "quoted-strings",
             "trailing-spaces",
             "truthy",
+            "unicode-line-breaks",
         ]
     );
 }

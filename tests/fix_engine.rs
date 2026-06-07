@@ -2,7 +2,7 @@ use std::fs;
 
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{
-    apply_safe_fixes, apply_safe_fixes_in_place, apply_safe_fixes_to_files,
+    FixOutcome, apply_safe_fixes, apply_safe_fixes_in_place, apply_safe_fixes_to_files,
 };
 use tempfile::tempdir;
 
@@ -19,10 +19,10 @@ fn apply_safe_fixes_in_place_reports_no_change() {
         "rules:\n  comments: enable\n  new-lines: enable\n  new-line-at-end-of-file: enable\n",
     );
 
-    let changed =
+    let outcome =
         apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
 
-    assert!(!changed);
+    assert_eq!(outcome, FixOutcome::Unchanged);
     assert_eq!(fs::read_to_string(&file).unwrap(), "key: value\n");
 }
 
@@ -33,13 +33,38 @@ fn apply_safe_fixes_in_place_writes_changes() {
     fs::write(&file, "key: value #comment").unwrap();
     let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
 
-    let changed =
+    let outcome =
         apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
 
-    assert!(changed);
+    assert_eq!(outcome, FixOutcome::Changed);
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "key: value  # comment\n"
+    );
+}
+
+#[test]
+fn apply_safe_fixes_in_place_skips_and_reports_unparsable_file() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "a: *missing\n").unwrap();
+    let cfg = config("rules:\n  trailing-spaces: enable\n");
+
+    let outcome =
+        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+
+    match outcome {
+        FixOutcome::Skipped(problem) => assert!(
+            problem.message.contains("unknown anchor"),
+            "skip carries the parse error: {}",
+            problem.message
+        ),
+        other => panic!("expected Skipped for an unparsable file, got {other:?}"),
+    }
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "a: *missing\n",
+        "a skipped file is left byte-for-byte unchanged"
     );
 }
 
@@ -186,13 +211,34 @@ fn apply_safe_fixes_runs_comments_indentation_and_commas() {
     );
 
     let fixed = apply_safe_fixes(
-        "items: [1 ,2]\n # wrong\n  next: value\n",
+        "items: [1 ,2]\n # wrong\nnext: value\n",
         &cfg,
         std::path::Path::new("input.yaml"),
         std::path::Path::new("."),
     );
 
-    assert_eq!(fixed, "items: [1, 2]\n  # wrong\n  next: value\n");
+    assert_eq!(fixed, "items: [1, 2]\n# wrong\nnext: value\n");
+}
+
+#[test]
+fn whitespace_fixers_bail_on_unparsable_input() {
+    // The pipeline parse-gate normally keeps these fixers from seeing unparsable
+    // input; called directly they must still bail, because `protected_scalar_lines`
+    // cannot resolve scalar spans without a successful parse.
+    let unparsable = "items: [1 ,2]\n # wrong\n  next: value\n";
+    let empty_lines_cfg = ryl::rules::empty_lines::Config::resolve(&config(
+        "rules:\n  empty-lines: enable\n",
+    ));
+    assert_eq!(
+        ryl::rules::empty_lines::fix(unparsable, &empty_lines_cfg),
+        None,
+        "empty-lines fix bails when the buffer does not parse"
+    );
+    assert_eq!(
+        ryl::rules::trailing_spaces::fix(unparsable),
+        None,
+        "trailing-spaces fix bails when the buffer does not parse"
+    );
 }
 
 #[test]
