@@ -40,12 +40,12 @@ fn unsafe_tags_flagged_for_core_and_local_namespaces() {
         output.contains("forbidden unsafe tag \"!!python/object/apply:os.system\""),
         "core-schema python tag message missing: {output}"
     );
-    assert!(output.contains("1:39"), "python tag position: {output}");
+    assert!(output.contains("1:7"), "python tag position: {output}");
     assert!(
         output.contains("forbidden unsafe tag \"!ruby/object:Foo\""),
         "local ruby tag message missing: {output}"
     );
-    assert!(output.contains("2:23"), "ruby tag position: {output}");
+    assert!(output.contains("2:6"), "ruby tag position: {output}");
     assert!(output.contains("tags"), "rule id missing: {output}");
     assert!(
         !output.contains("!!str"),
@@ -64,12 +64,12 @@ fn removed_yaml_1_1_types_flagged_for_core_schema_only() {
         output.contains("forbidden removed YAML 1.1 type \"!!omap\""),
         "omap message missing: {output}"
     );
-    assert!(output.contains("1:11"), "omap position: {output}");
+    assert!(output.contains("1:4"), "omap position: {output}");
     assert!(
         output.contains("forbidden removed YAML 1.1 type \"!!set\""),
         "set message missing: {output}"
     );
-    assert!(output.contains("2:10"), "set position: {output}");
+    assert!(output.contains("2:4"), "set position: {output}");
     assert!(
         !output.contains("!env"),
         "local tag is not a removed core type: {output}"
@@ -91,7 +91,7 @@ fn allowed_tags_flags_only_unlisted_custom_tags() {
         output.contains("tag \"!env\" is not in allowed-tags"),
         "unlisted tag message missing: {output}"
     );
-    assert!(output.contains("1:9"), "!env position: {output}");
+    assert!(output.contains("1:4"), "!env position: {output}");
     assert!(
         !output.contains("!keep"),
         "allowlisted tag must not be flagged: {output}"
@@ -120,7 +120,7 @@ fn multibyte_key_column_is_char_based() {
     );
     assert_eq!(code, 1, "removed type should fail: {output}");
     assert!(
-        output.contains("1:14"),
+        output.contains("1:7"),
         "char-based column past the multibyte key: {output}"
     );
 }
@@ -150,8 +150,8 @@ fn verbatim_and_javax_tag_spellings_are_normalised_and_detected() {
         "verbatim core tag should normalise to !!omap: {output}"
     );
     assert!(
-        output.contains("forbidden unsafe tag \"!python/object\""),
-        "verbatim local construction tag should be flagged: {output}"
+        output.contains("forbidden unsafe tag \"!<!python/object>\""),
+        "verbatim local construction tag should preserve its spelling: {output}"
     );
     assert!(
         output.contains("forbidden unsafe tag \"!!javax.script.ScriptEngineManager\""),
@@ -172,6 +172,40 @@ fn custom_tag_directive_handle_is_not_namespace_matched() {
     assert!(
         output.trim().is_empty(),
         "expected no diagnostics: {output}"
+    );
+}
+
+#[test]
+fn custom_tag_directive_handle_is_allowlisted_as_written() {
+    let (code, output) = lint_with_toml_config(
+        "%TAG !e! tag:example.com,2000:\n---\na: !e!keep value\nb: !e!other value\n",
+        "[rules.tags]\nallowed-tags = [\"!e!keep\"]\n",
+    );
+    assert_eq!(code, 1, "unlisted custom handle tag should fail: {output}");
+    assert!(
+        !output.contains("!e!keep"),
+        "author-spelled allowlisted tag must not be flagged: {output}"
+    );
+    assert!(
+        output.contains("tag \"!e!other\" is not in allowed-tags"),
+        "diagnostic should preserve the author's custom handle: {output}"
+    );
+    assert!(
+        !output.contains("tag:example.com,2000:"),
+        "resolved URI should not replace the author's spelling: {output}"
+    );
+
+    let (code, output) = lint_with_toml_config(
+        "%TAG !e! tag:example.com,2000:\n---\na: !e!keep value\n",
+        "[rules.tags]\nallowed-tags = [\"tag:example.com,2000:keep\"]\n",
+    );
+    assert_eq!(
+        code, 1,
+        "resolved URI must not allow a differently-spelled tag: {output}"
+    );
+    assert!(
+        output.contains("tag \"!e!keep\" is not in allowed-tags"),
+        "allowlist matching should use the author's spelling: {output}"
     );
 }
 
@@ -211,9 +245,6 @@ fn non_specific_bare_tag_stays_exempt_under_tag_directive() {
 
 #[test]
 fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
-    // granit positions the empty scalar on the blank segment after the final
-    // newline; the diagnostic must clamp back to the tag's content line so it
-    // is suppressible with a `disable-line` on that line.
     let (code, output) = lint_with_toml_config(
         "x: 1\nb: !!omap\n",
         "[rules.tags]\nforbid-removed-types = true\n",
@@ -223,13 +254,39 @@ fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
         "trailing empty tagged scalar should fail: {output}"
     );
     assert!(
-        output.contains("2:1"),
-        "must point at the content line (2), not the phantom trailing line 3: {output}"
+        output.contains("2:4"),
+        "must point at the tag token: {output}"
     );
     assert!(
         !output.contains("3:1"),
         "must not overshoot onto the trailing empty segment: {output}"
     );
+}
+
+#[test]
+fn block_collection_tag_points_at_tag_and_disable_line_suppresses_it() {
+    let config = "[rules.tags]\nallowed-tags = [\"!keep\"]\n";
+    let (code, output) = lint_with_toml_config("a: !env\n  - x\n", config);
+    assert_eq!(
+        code, 1,
+        "unlisted block collection tag should fail: {output}"
+    );
+    assert!(
+        output.contains("1:4"),
+        "diagnostic should point at the tag rather than the collection: {output}"
+    );
+    assert!(
+        !output.contains("2:3"),
+        "diagnostic must not point at the collection: {output}"
+    );
+
+    let (code, output) =
+        lint_with_toml_config("a: !env # ryl disable-line rule:tags\n  - x\n", config);
+    assert_eq!(
+        code, 0,
+        "disable-line on the explicit tag line should suppress it: {output}"
+    );
+    assert!(output.trim().is_empty(), "expected no output: {output}");
 }
 
 #[test]

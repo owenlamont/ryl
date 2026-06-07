@@ -29,7 +29,6 @@
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::span_utils;
 use crate::yaml_dom::YamlOwned;
 
 pub const ID: &str = "tags";
@@ -126,21 +125,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         diagnostics: Vec::new(),
     };
     let _ = parser.load(&mut receiver, true);
-    let mut diagnostics = receiver.diagnostics;
-    clamp_overshoot(buffer, &mut diagnostics);
-    diagnostics
-}
-
-/// A tag on an implicit/empty scalar that ends the document is positioned by
-/// granit at a virtual location that can fall outside the document (see
-/// [`span_utils::clamp_position`]); clamp it back onto a real position.
-fn clamp_overshoot(buffer: &str, diagnostics: &mut [Violation]) {
-    for violation in diagnostics {
-        let (line, column) =
-            span_utils::clamp_position(buffer, violation.line, violation.column);
-        violation.line = line;
-        violation.column = column;
-    }
+    receiver.diagnostics
 }
 
 struct TagsReceiver<'cfg> {
@@ -153,9 +138,12 @@ impl<'input> SpannedEventReceiver<'input> for TagsReceiver<'_> {
         if let Some(tag) = event.tag()
             && let Some(message) = self.cfg.diagnose(tag)
         {
+            let tag_start = span
+                .tag_start()
+                .expect("granit provides tag_start for tagged node events");
             self.diagnostics.push(Violation {
-                line: span.start.line(),
-                column: span.start.col() + 1,
+                line: tag_start.line(),
+                column: tag_start.col() + 1,
                 message,
             });
         }
@@ -196,12 +184,12 @@ fn unsafe_namespace<'a>(tag: &'a Tag, core: Option<&'a str>) -> Option<&'a str> 
     }
 }
 
-/// Render a tag in shorthand for diagnostics: `!!type` for core-schema tags
-/// however they were spelled, otherwise the parser's resolved `!handle`/prefix
-/// form (a custom `%TAG` handle renders as its resolved prefix).
+/// Render a tag for diagnostics and allowlist matching: `!!type` for
+/// core-schema tags however they were spelled, otherwise its author-facing
+/// spelling.
 fn shorthand(tag: &Tag) -> String {
     match core_suffix(tag) {
         Some(suffix) => format!("!!{suffix}"),
-        None => tag.to_string(),
+        None => tag.original(),
     }
 }

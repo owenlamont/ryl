@@ -530,9 +530,9 @@ dependencies = [
 
 [[package]]
 name = "granit-parser"
-version = "0.0.3"
+version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f50ba32164f9e098d5da618776a32afbb32270adcbe3d3d006107dae11e37c91"
+checksum = "599a28c6c3171864dbf7fdb3a666f7ac301fab54c2b6e71534f413959cd37b49"
 dependencies = [
  "arraydeque",
  "smallvec",
