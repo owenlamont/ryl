@@ -38,10 +38,14 @@ ryl is a CLI tool for linting yaml files
   will likely require a new test to be added and maintained. We want to keep code bloat
   to a minimum and the best refactors generally are those that remove lines of code
   while maintaining functionality.
-- Comments should only be used to explain unavoidable code smells (arising from third
-  party crate use), or the reason for temporary dependency version pinning (e.g.
-  linking an unresolved GitHub issues) or lastly explaining opaque code or non-obvious
-  trade-offs or workarounds.
+- Comment the *why*, not the *what*. Capture non-obvious invariants, spec/standard
+  rationale, verified-behaviour notes (e.g. "verified against ruamel/PyYAML"), deliberate
+  trade-offs/workarounds, third-party code smells, and version-pin reasons (link the
+  issue) &mdash; and "looks-wrong-but-isn't" reasoning that stops a later reader
+  "fixing" subtle logic. Because this codebase is maintained largely by AI agents across
+  many models and sessions, that durable *why*-context is usually worth more than the
+  tokens it costs, so lean toward including it. Still don't narrate self-evident *what*:
+  good names carry that, and *what*-comments are the ones that go stale fastest.
 - Leverage the provided linters and formatters to fix code, configuration, and
   documentation often - it's much cheaper to have the linters and formatters auto fix
   issues than correcting them yourself. Only correct what the linters and formatters
@@ -168,11 +172,12 @@ ryl is a CLI tool for linting yaml files
 ## Automated Tests
 
 - Convey a test's purpose with meaningful function and variable names, and convey
-  what each check verifies with assertion messages. Comments in tests follow the
-  same bar as the rest of the codebase (see Coding Standards): keep them minimal and
-  reserve them for genuinely non-obvious trade-offs, opaque mechanics, or
-  module/harness orientation (e.g. a `//!` header describing a property suite's
-  invariants and reuse) — never to narrate what a self-evident test already says.
+  what each check verifies with assertion messages. Comments in tests follow the same
+  *why*-not-*what* bar as the rest of the codebase (see Coding Standards): a one-line
+  note on the invariant a test pins, why an input is crafted a certain way (e.g. the
+  `café` char-vs-byte column rationale), a regression's issue link, or a `//!` header
+  describing a property suite's invariants and reuse is welcome where it adds durable
+  context &mdash; just don't restate what a self-evident assertion already says.
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.

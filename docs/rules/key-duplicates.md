@@ -110,3 +110,5 @@ which value is canonical.
   order, which makes duplicates harder to introduce accidentally.
 - [`anchors`](anchors.md) &mdash; covers a related class of ambiguity
   for anchor/alias declarations.
+- [`merge-keys`](merge-keys.md) &mdash; forbids the `<<` merge key outright;
+  this rule's merge options instead detect *duplicate* or value-changing merges.
