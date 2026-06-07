@@ -206,11 +206,18 @@ pub fn apply_markdown_safe_fixes_in_place(
         return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
+    let fixed = fix_markdown_str(decoded.content(), path, cfg, base_dir);
     // Regions that do not parse are skipped by the per-region gate in
-    // `fix_markdown_str`; collect their parse errors (mapped to host coordinates)
-    // so the CLI reports them, like a plain YAML file's whole-file skip.
-    let skipped = crate::markdown_embed::markdown_parse_skips(decoded.content(), cfg);
-    let changed = match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
+    // `fix_markdown_str`; collect their parse errors (mapped to host coordinates) so
+    // the CLI reports them, like a plain YAML file's whole-file skip. Read them from
+    // the *fixed* bytes (what gets written) so the reported line stays correct even
+    // when an earlier region's fix changed the line count; a skipped region is left
+    // untouched, so it still appears there at its post-fix position.
+    let skipped = crate::markdown_embed::markdown_parse_skips(
+        fixed.as_deref().unwrap_or_else(|| decoded.content()),
+        cfg,
+    );
+    let changed = match fixed {
         Some(fixed) => {
             decoded.write(path, &fixed)?;
             true
