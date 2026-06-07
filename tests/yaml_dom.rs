@@ -154,6 +154,40 @@ fn unknown_core_schema_tag_is_bad_value() {
     assert!(matches!(v, YamlOwned::BadValue));
 }
 
+// granit scans a verbatim `!<…>` tag to an *empty* handle with the full URI in
+// the suffix, so a core tag must be recognised by suffix rather than handle to
+// resolve like its `!!` shorthand. Verified vs PyYAML + ruamel.yaml (issue #277).
+#[test]
+fn resolves_verbatim_core_schema_int_tag_like_shorthand() {
+    let doc = parse_single("v: !<tag:yaml.org,2002:int> 0xB\n");
+    assert_eq!(
+        doc.as_mapping_get("v").and_then(YamlOwned::as_integer),
+        Some(11),
+        "a verbatim core int tag must resolve, not stay a Tagged node"
+    );
+}
+
+#[test]
+fn resolves_verbatim_core_schema_str_tag_forces_string() {
+    let doc = parse_single("v: !<tag:yaml.org,2002:str> 42\n");
+    assert_eq!(
+        doc.as_mapping_get("v").and_then(YamlOwned::as_str),
+        Some("42")
+    );
+}
+
+// The loader wraps only *non*-core tags as `Tagged`; a verbatim core collection
+// tag must unwrap to the plain collection just like the shorthand does.
+#[test]
+fn verbatim_core_schema_seq_tag_unwraps_like_shorthand() {
+    let doc = parse_single("v: !<tag:yaml.org,2002:seq>\n  - 1\n  - 2\n");
+    let seq = doc
+        .as_mapping_get("v")
+        .and_then(YamlOwned::as_sequence)
+        .expect("verbatim core seq tag resolves to a sequence, not a Tagged node");
+    assert_eq!(seq.len(), 2);
+}
+
 #[test]
 fn non_core_tagged_scalar_wraps_in_tagged() {
     let doc = parse_single("v: !foo bar\n");

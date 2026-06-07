@@ -8,7 +8,7 @@ use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::yaml_dom::Scalar;
+use crate::yaml_dom::{Scalar, is_core_schema};
 
 pub const ID: &str = "quoted-strings";
 
@@ -468,10 +468,6 @@ fn build_violation(span: Span, message: String) -> Violation {
     }
 }
 
-fn is_core_tag(tag: &Tag) -> bool {
-    tag.handle == "tag:yaml.org,2002:"
-}
-
 fn value_resolves_to_string(value: &str) -> bool {
     matches!(
         Scalar::resolve_plain_scalar(value.into()),
@@ -495,7 +491,7 @@ fn should_skip_scalar(
     }
 
     if let Some(tag) = tag
-        && is_core_tag(tag)
+        && is_core_schema(tag)
     {
         return true;
     }

@@ -10,6 +10,7 @@ use granit_parser::{
     Event, Marker, Parser, ScanError, Span, SpannedEventReceiver, Tag,
 };
 
+use super::is_core_schema;
 use crate::yaml_dom::scalar::Scalar;
 use crate::yaml_dom::yaml_owned::{MappingOwned, YamlOwned};
 
@@ -113,7 +114,7 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
             }
             Event::Scalar(value, style, aid, tag) => {
                 let node = match tag.as_ref() {
-                    Some(tag_ref) if !tag_ref.is_yaml_core_schema() => {
+                    Some(tag_ref) if !is_core_schema(tag_ref) => {
                         let inner = Scalar::resolve_scalar(value, style, None)
                             .map_or(YamlOwned::BadValue, |scalar| {
                                 YamlOwned::Value(scalar.into_owned())
@@ -167,7 +168,7 @@ impl Loader {
             Container::Mapping(map, _) => YamlOwned::Mapping(map),
         };
         let node = match tag {
-            Some(tag) if !tag.is_yaml_core_schema() => {
+            Some(tag) if !is_core_schema(&tag) => {
                 YamlOwned::Tagged(tag, Box::new(node))
             }
             _ => node,

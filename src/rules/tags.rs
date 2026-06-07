@@ -29,11 +29,10 @@
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
-use crate::yaml_dom::YamlOwned;
+use crate::yaml_dom::{YamlOwned, core_schema_suffix};
 
 pub const ID: &str = "tags";
 
-const CORE_SCHEMA_PREFIX: &str = "tag:yaml.org,2002:";
 const UNSAFE_TAG_PREFIXES: [&str; 7] = [
     "python/", "ruby/", "perl/", "php/", "java/", "java.", "javax.",
 ];
@@ -86,7 +85,7 @@ impl Config {
         if tag.suffix == "!" {
             return None;
         }
-        let core = core_suffix(tag);
+        let core = core_schema_suffix(tag);
         if self.forbid_unsafe_tags
             && unsafe_namespace(tag, core).is_some_and(is_unsafe_suffix)
         {
@@ -156,19 +155,6 @@ fn is_unsafe_suffix(suffix: &str) -> bool {
         .any(|prefix| suffix.starts_with(prefix))
 }
 
-/// The core-schema type suffix this tag resolves to regardless of spelling
-/// (`!!omap` and verbatim `!<tag:yaml.org,2002:omap>` both yield `omap`), or
-/// `None` for any non-core tag.
-fn core_suffix(tag: &Tag) -> Option<&str> {
-    if tag.handle == CORE_SCHEMA_PREFIX {
-        Some(tag.suffix.as_str())
-    } else if tag.handle.is_empty() {
-        tag.suffix.strip_prefix(CORE_SCHEMA_PREFIX)
-    } else {
-        None
-    }
-}
-
 /// The construction namespace this tag could match, or `None` when its handle
 /// is a custom `%TAG` prefix (whose suffix is a local name in an unrelated
 /// namespace, so it must not be namespace-matched). Only core-schema (`!!`) and
@@ -188,7 +174,7 @@ fn unsafe_namespace<'a>(tag: &'a Tag, core: Option<&'a str>) -> Option<&'a str> 
 /// core-schema tags however they were spelled, otherwise its author-facing
 /// spelling.
 fn shorthand(tag: &Tag) -> String {
-    match core_suffix(tag) {
+    match core_schema_suffix(tag) {
         Some(suffix) => format!("!!{suffix}"),
         None => tag.original(),
     }

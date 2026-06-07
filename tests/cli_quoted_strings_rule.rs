@@ -355,3 +355,43 @@ fn fix_consistent_ignores_escaped_exception_when_seeding_style() {
         "escaped: \"line\\nbreak\"\nplain: 'value'\nquoted: 'two'\n"
     );
 }
+
+#[test]
+fn skips_verbatim_core_str_tag_like_shorthand() {
+    // An explicit core `!!str` tag (any spelling, verbatim included) declares the
+    // type, so `required: true` must not demand quotes around it. Pre-#277 the
+    // verbatim spelling was not recognised as core and was flagged. Only the
+    // untagged plain scalar should remain.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("data.yaml");
+    fs::write(
+        &file,
+        "shorthand: !!str scalar_one\nverbatim: !<tag:yaml.org,2002:str> scalar_two\nuntagged: scalar_three\n",
+    )
+    .unwrap();
+
+    let config = dir.path().join("config.yaml");
+    fs::write(
+        &config,
+        "rules:\n  document-start: disable\n  quoted-strings:\n    required: true\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    assert_eq!(
+        code, 1,
+        "the untagged plain scalar should still be flagged: stdout={stdout} stderr={stderr}"
+    );
+    let output = command_output(&stdout, &stderr);
+    assert_eq!(
+        output.matches("string value is not quoted").count(),
+        1,
+        "both tag spellings must be skipped; only the untagged value is flagged: {output}"
+    );
+    assert!(
+        output.contains("3:11"),
+        "the lone diagnostic should point at the untagged value on line 3: {output}"
+    );
+}

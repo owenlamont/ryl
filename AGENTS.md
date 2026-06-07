@@ -437,6 +437,18 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   everywhere (leading-zero decimal is an int, an empty plain scalar is null, `0x`/`0o`
   radixes, full bool/null spelling sets); keep that schema choice consistent across rules
   instead of switching to JSON/1.1 semantics in any single rule.
+- Matching a core-schema tag (`!!int`, `!!str`, …): use
+  `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`, **never**
+  granit's `Tag::is_yaml_core_schema`. The latter inspects only the *handle*, so a
+  verbatim core tag (`!<tag:yaml.org,2002:int>` — granit scans it to an empty handle
+  with the full URI in `suffix`) slips past it even though PyYAML/ruamel resolve it to
+  the same type. The shared helpers report the core suffix for both the canonical
+  `tag:yaml.org,2002:` handle (including a `%TAG` that resolves to it) and the verbatim
+  spelling. They do **not** decompose a `%TAG` directive that splits the URI mid-token
+  (`%TAG !m! tag:yaml.org,2002:m` + `!m!erge`, which the reference parser still resolves
+  to `tag:yaml.org,2002:merge`); to match one specific type regardless of the split
+  point, compare the complete resolved URI (`handle` ++ `suffix`) as
+  `rules::support::merge_key` does for the merge tag (#277).
 
 CI will fail the build on any missed line or region, so keep local runs green by
 sticking to the quick-status step above.
