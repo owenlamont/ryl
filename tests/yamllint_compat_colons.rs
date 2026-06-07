@@ -257,6 +257,49 @@ fn colons_rule_matches_yamllint() {
 }
 
 #[test]
+fn alias_mapping_key_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+
+    let cfg_path = dir.path().join("colons-alias.yaml");
+    fs::write(
+        &cfg_path,
+        "rules:\n  document-start: disable\n  colons: enable\n",
+    )
+    .unwrap();
+
+    // Alias used as a mapping key: the required single space before `:` must be allowed
+    // (#254), an extra space before is flagged, and spacing after `:` is still checked.
+    let yaml_path = dir.path().join("alias.yaml");
+    fs::write(
+        &yaml_path,
+        "---\na: &foo 42\nok:\n  *foo : 1\nextra:\n  *foo  : 2\nafter:\n  *foo:  3\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+
+    for scenario in SCENARIOS {
+        let mut ryl_cmd = build_ryl_command(exe, scenario.ryl_format);
+        ryl_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (ryl_code, ryl_output) = capture_with_env(ryl_cmd, scenario.envs);
+
+        let mut yam_cmd = build_yamllint_command(scenario.yam_format);
+        yam_cmd.arg("-c").arg(&cfg_path).arg(&yaml_path);
+        let (yam_code, yam_output) = capture_with_env(yam_cmd, scenario.envs);
+
+        assert_eq!(ryl_code, 1, "ryl alias exit ({})", scenario.label);
+        assert_eq!(yam_code, 1, "yamllint alias exit ({})", scenario.label);
+        assert_eq!(
+            ryl_output, yam_output,
+            "alias diagnostics mismatch ({})",
+            scenario.label
+        );
+    }
+}
+
+#[test]
 fn inline_comment_after_value_matches_yamllint() {
     ensure_yamllint_installed();
 

@@ -159,6 +159,11 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("0xB".to_string()),
         Just("11".to_string()),
         Just("~".to_string()),
+        // An alias as a mapping key: paired with the entry generator's
+        // `spaces_before_colon` range it produces `*anchor : v` (the required-space
+        // `colons` exemption) plus the non-exempt 0/2-space forms, and exercises an
+        // alias in key position through the shared mapping-key walker.
+        Just("*anchor".to_string()),
         arb_multibyte().prop_map(|ch| format!("k{ch}")),
     ]
 }
