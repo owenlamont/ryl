@@ -126,7 +126,19 @@ impl Document {
 }
 
 fn arb_multibyte() -> impl Strategy<Value = char> {
-    prop_oneof![Just('é'), Just('—'), Just('世'), Just('🦀'), Just('å')]
+    prop_oneof![
+        Just('é'),
+        Just('—'),
+        Just('世'),
+        Just('🦀'),
+        Just('å'),
+        // Raw NEL / LS / PS: content in YAML 1.2 (not line breaks), so they
+        // interleave into keys/values/comments without splitting lines and
+        // exercise `unicode-line-breaks` across contexts.
+        Just('\u{85}'),
+        Just('\u{2028}'),
+        Just('\u{2029}'),
+    ]
 }
 
 fn arb_key() -> impl Strategy<Value = String> {

@@ -97,6 +97,7 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("tags", "a: !!omap []\n"),
     ("trailing-spaces", "a: 1   \n"),
     ("truthy", "a: Yes\n"),
+    ("unicode-line-breaks", "a: \"x\u{2028}y\"\n"),
 ];
 
 /// Guards the hand-maintained `rules::ALL_RULE_IDS` (which a bare `# ryl disable`

@@ -182,14 +182,18 @@ ryl is a CLI tool for linting yaml files
 ### Property Tests For Safe Fixes
 
 `tests/property_safe_fix.rs` runs `proptest`-generated YAML through `apply_safe_fixes`
-and asserts four invariants: idempotence, no remaining safe-fix-rule diagnostics
-after fixing, parse preservation (input that parses must produce output that
-parses to an equal `YamlOwned` value), and that a leading `# ryl disable` makes the
-fix a byte-for-byte no-op (the strongest form of "`--fix` never rewrites a disabled
-line"). Deterministic sibling tests pin known-dirty
+and asserts three *soundness* invariants: idempotence, parse preservation (input
+that parses must produce output that parses to an equal `YamlOwned` value), and
+that a leading `# ryl disable` makes the fix a byte-for-byte no-op (the strongest
+form of "`--fix` never rewrites a disabled line"). A safe fix must be **sound**
+(never change a document's meaning), not **complete** (it may leave some reported
+violations unfixed when the fixer must not touch their context — e.g. trailing
+spaces inside a block scalar), so the suite deliberately does *not* assert "no
+diagnostics remain after fixing." Deterministic sibling tests pin known-dirty
 documents and known production-bug patterns (issues #184 and #206) through the same
-checks so the property assertions cannot silently become a no-op if the generator
-drifts.
+checks — and assert effectiveness (`safe_fix_rule_diagnostics` clears) on concrete
+inputs the fixer fully cleans — so the property assertions cannot silently become a
+no-op if the generator drifts.
 
 The suite runs against a matrix of named configs to catch config-specific
 regressions: five YAML configs (`yamllint-default`, `best-practice`, `strict-single`,
@@ -235,9 +239,12 @@ suite; it targets ryl's historically fragile byte<->char offset arithmetic
 Layout mirrors the safe-fix suite: `property_check/strategy.rs` generates
 documents biased toward triggering every rule (truthy words, octal/float
 scalars, duplicate/unordered keys, flow spacing, anchors, over-long lines, odd
-indentation, trailing spaces) interleaved with multibyte characters and mixed
-LF/CRLF endings (never a bare `\r`, so line counting always agrees with the
-rules). `property_check/harness.rs` holds the trigger-all config (rule options
+indentation, trailing spaces) interleaved with multibyte characters, raw
+NEL/LS/PS (`unicode-line-breaks`, which are content not breaks in YAML 1.2), and
+mixed LF/CRLF endings (never a bare `\r`: ryl counts lines by `\n` only and does
+not support bare-CR endings — classic Mac OS, pre-2001 — so the generator omits
+them to keep line counting in agreement with the rules).
+`property_check/harness.rs` holds the trigger-all config (rule options
 are tuned so each rule actually emits), the per-rule `check()` dispatch, and the
 bounds invariant. The dispatch calls each `check()` directly rather than
 `lint_str` on purpose: `lint_str` discards every rule's spans in favour of the
@@ -333,6 +340,10 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
 - `truthy` — Rewriting `Yes/No/On/Off` requires choosing between quoting them
   (preserves the string), normalising to `true/false` (changes type), or
   rewording — all of which depend on the user's intent.
+- `unicode-line-breaks` — The `\N`/`\L`/`\P` escape is valid only inside a
+  double-quoted scalar; rewriting a raw NEL/LS/PS in a plain or single-quoted
+  scalar, a comment, or a block scalar would require changing the quoting style
+  or guessing intent, so no rewrite is universally safe.
 
 ## Coverage Workflow
 
@@ -515,6 +526,19 @@ sticking to the quick-status step above.
   reproduces the original bytes exactly (the reconstruct-and-verify guard) — a
   region whose lines lack a single shared prefix (ragged) is reported but left
   untouched, so write-back cannot corrupt a document. See `docs/markdown.md`.
+- `--fix` never mutates a file that does not fully parse:
+  `fix::apply_safe_fixes_filtered` gates the whole pipeline on `lint::parse_error`
+  (stricter than lint's `syntax_diagnostic` — it does *not* tolerate undefined
+  aliases), so *any* granit parse error ⇒ the input is returned byte-for-byte
+  unchanged, and even the pure source-transform fixers (`new-lines`,
+  `new-line-at-end-of-file`) leave such a file untouched. `apply_safe_fixes_in_place`
+  returns `FixOutcome::Skipped(problem)` for those files and the CLI prints a
+  `<path>:L:C skipped by --fix: <error>` notice, so the user always learns why a
+  file was not fixed — this also closes the hole where an undefined alias masked a
+  later syntax error. Lint behavior is unchanged: an undefined alias is still not a
+  lint syntax error (the `anchors` rule reports it, matching yamllint); only `--fix`
+  applies the stricter gate. The gate flows through the in-place and per-region
+  Markdown fix paths.
 - Malicious-payload hardening (issue #246): `--fix` never writes through a
   symlink — `fix::refuse_symlink` skips a symlinked input (still linted) with a
   warning, so an untrusted tree cannot redirect an in-place write outside itself.

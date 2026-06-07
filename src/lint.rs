@@ -7,6 +7,7 @@ use crate::rules::{
     document_end, document_start, empty_lines, empty_values, float_values, hyphens,
     indentation, key_duplicates, key_ordering, line_length, new_line_at_end_of_file,
     new_lines, octal_values, quoted_strings, tags, trailing_spaces, truthy,
+    unicode_line_breaks,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +35,7 @@ impl From<RuleLevel> for Severity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintProblem {
     pub line: usize,
     pub column: usize,
@@ -285,6 +286,14 @@ pub fn lint_str(
         }
     }
 
+    collect_unicode_line_breaks_diagnostics(
+        &mut diagnostics,
+        content,
+        cfg,
+        path,
+        base_dir,
+    );
+
     let directives = crate::directives::Directives::parse(content);
     diagnostics.retain(|problem| {
         !problem
@@ -530,6 +539,28 @@ fn collect_tags_diagnostics(
     }
 }
 
+fn collect_unicode_line_breaks_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    if let Some(level) = cfg.rule_level(unicode_line_breaks::ID)
+        && !cfg.is_rule_ignored(unicode_line_breaks::ID, path, base_dir)
+    {
+        for hit in unicode_line_breaks::check(content) {
+            diagnostics.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some(unicode_line_breaks::ID),
+            });
+        }
+    }
+}
+
 fn collect_comments_indentation_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
     content: &str,
@@ -622,24 +653,40 @@ fn collect_line_length_diagnostics(
     }
 }
 
-fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
+fn scan(content: &str) -> Result<(), granit_parser::ScanError> {
     let mut parser = granit_parser::Parser::new_from_str(content);
     let mut sink = NullSink;
-    match parser.load(&mut sink, true) {
+    parser.load(&mut sink, true)
+}
+
+fn syntax_problem(err: &granit_parser::ScanError) -> LintProblem {
+    let marker = err.marker();
+    LintProblem {
+        line: marker.line(),
+        column: marker.col() + 1,
+        level: Severity::Error,
+        message: format!("syntax error: {} (syntax)", err.info()),
+        rule: None,
+    }
+}
+
+/// Any granit parse error as a diagnostic, or `None` if `content` parses. Stricter
+/// than [`syntax_diagnostic`]: it does *not* suppress the undefined-alias error.
+/// The `--fix` gate uses this so it refuses to mutate any file granit cannot fully
+/// parse — and always reports why — rather than the lint view that tolerates
+/// undefined aliases.
+pub(crate) fn parse_error(content: &str) -> Option<LintProblem> {
+    scan(content).err().as_ref().map(syntax_problem)
+}
+
+/// The syntax error ryl reports for `content` during linting, or `None` if it
+/// lints cleanly. Deliberately suppresses granit's undefined-alias error (ryl
+/// reports that via the `anchors` rule, matching yamllint), so lint stays
+/// yamllint-compatible.
+fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
+    match scan(content) {
         Ok(()) => None,
-        Err(err) => {
-            if err.info() == "while parsing node, found unknown anchor" {
-                return None;
-            }
-            let marker = err.marker();
-            let column = marker.col() + 1;
-            Some(LintProblem {
-                line: marker.line(),
-                column,
-                level: Severity::Error,
-                message: format!("syntax error: {} (syntax)", err.info()),
-                rule: None,
-            })
-        }
+        Err(err) if err.info() == "while parsing node, found unknown anchor" => None,
+        Err(err) => Some(syntax_problem(&err)),
     }
 }

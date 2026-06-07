@@ -51,6 +51,36 @@ pub fn lint_markdown_str(
     problems
 }
 
+/// For each embedded region that does not parse, the parse error mapped to the host
+/// document's coordinates. `--fix` uses this to tell the user which regions it
+/// refused to rewrite — the strict fix gate skips a region that does not parse, and
+/// (unlike a true syntax error, which [`lint_markdown_str`] already surfaces) an
+/// undefined alias is otherwise silent.
+#[must_use]
+pub fn markdown_parse_skips(markdown: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
+    let sources = MarkdownSources {
+        front_matter: cfg.markdown_front_matter(),
+        fenced_blocks: cfg.markdown_fenced_blocks(),
+    };
+    let mut skips = Vec::new();
+    for region in extract_regions(markdown, sources) {
+        if region.content.trim().is_empty() {
+            continue;
+        }
+        let Some(mut problem) = crate::lint::parse_error(&region.content) else {
+            continue;
+        };
+        let stripped = stripped_indents(markdown, &region);
+        problem.column += stripped
+            .get(problem.line - 1)
+            .copied()
+            .unwrap_or(region.col_offset);
+        problem.line += region.line_offset;
+        skips.push(problem);
+    }
+    skips
+}
+
 /// Per content line, the number of characters the `CommonMark` parser stripped from
 /// its start — `chars(raw line) - chars(content line)` — which covers leading
 /// space/tab indentation, blockquote markers, and CRLF normalisation alike. Added

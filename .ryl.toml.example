@@ -150,3 +150,6 @@ level = "warning"
 level = "warning"
 allowed-values = ["true", "false", "yes", "no"]
 check-keys = false
+
+[rules.unicode-line-breaks]
+level = "warning"

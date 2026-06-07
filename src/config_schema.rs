@@ -270,6 +270,8 @@ pub enum RuleName {
     TrailingSpaces,
     #[serde(rename = "truthy")]
     Truthy,
+    #[serde(rename = "unicode-line-breaks")]
+    UnicodeLineBreaks,
 }
 
 impl RuleName {
@@ -300,6 +302,7 @@ impl RuleName {
             Self::Tags => "tags",
             Self::TrailingSpaces => "trailing-spaces",
             Self::Truthy => "truthy",
+            Self::UnicodeLineBreaks => "unicode-line-breaks",
         }
     }
 }
@@ -345,6 +348,8 @@ pub struct RulesTable<Q = QuotedStringsOptions, K = KeyDuplicatesOptions> {
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
+    #[serde(rename = "unicode-line-breaks")]
+    pub unicode_line_breaks: Option<RuleEntry<NoOptions>>,
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,

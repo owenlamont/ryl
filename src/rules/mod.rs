@@ -23,10 +23,11 @@ pub(crate) mod support;
 pub mod tags;
 pub mod trailing_spaces;
 pub mod truthy;
+pub mod unicode_line_breaks;
 
 /// Every rule id, used by the directive engine to expand a bare `disable`/`enable`
 /// (no `rule:` token) to "all rules". Extend this when adding a rule.
-pub const ALL_RULE_IDS: [&str; 24] = [
+pub const ALL_RULE_IDS: [&str; 25] = [
     anchors::ID,
     braces::ID,
     brackets::ID,
@@ -51,6 +52,7 @@ pub const ALL_RULE_IDS: [&str; 24] = [
     tags::ID,
     trailing_spaces::ID,
     truthy::ID,
+    unicode_line_breaks::ID,
 ];
 
 /// Rules that are ryl-only (no yamllint equivalent) and therefore configurable
@@ -58,4 +60,4 @@ pub const ALL_RULE_IDS: [&str; 24] = [
 /// out of the YAML schema so the YAML `rules` namespace stays reserved for
 /// yamllint's own definitions (see `AGENTS.md`). Extend this when adding a rule
 /// that yamllint does not have.
-pub const RYL_ONLY_RULE_IDS: [&str; 1] = [tags::ID];
+pub const RYL_ONLY_RULE_IDS: [&str; 2] = [tags::ID, unicode_line_breaks::ID];

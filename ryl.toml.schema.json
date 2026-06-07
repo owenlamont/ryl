@@ -490,7 +490,8 @@
         "quoted-strings",
         "tags",
         "trailing-spaces",
-        "truthy"
+        "truthy",
+        "unicode-line-breaks"
       ],
       "type": "string"
     },
@@ -1851,6 +1852,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RuleEntryForTruthyOptions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unicode-line-breaks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleEntryForNoOptions"
             },
             {
               "type": "null"

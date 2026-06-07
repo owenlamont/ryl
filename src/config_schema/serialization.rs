@@ -237,6 +237,11 @@ fn rules_table_to_value<Q: Serialize, K: Serialize>(
         rules.trailing_spaces.as_ref(),
     );
     insert_serialized(&mut table, "truthy", rules.truthy.as_ref());
+    insert_serialized(
+        &mut table,
+        "unicode-line-breaks",
+        rules.unicode_line_breaks.as_ref(),
+    );
     table.extend(rules.extra.clone());
     toml::Value::Table(table)
 }

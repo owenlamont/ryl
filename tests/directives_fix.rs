@@ -25,10 +25,10 @@ fn replace_fixer_skips_block_disabled_lines() {
 
 #[test]
 fn replace_fixer_skips_inline_disabled_line() {
-    let input = "[1,2 ,3]  # ryl disable-line rule:commas\n[4,5 ,6]\n";
+    let input = "a: [1,2 ,3]  # ryl disable-line rule:commas\nb: [4,5 ,6]\n";
     assert_eq!(
         fix(input, "rules:\n  commas: enable\n"),
-        "[1,2 ,3]  # ryl disable-line rule:commas\n[4, 5, 6]\n",
+        "a: [1,2 ,3]  # ryl disable-line rule:commas\nb: [4, 5, 6]\n",
         "inline-disabled line is untouched; the next line is fixed"
     );
 }
@@ -92,7 +92,7 @@ fn fixer_runs_normally_when_a_different_rule_is_disabled() {
 
 #[test]
 fn disable_file_makes_fix_a_noop() {
-    let body = "a: 1   \n[1,2 ,3]\n";
+    let body = "a: 1   \nb: [1,2 ,3]\n";
     let config = "rules:\n  trailing-spaces: enable\n  commas: enable\n";
     assert_ne!(
         fix(body, config),

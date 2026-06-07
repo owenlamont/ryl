@@ -91,9 +91,22 @@ const EMPTY_LINES_FIX: RuleFix = RuleFix {
     safety: FixSafety::Safe,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,
+    /// Files left untouched because they do not parse, with the parse error so the
+    /// caller can tell the user why `--fix` refused them.
+    pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
+}
+
+/// The result of fixing a single file in place. A file may both have changed and
+/// carry skips: a Markdown file can fix some embedded regions while skipping others
+/// that do not parse. For a plain YAML file `skipped` holds at most one entry (the
+/// whole file's parse error).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FixOutcome {
+    pub changed: bool,
+    pub skipped: Vec<crate::lint::LintProblem>,
 }
 
 /// `--fix` rewrites a path in place, and `std::fs::write` follows symlinks, so a
@@ -129,18 +142,27 @@ pub fn apply_safe_fixes_in_place(
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
-) -> Result<bool, String> {
+) -> Result<FixOutcome, String> {
     if refuse_symlink(path) {
-        return Ok(false);
+        return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
+    if let Some(problem) = crate::lint::parse_error(decoded.content()) {
+        return Ok(FixOutcome {
+            changed: false,
+            skipped: vec![problem],
+        });
+    }
     let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
     if fixed == decoded.content() {
-        return Ok(false);
+        return Ok(FixOutcome::default());
     }
 
     decoded.write(path, &fixed)?;
-    Ok(true)
+    Ok(FixOutcome {
+        changed: true,
+        skipped: Vec::new(),
+    })
 }
 
 /// Apply all currently supported safe fixes to each discovered file in place.
@@ -153,14 +175,17 @@ pub fn apply_safe_fixes_to_files(
 ) -> Result<FixStats, String> {
     let mut stats = FixStats::default();
     for (path, base_dir, cfg, kind) in files {
-        let changed = match kind {
+        let outcome = match kind {
             SourceKind::Markdown => {
                 apply_markdown_safe_fixes_in_place(path, cfg, base_dir)?
             }
             SourceKind::Yaml => apply_safe_fixes_in_place(path, cfg, base_dir)?,
         };
-        if changed {
+        if outcome.changed {
             stats.changed_files += 1;
+        }
+        for problem in outcome.skipped {
+            stats.skipped.push((path.clone(), problem));
         }
     }
     Ok(stats)
@@ -176,18 +201,30 @@ pub fn apply_markdown_safe_fixes_in_place(
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
-) -> Result<bool, String> {
+) -> Result<FixOutcome, String> {
     if refuse_symlink(path) {
-        return Ok(false);
+        return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
-    match fix_markdown_str(decoded.content(), path, cfg, base_dir) {
+    let fixed = fix_markdown_str(decoded.content(), path, cfg, base_dir);
+    // Regions that do not parse are skipped by the per-region gate in
+    // `fix_markdown_str`; collect their parse errors (mapped to host coordinates) so
+    // the CLI reports them, like a plain YAML file's whole-file skip. Read them from
+    // the *fixed* bytes (what gets written) so the reported line stays correct even
+    // when an earlier region's fix changed the line count; a skipped region is left
+    // untouched, so it still appears there at its post-fix position.
+    let skipped = crate::markdown_embed::markdown_parse_skips(
+        fixed.as_deref().unwrap_or_else(|| decoded.content()),
+        cfg,
+    );
+    let changed = match fixed {
         Some(fixed) => {
             decoded.write(path, &fixed)?;
-            Ok(true)
+            true
         }
-        None => Ok(false),
-    }
+        None => false,
+    };
+    Ok(FixOutcome { changed, skipped })
 }
 
 /// Apply safe fixes to each embedded YAML region of `markdown` and splice the
@@ -290,7 +327,14 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
-    if crate::directives::disables_file(input) {
+    // Never mutate a file that does not fully parse. `parse_error` is stricter than
+    // lint's `syntax_diagnostic` — it does not tolerate undefined aliases — so a
+    // file with any granit error (including an alias that masks a later syntax
+    // error) is left byte-for-byte unchanged. The CLI surfaces the reason via
+    // `apply_safe_fixes_in_place`'s `Skipped` outcome.
+    if crate::directives::disables_file(input)
+        || crate::lint::parse_error(input).is_some()
+    {
         return input.to_string();
     }
     let ctx = FixContext {

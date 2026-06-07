@@ -53,12 +53,14 @@ fn no_config_found_via_stdin_is_rejected() {
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn");
-    child
+    // ryl rejects the missing config before reading stdin, so the child may have
+    // already exited (closing the pipe) by the time we write — a broken pipe here is
+    // expected, not a failure; only the exit code and stderr matter.
+    let _ = child
         .stdin
         .take()
         .expect("stdin")
-        .write_all(b"key: value\n")
-        .expect("write stdin");
+        .write_all(b"key: value\n");
     let out = child.wait_with_output().expect("wait");
     let err = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
