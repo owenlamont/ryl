@@ -37,6 +37,7 @@ pub enum Line {
         spaces_after_hash: u8,
         text: String,
     },
+    TagDirective,
     DocumentStart,
     DocumentEnd,
     Blank {
@@ -103,6 +104,7 @@ impl Line {
                 push_spaces(out, *spaces_after_hash);
                 out.push_str(text);
             }
+            Self::TagDirective => out.push_str("%TAG !e! tag:example.com,2000:"),
             Self::DocumentStart => out.push_str("---"),
             Self::DocumentEnd => out.push_str("..."),
             Self::Blank { spaces } => push_spaces(out, *spaces),
@@ -192,9 +194,9 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
 
 // Tag tokens spanning shorthand, local, verbatim, and non-specific forms. They
 // are synthesized onto values so the no-panic / in-bounds-span invariants run
-// over tagged nodes — exercising `tags::check`, the spelling normalisation, and
-// `clamp_overshoot` across positions, multibyte chars, and LF/CRLF. This suite
-// only asserts those invariants; tag-handling correctness lives in the
+// over tagged nodes — exercising `tags::check`, tag-token positions, and
+// author-facing spellings across positions, multibyte chars, and LF/CRLF. This
+// suite only asserts those invariants; tag-handling correctness lives in the
 // deterministic CLI tests.
 fn arb_tag() -> impl Strategy<Value = &'static str> {
     prop_oneof![
@@ -216,8 +218,6 @@ fn arb_value() -> impl Strategy<Value = String> {
     (prop::option::weighted(0.35, arb_tag()), arb_bare_value()).prop_map(
         |(tag, base)| match tag {
             None => base,
-            // An empty base leaves the tag on an implicit scalar — the
-            // `clamp_overshoot` hot path when it ends the document.
             Some(tag) if base.is_empty() => tag.to_string(),
             Some(tag) => format!("{tag} {base}"),
         },
@@ -343,10 +343,23 @@ fn arb_merge_block() -> impl Strategy<Value = Vec<Line>> {
         })
 }
 
+fn arb_custom_tag_block() -> impl Strategy<Value = Vec<Line>> {
+    prop_oneof![Just("!e!keep"), Just("!e!other")].prop_map(|tag| {
+        vec![
+            Line::TagDirective,
+            Line::DocumentStart,
+            merge_entry(0, "tagged", format!("{tag} value")),
+        ]
+    })
+}
+
 fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
     prop_oneof![
         10 => (arb_line(), arb_newline()).prop_map(|pair| vec![pair]),
         1 => (arb_merge_block(), arb_newline()).prop_map(|(lines, newline)| {
+            lines.into_iter().map(|line| (line, newline)).collect()
+        }),
+        1 => (arb_custom_tag_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
     ]

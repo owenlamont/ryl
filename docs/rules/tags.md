@@ -47,19 +47,16 @@ allowed-tags = []
 | `forbid-removed-types` | `false` | Forbid the YAML 1.1 types removed in 1.2: `!!omap`, `!!pairs`, `!!set`, `!!timestamp`, `!!binary`. |
 | `allowed-tags` | `[]` | When non-empty, report any other local / non-core tag (e.g. `!env`) that is not listed. Core-schema tags (`!!str`, `!!omap`, …) are governed by the other two options, not by this allowlist. |
 
-List `allowed-tags` entries in shorthand form (e.g. `!env`). Tag spelling is
-normalised before matching, so shorthand, local, and verbatim (`!<…>`) forms
-are treated alike and core-schema tags always compare as their `!!type` form.
-A tag written with a custom `%TAG` handle is matched by its resolved URI (e.g.
-`tag:example.com,2002:env`), not the `!handle!suffix` shorthand. The
-non-specific `!` tag is never reported.
+List `allowed-tags` entries as the author-facing tag spelling (e.g. `!env`).
+Custom `%TAG` handles are matched as written, so `!e!keep` is allowlisted with
+`"!e!keep"` rather than its resolved URI. Verbatim tags use their normalised
+verbatim spelling (`!<…>`). The non-specific `!` tag is never reported.
 
 When more than one check matches the same node, a single diagnostic is
 reported in the order: unsafe, removed type, not allowed.
 
-A tag heading a block collection is reported at the collection, which may begin
-on the next line, so a `# ryl disable-line` for it must sit on that line, not the
-tag's line.
+Diagnostics point at the explicit tag token, including when a tagged block
+collection begins on the next line.
 
 ## Examples
 
