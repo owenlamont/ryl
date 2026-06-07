@@ -1,17 +1,55 @@
+//! Reports problems with YAML anchors and aliases — aliases referencing an
+//! undeclared anchor, duplicated anchor names, unused anchors, and (ryl-only, via
+//! the TOML `forbid-ambiguous-anchor-alias-names` option) a name with a `:` welded
+//! into it (`&foo:`, `*foo:`, `&foo:bar`, or a colon-leading `&:`/`&:foo`).
+//!
+//! Per YAML 1.2.2 §6.9.2 / §3.2.2.2 an anchor name is `ns-anchor-char`, which
+//! excludes only the flow indicators `,[]{}` — so `:` is a *legal* name character
+//! and loaders disagree about it: ryl's `granit` parser, the reference parser
+//! (<https://play.yaml.com>), and `ruamel.yaml` read `&foo:` as the name `foo:`,
+//! while PyYAML/libyaml stop at the `:` (and reject a bare `&foo:` anchor). The
+//! same bytes therefore mean different things (or fail to parse) across loaders,
+//! which the yamllint maintainer and `perlpunk`/`ingydotnet` agreed should be
+//! discouraged in adrienverge/yamllint#780. A single space (`*foo : bar`) removes
+//! the ambiguity, so that form is never flagged.
+//!
+//! Detection reads granit's scanner tokens (`TokenType::Anchor`/`Alias`), so the
+//! real lexer — not a hand-rolled char scan — decides what is an anchor/alias: a
+//! literal `&`/`*` inside a plain scalar (`rock&roll`), a block scalar, a glob
+//! (`dist/x-*.tgz`), or after a tag (`!tag &x`) is handled correctly. The scanner
+//! is resolution-independent, so an undefined or forward alias is still tokenised
+//! (the parser would instead error on it), which is what `forbid-undeclared-aliases`
+//! needs.
+//!
+//! `:` is part of the scanned name (e.g. `&foo:bar` resolves to `foo:bar`), so the
+//! ambiguity check is a plain `name.contains(':')`, and the undeclared/duplicated/
+//! unused checks compare these full spec names too — `&foo:bar` and `&foo:baz` are
+//! distinct anchors. This is spec-correct and diverges from yamllint, which narrows
+//! names at `:` (`PyYAML`'s non-conformant behaviour); the divergence is catalogued
+//! in `docs/getting-started/migrating-from-yamllint.md`.
+
 use std::collections::HashMap;
 
+use granit_parser::{Scanner, StrInput, TokenType};
+
 use crate::config::YamlLintConfig;
+use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::span_utils::CharPos;
 
 pub const ID: &str = "anchors";
 pub const MESSAGE_UNDECLARED_ALIAS: &str = "found undeclared alias";
 pub const MESSAGE_DUPLICATED_ANCHOR: &str = "found duplicated anchor";
 pub const MESSAGE_UNUSED_ANCHOR: &str = "found unused anchor";
+pub const MESSAGE_AMBIGUOUS_ANCHOR: &str = "found ambiguous anchor name";
+pub const MESSAGE_AMBIGUOUS_ALIAS: &str = "found ambiguous alias name";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // independent yamllint-style toggles, not a state machine
 pub struct Config {
     forbid_undeclared_aliases: bool,
     forbid_duplicated_anchors: bool,
     forbid_unused_anchors: bool,
+    forbid_ambiguous_anchor_alias_names: bool,
 }
 
 impl Config {
@@ -33,6 +71,11 @@ impl Config {
                 "forbid-unused-anchors",
                 false,
             ),
+            forbid_ambiguous_anchor_alias_names: cfg.rule_option_bool(
+                ID,
+                "forbid-ambiguous-anchor-alias-names",
+                false,
+            ),
         }
     }
 
@@ -46,22 +89,17 @@ impl Config {
             forbid_undeclared_aliases,
             forbid_duplicated_anchors,
             forbid_unused_anchors,
+            forbid_ambiguous_anchor_alias_names: false,
         }
     }
 
     #[must_use]
-    pub const fn forbid_undeclared_aliases(&self) -> bool {
-        self.forbid_undeclared_aliases
-    }
-
-    #[must_use]
-    pub const fn forbid_duplicated_anchors(&self) -> bool {
-        self.forbid_duplicated_anchors
-    }
-
-    #[must_use]
-    pub const fn forbid_unused_anchors(&self) -> bool {
-        self.forbid_unused_anchors
+    pub const fn with_forbid_ambiguous_anchor_alias_names(
+        mut self,
+        value: bool,
+    ) -> Self {
+        self.forbid_ambiguous_anchor_alias_names = value;
+        self
     }
 }
 
@@ -74,302 +112,98 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut analyzer = Analyzer::new(buffer, cfg);
-    analyzer.run();
-    analyzer.into_violations()
-}
+    let char_indices: Vec<(usize, char)> = buffer.char_indices().collect();
+    let line_starts = build_line_starts(&char_indices);
+    let mut doc = DocState::new();
+    let mut violations = Vec::new();
 
-struct Analyzer<'cfg, 'src> {
-    source: &'src str,
-    cfg: &'cfg Config,
-    doc: DocState,
-    block_state: Option<BlockState>,
-    in_single_quote: bool,
-    in_double_quote: bool,
-    violations: Vec<Violation>,
-}
-
-impl<'cfg, 'src> Analyzer<'cfg, 'src> {
-    fn new(source: &'src str, cfg: &'cfg Config) -> Self {
-        Self {
-            source,
-            cfg,
-            doc: DocState::new(),
-            block_state: None,
-            in_single_quote: false,
-            in_double_quote: false,
-            violations: Vec::new(),
-        }
-    }
-
-    fn run(&mut self) {
-        if self.source.is_empty() {
-            return;
-        }
-
-        let mut line_start = 0usize;
-        let mut line_number = 1usize;
-        while line_start <= self.source.len() {
-            let line_end = match self.source[line_start..].find('\n') {
-                Some(rel) => line_start + rel + 1,
-                None => self.source.len(),
-            };
-            let mut line = &self.source[line_start..line_end];
-            if line.ends_with('\n') {
-                line = &line[..line.len() - 1];
+    for token in Scanner::new(StrInput::new(buffer)) {
+        let span = token.0;
+        match token.1 {
+            TokenType::DocumentStart | TokenType::DocumentEnd => {
+                finish_doc(&doc, *cfg, &mut violations);
+                doc = DocState::new();
             }
-            if line.ends_with('\r') {
-                line = &line[..line.len() - 1];
-            }
-            self.process_line(line, line_number);
-            if line_end == self.source.len() {
-                break;
-            }
-            line_start = line_end;
-            line_number += 1;
-        }
-
-        self.finish_doc();
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn process_line(&mut self, line: &str, line_number: usize) {
-        let chars: Vec<char> = line.chars().collect();
-        let indent_count = chars
-            .iter()
-            .take_while(|ch| matches!(ch, ' ' | '\t'))
-            .count();
-
-        if self.handle_block_state(indent_count, line) {
-            return;
-        }
-
-        if chars.is_empty() {
-            return;
-        }
-
-        let skip_until = if self.detect_doc_boundary(&chars, indent_count) {
-            (indent_count + 3).min(chars.len())
-        } else {
-            0usize
-        };
-
-        let mut idx = 0usize;
-        let mut column = 1usize;
-        let mut comment_active = false;
-
-        while idx < chars.len() {
-            if idx < skip_until {
-                idx += 1;
-                column += 1;
-                continue;
-            }
-
-            let ch = chars[idx];
-            if comment_active {
-                break;
-            }
-
-            if self.in_single_quote {
-                if ch == '\'' {
-                    if idx + 1 < chars.len() && chars[idx + 1] == '\'' {
-                        idx += 2;
-                        column += 2;
-                    } else {
-                        self.in_single_quote = false;
-                        idx += 1;
-                        column += 1;
-                    }
-                } else {
-                    idx += 1;
-                    column += 1;
-                }
-                continue;
-            }
-
-            if self.in_double_quote {
-                if ch == '"' {
-                    let escaped = idx > 0 && chars[idx - 1] == '\\';
-                    if !escaped {
-                        self.in_double_quote = false;
-                    }
-                }
-                idx += 1;
-                column += 1;
-                continue;
-            }
-
-            match ch {
-                '\'' => {
-                    self.in_single_quote = true;
-                    idx += 1;
-                    column += 1;
-                }
-                '"' => {
-                    self.in_double_quote = true;
-                    idx += 1;
-                    column += 1;
-                }
-                '#' => {
-                    comment_active = true;
-                }
-                '|' | '>' => {
-                    if self.is_block_indicator(&chars, idx, indent_count) {
-                        let explicit = parse_explicit_indent(&chars, idx + 1);
-                        self.block_state = Some(BlockState {
-                            indent_base: indent_count,
-                            explicit_indent: explicit,
-                            required_indent: None,
-                            activate_next_line: true,
-                        });
-                    }
-                    idx += 1;
-                    column += 1;
-                }
-                '&' if let Some((anchor_name, len)) = parse_name(&chars, idx + 1) => {
-                    self.register_anchor(&anchor_name, line_number, column);
-                    idx += len + 1;
-                    column += len + 1;
-                }
-                '*' if self.is_alias_indicator(&chars, idx)
-                    && let Some((alias_name, len)) = parse_name(&chars, idx + 1) =>
-                {
-                    self.register_alias(&alias_name, line_number, column);
-                    idx += len + 1;
-                    column += len + 1;
-                }
-                _ => {
-                    idx += 1;
-                    column += 1;
-                }
-            }
-        }
-    }
-
-    fn handle_block_state(&mut self, indent_count: usize, line: &str) -> bool {
-        let is_blank = line.trim().is_empty();
-        if let Some(block) = self.block_state.as_mut() {
-            if block.activate_next_line {
-                block.activate_next_line = false;
-                if is_blank {
-                    return true;
-                }
-            }
-
-            if is_blank {
-                return true;
-            }
-            let explicit_indent =
-                block.explicit_indent.map(|value| block.indent_base + value);
-            let required_indent = match (explicit_indent, block.required_indent) {
-                (Some(explicit), _) => explicit,
-                (None, Some(required)) => required,
-                (None, None) => {
-                    if indent_count > block.indent_base {
-                        block.required_indent = Some(indent_count);
-                        indent_count
-                    } else {
-                        self.block_state = None;
-                        return false;
-                    }
-                }
-            };
-            let stays_in_block = indent_count >= required_indent;
-            if !stays_in_block {
-                self.block_state = None;
-            }
-            return stays_in_block;
-        }
-        false
-    }
-
-    fn detect_doc_boundary(&mut self, chars: &[char], indent_count: usize) -> bool {
-        if self.in_single_quote || self.in_double_quote {
-            return false;
-        }
-        if chars.len() < indent_count + 3 {
-            return false;
-        }
-
-        let candidate = &chars[indent_count..];
-        let marker = &candidate[..3];
-        let is_boundary_marker = matches!(marker, ['-', '-', '-'] | ['.', '.', '.']);
-        if is_boundary_marker
-            && (candidate.len() == 3
-                || candidate.get(3).is_some_and(|ch| ch.is_whitespace()))
-        {
-            self.finish_doc();
-            self.block_state = None;
-            self.in_single_quote = false;
-            self.in_double_quote = false;
-            return true;
-        }
-        false
-    }
-
-    fn register_anchor(&mut self, name: &str, line: usize, column: usize) {
-        let is_duplicate = self.doc.add_anchor(name.to_string(), line, column);
-        if self.cfg.forbid_duplicated_anchors() && is_duplicate {
-            self.violations.push(Violation {
-                line,
-                column,
-                message: format!("{MESSAGE_DUPLICATED_ANCHOR} \"{name}\""),
-            });
-        }
-    }
-
-    fn register_alias(&mut self, name: &str, line: usize, column: usize) {
-        if self.doc.mark_alias(name) {
-            return;
-        }
-        if self.cfg.forbid_undeclared_aliases() {
-            self.violations.push(Violation {
-                line,
-                column,
-                message: format!("{MESSAGE_UNDECLARED_ALIAS} \"{name}\""),
-            });
-        }
-    }
-
-    fn finish_doc(&mut self) {
-        if self.cfg.forbid_unused_anchors() {
-            for anchor in &self.doc.anchors {
-                if !anchor.used {
-                    self.violations.push(Violation {
-                        line: anchor.line,
-                        column: anchor.column,
-                        message: format!("{MESSAGE_UNUSED_ANCHOR} \"{}\"", anchor.name),
+            TokenType::Anchor(name) => {
+                let (line, column) =
+                    line_and_column(&line_starts, CharPos::new(span.start.index()));
+                let duplicate = doc.add_anchor(name.to_string(), line, column);
+                if cfg.forbid_duplicated_anchors && duplicate {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!("{MESSAGE_DUPLICATED_ANCHOR} \"{name}\""),
                     });
                 }
+                violations.extend(ambiguous_violation(
+                    *cfg,
+                    &name,
+                    MESSAGE_AMBIGUOUS_ANCHOR,
+                    line,
+                    column,
+                ));
+            }
+            TokenType::Alias(name) => {
+                let (line, column) =
+                    line_and_column(&line_starts, CharPos::new(span.start.index()));
+                if !doc.mark_alias(&name) && cfg.forbid_undeclared_aliases {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!("{MESSAGE_UNDECLARED_ALIAS} \"{name}\""),
+                    });
+                }
+                violations.extend(ambiguous_violation(
+                    *cfg,
+                    &name,
+                    MESSAGE_AMBIGUOUS_ALIAS,
+                    line,
+                    column,
+                ));
+            }
+            _ => {}
+        }
+    }
+    finish_doc(&doc, *cfg, &mut violations);
+    violations
+}
+
+/// A welded-colon violation for an anchor/alias whose scanned name contains `:`.
+fn ambiguous_violation(
+    cfg: Config,
+    name: &str,
+    message: &str,
+    line: usize,
+    column: usize,
+) -> Option<Violation> {
+    (cfg.forbid_ambiguous_anchor_alias_names && name.contains(':')).then(|| Violation {
+        line,
+        column,
+        message: format!("{message} \"{name}\""),
+    })
+}
+
+/// Emit `forbid-unused-anchors` diagnostics for the just-finished document. Only
+/// the last declaration of each name carries the live binding (matching yamllint's
+/// name-keyed model and how `mark_alias` records use): earlier same-name records
+/// are shadowed re-declarations, reported by `forbid-duplicated-anchors` instead,
+/// so a name is reported unused at most once and never when an alias used it.
+fn finish_doc(doc: &DocState, cfg: Config, violations: &mut Vec<Violation>) {
+    if cfg.forbid_unused_anchors {
+        for (index, anchor) in doc.anchors.iter().enumerate() {
+            let is_last_of_name = doc
+                .name_to_indices
+                .get(&anchor.name)
+                .and_then(|indices| indices.last())
+                == Some(&index);
+            if is_last_of_name && !anchor.used {
+                violations.push(Violation {
+                    line: anchor.line,
+                    column: anchor.column,
+                    message: format!("{MESSAGE_UNUSED_ANCHOR} \"{}\"", anchor.name),
+                });
             }
         }
-        self.doc = DocState::new();
-    }
-
-    fn into_violations(self) -> Vec<Violation> {
-        self.violations
-    }
-
-    fn is_block_indicator(
-        &self,
-        chars: &[char],
-        idx: usize,
-        indent_count: usize,
-    ) -> bool {
-        debug_assert!(!self.in_single_quote && !self.in_double_quote);
-        debug_assert!(idx >= indent_count);
-        let prefix = &chars[..idx];
-        let last_non_ws = prefix.iter().rev().find(|ch| !ch.is_whitespace());
-        matches!(last_non_ws, None | Some(':' | '-' | '?'))
-    }
-
-    fn is_alias_indicator(&self, chars: &[char], idx: usize) -> bool {
-        debug_assert!(!self.in_single_quote && !self.in_double_quote);
-        let Some(prev) = idx.checked_sub(1).and_then(|prev_idx| chars.get(prev_idx))
-        else {
-            return true;
-        };
-        matches!(prev, ' ' | '\t' | ':' | '[' | '{' | ',' | '?')
     }
 }
 
@@ -421,77 +255,4 @@ struct AnchorRecord {
     line: usize,
     column: usize,
     used: bool,
-}
-
-struct BlockState {
-    indent_base: usize,
-    explicit_indent: Option<usize>,
-    required_indent: Option<usize>,
-    activate_next_line: bool,
-}
-
-fn parse_name(chars: &[char], start: usize) -> Option<(String, usize)> {
-    if start >= chars.len() {
-        return None;
-    }
-    let mut idx = start;
-    while idx < chars.len() && is_name_char(chars[idx]) {
-        idx += 1;
-    }
-    if idx == start {
-        return None;
-    }
-    let name: String = chars[start..idx].iter().collect();
-    Some((name, idx - start))
-}
-
-const fn is_name_char(ch: char) -> bool {
-    !matches!(
-        ch,
-        ' ' | '\t'
-            | '\r'
-            | '\n'
-            | ','
-            | '['
-            | ']'
-            | '{'
-            | '}'
-            | '*'
-            | '&'
-            | '#'
-            | '!'
-            | '|'
-            | '>'
-            | '\''
-            | '"'
-            | '%'
-            | '@'
-            | ':'
-            | '?'
-    )
-}
-
-fn parse_explicit_indent(chars: &[char], mut idx: usize) -> Option<usize> {
-    let mut indent = None;
-    while idx < chars.len() {
-        match chars[idx] {
-            '+' | '-' => idx += 1,
-            ch if ch.is_ascii_digit() => {
-                let mut val = 0usize;
-                while idx < chars.len() && chars[idx].is_ascii_digit() {
-                    val = val
-                        .saturating_mul(10)
-                        .saturating_add((chars[idx] as u8 - b'0') as usize);
-                    idx += 1;
-                }
-                if val > 0 {
-                    indent = Some(val);
-                }
-                break;
-            }
-            ' ' | '\t' => idx += 1,
-            _ => break,
-        }
-    }
-    indent
 }

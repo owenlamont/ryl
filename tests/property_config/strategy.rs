@@ -104,7 +104,13 @@ const CATALOG: &[(&str, &[(&str, OptValKind)])] = &[
     ("comments", &[("min-spaces-from-content", OptValKind::Int)]),
     ("braces", &[("max-spaces-inside", OptValKind::Int)]),
     ("truthy", &[("check-keys", OptValKind::Bool)]),
-    ("anchors", &[("forbid-unused-anchors", OptValKind::Bool)]),
+    (
+        "anchors",
+        &[
+            ("forbid-unused-anchors", OptValKind::Bool),
+            ("forbid-ambiguous-anchor-alias-names", OptValKind::Bool),
+        ],
+    ),
     ("document-start", &[("present", OptValKind::Bool)]),
     ("trailing-spaces", &[]),
     (

@@ -136,8 +136,11 @@ fn assert_readable_rule_wrapper_defs(schema: &Value) {
         .and_then(Value::as_object)
         .expect("schema defs should exist");
 
-    assert!(defs.contains_key("RuleEntryForAnchorsOptions"));
-    assert!(defs.contains_key("RuleOptionsForAnchorsOptions"));
+    // `BraceLikeOptions` (braces/brackets) has the same name in the YAML and TOML
+    // schemas, so it is a stable readable-wrapper example for both; `anchors` is
+    // not, since the TOML config uses the ryl-only `TomlAnchorsOptions`.
+    assert!(defs.contains_key("RuleEntryForBraceLikeOptions"));
+    assert!(defs.contains_key("RuleOptionsForBraceLikeOptions"));
     assert!(defs.keys().all(|key| {
         !has_numbered_rule_wrapper_suffix(key, "RuleEntry")
             && !has_numbered_rule_wrapper_suffix(key, "RuleOptions")

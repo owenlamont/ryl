@@ -63,16 +63,52 @@ produced.
   working. The equivalent `# ryl …` spelling is preferred for new files; see
   [Inline directives](../directives.md).
 
-## What differs
+## How ryl differs from yamllint
+
+ryl is a drop-in replacement, but it intentionally diverges from yamllint in a
+small number of places. Every divergence is deliberate and falls into one of two
+buckets: ryl is **more correct against the YAML 1.2.2 specification**, or it
+**fails loudly instead of silently**. The complete list:
+
+### No implicit default configuration
 
 ryl never enables a rule unless a configuration explicitly turns it on. yamllint,
 run with no configuration, lints with its `default` preset; ryl instead exits `2`
-with `no configuration found`. The presets stay available as explicit opt-ins, so
-the one-line equivalent of yamllint's out-of-the-box behaviour is a YAML config
-containing `extends: default` (or the corresponding TOML preset from
+with `no configuration found`. It also exits `2` (`no rules enabled`) when a
+resolved config turns every rule off, where yamllint would silently lint nothing.
+
+**Why ryl differs:** linting with rules the user never asked for &mdash; or
+silently doing nothing &mdash; is surprising. ryl makes the rule set explicit and
+reports loudly when there isn't one. The presets stay available as explicit
+opt-ins, so the one-line equivalent of yamllint's out-of-the-box behaviour is a
+YAML config containing `extends: default` (or the corresponding TOML preset from
 [Configuration presets](../config-presets.md)). The migration converter flattens an
 `extends: default` source into the generated TOML automatically, and warns when a
 migrated config ends up enabling no rules.
+
+### Anchor and alias names containing a colon
+
+YAML 1.2.2 §6.9.2 defines an anchor/alias name as `ns-anchor-char+`, and
+`ns-anchor-char` excludes only the flow indicators `, [ ] { }` &mdash; so a colon
+is a **legal name character**. ryl's parser and the
+[YAML reference parser](https://play.yaml.com) both read a `:` as part of the
+name; yamllint (via PyYAML) stops at the first `:`, which the specification does
+not permit. ryl follows the spec, so the `anchors` rule can diverge:
+
+| Input (with `&x`/`&foo…` as noted) | ryl (spec-conformant) | yamllint (PyYAML) |
+| :--- | :--- | :--- |
+| `b: {*x: 2}` | `*x:` is an **undeclared** alias; `x` is **unused** | reads `{x: 2}` &mdash; no diagnostic |
+| `&foo:bar` and `&foo:baz` | two **distinct** anchors | one anchor `foo`, reported **duplicated** |
+| `*foo:baz` | a valid alias named `foo:baz` | a **syntax error** (PyYAML cannot scan it) |
+
+**Why ryl differs:** the YAML specification and its reference parser are the
+authority, and PyYAML's narrowing at `:` is non-conformant (see
+[adrienverge/yamllint#686](https://github.com/adrienverge/yamllint/issues/686) and
+[adrienverge/yamllint#780](https://github.com/adrienverge/yamllint/issues/780)).
+The portable, unambiguous way to use an alias as a mapping key is a **space before
+the colon** &mdash; `*foo : bar` &mdash; which every parser reads identically. The
+ryl-only [`anchors: forbid-ambiguous-anchor-alias-names`](../rules/anchors.md)
+option flags welded colons so you can forbid the construct outright.
 
 ## Side-by-side example
 
