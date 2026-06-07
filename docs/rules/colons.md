@@ -52,6 +52,21 @@ second: 2
 third:  3
 ```
 
+### Alias mapping keys
+
+A YAML anchor/alias name may legally contain `:`, so `*anchor:` is read as the alias to
+an anchor named `anchor:`. Using an alias as a mapping key therefore *requires* one space
+before the colon &mdash; `*anchor : value`. When that required space is present the
+colon's spacing is not reported (matching the parser's view of the alias); any other
+spacing is checked as usual.
+
+```yaml
+anchor: &a 42
+*a : value     # allowed: the required space is not reported
+*a  : value    # reported: an extra space before the colon
+*a:  value     # reported: too many spaces after the colon
+```
+
 ## Automatic fixing
 
 This rule does not auto-fix; correct spacing manually.

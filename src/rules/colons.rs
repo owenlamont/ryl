@@ -1,6 +1,19 @@
+//! `colons` rule: limit spaces around `:` (and explicit `?`) in mappings.
+//!
+//! Alias-key special case: a YAML anchor/alias name may legally contain `:` (only the
+//! flow indicators `,[]{}` are excluded — YAML 1.2.2 §6.9.2 "Node Anchors", §7.1 "Alias
+//! Nodes"), so `*foo:` is the alias to an anchor named `foo:`. Using an alias as a
+//! mapping key therefore *requires* one separating space — `*foo : bar` — which must not
+//! be reported. We take alias extents from the parser (`collect_alias_ends`) rather than
+//! guessing from raw text, so the exemption fires exactly when an alias node ends one
+//! space before the colon — matching yamllint's `colons.py` `AliasToken` rule (see
+//! adrienverge/yamllint#226).
+use std::collections::HashSet;
+
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
+    build_line_starts, collect_alias_ends, collect_scalar_ranges, line_and_column,
+    skip_comment,
 };
 use crate::rules::support::span_utils::{CharPos, containing_scalar_range};
 
@@ -62,10 +75,7 @@ pub struct Violation {
 }
 
 enum BeforeResult {
-    SameLine {
-        spaces: usize,
-        preceding_char: Option<usize>,
-    },
+    SameLine { spaces: usize },
     Ignored,
 }
 
@@ -81,6 +91,10 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     }
 
     let scalar_ranges = collect_scalar_ranges(buffer);
+    let alias_ends: HashSet<usize> = collect_alias_ends(buffer)
+        .iter()
+        .map(|pos| pos.get())
+        .collect();
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let line_starts = build_line_starts(&chars);
 
@@ -102,7 +116,14 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                 continue;
             }
             ':' => {
-                evaluate_colon(cfg, &mut violations, &chars, idx, &line_starts);
+                evaluate_colon(
+                    cfg,
+                    &mut violations,
+                    &chars,
+                    idx,
+                    &line_starts,
+                    &alias_ends,
+                );
             }
             '?' => {
                 evaluate_question_mark(cfg, &mut violations, &chars, idx, &line_starts);
@@ -122,38 +143,34 @@ fn evaluate_colon(
     chars: &[(usize, char)],
     colon_idx: usize,
     line_starts: &[CharPos],
+    alias_ends: &HashSet<usize>,
 ) {
-    let mut skip_after_check = false;
-
-    if let BeforeResult::SameLine {
-        spaces,
-        preceding_char,
-    } = compute_spaces_before(chars, colon_idx)
+    // An alias used as a mapping key needs exactly one separating space (`*foo : bar`);
+    // skip both checks when an alias node ends one char before this colon.
+    if colon_idx
+        .checked_sub(1)
+        .is_some_and(|prev| alias_ends.contains(&prev))
     {
-        if let Some(preceding_idx) = preceding_char
-            && spaces == 0
-            && alias_immediately_before(chars, preceding_idx)
-        {
-            skip_after_check = true;
-        }
+        return;
+    }
 
-        if !skip_after_check && cfg.max_spaces_before >= 0 {
-            let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-            if spaces_i64 > cfg.max_spaces_before {
-                let (line, column) =
-                    line_and_column(line_starts, CharPos::new(colon_idx));
-                let highlight_column = column.saturating_sub(1).max(1);
-                violations.push(Violation {
-                    line,
-                    column: highlight_column,
-                    message: TOO_MANY_BEFORE.to_string(),
-                });
-            }
+    if cfg.max_spaces_before >= 0
+        && let BeforeResult::SameLine { spaces } =
+            compute_spaces_before(chars, colon_idx)
+    {
+        let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
+        if spaces_i64 > cfg.max_spaces_before {
+            let (line, column) = line_and_column(line_starts, CharPos::new(colon_idx));
+            let highlight_column = column.saturating_sub(1).max(1);
+            violations.push(Violation {
+                line,
+                column: highlight_column,
+                message: TOO_MANY_BEFORE.to_string(),
+            });
         }
     }
 
-    if !skip_after_check
-        && cfg.max_spaces_after >= 0
+    if cfg.max_spaces_after >= 0
         && let AfterResult::SameLine { spaces, next_char } =
             compute_spaces_after(chars, colon_idx)
     {
@@ -202,28 +219,17 @@ fn compute_spaces_before(chars: &[(usize, char)], colon_idx: usize) -> BeforeRes
     let mut spaces = 0usize;
     let mut idx = colon_idx;
 
-    loop {
-        let Some(prev) = idx.checked_sub(1) else {
-            return BeforeResult::SameLine {
-                spaces,
-                preceding_char: None,
-            };
-        };
-
-        let ch = chars[prev].1;
-        if matches!(ch, ' ' | '\t') {
-            spaces += 1;
-            idx = prev;
-            continue;
+    while let Some(prev) = idx.checked_sub(1) {
+        match chars[prev].1 {
+            ' ' | '\t' => {
+                spaces += 1;
+                idx = prev;
+            }
+            '\n' | '\r' => return BeforeResult::Ignored,
+            _ => return BeforeResult::SameLine { spaces },
         }
-        if matches!(ch, '\n' | '\r') {
-            return BeforeResult::Ignored;
-        }
-        return BeforeResult::SameLine {
-            spaces,
-            preceding_char: Some(prev),
-        };
     }
+    BeforeResult::SameLine { spaces }
 }
 
 fn compute_spaces_after(chars: &[(usize, char)], start_idx: usize) -> AfterResult {
@@ -254,28 +260,6 @@ fn compute_spaces_after(chars: &[(usize, char)], start_idx: usize) -> AfterResul
     }
 
     AfterResult::Ignored
-}
-
-fn alias_immediately_before(chars: &[(usize, char)], preceding_idx: usize) -> bool {
-    let mut idx = preceding_idx;
-    loop {
-        let ch = chars[idx].1;
-        if ch == '*' {
-            return true;
-        }
-        if is_alias_identifier_char(ch) {
-            if idx == 0 {
-                return false;
-            }
-            idx -= 1;
-            continue;
-        }
-        return false;
-    }
-}
-
-const fn is_alias_identifier_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')
 }
 
 fn is_explicit_question_mark(chars: &[(usize, char)], idx: usize) -> bool {

@@ -71,19 +71,73 @@ fn detects_excess_spaces_after_question_mark() {
 }
 
 #[test]
-fn ignores_alias_immediately_before_colon() {
+fn exempts_required_space_before_alias_key_colon() {
+    // `*a :` needs the space: without it `:` joins the alias name (`a:`), so the single
+    // required space must not be flagged (adrienverge/yamllint#226).
     let cfg = Config::new_for_tests(0, 1);
-    let points = violation_points("- anchor: &a key\n- *a: 42\n", cfg);
-    assert!(points.is_empty());
+    let points = violation_points("- anchor: &a key\n- *a : 42\n", cfg);
+    assert!(
+        points.is_empty(),
+        "required space before an alias-key colon must be allowed: {points:?}"
+    );
 }
 
 #[test]
-fn flags_alias_with_extra_spaces() {
+fn flags_extra_space_before_alias_key_colon() {
     let cfg = Config::new_for_tests(0, 1);
     let points = violation_points("- anchor: &a key\n- *a  : 42\n", cfg);
     assert_eq!(
         points,
         vec![(2, 6, "too many spaces before colon".to_string())]
+    );
+}
+
+#[test]
+fn still_flags_spaces_after_alias_key_colon() {
+    // The exemption covers only the required space *before* the colon; spacing after it
+    // is still checked (a latent false negative before the #254 fix).
+    let cfg = Config::new_for_tests(0, 1);
+    let points = violation_points("- anchor: &a key\n- *a:  42\n", cfg);
+    assert_eq!(
+        points,
+        vec![(2, 7, "too many spaces after colon".to_string())]
+    );
+}
+
+#[test]
+fn flags_plain_scalar_key_containing_alias_marker() {
+    // `foo *bar` is a plain scalar key, not an alias node, so the space before `:` is
+    // still flagged — the exemption only applies where the parser resolved an alias.
+    let cfg = Config::new_for_tests(0, 1);
+    let points = violation_points("foo *bar : baz\n", cfg);
+    assert_eq!(
+        points,
+        vec![(1, 9, "too many spaces before colon".to_string())]
+    );
+}
+
+#[test]
+fn allows_document_initial_colon_with_null_key() {
+    // Colon at the buffer start (a null mapping key): no key text precedes it, so there
+    // are no excess spaces before the colon to report.
+    let cfg = Config::new_for_tests(0, 1);
+    let points = violation_points(": value\n", cfg);
+    assert!(
+        points.is_empty(),
+        "a document-initial null-key colon has no spacing violation: {points:?}"
+    );
+}
+
+#[test]
+fn exempts_required_space_for_undefined_alias_key() {
+    // The exemption reads scanner tokens, so it fires for an alias key even when the
+    // anchor is undefined or forward-referenced (the parser errors, but the token is
+    // still an alias) — matching yamllint, which exempts regardless of resolution.
+    let cfg = Config::new_for_tests(0, 1);
+    let points = violation_points("*missing : 42\n", cfg);
+    assert!(
+        points.is_empty(),
+        "an alias key is exempt even when its anchor is undefined: {points:?}"
     );
 }
 
