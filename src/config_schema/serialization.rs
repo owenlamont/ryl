@@ -222,6 +222,7 @@ fn rules_table_to_value<Q: Serialize, K: Serialize, A: Serialize>(
     insert_serialized(&mut table, "key-duplicates", rules.key_duplicates.as_ref());
     insert_serialized(&mut table, "key-ordering", rules.key_ordering.as_ref());
     insert_serialized(&mut table, "line-length", rules.line_length.as_ref());
+    insert_serialized(&mut table, "merge-keys", rules.merge_keys.as_ref());
     insert_serialized(
         &mut table,
         "new-line-at-end-of-file",

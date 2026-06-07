@@ -579,15 +579,8 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
         }
 
         let id = key_id(value, style, tag, self.config.check_canonical);
-        // A `<<` key is a merge directive when YAML resolves it to the merge
-        // type: a plain untagged `<<` (implicit), or any `<<` carrying an
-        // explicit `!!merge` tag. A quoted/otherwise-tagged `<<` is a plain
-        // string key.
-        let is_merge_directive = value == "<<"
-            && (tag.is_none() && matches!(style, ScalarStyle::Plain)
-                || tag.is_some_and(|tag| {
-                    tag.is_yaml_core_schema() && tag.suffix == "merge"
-                }));
+        let is_merge_directive =
+            crate::rules::support::merge_key::is_merge_directive(value, style, tag);
         let pos = (span.start.line(), span.start.col() + 1);
         let map = self
             .walker

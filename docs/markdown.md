@@ -114,8 +114,10 @@ regions, because a region is not a standalone file:
 - `new-line-at-end-of-file` and `new-lines` — these are governed by the host
   Markdown file, not the embedded snippet.
 
-All other rules (indentation, `key-duplicates`, `colons`, `truthy`,
-`line-length`, `trailing-spaces`, …) run normally.
+Those four are the **only** rules suppressed; every other rule runs normally inside an
+embedded region &mdash; layout (`indentation`, `colons`, `line-length`,
+`trailing-spaces`), keys and values (`key-duplicates`, `truthy`), and the ryl-only
+`tags`, `unicode-line-breaks`, and `merge-keys` rules alike.
 
 [Inline directives](directives.md) (`# ryl disable` / `# yamllint disable`) also
 work inside an embedded region; a directive applies within the region that

@@ -62,7 +62,7 @@ title: "first line<LS>second line"
 ```
 
 ```text
-1:20  error  forbidden raw line separator U+2028; escape as "\L" in a double-quoted scalar  (unicode-line-breaks)
+1:19  error  forbidden raw line separator U+2028; escape as "\L" in a double-quoted scalar  (unicode-line-breaks)
 ```
 
 The rule also fires on a raw `U+0085`/`U+2029` in a plain scalar or a comment.

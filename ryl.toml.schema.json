@@ -484,6 +484,7 @@
         "key-duplicates",
         "key-ordering",
         "line-length",
+        "merge-keys",
         "new-line-at-end-of-file",
         "new-lines",
         "octal-values",
@@ -1788,6 +1789,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RuleEntryForLineLengthOptions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "merge-keys": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleEntryForNoOptions"
             },
             {
               "type": "null"

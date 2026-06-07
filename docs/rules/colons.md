@@ -54,17 +54,21 @@ third:  3
 
 ### Alias mapping keys
 
-A YAML anchor/alias name may legally contain `:`, so `*anchor:` is read as the alias to
-an anchor named `anchor:`. Using an alias as a mapping key therefore *requires* one space
-before the colon &mdash; `*anchor : value`. When that required space is present the
-colon's spacing is not reported (matching the parser's view of the alias); any other
-spacing is checked as usual.
+A YAML anchor/alias name may legally contain `:`, so `*anchor:` welds into an alias to an
+anchor named `anchor:` (a parse error here, since no mapping colon remains). Using an
+alias as a mapping key therefore *requires* one separating space before the colon
+&mdash; `*anchor : value`. When exactly that one space is present the colon's spacing is
+not reported (the rule defers to the parser's view of the alias); more than one space
+before the colon is reported as usual.
 
 ```yaml
-anchor: &a 42
-*a : value     # allowed: the required space is not reported
-*a  : value    # reported: an extra space before the colon
-*a:  value     # reported: too many spaces after the colon
+base: &a name
+*a : value     # allowed: the one required separating space is not reported
+```
+
+```yaml
+base: &a name
+*a  : value    # reported (2:4): too many spaces before colon
 ```
 
 ## Automatic fixing

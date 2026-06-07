@@ -116,6 +116,9 @@ max = 100
 allow-non-breakable-words = true
 allow-non-breakable-inline-mappings = true
 
+[rules.merge-keys]
+level = "warning"
+
 [rules.new-line-at-end-of-file]
 level = "warning"
 
