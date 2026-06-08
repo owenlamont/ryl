@@ -211,12 +211,14 @@ rather than shipping silently. Work this checklist (the detailed test sections u
     outside the ryl repo (ask the maintainer where they keep issue drafts if you don't
     already know) in a self-contained `<repo>-<topic>-repro/` directory: a `README.md`
     with the draft issue/reply text and how to run, plus a minimal repro that runs
-    **unedited in one command** and prints a clear verdict. For a Rust dep, that's a tiny
-    `cargo` project (`cargo run`, plus a `bash check-all-versions.sh` over the version
-    pins) printing observed-vs-expected; for other ecosystems, the equivalent
-    one-command script. The point is that the maintainer can confirm the behaviour
-    first-hand before it is raised. No repro, no report. Keep the prose succinct out of
-    respect for these responsive volunteer maintainers' time: concrete ask, then the
+    **unedited in one command** and prints a clear verdict. Reproduce against the
+    dependency's **latest** version — that's what its maintainer cares about, so there's
+    no need to sweep older releases. For a Rust dep, that's a tiny `cargo` project pinned
+    to the latest version, run with `cargo run`, printing observed-vs-expected; for other
+    ecosystems, the equivalent one-command script — so the maintainer can confirm the
+    behaviour first-hand before it is raised. No repro, no report. Keep the prose
+    succinct out of respect for these responsive volunteer maintainers' time: concrete
+    ask, then the
     runnable repro, then authoritative evidence (spec quote / play.yaml.com event
     stream), and cut the rest.
 - Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
