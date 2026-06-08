@@ -206,6 +206,33 @@ fn diff_reads_stdin_with_filename_label() {
 }
 
 #[test]
+fn diff_skips_stdin_filename_with_control_character() {
+    // The `--stdin-filename` label feeds the diff header just like a disk path, so a
+    // control character in it is gated the same way (no representable header).
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .arg("--diff")
+            .arg("--stdin-filename")
+            .arg("a\nb.yaml")
+            .arg("-d")
+            .arg(TRAILING)
+            .arg("-"),
+        b"key:   value  \n",
+    );
+
+    assert_eq!(code, 0, "a skipped stdin label yields no diff: {stderr}");
+    assert!(
+        stdout.is_empty(),
+        "no diff for a control-char label: {stdout}"
+    );
+    assert!(
+        stderr.contains("skipped by --diff") && stderr.contains("control characters"),
+        "the control-char stdin label must be skipped with a notice: {stderr}"
+    );
+}
+
+#[test]
 fn diff_stdin_unparsable_is_skipped() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(

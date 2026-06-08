@@ -264,7 +264,9 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
 /// Compute the `--diff` outcome for in-memory `content` (shared by the file and stdin
 /// paths). Mirrors the in-place fixers' gating: an unparsable plain YAML file yields
 /// no diff and one skip so the CLI can tell the user why; a Markdown file diffs at the
-/// host level via [`fix_markdown_str`] and reports each region that does not parse.
+/// host level via [`fix_markdown_str`] and reports each region that does not parse. A
+/// path (or `--stdin-filename` label) that can't be written in a diff header is skipped
+/// here, so the file and stdin paths share the guard.
 #[must_use]
 pub fn diff_outcome(
     content: &str,
@@ -273,6 +275,15 @@ pub fn diff_outcome(
     base_dir: &Path,
     kind: SourceKind,
 ) -> DiffOutcome {
+    if path_unrepresentable_in_diff(path) {
+        return DiffOutcome {
+            diff: None,
+            skipped: vec![diff_skip(
+                "filename has non-UTF-8 bytes or control characters; no applicable \
+                 diff path",
+            )],
+        };
+    }
     match kind {
         SourceKind::Yaml => {
             if let Some(problem) = crate::lint::parse_error(content) {
@@ -334,8 +345,9 @@ fn path_unrepresentable_in_diff(path: &Path) -> bool {
 }
 
 /// Compute unified diffs for the safe fixes of each file, reading from disk. Never
-/// writes; an input is skipped (with a notice) when it can't yield an applicable diff:
-/// a symlink (parity with `--fix`), a non-UTF-8/BOM file, or a name with control chars.
+/// writes; a symlinked input is skipped with a warning (parity with `--fix`). Other
+/// un-diffable inputs (non-UTF-8/BOM content, an unparsable file, or a name that can't
+/// appear in a header) are skipped with a notice via [`diff_outcome`].
 ///
 /// # Errors
 ///
@@ -346,16 +358,6 @@ pub fn diff_safe_fixes_for_files(
     let mut stats = DiffStats::default();
     for (path, base_dir, cfg, kind) in files {
         if refuse_symlink(path, "--diff") {
-            continue;
-        }
-        if path_unrepresentable_in_diff(path) {
-            stats.skipped.push((
-                path.clone(),
-                diff_skip(
-                    "filename has non-UTF-8 bytes or control characters; no applicable \
-                     diff path",
-                ),
-            ));
             continue;
         }
         let decoded = decoder::read_file_lossless(path)?;
