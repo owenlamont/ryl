@@ -374,6 +374,36 @@ fn diff_markdown_skip_reports_original_line_not_post_fix() {
 }
 
 #[test]
+fn diff_header_relativizes_absolute_path_under_cwd() {
+    // Mirrors ruff: an absolute path under the run directory is relativized in the
+    // header so the patch applies from there (`git apply -p0` / hk) instead of an
+    // absolute `--- /abs/...` header that git apply rejects. Canonicalize the temp dir
+    // so this holds where the system temp dir is symlinked (e.g. macOS /var -> /private).
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let file = root.join("input.yaml");
+    fs::write(&file, "key:   value  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .current_dir(&root)
+        .arg("--diff")
+        .arg("-d")
+        .arg(TRAILING)
+        .arg(&file)); // absolute path under the run directory
+
+    assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
+    assert!(
+        stdout.contains("--- input.yaml") && stdout.contains("+++ input.yaml"),
+        "an absolute path under cwd must be relativized in the header: {stdout}"
+    );
+    assert!(
+        !stdout.contains(&format!("--- {}", file.display())),
+        "the absolute path must not appear in the header: {stdout}"
+    );
+}
+
+#[test]
 fn diff_deduplicates_inputs_listed_under_multiple_spellings() {
     // A file reached by several spellings (the directory walk, here twice, plus an
     // explicit arg) must be diffed once — a duplicate patch block would fail to apply

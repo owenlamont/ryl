@@ -231,17 +231,26 @@ impl DiffStats {
 /// Render a unified diff from `original` and `fixed`, or `None` when they are
 /// identical. The format follows `ruff check --diff`: 3 lines of context (also
 /// `similar`'s default, pinned here so a crate upgrade can't silently change it) and a
-/// plain `--- path` / `+++ path` header — no git `a/`/`b/` prefixes or path quoting.
-/// The header path is sanitized so a control char in a crafted filename cannot inject
-/// terminal escapes or forge a hunk header; the diff *body* is emitted verbatim so a
-/// consumer such as hk can re-apply the content unchanged (which, like `git diff`,
-/// means the raw bytes — including any control chars already present in the file).
+/// plain `--- path` / `+++ path` header (no git `a/`/`b/` prefixes). Like ruff, an
+/// absolute path under the current directory is relativized so the patch applies from
+/// the repo root (`git apply -p0` / hk) instead of failing on an absolute header; a
+/// relative or out-of-tree path is left as given. The header path is sanitized so a
+/// crafted filename cannot inject terminal escapes or forge a hunk header; the diff
+/// *body* is emitted verbatim so a consumer can re-apply the content unchanged (which,
+/// like `git diff`, means the raw bytes — including any control chars already present).
 fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
     if original == fixed {
         return None;
     }
-    let label =
-        crate::cli_support::sanitize_control(&path.display().to_string()).into_owned();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let display = path.strip_prefix(&cwd).unwrap_or(path);
+    let label = crate::cli_support::sanitize_control(&display.display().to_string())
+        .into_owned();
+    // git/patch headers use forward slashes; on Windows the path uses `\`, so normalize
+    // it (Unix leaves `\` alone — there it is a valid filename character, not a
+    // separator).
+    #[cfg(windows)]
+    let label = label.replace('\\', "/");
     Some(
         TextDiff::from_lines(original, fixed)
             .unified_diff()

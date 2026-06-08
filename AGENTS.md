@@ -495,15 +495,11 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
 
 ## Documentation Site
 
-- The Zensical documentation source lives under `/docs/` with site
-  configuration in `zensical.toml`. Built output goes to `/site/` (gitignored).
-- Zensical is pinned via the `docs` dependency group in `pyproject.toml` and
-  locked in `uv.lock`. Use the uv group commands so transitive deps stay in
-  sync with the lockfile.
-- Build the site: `uv run --group docs zensical build --clean`.
-- Preview locally with live reload: `uv run --group docs zensical serve`.
-- Bumping Zensical: edit the pin in `pyproject.toml`, run `uv lock`, then
-  rebuild to confirm the new version still renders cleanly.
+- Zensical docs source is under `/docs/` (config in `zensical.toml`); built output goes
+  to `/site/` (gitignored). Zensical is pinned via the `docs` dependency group in
+  `pyproject.toml`/`uv.lock` — use the uv group commands. Build: `uv run --group docs
+  zensical build --clean`; preview: `uv run --group docs zensical serve`. To bump, edit
+  the pin, run `uv lock`, and rebuild to confirm it renders.
 
 ## CLI Behavior
 
@@ -557,7 +553,8 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   `DecodedFile::is_plain_utf8`, stdin via decoded==raw bytes) — a text diff can't apply
   back to transcoded bytes, so `--fix` (which re-encodes) is the path for those. Markdown
   diffs at host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte);
-  only the header path is sanitized.
+  the header path is sanitized and relativized to CWD (like ruff) so it applies via
+  `git apply -p0`.
 - Malicious-payload hardening (#246) — invariants to preserve: `--fix`/`--diff` never
   write/read through a symlink (`fix::refuse_symlink`) and the write target is always
   the input path, never derived from YAML content. The YAML config loader
