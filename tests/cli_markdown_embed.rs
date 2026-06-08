@@ -393,8 +393,8 @@ fn unicode_line_breaks_fires_in_fenced_block() {
 
     assert_eq!(code, 1, "{err}");
     assert!(
-        err.contains("2:") && err.contains("unicode-line-breaks"),
-        "raw U+2028 flagged on host line 2 inside the fenced block: {err}"
+        err.contains("2:7") && err.contains("unicode-line-breaks"),
+        "raw U+2028 flagged at host 2:7 inside the fenced block: {err}"
     );
 }
 
@@ -408,9 +408,9 @@ fn anchors_ambiguous_name_fires_in_fenced_block() {
 
     assert_eq!(code, 1, "{err}");
     assert!(
-        err.contains("2:")
+        err.contains("2:4")
             && err.contains("ambiguous anchor name")
             && err.contains("anchors"),
-        "colon-welded anchor name flagged on host line 2 in the fenced block: {err}"
+        "colon-welded anchor name flagged at host 2:4 in the fenced block: {err}"
     );
 }
