@@ -510,11 +510,11 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
 - Files named explicitly are linted as their resolved source kind; one that
   matches no `[files]` kind is rejected with an error (rather than silently
   treated as YAML).
-- Inputs are de-duplicated: a file reached by two spellings (the walk plus an
-  explicit arg, e.g. `ryl . f.yaml`, or `f.yaml` listed twice) is processed once.
-  `gather_lint_files` keys a `seen` set on `main::canonical_input` (`std::path::absolute`
-  — lexical, no symlink resolution, no existence check), so this spans lint/`--fix`/
-  `--diff`/`--list-files`. Deliberately stricter than yamllint (which processes
+- Inputs are de-duplicated: a file reached by two spellings (`ryl . f.yaml`, `f.yaml`
+  twice, or `f.yaml sub/../f.yaml`) is processed once. `gather_lint_files` keys a `seen`
+  set on `main::canonical_input` (`std::path::absolute` + lexical `..` normalization —
+  purely lexical, no symlink resolution, so a symlink stays distinct from its target),
+  spanning lint/`--fix`/`--diff`/`--list-files`. Stricter than yamllint (which keeps
   duplicates); for `--diff` a duplicate would emit a repeat patch block that fails to
   apply on the second copy.
 - Source kinds (`config::SourceKind`): the `[files]` TOML table maps `yaml` and
@@ -551,9 +551,10 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   gate and symlink skip (both → a `skipped by --diff` notice, no exit effect). A
   non-UTF-8/BOM input is likewise skipped (`fix::non_utf8_diff_skip`; files via
   `DecodedFile::is_plain_utf8`, stdin via decoded==raw bytes) — a text diff can't apply
-  back to transcoded bytes, so `--fix` (which re-encodes) is the path for those. Markdown
-  diffs at host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte);
-  the header path is sanitized and relativized to CWD (like ruff) so it applies via
+  back to transcoded bytes, so `--fix` (which re-encodes) is the path for those — as is
+  a filename with control characters (no representable header). Markdown diffs at
+  host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte); the
+  header path is sanitized and relativized to CWD (like ruff) so it applies via
   `git apply -p0`.
 - Malicious-payload hardening (#246) — invariants to preserve: `--fix`/`--diff` never
   write/read through a symlink (`fix::refuse_symlink`) and the write target is always

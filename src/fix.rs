@@ -300,26 +300,41 @@ pub fn diff_outcome(
     }
 }
 
-/// The skip a non-UTF-8 (or BOM) input gets under `--diff`: a textual unified diff of
-/// the decoded content cannot be applied back to the BOM'd/transcoded on-disk bytes,
-/// and a text diff has no way to round-trip the original encoding the way `--fix`'s
-/// re-encode does — so `--diff` skips it with a notice pointing at `--fix`. Shared by
-/// the file path and the stdin path (`main::run_stdin_diff`).
+/// A `--diff` skip notice (`<path>:1:1 skipped by --diff: <message>`) for an input that
+/// cannot produce an applicable diff.
 #[must_use]
-pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
+fn diff_skip(message: &str) -> crate::lint::LintProblem {
     crate::lint::LintProblem {
         line: 1,
         column: 1,
         level: crate::lint::Severity::Error,
-        message: "non-UTF-8 or BOM content has no applicable text diff; use --fix"
-            .to_string(),
+        message: message.to_string(),
         rule: None,
     }
 }
 
+/// The skip a non-UTF-8 (or BOM) input gets under `--diff`: a textual unified diff of the
+/// decoded content cannot be applied back to the BOM'd/transcoded on-disk bytes, and a
+/// text diff cannot round-trip the original encoding the way `--fix`'s re-encode does.
+/// Shared by the file path and the stdin path (`main::run_stdin_diff`).
+#[must_use]
+pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
+    diff_skip("non-UTF-8 or BOM content has no applicable text diff; use --fix")
+}
+
+/// Whether the path contains a control character. Such a name cannot appear in a
+/// unified-diff header: emitting it raw would corrupt the `---`/`+++` line (or inject),
+/// and the sanitized form no longer matches the on-disk file, so no consumer could apply
+/// the patch. `--diff` skips these like the non-UTF-8 case.
+fn path_has_control_char(path: &Path) -> bool {
+    path.as_os_str()
+        .to_string_lossy()
+        .contains(char::is_control)
+}
+
 /// Compute unified diffs for the safe fixes of each file, reading from disk. Never
-/// writes; a symlinked input is skipped with a warning (parity with `--fix`, whose
-/// preview this is), and a non-UTF-8/BOM input is skipped (see [`non_utf8_diff_skip`]).
+/// writes; an input is skipped (with a notice) when it can't yield an applicable diff:
+/// a symlink (parity with `--fix`), a non-UTF-8/BOM file, or a name with control chars.
 ///
 /// # Errors
 ///
@@ -330,6 +345,13 @@ pub fn diff_safe_fixes_for_files(
     let mut stats = DiffStats::default();
     for (path, base_dir, cfg, kind) in files {
         if refuse_symlink(path, "--diff") {
+            continue;
+        }
+        if path_has_control_char(path) {
+            stats.skipped.push((
+                path.clone(),
+                diff_skip("filename has control characters; no applicable diff path"),
+            ));
             continue;
         }
         let decoded = decoder::read_file_lossless(path)?;

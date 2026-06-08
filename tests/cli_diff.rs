@@ -481,6 +481,61 @@ fn diff_skips_non_utf8_stdin_with_notice() {
     );
 }
 
+#[test]
+fn diff_deduplicates_dotdot_spelled_paths() {
+    // `f.yaml` and `sub/../f.yaml` (sub a real dir) are the same file; --diff must emit
+    // one patch, not a duplicate that can't both apply (matches ruff). Exercises the
+    // lexical `..` collapse in `canonical_input`. Both args are absolute so the dedup is
+    // independent of the run directory.
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("f.yaml"), "key:   value  \n").unwrap();
+    let direct = dir.path().join("f.yaml");
+    let dotdot = dir.path().join("sub/../f.yaml");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--diff")
+        .arg("-d")
+        .arg(TRAILING)
+        .arg(&direct)
+        .arg(&dotdot));
+
+    assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
+    assert_eq!(
+        stdout.matches("+++ ").count(),
+        1,
+        "`f.yaml` and `sub/../f.yaml` are one file — diff it once: {stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn diff_skips_filename_with_control_character() {
+    // A newline in a filename can't appear in a unified-diff header (raw corrupts it,
+    // sanitized no longer matches the on-disk name), so --diff skips it with a notice.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a\nb.yaml");
+    fs::write(&file, "key:   value  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--diff")
+        .arg("-d")
+        .arg(TRAILING)
+        .arg(&file));
+
+    assert_eq!(code, 0, "a skipped file yields no diff: {stderr}");
+    assert!(
+        stdout.is_empty(),
+        "no diff for a control-char filename: {stdout}"
+    );
+    assert!(
+        stderr.contains("skipped by --diff") && stderr.contains("control character"),
+        "the control-char filename must be skipped with a notice: {stderr}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn diff_skips_symlink_with_notice() {

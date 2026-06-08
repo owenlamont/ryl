@@ -714,15 +714,35 @@ fn lint_files(
 }
 
 /// Identity used to de-duplicate inputs so a file reached by two spellings is linted
-/// once — e.g. `ryl . f.yaml` lists `f.yaml` via both the directory walk (`./f.yaml`)
-/// and the explicit arg (`f.yaml`), and `ryl f.yaml f.yaml` lists it twice. `absolute`
-/// normalizes `.`/relative segments lexically *without* resolving symlinks (so a
-/// symlink and its target stay distinct, preserving the `--fix`/`--diff` symlink skip)
-/// and without requiring the path to exist. It is only called on paths that already
-/// matched a source kind, which are non-empty, so `absolute` cannot fail here.
+/// once — e.g. `ryl . f.yaml` (walk `./f.yaml` + explicit `f.yaml`), `ryl f.yaml f.yaml`,
+/// or `ryl f.yaml sub/../f.yaml`. `absolute` makes the path absolute and drops `.`;
+/// [`lexically_normalize`] then collapses `..`. Both are purely lexical — symlinks are
+/// **not** resolved, so a symlink and its target keep distinct identities (preserving
+/// the `--fix`/`--diff` symlink skip). It is only called on source-kind-matched (hence
+/// non-empty) paths, so `absolute` cannot fail here.
 fn canonical_input(path: &Path) -> PathBuf {
-    std::path::absolute(path)
-        .expect("a source-kind-matched input path is absolutizable")
+    let absolute = std::path::absolute(path)
+        .expect("a source-kind-matched input path is absolutizable");
+    lexically_normalize(&absolute)
+}
+
+/// Collapse `..` components lexically (without touching the filesystem): a `..` after a
+/// normal component pops it (`a/../b` -> `b`), matching how ruff treats `dir/../file` as
+/// the same input. Symlinks are not resolved — a `..` after a *symlinked* directory is
+/// the rare case this over-collapses, but resolving symlinks (`canonicalize`) would
+/// instead merge a symlink with its target and break the `--fix`/`--diff` skip.
+fn lexically_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        if component == std::path::Component::ParentDir {
+            // `canonical_input` always passes an absolute path, so `pop` removes the
+            // previous component or is a harmless no-op at the root (`/..` == `/`).
+            out.pop();
+        } else {
+            out.push(component.as_os_str());
+        }
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
