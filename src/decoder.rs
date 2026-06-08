@@ -92,6 +92,16 @@ impl DecodedFile {
         self.content
     }
 
+    /// True when the file is UTF-8 without a BOM, i.e. the UTF-8 bytes of
+    /// [`content`](Self::content) equal the original on-disk bytes. Only then can a
+    /// textual unified diff of the decoded content be applied back to the file; any
+    /// BOM or non-UTF-8 encoding is transcoded on decode, so `--diff` skips it (a
+    /// `git apply`/hk consumer could not apply the patch to the original bytes).
+    #[must_use]
+    pub(crate) fn is_plain_utf8(&self) -> bool {
+        self.encoding == FileEncoding::Utf8
+    }
+
     pub(crate) fn write(&self, path: &Path, content: &str) -> Result<(), String> {
         std::fs::write(path, self.encoding.encode(content)).map_err(|err| {
             format!("failed to write fixed file {}: {err}", path.display())

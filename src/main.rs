@@ -16,13 +16,15 @@ use std::process::ExitCode;
 use clap::{Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use ryl::cli_support::{resolve_ctx, sanitize_control};
+use ryl::cli_support::{lexical_abspath, resolve_ctx, sanitize_control};
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
 };
 use ryl::config_schema::{schema_string_pretty, yaml_schema_string_pretty};
 use ryl::decoder;
-use ryl::fix::apply_safe_fixes_to_files;
+use ryl::fix::{
+    DiffStats, apply_safe_fixes_to_files, diff_outcome, diff_safe_fixes_for_files,
+};
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
@@ -235,6 +237,11 @@ struct FixFlags {
     /// Apply safe fixes in place before reporting remaining diagnostics
     #[arg(long = "fix", default_value_t = false)]
     fix: bool,
+
+    /// Print a unified diff of the safe fixes to stdout instead of writing them;
+    /// never modifies files and exits 1 if any file would change
+    #[arg(long = "diff", default_value_t = false, conflicts_with = "fix")]
+    diff: bool,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -451,24 +458,15 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Err(no_rules_error(config_found));
     }
 
-    let mut initial_problem_count = 0usize;
-    if cli.lint.fix.fix {
-        let initial_results = lint_files(&files);
-        initial_problem_count = count_reported_problems(
-            &initial_results,
-            cli.lint.compatibility.no_warnings,
-        );
-        let fix_stats = apply_safe_fixes_to_files(&files)?;
-        for (path, problem) in &fix_stats.skipped {
-            eprintln!(
-                "{}:{}:{} skipped by --fix: {}",
-                sanitize_control(&path.display().to_string()),
-                problem.line,
-                problem.column,
-                sanitize_control(&problem.message),
-            );
-        }
+    if cli.lint.fix.diff {
+        return Ok(emit_diff(&diff_safe_fixes_for_files(&files)?));
     }
+
+    let initial_problem_count = if cli.lint.fix.fix {
+        apply_fixes_reporting_skips(&files, cli.lint.compatibility.no_warnings)?
+    } else {
+        0
+    };
 
     let results = lint_files(&files);
 
@@ -491,6 +489,31 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     }
 
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
+}
+
+/// Run the initial lint, apply safe fixes in place, and report any files skipped
+/// because they do not parse. Returns the pre-fix problem count for the fix summary.
+///
+/// # Errors
+///
+/// Returns an error if any file cannot be read or written.
+fn apply_fixes_reporting_skips(
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+    no_warnings: bool,
+) -> Result<usize, String> {
+    let initial_problem_count =
+        count_reported_problems(&lint_files(files), no_warnings);
+    let fix_stats = apply_safe_fixes_to_files(files)?;
+    for (path, problem) in &fix_stats.skipped {
+        eprintln!(
+            "{}:{}:{} skipped by --fix: {}",
+            sanitize_control(&path.display().to_string()),
+            problem.line,
+            problem.column,
+            sanitize_control(&problem.message),
+        );
+    }
+    Ok(initial_problem_count)
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -518,6 +541,10 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
 
     if !cfg.enables_any_rule() {
         return Err(no_rules_error(config_found));
+    }
+
+    if cli.lint.fix.diff {
+        return run_stdin_diff(&path, &base_dir, &cfg, kind);
     }
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
@@ -567,22 +594,79 @@ fn resolve_stdin_kind(
     }
 }
 
-fn read_and_lint_stdin(
-    path: &Path,
-    base_dir: &Path,
-    cfg: &YamlLintConfig,
-    kind: SourceKind,
-) -> Result<Vec<LintProblem>, String> {
+/// Read and decode stdin. The bool is whether the bytes were plain UTF-8 (no BOM, no
+/// transcode), i.e. whether a textual `--diff` of the decoded content would apply back
+/// to the original bytes; `read_and_lint_stdin` ignores it.
+fn read_stdin_decoded(path: &Path) -> Result<(String, bool), String> {
     let mut buf = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     let content = decoder::decode_bytes(&buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    let plain_utf8 = content.as_bytes() == buf.as_slice();
+    Ok((content, plain_utf8))
+}
+
+fn read_and_lint_stdin(
+    path: &Path,
+    base_dir: &Path,
+    cfg: &YamlLintConfig,
+    kind: SourceKind,
+) -> Result<Vec<LintProblem>, String> {
+    let (content, _) = read_stdin_decoded(path)?;
     Ok(match kind {
         SourceKind::Markdown => lint_markdown_str(&content, path, cfg, base_dir),
         SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
     })
+}
+
+fn run_stdin_diff(
+    path: &Path,
+    base_dir: &Path,
+    cfg: &YamlLintConfig,
+    kind: SourceKind,
+) -> Result<ExitCode, String> {
+    let (content, plain_utf8) = read_stdin_decoded(path)?;
+    let mut stats = DiffStats::default();
+    if plain_utf8 {
+        stats.record(path, diff_outcome(&content, cfg, path, base_dir, kind));
+    } else {
+        // Same reason as the file path: the decoded-UTF-8 diff would not apply to the
+        // BOM'd/transcoded source, so skip rather than emit a patch that won't apply.
+        stats
+            .skipped
+            .push((path.to_path_buf(), ryl::fix::non_utf8_diff_skip()));
+    }
+    Ok(emit_diff(&stats))
+}
+
+/// Write per-file unified diffs to stdout and parse-skip notices to stderr, returning
+/// the `--diff` exit code: `1` if any file would change, else `0`. Mirrors
+/// `ruff check --diff` — only the diff drives the exit code; remaining (unfixable)
+/// diagnostics are neither printed nor counted here.
+fn emit_diff(stats: &DiffStats) -> ExitCode {
+    for (path, problem) in &stats.skipped {
+        eprintln!(
+            "{}:{}:{} skipped by --diff: {}",
+            sanitize_control(&path.display().to_string()),
+            problem.line,
+            problem.column,
+            sanitize_control(&problem.message),
+        );
+    }
+    // Each diff already carries the trailing newline similar emits, so concatenating
+    // and printing once keeps stdout a clean sequence of `--- / +++ / @@` blocks.
+    let mut rendered = String::new();
+    for diff in &stats.diffs {
+        rendered.push_str(diff);
+    }
+    print!("{rendered}");
+    if stats.diffs.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn resolve_stdin_ctx(
@@ -644,6 +728,11 @@ fn gather_lint_files(
     // found" vs "config enables no rules" — even when other files did find a config.
     // `None` means every selected file enables at least one rule.
     let mut ruleless_config_found = None;
+    // De-duplicate selected files across the walk and explicit args; without this a
+    // file listed twice is linted twice (and `--diff` would emit a duplicate patch
+    // block that fails to apply on the second copy). Unlike yamllint, which keeps
+    // duplicates.
+    let mut seen: HashSet<PathBuf> = HashSet::new();
     for f in candidates {
         let (base_dir, cfg, notices, found) =
             resolve_ctx(f, global_cfg, markdown, cache)?;
@@ -656,6 +745,9 @@ fn gather_lint_files(
             continue;
         }
         if let Some(kind) = cfg.source_kind(f, &base_dir)? {
+            if !seen.insert(lexical_abspath(f)) {
+                continue;
+            }
             if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
                 ruleless_config_found = Some(found);
             }
@@ -676,6 +768,9 @@ fn gather_lint_files(
         }
         match cfg.source_kind(ef, &base_dir)? {
             Some(kind) => {
+                if !seen.insert(lexical_abspath(ef)) {
+                    continue;
+                }
                 if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
                     ruleless_config_found = Some(found);
                 }

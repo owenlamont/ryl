@@ -66,9 +66,9 @@ produced.
 ## How ryl differs from yamllint
 
 ryl is a drop-in replacement, but it intentionally diverges from yamllint in a
-small number of places. Every divergence is deliberate and falls into one of two
-buckets: ryl is **more correct against the YAML 1.2.2 specification**, or it
-**fails loudly instead of silently**. The complete list:
+small number of places. Every divergence is deliberate: ryl is **more correct
+against the YAML 1.2.2 specification**, it **fails loudly instead of silently**, or
+it **avoids redundant output**. The complete list:
 
 ### No implicit default configuration
 
@@ -109,6 +109,19 @@ The portable, unambiguous way to use an alias as a mapping key is a **space befo
 the colon** &mdash; `*foo : bar` &mdash; which every parser reads identically. The
 ryl-only [`anchors: forbid-ambiguous-anchor-alias-names`](../rules/anchors.md)
 option flags welded colons so you can forbid the construct outright.
+
+### De-duplicated inputs
+
+When a single run names the same file more than once &mdash; listed twice, or reached
+by both a directory argument and an explicit path (`ryl . file.yaml`) &mdash; ryl
+processes it **once**. yamllint handles each occurrence, so it would report that
+file's diagnostics (or, under `ryl --diff`, emit its patch) twice.
+
+**Why ryl differs:** duplicate output is never useful, and it is actively harmful for
+`--diff`, whose output is meant to be applied as a patch &mdash; a repeated patch
+block fails to apply on the second copy. ryl normalizes each input path (lexically,
+without resolving symlinks, so a symlink and its target stay distinct) and skips a
+file it has already selected.
 
 ## Side-by-side example
 

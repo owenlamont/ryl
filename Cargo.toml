@@ -42,12 +42,17 @@ dirs-next = "2.0.0"
 regex = "1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+similar = { version = "3.1.1", default-features = false, features = ["text"] }
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
 toml = "1.1.2"
 pulldown-cmark = { version = "0.13.4", default-features = false }
 
 [dev-dependencies]
+# Independent unified-diff applier for the `--diff` round-trip property test: a
+# different implementation than the `similar` crate that produces the diff, so the
+# round-trip validates the output is standard-compliant (what hk relies on).
+diffy = { version = "0.5.0", default-features = false }
 jsonschema = "0.46.2"
 proptest = "1.11.0"
 semver = "1"

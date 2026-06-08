@@ -59,6 +59,10 @@ cargo install ryl                   # cargo
   `comments`, `comments-indentation`, `new-line-at-end-of-file`,
   `new-lines`, and `quoted-strings`. The set of rules that may apply
   fixes is configurable via the TOML `[fix]` table.
+- `--diff` previews those safe fixes as a unified diff on stdout instead
+  of writing them (modelled on `ruff check --diff`); it is mutually
+  exclusive with `--fix`, works with stdin, and exits `1` iff some file
+  would change.
 - TOML is the recommended configuration format and supports ryl-only
   features that have no upstream equivalent: the `[fix]` table,
   `[per-file-ignores]`, and rule options such as
@@ -68,8 +72,9 @@ cargo install ryl                   # cargo
   in TOML use `[files].yaml`.
 - YAML embedded in Markdown (front matter and fenced `yaml`/`yml` blocks)
   can be linted by listing globs under `[files].markdown`; diagnostics map back
-  to the Markdown file. It is off by default and check-only (`--fix` does not
-  modify Markdown). See <https://ryl-docs.pages.dev/markdown/>.
+  to the Markdown file. It is off by default; `--fix` writes safe fixes back into
+  the embedded blocks and `--diff` previews them at the host-file level. See
+  <https://ryl-docs.pages.dev/markdown/>.
 - yamllint-style YAML configuration is also accepted (`.yamllint`,
   `.yamllint.yml`, `.yamllint.yaml`) for drop-in compatibility, including
   the built-in `default`, `relaxed`, and `empty` presets via `extends`.
@@ -85,7 +90,8 @@ cargo install ryl                   # cargo
   `ignore`) use that filename. Without it, diagnostics are labelled
   `<stdin>`, config is anchored at the current working directory, and
   all path-based filtering is skipped so every enabled rule runs.
-  `-` cannot be combined with other inputs or with `--fix`.
+  `-` cannot be combined with other inputs; `--fix` cannot read from
+  stdin, but `--diff` can.
 - Run `ryl --help` for the authoritative CLI reference.
 
 For installation walkthroughs, configuration presets, and per-rule
