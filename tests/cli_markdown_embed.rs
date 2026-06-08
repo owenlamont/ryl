@@ -343,3 +343,74 @@ fn directory_scan_overlap_is_a_hard_error() {
     assert_eq!(code, 2, "expected overlap error: {err}");
     assert!(err.contains("matches both"), "{err}");
 }
+
+// Embedded-markdown regression tests for the rules added in #252-#256: each must
+// fire inside a fenced block with positions remapped to the host markdown file
+// (#277 item 6). ryl-only options go through TOML config.
+
+#[test]
+fn merge_keys_fires_in_fenced_block() {
+    let cfg = "files = { markdown = [\"*.md\"] }\n[rules]\nmerge-keys = \"enable\"\n";
+    let body = "intro\n\n```yaml\nbase: &b {x: 1}\nchild:\n  <<: *b\n```\n";
+    let (_dir, file) = project(cfg, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("6:3")
+            && err.contains("forbidden merge key")
+            && err.contains("merge-keys"),
+        "merge key remapped to host line 6: {err}"
+    );
+}
+
+#[test]
+fn key_duplicates_canonical_fires_in_fenced_block() {
+    let cfg = "files = { markdown = [\"*.md\"] }\n[rules.key-duplicates]\ncheck-canonical = true\n";
+    let body = "```yaml\n0xB: a\n11: b\n```\n";
+    let (_dir, file) = project(cfg, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("3:1")
+            && err.contains("duplication of key \"11\"")
+            && err.contains("key-duplicates"),
+        "canonical integer duplicate remapped to host line 3: {err}"
+    );
+}
+
+#[test]
+fn unicode_line_breaks_fires_in_fenced_block() {
+    let cfg = "files = { markdown = [\"*.md\"] }\n[rules]\nunicode-line-breaks = \"enable\"\n";
+    // A raw U+2028 line separator inside the fenced scalar (content, not a break).
+    let body = "```yaml\nkey: a\u{2028}b\n```\n";
+    let (_dir, file) = project(cfg, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("2:") && err.contains("unicode-line-breaks"),
+        "raw U+2028 flagged on host line 2 inside the fenced block: {err}"
+    );
+}
+
+#[test]
+fn anchors_ambiguous_name_fires_in_fenced_block() {
+    let cfg = "files = { markdown = [\"*.md\"] }\n[rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n";
+    let body = "```yaml\na: &:foo 1\n```\n";
+    let (_dir, file) = project(cfg, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("2:")
+            && err.contains("ambiguous anchor name")
+            && err.contains("anchors"),
+        "colon-welded anchor name flagged on host line 2 in the fenced block: {err}"
+    );
+}
