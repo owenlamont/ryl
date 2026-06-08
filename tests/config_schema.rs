@@ -1022,3 +1022,37 @@ fn normalize_toml_config_preserves_quoted_strings_in_fixable() {
         fix.fixable[0]
     );
 }
+
+#[test]
+fn every_rule_round_trips_through_toml_serialization() {
+    // `rules_table_to_value` serializes each rule via a hand-written
+    // `insert_serialized` line with no compile-time cross-check, so a new rule
+    // whose line is forgotten is silently dropped from normalized output. Enable
+    // every rule and assert each survives the round trip, so that omission fails
+    // a test instead of shipping (#277 item 5).
+    let body: String = std::iter::once("[rules]\n".to_string())
+        .chain(
+            ryl::rules::ALL_RULE_IDS
+                .iter()
+                .map(|id| format!("{id} = \"enable\"\n")),
+        )
+        .collect();
+    let parsed = parse_toml_config_str(&body, false)
+        .expect("typed TOML parse should succeed")
+        .expect("config enabling every rule should produce a config");
+    let value = toml_config_to_value(&parsed);
+    let rules = value
+        .get("rules")
+        .and_then(|rules| rules.as_table())
+        .expect("serialized config should have a rules table");
+    let mut dropped: Vec<&str> = ryl::rules::ALL_RULE_IDS
+        .iter()
+        .copied()
+        .filter(|id| !rules.contains_key(*id))
+        .collect();
+    dropped.sort_unstable();
+    assert!(
+        dropped.is_empty(),
+        "rules dropped from rules_table_to_value serialization: {dropped:?}"
+    );
+}
