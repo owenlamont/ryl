@@ -207,17 +207,18 @@ rather than shipping silently. Work this checklist (the detailed test sections u
     memory. (Cautionary tale: granit-parser#14 was filed claiming granit narrowed anchor
     names at `:` like PyYAML; it never reproduced on *any* granit version — granit is
     spec-correct there — an embarrassing false positive filed on an untested assumption.)
-  - **Ship the draft as its own directory with a single-command reproduction**, the format
-    in `/home/owen/Code/ryl_repos/granit-issue-14-repro/` (use it as the template): a
-    sub-directory `/home/owen/Code/ryl_repos/<repo>-<topic>-repro/` holding a `README.md`
-    (the draft issue/reply text + how to run) and a minimal repro that runs **unedited in
-    one command** and prints a clear verdict — for a Rust dep, a tiny `cargo` project
-    (`cargo run`, plus a `bash check-all-versions.sh` sweeping the version pins) printing
-    observed-vs-expected; for other ecosystems, the equivalent one-command script. So the
-    maintainer can confirm the behaviour first-hand before it is raised. No repro, no
-    report. Keep the prose succinct out of respect for these responsive volunteer
-    maintainers' time: concrete ask, then the runnable repro, then authoritative evidence
-    (spec quote / play.yaml.com event stream), and cut the rest.
+  - **Ship the draft as its own directory with a single-command reproduction.** Put it
+    outside the ryl repo (ask the maintainer where they keep issue drafts if you don't
+    already know) in a self-contained `<repo>-<topic>-repro/` directory: a `README.md`
+    with the draft issue/reply text and how to run, plus a minimal repro that runs
+    **unedited in one command** and prints a clear verdict. For a Rust dep, that's a tiny
+    `cargo` project (`cargo run`, plus a `bash check-all-versions.sh` over the version
+    pins) printing observed-vs-expected; for other ecosystems, the equivalent
+    one-command script. The point is that the maintainer can confirm the behaviour
+    first-hand before it is raised. No repro, no report. Keep the prose succinct out of
+    respect for these responsive volunteer maintainers' time: concrete ask, then the
+    runnable repro, then authoritative evidence (spec quote / play.yaml.com event
+    stream), and cut the rest.
 - Linters and tests may write outside the workspace (e.g., `~/.cache/prek`). If
   sandboxed, request permission escalation when running `prek`, `cargo test`,
   or coverage commands.
