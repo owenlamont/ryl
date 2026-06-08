@@ -43,6 +43,13 @@ pub enum Line {
     Blank {
         spaces: u8,
     },
+    /// An indented raw line with no key/colon structure &mdash; used to build the
+    /// header and content lines of a block scalar (e.g. a standalone `  |` header
+    /// on its own line, or an indented content line).
+    Raw {
+        indent: u8,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +115,10 @@ impl Line {
             Self::DocumentStart => out.push_str("---"),
             Self::DocumentEnd => out.push_str("..."),
             Self::Blank { spaces } => push_spaces(out, *spaces),
+            Self::Raw { indent, text } => {
+                push_spaces(out, *indent);
+                out.push_str(text);
+            }
         }
     }
 }
@@ -365,6 +376,59 @@ fn arb_custom_tag_block() -> impl Strategy<Value = Vec<Line>> {
     })
 }
 
+// Block scalar headers spanning bare clip (`|`/`>`), explicit strip/keep, an
+// indentation-only header (`|2`, which `block-scalar-chomping` still flags), the
+// digit+chomp combination, and a trailing comment after the header.
+fn arb_block_scalar_header() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just("|".to_string()),
+        Just(">".to_string()),
+        Just("|-".to_string()),
+        Just(">+".to_string()),
+        Just("|+".to_string()),
+        Just(">-".to_string()),
+        Just("|2".to_string()),
+        Just("|+2".to_string()),
+        Just("| # chomp".to_string()),
+    ]
+}
+
+/// A coherent block scalar the flat line generator never assembles: a key
+/// introducing a literal/folded block plus an indented content line. The header
+/// sits on the key's line, on its own line below the key, or above a blank gap —
+/// the layouts where the header is *not* the content line, which is exactly what
+/// `block-scalar-chomping`'s header recovery must handle.
+fn arb_block_scalar_block() -> impl Strategy<Value = Vec<Line>> {
+    (
+        arb_key(),
+        arb_block_scalar_header(),
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(key, header, header_on_own_line, blank_gap)| {
+            let content = Line::Raw {
+                indent: 4,
+                text: "block content".to_string(),
+            };
+            if header_on_own_line {
+                return vec![
+                    merge_entry(0, &key, String::new()),
+                    Line::Raw {
+                        indent: 2,
+                        text: header,
+                    },
+                    content,
+                ];
+            }
+            let mut lines = vec![merge_entry(0, &key, header)];
+            if blank_gap {
+                lines.push(Line::Blank { spaces: 0 });
+            }
+            lines.push(content);
+            lines
+        })
+}
+
 fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
     prop_oneof![
         10 => (arb_line(), arb_newline()).prop_map(|pair| vec![pair]),
@@ -372,6 +436,9 @@ fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
         1 => (arb_custom_tag_block(), arb_newline()).prop_map(|(lines, newline)| {
+            lines.into_iter().map(|line| (line, newline)).collect()
+        }),
+        2 => (arb_block_scalar_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
     ]

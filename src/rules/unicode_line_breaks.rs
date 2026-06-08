@@ -35,11 +35,14 @@ pub struct Violation {
 /// Report every raw NEL / LS / PS character with a 1-based line/column.
 ///
 /// Line counting splits on `\n` only (these characters are not YAML 1.2 line
-/// breaks and so never advance the line counter), matching every other ryl rule;
-/// the reported column is therefore the character's position on its `\n`-delimited
-/// line and is always in bounds. ryl does not treat a bare `\r` (classic Mac OS,
-/// pre-2001) as a line break anywhere, so files using that obsolete ending are
-/// unsupported and may report shifted line numbers.
+/// breaks and so never advance the line counter), matching ryl's other
+/// byte-scanning rules and yamllint's `\n`-only line layer; the reported column
+/// is therefore the character's position on its `\n`-delimited line and is always
+/// in bounds. ryl's `\n`-only line model does not treat a bare `\r` (classic Mac
+/// OS, pre-2001) as a line break, so files using that obsolete ending are
+/// unsupported and may report shifted line numbers (granit-based rules see
+/// granit's CR-aware lines, but `\r`-only files are equally unsupported there —
+/// yamllint behaves the same way, and `new-lines` cannot even target `\r`).
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
     let mut violations = Vec::new();

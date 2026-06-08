@@ -230,6 +230,8 @@ pub enum FixRuleName {
 pub enum RuleName {
     #[serde(rename = "anchors")]
     Anchors,
+    #[serde(rename = "block-scalar-chomping")]
+    BlockScalarChomping,
     #[serde(rename = "braces")]
     Braces,
     #[serde(rename = "brackets")]
@@ -287,6 +289,7 @@ impl RuleName {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Anchors => "anchors",
+            Self::BlockScalarChomping => "block-scalar-chomping",
             Self::Braces => "braces",
             Self::Brackets => "brackets",
             Self::Colons => "colons",
@@ -324,6 +327,8 @@ pub struct RulesTable<
     A = AnchorsOptions,
 > {
     pub anchors: Option<RuleEntry<A>>,
+    #[serde(rename = "block-scalar-chomping")]
+    pub block_scalar_chomping: Option<RuleEntry<NoOptions>>,
     pub braces: Option<RuleEntry<BraceLikeOptions>>,
     pub brackets: Option<RuleEntry<BraceLikeOptions>>,
     pub colons: Option<RuleEntry<ColonsOptions>>,

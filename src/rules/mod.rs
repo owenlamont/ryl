@@ -1,4 +1,5 @@
 pub mod anchors;
+pub mod block_scalar_chomping;
 pub mod braces;
 pub mod brackets;
 pub mod colons;
@@ -28,8 +29,9 @@ pub mod unicode_line_breaks;
 
 /// Every rule id, used by the directive engine to expand a bare `disable`/`enable`
 /// (no `rule:` token) to "all rules". Extend this when adding a rule.
-pub const ALL_RULE_IDS: [&str; 26] = [
+pub const ALL_RULE_IDS: [&str; 27] = [
     anchors::ID,
+    block_scalar_chomping::ID,
     braces::ID,
     brackets::ID,
     colons::ID,
@@ -62,5 +64,9 @@ pub const ALL_RULE_IDS: [&str; 26] = [
 /// out of the YAML schema so the YAML `rules` namespace stays reserved for
 /// yamllint's own definitions (see `AGENTS.md`). Extend this when adding a rule
 /// that yamllint does not have.
-pub const RYL_ONLY_RULE_IDS: [&str; 3] =
-    [merge_keys::ID, tags::ID, unicode_line_breaks::ID];
+pub const RYL_ONLY_RULE_IDS: [&str; 4] = [
+    block_scalar_chomping::ID,
+    merge_keys::ID,
+    tags::ID,
+    unicode_line_breaks::ID,
+];

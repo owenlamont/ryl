@@ -202,6 +202,11 @@ fn rules_table_to_value<Q: Serialize, K: Serialize, A: Serialize>(
 ) -> toml::Value {
     let mut table = toml::map::Map::new();
     insert_serialized(&mut table, "anchors", rules.anchors.as_ref());
+    insert_serialized(
+        &mut table,
+        "block-scalar-chomping",
+        rules.block_scalar_chomping.as_ref(),
+    );
     insert_serialized(&mut table, "braces", rules.braces.as_ref());
     insert_serialized(&mut table, "brackets", rules.brackets.as_ref());
     insert_serialized(&mut table, "colons", rules.colons.as_ref());

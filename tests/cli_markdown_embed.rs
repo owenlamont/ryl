@@ -414,3 +414,20 @@ fn anchors_ambiguous_name_fires_in_fenced_block() {
         "colon-welded anchor name flagged at host 2:4 in the fenced block: {err}"
     );
 }
+
+#[test]
+fn block_scalar_chomping_fires_in_fenced_block() {
+    // The rule runs in embedded YAML (it is not markdown-suppressed); a bare block
+    // header inside a fenced block maps back to its host line and marker column.
+    let cfg = "files = { markdown = [\"*.md\"] }\n[rules]\nblock-scalar-chomping = \"enable\"\n";
+    let body = "intro\n\n```yaml\nscript: |\n  echo hi\n```\n";
+    let (_dir, file) = project(cfg, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("4:9") && err.contains("block-scalar-chomping"),
+        "fenced bare block header flagged at host 4:9: {err}"
+    );
+}

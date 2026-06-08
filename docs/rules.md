@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ryl implements 26 rules for checking YAML files. This page is a categorised
+ryl implements 27 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -28,6 +28,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
+| [`block-scalar-chomping`](rules/block-scalar-chomping.md) | Explicit chomping indicator (`-`/`+`) on block scalars. |  |
 | [`braces`](rules/braces.md) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
 | [`brackets`](rules/brackets.md) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
 | [`colons`](rules/colons.md) | Spaces around mapping colons. |  |
