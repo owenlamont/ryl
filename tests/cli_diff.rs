@@ -401,6 +401,56 @@ fn diff_deduplicates_inputs_listed_under_multiple_spellings() {
     );
 }
 
+#[test]
+fn diff_skips_non_utf8_file_with_notice() {
+    // A textual diff of decoded content can't be applied back to BOM'd/transcoded
+    // bytes (git apply / hk would reject it), and a text diff can't round-trip the
+    // encoding the way --fix's re-encode does. So --diff skips non-plain-UTF-8 inputs.
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("bom.yaml");
+    let original: &[u8] = b"\xEF\xBB\xBFkey: value  \n"; // UTF-8 BOM + trailing spaces
+    fs::write(&file, original).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--diff")
+        .arg("-d")
+        .arg(TRAILING)
+        .arg(&file));
+
+    assert_eq!(code, 0, "a skipped file yields no diff: {stderr}");
+    assert!(stdout.is_empty(), "no diff for a non-UTF-8 file: {stdout}");
+    assert!(
+        stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 or BOM"),
+        "the BOM file must be skipped with a notice: {stderr}"
+    );
+    assert_eq!(
+        fs::read(&file).unwrap().as_slice(),
+        original,
+        "a skipped file is left untouched"
+    );
+}
+
+#[test]
+fn diff_skips_non_utf8_stdin_with_notice() {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .arg("--diff")
+            .arg("-d")
+            .arg(TRAILING)
+            .arg("-"),
+        b"\xEF\xBB\xBFkey: value  \n",
+    );
+
+    assert_eq!(code, 0, "skipped stdin yields no diff: {stderr}");
+    assert!(stdout.is_empty(), "no diff for non-UTF-8 stdin: {stdout}");
+    assert!(
+        stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 or BOM"),
+        "non-UTF-8 stdin must be skipped with a notice: {stderr}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn diff_skips_symlink_with_notice() {

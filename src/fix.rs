@@ -291,9 +291,26 @@ pub fn diff_outcome(
     }
 }
 
+/// The skip a non-UTF-8 (or BOM) input gets under `--diff`: a textual unified diff of
+/// the decoded content cannot be applied back to the BOM'd/transcoded on-disk bytes,
+/// and a text diff has no way to round-trip the original encoding the way `--fix`'s
+/// re-encode does — so `--diff` skips it with a notice pointing at `--fix`. Shared by
+/// the file path and the stdin path (`main::run_stdin_diff`).
+#[must_use]
+pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
+    crate::lint::LintProblem {
+        line: 1,
+        column: 1,
+        level: crate::lint::Severity::Error,
+        message: "non-UTF-8 or BOM content has no applicable text diff; use --fix"
+            .to_string(),
+        rule: None,
+    }
+}
+
 /// Compute unified diffs for the safe fixes of each file, reading from disk. Never
 /// writes; a symlinked input is skipped with a warning (parity with `--fix`, whose
-/// preview this is).
+/// preview this is), and a non-UTF-8/BOM input is skipped (see [`non_utf8_diff_skip`]).
 ///
 /// # Errors
 ///
@@ -307,6 +324,10 @@ pub fn diff_safe_fixes_for_files(
             continue;
         }
         let decoded = decoder::read_file_lossless(path)?;
+        if !decoded.is_plain_utf8() {
+            stats.skipped.push((path.clone(), non_utf8_diff_skip()));
+            continue;
+        }
         let outcome = diff_outcome(decoded.content(), cfg, path, base_dir, *kind);
         stats.record(path, outcome);
     }

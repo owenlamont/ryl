@@ -104,8 +104,11 @@ remaining *unfixable* findings are neither printed nor counted:
 - `2` &mdash; CLI usage error.
 
 A file that cannot be parsed (or a symlink) is skipped with a notice on
-stderr and does not affect the exit code. For embedded YAML in Markdown,
-the diff is reported at the host-file level (one diff per `.md`).
+stderr and does not affect the exit code. A non-UTF-8 or BOM-prefixed file
+is also skipped: a textual diff of its decoded content could not be applied
+back to the original bytes, so use `--fix` (which preserves the encoding)
+for those. For embedded YAML in Markdown, the diff is reported at the
+host-file level (one diff per `.md`).
 
 ## Configure for your project
 

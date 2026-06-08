@@ -594,13 +594,18 @@ fn resolve_stdin_kind(
     }
 }
 
-fn read_stdin_decoded(path: &Path) -> Result<String, String> {
+/// Read and decode stdin. The bool is whether the bytes were plain UTF-8 (no BOM, no
+/// transcode), i.e. whether a textual `--diff` of the decoded content would apply back
+/// to the original bytes; `read_and_lint_stdin` ignores it.
+fn read_stdin_decoded(path: &Path) -> Result<(String, bool), String> {
     let mut buf = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    decoder::decode_bytes(&buf)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))
+    let content = decoder::decode_bytes(&buf)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    let plain_utf8 = content.as_bytes() == buf.as_slice();
+    Ok((content, plain_utf8))
 }
 
 fn read_and_lint_stdin(
@@ -609,7 +614,7 @@ fn read_and_lint_stdin(
     cfg: &YamlLintConfig,
     kind: SourceKind,
 ) -> Result<Vec<LintProblem>, String> {
-    let content = read_stdin_decoded(path)?;
+    let (content, _) = read_stdin_decoded(path)?;
     Ok(match kind {
         SourceKind::Markdown => lint_markdown_str(&content, path, cfg, base_dir),
         SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
@@ -622,10 +627,17 @@ fn run_stdin_diff(
     cfg: &YamlLintConfig,
     kind: SourceKind,
 ) -> Result<ExitCode, String> {
-    let content = read_stdin_decoded(path)?;
-    let outcome = diff_outcome(&content, cfg, path, base_dir, kind);
+    let (content, plain_utf8) = read_stdin_decoded(path)?;
     let mut stats = DiffStats::default();
-    stats.record(path, outcome);
+    if plain_utf8 {
+        stats.record(path, diff_outcome(&content, cfg, path, base_dir, kind));
+    } else {
+        // Same reason as the file path: the decoded-UTF-8 diff would not apply to the
+        // BOM'd/transcoded source, so skip rather than emit a patch that won't apply.
+        stats
+            .skipped
+            .push((path.to_path_buf(), ryl::fix::non_utf8_diff_skip()));
+    }
     Ok(emit_diff(&stats))
 }
 

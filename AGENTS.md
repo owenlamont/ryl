@@ -666,10 +666,13 @@ sticking to the quick-status step above.
   `fix::diff_outcome`, calling `apply_safe_fixes`/`fix_markdown_str`), so it inherits
   the same parse-error gate (unparsable files are skipped with a
   `<path>:L:C skipped by --diff: <error>` notice, no exit effect) and symlink skip
-  (`fix::refuse_symlink`, now parameterised by flag). Markdown diffs at the
-  host-file level (one diff per `.md`). The diff *body* is emitted verbatim (a
-  consumer such as hk must re-apply it byte-for-byte); only the header path is
-  sanitized.
+  (`fix::refuse_symlink`, now parameterised by flag). A non-UTF-8/BOM input is also
+  skipped (`fix::non_utf8_diff_skip`; files via `DecodedFile::is_plain_utf8`, stdin via
+  a decoded-bytes==raw-bytes check) — a textual diff of decoded content cannot apply
+  back to transcoded/BOM'd bytes, so `--fix` (which re-encodes) is the path for those.
+  Markdown diffs at the host-file level (one diff per `.md`). The diff *body* is
+  emitted verbatim (a consumer such as hk must re-apply it byte-for-byte); only the
+  header path is sanitized.
 - Malicious-payload hardening (issue #246): `--fix` never writes through a
   symlink — `fix::refuse_symlink` skips a symlinked input (still linted) with a
   warning, so an untrusted tree cannot redirect an in-place write outside itself.
