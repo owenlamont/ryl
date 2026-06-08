@@ -1,3 +1,8 @@
+//! `indentation`: block indentation width and whether block sequences are indented.
+//! Mirrors yamllint's `indentation`. No safe `--fix`: re-indenting moves the
+//! block-structure boundaries the grammar uses to delimit mappings, sequences, and
+//! scalars, so any non-trivial rewrite risks changing the parsed value.
+
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
     block_scalar_marker_index, strip_trailing_comment_preserving_quotes,

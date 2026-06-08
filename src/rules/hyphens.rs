@@ -1,3 +1,8 @@
+//! `hyphens`: at most `max-spaces-after` spaces after a block-sequence `-` (default
+//! 1). Mirrors yamllint's `hyphens`. No safe `--fix`: collapsing the spaces shifts the
+//! indent of any nested block that follows on later lines, which can change the parsed
+//! structure.
+
 use crate::config::YamlLintConfig;
 
 pub const ID: &str = "hyphens";

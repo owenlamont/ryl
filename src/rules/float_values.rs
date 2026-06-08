@@ -1,3 +1,9 @@
+//! `float-values`: constrain float scalar spelling — require a numeral before the
+//! decimal point, and optionally forbid scientific notation, `.nan`, and `.inf`
+//! (resolved under the YAML 1.2 core schema). Mirrors yamllint's `float-values`. No
+//! safe `--fix`: rewrites such as `.5` to `0.5` or expanding `1e3` to `1000` change the
+//! scalar's text and, for tagged or string consumers, its value.
+
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;

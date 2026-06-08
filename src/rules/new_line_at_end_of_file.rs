@@ -1,3 +1,6 @@
+//! `new-line-at-end-of-file`: the file must end with a newline. Mirrors yamllint's
+//! `new-line-at-end-of-file`. Safe `--fix` appends the missing newline.
+
 pub const ID: &str = "new-line-at-end-of-file";
 pub const MESSAGE: &str = "no new line character at the end of file";
 

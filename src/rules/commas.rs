@@ -1,3 +1,6 @@
+//! `commas`: spacing around `,` separators in flow collections — no space before,
+//! exactly one after. Mirrors yamllint's `commas`. Safe `--fix` normalises the spacing.
+
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
