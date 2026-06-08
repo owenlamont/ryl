@@ -3,17 +3,8 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-fn run(cmd: &mut Command) -> (i32, String, String) {
-    let out = cmd.output().expect("process");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    (code, stdout, stderr)
-}
-
-fn command_output<'a>(stdout: &'a str, stderr: &'a str) -> &'a str {
-    if stderr.is_empty() { stdout } else { stderr }
-}
+mod common;
+use common::cli::{command_output, run};
 
 #[test]
 fn reports_interior_blank_run() {

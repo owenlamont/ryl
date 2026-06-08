@@ -25,13 +25,8 @@ fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
     (code, stdout, stderr)
 }
 
-fn run(cmd: &mut Command) -> (i32, String, String) {
-    let out = cmd.output().expect("process");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    (code, stdout, stderr)
-}
+mod common;
+use common::cli::run;
 
 #[test]
 fn stdin_with_no_enabled_rules_errors() {
