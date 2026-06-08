@@ -482,6 +482,61 @@ fn diff_skips_non_utf8_stdin_with_notice() {
 }
 
 #[test]
+fn diff_header_normalizes_dot_and_dotdot_segments() {
+    // `git apply -p0` rejects `./f` and `sub/../f` headers, so the header path is
+    // lexically normalized to a clean relative path. Canonicalize the temp dir so the
+    // relativization holds where the system temp dir is symlinked (macOS).
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    fs::create_dir(root.join("sub")).unwrap();
+    fs::write(root.join("f.yaml"), "key:   value  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .current_dir(&root)
+        .arg("--diff")
+        .arg("-d")
+        .arg(TRAILING)
+        .arg("sub/../f.yaml"));
+
+    assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
+    assert!(
+        stdout.contains("--- f.yaml") && stdout.contains("+++ f.yaml"),
+        "`sub/../f.yaml` must normalize to a clean `f.yaml` header: {stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn diff_skips_non_utf8_filename_with_notice() {
+    // A non-UTF-8 filename can't be faithfully written in a diff header (it would become
+    // a `�`-mangled, nonexistent path), so --diff skips it like a control-char name.
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempdir().unwrap();
+    let file = dir.path().join(OsStr::from_bytes(b"bad\xFF.yaml"));
+    fs::write(&file, "key:   value  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--diff")
+        .arg("-d")
+        .arg(TRAILING)
+        .arg(&file));
+
+    assert_eq!(code, 0, "a skipped file yields no diff: {stderr}");
+    assert!(
+        stdout.is_empty(),
+        "no diff for a non-UTF-8 filename: {stdout}"
+    );
+    assert!(
+        stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 bytes"),
+        "the non-UTF-8 filename must be skipped with a notice: {stderr}"
+    );
+}
+
+#[test]
 fn diff_deduplicates_dotdot_spelled_paths() {
     // `f.yaml` and `sub/../f.yaml` (sub a real dir) are the same file; --diff must emit
     // one patch, not a duplicate that can't both apply (matches ruff). Exercises the

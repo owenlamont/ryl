@@ -231,19 +231,20 @@ impl DiffStats {
 /// Render a unified diff from `original` and `fixed`, or `None` when they are
 /// identical. The format follows `ruff check --diff`: 3 lines of context (also
 /// `similar`'s default, pinned here so a crate upgrade can't silently change it) and a
-/// plain `--- path` / `+++ path` header (no git `a/`/`b/` prefixes). Like ruff, an
-/// absolute path under the current directory is relativized so the patch applies from
-/// the repo root (`git apply -p0` / hk) instead of failing on an absolute header; a
-/// relative or out-of-tree path is left as given. The header path is sanitized so a
-/// crafted filename cannot inject terminal escapes or forge a hunk header; the diff
-/// *body* is emitted verbatim so a consumer can re-apply the content unchanged (which,
-/// like `git diff`, means the raw bytes — including any control chars already present).
+/// plain `--- path` / `+++ path` header (no git `a/`/`b/` prefixes). The header path is
+/// `lexical_abspath`-normalized (so `./f`/`sub/../f` become a clean `f`) and relativized
+/// to CWD — like ruff, an absolute path under CWD becomes relative, an out-of-tree one
+/// stays absolute — so the patch applies with `git apply -p0` / hk rather than failing
+/// on a `.`/`..`/absolute header. The path is sanitized so a crafted filename can't
+/// inject terminal escapes or forge a hunk header; the diff *body* is emitted verbatim
+/// so a consumer can re-apply the content unchanged (like `git diff`, the raw bytes).
 fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
     if original == fixed {
         return None;
     }
+    let abspath = crate::cli_support::lexical_abspath(path);
     let cwd = std::env::current_dir().unwrap_or_default();
-    let display = path.strip_prefix(&cwd).unwrap_or(path);
+    let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
     let label = crate::cli_support::sanitize_control(&display.display().to_string())
         .into_owned();
     // git/patch headers use forward slashes; on Windows the path uses `\`, so normalize
@@ -322,14 +323,14 @@ pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
     diff_skip("non-UTF-8 or BOM content has no applicable text diff; use --fix")
 }
 
-/// Whether the path contains a control character. Such a name cannot appear in a
-/// unified-diff header: emitting it raw would corrupt the `---`/`+++` line (or inject),
-/// and the sanitized form no longer matches the on-disk file, so no consumer could apply
-/// the patch. `--diff` skips these like the non-UTF-8 case.
-fn path_has_control_char(path: &Path) -> bool {
-    path.as_os_str()
-        .to_string_lossy()
-        .contains(char::is_control)
+/// Whether the path can't be faithfully written in a unified-diff header — it is not
+/// valid UTF-8, or it contains a control character. Either way the header would name a
+/// different path than the on-disk file (non-UTF-8 bytes become `�`; a raw control char
+/// corrupts the `---`/`+++` line or is sanitized away), so no consumer could apply the
+/// patch. `--diff` skips these, like the non-UTF-8-*content* case.
+fn path_unrepresentable_in_diff(path: &Path) -> bool {
+    let name = path.as_os_str();
+    name.to_str().is_none() || name.to_string_lossy().contains(char::is_control)
 }
 
 /// Compute unified diffs for the safe fixes of each file, reading from disk. Never
@@ -347,10 +348,13 @@ pub fn diff_safe_fixes_for_files(
         if refuse_symlink(path, "--diff") {
             continue;
         }
-        if path_has_control_char(path) {
+        if path_unrepresentable_in_diff(path) {
             stats.skipped.push((
                 path.clone(),
-                diff_skip("filename has control characters; no applicable diff path"),
+                diff_skip(
+                    "filename has non-UTF-8 bytes or control characters; no applicable \
+                     diff path",
+                ),
             ));
             continue;
         }

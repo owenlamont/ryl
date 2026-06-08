@@ -31,6 +31,35 @@ pub fn sanitize_control(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// Absolute, lexically-normalized form of `path`: `std::path::absolute` makes it
+/// absolute and drops `.`, then `..` components are collapsed (`a/../b` -> `b`). Purely
+/// lexical — symlinks are **not** resolved, so a symlink stays distinct from its target
+/// (matching ruff, and preserving ryl's `--fix`/`--diff` symlink skip). Used both as the
+/// input de-dup identity (`gather_lint_files`) and as the basis for a `git apply -p0`-able
+/// `--diff` header path.
+///
+/// # Panics
+///
+/// Panics if `path` is empty (`std::path::absolute` rejects it). Callers pass
+/// source-kind-matched file paths or the stdin label, all non-empty, so this does not
+/// arise in practice.
+#[must_use]
+pub fn lexical_abspath(path: &Path) -> PathBuf {
+    let absolute =
+        std::path::absolute(path).expect("a non-empty input path is absolutizable");
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        if component == std::path::Component::ParentDir {
+            // `absolute` rooted the path, so `pop` removes the previous component or is
+            // a harmless no-op at the root (`/..` == `/`).
+            out.pop();
+        } else {
+            out.push(component.as_os_str());
+        }
+    }
+    out
+}
+
 /// Resolve the configuration context for a given file path, optionally using a cached
 /// global configuration.
 ///

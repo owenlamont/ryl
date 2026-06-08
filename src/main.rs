@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use clap::{Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use ryl::cli_support::{resolve_ctx, sanitize_control};
+use ryl::cli_support::{lexical_abspath, resolve_ctx, sanitize_control};
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
 };
@@ -713,38 +713,6 @@ fn lint_files(
     results
 }
 
-/// Identity used to de-duplicate inputs so a file reached by two spellings is linted
-/// once — e.g. `ryl . f.yaml` (walk `./f.yaml` + explicit `f.yaml`), `ryl f.yaml f.yaml`,
-/// or `ryl f.yaml sub/../f.yaml`. `absolute` makes the path absolute and drops `.`;
-/// [`lexically_normalize`] then collapses `..`. Both are purely lexical — symlinks are
-/// **not** resolved, so a symlink and its target keep distinct identities (preserving
-/// the `--fix`/`--diff` symlink skip). It is only called on source-kind-matched (hence
-/// non-empty) paths, so `absolute` cannot fail here.
-fn canonical_input(path: &Path) -> PathBuf {
-    let absolute = std::path::absolute(path)
-        .expect("a source-kind-matched input path is absolutizable");
-    lexically_normalize(&absolute)
-}
-
-/// Collapse `..` components lexically (without touching the filesystem): a `..` after a
-/// normal component pops it (`a/../b` -> `b`), matching how ruff treats `dir/../file` as
-/// the same input. Symlinks are not resolved — a `..` after a *symlinked* directory is
-/// the rare case this over-collapses, but resolving symlinks (`canonicalize`) would
-/// instead merge a symlink with its target and break the `--fix`/`--diff` skip.
-fn lexically_normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        if component == std::path::Component::ParentDir {
-            // `canonical_input` always passes an absolute path, so `pop` removes the
-            // previous component or is a harmless no-op at the root (`/..` == `/`).
-            out.pop();
-        } else {
-            out.push(component.as_os_str());
-        }
-    }
-    out
-}
-
 #[allow(clippy::too_many_arguments)]
 fn gather_lint_files(
     candidates: &[PathBuf],
@@ -777,7 +745,7 @@ fn gather_lint_files(
             continue;
         }
         if let Some(kind) = cfg.source_kind(f, &base_dir)? {
-            if !seen.insert(canonical_input(f)) {
+            if !seen.insert(lexical_abspath(f)) {
                 continue;
             }
             if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
@@ -800,7 +768,7 @@ fn gather_lint_files(
         }
         match cfg.source_kind(ef, &base_dir)? {
             Some(kind) => {
-                if !seen.insert(canonical_input(ef)) {
+                if !seen.insert(lexical_abspath(ef)) {
                     continue;
                 }
                 if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
