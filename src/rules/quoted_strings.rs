@@ -1,3 +1,8 @@
+//! `quoted-strings`: enforce a scalar quoting policy — quote type (single/double/any),
+//! when quotes are required versus redundant, and extra allow/require patterns. Mirrors
+//! yamllint's `quoted-strings`. Safe `--fix` adds or normalises quoting only where the
+//! rewrite provably preserves the scalar's value.
+
 use granit_parser::{
     Event, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
 };

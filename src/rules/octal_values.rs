@@ -1,3 +1,8 @@
+//! `octal-values`: flag implicit (`0777`) and/or explicit (`0o777`) octal integers,
+//! which surprise readers expecting decimal. Mirrors yamllint's `octal-values`. No safe
+//! `--fix`: resolving `010` needs the author's intent (integer 8, integer 10, or the
+//! string "010"), which the source alone cannot disambiguate.
+
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;

@@ -1,3 +1,7 @@
+//! `new-lines`: enforce one line-ending style across the file — Unix (LF), DOS
+//! (CRLF), or the platform default. Mirrors yamllint's `new-lines`. Safe `--fix`
+//! rewrites the endings to the configured style.
+
 use std::borrow::Cow;
 
 use crate::config::YamlLintConfig;

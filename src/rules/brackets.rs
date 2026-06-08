@@ -1,3 +1,8 @@
+//! `brackets`: control spacing inside flow sequences `[ ]` and, optionally, forbid
+//! flow sequences entirely. Mirrors yamllint's `brackets`; built from the shared
+//! `support::flow_collection::define_rule!` (its mapping twin is `braces`).
+//! Safe `--fix` normalises the inside-bracket spacing.
+
 crate::rules::support::flow_collection::define_rule!(
     "brackets",
     '[',

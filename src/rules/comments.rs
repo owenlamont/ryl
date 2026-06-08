@@ -1,3 +1,7 @@
+//! `comments`: `#` comment formatting — a required space after the `#`, a minimum
+//! gap from preceding inline content, and an optional shebang exemption. Mirrors
+//! yamllint's `comments`. Safe `--fix` inserts the missing spaces.
+
 use granit_parser::Placement;
 
 use crate::config::YamlLintConfig;

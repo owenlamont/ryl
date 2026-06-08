@@ -1,3 +1,8 @@
+//! `truthy`: flag YAML 1.1 boolean-ish words (`yes`/`no`/`on`/`off`/`True`/…) that are
+//! plain strings under the YAML 1.2 core schema and so a portability trap. Mirrors
+//! yamllint's `truthy`. No safe `--fix`: rewriting `Yes` means choosing between quoting
+//! it (keeps the string), normalising to `true`/`false` (a type change), or rewording.
+
 use std::collections::HashSet;
 
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};

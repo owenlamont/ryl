@@ -1,3 +1,7 @@
+//! `key-ordering`: mapping keys must appear in order (optionally locale-aware, with
+//! an ignore list). Mirrors yamllint's `key-ordering`. No safe `--fix`: reordering keys
+//! silently disassociates any comment the author placed above or beside a key.
+
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 use regex::Regex;
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};

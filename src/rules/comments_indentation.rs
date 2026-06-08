@@ -1,3 +1,8 @@
+//! `comments-indentation`: a comment must be indented like the content that follows
+//! it (else like the content it trails). Mirrors yamllint's `comments-indentation`.
+//! Safe `--fix` re-indents the comment — comments carry no YAML structure, so moving
+//! one cannot change the parse.
+
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
     block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,

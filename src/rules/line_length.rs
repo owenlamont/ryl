@@ -1,3 +1,8 @@
+//! `line-length`: lines may not exceed `max` characters (counted as characters, not
+//! bytes), with an optional allowance for an unbreakable long word/URL. Mirrors
+//! yamllint's `line-length`. No safe `--fix`: splitting an over-long line needs folding
+//! decisions that depend on the scalar's style and whether folding is legal there.
+
 use std::convert::TryFrom;
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};

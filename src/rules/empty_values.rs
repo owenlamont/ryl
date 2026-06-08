@@ -1,3 +1,8 @@
+//! `empty-values`: flag an empty value in a block mapping, flow mapping, or block
+//! sequence (a `key:` with nothing after it). Mirrors yamllint's `empty-values`. No
+//! safe `--fix`: the rule exists to make the author choose between `~`, `null`, or
+//! restructuring, so auto-inserting a literal would contradict its purpose.
+
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
