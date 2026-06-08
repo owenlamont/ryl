@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use similar::TextDiff;
+
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::Directives;
@@ -114,7 +116,9 @@ pub struct FixOutcome {
 /// it (e.g. `innocent.yaml -> ~/.bashrc`). Skip a symlinked input with a warning —
 /// consistent with the directory walker's `follow_links(false)`, which is the path
 /// by which untrusted trees are scanned. Linting (read-only) through symlinks is
-/// unaffected.
+/// unaffected. `--diff` skips symlinks too (`flag` distinguishes the message): it is
+/// a preview of `--fix`, so it must report the same skip rather than diffing a file
+/// `--fix` would never touch.
 ///
 /// This checks only the final path component (`symlink_metadata` resolves parent
 /// components), and the check is not atomic with the later write. It is therefore
@@ -122,10 +126,10 @@ pub struct FixOutcome {
 /// parent directory, or an attacker who swaps the file for a symlink between this
 /// check and the write (TOCTOU), is not covered. A complete defense would need
 /// `openat`/`O_NOFOLLOW`, which is not portable here.
-fn refuse_symlink(path: &Path) -> bool {
+fn refuse_symlink(path: &Path, flag: &str) -> bool {
     if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
         eprintln!(
-            "skipping {}: refusing to apply --fix through a symlink",
+            "skipping {}: refusing to follow a symlink for {flag}",
             crate::cli_support::sanitize_control(&path.display().to_string())
         );
         return true;
@@ -143,7 +147,7 @@ pub fn apply_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<FixOutcome, String> {
-    if refuse_symlink(path) {
+    if refuse_symlink(path, "--fix") {
         return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
@@ -191,6 +195,124 @@ pub fn apply_safe_fixes_to_files(
     Ok(stats)
 }
 
+/// A single file's `--diff` result: the unified diff (`None` when the safe fixes
+/// would change nothing) plus any parse-skips — a plain YAML file contributes at most
+/// one (its whole-file parse error); a Markdown file one per region that does not
+/// parse — reported like [`FixStats::skipped`].
+#[derive(Debug, Default)]
+pub struct DiffOutcome {
+    pub diff: Option<String>,
+    pub skipped: Vec<crate::lint::LintProblem>,
+}
+
+/// Aggregated `--diff` results across all linted files.
+#[derive(Debug, Default)]
+pub struct DiffStats {
+    /// Unified diffs for files that would change, in input order.
+    pub diffs: Vec<String>,
+    /// Files left unchanged because they (or, for Markdown, a region) do not parse.
+    pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
+}
+
+impl DiffStats {
+    /// Fold one file's outcome into the aggregate: record its diff (if any) and tag
+    /// each parse-skip with the file path. Shared by the file-walk and stdin paths so
+    /// the diff-vs-skip routing lives in one place.
+    pub fn record(&mut self, path: &Path, outcome: DiffOutcome) {
+        if let Some(diff) = outcome.diff {
+            self.diffs.push(diff);
+        }
+        for problem in outcome.skipped {
+            self.skipped.push((path.to_path_buf(), problem));
+        }
+    }
+}
+
+/// Render a unified diff from `original` and `fixed`, or `None` when they are
+/// identical. The format follows `ruff check --diff`: 3 lines of context (also
+/// `similar`'s default, pinned here so a crate upgrade can't silently change it) and a
+/// plain `--- path` / `+++ path` header — no git `a/`/`b/` prefixes or path quoting.
+/// The header path is sanitized so a control char in a crafted filename cannot inject
+/// terminal escapes or forge a hunk header; the diff *body* is emitted verbatim so a
+/// consumer such as hk can re-apply the content unchanged (which, like `git diff`,
+/// means the raw bytes — including any control chars already present in the file).
+fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
+    if original == fixed {
+        return None;
+    }
+    let label =
+        crate::cli_support::sanitize_control(&path.display().to_string()).into_owned();
+    Some(
+        TextDiff::from_lines(original, fixed)
+            .unified_diff()
+            .context_radius(3)
+            .header(&label, &label)
+            .to_string(),
+    )
+}
+
+/// Compute the `--diff` outcome for in-memory `content` (shared by the file and stdin
+/// paths). Mirrors the in-place fixers' gating: an unparsable plain YAML file yields
+/// no diff and one skip so the CLI can tell the user why; a Markdown file diffs at the
+/// host level via [`fix_markdown_str`] and reports each region that does not parse.
+#[must_use]
+pub fn diff_outcome(
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    kind: SourceKind,
+) -> DiffOutcome {
+    match kind {
+        SourceKind::Yaml => {
+            if let Some(problem) = crate::lint::parse_error(content) {
+                return DiffOutcome {
+                    diff: None,
+                    skipped: vec![problem],
+                };
+            }
+            let fixed = apply_safe_fixes(content, cfg, path, base_dir);
+            DiffOutcome {
+                diff: render_unified_diff(content, &fixed, path),
+                skipped: Vec::new(),
+            }
+        }
+        SourceKind::Markdown => {
+            let fixed = fix_markdown_str(content, path, cfg, base_dir);
+            // Skips are reported against the *original* content, not `fixed`: unlike
+            // the in-place path (which writes `fixed`, so its skip line numbers must
+            // match the post-fix file), `--diff` never writes, so the file on disk
+            // stays `content` and a skip notice must point at the original line.
+            let skipped = crate::markdown_embed::markdown_parse_skips(content, cfg);
+            let diff =
+                fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
+            DiffOutcome { diff, skipped }
+        }
+    }
+}
+
+/// Compute unified diffs for the safe fixes of each file, reading from disk. Never
+/// writes; a symlinked input is skipped with a warning (parity with `--fix`, whose
+/// preview this is).
+///
+/// # Errors
+///
+/// Returns an error if any file cannot be read.
+pub fn diff_safe_fixes_for_files(
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+) -> Result<DiffStats, String> {
+    let mut stats = DiffStats::default();
+    for (path, base_dir, cfg, kind) in files {
+        if refuse_symlink(path, "--diff") {
+            continue;
+        }
+        let decoded = decoder::read_file_lossless(path)?;
+        let outcome = diff_outcome(decoded.content(), cfg, path, base_dir, *kind);
+        stats.record(path, outcome);
+    }
+    Ok(stats)
+}
+
 /// Apply safe fixes to every embedded YAML region of a markdown file in place.
 ///
 /// # Errors
@@ -202,7 +324,7 @@ pub fn apply_markdown_safe_fixes_in_place(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Result<FixOutcome, String> {
-    if refuse_symlink(path) {
+    if refuse_symlink(path, "--fix") {
         return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;

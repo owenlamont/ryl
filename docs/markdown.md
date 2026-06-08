@@ -162,6 +162,11 @@ where content lines are indented less than the fence, or other non-uniform layou
 `--fix` can never corrupt a Markdown document: the worst case is that an unusual
 region is reported but not auto-fixed.
 
+`--diff` previews these same fixes without writing: it emits one unified diff per
+Markdown file (at the host-file level, with the embedded edits shown in context)
+and exits `1` if any file would change. A region `--fix` would leave untouched
+(ragged, or one that does not parse) likewise produces no diff.
+
 ## Linting Markdown from stdin and the CLI
 
 Markdown linting is normally enabled by listing `[files].markdown` globs, but it can
@@ -177,7 +182,8 @@ also be turned on for a single run from the command line:
   doc.md` lints the piped bytes as Markdown when `doc.md` matches the `markdown`
   globs (front matter and fenced blocks are extracted exactly as for a file on
   disk). Without `--stdin-filename` and without `--markdown`, stdin is linted as
-  plain YAML. As with files, `--fix` is not supported when reading from stdin.
+  plain YAML. As with files, `--fix` is not supported when reading from stdin
+  (use `--diff` to preview fixes for piped Markdown instead).
 
 ## Use with pre-commit
 

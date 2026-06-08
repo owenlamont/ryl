@@ -36,7 +36,7 @@ fn fix_symlink_warning_sanitizes_the_path() {
         .arg("rules:\n  trailing-spaces: enable\n")
         .arg(&link));
     assert!(
-        err.contains("refusing to apply --fix through a symlink"),
+        err.contains("refusing to follow a symlink for --fix"),
         "expected the symlink skip warning: {err:?}"
     );
     assert!(
@@ -65,7 +65,7 @@ fn fix_skips_explicit_symlink_arg_and_leaves_target_untouched() {
         .arg("rules:\n  trailing-spaces: enable\n")
         .arg(&link));
     assert!(
-        err.contains("refusing to apply --fix through a symlink"),
+        err.contains("refusing to follow a symlink for --fix"),
         "expected the symlink skip warning: {err}"
     );
     assert_eq!(
@@ -91,7 +91,7 @@ fn fix_skips_symlink_pointing_outside_the_scanned_directory() {
         .arg("rules:\n  trailing-spaces: enable\n")
         .arg(&repo));
     assert!(
-        err.contains("refusing to apply --fix through a symlink"),
+        err.contains("refusing to follow a symlink for --fix"),
         "directory-walk --fix must skip symlinks: {err}"
     );
     assert_eq!(
@@ -118,7 +118,7 @@ fn fix_skips_symlinked_markdown_target() {
         .arg("rules:\n  trailing-spaces: enable\n")
         .arg(&link));
     assert!(
-        err.contains("refusing to apply --fix through a symlink"),
+        err.contains("refusing to follow a symlink for --fix"),
         "embedded-markdown --fix must skip symlinks: {err}"
     );
     assert_eq!(

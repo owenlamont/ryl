@@ -616,6 +616,13 @@ sticking to the quick-status step above.
 - Files named explicitly are linted as their resolved source kind; one that
   matches no `[files]` kind is rejected with an error (rather than silently
   treated as YAML).
+- Inputs are de-duplicated: a file reached by two spellings (the walk plus an
+  explicit arg, e.g. `ryl . f.yaml`, or `f.yaml` listed twice) is processed once.
+  `gather_lint_files` keys a `seen` set on `main::canonical_input` (`std::path::absolute`
+  — lexical, no symlink resolution, no existence check), so this spans lint/`--fix`/
+  `--diff`/`--list-files`. Deliberately stricter than yamllint (which processes
+  duplicates); for `--diff` a duplicate would emit a repeat patch block that fails to
+  apply on the second copy.
 - Source kinds (`config::SourceKind`): the `[files]` TOML table maps `yaml` and
   `markdown` to glob lists (`yaml` defaults to `*.yaml`/`*.yml`/`.yamllint`). A
   file matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
@@ -649,6 +656,20 @@ sticking to the quick-status step above.
   lint syntax error (the `anchors` rule reports it, matching yamllint); only `--fix`
   applies the stricter gate. The gate flows through the in-place and per-region
   Markdown fix paths.
+- `--diff` (issue #269) previews `--fix` instead of writing: it prints a unified
+  diff (3 lines of context) per changed file to **stdout** and exits `1` iff any
+  file would change, mirroring `ruff check --diff`. It is `conflicts_with` `--fix`,
+  ignores `--format`, and (unlike `--fix`) supports stdin. Crucially it is
+  diff-only: remaining *unfixable* findings are neither printed nor counted, so a
+  file that only trips an unfixable rule exits `0` (a plain lint run would exit
+  `1`). It reuses the fix pipeline (`fix::diff_safe_fixes_for_files` →
+  `fix::diff_outcome`, calling `apply_safe_fixes`/`fix_markdown_str`), so it inherits
+  the same parse-error gate (unparsable files are skipped with a
+  `<path>:L:C skipped by --diff: <error>` notice, no exit effect) and symlink skip
+  (`fix::refuse_symlink`, now parameterised by flag). Markdown diffs at the
+  host-file level (one diff per `.md`). The diff *body* is emitted verbatim (a
+  consumer such as hk must re-apply it byte-for-byte); only the header path is
+  sanitized.
 - Malicious-payload hardening (issue #246): `--fix` never writes through a
   symlink — `fix::refuse_symlink` skips a symlinked input (still linted) with a
   warning, so an untrusted tree cannot redirect an in-place write outside itself.

@@ -40,7 +40,8 @@ Without `--stdin-filename`, diagnostics are labelled `<stdin>`, config
 discovery is anchored at the current working directory, and all
 path-based filtering (`yaml-files`, per-file-ignores, per-rule `ignore`
 patterns) is skipped so every enabled rule runs. `-` cannot be combined
-with other inputs or with `--fix`.
+with other inputs, and `--fix` cannot read from stdin (use `--diff` to
+preview fixes instead).
 
 Exit codes:
 
@@ -79,6 +80,32 @@ symlinked input is linted but skipped for fixing (with a warning on
 stderr), so a symlink in an untrusted tree cannot redirect a write to a
 file outside it. This mirrors directory scanning, which does not follow
 symlinks.
+
+## Preview fixes as a diff
+
+`--diff` runs the same safe fixes as `--fix` but, instead of writing,
+prints a unified diff (3 lines of context) of what would change to
+stdout &mdash; modelled on `ruff check --diff`:
+
+```bash
+ryl --diff .
+```
+
+This is handy for CI previews, PR review, and parallel-safe runners such
+as [hk](https://hk.jdx.dev) that apply the diff themselves rather than
+re-invoking the linter. `--diff` never modifies files, is mutually
+exclusive with `--fix`, and (unlike `--fix`) works with `-`/stdin.
+
+Like `ruff check --diff`, the exit code reflects only the diff &mdash;
+remaining *unfixable* findings are neither printed nor counted:
+
+- `1` &mdash; at least one file would change.
+- `0` &mdash; no file would change.
+- `2` &mdash; CLI usage error.
+
+A file that cannot be parsed (or a symlink) is skipped with a notice on
+stderr and does not affect the exit code. For embedded YAML in Markdown,
+the diff is reported at the host-file level (one diff per `.md`).
 
 ## Configure for your project
 
