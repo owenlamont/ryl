@@ -80,12 +80,231 @@ pub fn lint_markdown_file(
     ))
 }
 
+/// Run one rule under the standard gate — skip a disabled rule or a
+/// per-rule-ignored file — and append a [`LintProblem`] per reported violation in
+/// the rule's own report order. This replaces the hand-written `collect_*` helper
+/// each rule used to need. The arms cover the shapes rules actually have: a
+/// resolved `&Config` or none, a `Vec` or `Option` of violations, and a
+/// per-violation message or a fixed module `MESSAGE`. `$m` is the rule module; its
+/// `ID` / `check` / `Config` / `MESSAGE` are reached through it.
+macro_rules! lint_rule {
+    // config, `Vec<Violation>`, per-violation message (the common rule shape)
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+        {
+            for hit in $m::check($content, &$m::Config::resolve($cfg)) {
+                $d.push(LintProblem {
+                    line: hit.line,
+                    column: hit.column,
+                    level: level.into(),
+                    message: hit.message,
+                    rule: Some($m::ID),
+                });
+            }
+        }
+    };
+    // config, `Vec<Violation>`, fixed module `MESSAGE`
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, message) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+        {
+            for hit in $m::check($content, &$m::Config::resolve($cfg)) {
+                $d.push(LintProblem {
+                    line: hit.line,
+                    column: hit.column,
+                    level: level.into(),
+                    message: $m::MESSAGE.to_string(),
+                    rule: Some($m::ID),
+                });
+            }
+        }
+    };
+    // no config, `Vec<Violation>`, per-violation message
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+        {
+            for hit in $m::check($content) {
+                $d.push(LintProblem {
+                    line: hit.line,
+                    column: hit.column,
+                    level: level.into(),
+                    message: hit.message,
+                    rule: Some($m::ID),
+                });
+            }
+        }
+    };
+    // no config, `Vec<Violation>`, fixed module `MESSAGE`
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config, message) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+        {
+            for hit in $m::check($content) {
+                $d.push(LintProblem {
+                    line: hit.line,
+                    column: hit.column,
+                    level: level.into(),
+                    message: $m::MESSAGE.to_string(),
+                    rule: Some($m::ID),
+                });
+            }
+        }
+    };
+    // no config, `Option<Violation>`, fixed module `MESSAGE` (new-line-at-end-of-file)
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, option, message) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+            && let Some(hit) = $m::check($content)
+        {
+            $d.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: $m::MESSAGE.to_string(),
+                rule: Some($m::ID),
+            });
+        }
+    };
+    // config by value + platform newline, `Option<Violation>`, per-violation
+    // message (new-lines: the platform default is injected for testability)
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, platform) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+            && let Some(hit) =
+                $m::check($content, $m::Config::resolve($cfg), $m::platform_newline())
+        {
+            $d.push(LintProblem {
+                line: hit.line,
+                column: hit.column,
+                level: level.into(),
+                message: hit.message,
+                rule: Some($m::ID),
+            });
+        }
+    };
+}
+
+// `lint_str`'s rule dispatch is split into three ordered batches purely to keep
+// each function within clippy's cognitive-complexity threshold (one flat 26-rule
+// table trips it). The batch boundaries are pragmatic, not a strict taxonomy; what
+// matters is that they run in this order — layout, then value, then block —
+// because that concatenation IS ryl's reported diagnostic order (there is no later
+// per-file sort) and must match yamllint's. The `yamllint_compat_*` suite guards
+// it, so keep the overall sequence stable when editing.
+
+/// Document-shape and layout / punctuation rules (first dispatch batch).
+fn collect_layout_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    lint_rule!(diagnostics, cfg, content, path, base_dir, document_start);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, document_end);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        new_line_at_end_of_file,
+        option,
+        message
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        new_lines,
+        platform
+    );
+    lint_rule!(diagnostics, cfg, content, path, base_dir, empty_lines);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, commas);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, colons);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, braces);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, brackets);
+}
+
+/// Comment, node-property, and scalar-value rules (second dispatch batch).
+fn collect_value_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    lint_rule!(diagnostics, cfg, content, path, base_dir, comments);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, anchors);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, tags);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, octal_values);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, float_values);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, empty_values);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, quoted_strings);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, truthy);
+}
+
+/// Key, indentation, and line / whitespace rules (third dispatch batch).
+fn collect_block_diagnostics(
+    diagnostics: &mut Vec<LintProblem>,
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) {
+    lint_rule!(diagnostics, cfg, content, path, base_dir, key_duplicates);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, key_ordering);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, hyphens, message);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        comments_indentation,
+        message
+    );
+    lint_rule!(diagnostics, cfg, content, path, base_dir, indentation);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, line_length);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        trailing_spaces,
+        no_config,
+        message
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        unicode_line_breaks,
+        no_config
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        merge_keys,
+        no_config
+    );
+}
+
 /// Lint YAML content held in memory and return diagnostics in yamllint format
 /// order.
 ///
 /// `path` is used purely for diagnostic context and per-rule ignore matching;
 /// no filesystem reads are performed.
-#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn lint_str(
     content: &str,
@@ -98,203 +317,9 @@ pub fn lint_str(
     }
 
     let mut diagnostics: Vec<LintProblem> = Vec::new();
-
-    collect_document_start_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_document_end_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    if let Some(level) = cfg.rule_level(new_line_at_end_of_file::ID)
-        && !cfg.is_rule_ignored(new_line_at_end_of_file::ID, path, base_dir)
-        && let Some(hit) = new_line_at_end_of_file::check(content)
-    {
-        diagnostics.push(LintProblem {
-            line: hit.line,
-            column: hit.column,
-            level: level.into(),
-            message: new_line_at_end_of_file::MESSAGE.to_string(),
-            rule: Some(new_line_at_end_of_file::ID),
-        });
-    }
-
-    if let Some(level) = cfg.rule_level(new_lines::ID)
-        && !cfg.is_rule_ignored(new_lines::ID, path, base_dir)
-    {
-        let rule_cfg = new_lines::Config::resolve(cfg);
-        if let Some(hit) =
-            new_lines::check(content, rule_cfg, new_lines::platform_newline())
-        {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(new_lines::ID),
-            });
-        }
-    }
-
-    collect_empty_lines_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_commas_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_colons_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_braces_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-    collect_brackets_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_comments_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_anchors_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_tags_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_octal_values_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    collect_float_values_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    if let Some(level) = cfg.rule_level(empty_values::ID)
-        && !cfg.is_rule_ignored(empty_values::ID, path, base_dir)
-    {
-        let rule_cfg = empty_values::Config::resolve(cfg);
-        for hit in empty_values::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(empty_values::ID),
-            });
-        }
-    }
-
-    if let Some(level) = cfg.rule_level(quoted_strings::ID)
-        && !cfg.is_rule_ignored(quoted_strings::ID, path, base_dir)
-    {
-        let rule_cfg = quoted_strings::Config::resolve(cfg);
-        for hit in quoted_strings::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(quoted_strings::ID),
-            });
-        }
-    }
-
-    if let Some(level) = cfg.rule_level(truthy::ID)
-        && !cfg.is_rule_ignored(truthy::ID, path, base_dir)
-    {
-        let rule_cfg = truthy::Config::resolve(cfg);
-        for hit in truthy::check(content, &rule_cfg) {
-            let truthy::Violation {
-                line,
-                column,
-                message,
-            } = hit;
-            diagnostics.push(LintProblem {
-                line,
-                column,
-                level: level.into(),
-                message,
-                rule: Some(truthy::ID),
-            });
-        }
-    }
-
-    if let Some(level) = cfg.rule_level(key_duplicates::ID)
-        && !cfg.is_rule_ignored(key_duplicates::ID, path, base_dir)
-    {
-        let rule_cfg = key_duplicates::Config::resolve(cfg);
-        for hit in key_duplicates::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(key_duplicates::ID),
-            });
-        }
-    }
-
-    if let Some(level) = cfg.rule_level(key_ordering::ID)
-        && !cfg.is_rule_ignored(key_ordering::ID, path, base_dir)
-    {
-        let rule_cfg = key_ordering::Config::resolve(cfg);
-        for hit in key_ordering::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(key_ordering::ID),
-            });
-        }
-    }
-
-    if let Some(level) = cfg.rule_level(hyphens::ID)
-        && !cfg.is_rule_ignored(hyphens::ID, path, base_dir)
-    {
-        let rule_cfg = hyphens::Config::resolve(cfg);
-        for hit in hyphens::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hyphens::MESSAGE.to_string(),
-                rule: Some(hyphens::ID),
-            });
-        }
-    }
-
-    collect_comments_indentation_diagnostics(
-        &mut diagnostics,
-        content,
-        cfg,
-        path,
-        base_dir,
-    );
-
-    if let Some(level) = cfg.rule_level(indentation::ID)
-        && !cfg.is_rule_ignored(indentation::ID, path, base_dir)
-    {
-        let rule_cfg = indentation::Config::resolve(cfg);
-        for hit in indentation::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(indentation::ID),
-            });
-        }
-    }
-
-    collect_line_length_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-
-    if let Some(level) = cfg.rule_level(trailing_spaces::ID)
-        && !cfg.is_rule_ignored(trailing_spaces::ID, path, base_dir)
-    {
-        for hit in trailing_spaces::check(content) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: trailing_spaces::MESSAGE.to_string(),
-                rule: Some(trailing_spaces::ID),
-            });
-        }
-    }
-
-    collect_unicode_line_breaks_diagnostics(
-        &mut diagnostics,
-        content,
-        cfg,
-        path,
-        base_dir,
-    );
-
-    collect_merge_keys_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+    collect_layout_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+    collect_value_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+    collect_block_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
     let directives = crate::directives::Directives::parse(content);
     diagnostics.retain(|problem| {
@@ -309,372 +334,6 @@ pub fn lint_str(
     }
 
     diagnostics
-}
-
-fn collect_document_end_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(document_end::ID)
-        && !cfg.is_rule_ignored(document_end::ID, path, base_dir)
-    {
-        let rule_cfg = document_end::Config::resolve(cfg);
-        for hit in document_end::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(document_end::ID),
-            });
-        }
-    }
-}
-
-fn collect_document_start_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(document_start::ID)
-        && !cfg.is_rule_ignored(document_start::ID, path, base_dir)
-    {
-        let rule_cfg = document_start::Config::resolve(cfg);
-        for hit in document_start::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(document_start::ID),
-            });
-        }
-    }
-}
-
-fn collect_empty_lines_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(empty_lines::ID)
-        && !cfg.is_rule_ignored(empty_lines::ID, path, base_dir)
-    {
-        let rule_cfg = empty_lines::Config::resolve(cfg);
-        for hit in empty_lines::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(empty_lines::ID),
-            });
-        }
-    }
-}
-
-fn collect_commas_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(commas::ID)
-        && !cfg.is_rule_ignored(commas::ID, path, base_dir)
-    {
-        let rule_cfg = commas::Config::resolve(cfg);
-        for hit in commas::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(commas::ID),
-            });
-        }
-    }
-}
-
-fn collect_colons_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(colons::ID)
-        && !cfg.is_rule_ignored(colons::ID, path, base_dir)
-    {
-        let rule_cfg = colons::Config::resolve(cfg);
-        for hit in colons::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(colons::ID),
-            });
-        }
-    }
-}
-
-fn collect_brackets_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(brackets::ID)
-        && !cfg.is_rule_ignored(brackets::ID, path, base_dir)
-    {
-        let rule_cfg = brackets::Config::resolve(cfg);
-        for hit in brackets::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(brackets::ID),
-            });
-        }
-    }
-}
-
-fn collect_braces_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(braces::ID)
-        && !cfg.is_rule_ignored(braces::ID, path, base_dir)
-    {
-        let rule_cfg = braces::Config::resolve(cfg);
-        for hit in braces::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(braces::ID),
-            });
-        }
-    }
-}
-
-fn collect_comments_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(comments::ID)
-        && !cfg.is_rule_ignored(comments::ID, path, base_dir)
-    {
-        let rule_cfg = comments::Config::resolve(cfg);
-        for hit in comments::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(comments::ID),
-            });
-        }
-    }
-}
-
-fn collect_anchors_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(anchors::ID)
-        && !cfg.is_rule_ignored(anchors::ID, path, base_dir)
-    {
-        let rule_cfg = anchors::Config::resolve(cfg);
-        for hit in anchors::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(anchors::ID),
-            });
-        }
-    }
-}
-
-fn collect_tags_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(tags::ID)
-        && !cfg.is_rule_ignored(tags::ID, path, base_dir)
-    {
-        let rule_cfg = tags::Config::resolve(cfg);
-        for hit in tags::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(tags::ID),
-            });
-        }
-    }
-}
-
-fn collect_unicode_line_breaks_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(unicode_line_breaks::ID)
-        && !cfg.is_rule_ignored(unicode_line_breaks::ID, path, base_dir)
-    {
-        for hit in unicode_line_breaks::check(content) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(unicode_line_breaks::ID),
-            });
-        }
-    }
-}
-
-fn collect_merge_keys_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(merge_keys::ID)
-        && !cfg.is_rule_ignored(merge_keys::ID, path, base_dir)
-    {
-        for hit in merge_keys::check(content) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(merge_keys::ID),
-            });
-        }
-    }
-}
-
-fn collect_comments_indentation_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(comments_indentation::ID)
-        && !cfg.is_rule_ignored(comments_indentation::ID, path, base_dir)
-    {
-        let rule_cfg = comments_indentation::Config::resolve(cfg);
-        for hit in comments_indentation::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: comments_indentation::MESSAGE.to_string(),
-                rule: Some(comments_indentation::ID),
-            });
-        }
-    }
-}
-
-fn collect_octal_values_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(octal_values::ID)
-        && !cfg.is_rule_ignored(octal_values::ID, path, base_dir)
-    {
-        let rule_cfg = octal_values::Config::resolve(cfg);
-        for hit in octal_values::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(octal_values::ID),
-            });
-        }
-    }
-}
-
-fn collect_float_values_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(float_values::ID)
-        && !cfg.is_rule_ignored(float_values::ID, path, base_dir)
-    {
-        let rule_cfg = float_values::Config::resolve(cfg);
-        for hit in float_values::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(float_values::ID),
-            });
-        }
-    }
-}
-
-fn collect_line_length_diagnostics(
-    diagnostics: &mut Vec<LintProblem>,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) {
-    if let Some(level) = cfg.rule_level(line_length::ID)
-        && !cfg.is_rule_ignored(line_length::ID, path, base_dir)
-    {
-        let rule_cfg = line_length::Config::resolve(cfg);
-        for hit in line_length::check(content, &rule_cfg) {
-            diagnostics.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some(line_length::ID),
-            });
-        }
-    }
 }
 
 fn scan(content: &str) -> Result<(), granit_parser::ScanError> {
