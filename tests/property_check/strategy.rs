@@ -161,6 +161,8 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("c".to_string()),
         Just("dup".to_string()),
         Just("a#b".to_string()),
+        Just("a !foo".to_string()),
+        Just("a &foo".to_string()),
         Just("café".to_string()),
         Just("Yes".to_string()),
         Just("On".to_string()),

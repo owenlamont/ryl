@@ -199,6 +199,25 @@ fn preserves_hash_characters_that_do_not_start_comments() {
 }
 
 #[test]
+fn preserves_plain_key_fragments_that_resemble_node_properties() {
+    // `!` and `&` may appear after the first character of a plain scalar. The
+    // scanner confirms these are keys, so header recovery must not reinterpret
+    // their trailing fragments as tag or anchor properties.
+    let (code, output) =
+        lint_with_toml_config("a !foo: |\n  body\na &foo: |\n  body\n", ENABLE);
+    assert_eq!(
+        code, 1,
+        "bare headers after plain keys should fail: {output}"
+    );
+    for pos in ["1:9", "3:9"] {
+        assert!(
+            output.contains(pos),
+            "expected a complete property-like key at {pos}: {output}"
+        );
+    }
+}
+
+#[test]
 fn reports_char_based_column_after_multibyte_key() {
     // `café` is four characters but five bytes; the marker column counts
     // characters, so the `|` sits at column 7 (a byte offset would give 8).

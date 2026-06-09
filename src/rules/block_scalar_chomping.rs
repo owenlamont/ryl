@@ -38,7 +38,7 @@
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, strip_trailing_comment_preserving_quotes,
+    block_scalar_header_marker_index, strip_trailing_comment_preserving_quotes,
 };
 
 pub const ID: &str = "block-scalar-chomping";
@@ -141,7 +141,7 @@ fn header_marker<'a>(
         .flatten()
         .and_then(|line| {
             let text = strip_trailing_comment_preserving_quotes(line);
-            block_scalar_marker_index(text)
+            block_scalar_header_marker_index(text)
                 .filter(|marker_idx| {
                     text[..*marker_idx].chars().count() == token_column
                 })
@@ -151,7 +151,7 @@ fn header_marker<'a>(
         .or_else(|| {
             (1..token_line).rev().find_map(|line_no| {
                 let text = strip_trailing_comment_preserving_quotes(lines[line_no - 1]);
-                block_scalar_marker_index(text).map(|idx| (line_no, text, idx))
+                block_scalar_header_marker_index(text).map(|idx| (line_no, text, idx))
             })
         })
         .expect("a block scalar has a marker-bearing header")
