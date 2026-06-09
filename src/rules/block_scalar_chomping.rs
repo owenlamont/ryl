@@ -27,16 +27,13 @@
 //! `\r` is a line break here, whereas the whitespace byte-scanning rules count
 //! `\n` only (see `unicode-line-breaks`).
 //!
-//! Empty / blank-only block scalars (the resolved value is only line breaks, e.g.
-//! a trailing `key: |`, or a header above blank lines) are not checked: granit
-//! places their token on the header at end-of-stream but on the *following* line
-//! otherwise, so there is no content line to anchor a reliable header lookup. The
-//! skip is a deliberate trade-off — for a truly empty scalar the chomping is also
-//! degenerate, but a blank-only body does differ (`key: |` clips to `""` while
-//! `key: |+` keeps `"\n"`), so that narrow case is an accepted false negative.
-//! yamllint has no equivalent rule, so nothing is lost against it.
+//! Empty / blank-only block scalars need one extra case: granit places their token
+//! on the header at end-of-stream but on the following node otherwise. A token
+//! whose start column is the marker therefore uses its own line; every other
+//! token searches strictly above its start line, just like a non-empty scalar.
 //!
-//! Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator).
+//! Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
+//! <https://www.yaml.info/learn/quote#chomp> (resolved-value examples).
 
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
@@ -62,20 +59,16 @@ pub fn check(buffer: &str) -> Vec<Violation> {
         let TokenType::Scalar(style, value) = token.1 else {
             continue;
         };
-        // Skip non-block scalars and empty / blank-only block scalars: a value of
-        // only line breaks means there is no content line for granit to anchor the
-        // token to, so the header cannot be located reliably (granit puts the token
-        // on the header at end-of-stream but on the *following* line otherwise).
-        // See the module-level note; this also makes the blank-only body a
-        // deliberate, accepted false negative.
-        if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-            || value.chars().all(|ch| matches!(ch, '\n' | '\r'))
-        {
+        if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
             continue;
         }
 
-        let (header_line, header_text, marker_idx) =
-            header_marker(&lines, token.0.start.line());
+        let (header_line, header_text, marker_idx) = header_marker(
+            &lines,
+            token.0.start.line(),
+            token.0.start.col(),
+            value.chars().all(|ch| matches!(ch, '\n' | '\r')),
+        );
         // `marker_idx` is the byte offset of the single-byte `|`/`>` (a char
         // boundary), and the reported column counts characters, not bytes, so a
         // multibyte key shifts the column correctly (issue #232).
@@ -129,23 +122,37 @@ fn granit_lines(buffer: &str) -> Vec<&str> {
     lines
 }
 
-/// Locate the header of the block scalar whose first content line is
-/// `content_line` (1-based, as granit numbers lines): the nearest line *strictly
-/// above* it that ends in a `|`/`>` marker. Only blank lines ever sit between a
-/// header and its first content, so a scanner-confirmed non-empty block scalar
-/// always has its marker-bearing header above it. Because [`granit_lines`] splits
-/// on the same break set granit counts, `content_line` indexes the table directly
-/// and stays in bounds. Returns the header's 1-based line number, comment-stripped
-/// text, and the byte index of the marker within that text.
+/// Locate the header of the block scalar whose token starts at `token_line` and
+/// `token_column` (1-based line and 0-based character column, as granit reports
+/// them).
+/// Non-empty tokens start on their first content line, while an empty token at
+/// end-of-stream starts on its own marker; empty tokens before another node start
+/// on that following node. Checking for the exact marker position first
+/// distinguishes the end-of-stream case, then the nearest marker-bearing line
+/// strictly above is the header in every other case.
 fn header_marker<'a>(
     lines: &[&'a str],
-    content_line: usize,
+    token_line: usize,
+    token_column: usize,
+    blank_only: bool,
 ) -> (usize, &'a str, usize) {
-    (1..content_line)
-        .rev()
-        .find_map(|line_no| {
-            let text = strip_trailing_comment_preserving_quotes(lines[line_no - 1]);
-            block_scalar_marker_index(text).map(|idx| (line_no, text, idx))
+    let current = blank_only
+        .then(|| lines.get(token_line - 1))
+        .flatten()
+        .and_then(|line| {
+            let text = strip_trailing_comment_preserving_quotes(line);
+            block_scalar_marker_index(text)
+                .filter(|marker_idx| {
+                    text[..*marker_idx].chars().count() == token_column
+                })
+                .map(|marker_idx| (token_line, text, marker_idx))
+        });
+    current
+        .or_else(|| {
+            (1..token_line).rev().find_map(|line_no| {
+                let text = strip_trailing_comment_preserving_quotes(lines[line_no - 1]);
+                block_scalar_marker_index(text).map(|idx| (line_no, text, idx))
+            })
         })
-        .expect("a non-empty block scalar has a marker-bearing header above it")
+        .expect("a block scalar has a marker-bearing header")
 }

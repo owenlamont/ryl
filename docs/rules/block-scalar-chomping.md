@@ -40,7 +40,8 @@ This rule therefore asks you to choose deliberately between strip and keep rathe
 than rely on the silent clip default; it cannot be satisfied by "making clip
 explicit", because there is no such spelling.
 
-Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator).
+Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
+[yaml.info block-scalar chomp examples](https://www.yaml.info/learn/quote#chomp).
 
 ## Configuration
 
@@ -57,13 +58,6 @@ level = "error"
 
 The rule has no options: when enabled it requires an explicit `-`/`+` on every
 literal/folded block scalar.
-
-A block scalar whose value is only line breaks &mdash; a truly empty `key: |`, or
-a header sitting above blank lines &mdash; is not checked: the parser does not
-expose a stable header position for a body-less block scalar, so its header cannot
-be located reliably. For a truly empty scalar the chomping is also degenerate; a
-blank-only body (where `|` and `|+` *do* differ) is a narrow, accepted false
-negative.
 
 ## Examples
 

@@ -79,14 +79,35 @@ fn ignores_pipe_inside_quoted_scalar() {
 }
 
 #[test]
-fn ignores_empty_block_scalar() {
-    // An empty block scalar (resolved value is only line breaks) has no stable
-    // header position and degenerate chomping, so it is intentionally skipped.
-    let (code, output) = lint_with_toml_config("a: 1\nempty: |\n", ENABLE);
-    assert_eq!(code, 0, "an empty block scalar is not checked: {output}");
+fn flags_empty_and_blank_only_block_scalars() {
+    // Granit anchors an end-of-stream empty scalar on its header, but anchors an
+    // empty scalar before another node on that following node. Both forms and a
+    // blank-only body must still report their own headers.
+    let (code, output) =
+        lint_with_toml_config("first: |\nsecond: |\n\nblank: |\n  \ncafé: |", ENABLE);
+    assert_eq!(code, 1, "empty block scalars should fail: {output}");
+    for pos in ["1:8", "2:9", "4:8", "6:7"] {
+        assert!(
+            output.contains(pos),
+            "expected an empty-scalar diagnostic at {pos}: {output}"
+        );
+    }
     assert!(
-        !output.contains("block-scalar-chomping"),
-        "empty block scalar must not be flagged: {output}"
+        output.matches("block-scalar-chomping").count() == 4,
+        "each empty or blank-only scalar should be flagged once: {output}"
+    );
+}
+
+#[test]
+fn does_not_treat_header_like_first_content_as_the_header() {
+    // A literal scalar may begin with content that itself looks like a standalone
+    // block header. The scanner token starts there, but the diagnostic belongs to
+    // the actual header above it.
+    let (code, output) = lint_with_toml_config("key: |\n  |\n", ENABLE);
+    assert_eq!(code, 1, "bare block scalar should fail: {output}");
+    assert!(
+        output.contains("1:6") && !output.contains("2:3"),
+        "the diagnostic should point to the real header: {output}"
     );
 }
 

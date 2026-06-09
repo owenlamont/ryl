@@ -404,11 +404,16 @@ fn arb_block_scalar_block() -> impl Strategy<Value = Vec<Line>> {
         arb_block_scalar_header(),
         any::<bool>(),
         any::<bool>(),
+        any::<bool>(),
     )
-        .prop_map(|(key, header, header_on_own_line, blank_gap)| {
+        .prop_map(|(key, header, header_on_own_line, blank_gap, blank_only)| {
             let content = Line::Raw {
                 indent: 4,
-                text: "block content".to_string(),
+                text: if blank_only {
+                    String::new()
+                } else {
+                    "block content".to_string()
+                },
             };
             if header_on_own_line {
                 return vec![
