@@ -87,7 +87,15 @@ pub(crate) fn comment_start_preserving_quotes(content: &str) -> Option<usize> {
         match ch {
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '#' if !in_single && !in_double => return Some(idx),
+            '#' if !in_single
+                && !in_double
+                && content[..idx]
+                    .chars()
+                    .next_back()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(idx);
+            }
             _ => {}
         }
     }

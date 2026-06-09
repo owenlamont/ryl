@@ -160,6 +160,7 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("b".to_string()),
         Just("c".to_string()),
         Just("dup".to_string()),
+        Just("a#b".to_string()),
         Just("café".to_string()),
         Just("Yes".to_string()),
         Just("On".to_string()),
@@ -390,6 +391,7 @@ fn arb_block_scalar_header() -> impl Strategy<Value = String> {
         Just("|2".to_string()),
         Just("|+2".to_string()),
         Just("| # chomp".to_string()),
+        Just("!<tag:example.com,2000:app/foo#bar> |".to_string()),
     ]
 }
 

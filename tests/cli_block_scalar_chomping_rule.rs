@@ -181,6 +181,24 @@ fn strips_trailing_comment_after_header() {
 }
 
 #[test]
+fn preserves_hash_characters_that_do_not_start_comments() {
+    // An unquoted `#` is part of a plain scalar unless separated by whitespace.
+    // Verbatim tag URIs may also contain `#`; header recovery must preserve both
+    // forms instead of truncating the line before the scanner-confirmed marker.
+    let (code, output) = lint_with_toml_config(
+        "a#b: |\n  body\nvalue: !<tag:example.com,2000:app/foo#bar> |\n  body\n",
+        ENABLE,
+    );
+    assert_eq!(code, 1, "bare headers after hashes should fail: {output}");
+    for pos in ["1:6", "3:44"] {
+        assert!(
+            output.contains(pos),
+            "expected a complete hash-bearing header at {pos}: {output}"
+        );
+    }
+}
+
+#[test]
 fn reports_char_based_column_after_multibyte_key() {
     // `café` is four characters but five bytes; the marker column counts
     // characters, so the `|` sits at column 7 (a byte offset would give 8).
