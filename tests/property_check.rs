@@ -78,6 +78,7 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     // `forbid-ambiguous-anchor-alias-names` dispatch can flag it, so this proves
     // that dispatch fires (not vacuously the undeclared/duplicated/unused checks).
     ("anchors", "a: &foo: 1\nb: *foo:\n"),
+    ("block-scalar-chomping", "a: |\n  hi\n"),
     ("braces", "a: { b: 1 }\n"),
     ("brackets", "a: [ 1 ]\n"),
     ("colons", "a :  b\n"),

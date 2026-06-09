@@ -2,8 +2,8 @@ use std::sync::LazyLock;
 
 use ryl::config::YamlLintConfig;
 use ryl::rules::{
-    merge_keys, new_line_at_end_of_file, new_lines, trailing_spaces,
-    unicode_line_breaks,
+    block_scalar_chomping, merge_keys, new_line_at_end_of_file, new_lines,
+    trailing_spaces, unicode_line_breaks,
 };
 
 #[derive(Debug, Clone)]
@@ -200,6 +200,13 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     for violation in merge_keys::check(content) {
         spans.push(Span {
             rule: merge_keys::ID,
+            line: violation.line,
+            column: violation.column,
+        });
+    }
+    for violation in block_scalar_chomping::check(content) {
+        spans.push(Span {
+            rule: block_scalar_chomping::ID,
             line: violation.line,
             column: violation.column,
         });

@@ -307,6 +307,10 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
 - `anchors` — Fixing requires choosing which anchor an undeclared alias
   should point at, which duplicate to keep, or whether an "unused" anchor is
   actually referenced from a template the linter cannot see.
+- `block-scalar-chomping` — YAML has no explicit *clip* indicator (only `-`
+  strip and `+` keep exist), so a bare `|`/`>` cannot be annotated without
+  switching it to strip or keep, which changes the scalar's trailing newlines
+  and resolved value; the choice is the author's intent.
 - `colons` — Collapsing extra space around colons safely needs precise parser
   context tracking (plain scalars, alias keys, explicit `?`/`:` mappings)
   equivalent to re-implementing the YAML mapping scanner.

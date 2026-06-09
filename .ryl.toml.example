@@ -26,6 +26,9 @@ forbid-undeclared-aliases = true
 forbid-duplicated-anchors = true
 forbid-unused-anchors = false
 
+[rules.block-scalar-chomping]
+level = "warning"
+
 [rules.braces]
 level = "warning"
 forbid = "non-empty"

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ryl"
-version = "0.14.0"
+version = "0.15.0"
 description = "Fast YAML linter inspired by yamllint"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -38,7 +38,7 @@ Repository = "https://github.com/owenlamont/ryl"
 Issues = "https://github.com/owenlamont/ryl/issues"
 
 [dependency-groups]
-docs = ["zensical==0.0.42"]
+docs = ["zensical>=0.0.42"]
 
 [tool.maturin]
 bindings = "bin"

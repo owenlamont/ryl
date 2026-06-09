@@ -3,10 +3,10 @@ use std::path::Path;
 use crate::config::{RuleLevel, YamlLintConfig};
 use crate::decoder;
 use crate::rules::{
-    anchors, braces, brackets, colons, commas, comments, comments_indentation,
-    document_end, document_start, empty_lines, empty_values, float_values, hyphens,
-    indentation, key_duplicates, key_ordering, line_length, merge_keys,
-    new_line_at_end_of_file, new_lines, octal_values, quoted_strings, tags,
+    anchors, block_scalar_chomping, braces, brackets, colons, commas, comments,
+    comments_indentation, document_end, document_start, empty_lines, empty_values,
+    float_values, hyphens, indentation, key_duplicates, key_ordering, line_length,
+    merge_keys, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, tags,
     trailing_spaces, truthy, unicode_line_breaks,
 };
 
@@ -297,6 +297,16 @@ fn collect_block_diagnostics(
         base_dir,
         merge_keys,
         no_config
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        block_scalar_chomping,
+        no_config,
+        message
     );
 }
 

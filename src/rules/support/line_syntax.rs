@@ -87,7 +87,15 @@ pub(crate) fn comment_start_preserving_quotes(content: &str) -> Option<usize> {
         match ch {
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '#' if !in_single && !in_double => return Some(idx),
+            '#' if !in_single
+                && !in_double
+                && content[..idx]
+                    .chars()
+                    .next_back()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(idx);
+            }
             _ => {}
         }
     }
@@ -95,30 +103,8 @@ pub(crate) fn comment_start_preserving_quotes(content: &str) -> Option<usize> {
 }
 
 pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
-    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    let bytes = trimmed.as_bytes();
-
-    let mut tail = bytes.len();
-    let mut saw_digit = false;
-    let mut saw_chomp = false;
-    while tail > 0 {
-        match bytes[tail - 1] {
-            b'-' | b'+' if !saw_chomp => {
-                saw_chomp = true;
-                tail -= 1;
-            }
-            b'1'..=b'9' if !saw_digit => {
-                saw_digit = true;
-                tail -= 1;
-            }
-            _ => break,
-        }
-    }
-
-    if tail == 0 || !matches!(bytes[tail - 1], b'|' | b'>') {
-        return None;
-    }
-    let marker_idx = tail - 1;
+    let marker_idx = block_scalar_header_marker_index(content)?;
+    let bytes = content.as_bytes();
 
     let mut cursor = marker_idx;
     let mut consumed_whitespace = false;
@@ -153,6 +139,33 @@ pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
         b':' | b'-' | b'?' => Some(marker_idx),
         _ => None,
     }
+}
+
+pub(crate) fn block_scalar_header_marker_index(content: &str) -> Option<usize> {
+    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
+    let bytes = trimmed.as_bytes();
+
+    let mut tail = bytes.len();
+    let mut saw_digit = false;
+    let mut saw_chomp = false;
+    while tail > 0 {
+        match bytes[tail - 1] {
+            b'-' | b'+' if !saw_chomp => {
+                saw_chomp = true;
+                tail -= 1;
+            }
+            b'1'..=b'9' if !saw_digit => {
+                saw_digit = true;
+                tail -= 1;
+            }
+            _ => break,
+        }
+    }
+
+    if tail == 0 || !matches!(bytes[tail - 1], b'|' | b'>') {
+        return None;
+    }
+    Some(tail - 1)
 }
 
 pub(crate) fn split_lines_preserve_endings(

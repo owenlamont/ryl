@@ -468,6 +468,7 @@
       "description": "A built-in lint rule name.",
       "enum": [
         "anchors",
+        "block-scalar-chomping",
         "braces",
         "brackets",
         "colons",
@@ -1629,6 +1630,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RuleEntryForTomlAnchorsOptions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "block-scalar-chomping": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleEntryForNoOptions"
             },
             {
               "type": "null"
