@@ -8,6 +8,7 @@ use std::convert::TryFrom;
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
 pub const ID: &str = "line-length";
 
@@ -66,51 +67,17 @@ pub struct Violation {
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut violations = Vec::new();
-    let bytes = buffer.as_bytes();
-    let mut line_no = 1usize;
-    let mut line_start = 0usize;
-    let mut idx = 0usize;
-
-    while idx < bytes.len() {
-        if bytes[idx] == b'\n' {
-            let line_end = if idx > line_start && bytes[idx - 1] == b'\r' {
-                idx - 1
-            } else {
-                idx
-            };
-            process_line(buffer, line_no, line_start, line_end, cfg, &mut violations);
-            idx += 1;
-            line_start = idx;
-            line_no += 1;
-        } else {
-            idx += 1;
-        }
+    for (idx, line, _ending) in split_lines_preserve_endings(buffer) {
+        process_line(line, idx + 1, cfg, &mut violations);
     }
-
-    process_line(
-        buffer,
-        line_no,
-        line_start,
-        bytes.len(),
-        cfg,
-        &mut violations,
-    );
     violations
 }
 
-fn process_line(
-    buffer: &str,
-    line_no: usize,
-    start: usize,
-    end: usize,
-    cfg: &Config,
-    out: &mut Vec<Violation>,
-) {
-    if start == end {
+fn process_line(line: &str, line_no: usize, cfg: &Config, out: &mut Vec<Violation>) {
+    if line.is_empty() {
         return;
     }
 
-    let line = &buffer[start..end];
     let length = line.chars().count();
     let length_i64 = i64::try_from(length).unwrap_or(i64::MAX);
 

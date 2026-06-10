@@ -16,6 +16,44 @@ use std::ops::Range;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
+use crate::lint::{LintProblem, Severity};
+
+/// Whether the markdown contains a bare `\r` (a carriage return not part of CRLF)
+/// *anywhere*. `pulldown-cmark` — ryl's fence/front-matter parser — does not
+/// implement `CommonMark` §2.1's bare-`\r` line ending, so a `\r` used as a host
+/// line ending hides fences/front matter from it. And a bare `\r` *inside* an
+/// extracted region (which `pulldown-cmark` preserves verbatim) is a YAML 1.2 break
+/// the region-local rules would split on, but the host position remap
+/// (`line_offset`/`stripped_indents`) is `\n`-based and would misplace it. Neither
+/// case can be handled reliably yet, so the lint/fix/diff paths loudly skip the whole
+/// file rather than silently check nothing or report a wrong position (issue #284).
+/// Removing this guard is blocked on `pulldown-cmark` honouring bare `\r` plus a
+/// CR-aware host remap; LF/CRLF markdown is fully handled and its embedded YAML is
+/// linted CR-aware.
+#[must_use]
+pub(crate) fn markdown_has_unsupported_cr(markdown: &str) -> bool {
+    let bytes = markdown.as_bytes();
+    bytes
+        .iter()
+        .enumerate()
+        .any(|(idx, &byte)| byte == b'\r' && bytes.get(idx + 1) != Some(&b'\n'))
+}
+
+/// The diagnostic a bare-`\r` markdown file gets (see [`markdown_has_unsupported_cr`]):
+/// reported as a lint error and surfaced as the `--fix`/`--diff` skip reason.
+#[must_use]
+pub(crate) fn unsupported_cr_skip() -> LintProblem {
+    LintProblem {
+        line: 1,
+        column: 1,
+        level: Severity::Error,
+        message: "a bare carriage return prevents extracting embedded YAML; convert \
+                  the markdown file to LF or CRLF line endings"
+            .to_string(),
+        rule: None,
+    }
+}
+
 /// Which embedded YAML sources to extract from a markdown document.
 #[derive(Debug, Clone, Copy)]
 pub struct MarkdownSources {

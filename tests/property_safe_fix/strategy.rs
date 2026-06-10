@@ -192,7 +192,11 @@ fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
 pub fn arb_document() -> impl Strategy<Value = Document> {
     (
         prop::collection::vec(arb_block_entry(), 1..=4),
-        prop_oneof![Just(NewlineStyle::Lf), Just(NewlineStyle::Crlf)],
+        prop_oneof![
+            Just(NewlineStyle::Lf),
+            Just(NewlineStyle::Crlf),
+            Just(NewlineStyle::Cr)
+        ],
         any::<bool>(),
     )
         .prop_map(|(entries, newline, has_final_newline)| Document {

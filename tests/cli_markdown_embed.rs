@@ -431,3 +431,47 @@ fn block_scalar_chomping_fires_in_fenced_block() {
         "fenced bare block header flagged at host 4:9: {err}"
     );
 }
+
+#[test]
+fn bare_cr_markdown_host_is_loudly_skipped_not_silently_missed() {
+    // `pulldown-cmark` doesn't honour CommonMark §2.1's bare-`\r` line ending, so it
+    // can't locate fences/front matter in a `\r`-delimited host. ryl reports an error
+    // instead of silently extracting (and checking) nothing (issue #284). The guard
+    // fires before extraction, so the enabled rule set is irrelevant.
+    let body = "# T\r\r```yaml\rk: v  \r```\r";
+    let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+
+    assert_eq!(
+        code, 1,
+        "a bare-CR markdown host must fail loudly: {out}{err}"
+    );
+    let output = format!("{out}{err}");
+    assert!(
+        output.contains("1:1") && output.contains("carriage return"),
+        "expected a CR-host notice: {output}"
+    );
+}
+
+#[test]
+fn fix_skips_a_bare_cr_markdown_host_and_leaves_it_unchanged() {
+    let body = "# T\r\r```yaml\rk: v  \r```\r";
+    let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
+    let before = fs::read(&file).unwrap();
+
+    let (_code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("--fix")
+        .arg(&file));
+
+    let output = format!("{out}{err}");
+    assert!(
+        output.contains("skipped by --fix") && output.contains("carriage return"),
+        "expected a --fix skip notice: {output}"
+    );
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        before,
+        "a bare-CR markdown host must be left byte-for-byte unchanged"
+    );
+}

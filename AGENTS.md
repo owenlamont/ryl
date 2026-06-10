@@ -253,7 +253,8 @@ fast complement to the slow `yamllint_compat_*` differential suite).
 `property_check/strategy.rs` generates documents biased to trigger every rule (truthy
 words, octal/float scalars, duplicate/unordered keys, flow spacing, anchors, long lines,
 odd indentation, trailing spaces) interleaved with multibyte chars, raw NEL/LS/PS, and
-mixed LF/CRLF (never a bare `\r` — ryl counts lines by `\n` only). `harness.rs` holds the
+mixed LF/CRLF/bare-CR (a bare `\r` is a YAML 1.2 line break ryl honours everywhere —
+issue #284 — so the oracle `line_char_lengths` is CR-aware too). `harness.rs` holds the
 trigger-all config and the per-rule dispatch, which calls each `check()` directly (not
 `lint_str`, which drops rule spans on a parse error) so spans are bounds-checked even on
 input that fails to parse.
@@ -536,7 +537,16 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   (`fix::fix_markdown_str`): re-applies each line's stripped prefix (spaces, `> `, or a
   tab), preserves CRLF, and only rewrites a region when that reproduces the original
   bytes exactly — a ragged region (no single shared prefix) is reported but left
-  untouched. See `docs/markdown.md`.
+  untouched. See `docs/markdown.md`. A Markdown file containing a bare `\r` (a CR not
+  in CRLF) *anywhere* is unsupported: `pulldown-cmark` does not implement CommonMark
+  §2.1's bare-`\r` line ending, so a `\r` host ending hides fences/front matter from
+  it, and a `\r` *inside* a region (preserved verbatim) is a YAML break the rules
+  would split on while the `\n`-based host remap (`line_offset`/`stripped_indents`)
+  misplaces it. `markdown_embed::markdown_has_unsupported_cr` guards
+  `lint_markdown_str`/`fix_markdown_str`/`markdown_parse_skips`, which loudly skip the
+  whole file (lint error + `--fix`/`--diff` skip notice, `unsupported_cr_skip`)
+  instead of silently checking nothing or reporting a wrong position (issue #284). The
+  embedded YAML inside an LF/CRLF host (free of bare `\r`) is itself linted CR-aware.
 - `--fix` never mutates a file that does not fully parse:
   `fix::apply_safe_fixes_filtered` gates the whole pipeline on `lint::parse_error`
   (stricter than lint's `syntax_diagnostic` — it does *not* tolerate undefined
@@ -559,7 +569,13 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   a filename with control characters (no representable header). Markdown diffs at
   host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte); the
   header path is sanitized and relativized to CWD (like ruff) so it applies via
-  `git apply -p0`.
+  `git apply -p0`. A bare `\r` (YAML 1.2 line break, issue #284) is rendered as diff
+  *content* (`render_unified_diff` splits hunk lines on `\n` only, not CR-aware like
+  `similar::from_lines`), so a mid-line / mixed `\r` round-trips via `git apply`;
+  identical to before for LF/CRLF. The one residual skip is content that *ends* in a
+  bare `\r` (`fix::ends_in_bare_cr`): `similar` counts a trailing `\r` as a line
+  terminator and emits a hunk line no patch tool accepts, so it is skipped (→ `--fix`).
+  Unlike ruff, which emits that `\r`-terminated diff (not `git apply`-able).
 - Malicious-payload hardening (#246) — invariants to preserve: `--fix`/`--diff` never
   write/read through a symlink (`fix::refuse_symlink`) and the write target is always
   the input path, never derived from YAML content. The YAML config loader

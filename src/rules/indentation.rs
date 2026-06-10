@@ -5,7 +5,7 @@
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, strip_trailing_comment_preserving_quotes,
+    block_scalar_marker_index, line_contents, strip_trailing_comment_preserving_quotes,
 };
 
 pub const ID: &str = "indentation";
@@ -117,7 +117,10 @@ struct Analyzer<'a> {
 
 impl<'a> Analyzer<'a> {
     fn new(text: &'a str, cfg: &'a Config) -> Self {
-        let lines: Vec<&str> = text.split_inclusive(['\n']).collect();
+        // CR-aware line split (issue #284): a bare `\r` is a YAML 1.2 line break,
+        // matching granit's line numbering and every other rule. `line_contents`
+        // already strips the ending, so `process_line` receives bare line content.
+        let lines = line_contents(text);
         Self {
             cfg,
             lines,
@@ -141,8 +144,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn process_line(&mut self, line_number: usize, raw: &str) {
-        let line = raw.trim_end_matches(['\r', '\n']);
+    fn process_line(&mut self, line_number: usize, line: &str) {
         let (indent, content) = split_indent(line);
         self.reset_transient_state(indent, content);
 

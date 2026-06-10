@@ -8,10 +8,15 @@ pub(crate) fn leading_whitespace_width(line: &str) -> usize {
         .count()
 }
 
-/// Returns `"\r\n"` if the buffer contains a CRLF newline, `"\n"` otherwise.
+/// The line-ending style to reuse when inserting a line into `buffer` (e.g. a
+/// `document-start`/`-end` marker): `"\r\n"` if it contains any CRLF, else `"\r"`
+/// if it uses a bare `\r` (a YAML 1.2 line break, issue #284 — so a `\r`-delimited
+/// file reuses `\r` instead of mixing in LF), else `"\n"`.
 pub(crate) fn buffer_newline(buffer: &str) -> &'static str {
     if buffer.contains("\r\n") {
         "\r\n"
+    } else if buffer.contains('\r') {
+        "\r"
     } else {
         "\n"
     }
@@ -168,6 +173,14 @@ pub(crate) fn block_scalar_header_marker_index(content: &str) -> Option<usize> {
     Some(tail - 1)
 }
 
+/// Split `buffer` into `(0-based index, content, ending)` triples on granit's
+/// YAML 1.2 line-break set (`\r\n`, `\r`, `\n`): `content` excludes the break and
+/// `ending` is the matched break (`"\r\n"`, `"\r"`, or `"\n"`), or `""` for a
+/// final line with no trailing break. Re-joining every `content + ending`
+/// reproduces the buffer byte-for-byte, and a trailing break yields no extra
+/// empty entry. A bare `\r` is a line break here, matching the parser-based
+/// rules and YAML 1.2 (issue #284); on supported LF/CRLF input this is identical
+/// to a `\n`-only split.
 pub(crate) fn split_lines_preserve_endings(
     buffer: &str,
 ) -> impl Iterator<Item = (usize, &str, &str)> {
@@ -180,23 +193,60 @@ pub(crate) fn split_lines_preserve_endings(
 
         let bytes = buffer.as_bytes();
         let mut idx = start;
-        while idx < bytes.len() && bytes[idx] != b'\n' {
+        while idx < bytes.len() && !matches!(bytes[idx], b'\n' | b'\r') {
             idx += 1;
         }
 
-        let (line, ending, next_start) = if idx < bytes.len() {
-            if idx > start && bytes[idx - 1] == b'\r' {
-                (&buffer[start..idx - 1], &buffer[idx - 1..=idx], idx + 1)
-            } else {
-                (&buffer[start..idx], &buffer[idx..=idx], idx + 1)
-            }
+        let next_start = if idx >= bytes.len() {
+            bytes.len()
+        } else if bytes[idx] == b'\r' && bytes.get(idx + 1) == Some(&b'\n') {
+            idx + 2
         } else {
-            (&buffer[start..], "", bytes.len())
+            idx + 1
         };
 
-        let current = (line_idx, line, ending);
+        let current = (line_idx, &buffer[start..idx], &buffer[idx..next_start]);
         line_idx += 1;
         start = next_start;
         Some(current)
+    })
+}
+
+/// Line *contents* on the same YAML 1.2 break set, indexable by a 1-based line
+/// number (`lines[line - 1]`) so a granit token's line number lands on its line
+/// exactly. Equivalent to mapping [`split_lines_preserve_endings`] to its
+/// content.
+pub(crate) fn line_contents(buffer: &str) -> Vec<&str> {
+    split_lines_preserve_endings(buffer)
+        .map(|(_, content, _)| content)
+        .collect()
+}
+
+/// CR-aware analog of `str::split_inclusive('\n')`: yield each line *including*
+/// its trailing YAML 1.2 break (`\r\n`, `\r`, or `\n`); the final piece carries
+/// no break when the buffer does not end with one. Concatenating the pieces
+/// reproduces the buffer, so callers can map a line index 1:1 onto a granit
+/// (CR-aware) line number (issue #284).
+pub(crate) fn split_lines_inclusive(buffer: &str) -> impl Iterator<Item = &str> {
+    let bytes = buffer.as_bytes();
+    let mut start = 0usize;
+    std::iter::from_fn(move || {
+        if start == buffer.len() {
+            return None;
+        }
+        let mut idx = start;
+        while idx < bytes.len() && !matches!(bytes[idx], b'\n' | b'\r') {
+            idx += 1;
+        }
+        let end = if idx >= bytes.len() {
+            bytes.len()
+        } else if bytes[idx] == b'\r' && bytes.get(idx + 1) == Some(&b'\n') {
+            idx + 2
+        } else {
+            idx + 1
+        };
+        let piece = &buffer[start..end];
+        start = end;
+        Some(piece)
     })
 }

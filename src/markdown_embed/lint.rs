@@ -21,6 +21,9 @@ pub fn lint_markdown_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
+    if super::markdown_has_unsupported_cr(markdown) {
+        return vec![super::unsupported_cr_skip()];
+    }
     let sources = MarkdownSources {
         front_matter: cfg.markdown_front_matter(),
         fenced_blocks: cfg.markdown_fenced_blocks(),
@@ -58,6 +61,9 @@ pub fn lint_markdown_str(
 /// undefined alias is otherwise silent.
 #[must_use]
 pub fn markdown_parse_skips(markdown: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
+    if super::markdown_has_unsupported_cr(markdown) {
+        return vec![super::unsupported_cr_skip()];
+    }
     let sources = MarkdownSources {
         front_matter: cfg.markdown_front_matter(),
         fenced_blocks: cfg.markdown_fenced_blocks(),

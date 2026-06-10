@@ -1,6 +1,13 @@
 //! `new-lines`: enforce one line-ending style across the file — Unix (LF), DOS
 //! (CRLF), or the platform default. Mirrors yamllint's `new-lines`. Safe `--fix`
 //! rewrites the endings to the configured style.
+//!
+//! A bare `\r` is a YAML 1.2 line break (issue #284), so it counts as a line
+//! ending here too: it is never one of the configurable styles (`unix`/`dos`/
+//! `platform`), so as the file's first break it is reported as wrong and `--fix`
+//! rewrites it to the configured ending. This is a deliberate divergence from
+//! yamllint, whose `\n`-only line layer cannot see a bare `\r` and whose `type`
+//! has no `mac`. On supported LF/CRLF input the behaviour is unchanged.
 
 use std::borrow::Cow;
 
@@ -101,6 +108,13 @@ pub fn fix(buffer: &str, cfg: Config, platform_newline: &str) -> Option<String> 
                 changed |= expected.as_ref() != "\r\n";
                 idx += 2;
             }
+            b'\r' => {
+                // A bare `\r` is never the configured style, so emitting the
+                // expected ending always changes the buffer (issue #284).
+                out.push_str(expected.as_ref());
+                changed = true;
+                idx += 1;
+            }
             b'\n' => {
                 out.push_str(expected.as_ref());
                 changed |= expected.as_ref() != "\n";
@@ -127,6 +141,7 @@ fn first_line_ending(buffer: &str) -> Option<(usize, &'static str)> {
         match bytes[idx] {
             b'\n' => return Some((idx, "\n")),
             b'\r' if bytes.get(idx + 1) == Some(&b'\n') => return Some((idx, "\r\n")),
+            b'\r' => return Some((idx, "\r")),
             _ => {}
         }
         idx += 1;

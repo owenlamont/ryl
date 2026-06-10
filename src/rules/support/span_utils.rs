@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use granit_parser::Marker;
 
+use crate::rules::support::line_syntax::line_contents;
+
 /// A byte offset into a UTF-8 buffer. Valid for `&str` slicing and
 /// `String::replace_range`. Construct one only through the helpers here so a
 /// character index can never be silently used as a byte offset (issue #232).
@@ -82,18 +84,20 @@ pub fn containing_scalar_range<'a>(
 /// `empty-values`) clamp here so a diagnostic never points outside the document.
 #[must_use]
 pub fn clamp_position(buffer: &str, line: usize, column: usize) -> (usize, usize) {
-    let line_lengths: Vec<usize> = buffer
-        .split('\n')
-        .map(|text| text.strip_suffix('\r').unwrap_or(text).chars().count())
-        .collect();
-    let last_line = line_lengths
-        .len()
-        .saturating_sub(usize::from(buffer.ends_with('\n')));
-    let line = line.min(last_line);
-    let max_column = line_lengths
-        .get(line - 1)
-        .copied()
-        .expect("clamped line always indexes the precomputed line lengths")
+    // Reuse the shared YAML-1.2 line splitter (issue #284): a bare `\r` is a line
+    // break, exactly as granit's `Marker::line` (the source of `line`) treats it.
+    // `line_contents` yields only real lines (no trailing-break phantom), so its
+    // length is the last line a clamp may land on.
+    let lines = line_contents(buffer);
+    let line = line.min(lines.len());
+    let index = line
+        .checked_sub(1)
+        .expect("clamp_position receives a 1-based granit line number");
+    let max_column = lines
+        .get(index)
+        .expect("clamped line always indexes the line table")
+        .chars()
+        .count()
         + 1;
     (line, column.min(max_column))
 }

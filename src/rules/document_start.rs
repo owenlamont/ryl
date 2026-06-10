@@ -12,7 +12,7 @@
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::buffer_newline;
+use crate::rules::support::line_syntax::{buffer_newline, line_contents};
 
 pub const ID: &str = "document-start";
 pub const MISSING_MESSAGE: &str = "missing document start \"---\"";
@@ -81,10 +81,8 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 fn starts_with_directive(buffer: &str) -> bool {
-    for line in buffer.split_inclusive('\n') {
-        let trimmed = line
-            .trim_end_matches(['\r', '\n'])
-            .trim_start_matches([' ', '\t']);
+    for line in line_contents(buffer) {
+        let trimmed = line.trim_start_matches([' ', '\t']);
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
@@ -94,10 +92,8 @@ fn starts_with_directive(buffer: &str) -> bool {
 }
 
 fn contains_document_markers(buffer: &str) -> bool {
-    buffer.split_inclusive('\n').any(|line| {
-        let trimmed = line
-            .trim_end_matches(['\r', '\n'])
-            .trim_start_matches([' ', '\t']);
+    line_contents(buffer).iter().any(|line| {
+        let trimmed = line.trim_start_matches([' ', '\t']);
         trimmed == "---"
             || trimmed.starts_with("--- ")
             || trimmed == "..."

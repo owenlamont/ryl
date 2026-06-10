@@ -38,8 +38,7 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
     let mut block_tracker = BlockScalarTracker::default();
     let mut lines: Vec<LineInfo> = Vec::new();
 
-    for raw_line in buffer.lines() {
-        let line = raw_line.trim_end_matches('\r');
+    for (_, line, _) in split_lines_preserve_endings(buffer) {
         let indent = leading_whitespace_width(line);
         let content = &line[indent..];
 
@@ -96,8 +95,7 @@ pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
     let mut block_tracker = BlockScalarTracker::default();
     let mut lines: Vec<LineInfo> = Vec::new();
 
-    for raw_line in buffer.lines() {
-        let line = raw_line.trim_end_matches('\r');
+    for (_, line, _) in split_lines_preserve_endings(buffer) {
         let indent = leading_whitespace_width(line);
         let content = &line[indent..];
 
