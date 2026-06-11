@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fb0008b9e4dec9200c6e2246380d7fb19a8e9cc1eb3b6c60b12126765698efb8 # shrinks to document = Document { entries: [BlockEntry { key: "a", value: MultilinePlain(MultilinePlainSpec { first: "a", continuations: [Content("a")] }), trailing_inline_comment: None }], newline: Cr, has_final_newline: false }

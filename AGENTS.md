@@ -253,7 +253,8 @@ fast complement to the slow `yamllint_compat_*` differential suite).
 `property_check/strategy.rs` generates documents biased to trigger every rule (truthy
 words, octal/float scalars, duplicate/unordered keys, flow spacing, anchors, long lines,
 odd indentation, trailing spaces) interleaved with multibyte chars, raw NEL/LS/PS, and
-mixed LF/CRLF (never a bare `\r` — ryl counts lines by `\n` only). `harness.rs` holds the
+mixed LF/CRLF/bare-CR (a bare `\r` is a YAML 1.2 line break everywhere, so the oracle
+`line_char_lengths` is CR-aware too). `harness.rs` holds the
 trigger-all config and the per-rule dispatch, which calls each `check()` directly (not
 `lint_str`, which drops rule spans on a parse error) so spans are bounds-checked even on
 input that fails to parse.
@@ -536,7 +537,11 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   (`fix::fix_markdown_str`): re-applies each line's stripped prefix (spaces, `> `, or a
   tab), preserves CRLF, and only rewrites a region when that reproduces the original
   bytes exactly — a ragged region (no single shared prefix) is reported but left
-  untouched. See `docs/markdown.md`.
+  untouched. See `docs/markdown.md`. A Markdown file with a bare `\r` (CR not in CRLF)
+  anywhere is skipped loudly (`markdown_has_unsupported_cr` guards `lint_markdown_str`/
+  `fix_markdown_str`/`markdown_parse_skips`: lint error + `--fix`/`--diff` notice):
+  `pulldown-cmark` can't find fences in a `\r` host and the `\n`-based remap can't place
+  a region `\r`. LF/CRLF embedded YAML is linted CR-aware.
 - `--fix` never mutates a file that does not fully parse:
   `fix::apply_safe_fixes_filtered` gates the whole pipeline on `lint::parse_error`
   (stricter than lint's `syntax_diagnostic` — it does *not* tolerate undefined
@@ -559,7 +564,10 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   a filename with control characters (no representable header). Markdown diffs at
   host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte); the
   header path is sanitized and relativized to CWD (like ruff) so it applies via
-  `git apply -p0`.
+  `git apply -p0`. A bare `\r` is rendered as diff *content* (`render_unified_diff`
+  splits hunk lines on `\n` only), so a mid-line/mixed `\r` round-trips; content that
+  *ends* in a bare `\r` is skipped (`fix::ends_in_bare_cr` — `similar` can't render it;
+  use `--fix`).
 - Malicious-payload hardening (#246) — invariants to preserve: `--fix`/`--diff` never
   write/read through a symlink (`fix::refuse_symlink`) and the write target is always
   the input path, never derived from YAML content. The YAML config loader

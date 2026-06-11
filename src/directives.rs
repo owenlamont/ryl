@@ -17,6 +17,9 @@ use regex::Regex;
 
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::comments_scan::collect_comments;
+use crate::rules::support::line_syntax::{
+    split_lines_inclusive, split_lines_preserve_endings,
+};
 
 // The patterns match granit's comment payload, which is the text after the leading
 // `#` (excluding the line break); the space the patterns start with is the one
@@ -43,7 +46,11 @@ static DISABLE_FILE: LazyLock<Regex> =
 /// the buffer is one region, so this disables the region that opens with it.
 #[must_use]
 pub fn disables_file(buffer: &str) -> bool {
-    DISABLE_FILE.is_match(buffer.lines().next().unwrap_or(""))
+    // First line on the YAML 1.2 break set, so a bare-`\r`-terminated directive is seen.
+    let first_line = split_lines_preserve_endings(buffer)
+        .next()
+        .map_or("", |(_, content, _)| content);
+    DISABLE_FILE.is_match(first_line)
 }
 
 enum Action {
@@ -181,8 +188,8 @@ impl Directives {
     /// line diff here before adding such a fixer.
     #[must_use]
     pub fn reconcile(&self, rule: &str, before: &str, after: &str) -> String {
-        let before_lines: Vec<&str> = before.split_inclusive('\n').collect();
-        let after_lines: Vec<&str> = after.split_inclusive('\n').collect();
+        let before_lines: Vec<&str> = split_lines_inclusive(before).collect();
+        let after_lines: Vec<&str> = split_lines_inclusive(after).collect();
         reconcile_lines(&before_lines, &after_lines, |index| {
             self.is_disabled(rule, index + 1)
         })

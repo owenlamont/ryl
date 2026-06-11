@@ -22,10 +22,9 @@
 //! line (the header column is not exposed), and only blank lines ever sit between
 //! a header and its first content, so the header is recovered as the nearest line
 //! *strictly above* the content that ends in a `|`/`>` marker. The source is split
-//! into lines on granit's YAML 1.2 break set (`\r\n`, `\r`, `\n`) so the token's
-//! line number indexes that table directly; like every granit-based rule, a bare
-//! `\r` is a line break here, whereas the whitespace byte-scanning rules count
-//! `\n` only (see `unicode-line-breaks`).
+//! via the shared `support::line_syntax::line_contents` on granit's YAML 1.2 break
+//! set (`\r\n`, `\r`, `\n`) so the token's line number indexes that table directly;
+//! a bare `\r` is a line break here, as it is for every other rule.
 //!
 //! Empty / blank-only block scalars need one extra case: granit places their token
 //! on the header at end-of-stream but on the following node otherwise. A token
@@ -38,7 +37,8 @@
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use crate::rules::support::line_syntax::{
-    block_scalar_header_marker_index, strip_trailing_comment_preserving_quotes,
+    block_scalar_header_marker_index, line_contents,
+    strip_trailing_comment_preserving_quotes,
 };
 
 pub const ID: &str = "block-scalar-chomping";
@@ -52,7 +52,7 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
-    let lines = granit_lines(buffer);
+    let lines = line_contents(buffer);
     let mut violations = Vec::new();
 
     for token in Scanner::new(StrInput::new(buffer)) {
@@ -83,43 +83,6 @@ pub fn check(buffer: &str) -> Vec<Violation> {
     }
 
     violations
-}
-
-/// Split `buffer` into line contents on granit's YAML 1.2 line-break set
-/// (`\r\n`, `\r`, `\n`). Indexing this table by a granit token's 1-based line
-/// number therefore lands on that token's line exactly — including when a bare
-/// `\r` is the break, which granit (like every other granit-based rule) counts as
-/// a line break. A trailing break produces no extra empty entry.
-fn granit_lines(buffer: &str) -> Vec<&str> {
-    let bytes = buffer.as_bytes();
-    let mut lines = Vec::new();
-    let mut start = 0usize;
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\n' => {
-                lines.push(&buffer[start..idx]);
-                idx += 1;
-            }
-            b'\r' => {
-                lines.push(&buffer[start..idx]);
-                idx += if bytes.get(idx + 1) == Some(&b'\n') {
-                    2
-                } else {
-                    1
-                };
-            }
-            _ => {
-                idx += 1;
-                continue;
-            }
-        }
-        start = idx;
-    }
-    if start < bytes.len() {
-        lines.push(&buffer[start..]);
-    }
-    lines
 }
 
 /// Locate the header of the block scalar whose token starts at `token_line` and

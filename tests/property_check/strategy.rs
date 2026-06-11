@@ -4,6 +4,9 @@ use proptest::prelude::*;
 pub enum Newline {
     Lf,
     Crlf,
+    /// A bare `\r` — a YAML 1.2 line break the generator may emit freely; the
+    /// harness oracle counts it as a break.
+    Cr,
 }
 
 impl Newline {
@@ -11,6 +14,7 @@ impl Newline {
         match self {
             Self::Lf => "\n",
             Self::Crlf => "\r\n",
+            Self::Cr => "\r",
         }
     }
 }
@@ -322,7 +326,7 @@ fn arb_line() -> impl Strategy<Value = Line> {
 }
 
 fn arb_newline() -> impl Strategy<Value = Newline> {
-    prop_oneof![Just(Newline::Lf), Just(Newline::Crlf)]
+    prop_oneof![Just(Newline::Lf), Just(Newline::Crlf), Just(Newline::Cr)]
 }
 
 fn merge_entry(indent: u8, key: &str, value: String) -> Line {

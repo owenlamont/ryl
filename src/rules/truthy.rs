@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 pub const ID: &str = "truthy";
@@ -319,13 +320,12 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 fn collect_yaml_directives(buffer: &str) -> Vec<(BytePos, (u32, u32))> {
     let mut directives = Vec::new();
     let mut offset = 0;
-    for segment in buffer.split_inclusive(['\n']) {
-        let line = segment.trim_end_matches(['\n', '\r']);
+    for (_, line, ending) in split_lines_preserve_endings(buffer) {
         if let Some(version) = parse_yaml_directive(line) {
             let leading = line.len() - line.trim_start().len();
             directives.push((BytePos::new(offset + leading), version));
         }
-        offset += segment.len();
+        offset += line.len() + ending.len();
     }
     directives
 }

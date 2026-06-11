@@ -120,58 +120,39 @@ fn flush_blank_run(
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut violations = Vec::new();
-
-    let mut iter = buffer.split_inclusive('\n').peekable();
+    let mut lines = split_lines_preserve_endings(buffer).peekable();
     let mut seen_nonblank = false;
-    let mut blank_run_len = 0usize;
-    let mut blank_run_start = 0usize;
-    let mut blank_run_is_start = false;
-    let mut offset = 0usize;
-    let total_len = buffer.len();
-    let mut line_no = 1usize;
+    let mut run_start_line = 0usize;
+    let mut run_len = 0usize;
+    let mut run_is_start = false;
 
-    while let Some(segment) = iter.next() {
-        let seg_len = segment.len();
-        let next_offset = offset + seg_len;
-        let is_blank_line = matches!(segment, "\n" | "\r\n");
-
-        if is_blank_line {
-            if blank_run_len == 0 {
-                blank_run_start = line_no;
-                blank_run_is_start = !seen_nonblank;
-            }
-            blank_run_len += 1;
-
-            let next_is_blank = iter
-                .peek()
-                .copied()
-                .is_some_and(|next_segment| matches!(next_segment, "\n" | "\r\n"));
-
-            if !next_is_blank {
-                let is_end = next_offset == total_len;
-                finalize_run(
-                    buffer,
-                    cfg,
-                    blank_run_start,
-                    blank_run_len,
-                    blank_run_is_start,
-                    is_end,
-                    &mut violations,
-                );
-                blank_run_len = 0;
-                blank_run_is_start = false;
-            }
-        } else {
+    while let Some((idx, content, _ending)) = lines.next() {
+        if !content.is_empty() {
             seen_nonblank = true;
+            continue;
         }
 
-        offset = next_offset;
+        if run_len == 0 {
+            run_start_line = idx + 1;
+            run_is_start = !seen_nonblank;
+        }
+        run_len += 1;
 
-        if segment.ends_with('\n') {
-            if !is_blank_line {
-                seen_nonblank = true;
-            }
-            line_no += 1;
+        // The splitter never emits empty content with no ending, so a blank line
+        // always carries a break: the run ends when the next line is non-blank or absent.
+        let next = lines.peek();
+        if !next.is_some_and(|(_, content, _)| content.is_empty()) {
+            finalize_run(
+                buffer,
+                cfg,
+                run_start_line,
+                run_len,
+                run_is_start,
+                next.is_none(),
+                &mut violations,
+            );
+            run_len = 0;
+            run_is_start = false;
         }
     }
 
@@ -187,7 +168,7 @@ fn finalize_run(
     is_end: bool,
     out: &mut Vec<Violation>,
 ) {
-    if is_end && matches!(buffer, "\n" | "\r\n") {
+    if is_end && matches!(buffer, "\n" | "\r\n" | "\r") {
         return;
     }
 

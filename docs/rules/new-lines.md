@@ -43,6 +43,17 @@ A file whose lines end with `\r\n`.
 `ryl --fix` rewrites the file so every line ends with the configured
 character sequence.
 
+## Bare carriage returns
+
+A bare `\r` (a carriage return not part of `\r\n`) is a YAML 1.2 line break, so
+ryl treats it as a line ending here too. It is never one of the configurable
+styles (`unix`/`dos`/`platform`), so when the file's first line break is a bare
+`\r` the rule reports it as wrong and `ryl --fix` rewrites it to the configured
+ending. This is a deliberate divergence from yamllint, whose line layer cannot
+see a bare `\r` and whose `type` has no `mac` value; on supported LF/CRLF files
+the behaviour is identical. See
+[Migrating from yamllint](../getting-started/migrating-from-yamllint.md#bare-carriage-return-r-line-breaks).
+
 ## Automatic fixing
 
 `ryl --fix` rewrites all line endings to match `type`. Disable with:

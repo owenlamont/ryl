@@ -252,8 +252,17 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
     // separator).
     #[cfg(windows)]
     let label = label.replace('\\', "/");
+    // Split on `\n` only (not `similar`'s CR-aware `from_lines`) so a bare `\r` is
+    // diff *content*: a unified diff is `\n`-terminated, and `git apply` matches an
+    // embedded `\r` byte-for-byte. Identical to `from_lines` on LF/CRLF input. A side
+    // that *ends* in a bare `\r` can't be rendered (`similar`'s `ends_with_newline`
+    // counts a trailing `\r`); `diff_outcome` skips that before reaching here.
+    let original_lines: Vec<&str> = original.split_inclusive('\n').collect();
+    let fixed_lines: Vec<&str> = fixed.split_inclusive('\n').collect();
     Some(
-        TextDiff::from_lines(original, fixed)
+        TextDiff::configure()
+            .newline_terminated(true)
+            .diff_slices(&original_lines, &fixed_lines)
             .unified_diff()
             .context_radius(3)
             .header(&label, &label)
@@ -293,12 +302,21 @@ pub fn diff_outcome(
                 };
             }
             let fixed = apply_safe_fixes(content, cfg, path, base_dir);
+            if content != fixed && ends_in_bare_cr(content, &fixed) {
+                return DiffOutcome {
+                    diff: None,
+                    skipped: vec![bare_cr_diff_skip()],
+                };
+            }
             DiffOutcome {
                 diff: render_unified_diff(content, &fixed, path),
                 skipped: Vec::new(),
             }
         }
         SourceKind::Markdown => {
+            // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str`
+            // returns `None`, `markdown_parse_skips` reports it), so the content
+            // reaching `render_unified_diff` here never carries a bare `\r`.
             let fixed = fix_markdown_str(content, path, cfg, base_dir);
             // Skips are reported against the *original* content, not `fixed`: unlike
             // the in-place path (which writes `fixed`, so its skip line numbers must
@@ -310,6 +328,23 @@ pub fn diff_outcome(
             DiffOutcome { diff, skipped }
         }
     }
+}
+
+/// Whether either side ends in a bare `\r`. The diff renderer handles a mid-line or
+/// mixed `\r` as content, but `similar`'s `ends_with_newline` counts a *trailing*
+/// `\r` as a terminator and emits a hunk line no patch tool accepts — so `--diff`
+/// skips that case (use `--fix`).
+fn ends_in_bare_cr(original: &str, fixed: &str) -> bool {
+    original.ends_with('\r') || fixed.ends_with('\r')
+}
+
+/// The `--diff` skip a trailing-bare-`\r` change gets: `similar` cannot render an
+/// applicable hunk line for content that ends in a bare carriage return.
+#[must_use]
+fn bare_cr_diff_skip() -> crate::lint::LintProblem {
+    diff_skip(
+        "content ends in a bare carriage return, which has no applicable text diff; use --fix",
+    )
 }
 
 /// A `--diff` skip notice (`<path>:1:1 skipped by --diff: <message>`) for an input that
@@ -425,6 +460,9 @@ pub fn fix_markdown_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Option<String> {
+    if crate::markdown_embed::markdown_has_unsupported_cr(markdown) {
+        return None;
+    }
     let sources = MarkdownSources {
         front_matter: cfg.markdown_front_matter(),
         fenced_blocks: cfg.markdown_fenced_blocks(),
@@ -673,6 +711,9 @@ fn first_newline(content: &str) -> Option<&'static str> {
     while idx < bytes.len() {
         match bytes[idx] {
             b'\r' if bytes.get(idx + 1) == Some(&b'\n') => return Some("\r\n"),
+            // A bare `\r` is a YAML 1.2 line break, so a `\r`-delimited
+            // file's appended final newline reuses `\r` rather than falling back to LF.
+            b'\r' => return Some("\r"),
             b'\n' => return Some("\n"),
             _ => idx += 1,
         }

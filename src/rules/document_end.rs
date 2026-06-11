@@ -11,7 +11,7 @@ use std::cmp;
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::buffer_newline;
+use crate::rules::support::line_syntax::{buffer_newline, line_contents};
 use crate::rules::support::span_utils::{byte_slice, marker_byte_offset};
 
 pub const ID: &str = "document-end";
@@ -86,7 +86,9 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     }
     let newline = buffer_newline(buffer);
     let mut output = buffer.to_string();
-    if !output.ends_with('\n') {
+    // A `\r`-terminated file already ends in a break; checking `\n` only would insert a
+    // spurious blank line before `...`.
+    if !output.ends_with('\n') && !output.ends_with('\r') {
         output.push_str(newline);
     }
     output.push_str("...");
@@ -97,10 +99,8 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 fn has_inner_document_markers(buffer: &str) -> bool {
     let mut seen_real_content = false;
     let mut start_markers = 0u32;
-    for line in buffer.split_inclusive('\n') {
-        let trimmed = line
-            .trim_end_matches(['\r', '\n'])
-            .trim_start_matches([' ', '\t']);
+    for line in line_contents(buffer) {
+        let trimmed = line.trim_start_matches([' ', '\t']);
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('%') {
             continue;
         }

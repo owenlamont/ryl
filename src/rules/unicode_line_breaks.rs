@@ -32,39 +32,42 @@ pub struct Violation {
     pub message: String,
 }
 
-/// Report every raw NEL / LS / PS character with a 1-based line/column.
-///
-/// Line counting splits on `\n` only (these characters are not YAML 1.2 line
-/// breaks and so never advance the line counter), matching ryl's other
-/// byte-scanning rules and yamllint's `\n`-only line layer; the reported column
-/// is therefore the character's position on its `\n`-delimited line and is always
-/// in bounds. ryl's `\n`-only line model does not treat a bare `\r` (classic Mac
-/// OS, pre-2001) as a line break, so files using that obsolete ending are
-/// unsupported and may report shifted line numbers (granit-based rules see
-/// granit's CR-aware lines, but `\r`-only files are equally unsupported there —
-/// yamllint behaves the same way, and `new-lines` cannot even target `\r`).
+/// Report every raw NEL / LS / PS character with a 1-based line/column. Line counting
+/// advances on `\n`, `\r\n`, and a bare `\r`; the flagged NEL/LS/PS chars are not YAML
+/// 1.2 breaks, so they never advance the counter.
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
     let mut line = 1usize;
     let mut column = 1usize;
-    for ch in buffer.chars() {
-        if ch == '\n' {
-            line += 1;
-            column = 1;
-            continue;
+    let mut chars = buffer.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\n' => {
+                line += 1;
+                column = 1;
+            }
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                line += 1;
+                column = 1;
+            }
+            _ => {
+                if let Some((name, escape)) = classify(ch) {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!(
+                            "forbidden raw {name} U+{:04X}; escape as \"{escape}\" in a double-quoted scalar",
+                            ch as u32
+                        ),
+                    });
+                }
+                column += 1;
+            }
         }
-        if let Some((name, escape)) = classify(ch) {
-            violations.push(Violation {
-                line,
-                column,
-                message: format!(
-                    "forbidden raw {name} U+{:04X}; escape as \"{escape}\" in a double-quoted scalar",
-                    ch as u32
-                ),
-            });
-        }
-        column += 1;
     }
     violations
 }

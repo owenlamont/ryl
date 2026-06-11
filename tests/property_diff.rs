@@ -64,6 +64,19 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
             synthetic_base_dir(),
             SourceKind::Yaml,
         );
+        // A bare `\r` is diffed as line *content* (the `\n`-only renderer), so it
+        // round-trips through `git apply`. The one residual case `similar` can't
+        // render is a side that *ends* in a bare `\r`, which `--diff` skips and
+        // points at `--fix`: "no diff, one skip" instead of a diff.
+        if fixed != input && (input.ends_with('\r') || fixed.ends_with('\r')) {
+            prop_assert!(
+                outcome.diff.is_none() && !outcome.skipped.is_empty(),
+                "a trailing-bare-CR change must be skipped, not diffed, under '{}'; input {:?}",
+                prepared.name,
+                input
+            );
+            continue;
+        }
         prop_assert_eq!(
             outcome.diff.is_some(),
             fixed != input,
@@ -265,6 +278,62 @@ fn crlf_preserving_config_diff_round_trips_via_diffy() {
 }
 
 #[test]
+fn bare_cr_as_content_diff_round_trips_via_diffy() {
+    // A bare `\r` (not CRLF) mid-content is diffed as line *content* (the `\n`-only
+    // renderer), so the emitted hunk lines stay `\n`-terminated and apply cleanly —
+    // the contract `git apply -p0` relies on. trailing-spaces is CR-aware, so it
+    // strips the run before the `\r` and before the `\n`; the file ends in `\n`, so
+    // it is not the residual trailing-`\r` skip case.
+    let cfg = YamlLintConfig::from_yaml_str("rules:\n  trailing-spaces: enable\n")
+        .expect("config parses");
+    let input = "a: 1  \rb: 2  \nc: 3\n";
+    let fixed = apply_safe_fixes(input, &cfg, synthetic_path(), synthetic_base_dir());
+    assert_eq!(
+        fixed, "a: 1\rb: 2\nc: 3\n",
+        "trailing spaces stripped, CR kept"
+    );
+    let outcome = diff_outcome(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        SourceKind::Yaml,
+    );
+    let diff = outcome
+        .diff
+        .expect("a bare-CR-content change must still diff");
+    assert_eq!(
+        apply_unified(input, &diff),
+        fixed,
+        "diffy must round-trip a bare-CR-content diff: {diff:?}"
+    );
+}
+
+#[test]
+fn trailing_bare_cr_change_is_skipped_not_diffed() {
+    // `similar` counts a trailing `\r` as a line terminator, so a side that *ends* in
+    // a bare `\r` can't be rendered as an applicable hunk; `--diff` skips it (use
+    // `--fix`) rather than emit a corrupt patch.
+    let cfg = YamlLintConfig::from_yaml_str("rules:\n  trailing-spaces: enable\n")
+        .expect("config parses");
+    let input = "a: 1  \rb: 2  \r";
+    let fixed = apply_safe_fixes(input, &cfg, synthetic_path(), synthetic_base_dir());
+    assert_ne!(fixed, input, "trailing spaces must be removed");
+    assert!(fixed.ends_with('\r'), "fixed still ends in a bare CR");
+    let outcome = diff_outcome(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        SourceKind::Yaml,
+    );
+    assert!(
+        outcome.diff.is_none() && !outcome.skipped.is_empty(),
+        "a trailing-bare-CR change must be skipped, not diffed"
+    );
+}
+
+#[test]
 fn known_dirty_markdown_diff_round_trips() {
     // A fenced block with a space before `,` is fixed at the host level, exercising
     // the markdown branch's "diff present" path deterministically.
@@ -282,4 +351,28 @@ fn known_dirty_markdown_diff_round_trips() {
         "known-dirty markdown must produce a host-level diff"
     );
     assert_markdown_preview(input).expect("known-dirty markdown invariants hold");
+}
+
+#[test]
+fn markdown_diff_skips_a_bare_cr_host() {
+    // `pulldown-cmark` doesn't honour CommonMark's bare-`\r` line ending, so it can't
+    // locate fences in a markdown host that uses bare `\r`; `--diff` skips the whole
+    // file with a notice instead of silently extracting nothing.
+    let input = "```yaml\ritems: [a ,b]\r```\r";
+    let cfg = &safe_fix_configs()[0].cfg;
+    assert!(
+        fix_markdown_str(input, synthetic_path(), cfg, synthetic_base_dir()).is_none(),
+        "a bare-CR markdown host must not be fixed"
+    );
+    let outcome = diff_outcome(
+        input,
+        cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        SourceKind::Markdown,
+    );
+    assert!(
+        outcome.diff.is_none() && !outcome.skipped.is_empty(),
+        "a bare-CR markdown host must be skipped, not diffed"
+    );
 }

@@ -4,6 +4,7 @@
 //! structure.
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
 pub const ID: &str = "hyphens";
 pub const MESSAGE: &str = "too many spaces after hyphen";
@@ -48,8 +49,7 @@ pub struct Violation {
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut violations = Vec::new();
 
-    for (idx, raw_line) in buffer.lines().enumerate() {
-        let line = raw_line.trim_end_matches('\r');
+    for (idx, line, _ending) in split_lines_preserve_endings(buffer) {
         if line.is_empty() {
             continue;
         }

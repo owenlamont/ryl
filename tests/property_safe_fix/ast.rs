@@ -80,6 +80,9 @@ pub struct BlockEntry {
 pub enum NewlineStyle {
     Lf,
     Crlf,
+    /// A bare `\r` — a YAML 1.2 line break the fixers now honour everywhere
+    ///, so the safe-fix matrix exercises `\r`-delimited documents.
+    Cr,
 }
 
 #[derive(Debug, Clone)]
@@ -251,6 +254,7 @@ impl Document {
         let line_terminator = match self.newline {
             NewlineStyle::Lf => "\n",
             NewlineStyle::Crlf => "\r\n",
+            NewlineStyle::Cr => "\r",
         };
         for (index, entry) in self.entries.iter().enumerate() {
             if index > 0 {

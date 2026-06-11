@@ -16,6 +16,38 @@ use std::ops::Range;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
+use crate::lint::{LintProblem, Severity};
+
+/// Whether the markdown contains a bare `\r` (a CR not part of CRLF) anywhere.
+/// `pulldown-cmark` does not implement `CommonMark` §2.1's bare-`\r` line ending, so it
+/// can't find fences in a `\r` host; and a region-content `\r` (which it preserves)
+/// can't be placed by the `\n`-based host remap (`line_offset`/`stripped_indents`).
+/// So the lint/fix/diff paths skip such a file; revisit once `pulldown-cmark` honours
+/// bare `\r` and the remap is CR-aware.
+#[must_use]
+pub(crate) fn markdown_has_unsupported_cr(markdown: &str) -> bool {
+    let bytes = markdown.as_bytes();
+    bytes
+        .iter()
+        .enumerate()
+        .any(|(idx, &byte)| byte == b'\r' && bytes.get(idx + 1) != Some(&b'\n'))
+}
+
+/// The diagnostic a bare-`\r` markdown file gets (see [`markdown_has_unsupported_cr`]):
+/// reported as a lint error and surfaced as the `--fix`/`--diff` skip reason.
+#[must_use]
+pub(crate) fn unsupported_cr_skip() -> LintProblem {
+    LintProblem {
+        line: 1,
+        column: 1,
+        level: Severity::Error,
+        message: "a bare carriage return prevents extracting embedded YAML; convert \
+                  the markdown file to LF or CRLF line endings"
+            .to_string(),
+        rule: None,
+    }
+}
+
 /// Which embedded YAML sources to extract from a markdown document.
 #[derive(Debug, Clone, Copy)]
 pub struct MarkdownSources {

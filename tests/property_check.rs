@@ -170,3 +170,23 @@ fn multibyte_flow_punctuation_spans_stay_in_bounds() {
         });
     }
 }
+
+/// A document delimited by bare `\r` (and mixed `\r`/`\r\n`/`\n`, with multibyte
+/// content) must keep CR-aware spans in bounds against the CR-aware oracle.
+#[test]
+fn bare_cr_line_breaks_keep_spans_in_bounds() {
+    let inputs = [
+        "a: 1  \rb: 2\r",            // trailing-spaces + EOF break is a bare CR
+        "café:  \rå: 1\r",           // multibyte before trailing spaces on a CR line
+        "aa\raa bb\r",               // line-length: a bare CR splits the line
+        "a: 1\r\r\r\rb: 2\r",        // empty-lines: blank run via bare CR
+        "a: 1\rb: \"x\u{2028}y\"\r", // unicode-line-breaks on the second CR line
+        "b: 1\r   # over\rc: 2\r",   // comments-indentation on bare-CR lines
+        "a: 1\r\nb: 2\rc: 3\n",      // mixed CRLF / bare CR / LF in one document
+    ];
+    for input in inputs {
+        let spans = collect_spans(input, trigger_all_config());
+        check_spans_in_bounds(input, &spans)
+            .unwrap_or_else(|message| panic!("bare-CR regression: {message}"));
+    }
+}

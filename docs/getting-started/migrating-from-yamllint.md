@@ -123,6 +123,44 @@ block fails to apply on the second copy. ryl normalizes each input path (lexical
 without resolving symlinks, so a symlink and its target stay distinct) and skips a
 file it has already selected.
 
+### Bare carriage-return (`\r`) line breaks
+
+YAML 1.2.2 §5.4 defines a line break as `( CR LF ) | CR | LF`, so a **bare `\r`**
+(a carriage return not followed by a line feed) is a complete line break on its own.
+ryl honours this **everywhere** &mdash; every rule treats `\r`, `\r\n`, and `\n`
+identically. yamllint's line layer counts `\n` only (a bare `\r` is ordinary
+content), so on a classic-Mac `\r`-only file the two disagree:
+
+| On a bare-`\r` line | ryl (YAML 1.2) | yamllint (`\n`-only) |
+| :--- | :--- | :--- |
+| spaces before the `\r` | `trailing-spaces` flags them | not flagged |
+| a long line ending at `\r` | `line-length` measures to the `\r` | counts across the `\r` |
+| a file ending in `\r` | `new-line-at-end-of-file` is satisfied | reports "no new line" |
+| the file's first break is `\r` | `new-lines` flags it (not `unix`/`dos`) and `--fix` rewrites it | invisible (no `mac` type) |
+| line/column of any diagnostic | counted CR-aware | shifted by uncounted `\r`s |
+
+**On supported LF and CRLF files this is identical to yamllint** &mdash; the two
+line-break definitions agree exactly when there is no bare `\r`. The divergence is
+visible only on `\r`-only (or mixed-`\r`) files, which yamllint cannot lint
+faithfully anyway (and whose `new-lines` `type` has no `mac` value). ryl follows the
+specification and its [reference parser](https://play.yaml.com), which rank above
+yamllint as the authority.
+
+Two editing-path caveats on such files. First, `ryl --diff` skips a file whose
+content *ends* in a bare `\r` (a unified diff is `\n`-terminated by format, so that
+one case has no applicable patch &mdash; use `ryl --fix`, which rewrites bytes
+directly); a bare `\r` elsewhere is diffed as line content and applies via
+`git apply`. Second, **Markdown embedding** requires a Markdown file with no bare `\r` anywhere:
+the fenced-block and front-matter parser
+([`pulldown-cmark`](https://github.com/raphlinus/pulldown-cmark)) does not implement
+CommonMark §2.1's bare-`\r` line ending, so a bare `\r` used as a host line ending
+hides the YAML blocks from it, and a bare `\r` *inside* an embedded block (which the
+parser keeps verbatim) can't be mapped back to a host position by ryl's `\n`-based
+remap. Rather than silently check nothing — or report a wrong position — ryl reports
+an error (and `--fix`/`--diff` skip with a notice) telling you to convert the file to
+LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
+linted CR-aware like any other.
+
 ## Side-by-side example
 
 === "yamllint (.yamllint)"

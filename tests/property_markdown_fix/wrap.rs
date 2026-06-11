@@ -27,6 +27,9 @@ fn newline_str(newline: NewlineStyle) -> &'static str {
     match newline {
         NewlineStyle::Lf => "\n",
         NewlineStyle::Crlf => "\r\n",
+        // The markdown host extractor is `\n`/`\r\n`-based, so the host generator
+        // never emits `Cr`; mapped only to satisfy the shared `NewlineStyle`.
+        NewlineStyle::Cr => "\r",
     }
 }
 
