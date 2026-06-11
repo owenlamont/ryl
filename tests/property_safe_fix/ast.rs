@@ -81,7 +81,7 @@ pub enum NewlineStyle {
     Lf,
     Crlf,
     /// A bare `\r` — a YAML 1.2 line break the fixers now honour everywhere
-    /// (issue #284), so the safe-fix matrix exercises `\r`-delimited documents.
+    ///, so the safe-fix matrix exercises `\r`-delimited documents.
     Cr,
 }
 

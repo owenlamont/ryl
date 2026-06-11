@@ -86,9 +86,8 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     }
     let newline = buffer_newline(buffer);
     let mut output = buffer.to_string();
-    // A bare `\r` is a YAML 1.2 line break too (issue #284), so a file already ending
-    // in one needs no separator before `...`; checking `\n` only would insert a
-    // spurious blank line on a `\r`-terminated file.
+    // A `\r`-terminated file already ends in a break; checking `\n` only would insert a
+    // spurious blank line before `...`.
     if !output.ends_with('\n') && !output.ends_with('\r') {
         output.push_str(newline);
     }

@@ -215,11 +215,10 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     spans
 }
 
-/// Character length of each line under granit's YAML 1.2 break set (`\r\n`,
-/// `\r`, `\n`), keeping a trailing empty line after a final break (like
-/// `str::split('\n')`) so a span on the phantom final line stays in bounds.
-/// Must match the rules' CR-aware line model now that a bare `\r` is a break
-/// everywhere (issue #284); otherwise a CR-aware span would read as out-of-bounds.
+/// Character length of each line under the YAML 1.2 break set (`\r\n`, `\r`, `\n`),
+/// keeping a trailing empty line after a final break (like `str::split('\n')`) so a
+/// span on the phantom final line stays in bounds. Must match the rules' CR-aware
+/// line model, else a CR-aware span reads as out-of-bounds.
 #[must_use]
 pub fn line_char_lengths(content: &str) -> Vec<usize> {
     let mut lengths = Vec::new();

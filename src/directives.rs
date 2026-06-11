@@ -46,8 +46,7 @@ static DISABLE_FILE: LazyLock<Regex> =
 /// the buffer is one region, so this disables the region that opens with it.
 #[must_use]
 pub fn disables_file(buffer: &str) -> bool {
-    // First line on the YAML 1.2 break set, so a bare-`\r`-terminated directive
-    // line is recognised like `\n`/`\r\n` (issue #284).
+    // First line on the YAML 1.2 break set, so a bare-`\r`-terminated directive is seen.
     let first_line = split_lines_preserve_endings(buffer)
         .next()
         .map_or("", |(_, content, _)| content);

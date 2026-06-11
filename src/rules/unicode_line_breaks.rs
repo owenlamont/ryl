@@ -32,13 +32,9 @@ pub struct Violation {
     pub message: String,
 }
 
-/// Report every raw NEL / LS / PS character with a 1-based line/column.
-///
-/// Line counting advances on the YAML 1.2 line breaks `\n`, `\r\n`, and a bare
-/// `\r` (issue #284), so the reported column is the character's position on its
-/// line and is always in bounds. The NEL/LS/PS characters this rule flags are
-/// *not* YAML 1.2 line breaks, so they never advance the line counter. On
-/// supported LF/CRLF input this is identical to the previous `\n`-only counting.
+/// Report every raw NEL / LS / PS character with a 1-based line/column. Line counting
+/// advances on `\n`, `\r\n`, and a bare `\r`; the flagged NEL/LS/PS chars are not YAML
+/// 1.2 breaks, so they never advance the counter.
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
     let mut violations = Vec::new();

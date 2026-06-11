@@ -18,18 +18,12 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::lint::{LintProblem, Severity};
 
-/// Whether the markdown contains a bare `\r` (a carriage return not part of CRLF)
-/// *anywhere*. `pulldown-cmark` — ryl's fence/front-matter parser — does not
-/// implement `CommonMark` §2.1's bare-`\r` line ending, so a `\r` used as a host
-/// line ending hides fences/front matter from it. And a bare `\r` *inside* an
-/// extracted region (which `pulldown-cmark` preserves verbatim) is a YAML 1.2 break
-/// the region-local rules would split on, but the host position remap
-/// (`line_offset`/`stripped_indents`) is `\n`-based and would misplace it. Neither
-/// case can be handled reliably yet, so the lint/fix/diff paths loudly skip the whole
-/// file rather than silently check nothing or report a wrong position (issue #284).
-/// Removing this guard is blocked on `pulldown-cmark` honouring bare `\r` plus a
-/// CR-aware host remap; LF/CRLF markdown is fully handled and its embedded YAML is
-/// linted CR-aware.
+/// Whether the markdown contains a bare `\r` (a CR not part of CRLF) anywhere.
+/// `pulldown-cmark` does not implement `CommonMark` §2.1's bare-`\r` line ending, so it
+/// can't find fences in a `\r` host; and a region-content `\r` (which it preserves)
+/// can't be placed by the `\n`-based host remap (`line_offset`/`stripped_indents`).
+/// So the lint/fix/diff paths skip such a file; revisit once `pulldown-cmark` honours
+/// bare `\r` and the remap is CR-aware.
 #[must_use]
 pub(crate) fn markdown_has_unsupported_cr(markdown: &str) -> bool {
     let bytes = markdown.as_bytes();

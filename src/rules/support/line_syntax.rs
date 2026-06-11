@@ -10,8 +10,8 @@ pub(crate) fn leading_whitespace_width(line: &str) -> usize {
 
 /// The line-ending style to reuse when inserting a line into `buffer` (e.g. a
 /// `document-start`/`-end` marker): `"\r\n"` if it contains any CRLF, else `"\r"`
-/// if it uses a bare `\r` (a YAML 1.2 line break, issue #284 — so a `\r`-delimited
-/// file reuses `\r` instead of mixing in LF), else `"\n"`.
+/// if it uses a bare `\r` (so a `\r`-delimited file reuses `\r` rather than mixing
+/// in LF), else `"\n"`.
 pub(crate) fn buffer_newline(buffer: &str) -> &'static str {
     if buffer.contains("\r\n") {
         "\r\n"
@@ -173,14 +173,11 @@ pub(crate) fn block_scalar_header_marker_index(content: &str) -> Option<usize> {
     Some(tail - 1)
 }
 
-/// Split `buffer` into `(0-based index, content, ending)` triples on granit's
-/// YAML 1.2 line-break set (`\r\n`, `\r`, `\n`): `content` excludes the break and
-/// `ending` is the matched break (`"\r\n"`, `"\r"`, or `"\n"`), or `""` for a
-/// final line with no trailing break. Re-joining every `content + ending`
-/// reproduces the buffer byte-for-byte, and a trailing break yields no extra
-/// empty entry. A bare `\r` is a line break here, matching the parser-based
-/// rules and YAML 1.2 (issue #284); on supported LF/CRLF input this is identical
-/// to a `\n`-only split.
+/// Split `buffer` into `(0-based index, content, ending)` triples on the YAML 1.2
+/// line-break set (`\r\n`, `\r`, `\n`): `content` excludes the break, `ending` is the
+/// matched break or `""` for a final line with no break. Re-joining every
+/// `content + ending` reproduces the buffer byte-for-byte; a trailing break yields no
+/// extra empty entry (callers rely on this).
 pub(crate) fn split_lines_preserve_endings(
     buffer: &str,
 ) -> impl Iterator<Item = (usize, &str, &str)> {
@@ -226,7 +223,7 @@ pub(crate) fn line_contents(buffer: &str) -> Vec<&str> {
 /// its trailing YAML 1.2 break (`\r\n`, `\r`, or `\n`); the final piece carries
 /// no break when the buffer does not end with one. Concatenating the pieces
 /// reproduces the buffer, so callers can map a line index 1:1 onto a granit
-/// (CR-aware) line number (issue #284).
+/// (CR-aware) line number.
 pub(crate) fn split_lines_inclusive(buffer: &str) -> impl Iterator<Item = &str> {
     let bytes = buffer.as_bytes();
     let mut start = 0usize;

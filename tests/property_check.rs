@@ -171,8 +171,7 @@ fn multibyte_flow_punctuation_spans_stay_in_bounds() {
     }
 }
 
-/// Every rule now treats a bare `\r` as a YAML 1.2 line break (issue #284), so a
-/// document delimited by bare `\r` (and mixed `\r`/`\r\n`/`\n`, with multibyte
+/// A document delimited by bare `\r` (and mixed `\r`/`\r\n`/`\n`, with multibyte
 /// content) must keep CR-aware spans in bounds against the CR-aware oracle.
 #[test]
 fn bare_cr_line_breaks_keep_spans_in_bounds() {
@@ -187,8 +186,7 @@ fn bare_cr_line_breaks_keep_spans_in_bounds() {
     ];
     for input in inputs {
         let spans = collect_spans(input, trigger_all_config());
-        check_spans_in_bounds(input, &spans).unwrap_or_else(|message| {
-            panic!("bare-CR regression (issue #284): {message}")
-        });
+        check_spans_in_bounds(input, &spans)
+            .unwrap_or_else(|message| panic!("bare-CR regression: {message}"));
     }
 }

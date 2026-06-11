@@ -1,8 +1,5 @@
-//! End-to-end guards for the unified bare-`\r` (YAML 1.2 line break) handling of
-//! issue #284: every rule treats a lone `\r` as a line break, so its line/column
-//! counting and `--fix`/`--diff` behaviour match `\r\n`/`\n`. These pin the
-//! deliberate divergence from yamllint (whose line layer is `\n`-only) documented
-//! in `docs/getting-started/migrating-from-yamllint.md`. Assertions are
+//! End-to-end guards that a lone `\r` is treated as a line break: line/column
+//! counting and `--fix`/`--diff` behaviour match `\r\n`/`\n`. Assertions are
 //! format-agnostic (bare `line:col` + bare rule id), per the repo testing notes.
 
 use std::fs;
@@ -131,8 +128,8 @@ fn diff_skips_a_file_ending_in_a_bare_cr() {
 }
 
 /// Helper: run `--fix` with an inline config over `input` and return the rewritten
-/// bytes. The fix-output line-ending helpers must reuse the file's bare `\r`, not
-/// fall back to LF (issue #284) — regressions Codex flagged in the `--fix` paths.
+/// bytes. These pin that the fix-output line-ending helpers reuse the file's bare
+/// `\r` rather than falling back to LF.
 fn fixed_bytes(config: &str, input: &[u8]) -> Vec<u8> {
     let dir = tempdir().unwrap();
     let file = dir.path().join("doc.yaml");

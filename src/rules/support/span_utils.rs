@@ -84,10 +84,8 @@ pub fn containing_scalar_range<'a>(
 /// `empty-values`) clamp here so a diagnostic never points outside the document.
 #[must_use]
 pub fn clamp_position(buffer: &str, line: usize, column: usize) -> (usize, usize) {
-    // Reuse the shared YAML-1.2 line splitter (issue #284): a bare `\r` is a line
-    // break, exactly as granit's `Marker::line` (the source of `line`) treats it.
     // `line_contents` yields only real lines (no trailing-break phantom), so its
-    // length is the last line a clamp may land on.
+    // length is the last line a clamp may land on; CR-aware like granit's `Marker::line`.
     let lines = line_contents(buffer);
     let line = line.min(lines.len());
     let index = line

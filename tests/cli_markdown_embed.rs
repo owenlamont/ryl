@@ -436,7 +436,7 @@ fn block_scalar_chomping_fires_in_fenced_block() {
 fn bare_cr_markdown_host_is_loudly_skipped_not_silently_missed() {
     // `pulldown-cmark` doesn't honour CommonMark §2.1's bare-`\r` line ending, so it
     // can't locate fences/front matter in a `\r`-delimited host. ryl reports an error
-    // instead of silently extracting (and checking) nothing (issue #284). The guard
+    // instead of silently extracting (and checking) nothing. The guard
     // fires before extraction, so the enabled rule set is irrelevant.
     let body = "# T\r\r```yaml\rk: v  \r```\r";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);

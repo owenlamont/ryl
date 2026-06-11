@@ -24,7 +24,7 @@
 //! *strictly above* the content that ends in a `|`/`>` marker. The source is split
 //! via the shared `support::line_syntax::line_contents` on granit's YAML 1.2 break
 //! set (`\r\n`, `\r`, `\n`) so the token's line number indexes that table directly;
-//! a bare `\r` is a line break here, as it is for every other rule (issue #284).
+//! a bare `\r` is a line break here, as it is for every other rule.
 //!
 //! Empty / blank-only block scalars need one extra case: granit places their token
 //! on the header at end-of-stream but on the following node otherwise. A token

@@ -117,9 +117,8 @@ struct Analyzer<'a> {
 
 impl<'a> Analyzer<'a> {
     fn new(text: &'a str, cfg: &'a Config) -> Self {
-        // CR-aware line split (issue #284): a bare `\r` is a YAML 1.2 line break,
-        // matching granit's line numbering and every other rule. `line_contents`
-        // already strips the ending, so `process_line` receives bare line content.
+        // `line_contents` is CR-aware and already strips the ending, so `process_line`
+        // receives bare line content.
         let lines = line_contents(text);
         Self {
             cfg,

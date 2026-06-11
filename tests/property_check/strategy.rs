@@ -4,9 +4,8 @@ use proptest::prelude::*;
 pub enum Newline {
     Lf,
     Crlf,
-    /// A bare `\r` — a YAML 1.2 line break that every rule now honours (issue
-    /// #284), so the generator may emit it freely and the harness oracle counts
-    /// it as a break.
+    /// A bare `\r` — a YAML 1.2 line break the generator may emit freely; the
+    /// harness oracle counts it as a break.
     Cr,
 }
 

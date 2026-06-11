@@ -138,9 +138,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         }
         run_len += 1;
 
-        // A blank line whose content is empty always carries a line break, so the
-        // run ends exactly when the next line is non-blank or the buffer does; an
-        // empty content with no ending is never emitted for a non-empty buffer.
+        // The splitter never emits empty content with no ending, so a blank line
+        // always carries a break: the run ends when the next line is non-blank or absent.
         let next = lines.peek();
         if !next.is_some_and(|(_, content, _)| content.is_empty()) {
             finalize_run(

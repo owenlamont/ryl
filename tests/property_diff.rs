@@ -67,7 +67,7 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
         // A bare `\r` is diffed as line *content* (the `\n`-only renderer), so it
         // round-trips through `git apply`. The one residual case `similar` can't
         // render is a side that *ends* in a bare `\r`, which `--diff` skips and
-        // points at `--fix` (issue #284): "no diff, one skip" instead of a diff.
+        // points at `--fix`: "no diff, one skip" instead of a diff.
         if fixed != input && (input.ends_with('\r') || fixed.ends_with('\r')) {
             prop_assert!(
                 outcome.diff.is_none() && !outcome.skipped.is_empty(),
@@ -283,7 +283,7 @@ fn bare_cr_as_content_diff_round_trips_via_diffy() {
     // renderer), so the emitted hunk lines stay `\n`-terminated and apply cleanly —
     // the contract `git apply -p0` relies on. trailing-spaces is CR-aware, so it
     // strips the run before the `\r` and before the `\n`; the file ends in `\n`, so
-    // it is not the residual trailing-`\r` skip case (issue #284).
+    // it is not the residual trailing-`\r` skip case.
     let cfg = YamlLintConfig::from_yaml_str("rules:\n  trailing-spaces: enable\n")
         .expect("config parses");
     let input = "a: 1  \rb: 2  \nc: 3\n";
@@ -313,7 +313,7 @@ fn bare_cr_as_content_diff_round_trips_via_diffy() {
 fn trailing_bare_cr_change_is_skipped_not_diffed() {
     // `similar` counts a trailing `\r` as a line terminator, so a side that *ends* in
     // a bare `\r` can't be rendered as an applicable hunk; `--diff` skips it (use
-    // `--fix`) rather than emit a corrupt patch (issue #284).
+    // `--fix`) rather than emit a corrupt patch.
     let cfg = YamlLintConfig::from_yaml_str("rules:\n  trailing-spaces: enable\n")
         .expect("config parses");
     let input = "a: 1  \rb: 2  \r";
@@ -357,7 +357,7 @@ fn known_dirty_markdown_diff_round_trips() {
 fn markdown_diff_skips_a_bare_cr_host() {
     // `pulldown-cmark` doesn't honour CommonMark's bare-`\r` line ending, so it can't
     // locate fences in a markdown host that uses bare `\r`; `--diff` skips the whole
-    // file with a notice instead of silently extracting nothing (issue #284).
+    // file with a notice instead of silently extracting nothing.
     let input = "```yaml\ritems: [a ,b]\r```\r";
     let cfg = &safe_fix_configs()[0].cfg;
     assert!(

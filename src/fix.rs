@@ -252,14 +252,11 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
     // separator).
     #[cfg(windows)]
     let label = label.replace('\\', "/");
-    // Split on `\n` only so a bare `\r` is diff *content*, not a line separator: a
-    // unified diff is `\n`-terminated by format, and `git apply` matches a hunk
-    // line's embedded `\r` byte-for-byte (issue #284). `similar`'s own `from_lines`
-    // is CR-aware and would emit `\r`-terminated hunk lines that no patch tool
-    // accepts. This is identical to `from_lines` for LF/CRLF input, where lines
-    // already break only on `\n`. A side that *ends* in a bare `\r` is the residual
-    // case `similar` still can't render (its `ends_with_newline` counts a trailing
-    // `\r`); `diff_outcome` skips that before reaching here.
+    // Split on `\n` only (not `similar`'s CR-aware `from_lines`) so a bare `\r` is
+    // diff *content*: a unified diff is `\n`-terminated, and `git apply` matches an
+    // embedded `\r` byte-for-byte. Identical to `from_lines` on LF/CRLF input. A side
+    // that *ends* in a bare `\r` can't be rendered (`similar`'s `ends_with_newline`
+    // counts a trailing `\r`); `diff_outcome` skips that before reaching here.
     let original_lines: Vec<&str> = original.split_inclusive('\n').collect();
     let fixed_lines: Vec<&str> = fixed.split_inclusive('\n').collect();
     Some(
@@ -333,13 +330,10 @@ pub fn diff_outcome(
     }
 }
 
-/// Whether either side ends in a bare `\r` (a CR not part of CRLF). The diff
-/// renderer treats a `\r` as line *content* (a unified diff is `\n`-terminated by
-/// format, and `git apply` matches an embedded `\r` byte-for-byte), so a mid-line
-/// or mixed `\r` diffs cleanly. The one residual case is a *trailing* bare `\r`:
-/// `similar`'s `ends_with_newline` counts it as a line terminator and emits a hunk
-/// line no patch tool accepts, so `--diff` skips that and points at `--fix`, which
-/// rewrites bytes directly (issue #284).
+/// Whether either side ends in a bare `\r`. The diff renderer handles a mid-line or
+/// mixed `\r` as content, but `similar`'s `ends_with_newline` counts a *trailing*
+/// `\r` as a terminator and emits a hunk line no patch tool accepts — so `--diff`
+/// skips that case (use `--fix`).
 fn ends_in_bare_cr(original: &str, fixed: &str) -> bool {
     original.ends_with('\r') || fixed.ends_with('\r')
 }
@@ -717,7 +711,7 @@ fn first_newline(content: &str) -> Option<&'static str> {
     while idx < bytes.len() {
         match bytes[idx] {
             b'\r' if bytes.get(idx + 1) == Some(&b'\n') => return Some("\r\n"),
-            // A bare `\r` is a YAML 1.2 line break (issue #284), so a `\r`-delimited
+            // A bare `\r` is a YAML 1.2 line break, so a `\r`-delimited
             // file's appended final newline reuses `\r` rather than falling back to LF.
             b'\r' => return Some("\r"),
             b'\n' => return Some("\n"),

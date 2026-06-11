@@ -2,8 +2,7 @@
 //! `new-line-at-end-of-file`. Safe `--fix` appends the missing newline.
 //!
 //! "Newline" is any YAML 1.2 line break (`\n`, `\r\n`, or a bare `\r`), so a file
-//! ending in a bare `\r` is accepted and the line/column count is CR-aware, like
-//! every other rule (issue #284); on supported LF/CRLF input this is unchanged.
+//! ending in a bare `\r` is accepted; the line/column count is CR-aware.
 
 use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
@@ -22,9 +21,8 @@ pub fn check(buffer: &str) -> Option<Violation> {
         return None;
     }
 
-    // A non-empty buffer that does not end in a YAML 1.2 break always yields at
-    // least one line, so the loop runs and `line`/`last_line` are set from the
-    // final (break-less) line.
+    // A non-empty buffer not ending in a break yields >=1 line, so the loop runs and
+    // overwrites these initializers.
     let mut line = 0usize;
     let mut last_line = "";
     for (idx, content, _ending) in split_lines_preserve_endings(buffer) {
