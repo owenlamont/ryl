@@ -18,7 +18,7 @@ use regex::Regex;
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::comments_scan::collect_comments;
 use crate::rules::support::line_syntax::{
-    split_lines_inclusive, split_lines_preserve_endings,
+    line_contents, split_lines_inclusive, split_lines_preserve_endings,
 };
 
 // The patterns match granit's comment payload, which is the text after the leading
@@ -95,12 +95,27 @@ fn resolve_rule(token: &str) -> Option<&'static str> {
 }
 
 /// Directive state for one buffer: block `disable`/`enable` snapshots plus the set of
+/// A resolved `per-line-ignores` entry to layer onto a buffer's directives: suppress
+/// `rules` on every line whose content matches `regex` (all lines if `regex` is None).
+/// `rules` follows [`insert_rules`]' convention &mdash; `None` means every rule (the
+/// `ALL` selector). `config` builds these per file (after path-glob filtering); the
+/// regex matches the line content excluding its break, so the user's `$` anchors to
+/// the line.
+pub struct PerLineRuleApply<'a> {
+    pub regex: Option<&'a Regex>,
+    pub rules: Option<&'a [&'static str]>,
+}
+
 /// rules each line disables via `disable-line`.
 #[derive(Default)]
 pub struct Directives {
     /// `(line, rules disabled from that line onward)`, in ascending line order.
     block_snapshots: Vec<(usize, HashSet<&'static str>)>,
     line_disabled: HashMap<usize, HashSet<&'static str>>,
+    /// Rules disabled on *every* line, from a `per-line-ignores` entry with a matching
+    /// `path` but no `regex`. Recorded once here (not materialized per line) so a
+    /// file-wide suppression on a large file costs O(rules), not O(lines × rules).
+    file_wide: HashSet<&'static str>,
 }
 
 impl Directives {
@@ -152,15 +167,57 @@ impl Directives {
         directives
     }
 
+    /// Parse inline directives, then layer config-driven `per-line-ignores` on top — a
+    /// virtual `disable-line`, so lint filtering ([`Self::is_disabled`]) and `--fix`
+    /// reconcile ([`Self::reconcile`]) treat config and inline suppression identically.
+    /// A `regex` entry suppresses its rules only on matching lines (line numbers come
+    /// from [`line_contents`], which splits on the same YAML 1.2 break set as granit, so
+    /// a match on line *n* lands on a diagnostic at line *n*). A no-`regex` entry is
+    /// file-wide and recorded once in `file_wide` rather than per line.
+    #[must_use]
+    pub fn parse_with_per_line(
+        buffer: &str,
+        per_line: &[PerLineRuleApply<'_>],
+    ) -> Self {
+        let mut directives = Self::parse(buffer);
+        if per_line.is_empty() {
+            return directives;
+        }
+        let mut has_regex_entry = false;
+        for entry in per_line {
+            if entry.regex.is_none() {
+                insert_rules(&mut directives.file_wide, entry.rules);
+            } else {
+                has_regex_entry = true;
+            }
+        }
+        // Only scan lines when a regex entry needs per-line matching.
+        if has_regex_entry {
+            for (index, content) in line_contents(buffer).into_iter().enumerate() {
+                for entry in per_line {
+                    if entry.regex.is_some_and(|regex| regex.is_match(content)) {
+                        insert_rules(
+                            directives.line_disabled.entry(index + 1).or_default(),
+                            entry.rules,
+                        );
+                    }
+                }
+            }
+        }
+        directives
+    }
+
     /// Whether `rule` is disabled on `line` (1-based) by a block or `disable-line`
     /// directive.
     #[must_use]
     pub fn is_disabled(&self, rule: &str, line: usize) -> bool {
-        self.block_snapshots
-            .iter()
-            .rev()
-            .find(|(at, _)| *at <= line)
-            .is_some_and(|(_, set)| set.contains(rule))
+        self.file_wide.contains(rule)
+            || self
+                .block_snapshots
+                .iter()
+                .rev()
+                .find(|(at, _)| *at <= line)
+                .is_some_and(|(_, set)| set.contains(rule))
             || self
                 .line_disabled
                 .get(&line)
@@ -170,7 +227,8 @@ impl Directives {
     /// Whether `rule` is disabled anywhere, used to skip reconciliation in `--fix`.
     #[must_use]
     pub fn disables_any(&self, rule: &str) -> bool {
-        self.line_disabled.values().any(|set| set.contains(rule))
+        self.file_wide.contains(rule)
+            || self.line_disabled.values().any(|set| set.contains(rule))
             || self
                 .block_snapshots
                 .iter()

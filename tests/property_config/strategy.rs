@@ -38,11 +38,23 @@ pub struct RuleCfg {
     pub setting: Setting,
 }
 
+/// A generated `[[per-line-ignores]]` entry (TOML-only). `regex`/`path` are drawn from
+/// pools that mix valid with hostile (invalid regex/glob, empty), and `rules` may be
+/// empty or omit both regex and path, so every `validate_per_line_ignores` branch is
+/// reached and must error-or-succeed, never panic.
+#[derive(Debug, Clone)]
+pub struct PerLineModel {
+    pub regex: Option<&'static str>,
+    pub path: Option<&'static str>,
+    pub rules: Vec<&'static str>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ConfigModel {
     pub rules: Vec<RuleCfg>,
     pub ignore: Option<Vec<&'static str>>,
     pub locale: Option<&'static str>,
+    pub per_line_ignores: Vec<PerLineModel>,
 }
 
 /// Regex strings spanning valid, invalid, and pathological-but-valid (the last to
@@ -51,6 +63,13 @@ const REGEX_POOL: &[&str] = &["^ok$", "(", "[", "(a+)+$", ".*", "[0-9]+"];
 const LEVELS: &[&str] = &["error", "warning", "bogus"];
 const LOCALES: &[&str] = &["en_US.UTF-8", "C", "garbage", "xx_XX"];
 const INTS: &[i64] = &[-1, 0, 1, 2, 80, 9999];
+/// Globs for `per-line-ignores` `path`, mixing valid (incl. `!` negation) with the
+/// invalid `[` so the glob-validation error branch is exercised.
+const PER_LINE_PATHS: &[&str] = &["*.yaml", "vendor/**", "!src/**", "[", ""];
+/// Real rule ids plus the `ALL` selector; an empty draw exercises the empty-`rules`
+/// validation error. Names stay valid so generation reaches `validate_per_line_ignores`
+/// rather than bouncing off `PerLineRule` deserialization.
+const PER_LINE_RULES: &[&str] = &["comments", "line-length", "trailing-spaces", "ALL"];
 
 /// What kind of value an option accepts; `arb` yields both well-typed and
 /// deliberately ill-typed values so validation is stressed.
@@ -156,6 +175,15 @@ fn arb_optval_for(
     kind.arb().prop_map(move |value| (key, value))
 }
 
+fn arb_per_line() -> impl Strategy<Value = PerLineModel> {
+    (
+        prop::option::of(prop::sample::select(REGEX_POOL)),
+        prop::option::of(prop::sample::select(PER_LINE_PATHS)),
+        prop::collection::vec(prop::sample::select(PER_LINE_RULES), 0..3),
+    )
+        .prop_map(|(regex, path, rules)| PerLineModel { regex, path, rules })
+}
+
 pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
     (
         prop::collection::vec(arb_rule(), 0..6),
@@ -164,8 +192,9 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
             0..3,
         )),
         prop::option::of(prop::sample::select(LOCALES)),
+        prop::collection::vec(arb_per_line(), 0..3),
     )
-        .prop_map(|(rules, ignore, locale)| ConfigModel {
+        .prop_map(|(rules, ignore, locale, per_line_ignores)| ConfigModel {
             // Drop duplicate rule ids: rendering the same id twice produces a
             // duplicate `[rules.<id>]` table (a hard TOML error) or a duplicate YAML
             // key, which would bounce a chunk of generated configs off the parser
@@ -173,6 +202,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
             rules: dedup_rules(rules),
             ignore: ignore.map(|patterns| patterns.into_iter().collect()),
             locale,
+            per_line_ignores,
         })
 }
 
@@ -264,6 +294,20 @@ pub fn render_toml(model: &ConfigModel) -> String {
                 out.push_str(&format!("{key} = {}\n", render_optval_toml(value)));
             }
         }
+    }
+    // `per-line-ignores` is a top-level array of tables, TOML-only (the YAML path
+    // rejects it), so it is rendered here but not in `render_yaml`.
+    for entry in &model.per_line_ignores {
+        out.push_str("[[per-line-ignores]]\n");
+        if let Some(regex) = entry.regex {
+            out.push_str(&format!("regex = \"{regex}\"\n"));
+        }
+        if let Some(path) = entry.path {
+            out.push_str(&format!("path = \"{path}\"\n"));
+        }
+        let inner: Vec<String> =
+            entry.rules.iter().map(|r| format!("\"{r}\"")).collect();
+        out.push_str(&format!("rules = [{}]\n", inner.join(", ")));
     }
     out
 }

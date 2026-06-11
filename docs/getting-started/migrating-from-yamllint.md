@@ -161,6 +161,16 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### Per-line ignores
+
+ryl adds a [`per-line-ignores`](../per-line-ignores.md) config table with no
+yamllint counterpart: it suppresses chosen rules on lines (and/or files) matching a
+regex/glob, the config-level complement to inline `# ryl disable-line`. yamllint
+offers only inline directives and per-file path ignores, so a recurring exception
+(every `#cloud-config`, every `# renovate:` marker) must be annotated in each file
+or handled per-rule. Being ryl-only, it lives in TOML config and is rejected in
+yamllint-compatible YAML config.
+
 ## Side-by-side example
 
 === "yamllint (.yamllint)"

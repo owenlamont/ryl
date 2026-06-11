@@ -33,6 +33,9 @@ pub struct TomlConfig {
     /// Per-file rule ignores.
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
+    /// Per-line rule ignores: suppress rules on lines/files matching a pattern.
+    #[serde(rename = "per-line-ignores")]
+    pub per_line_ignores: Option<Vec<PerLineIgnore>>,
     /// Rule configuration table.
     pub rules: Option<
         RulesTable<
@@ -317,6 +320,45 @@ impl RuleName {
             Self::UnicodeLineBreaks => "unicode-line-breaks",
         }
     }
+}
+
+/// A `per-line-ignores` rule selector: a built-in rule name, or `ALL` to suppress
+/// every rule on a matching line. Untagged so `"ALL"` and rule names share one list.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum PerLineRule {
+    All(AllRulesSelector),
+    Named(RuleName),
+}
+
+/// The `ALL` keyword accepted in a `per-line-ignores` `rules` list.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+pub enum AllRulesSelector {
+    #[serde(rename = "ALL")]
+    All,
+}
+
+impl PerLineRule {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::All(AllRulesSelector::All) => "ALL",
+            Self::Named(rule) => rule.as_str(),
+        }
+    }
+}
+
+/// A single `per-line-ignores` entry. Suppresses `rules` on source lines matching
+/// `regex` (the whole physical line, unanchored) within files matching `path` (a
+/// glob). All present fields must match (logical AND); at least one of `regex`/`path`
+/// is required (validated in `validate_toml_config`), so an entry can't disable a rule
+/// globally.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PerLineIgnore {
+    pub regex: Option<String>,
+    pub path: Option<String>,
+    pub rules: Vec<PerLineRule>,
 }
 
 /// Built-in rule table for TOML config.
@@ -907,6 +949,10 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         );
     }
 
+    if let Some(entries) = config.per_line_ignores.as_deref() {
+        validation::validate_per_line_ignores(entries)?;
+    }
+
     validate_common_config(
         config.ignore.as_ref(),
         config.ignore_from_file.as_ref(),
@@ -957,6 +1003,7 @@ pub struct NormalizedConfig {
     pub ignore_patterns: Option<Vec<String>>,
     pub ignore_from_files: Option<Vec<String>>,
     pub per_file_ignores: BTreeMap<String, Vec<String>>,
+    pub per_line_ignores: Vec<NormalizedPerLineIgnore>,
     pub yaml_file_patterns: Option<Vec<String>>,
     pub markdown_file_patterns: Option<Vec<String>>,
     pub markdown: Option<NormalizedMarkdown>,
@@ -969,6 +1016,15 @@ pub struct NormalizedConfig {
 pub struct NormalizedMarkdown {
     pub front_matter: Option<bool>,
     pub fenced_blocks: Option<bool>,
+}
+
+/// Post-parse form of one `per-line-ignores` entry. `rules` holds rule ids, or the
+/// single literal `"ALL"`; the regex/glob are compiled later in `config.rs`.
+#[derive(Debug, Clone, Default)]
+pub struct NormalizedPerLineIgnore {
+    pub regex: Option<String>,
+    pub path: Option<String>,
+    pub rules: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1025,6 +1081,13 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     if doc.as_mapping_get("fix").is_some() {
         return Err(
             "invalid config: fix is only supported in TOML configuration".to_string(),
+        );
+    }
+
+    if doc.as_mapping_get("per-line-ignores").is_some() {
+        return Err(
+            "invalid config: per-line-ignores is only supported in TOML configuration"
+                .to_string(),
         );
     }
 

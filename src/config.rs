@@ -4,16 +4,18 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::directives::PerLineRuleApply;
 use crate::yaml_dom::{ScalarOwned, YamlOwned};
 use globset::{Glob, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use regex::Regex;
 
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown, TomlConfig,
-    normalize_toml_config, normalized_config_to_toml_value, parse_toml_config_str,
-    parse_yaml_config, validate_toml_config, yaml_rule_filter_patterns,
-    yaml_rule_level,
+    NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore,
+    TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
+    parse_toml_config_str, parse_yaml_config, validate_toml_config,
+    yaml_rule_filter_patterns, yaml_rule_level,
 };
 use crate::{conf, decoder};
 
@@ -136,6 +138,10 @@ pub struct YamlLintConfig {
     ignore_matcher: Option<Gitignore>,
     per_file_ignores: BTreeMap<String, Vec<String>>,
     per_file_ignore_matchers: Vec<PerFileIgnore>,
+    /// Resolved `per-line-ignores` spec, kept (alongside the compiled matchers) so the
+    /// runtime config can serialize back to TOML for `--migrate-configs`.
+    per_line_ignores: Vec<NormalizedPerLineIgnore>,
+    per_line_ignore_matchers: Vec<PerLineIgnoreMatcher>,
     rule_names: Vec<String>,
     rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
@@ -179,9 +185,7 @@ struct PerFileIgnore {
 
 impl PerFileIgnore {
     fn new(pattern: &str, rules: Vec<String>, base_dir: &Path) -> Result<Self, String> {
-        let (negated, pattern) = pattern
-            .strip_prefix('!')
-            .map_or((false, pattern), |stripped| (true, stripped));
+        let (negated, pattern) = split_negation(pattern);
         let absolute_pattern = absolute_glob_pattern(pattern, base_dir);
         let basename_matcher = Glob::new(pattern)
             .map_err(|err| {
@@ -202,22 +206,43 @@ impl PerFileIgnore {
     }
 
     fn matches(&self, path: &Path, base_dir: &Path) -> bool {
-        let filename_matches = path.file_name().is_some_and(|file_name| {
-            self.basename_matcher.is_match(Path::new(file_name))
-        });
-        let absolute_path = if path.is_absolute() {
-            Cow::Borrowed(path)
-        } else {
-            Cow::Owned(base_dir.join(path))
-        };
-        let path_matches = self.absolute_matcher.is_match(absolute_path.as_ref());
-
-        if self.negated {
-            !filename_matches && !path_matches
-        } else {
-            filename_matches || path_matches
-        }
+        let matched = glob_path_matches(
+            &self.basename_matcher,
+            &self.absolute_matcher,
+            path,
+            base_dir,
+        );
+        // Negation inverts the whole match: `!(filename || absolute)`.
+        matched != self.negated
     }
+}
+
+/// Split a leading `!` negation marker off a glob pattern, returning `(negated, rest)`.
+/// Shared by the per-file and per-line ignore matchers so both honour `!` identically.
+fn split_negation(pattern: &str) -> (bool, &str) {
+    pattern
+        .strip_prefix('!')
+        .map_or((false, pattern), |rest| (true, rest))
+}
+
+/// Whether `path` matches either glob: its basename against `basename`, or its
+/// (base-dir-resolved) absolute form against `absolute`. Shared by the per-file and
+/// per-line ignore matchers so both interpret a path glob identically.
+fn glob_path_matches(
+    basename: &GlobMatcher,
+    absolute: &GlobMatcher,
+    path: &Path,
+    base_dir: &Path,
+) -> bool {
+    let filename_matches = path
+        .file_name()
+        .is_some_and(|file_name| basename.is_match(Path::new(file_name)));
+    let absolute_path = if path.is_absolute() {
+        Cow::Borrowed(path)
+    } else {
+        Cow::Owned(base_dir.join(path))
+    };
+    filename_matches || absolute.is_match(absolute_path.as_ref())
 }
 
 fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
@@ -233,6 +258,99 @@ fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
         pattern_with_base.push_str(pattern);
         pattern_with_base
     }
+}
+
+/// The rules a `per-line-ignores` entry suppresses, resolved to `&'static str` ids;
+/// `None` means every rule (the `ALL` selector). This mirrors
+/// `directives::insert_rules`'s `None`-means-all convention, so the directives builder
+/// expands `ALL` in one place rather than here.
+fn resolve_per_line_rules(rules: &[String]) -> Option<Vec<&'static str>> {
+    if rules.iter().any(|rule| rule == "ALL") {
+        return None;
+    }
+    Some(
+        rules
+            .iter()
+            .map(|rule| {
+                crate::rules::ALL_RULE_IDS
+                    .iter()
+                    .copied()
+                    .find(|id| *id == rule)
+                    .expect("per-line-ignores rule names are validated rule ids")
+            })
+            .collect(),
+    )
+}
+
+/// Compiled `per-line-ignores` entry: an optional path glob (the basename + absolute
+/// matcher pair, as per-file-ignores), an optional line regex, and the rules to
+/// suppress (`None` = all). No path glob applies to every file; line matching happens
+/// in the directives builder. At least one of path/regex is guaranteed by validation.
+#[derive(Debug, Clone)]
+struct PerLineIgnoreMatcher {
+    path_glob: Option<(GlobMatcher, GlobMatcher)>,
+    /// Whether the path glob was `!`-negated (matches files *not* matching it), as
+    /// per-file-ignores. Only meaningful when `path_glob` is `Some`.
+    path_negated: bool,
+    regex: Option<Regex>,
+    rules: Option<Vec<&'static str>>,
+}
+
+impl PerLineIgnoreMatcher {
+    /// Build a compiled matcher. Infallible: config validation
+    /// (`validate_per_line_ignores`) has already proven every regex/glob compiles, so
+    /// the only failure path is unreachable and is documented with `expect`.
+    fn new(entry: &NormalizedPerLineIgnore, base_dir: &Path) -> Self {
+        let (path_negated, path_glob) = match entry.path.as_deref() {
+            Some(raw) => {
+                let (negated, pattern) = split_negation(raw);
+                let basename = Glob::new(pattern)
+                    .expect("per-line-ignores `path` compiles after config validation")
+                    .compile_matcher();
+                let absolute = Glob::new(&absolute_glob_pattern(pattern, base_dir))
+                    .expect(
+                        "absolute per-line ignore pattern compiles after validation",
+                    )
+                    .compile_matcher();
+                (negated, Some((basename, absolute)))
+            }
+            None => (false, None),
+        };
+        let regex = entry.regex.as_deref().map(|pattern| {
+            Regex::new(pattern)
+                .expect("per-line-ignores `regex` compiles after config validation")
+        });
+        Self {
+            path_glob,
+            path_negated,
+            regex,
+            rules: resolve_per_line_rules(&entry.rules),
+        }
+    }
+
+    /// Whether this entry applies to `path` (true when it has no path constraint).
+    fn path_matches(&self, path: &Path, base_dir: &Path) -> bool {
+        self.path_glob.as_ref().is_none_or(|(basename, absolute)| {
+            glob_path_matches(basename, absolute, path, base_dir) != self.path_negated
+        })
+    }
+
+    fn as_apply(&self) -> PerLineRuleApply<'_> {
+        PerLineRuleApply {
+            regex: self.regex.as_ref(),
+            rules: self.rules.as_deref(),
+        }
+    }
+}
+
+fn build_per_line_ignores(
+    entries: &[NormalizedPerLineIgnore],
+    base_dir: &Path,
+) -> Vec<PerLineIgnoreMatcher> {
+    entries
+        .iter()
+        .map(|entry| PerLineIgnoreMatcher::new(entry, base_dir))
+        .collect()
 }
 
 impl RuleConfig {
@@ -376,6 +494,8 @@ impl Default for YamlLintConfig {
             ignore_matcher: None,
             per_file_ignores: BTreeMap::new(),
             per_file_ignore_matchers: Vec::new(),
+            per_line_ignores: Vec::new(),
+            per_line_ignore_matchers: Vec::new(),
             rule_names: Vec::new(),
             rules: std::collections::BTreeMap::new(),
             yaml_file_patterns: DEFAULT_YAML_FILE_PATTERNS
@@ -409,7 +529,11 @@ impl YamlLintConfig {
         Self::from_yaml_str_with_env(s, None, None)
     }
 
-    /// Build a config from standalone TOML configuration text.
+    /// Build a config from standalone TOML configuration text, without filesystem
+    /// access (like [`Self::from_yaml_str`]). Parsing is separated from discovery: this
+    /// does not run [`Self::finalize`], so path-based matchers (`per-file-ignores`,
+    /// `per-line-ignores`, per-rule `ignore`) are not built here &mdash; the lint-ready
+    /// config comes from `discover_config`, which owns I/O and finalization.
     ///
     /// # Errors
     /// Returns an error when the TOML is empty or cannot be parsed into a valid
@@ -550,6 +674,10 @@ impl YamlLintConfig {
     /// cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
         self.per_file_ignore_matchers.clear();
+        // A per-line entry with a path constraint can't match a synthetic label, so
+        // drop it; pure-regex entries are content-based and still apply to stdin.
+        self.per_line_ignore_matchers
+            .retain(|matcher| matcher.path_glob.is_none());
         for rule in self.rules.values_mut() {
             if let Some(filter) = rule.filter.as_mut() {
                 filter.matcher = None;
@@ -567,6 +695,22 @@ impl YamlLintConfig {
                 .iter()
                 .filter(|entry| entry.matches(path, base_dir))
                 .any(|entry| entry.rules.iter().any(|candidate| candidate == rule))
+    }
+
+    /// The `per-line-ignores` entries applying to `path` (path glob matches, or none),
+    /// as virtual-disable-line applies for the directives builder. Empty when none are
+    /// configured, so directive-less linting pays nothing.
+    #[must_use]
+    pub(crate) fn per_line_applies(
+        &self,
+        path: &Path,
+        base_dir: &Path,
+    ) -> Vec<PerLineRuleApply<'_>> {
+        self.per_line_ignore_matchers
+            .iter()
+            .filter(|matcher| matcher.path_matches(path, base_dir))
+            .map(PerLineIgnoreMatcher::as_apply)
+            .collect()
     }
 
     #[must_use]
@@ -739,6 +883,7 @@ impl YamlLintConfig {
             self.yaml_file_patterns = other.yaml_file_patterns;
         }
         self.per_file_ignores = other.per_file_ignores;
+        self.per_line_ignores = other.per_line_ignores;
         self.locale = self.locale.take().or(other.locale);
     }
 
@@ -774,6 +919,10 @@ impl YamlLintConfig {
 
         if !normalized.per_file_ignores.is_empty() {
             self.per_file_ignores = normalized.per_file_ignores;
+        }
+
+        if !normalized.per_line_ignores.is_empty() {
+            self.per_line_ignores = normalized.per_line_ignores;
         }
 
         if let Some(locale) = normalized.locale {
@@ -826,6 +975,8 @@ impl YamlLintConfig {
         self.ignore_matcher = matcher;
         self.per_file_ignore_matchers =
             build_per_file_ignores(&self.per_file_ignores, base_dir)?;
+        self.per_line_ignore_matchers =
+            build_per_line_ignores(&self.per_line_ignores, base_dir);
 
         self.build_file_kind_matchers(base_dir);
 
@@ -1097,6 +1248,7 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
         ignore_from_files: (!config.ignore_from_files.is_empty())
             .then(|| config.ignore_from_files.clone()),
         per_file_ignores: config.per_file_ignores.clone(),
+        per_line_ignores: config.per_line_ignores.clone(),
         yaml_file_patterns: Some(config.yaml_file_patterns.clone()),
         markdown_file_patterns: (!config.markdown_file_patterns.is_empty())
             .then(|| config.markdown_file_patterns.clone()),

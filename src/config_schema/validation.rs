@@ -1,10 +1,54 @@
+use globset::Glob;
 use regex::Regex;
 
 use super::{
-    KeyOrderingOptions, QuotedStringsOptions, QuotedStringsRequired,
+    KeyOrderingOptions, PerLineIgnore, QuotedStringsOptions, QuotedStringsRequired,
     QuotedStringsRequiredMode, RuleEntry, RuleOptions, RulesTable,
     TomlQuotedStringsOptions,
 };
+
+/// Validate `per-line-ignores` entries: each needs at least one of `regex`/`path`
+/// and a non-empty `rules` list, and each `regex`/`path` must be a valid pattern. Rule
+/// names are already type-checked by deserialization. Validating the patterns here
+/// (the single fallible step) lets the runtime matcher build infallibly.
+///
+/// # Errors
+/// Returns an error describing the first invalid entry.
+pub fn validate_per_line_ignores(entries: &[PerLineIgnore]) -> Result<(), String> {
+    for entry in entries {
+        if entry.regex.is_none() && entry.path.is_none() {
+            return Err(
+                "invalid config: each per-line-ignores entry needs at least one of \
+                 `regex` or `path`"
+                    .to_string(),
+            );
+        }
+        if entry.rules.is_empty() {
+            return Err(
+                "invalid config: per-line-ignores entry has an empty `rules` list"
+                    .to_string(),
+            );
+        }
+        if let Some(pattern) = entry.regex.as_deref() {
+            Regex::new(pattern).map_err(|err| {
+                format!(
+                    "invalid config: per-line-ignores `regex` '{pattern}' is invalid: {err}"
+                )
+            })?;
+        }
+        if let Some(pattern) = entry.path.as_deref() {
+            // Validate the same glob the matcher compiles: a leading `!` is a negation
+            // marker (per-file-ignores parity), stripped before compilation.
+            let glob = pattern.strip_prefix('!').unwrap_or(pattern);
+            Glob::new(glob).map_err(|err| {
+                format!(
+                    "invalid config: per-line-ignores `path` '{pattern}' is invalid: {err}"
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
 
 pub trait QuotedStringsOptionSet {
     fn required(&self) -> Option<&QuotedStringsRequired>;

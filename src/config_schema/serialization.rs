@@ -3,7 +3,8 @@ use serde::Serialize;
 
 use super::{
     FixTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
-    RuleName, RulesTable, StringOrVec, TomlConfig, YamlConfig,
+    NormalizedPerLineIgnore, PerLineIgnore, RuleName, RulesTable, StringOrVec,
+    TomlConfig, YamlConfig,
 };
 
 pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
@@ -43,6 +44,23 @@ fn normalize_per_file_ignores(
                 pattern.clone(),
                 rules.iter().map(|rule| rule.as_str().to_string()).collect(),
             )
+        })
+        .collect()
+}
+
+fn normalize_per_line_ignores(
+    ignores: &[PerLineIgnore],
+) -> Vec<NormalizedPerLineIgnore> {
+    ignores
+        .iter()
+        .map(|entry| NormalizedPerLineIgnore {
+            regex: entry.regex.clone(),
+            path: entry.path.clone(),
+            rules: entry
+                .rules
+                .iter()
+                .map(|rule| rule.as_str().to_string())
+                .collect(),
         })
         .collect()
 }
@@ -132,6 +150,10 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
             .per_file_ignores
             .as_ref()
             .map_or_else(std::collections::BTreeMap::new, normalize_per_file_ignores),
+        per_line_ignores: config
+            .per_line_ignores
+            .as_deref()
+            .map_or_else(Vec::new, normalize_per_line_ignores),
         yaml_file_patterns: config.files.as_ref().and_then(|files| files.yaml.clone()),
         markdown_file_patterns: config
             .files
@@ -159,6 +181,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
         per_file_ignores: std::collections::BTreeMap::new(),
+        per_line_ignores: Vec::new(),
         yaml_file_patterns: config.yaml_files.clone(),
         markdown_file_patterns: None,
         markdown: None,
@@ -274,6 +297,11 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
         "per-file-ignores",
         config.per_file_ignores.as_ref(),
     );
+    insert_serialized(
+        &mut table,
+        "per-line-ignores",
+        config.per_line_ignores.as_ref(),
+    );
     if let Some(rules) = config.rules.as_ref() {
         table.insert("rules".to_string(), rules_table_to_value(rules));
     }
@@ -354,6 +382,13 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
         );
     }
 
+    if !config.per_line_ignores.is_empty() {
+        table.insert(
+            "per-line-ignores".to_string(),
+            normalized_per_line_ignores_to_toml_value(&config.per_line_ignores),
+        );
+    }
+
     if !config.rules.is_empty() {
         table.insert(
             "rules".to_string(),
@@ -404,6 +439,30 @@ fn normalized_per_file_ignores_to_toml_value(
                             .collect(),
                     ),
                 )
+            })
+            .collect(),
+    )
+}
+
+fn normalized_per_line_ignores_to_toml_value(
+    per_line_ignores: &[NormalizedPerLineIgnore],
+) -> toml::Value {
+    toml::Value::Array(
+        per_line_ignores
+            .iter()
+            .map(|entry| {
+                let mut table = toml::map::Map::new();
+                if let Some(regex) = entry.regex.as_ref() {
+                    table.insert(
+                        "regex".to_string(),
+                        toml::Value::String(regex.clone()),
+                    );
+                }
+                if let Some(path) = entry.path.as_ref() {
+                    table.insert("path".to_string(), toml::Value::String(path.clone()));
+                }
+                insert_string_array(&mut table, "rules", &entry.rules);
+                toml::Value::Table(table)
             })
             .collect(),
     )
