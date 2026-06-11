@@ -262,6 +262,115 @@ fn allow_any_open_indent_only_accepts_still_open_levels() {
 }
 
 #[test]
+fn allow_any_open_indent_accepts_compact_mapping_level() {
+    // A list-of-mappings: `- key:` opens a mapping at col 4 (after `- `), which is never
+    // a line's leading indent, so the open-level stack must record it from the compact
+    // entry. Default flags the comment; the option accepts it (regression for the Codex
+    // P2 finding on PR #289).
+    let input = "items:\n  - key:\n      nested: x\n    # boundary\n  - next\n";
+    assert_eq!(run(input), vec![Violation { line: 4, column: 5 }]);
+    assert!(
+        run_open(input).is_empty(),
+        "comment at the compact `- key:` mapping level (col 4) should be accepted"
+    );
+}
+
+#[test]
+fn allow_any_open_indent_accepts_compact_nested_sequence_level() {
+    // `- - x` opens an inner sequence at col 4 (the second dash); that level appears
+    // only via the compact entry, never as a leading indent. The option accepts a
+    // comment aligned to it.
+    let input = "top:\n  - - x\n    # inner\n  - y\n";
+    assert_eq!(run(input), vec![Violation { line: 3, column: 5 }]);
+    assert!(
+        run_open(input).is_empty(),
+        "inner `- -` sequence level (col 4) should be accepted"
+    );
+}
+
+#[test]
+fn allow_any_open_indent_rejects_scalar_sequence_entry_column() {
+    // Soundness boundary: a *scalar* entry `- value` opens no block at col 4, so the
+    // option must NOT accept a comment there (only mapping/sequence entries open a
+    // deeper level). Distinguishing this is why the level must be derived structurally.
+    let input = "items:\n  - value\n    # stray\n  - other\n";
+    assert_eq!(run_open(input), vec![Violation { line: 3, column: 5 }]);
+}
+
+#[test]
+fn allow_any_open_indent_rejects_multiline_scalar_continuation_column() {
+    // `key: text` then `  continuation` folds into one plain scalar; col 2 is the
+    // scalar's continuation, NOT an open block. The option must not accept a comment
+    // there (adversarial-Codex finding #289 — only the parser can tell this apart).
+    let input = "key: text\n  continuation\n# boundary\n  # stray\nnext: x\n";
+    assert_eq!(run_open(input), vec![Violation { line: 4, column: 3 }]);
+}
+
+#[test]
+fn allow_any_open_indent_on_unparsable_input_degrades_to_base_rule() {
+    // Open levels come from the parser; on a parse error there are none, so the option
+    // behaves like the default rule (and never panics). `[` opens an unterminated flow.
+    let input = "a: [\n  # x\nb: 2\n";
+    let strict = run(input);
+    let relaxed = run_open(input);
+    assert_eq!(
+        relaxed, strict,
+        "with no parse, allow-any-open-indent must match the default rule"
+    );
+}
+
+#[test]
+fn allow_any_open_indent_ignores_flow_collection_columns() {
+    // A flow mapping `{...}` carries no block indentation level, so its column is not
+    // an open level (exercises the block-vs-flow check).
+    let input = "items: {a: 1}\n   # x\nnext: 2\n";
+    assert_eq!(run_open(input), vec![Violation { line: 2, column: 4 }]);
+}
+
+#[test]
+fn allow_any_open_indent_ignores_implicit_flow_mapping_columns() {
+    // The implicit mappings inside `[a: 1, b: 2]` start at a key (no `{`) but are flow
+    // children, so their columns are not open levels: a comment aligned to one (col 8,
+    // where `a` sits) is still flagged (adversarial-Codex finding #289).
+    let input = "items: [a: 1, b: 2]\n        # x\nnext: 3\n";
+    assert_eq!(run_open(input), vec![Violation { line: 2, column: 9 }]);
+}
+
+#[test]
+fn allow_any_open_indent_rejects_url_scalar_entry_column() {
+    // A `:` only indicates a mapping when followed by space/EOL, so `- http://example`
+    // is a scalar (not a `http:` mapping). Its column must NOT be an open level, else
+    // the option wrongly accepts a stray comment there (adversarial-Codex finding #289).
+    let input = "items:\n  - http://example\n    # stray\n  - next\n";
+    assert_eq!(run_open(input), vec![Violation { line: 3, column: 5 }]);
+}
+
+#[test]
+fn allow_any_open_indent_accepts_single_quoted_backslash_key() {
+    // `\` is literal in a single-quoted scalar, so `'a\'` closes and `'a\': value` is a
+    // mapping opening at col 4. The classifier must not treat `\'` as an escaped quote
+    // (adversarial-Codex finding #289).
+    let input = "items:\n  - 'a\\': value\n    # boundary\n  - next\n";
+    assert_eq!(run(input), vec![Violation { line: 3, column: 5 }]);
+    assert!(
+        run_open(input).is_empty(),
+        "single-quoted-key mapping level (col 4) should be accepted"
+    );
+}
+
+#[test]
+fn allow_any_open_indent_accepts_compact_explicit_key() {
+    // An explicit-key entry `- ? key` opens a mapping at col 4 just like `- key:`, so a
+    // comment aligned there is accepted (adversarial-Codex finding #289).
+    let input = "items:\n  - ? key\n    # boundary\n  - next\n";
+    assert_eq!(run(input), vec![Violation { line: 3, column: 5 }]);
+    assert!(
+        run_open(input).is_empty(),
+        "comment at the explicit-key mapping level (col 4) should be accepted"
+    );
+}
+
+#[test]
 fn allow_any_open_indent_fix_leaves_open_level_comment() {
     let input = "items:\n  - one\n# boundary\n  - two\n";
     assert_eq!(

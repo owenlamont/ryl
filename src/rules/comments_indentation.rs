@@ -6,14 +6,19 @@
 //! The ryl-only, TOML-only `allow-any-open-indent` option (default off; origin
 //! adrienverge/yamllint#141) additionally accepts a comment whose indent matches any
 //! still-open enclosing block level, not just the following content — e.g. a comment
-//! at the parent mapping's indent marking where a nested block ends. Open levels are
-//! the block-indent stack built from the content lines above the comment.
+//! at the parent mapping's indent marking where a nested block ends. The open levels
+//! are derived from granit's parsed block structure (`compute_open_indents`), not a
+//! line scan, so multiline scalars, URLs, and flow collections never create a false
+//! level; on a parse error the option degrades to the base next/reference rule.
+
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
     block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,
     strip_trailing_comment_preserving_quotes,
 };
+use crate::rules::support::span_utils::marker_byte_offset;
 
 pub const ID: &str = "comments-indentation";
 pub const MESSAGE: &str = "comment not indented like content";
@@ -57,27 +62,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         return diagnostics;
     }
 
-    let mut block_tracker = BlockScalarTracker::default();
-    let mut lines: Vec<LineInfo> = Vec::new();
-
-    for (_, line, _) in split_lines_preserve_endings(buffer) {
-        let indent = leading_whitespace_width(line);
-        let content = &line[indent..];
-
-        let consumed = block_tracker.consume_line(indent, content);
-        let kind = if consumed {
-            LineKind::BlockScalarContent
-        } else {
-            classify_line_kind(content)
-        };
-
-        lines.push(LineInfo { indent, kind });
-        block_tracker.observe_indicator(indent, content);
-    }
+    let lines = build_lines(buffer);
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
-    let open_indents = compute_open_indents(&lines);
+    let open_indents = compute_open_indents(buffer, lines.len());
 
     let mut last_comment_indent: Option<usize> = None;
 
@@ -120,27 +109,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         return None;
     }
 
-    let mut block_tracker = BlockScalarTracker::default();
-    let mut lines: Vec<LineInfo> = Vec::new();
-
-    for (_, line, _) in split_lines_preserve_endings(buffer) {
-        let indent = leading_whitespace_width(line);
-        let content = &line[indent..];
-
-        let consumed = block_tracker.consume_line(indent, content);
-        let kind = if consumed {
-            LineKind::BlockScalarContent
-        } else {
-            classify_line_kind(content)
-        };
-
-        lines.push(LineInfo { indent, kind });
-        block_tracker.observe_indicator(indent, content);
-    }
+    let lines = build_lines(buffer);
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
-    let open_indents = compute_open_indents(&lines);
+    let open_indents = compute_open_indents(buffer, lines.len());
 
     let mut changed = false;
     let mut last_comment_indent: Option<usize> = None;
@@ -200,32 +173,94 @@ fn comment_is_aligned(
         || (allow_any_open_indent && open_indents.contains(&indent))
 }
 
-/// For each line, the block indentation levels left open by the content *strictly
-/// above* it — the levels `allow-any-open-indent` accepts a comment against.
-/// Precomputed once (like `compute_prev/next_content_indents`) so `check` and `fix`
-/// share one definition instead of each walking the stack inline.
-fn compute_open_indents(lines: &[LineInfo]) -> Vec<Vec<usize>> {
-    let mut result: Vec<Vec<usize>> = Vec::with_capacity(lines.len());
-    let mut stack: Vec<usize> = Vec::new();
-    for line in lines {
-        result.push(stack.clone());
-        if line.kind == LineKind::Other {
-            push_open_indent(&mut stack, line.indent);
+/// Classify every line once for both `check` and `fix`: its indent and kind.
+fn build_lines(buffer: &str) -> Vec<LineInfo> {
+    let mut block_tracker = BlockScalarTracker::default();
+    let mut lines: Vec<LineInfo> = Vec::new();
+    for (_, line, _) in split_lines_preserve_endings(buffer) {
+        let indent = leading_whitespace_width(line);
+        let content = &line[indent..];
+
+        let consumed = block_tracker.consume_line(indent, content);
+        let kind = if consumed {
+            LineKind::BlockScalarContent
+        } else {
+            classify_line_kind(content)
+        };
+
+        lines.push(LineInfo { indent, kind });
+        block_tracker.observe_indicator(indent, content);
+    }
+    lines
+}
+
+/// For each line (1-based line `L` → `result[L - 1]`), the columns of the block
+/// collections that enclose it — the levels `allow-any-open-indent` accepts a comment
+/// against. Derived from granit's parsed structure: each block mapping/sequence
+/// contributes its start column to every line of its span. Because the levels come
+/// from real nodes, a multiline scalar's continuation lines, a URL's `:`, and flow
+/// `{}`/`[]` collections never appear as a level. On a parse error every set is empty,
+/// so the option degrades to the base next/reference rule (the input is a syntax error
+/// regardless).
+fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
+    struct Collector<'b> {
+        buffer: &'b str,
+        /// Open collections: `(start column, is block, start line)`.
+        stack: Vec<(usize, bool, usize)>,
+        /// Closed block collections: `(column, start line, end line)`.
+        intervals: Vec<(usize, usize, usize)>,
+    }
+    impl SpannedEventReceiver<'_> for Collector<'_> {
+        fn on_event(&mut self, event: Event<'_>, span: Span) {
+            match event {
+                Event::MappingStart(..) | Event::SequenceStart(..) => {
+                    // A collection carries a block indentation level only when it is
+                    // itself block (starts at a key/`-`, not `{`/`[`) AND is not nested
+                    // inside a flow collection -- flow children such as the implicit
+                    // mappings in `[a: 1, b: 2]` start at a key but have no block level.
+                    let byte = marker_byte_offset(span.start).get();
+                    let parent_is_flow =
+                        self.stack.last().is_some_and(|&(_, block, _)| !block);
+                    let is_block = !parent_is_flow
+                        && !buffer_starts_with_flow_indicator(self.buffer, byte);
+                    self.stack
+                        .push((span.start.col(), is_block, span.start.line()));
+                }
+                Event::MappingEnd | Event::SequenceEnd => {
+                    if let Some((col, is_block, start_line)) = self.stack.pop()
+                        && is_block
+                    {
+                        self.intervals.push((col, start_line, span.start.line()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut collector = Collector {
+        buffer,
+        stack: Vec::new(),
+        intervals: Vec::new(),
+    };
+    if Parser::new_from_str(buffer)
+        .load(&mut collector, true)
+        .is_err()
+    {
+        return vec![Vec::new(); line_count];
+    }
+
+    let mut result = vec![Vec::new(); line_count];
+    for (col, start, end) in collector.intervals {
+        for entry in result.iter_mut().take(end.min(line_count)).skip(start - 1) {
+            entry.push(col);
         }
     }
     result
 }
 
-/// Maintain the stack of still-open block indentation levels. A content line at
-/// `indent` closes (pops) every deeper level, then opens its own if not already the
-/// innermost, so the stack holds each enclosing block's indent exactly once.
-fn push_open_indent(open_indents: &mut Vec<usize>, indent: usize) {
-    while open_indents.last().is_some_and(|&open| open > indent) {
-        open_indents.pop();
-    }
-    if open_indents.last() != Some(&indent) {
-        open_indents.push(indent);
-    }
+fn buffer_starts_with_flow_indicator(buffer: &str, byte: usize) -> bool {
+    buffer[byte..].starts_with(['{', '['])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
