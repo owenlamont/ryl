@@ -2,6 +2,12 @@
 //! it (else like the content it trails). Mirrors yamllint's `comments-indentation`.
 //! Safe `--fix` re-indents the comment — comments carry no YAML structure, so moving
 //! one cannot change the parse.
+//!
+//! The ryl-only, TOML-only `allow-any-open-indent` option (default off; origin
+//! adrienverge/yamllint#141) additionally accepts a comment whose indent matches any
+//! still-open enclosing block level, not just the following content — e.g. a comment
+//! at the parent mapping's indent marking where a nested block ends. Open levels are
+//! the block-indent stack built from the content lines above the comment.
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
@@ -13,12 +19,28 @@ pub const ID: &str = "comments-indentation";
 pub const MESSAGE: &str = "comment not indented like content";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Config;
+pub struct Config {
+    allow_any_open_indent: bool,
+}
 
 impl Config {
     #[must_use]
-    pub const fn resolve(_cfg: &YamlLintConfig) -> Self {
-        Self
+    pub fn resolve(cfg: &YamlLintConfig) -> Self {
+        Self {
+            allow_any_open_indent: cfg.rule_option_bool(
+                ID,
+                "allow-any-open-indent",
+                false,
+            ),
+        }
+    }
+
+    /// Construct a config for tests, bypassing YAML/TOML resolution.
+    #[must_use]
+    pub const fn new_for_tests(allow_any_open_indent: bool) -> Self {
+        Self {
+            allow_any_open_indent,
+        }
     }
 }
 
@@ -29,7 +51,7 @@ pub struct Violation {
 }
 
 #[must_use]
-pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
+pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut diagnostics: Vec<Violation> = Vec::new();
     if buffer.is_empty() {
         return diagnostics;
@@ -55,6 +77,7 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
+    let open_indents = compute_open_indents(&lines);
 
     let mut last_comment_indent: Option<usize> = None;
 
@@ -63,11 +86,16 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
             LineKind::Comment => {
                 let prev_indent = prev_content_indents[idx].unwrap_or(0);
                 let next_indent = next_content_indents[idx].unwrap_or(0);
-
                 let reference_indent =
                     last_comment_indent.unwrap_or_else(|| prev_indent.max(next_indent));
 
-                if line.indent != reference_indent && line.indent != next_indent {
+                if !comment_is_aligned(
+                    line.indent,
+                    reference_indent,
+                    next_indent,
+                    &open_indents[idx],
+                    cfg.allow_any_open_indent,
+                ) {
                     diagnostics.push(Violation {
                         line: idx + 1,
                         column: line.indent + 1,
@@ -87,7 +115,7 @@ pub fn check(buffer: &str, _cfg: &Config) -> Vec<Violation> {
 }
 
 #[must_use]
-pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     if buffer.is_empty() {
         return None;
     }
@@ -112,6 +140,7 @@ pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
+    let open_indents = compute_open_indents(&lines);
 
     let mut changed = false;
     let mut last_comment_indent: Option<usize> = None;
@@ -126,13 +155,18 @@ pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
                 let next_indent = next_content_indents[line_idx].unwrap_or(0);
                 let reference_indent =
                     last_comment_indent.unwrap_or_else(|| prev_indent.max(next_indent));
-                let target_indent =
-                    if line.indent != reference_indent && line.indent != next_indent {
-                        changed = true;
-                        reference_indent
-                    } else {
-                        line.indent
-                    };
+                let target_indent = if comment_is_aligned(
+                    line.indent,
+                    reference_indent,
+                    next_indent,
+                    &open_indents[line_idx],
+                    cfg.allow_any_open_indent,
+                ) {
+                    line.indent
+                } else {
+                    changed = true;
+                    reference_indent
+                };
                 last_comment_indent = Some(target_indent);
                 output.push_str(&" ".repeat(target_indent));
                 output.push_str(raw_line.trim_start_matches([' ', '\t']));
@@ -149,6 +183,49 @@ pub fn fix(buffer: &str, _cfg: &Config) -> Option<String> {
     }
 
     changed.then_some(output)
+}
+
+/// A standalone comment lines up when it matches the content below (`next_indent`),
+/// the active reference indent, or — under `allow-any-open-indent` — any still-open
+/// enclosing block level.
+fn comment_is_aligned(
+    indent: usize,
+    reference_indent: usize,
+    next_indent: usize,
+    open_indents: &[usize],
+    allow_any_open_indent: bool,
+) -> bool {
+    indent == reference_indent
+        || indent == next_indent
+        || (allow_any_open_indent && open_indents.contains(&indent))
+}
+
+/// For each line, the block indentation levels left open by the content *strictly
+/// above* it — the levels `allow-any-open-indent` accepts a comment against.
+/// Precomputed once (like `compute_prev/next_content_indents`) so `check` and `fix`
+/// share one definition instead of each walking the stack inline.
+fn compute_open_indents(lines: &[LineInfo]) -> Vec<Vec<usize>> {
+    let mut result: Vec<Vec<usize>> = Vec::with_capacity(lines.len());
+    let mut stack: Vec<usize> = Vec::new();
+    for line in lines {
+        result.push(stack.clone());
+        if line.kind == LineKind::Other {
+            push_open_indent(&mut stack, line.indent);
+        }
+    }
+    result
+}
+
+/// Maintain the stack of still-open block indentation levels. A content line at
+/// `indent` closes (pops) every deeper level, then opens its own if not already the
+/// innermost, so the stack holds each enclosing block's indent exactly once.
+fn push_open_indent(open_indents: &mut Vec<usize>, indent: usize) {
+    while open_indents.last().is_some_and(|&open| open > indent) {
+        open_indents.pop();
+    }
+    if open_indents.last() != Some(&indent) {
+        open_indents.push(indent);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

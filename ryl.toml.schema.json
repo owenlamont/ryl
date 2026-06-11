@@ -264,6 +264,20 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
+    "RuleEntryForCommentsIndentationOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForCommentsIndentationOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
     "RuleEntryForCommentsOptions": {
       "anyOf": [
         {
@@ -722,6 +736,49 @@
           "type": [
             "integer",
             "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleOptionsForCommentsIndentationOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "allow-any-open-indent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       },
@@ -1745,7 +1802,7 @@
         "comments-indentation": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForNoOptions"
+              "$ref": "#/$defs/RuleEntryForCommentsIndentationOptions"
             },
             {
               "type": "null"

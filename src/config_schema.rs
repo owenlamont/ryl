@@ -42,6 +42,7 @@ pub struct TomlConfig {
             TomlQuotedStringsOptions,
             TomlKeyDuplicatesOptions,
             TomlAnchorsOptions,
+            CommentsIndentationOptions,
         >,
     >,
     #[serde(flatten, default)]
@@ -367,6 +368,7 @@ pub struct RulesTable<
     Q = QuotedStringsOptions,
     K = KeyDuplicatesOptions,
     A = AnchorsOptions,
+    C = NoOptions,
 > {
     pub anchors: Option<RuleEntry<A>>,
     #[serde(rename = "block-scalar-chomping")]
@@ -377,7 +379,7 @@ pub struct RulesTable<
     pub commas: Option<RuleEntry<CommasOptions>>,
     pub comments: Option<RuleEntry<CommentsOptions>>,
     #[serde(rename = "comments-indentation")]
-    pub comments_indentation: Option<RuleEntry<NoOptions>>,
+    pub comments_indentation: Option<RuleEntry<C>>,
     #[serde(rename = "document-end")]
     pub document_end: Option<RuleEntry<DocumentPresenceOptions>>,
     #[serde(rename = "document-start")]
@@ -441,6 +443,15 @@ pub struct TomlAnchorsOptions {
     pub forbid_unused_anchors: Option<bool>,
     #[serde(rename = "forbid-ambiguous-anchor-alias-names")]
     pub forbid_ambiguous_anchor_alias_names: Option<bool>,
+}
+
+/// TOML-only `comments-indentation` options. yamllint's rule has none, so the YAML
+/// config path keeps `NoOptions` and ryl's `allow-any-open-indent` is TOML-only.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CommentsIndentationOptions {
+    #[serde(rename = "allow-any-open-indent")]
+    pub allow_any_open_indent: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -973,10 +984,10 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A>(
+fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A, C>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable<Q, K, A>>,
+    rules: Option<&RulesTable<Q, K, A, C>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(
