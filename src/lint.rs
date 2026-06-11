@@ -331,7 +331,9 @@ pub fn lint_str(
     collect_value_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
     collect_block_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
 
-    let directives = crate::directives::Directives::parse(content);
+    let per_line = cfg.per_line_applies(path, base_dir);
+    let directives =
+        crate::directives::Directives::parse_with_per_line(content, &per_line);
     diagnostics.retain(|problem| {
         !problem
             .rule

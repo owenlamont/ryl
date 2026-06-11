@@ -4,7 +4,7 @@ use similar::TextDiff;
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
-use crate::directives::Directives;
+use crate::directives::{Directives, PerLineRuleApply};
 use crate::markdown_embed::{MarkdownSources, extract_regions};
 use crate::rules::support::line_syntax::buffer_newline;
 use crate::rules::{
@@ -555,12 +555,14 @@ pub fn apply_safe_fixes_filtered(
     {
         return input.to_string();
     }
+    let per_line = cfg.per_line_applies(path, base_dir);
     let ctx = FixContext {
         cfg,
         path,
         base_dir,
         skip,
-        directives: Directives::parse(input),
+        directives: Directives::parse_with_per_line(input, &per_line),
+        per_line,
     };
     let mut content = input.to_string();
     content = ctx.apply(content, NEW_LINES_FIX, |buffer| {
@@ -614,10 +616,14 @@ struct FixContext<'a> {
     path: &'a Path,
     base_dir: &'a Path,
     skip: &'a [&'a str],
-    /// Parsed once from the original input. `disables_any` is stable across fixes
-    /// (no fixer adds or removes a directive comment), so the per-rule guard can be
-    /// read from here without re-parsing for every rule.
+    /// Parsed once from the original input (inline directives plus the `per_line`
+    /// virtual disable-lines). `disables_any` is stable across fixes (no fixer adds or
+    /// removes a directive comment), so the per-rule guard can be read from here
+    /// without re-parsing for every rule.
     directives: Directives,
+    /// Config `per-line-ignores` applying to this file; re-applied on each guarded
+    /// re-parse since a structural fixer can shift which line a regex matches.
+    per_line: Vec<PerLineRuleApply<'a>>,
 }
 
 impl FixContext<'_> {
@@ -646,11 +652,19 @@ impl FixContext<'_> {
         // change because structural fixers shift line numbers (and the comments with
         // them). The guard is read from the once-parsed `self.directives`; only a
         // guarded rule pays for the per-pass re-parse.
-        let guarded = self.directives.disables_any(rule.rule);
+        // Reconcile when an inline directive disables this rule, OR when any per-line
+        // entry targets it: a content regex can newly match a line a *fixer* produces
+        // (unlike an inline comment, which a fixer can't create), so the per-pass
+        // re-parse must run even if no original line matched yet.
+        let guarded = self.directives.disables_any(rule.rule)
+            || self
+                .per_line
+                .iter()
+                .any(|entry| entry.rules.is_none_or(|ids| ids.contains(&rule.rule)));
         let mut current = content;
         let mut directives = Directives::default();
         if guarded {
-            directives = Directives::parse(&current);
+            directives = Directives::parse_with_per_line(&current, &self.per_line);
         }
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
             let Some(next) = fix(&current) else { break };
@@ -664,7 +678,7 @@ impl FixContext<'_> {
             }
             current = next;
             if guarded {
-                directives = Directives::parse(&current);
+                directives = Directives::parse_with_per_line(&current, &self.per_line);
             }
         }
         current

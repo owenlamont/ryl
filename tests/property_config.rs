@@ -16,7 +16,9 @@
 //!   future *validation gap*: were one introduced, a generated config would carry a
 //!   bad value into `resolve()` and panic the property.
 //! - TOML configs are pushed through `parse -> validate -> normalize`, the
-//!   TOML-specific surface.
+//!   TOML-specific surface. This includes generated `[[per-line-ignores]]` entries
+//!   (TOML-only), with hostile regex/glob/rules values to exercise
+//!   `validate_per_line_ignores`.
 //!
 //! Deterministic siblings pin the empty-config, invalid-regex, billion-laughs, and
 //! valid-config cases so the random invariant cannot pass vacuously if the generator
@@ -116,6 +118,31 @@ fn billion_laughs_config_errors_without_panicking() {
         YamlLintConfig::from_yaml_str(&yaml).is_err(),
         "alias expansion must be capped and reported, not exhaust memory"
     );
+}
+
+#[test]
+fn per_line_ignores_config_is_handled_without_panicking() {
+    // Valid entry (regex + path + rules incl. ALL): parses, validates, normalizes.
+    parse_toml_without_panicking(
+        "[rules]\ncomments = \"enable\"\n\n[[per-line-ignores]]\nregex = \"^ok$\"\n\
+         path = \"*.yaml\"\nrules = [\"comments\", \"ALL\"]\n",
+    );
+    // Invalid entries must be rejected by validation (not panic): a bad regex, a bad
+    // glob, neither regex nor path, and an empty rules list.
+    for bad in [
+        "[[per-line-ignores]]\nregex = \"(\"\nrules = [\"comments\"]\n",
+        "[[per-line-ignores]]\npath = \"[\"\nrules = [\"comments\"]\n",
+        "[[per-line-ignores]]\nrules = [\"comments\"]\n",
+        "[[per-line-ignores]]\nregex = \"^ok$\"\nrules = []\n",
+    ] {
+        let typed = parse_toml_config_str(bad, false)
+            .expect("parses into the typed model")
+            .expect("standalone config is present");
+        assert!(
+            validate_toml_config(&typed).is_err(),
+            "invalid per-line-ignores entry must be rejected: {bad}"
+        );
+    }
 }
 
 #[test]
