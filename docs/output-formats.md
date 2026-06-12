@@ -95,8 +95,7 @@ The GitLab report is a single JSON array, one object per diagnostic, matching th
   file that could not be processed is a `blocker`.
 - `location.path` is relative to `CI_PROJECT_DIR` (the repository root in GitLab CI) when
   that variable is set, otherwise to the working directory, with no `./` prefix, as GitLab
-  requires. A file outside that root keeps its absolute path (there is no repo-relative
-  form for it).
+  requires. A file outside that root is expressed with `..` segments (like ruff).
 - `fingerprint` is a stable SHA-256 of the diagnostic's identity (path, rule, and message,
   deliberately not the line or column), so GitLab keeps tracking the same issue across
   pipeline runs even when an edit elsewhere shifts its line.

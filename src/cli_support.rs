@@ -65,16 +65,36 @@ pub fn lexical_abspath(path: &Path) -> PathBuf {
 /// GitLab requires. The caller relativizes against the project root (`CI_PROJECT_DIR` or
 /// the working directory, like ruff), so a `--stdin-filename` or a path under the repo
 /// stays relative even when the config lives elsewhere. A path outside the project root
-/// (the strip fails) keeps its normalized absolute form: there is no repo-relative
-/// representation for a file outside the tree. Control characters are stripped so a
-/// crafted filename cannot inject into the report.
+/// is expressed with `..` segments (like ruff's `pathdiff`) rather than kept absolute.
+/// Control characters are stripped so a crafted filename cannot inject into the report.
 #[must_use]
 pub fn report_display_path(display: &Path, project_root: &Path) -> String {
     let absolute = lexical_abspath(display);
     let root = lexical_abspath(project_root);
-    let relative = absolute.strip_prefix(&root).unwrap_or(&absolute);
+    let relative = relativize(&absolute, &root);
     let text = relative.to_string_lossy().replace('\\', "/");
     sanitize_control(&text).into_owned()
+}
+
+/// `target` expressed relative to `base`, with `..` segments for the part of `base` that
+/// `target` does not share. Both are absolute and lexically normalized (no `.`/`..`
+/// components), so this is a pure component walk: drop the common prefix, emit one `..`
+/// per remaining `base` component, then append the rest of `target`. On a shared root this
+/// yields a clean relative path; two different Windows drive prefixes share nothing and
+/// fall back to a best-effort `..`-prefixed path (no relative path exists across drives).
+fn relativize(target: &Path, base: &Path) -> PathBuf {
+    let mut target_parts = target.components().peekable();
+    let mut base_parts = base.components().peekable();
+    while target_parts.peek().is_some() && target_parts.peek() == base_parts.peek() {
+        target_parts.next();
+        base_parts.next();
+    }
+    let mut relative = PathBuf::new();
+    for _ in base_parts {
+        relative.push("..");
+    }
+    relative.extend(target_parts);
+    relative
 }
 
 /// Resolve the configuration context for a given file path, optionally using a cached

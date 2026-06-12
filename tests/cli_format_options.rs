@@ -1183,3 +1183,30 @@ fn output_file_hardlinked_to_an_input_is_rejected() {
         "the hard-linked input must be left untouched"
     );
 }
+
+#[test]
+fn gitlab_path_uses_dotdot_for_files_outside_the_project_root() {
+    // A file above CI_PROJECT_DIR is expressed with `..` segments (ruff-style), not an
+    // absolute path.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("dirty.yaml");
+    fs::write(&file, "key: value").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        // Project root is a subdirectory below the file, so the file is one level up.
+        .env("CI_PROJECT_DIR", dir.path().join("sub"))
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("gitlab output is JSON");
+    assert_eq!(
+        json[0]["location"]["path"], "../dirty.yaml",
+        "a file above the project root uses a `..` segment: {stdout}"
+    );
+}

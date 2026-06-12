@@ -633,7 +633,7 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   `report::ReportEntry` carries the report display path (relativized via
   `cli_support::report_display_path` against the project root =
   `CI_PROJECT_DIR` or cwd, like ruff; forward-slashed, no `./` prefix; a path outside the
-  root keeps its absolute form), the kept problems, and an optional processing-error
+  root gets `..` segments), the kept problems, and an optional processing-error
   message. GitLab severity maps error->`major`, warning->`minor`, a read/parse
   failure->`blocker`; its `fingerprint` is a stable SHA-256 (`sha2`) of
   `(path, rule, message)` — deliberately NOT line/column, so an edit that shifts the line
