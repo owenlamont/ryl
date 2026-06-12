@@ -38,7 +38,7 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@873c7452cadb7c034694a1282227095d93fbdf92
+        uses: taiki-e/install-action@59012be0884e296ca2da49b530610e72c49039ad
         with:
           tool: cargo-audit
 
