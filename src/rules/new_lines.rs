@@ -9,6 +9,7 @@
 use std::borrow::Cow;
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::{first_line_break, line_break_at};
 
 pub const ID: &str = "new-lines";
 
@@ -64,7 +65,7 @@ pub const fn platform_newline() -> &'static str {
 #[must_use]
 pub fn check(buffer: &str, cfg: Config, platform_newline: &str) -> Option<Violation> {
     let expected = cfg.kind.expected(platform_newline);
-    let (index, actual) = first_line_ending(buffer)?;
+    let (index, actual) = first_line_break(buffer)?;
     if actual == expected.as_ref() {
         return None;
     }
@@ -99,51 +100,23 @@ pub fn fix(buffer: &str, cfg: Config, platform_newline: &str) -> Option<String> 
     let mut changed = false;
 
     while idx < bytes.len() {
-        match bytes[idx] {
-            b'\r' if bytes.get(idx + 1) == Some(&b'\n') => {
-                out.push_str(expected.as_ref());
-                changed |= expected.as_ref() != "\r\n";
-                idx += 2;
-            }
-            b'\r' => {
-                // A bare `\r` is never the configured style, so emitting the
-                // expected ending always changes the buffer.
-                out.push_str(expected.as_ref());
-                changed = true;
-                idx += 1;
-            }
-            b'\n' => {
-                out.push_str(expected.as_ref());
-                changed |= expected.as_ref() != "\n";
-                idx += 1;
-            }
-            _ => {
-                let ch = buffer[idx..]
-                    .chars()
-                    .next()
-                    .expect("idx should always point at a valid character boundary");
-                out.push(ch);
-                idx += ch.len_utf8();
-            }
+        if let Some((len, style)) = line_break_at(bytes, idx) {
+            out.push_str(expected.as_ref());
+            // A bare `\r` is never a configurable style, so `expected != "\r"` always
+            // holds and rewriting it always counts as a change.
+            changed |= expected.as_ref() != style;
+            idx += len;
+        } else {
+            let ch = buffer[idx..]
+                .chars()
+                .next()
+                .expect("idx should always point at a valid character boundary");
+            out.push(ch);
+            idx += ch.len_utf8();
         }
     }
 
     changed.then_some(out)
-}
-
-fn first_line_ending(buffer: &str) -> Option<(usize, &'static str)> {
-    let bytes = buffer.as_bytes();
-    let mut idx = 0;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\n' => return Some((idx, "\n")),
-            b'\r' if bytes.get(idx + 1) == Some(&b'\n') => return Some((idx, "\r\n")),
-            b'\r' => return Some((idx, "\r")),
-            _ => {}
-        }
-        idx += 1;
-    }
-    None
 }
 
 fn display_sequence(input: &str) -> &'static str {

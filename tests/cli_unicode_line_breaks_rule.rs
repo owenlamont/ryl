@@ -59,6 +59,28 @@ fn flags_nel_ls_ps_across_contexts_with_char_based_columns() {
 }
 
 #[test]
+fn flags_chars_adjacent_to_cr_and_crlf_breaks() {
+    // The rule must keep NEL/LS/PS on the line they sit on while still advancing the
+    // counter across `\r\n` and bare `\r` — the chars are not YAML 1.2 breaks but the
+    // CRs are. All-comment lines keep the doc valid YAML so the rule spans survive.
+    // LS before a CRLF (1:4), then NEL before a bare CR (2:4); the final `\n` line is
+    // clean.
+    let (code, output) = lint_with_toml_config(
+        "# a\u{2028}\r\n# b\u{85}\r# c\n",
+        "[rules]\nunicode-line-breaks = \"enable\"\n",
+    );
+    assert_eq!(code, 1, "raw breaks adjacent to CRs should fail: {output}");
+    assert!(
+        output.contains("1:4") && output.contains("line separator"),
+        "LS before a CRLF stays at 1:4: {output}"
+    );
+    assert!(
+        output.contains("2:4") && output.contains("next line"),
+        "NEL before a bare CR stays at 2:4 (the CR advanced the line): {output}"
+    );
+}
+
+#[test]
 fn rule_does_not_fire_when_not_enabled() {
     let (code, output) =
         lint_with_toml_config("a: \"x\u{2028}y\"\n", "[rules]\ntruthy = \"enable\"\n");

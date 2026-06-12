@@ -23,6 +23,8 @@
 //! Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
 //! (line-break characters), §5.7 (escaped characters).
 
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
+
 pub const ID: &str = "unicode-line-breaks";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,44 +34,26 @@ pub struct Violation {
     pub message: String,
 }
 
-/// Report every raw NEL / LS / PS character with a 1-based line/column. Line counting
-/// advances on `\n`, `\r\n`, and a bare `\r`; the flagged NEL/LS/PS chars are not YAML
-/// 1.2 breaks, so they never advance the counter.
+/// Report every raw NEL / LS / PS character with a 1-based line/column. The flagged
+/// chars are not YAML 1.2 breaks, so they stay inside a line's content — splitting on
+/// the shared CR-aware break set (`\n`, `\r\n`, bare `\r`) gives the line, and the
+/// char offset within that content gives the (character-, not byte-) column.
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
-    let mut violations = Vec::new();
-    let mut line = 1usize;
-    let mut column = 1usize;
-    let mut chars = buffer.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\n' => {
-                line += 1;
-                column = 1;
-            }
-            '\r' => {
-                if chars.peek() == Some(&'\n') {
-                    chars.next();
-                }
-                line += 1;
-                column = 1;
-            }
-            _ => {
-                if let Some((name, escape)) = classify(ch) {
-                    violations.push(Violation {
-                        line,
-                        column,
-                        message: format!(
-                            "forbidden raw {name} U+{:04X}; escape as \"{escape}\" in a double-quoted scalar",
-                            ch as u32
-                        ),
-                    });
-                }
-                column += 1;
-            }
-        }
-    }
-    violations
+    split_lines_preserve_endings(buffer)
+        .flat_map(|(line_idx, content, _)| {
+            content.chars().enumerate().filter_map(move |(col_idx, ch)| {
+                classify(ch).map(|(name, escape)| Violation {
+                    line: line_idx + 1,
+                    column: col_idx + 1,
+                    message: format!(
+                        "forbidden raw {name} U+{:04X}; escape as \"{escape}\" in a double-quoted scalar",
+                        ch as u32
+                    ),
+                })
+            })
+        })
+        .collect()
 }
 
 fn classify(ch: char) -> Option<(&'static str, &'static str)> {
