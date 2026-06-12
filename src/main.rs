@@ -1030,6 +1030,10 @@ fn gather_lint_files(
 /// is written to its destination by the caller (a single fallible step); the returned
 /// [`LintSummary`] (and thus the exit code) is identical across all formats. Output is
 /// built in memory so the per-diagnostic writes cannot fail (see [`OUTPUT_INFALLIBLE`]).
+///
+/// Buffering rather than streaming the console formats is not a regression: `lint_files`
+/// has already collected every result (in parallel) before this runs, so output only ever
+/// appears after linting completes — the buffer just emits the same bytes in one write.
 fn process_results(
     files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
