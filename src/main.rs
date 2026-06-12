@@ -36,6 +36,7 @@ use ryl::report::{ReportEntry, render_gitlab, render_junit};
 use ryl::{
     LintProblem, Severity, lint_file, lint_markdown_file, lint_markdown_str, lint_str,
 };
+use same_file::Handle;
 
 const STDIN_LABEL: &str = "<stdin>";
 
@@ -461,11 +462,10 @@ fn emit_empty_report(
 
 /// Refuse an `--output-file` whose lexical path matches a linted input, so a report can
 /// never truncate the source it just linted (or, with `--fix`, the freshly-fixed file).
-/// Matches on the lexical identity (`lexical_abspath`) used for input de-duplication, and
-/// additionally on the canonical path of an existing destination so an `-o` symlinked onto
-/// an input is caught too. Hard links share an inode under distinct, non-symlinked paths
-/// that canonicalization does not resolve; detecting those would need platform-specific
-/// file-id comparison and is left unguarded.
+/// Matches on the lexical identity (`lexical_abspath`) used for input de-duplication —
+/// which also covers a not-yet-created destination — and, for a destination that already
+/// exists, on its underlying file identity via `same_file::Handle`, so an `-o` that is a
+/// symlink *or* a hard link onto a linted input is caught too.
 ///
 /// # Errors
 ///
@@ -477,11 +477,11 @@ fn reject_output_file_collision<'a>(
     inputs: impl Iterator<Item = &'a Path>,
 ) -> Result<(), String> {
     let output_abs = lexical_abspath(output);
-    let output_real = std::fs::canonicalize(output).ok();
+    let output_handle = Handle::from_path(output).ok();
     let collides = inputs.into_iter().any(|input| {
         lexical_abspath(input) == output_abs
-            || output_real.as_deref().is_some_and(|real| {
-                std::fs::canonicalize(input).ok().as_deref() == Some(real)
+            || output_handle.as_ref().is_some_and(|handle| {
+                Handle::from_path(input).ok().as_ref() == Some(handle)
             })
     });
     if collides {

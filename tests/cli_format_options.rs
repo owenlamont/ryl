@@ -1148,3 +1148,38 @@ fn blank_ci_project_dir_does_not_panic() {
         "the diagnostic is still reported"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn output_file_hardlinked_to_an_input_is_rejected() {
+    // A hard-linked --output-file shares the input's inode under a distinct path; the
+    // file-identity (same-file) check must refuse it so the report cannot truncate the
+    // input through the hard link.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let input = dir.path().join("real.yaml");
+    fs::write(&input, "key: value").unwrap();
+    let original = fs::read_to_string(&input).unwrap();
+    let hardlink = dir.path().join("hard.yaml");
+    fs::hard_link(&input, &hardlink).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&hardlink)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&input));
+    assert_eq!(code, 2, "a hard-linked output aliasing an input is refused");
+    assert!(
+        stderr.contains("is also a linted input"),
+        "expected a collision message: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&input).unwrap(),
+        original,
+        "the hard-linked input must be left untouched"
+    );
+}

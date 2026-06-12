@@ -1670,6 +1670,7 @@ dependencies = [
  "quick-xml",
  "rayon",
  "regex",
+ "same-file",
  "schemars",
  "semver",
  "serde",

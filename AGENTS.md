@@ -624,9 +624,10 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   format to a file (any format), `conflicts_with` `--diff`; `--format junit|gitlab` with
   `--diff` is rejected by `reject_diff_with_report_format`. An `--output-file` that
   lexically resolves to a linted input or the `--stdin-filename` is refused
-  (`reject_output_file_collision`) so the report cannot truncate the source — stricter
-  than ruff, which guards nothing; other destinations (e.g. a config file) are overwritten
-  as directed, and symlink/hard-link aliases follow ryl's lexical identity. An
+  (`reject_output_file_collision`: lexical-path match, plus a `same_file::Handle`
+  file-identity match for an existing destination so a symlinked or hard-linked `-o` is
+  caught too) so the report cannot truncate the source — stricter than ruff, which guards
+  nothing; other destinations (e.g. a config file) are overwritten as directed. An
   empty/all-ignored input set still emits a valid empty report (`emit_empty_report`:
   `[]` / `<testsuites .../>`) so CI artifact ingestion does not see a missing file.
   `report::ReportEntry` carries the report display path (relativized via
