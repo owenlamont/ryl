@@ -13,7 +13,7 @@ use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::{lexical_abspath, resolve_ctx, sanitize_control};
@@ -199,17 +199,38 @@ struct Cli {
     #[arg(short = 'f', long = "format", default_value_t = CliFormat::Auto, value_enum)]
     format: CliFormat,
 
+    // These print-and-exit meta-actions ignore every other input/flag; mark them
+    // `exclusive` so combining them with a lint/fix/format request is a usage error
+    // rather than a silent no-op. `--migrate-configs` is deliberately not exclusive
+    // (it combines with its `requires`-bound `--migrate-*` sub-flags and a root path).
     /// Print the JSON Schema for ryl TOML config and exit
-    #[arg(long = "print-toml-config-schema", default_value_t = false)]
+    #[arg(
+        long = "print-toml-config-schema",
+        default_value_t = false,
+        exclusive = true
+    )]
     print_toml_config_schema: bool,
 
     /// Print the JSON Schema for yamllint-compatible YAML config and exit
-    #[arg(long = "print-yaml-config-schema", default_value_t = false)]
+    #[arg(
+        long = "print-yaml-config-schema",
+        default_value_t = false,
+        exclusive = true
+    )]
     print_yaml_config_schema: bool,
 
     /// Convert discovered legacy YAML config files into .ryl.toml files
     #[arg(long = "migrate-configs", default_value_t = false)]
     migrate_configs: bool,
+
+    /// Print a shell completion script for SHELL and exit
+    #[arg(
+        long = "generate-completions",
+        value_name = "SHELL",
+        value_enum,
+        exclusive = true
+    )]
+    generate_completions: Option<clap_complete::Shell>,
 
     #[command(flatten)]
     lint: LintFlags,
@@ -361,6 +382,18 @@ fn main() -> ExitCode {
 }
 
 fn run_cli(cli: Cli) -> Result<ExitCode, String> {
+    // A pure meta-action that ignores every other input/flag, like the
+    // schema-print flags below; clap_complete derives the script from `Cli`.
+    if let Some(shell) = cli.generate_completions {
+        clap_complete::generate(
+            shell,
+            &mut Cli::command(),
+            "ryl",
+            &mut std::io::stdout(),
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
     if cli.print_toml_config_schema {
         println!("{}", schema_string_pretty());
         return Ok(ExitCode::SUCCESS);

@@ -15,6 +15,7 @@ nav = [
   { "Home" = "index.md" },
   { "Getting Started" = [
     { "Installation" = "getting-started/installation.md" },
+    { "Shell completions" = "getting-started/shell-completions.md" },
     { "Quick Start" = "getting-started/quickstart.md" },
     { "Migrating from yamllint" = "getting-started/migrating-from-yamllint.md" },
   ]},

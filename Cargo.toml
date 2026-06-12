@@ -31,6 +31,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.0", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
+clap_complete = "4.6"
 globset = "0.4.18"
 ignore = "0.4.25"
 rayon = "1.11.0"

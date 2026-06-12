@@ -365,6 +365,30 @@ fn cli_print_toml_config_schema_outputs_generated_schema_without_inputs() {
     assert_eq!(printed_schema("--print-toml-config-schema"), schema_value());
 }
 
+/// The schema-print flags are `exclusive`: pairing one with an input path or the
+/// other schema flag is a clap usage error (exit 2), not a silent schema dump
+/// that ignores the rest of the request.
+#[test]
+fn cli_print_config_schema_flags_reject_being_combined() {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let combos: [&[&str]; 2] = [
+        &["--print-toml-config-schema", "ignored.yaml"],
+        &["--print-toml-config-schema", "--print-yaml-config-schema"],
+    ];
+    for args in combos {
+        let out = Command::new(exe).args(args).output().expect("process");
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "combining {args:?} should be a usage error"
+        );
+        assert!(
+            !out.stderr.is_empty(),
+            "clap should explain the conflict for {args:?}"
+        );
+    }
+}
+
 #[test]
 fn schemastore_toml_schema_sets_expected_metadata() {
     let source_schema = schema_value();
