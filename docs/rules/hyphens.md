@@ -18,11 +18,16 @@ block sequences.
 [rules.hyphens]
 level = "error"
 max-spaces-after = 1
+dash-on-own-line = false
 ```
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
 | `max-spaces-after` | `1` | Maximum spaces between the `-` and the item value. |
+| `dash-on-own-line` | `false` | Require the `-` on its own line when the entry is a block mapping (ryl-only; TOML config only). |
+
+`dash-on-own-line` is a ryl-only extension with no yamllint counterpart, so it is
+configured in TOML config only and rejected in yamllint-compatible YAML config.
 
 ## Examples
 
@@ -50,9 +55,33 @@ list:
   -   second
 ```
 
+### :x: Reported (with `dash-on-own-line: true`)
+
+The mapping starts on the dash's line, so the `-` is not on its own line:
+
+```yaml
+items:
+  - name: web
+    port: 80
+```
+
+### :white_check_mark: Allowed (with `dash-on-own-line: true`)
+
+The `-` stands alone and the mapping body is indented below it (a dash carrying
+only an anchor/tag or a comment is also accepted, since the keys remain below):
+
+```yaml
+items:
+  -
+    name: web
+    port: 80
+```
+
 ## Automatic fixing
 
-This rule does not auto-fix; trim the extra spaces manually.
+This rule does not auto-fix. Trim the extra spaces (`max-spaces-after`) or break the
+mapping onto the line below the `-` (`dash-on-own-line`) manually: re-indenting the
+mapping body is a structural change ryl will not make automatically.
 
 ## Related rules
 

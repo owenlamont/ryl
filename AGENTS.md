@@ -323,7 +323,9 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   representation and, in tagged or string-typed consumers, its semantic value.
 - `hyphens` — Collapsing trailing spaces after `-` in a block sequence
   changes the indent of any nested block mapping/sequence that follows on
-  subsequent lines and so can change the parsed structure.
+  subsequent lines and so can change the parsed structure; the `dash-on-own-line`
+  option is likewise no-fix, since breaking the `-` onto its own line re-indents
+  the mapping body.
 - `indentation` — Re-indenting alters the block-structure boundaries the
   YAML grammar uses to delimit mappings, sequences, and scalars; any
   non-trivial fix risks changing the parsed value.

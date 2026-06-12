@@ -258,7 +258,7 @@ fn collect_block_diagnostics(
 ) {
     lint_rule!(diagnostics, cfg, content, path, base_dir, key_duplicates);
     lint_rule!(diagnostics, cfg, content, path, base_dir, key_ordering);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, hyphens, message);
+    lint_rule!(diagnostics, cfg, content, path, base_dir, hyphens);
     lint_rule!(
         diagnostics,
         cfg,

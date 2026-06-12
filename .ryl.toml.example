@@ -97,6 +97,7 @@ forbid-inf = true
 [rules.hyphens]
 level = "warning"
 max-spaces-after = 1
+dash-on-own-line = false
 
 [rules.indentation]
 level = "warning"
