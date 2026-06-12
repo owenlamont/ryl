@@ -33,4 +33,5 @@ Verify the install:
 ryl --version
 ```
 
-Continue to the [Quick start](quickstart.md) to run your first lint.
+Set up tab-completion with [Shell completions](shell-completions.md), or
+continue to the [Quick start](quickstart.md) to run your first lint.
