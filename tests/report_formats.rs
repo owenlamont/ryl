@@ -330,3 +330,50 @@ fn junit_escapes_special_characters_in_messages() {
     };
     assert_eq!(message, raw, "the message must survive XML escaping intact");
 }
+
+#[test]
+fn junit_message_cannot_inject_extra_elements() {
+    // A message crafted to close the <failure> and open a new <testcase> must be escaped to
+    // text: the document stays well-formed with exactly one testcase and one failure.
+    let raw = "boom</failure><testcase name=\"x\"/><failure>";
+    let entries = vec![ReportEntry {
+        path: "p.yaml".to_string(),
+        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        error: None,
+    }];
+    let counts = element_counts(&junit_xml(&entries));
+    assert_eq!(
+        counts.get("testcase"),
+        Some(&1),
+        "the payload must not inject a testcase"
+    );
+    assert_eq!(
+        counts.get("failure"),
+        Some(&1),
+        "the payload must not inject a failure element"
+    );
+}
+
+#[test]
+fn gitlab_message_cannot_inject_json_structure() {
+    // A message crafted to break out of its JSON string must be encoded as data, never
+    // injecting a sibling field or extra issue.
+    let raw = "evil\",\"check_name\":\"injected\",\"x\":\"\n}], [{";
+    let entries = vec![ReportEntry {
+        path: "p.yaml".to_string(),
+        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        error: None,
+    }];
+    let json = gitlab_json(&entries);
+    let issues = json.as_array().expect("array");
+    assert_eq!(issues.len(), 1, "the payload must not create extra issues");
+    assert_eq!(
+        issues[0]["check_name"], "commas",
+        "check_name comes from the rule, not an injected message field"
+    );
+    let description = issues[0]["description"].as_str().unwrap();
+    assert!(
+        !description.contains('\n'),
+        "control characters are stripped from the description: {description:?}"
+    );
+}

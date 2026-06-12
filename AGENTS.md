@@ -581,13 +581,21 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   YAML/TOML config errors ("not a mapping" / "configuration is empty") rather than
   silently linting nothing. Output is injection-safe: the GitHub format escapes user
   text (`github_escape_data`/`_property`) so a crafted key/anchor/filename can't
-  inject a `::command::`; the other formats run user text through `sanitize_control`.
+  inject a `::command::` (it is a line-oriented command protocol); the streaming
+  console formats run user text through `sanitize_control`. The `junit`/`gitlab`
+  report formats are structured data, not command protocols, so the analogous risk is
+  breaking out of an XML attribute / JSON string: `sanitize_control` first strips
+  control chars, then `quick-xml` (XML) and `serde_json` (JSON) apply structural
+  escaping, and fixed fields (`severity`, `check_name`, the testcase `name`) are
+  derived from the rule/level, not the message. `tests/property_report.rs` fuzzes this
+  (every output must stay well-formed XML / schema-valid JSON under hostile input).
   granit caps nesting recursion (~256), and config regexes
   (`key-ordering`/`quoted-strings`) are validated at parse time with the linear-time
   `regex` crate (no ReDoS). Guards:
   `tests/cli_alias_bomb.rs`, `cli_fix_symlink.rs`, `cli_config_data_error.rs`,
   `cli_toml_config.rs`, `config_extends_inline.rs`, `cli_format_options.rs`,
-  `cli_markdown_embed.rs`, `property_config.rs`.
+  `cli_markdown_embed.rs`, `property_config.rs`, `report_formats.rs`,
+  `property_report.rs`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding detection as
   files; `-` can't be combined with other inputs or with `--fix`. `--stdin-filename
   <PATH>` (ruff convention) sets the diagnostic label, anchors config discovery at the

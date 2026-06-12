@@ -33,6 +33,7 @@ const INFALLIBLE: &str = "writing report output to an in-memory buffer cannot fa
 /// One linted file's contribution to a report. `error` (a failed read/parse, from the
 /// `Err` arm of a lint result) and `problems` are mutually exclusive; a clean file has
 /// both empty, which `JUnit` renders as a passing test and `GitLab` omits entirely.
+#[derive(Debug)]
 pub struct ReportEntry {
     /// Display path, already relativized to the project root and forward-slashed.
     pub path: String,
