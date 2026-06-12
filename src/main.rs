@@ -461,21 +461,30 @@ fn emit_empty_report(
 
 /// Refuse an `--output-file` whose lexical path matches a linted input, so a report can
 /// never truncate the source it just linted (or, with `--fix`, the freshly-fixed file).
-/// Uses the same lexical identity (`lexical_abspath`) as input de-duplication, so a
-/// symlink or hard link aliasing an input under a different path is treated as distinct
-/// (matching ryl's lexical identity everywhere; resolving them would need symlink/inode
-/// canonicalization that diverges from the rest of the CLI).
+/// Matches on the lexical identity (`lexical_abspath`) used for input de-duplication, and
+/// additionally on the canonical path of an existing destination so an `-o` symlinked onto
+/// an input is caught too. Hard links share an inode under distinct, non-symlinked paths
+/// that canonicalization does not resolve; detecting those would need platform-specific
+/// file-id comparison and is left unguarded.
 ///
 /// # Errors
 ///
 /// Returns a usage error when `output` resolves to one of the `inputs` (for stdin, the
-/// single `--stdin-filename`/label entry).
+/// single `--stdin-filename`/label entry). `output` is the clap-parsed `--output-file`,
+/// which clap guarantees is non-empty, so `lexical_abspath` never sees an empty path.
 fn reject_output_file_collision<'a>(
     output: &Path,
     inputs: impl Iterator<Item = &'a Path>,
 ) -> Result<(), String> {
     let output_abs = lexical_abspath(output);
-    if inputs.map(lexical_abspath).any(|input| input == output_abs) {
+    let output_real = std::fs::canonicalize(output).ok();
+    let collides = inputs.into_iter().any(|input| {
+        lexical_abspath(input) == output_abs
+            || output_real.as_deref().is_some_and(|real| {
+                std::fs::canonicalize(input).ok().as_deref() == Some(real)
+            })
+    });
+    if collides {
         return Err(format!(
             "error: --output-file {} is also a linted input; refusing to overwrite it",
             sanitize_control(&output.display().to_string())

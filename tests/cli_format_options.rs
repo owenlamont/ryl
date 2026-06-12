@@ -1085,3 +1085,38 @@ fn stdin_output_file_matching_stdin_filename_is_rejected() {
         "the named file must be left untouched"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn output_file_symlinked_to_an_input_is_rejected() {
+    // A symlinked --output-file resolving to a linted input must be refused (canonical-path
+    // match), not just an exact lexical match, so the report cannot truncate the source.
+    use std::os::unix::fs::symlink;
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let input = dir.path().join("real.yaml");
+    fs::write(&input, "key: value").unwrap();
+    let original = fs::read_to_string(&input).unwrap();
+    let link = dir.path().join("alias.yaml");
+    symlink(&input, &link).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&link)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&input));
+    assert_eq!(code, 2, "a symlinked output aliasing an input is refused");
+    assert!(
+        stderr.contains("is also a linted input"),
+        "expected a collision message: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&input).unwrap(),
+        original,
+        "the aliased input must be left untouched"
+    );
+}
