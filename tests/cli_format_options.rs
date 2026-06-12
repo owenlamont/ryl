@@ -1120,3 +1120,31 @@ fn output_file_symlinked_to_an_input_is_rejected() {
         "the aliased input must be left untouched"
     );
 }
+
+#[test]
+fn blank_ci_project_dir_does_not_panic() {
+    // A set-but-blank CI_PROJECT_DIR is treated as unset; it must not panic lexical_abspath.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        .env("CI_PROJECT_DIR", "")
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 1,
+        "a blank CI_PROJECT_DIR must report diagnostics, not panic"
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("valid JSON output, not a panic");
+    assert_eq!(
+        json.as_array().unwrap().len(),
+        1,
+        "the diagnostic is still reported"
+    );
+}

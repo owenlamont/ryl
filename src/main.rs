@@ -497,7 +497,11 @@ fn reject_output_file_collision<'a>(
 /// (matching ruff's GitLab integration), otherwise `.` (which `lexical_abspath` resolves
 /// to the working directory). Computed once per run, not per file.
 fn report_project_root() -> PathBuf {
-    std::env::var_os("CI_PROJECT_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from)
+    // An empty `CI_PROJECT_DIR` (set but blank, e.g. a misconfigured CI) is treated as
+    // unset: an empty path would panic `lexical_abspath`, and `.` resolves to the cwd.
+    std::env::var_os("CI_PROJECT_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
 fn write_output_error(err: &std::io::Error) -> String {
