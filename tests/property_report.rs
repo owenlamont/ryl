@@ -15,6 +15,7 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use quick_xml::Reader;
 use quick_xml::events::Event;
+use ryl::cli_support::github_escape;
 use ryl::report::{ReportEntry, render_gitlab, render_junit};
 use ryl::{LintProblem, Severity};
 use serde_json::Value;
@@ -29,7 +30,8 @@ static GITLAB_SCHEMA: LazyLock<Validator> = LazyLock::new(|| {
 
 /// Characters spanning ryl's real escaping surface: ordinary text, XML metacharacters,
 /// JSON-ish punctuation, C0/DEL control characters, the whitespace controls XML keeps,
-/// NEL/LS/PS line separators, and multibyte scalars.
+/// NEL/LS/PS line separators, the U+FFFE/U+FFFF noncharacters XML 1.0 forbids, and
+/// multibyte scalars.
 fn arb_char() -> impl Strategy<Value = char> {
     prop_oneof![
         Just('a'),
@@ -60,6 +62,8 @@ fn arb_char() -> impl Strategy<Value = char> {
         Just('\u{85}'),
         Just('\u{2028}'),
         Just('\u{2029}'),
+        Just('\u{fffe}'),
+        Just('\u{ffff}'),
         Just('é'),
         Just('日'),
         Just('🦀'),
@@ -224,5 +228,20 @@ proptest! {
         prop_assert_eq!(root_tests, Some(testcases), "root tests count mismatch");
         prop_assert_eq!(root_failures, Some(failures), "root failures count mismatch");
         prop_assert_eq!(root_errors, Some(errors), "root errors count mismatch");
+    }
+
+    /// The GitHub workflow-command format is a line-oriented protocol, so its only injection
+    /// defense is `github_escape`: no input may leave a control character (a newline would
+    /// start a new `::command::`) in the encoded text, in either data or property mode.
+    #[test]
+    fn github_escape_never_emits_a_control_character(
+        text in arb_hostile_string(),
+        property in any::<bool>(),
+    ) {
+        let escaped = github_escape(&text, property);
+        prop_assert!(
+            !escaped.chars().any(|c| c.is_control()),
+            "github_escape leaked a control character from {text:?}: {escaped:?}"
+        );
     }
 }

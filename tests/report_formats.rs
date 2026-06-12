@@ -355,6 +355,25 @@ fn junit_message_cannot_inject_extra_elements() {
 }
 
 #[test]
+fn junit_escapes_xml_forbidden_noncharacters() {
+    // U+FFFE/U+FFFF are valid Rust chars but illegal in XML 1.0 (even as references); they
+    // must be escaped so a crafted scalar cannot make the whole report unparsable.
+    let raw = "boom\u{fffe}\u{ffff}";
+    let entries = vec![ReportEntry {
+        path: "p.yaml".to_string(),
+        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        error: None,
+    }];
+    let xml = junit_xml(&entries);
+    // element_counts re-parses the document and panics on malformed XML.
+    assert_eq!(element_counts(&xml).get("failure"), Some(&1));
+    assert!(
+        !xml.contains('\u{fffe}') && !xml.contains('\u{ffff}'),
+        "XML-forbidden noncharacters must not appear raw in the output: {xml}"
+    );
+}
+
+#[test]
 fn gitlab_message_cannot_inject_json_structure() {
     // A message crafted to break out of its JSON string must be encoded as data, never
     // injecting a sibling field or extra issue.

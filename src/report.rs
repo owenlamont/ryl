@@ -10,10 +10,11 @@
 //! - `GitLab`: <https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-format>,
 //!   a documented subset of the Code Climate engine spec.
 //!
-//! All user text is run through [`sanitize_control`] before serialization (XML cannot
-//! represent control characters at all; JSON would escape them but a forge would decode
-//! them back), then quick-xml / `serde_json` apply structural escaping.
+//! All user text is sanitized before serialization — `JUnit` via `xml_sanitize` (control
+//! chars plus the U+FFFE/U+FFFF noncharacters XML forbids), `GitLab` via
+//! [`sanitize_control`] — then quick-xml / `serde_json` apply structural escaping.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::Write;
@@ -93,19 +94,20 @@ fn suite_counts(entry: &ReportEntry) -> (usize, usize, usize) {
 
 fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
     let (tests, failures, errors) = suite_counts(entry);
+    let path = xml_sanitize(&entry.path);
     let mut suite = BytesStart::new("testsuite");
-    suite.push_attribute(("name", entry.path.as_str()));
+    suite.push_attribute(("name", path.as_ref()));
     suite.push_attribute(("tests", tests.to_string().as_str()));
     suite.push_attribute(("failures", failures.to_string().as_str()));
     suite.push_attribute(("errors", errors.to_string().as_str()));
     writer.write_event(Event::Start(suite)).expect(INFALLIBLE);
 
     if let Some(error) = &entry.error {
-        let message = sanitize_control(error);
+        let message = xml_sanitize(error);
         write_case_with_child(
             writer,
             "error",
-            &entry.path,
+            path.as_ref(),
             "error",
             message.as_ref(),
             "error",
@@ -113,8 +115,8 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
         );
     } else if entry.problems.is_empty() {
         let mut case = BytesStart::new("testcase");
-        case.push_attribute(("name", entry.path.as_str()));
-        case.push_attribute(("classname", entry.path.as_str()));
+        case.push_attribute(("name", path.as_ref()));
+        case.push_attribute(("classname", path.as_ref()));
         writer.write_event(Event::Empty(case)).expect(INFALLIBLE);
     } else {
         // Name each testcase `rule:line:col`, disambiguating a repeat (same rule at the
@@ -131,12 +133,12 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
                 format!("{base}#{occurrence}")
             };
             *occurrence += 1;
-            let message = sanitize_control(&problem.message);
+            let message = xml_sanitize(&problem.message);
             let body = format!("{}:{} {message}", problem.line, problem.column);
             write_case_with_child(
                 writer,
                 &name,
-                &entry.path,
+                path.as_ref(),
                 "failure",
                 message.as_ref(),
                 rule,
@@ -148,6 +150,30 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
     writer
         .write_event(Event::End(BytesEnd::new("testsuite")))
         .expect(INFALLIBLE);
+}
+
+/// Like [`sanitize_control`], but also escapes the U+FFFE/U+FFFF noncharacters that XML
+/// 1.0 forbids even as numeric references, so a crafted scalar cannot make the `JUnit`
+/// document unparsable. JSON has no such restriction, so `GitLab` output keeps plain
+/// [`sanitize_control`]. (Control characters are the only other XML-invalid scalars a Rust
+/// `char` can hold — surrogates are unrepresentable — so this covers the whole gap.)
+fn xml_sanitize(text: &str) -> Cow<'_, str> {
+    fn forbidden(c: char) -> bool {
+        c.is_control() || c == '\u{fffe}' || c == '\u{ffff}'
+    }
+    if !text.contains(forbidden) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if forbidden(c) {
+            write!(out, "\\u{{{:x}}}", c as u32)
+                .expect("writing to a String is infallible");
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
 }
 
 /// Write a `<testcase>` wrapping a single `<failure>` or `<error>` child carrying the

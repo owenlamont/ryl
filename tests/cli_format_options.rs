@@ -673,12 +673,7 @@ fn gitlab_format_reads_stdin_with_filename() {
         .spawn()
         .expect("spawn ryl");
     use std::io::Write as _;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"key: value")
-        .unwrap();
+    child.stdin.take().unwrap().write_all(b"key: value").ok();
     let out = child.wait_with_output().unwrap();
     assert_eq!(
         out.status.code(),
@@ -730,7 +725,10 @@ fn run_stdin(args: &[&str], input: &[u8]) -> (i32, String, String) {
         .spawn()
         .expect("spawn ryl");
     use std::io::Write as _;
-    child.stdin.take().unwrap().write_all(input).unwrap();
+    // A usage error (e.g. a rejected `--output-file`) makes ryl exit before reading stdin,
+    // closing the pipe; a broken-pipe write here is expected, so the exit code/output (not
+    // the write) is what the caller asserts.
+    child.stdin.take().unwrap().write_all(input).ok();
     let out = child.wait_with_output().unwrap();
     (
         out.status.code().unwrap_or(-1),
@@ -948,12 +946,7 @@ fn ignored_stdin_emits_an_empty_gitlab_report() {
         .spawn()
         .expect("spawn ryl");
     use std::io::Write as _;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"key:  value\n")
-        .unwrap();
+    child.stdin.take().unwrap().write_all(b"key:  value\n").ok();
     let out = child.wait_with_output().unwrap();
     assert_eq!(out.status.code(), Some(0), "ignored stdin lints clean");
     assert_eq!(
@@ -990,12 +983,7 @@ fn ignored_stdin_report_open_failure_is_usage_error() {
         .spawn()
         .expect("spawn ryl");
     use std::io::Write as _;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"key:  value\n")
-        .unwrap();
+    child.stdin.take().unwrap().write_all(b"key:  value\n").ok();
     let out = child.wait_with_output().unwrap();
     assert_eq!(
         out.status.code(),
@@ -1062,12 +1050,7 @@ fn stdin_output_file_matching_stdin_filename_is_rejected() {
         .spawn()
         .expect("spawn ryl");
     use std::io::Write as _;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"key: value")
-        .unwrap();
+    child.stdin.take().unwrap().write_all(b"key: value").ok();
     let out = child.wait_with_output().unwrap();
     assert_eq!(
         out.status.code(),

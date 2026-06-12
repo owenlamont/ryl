@@ -60,6 +60,34 @@ pub fn lexical_abspath(path: &Path) -> PathBuf {
     out
 }
 
+// User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
+// Actions workflow-command output, where a raw newline would start a new
+// `::command::` — a command-injection vector in CI. Encode it the way GitHub's
+// `@actions/core` does (data escapes `%`/CR/LF; a `property` such as `file=` also
+// escapes `:`/`,`), and additionally render any other control character as a
+// literal `\u{..}` — never a `%XX`, which the runner would decode back into the raw
+// control char and let it drive ANSI sequences in the log viewer. The result never
+// contains a control character, so it cannot inject or split a workflow-command line.
+#[must_use]
+pub fn github_escape(value: &str, property: bool) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '\r' => out.push_str("%0D"),
+            '\n' => out.push_str("%0A"),
+            ':' if property => out.push_str("%3A"),
+            ',' if property => out.push_str("%2C"),
+            c if c.is_control() => {
+                write!(out, "\\u{{{:x}}}", c as u32)
+                    .expect("writing to a String is infallible");
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// The display path for a report (`location.path` in GitLab, `name`/`classname` in JUnit):
 /// `display` made relative to `project_root` with forward slashes and no `./` prefix, as
 /// GitLab requires. The caller relativizes against the project root (`CI_PROJECT_DIR` or

@@ -8,7 +8,6 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -18,7 +17,7 @@ use clap::{CommandFactory, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::{
-    lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
+    github_escape, lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
 };
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
@@ -1224,32 +1223,6 @@ fn format_colored(problem: &LintProblem) -> String {
         line.push_str(")\u{001b}[0m");
     }
     line
-}
-
-// User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
-// Actions workflow-command output, where a raw newline would start a new
-// `::command::` — a command-injection vector in CI. Encode it the way GitHub's
-// `@actions/core` does (data escapes `%`/CR/LF; a `property` such as `file=` also
-// escapes `:`/`,`), and additionally render any other control character as a
-// literal `\u{..}` — never a `%XX`, which the runner would decode back into the raw
-// control char and let it drive ANSI sequences in the log viewer.
-fn github_escape(value: &str, property: bool) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '%' => out.push_str("%25"),
-            '\r' => out.push_str("%0D"),
-            '\n' => out.push_str("%0A"),
-            ':' if property => out.push_str("%3A"),
-            ',' if property => out.push_str("%2C"),
-            c if c.is_control() => {
-                write!(out, "\\u{{{:x}}}", c as u32)
-                    .expect("writing to a String is infallible");
-            }
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// `escaped_file` is the `file=` property value, escaped once per file by the
