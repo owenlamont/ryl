@@ -60,6 +60,23 @@ pub fn lexical_abspath(path: &Path) -> PathBuf {
     out
 }
 
+/// The display path for a report (`location.path` in GitLab, `name`/`classname` in JUnit):
+/// `display` made relative to `project_root` with forward slashes and no `./` prefix, as
+/// GitLab requires. The caller relativizes against the project root (`CI_PROJECT_DIR` or
+/// the working directory, like ruff), so a `--stdin-filename` or a path under the repo
+/// stays relative even when the config lives elsewhere. A path outside the project root
+/// (the strip fails) keeps its normalized absolute form: there is no repo-relative
+/// representation for a file outside the tree. Control characters are stripped so a
+/// crafted filename cannot inject into the report.
+#[must_use]
+pub fn report_display_path(display: &Path, project_root: &Path) -> String {
+    let absolute = lexical_abspath(display);
+    let root = lexical_abspath(project_root);
+    let relative = absolute.strip_prefix(&root).unwrap_or(&absolute);
+    let text = relative.to_string_lossy().replace('\\', "/");
+    sanitize_control(&text).into_owned()
+}
+
 /// Resolve the configuration context for a given file path, optionally using a cached
 /// global configuration.
 ///

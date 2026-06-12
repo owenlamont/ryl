@@ -48,6 +48,8 @@ unicode-normalization = "0.1"
 encoding_rs = "0.8"
 toml = "1.1.2"
 pulldown-cmark = { version = "0.13.4", default-features = false }
+quick-xml = { version = "0.40", default-features = false }
+sha2 = "0.11"
 
 [dev-dependencies]
 # Independent unified-diff applier for the `--diff` round-trip property test: a
