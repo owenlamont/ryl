@@ -66,7 +66,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
-    let open_indents = compute_open_indents(buffer, lines.len());
+    // Only the option's open-block check consults this, so skip the parse entirely
+    // when it's off (the common default path).
+    let open_indents = if cfg.allow_any_open_indent {
+        compute_open_indents(buffer, lines.len())
+    } else {
+        Vec::new()
+    };
 
     let mut last_comment_indent: Option<usize> = None;
 
@@ -82,7 +88,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                     line.indent,
                     reference_indent,
                     next_indent,
-                    &open_indents[idx],
+                    open_indents.get(idx).map_or(&[], Vec::as_slice),
                     cfg.allow_any_open_indent,
                 ) {
                     diagnostics.push(Violation {
@@ -113,7 +119,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
-    let open_indents = compute_open_indents(buffer, lines.len());
+    let open_indents = if cfg.allow_any_open_indent {
+        compute_open_indents(buffer, lines.len())
+    } else {
+        Vec::new()
+    };
 
     let mut changed = false;
     let mut last_comment_indent: Option<usize> = None;
@@ -132,7 +142,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
                     line.indent,
                     reference_indent,
                     next_indent,
-                    &open_indents[line_idx],
+                    open_indents.get(line_idx).map_or(&[], Vec::as_slice),
                     cfg.allow_any_open_indent,
                 ) {
                     line.indent
@@ -252,7 +262,11 @@ fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
 
     let mut result = vec![Vec::new(); line_count];
     for (col, start, end) in collector.intervals {
-        for entry in result.iter_mut().take(end.min(line_count)).skip(start - 1) {
+        // Slice directly to the interval's lines (`take().skip()` would re-walk from 0
+        // each time, making this O(sum of end lines) — quadratic for deep nesting).
+        let hi = end.min(line_count);
+        let lo = (start - 1).min(hi);
+        for entry in &mut result[lo..hi] {
             entry.push(col);
         }
     }
