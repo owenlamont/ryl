@@ -14,7 +14,7 @@
 //! represent control characters at all; JSON would escape them but a forge would decode
 //! them back), then quick-xml / `serde_json` apply structural escaping.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::Write;
 
@@ -116,11 +116,20 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
         case.push_attribute(("classname", entry.path.as_str()));
         writer.write_event(Event::Empty(case)).expect(INFALLIBLE);
     } else {
+        // Name each testcase `rule:line:col`, disambiguating a repeat (same rule at the
+        // same position) with a `#n` suffix so no two testcases in a suite share a name,
+        // which some JUnit consumers merge.
+        let mut seen: HashMap<String, u32> = HashMap::new();
         for problem in &entry.problems {
             let rule = problem.rule.unwrap_or("syntax");
-            // Suffix the line:col so two diagnostics from the same rule do not produce
-            // testcases with an identical `name`, which some JUnit consumers merge.
-            let name = format!("{rule}:{}:{}", problem.line, problem.column);
+            let base = format!("{rule}:{}:{}", problem.line, problem.column);
+            let occurrence = seen.entry(base.clone()).or_insert(0);
+            let name = if *occurrence == 0 {
+                base.clone()
+            } else {
+                format!("{base}#{occurrence}")
+            };
+            *occurrence += 1;
             let message = sanitize_control(&problem.message);
             let body = format!("{}:{} {message}", problem.line, problem.column);
             write_case_with_child(

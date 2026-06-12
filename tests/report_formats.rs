@@ -257,6 +257,47 @@ fn junit_output_is_well_formed_with_matching_counts() {
 }
 
 #[test]
+fn junit_disambiguates_testcases_at_an_identical_position() {
+    // Two diagnostics from the same rule at the same line:col must get distinct testcase
+    // names, or a JUnit consumer that dedups by name would drop one.
+    let entries = vec![ReportEntry {
+        path: "dup.yaml".to_string(),
+        problems: vec![
+            problem(2, 3, Severity::Error, Some("commas"), "first"),
+            problem(2, 3, Severity::Error, Some("commas"), "second"),
+        ],
+        error: None,
+    }];
+    let xml = junit_xml(&entries);
+
+    let mut reader = Reader::from_str(&xml);
+    let mut names = Vec::new();
+    loop {
+        match reader.read_event().expect("well-formed XML") {
+            Event::Start(element) | Event::Empty(element)
+                if element.name().as_ref() == b"testcase" =>
+            {
+                for attr in element.attributes() {
+                    let attr = attr.expect("valid attribute");
+                    if attr.key.as_ref() == b"name" {
+                        names.push(
+                            String::from_utf8_lossy(attr.value.as_ref()).into_owned(),
+                        );
+                    }
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    assert_eq!(names.len(), 2, "two testcases expected: {xml}");
+    assert_ne!(
+        names[0], names[1],
+        "duplicate-position testcases need unique names"
+    );
+}
+
+#[test]
 fn junit_escapes_special_characters_in_messages() {
     // A crafted message with XML metacharacters must round-trip through the writer and a
     // re-parse, proving quick-xml escaped it rather than producing malformed XML.
