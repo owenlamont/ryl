@@ -6,7 +6,7 @@ use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
 use crate::markdown_embed::{MarkdownSources, extract_regions};
-use crate::rules::support::line_syntax::buffer_newline;
+use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
@@ -716,21 +716,9 @@ fn target_newline(
         .into_owned();
     }
 
-    first_newline(content).unwrap_or("\n").to_string()
-}
-
-fn first_newline(content: &str) -> Option<&'static str> {
-    let bytes = content.as_bytes();
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\r' if bytes.get(idx + 1) == Some(&b'\n') => return Some("\r\n"),
-            // A bare `\r` is a YAML 1.2 line break, so a `\r`-delimited
-            // file's appended final newline reuses `\r` rather than falling back to LF.
-            b'\r' => return Some("\r"),
-            b'\n' => return Some("\n"),
-            _ => idx += 1,
-        }
-    }
-    None
+    // Reuse the first line's ending so a `\r`-delimited file's appended final newline
+    // stays `\r` rather than falling back to LF.
+    first_line_break(content)
+        .map_or("\n", |(_, nl)| nl)
+        .to_string()
 }

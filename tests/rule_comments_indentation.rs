@@ -244,7 +244,8 @@ fn allow_any_open_indent_accepts_comment_at_open_block_level() {
 fn allow_any_open_indent_accepts_middle_open_level() {
     // The comment matches the middle open level (2 = `b:`), not the innermost (4) or
     // outermost (0); since the following content `e:` is at 0, the default flags it.
-    // Pins that `push_open_indent` keeps interior levels on the stack.
+    // Pins that `compute_open_indents` keeps interior block levels open (the middle
+    // `b:` level survives until its mapping ends), not just the innermost/outermost.
     let input = "a:\n  b:\n    c: 1\n  # mid\ne: 2\n";
     assert_eq!(run(input), vec![Violation { line: 4, column: 3 }]);
     assert!(

@@ -8,10 +8,26 @@ pub(crate) fn leading_whitespace_width(line: &str) -> usize {
         .count()
 }
 
+/// Classify the YAML 1.2 line break starting at byte `idx` as `(break length in bytes,
+/// canonical style)` — `(2, "\r\n")`, `(1, "\r")`, or `(1, "\n")` — or `None` when `idx`
+/// is past the end or not at a break. The single source of truth for the break set:
+/// [`scan_lines`], [`first_line_break`], and `new_lines::fix` all classify through it,
+/// so changing what counts as a break is a one-line edit.
+pub(crate) fn line_break_at(bytes: &[u8], idx: usize) -> Option<(usize, &'static str)> {
+    match bytes.get(idx)? {
+        b'\r' if bytes.get(idx + 1) == Some(&b'\n') => Some((2, "\r\n")),
+        b'\r' => Some((1, "\r")),
+        b'\n' => Some((1, "\n")),
+        _ => None,
+    }
+}
+
 /// The line-ending style to reuse when inserting a line into `buffer` (e.g. a
 /// `document-start`/`-end` marker): `"\r\n"` if it contains any CRLF, else `"\r"`
 /// if it uses a bare `\r` (so a `\r`-delimited file reuses `\r` rather than mixing
-/// in LF), else `"\n"`.
+/// in LF), else `"\n"`. Deliberately *not* built on [`line_break_at`]: it answers a
+/// different question — the buffer's *dominant* style to write, preferring CRLF if any
+/// is present — not the first break left-to-right (that is [`first_line_break`]).
 pub(crate) fn buffer_newline(buffer: &str) -> &'static str {
     if buffer.contains("\r\n") {
         "\r\n"
@@ -20,6 +36,17 @@ pub(crate) fn buffer_newline(buffer: &str) -> &'static str {
     } else {
         "\n"
     }
+}
+
+/// The buffer's *first* YAML 1.2 line break as `(byte index, canonical style)` —
+/// `"\r\n"`, `"\r"`, or `"\n"` — or `None` when it has no break. Distinct from
+/// [`buffer_newline`], which reports the dominant style for *inserting* a line
+/// (preferring CRLF if any is present); this reports the first ending verbatim, for
+/// callers matching against or reusing that specific ending.
+pub(crate) fn first_line_break(buffer: &str) -> Option<(usize, &'static str)> {
+    let bytes = buffer.as_bytes();
+    (0..bytes.len())
+        .find_map(|idx| line_break_at(bytes, idx).map(|(_, style)| (idx, style)))
 }
 
 /// Collect line numbers (1-based) for every `Scalar` event whose `style` and
@@ -181,29 +208,40 @@ pub(crate) fn block_scalar_header_marker_index(content: &str) -> Option<usize> {
 pub(crate) fn split_lines_preserve_endings(
     buffer: &str,
 ) -> impl Iterator<Item = (usize, &str, &str)> {
+    scan_lines(buffer).enumerate().map(
+        move |(line_idx, (start, content_end, next_start))| {
+            (
+                line_idx,
+                &buffer[start..content_end],
+                &buffer[content_end..next_start],
+            )
+        },
+    )
+}
+
+/// Single source of truth for the YAML 1.2 line-break set (`\r\n`, `\r`, `\n`):
+/// yields `(start, content_end, next_start)` byte offsets per line, where
+/// `[start..content_end]` is the break-free content and `[content_end..next_start]`
+/// the matched break (empty for a final unterminated line). Both public splitters
+/// below are thin slicing adapters over this so the break rule lives in one place.
+fn scan_lines(buffer: &str) -> impl Iterator<Item = (usize, usize, usize)> {
+    let bytes = buffer.as_bytes();
     let mut start = 0usize;
-    let mut line_idx = 0usize;
     std::iter::from_fn(move || {
-        if start == buffer.len() {
+        if start == bytes.len() {
             return None;
         }
 
-        let bytes = buffer.as_bytes();
         let mut idx = start;
-        while idx < bytes.len() && !matches!(bytes[idx], b'\n' | b'\r') {
+        while idx < bytes.len() && line_break_at(bytes, idx).is_none() {
             idx += 1;
         }
 
-        let next_start = if idx >= bytes.len() {
-            bytes.len()
-        } else if bytes[idx] == b'\r' && bytes.get(idx + 1) == Some(&b'\n') {
-            idx + 2
-        } else {
-            idx + 1
-        };
+        // `idx == bytes.len()` (final line, no break) ⇒ `line_break_at` is `None` ⇒ the
+        // line ends at `idx` with an empty ending; otherwise skip past the matched break.
+        let next_start = idx + line_break_at(bytes, idx).map_or(0, |(len, _)| len);
 
-        let current = (line_idx, &buffer[start..idx], &buffer[idx..next_start]);
-        line_idx += 1;
+        let current = (start, idx, next_start);
         start = next_start;
         Some(current)
     })
@@ -225,25 +263,5 @@ pub(crate) fn line_contents(buffer: &str) -> Vec<&str> {
 /// reproduces the buffer, so callers can map a line index 1:1 onto a granit
 /// (CR-aware) line number.
 pub(crate) fn split_lines_inclusive(buffer: &str) -> impl Iterator<Item = &str> {
-    let bytes = buffer.as_bytes();
-    let mut start = 0usize;
-    std::iter::from_fn(move || {
-        if start == buffer.len() {
-            return None;
-        }
-        let mut idx = start;
-        while idx < bytes.len() && !matches!(bytes[idx], b'\n' | b'\r') {
-            idx += 1;
-        }
-        let end = if idx >= bytes.len() {
-            bytes.len()
-        } else if bytes[idx] == b'\r' && bytes.get(idx + 1) == Some(&b'\n') {
-            idx + 2
-        } else {
-            idx + 1
-        };
-        let piece = &buffer[start..end];
-        start = end;
-        Some(piece)
-    })
+    scan_lines(buffer).map(move |(start, _, next_start)| &buffer[start..next_start])
 }

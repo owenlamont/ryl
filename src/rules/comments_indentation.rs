@@ -89,7 +89,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                     reference_indent,
                     next_indent,
                     open_indents.get(idx).map_or(&[], Vec::as_slice),
-                    cfg.allow_any_open_indent,
                 ) {
                     diagnostics.push(Violation {
                         line: idx + 1,
@@ -143,7 +142,6 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
                     reference_indent,
                     next_indent,
                     open_indents.get(line_idx).map_or(&[], Vec::as_slice),
-                    cfg.allow_any_open_indent,
                 ) {
                     line.indent
                 } else {
@@ -176,11 +174,10 @@ fn comment_is_aligned(
     reference_indent: usize,
     next_indent: usize,
     open_indents: &[usize],
-    allow_any_open_indent: bool,
 ) -> bool {
     indent == reference_indent
         || indent == next_indent
-        || (allow_any_open_indent && open_indents.contains(&indent))
+        || open_indents.contains(&indent)
 }
 
 /// Classify every line once for both `check` and `fix`: its indent and kind.
