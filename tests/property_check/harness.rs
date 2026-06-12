@@ -115,6 +115,22 @@ pub fn key_duplicates_canonical_config() -> &'static YamlLintConfig {
     &CONFIG
 }
 
+// `allow-any-open-indent` is ryl-only (TOML), so the open-block-indent acceptance
+// path of `comments-indentation` is fuzzed through this config in addition to the
+// default (option-off) YAML one above.
+const COMMENTS_INDENTATION_OPEN_TOML: &str = "[rules.comments-indentation]
+allow-any-open-indent = true
+";
+
+#[must_use]
+pub fn comments_indentation_open_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(COMMENTS_INDENTATION_OPEN_TOML)
+            .expect("property-check comments-indentation open config must parse")
+    });
+    &CONFIG
+}
+
 macro_rules! collect_standard {
     ($spans:ident, $cfg:expr, $content:expr, $module:path) => {{
         use $module as rule;
@@ -145,6 +161,12 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::commas);
     collect_standard!(spans, cfg, content, ryl::rules::comments);
     collect_standard!(spans, cfg, content, ryl::rules::comments_indentation);
+    collect_standard!(
+        spans,
+        comments_indentation_open_config(),
+        content,
+        ryl::rules::comments_indentation
+    );
     collect_standard!(spans, cfg, content, ryl::rules::document_end);
     collect_standard!(spans, cfg, content, ryl::rules::document_start);
     collect_standard!(spans, cfg, content, ryl::rules::empty_lines);

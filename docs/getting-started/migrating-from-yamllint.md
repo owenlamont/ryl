@@ -171,6 +171,28 @@ offers only inline directives and per-file path ignores, so a recurring exceptio
 or handled per-rule. Being ryl-only, it lives in TOML config and is rejected in
 yamllint-compatible YAML config.
 
+### Comment alignment to an open block level
+
+yamllint's `comments-indentation` requires a standalone comment to match the
+indentation of the content that follows it. ryl adds a ryl-only, off-by-default
+[`comments-indentation: allow-any-open-indent`](../rules/comments-indentation.md)
+option that *also* accepts a comment aligned to any still-open enclosing block
+level &mdash; the pattern requested in
+[adrienverge/yamllint#141](https://github.com/adrienverge/yamllint/issues/141),
+which the maintainer welcomed but yamllint has not implemented:
+
+```yaml
+config:
+    entry:
+        - things
+    # accepted under the option: marks the end of `entry:` at its open level
+options:
+    - more stuff
+```
+
+With the option off (the default) ryl matches yamllint exactly. Being ryl-only, the
+option is configured in TOML and rejected in yamllint-compatible YAML config.
+
 ## Side-by-side example
 
 === "yamllint (.yamllint)"

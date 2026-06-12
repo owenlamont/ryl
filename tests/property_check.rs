@@ -9,7 +9,10 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::lint::lint_str;
 
-use harness::{check_spans_in_bounds, collect_spans, trigger_all_config};
+use harness::{
+    check_spans_in_bounds, collect_spans, comments_indentation_open_config,
+    trigger_all_config,
+};
 use strategy::arb_document;
 
 fn lint(content: &str) -> Vec<ryl::lint::LintProblem> {
@@ -67,6 +70,27 @@ proptest! {
                 problem.rule != Some(rule),
                 "rule `{rule}` survived its own block disable at {}:{}",
                 problem.line, problem.column
+            );
+        }
+    }
+
+    /// `comments-indentation: allow-any-open-indent` is purely additive acceptance:
+    /// enabling it can only *remove* violations the default reports (a comment now
+    /// matches an open block level) and never adds one or moves a span. Exercises the
+    /// open-block-indent stack over generated nested comments and pins that contract.
+    #[test]
+    fn allow_any_open_indent_only_relaxes_comments_indentation(
+        document in arb_document(),
+    ) {
+        use ryl::rules::comments_indentation::{Config, check};
+        let content = document.render();
+        let strict = check(&content, &Config::new_for_tests(false));
+        let relaxed = check(&content, &Config::new_for_tests(true));
+        for violation in &relaxed {
+            prop_assert!(
+                strict.contains(violation),
+                "allow-any-open-indent reported {violation:?} the default did not, \
+                 for {content:?}"
             );
         }
     }
@@ -136,6 +160,27 @@ fn each_rule_triggers_and_reports_in_bounds_spans() {
             panic!("crafted trigger for `{rule}`: {message}")
         });
     }
+}
+
+#[test]
+fn open_indent_config_relaxes_a_generated_shape() {
+    // Mirrors the merge guard below: a comment at an open block level the default
+    // flags — a shape `arb_document` emits from entries/seq-items/comments at varied
+    // indents — must be *accepted* by the harness's open-indent config but flagged by
+    // the default, so the second `collect_spans` dispatch (and the monotonicity
+    // property) is not exercised vacuously.
+    use ryl::rules::comments_indentation::{Config, check};
+    let content = "items:\n  - one\n# boundary\n  - two\n";
+    let strict = check(content, &Config::resolve(trigger_all_config()));
+    let relaxed = check(
+        content,
+        &Config::resolve(comments_indentation_open_config()),
+    );
+    assert!(
+        !strict.is_empty() && relaxed.is_empty(),
+        "open-indent config must accept an open-level comment the default flags: \
+         strict={strict:?} relaxed={relaxed:?}"
+    );
 }
 
 #[test]

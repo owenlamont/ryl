@@ -65,6 +65,7 @@ ignore = ["generated.yaml"]
 
 [rules.comments-indentation]
 level = "warning"
+allow-any-open-indent = false
 
 [rules.document-end]
 level = "warning"
