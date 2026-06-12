@@ -1,5 +1,5 @@
 use ryl::config::YamlLintConfig;
-use ryl::rules::hyphens::Config;
+use ryl::rules::hyphens::{self, Config};
 
 #[test]
 fn rejects_unknown_option() {
@@ -34,6 +34,27 @@ fn resolve_reads_configured_value() {
             .expect("parse config");
     let resolved = Config::resolve(&cfg);
     assert_eq!(resolved.max_spaces_after(), 4);
+}
+
+#[test]
+fn resolve_reads_dash_on_own_line_from_toml() {
+    let cfg =
+        YamlLintConfig::from_toml_str("[rules.hyphens]\ndash-on-own-line = true\n")
+            .expect("parse TOML config");
+    let resolved = Config::resolve(&cfg);
+    // No bool getter is exposed; assert the resolved config drives the check.
+    let diagnostics = hyphens::check("items:\n  - name: web\n", &resolved);
+    assert_eq!(diagnostics.len(), 1, "option should enable the check");
+}
+
+#[test]
+fn dash_on_own_line_rejected_in_yaml_config() {
+    let err = YamlLintConfig::from_yaml_str(
+        "rules:\n  hyphens:\n    dash-on-own-line: true\n",
+    )
+    .unwrap_err();
+    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("rules.hyphens"), "{err}");
 }
 
 #[test]

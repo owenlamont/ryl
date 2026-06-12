@@ -43,6 +43,7 @@ pub struct TomlConfig {
             TomlKeyDuplicatesOptions,
             TomlAnchorsOptions,
             CommentsIndentationOptions,
+            TomlHyphensOptions,
         >,
     >,
     #[serde(flatten, default)]
@@ -369,6 +370,7 @@ pub struct RulesTable<
     K = KeyDuplicatesOptions,
     A = AnchorsOptions,
     C = NoOptions,
+    H = HyphensOptions,
 > {
     pub anchors: Option<RuleEntry<A>>,
     #[serde(rename = "block-scalar-chomping")]
@@ -390,7 +392,7 @@ pub struct RulesTable<
     pub empty_values: Option<RuleEntry<EmptyValuesOptions>>,
     #[serde(rename = "float-values")]
     pub float_values: Option<RuleEntry<FloatValuesOptions>>,
-    pub hyphens: Option<RuleEntry<HyphensOptions>>,
+    pub hyphens: Option<RuleEntry<H>>,
     pub indentation: Option<RuleEntry<IndentationOptions>>,
     #[serde(rename = "key-duplicates")]
     pub key_duplicates: Option<RuleEntry<K>>,
@@ -557,6 +559,17 @@ pub struct FloatValuesOptions {
 pub struct HyphensOptions {
     #[serde(rename = "max-spaces-after")]
     pub max_spaces_after: Option<i64>,
+}
+
+/// TOML-only `hyphens` options: the yamllint-compatible `max-spaces-after` plus ryl's
+/// `dash-on-own-line`, which has no YAML-config equivalent.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TomlHyphensOptions {
+    #[serde(rename = "max-spaces-after")]
+    pub max_spaces_after: Option<i64>,
+    #[serde(rename = "dash-on-own-line")]
+    pub dash_on_own_line: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -984,10 +997,10 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A, C>(
+fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A, C, H>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable<Q, K, A, C>>,
+    rules: Option<&RulesTable<Q, K, A, C, H>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(

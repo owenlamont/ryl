@@ -373,6 +373,75 @@ fn arb_merge_block() -> impl Strategy<Value = Vec<Line>> {
         })
 }
 
+/// A coherent block sequence-of-mappings the flat line generator never assembles by
+/// chance: a parent key introducing a block sequence whose entries span the layouts
+/// `hyphens: dash-on-own-line` must classify — dash+first-key on one line (the flagged
+/// shape), dash-alone with the body indented below, an anchor/tag or comment on the
+/// dash line (keys still below, accepted), a nested sequence whose inner mapping opens
+/// on the inner dash line, and a flow/scalar value (never flagged). Drives the
+/// scanner-driven detection in `collect_spans`'s dash-on-own-line dispatch over
+/// multibyte keys and mixed newlines so the dual dispatch is not fuzzed vacuously.
+fn arb_seq_of_mappings_block() -> impl Strategy<Value = Vec<Line>> {
+    (arb_key(), 0u8..=6u8).prop_map(|(key, shape)| {
+        let mut lines = vec![merge_entry(0, "items", String::new())];
+        match shape {
+            0 => {
+                lines.push(Line::Raw {
+                    indent: 2,
+                    text: format!("- {key}: web"),
+                });
+                lines.push(Line::Raw {
+                    indent: 4,
+                    text: "port: 80".to_string(),
+                });
+            }
+            1 => {
+                lines.push(Line::Raw {
+                    indent: 2,
+                    text: "-".to_string(),
+                });
+                lines.push(Line::Raw {
+                    indent: 4,
+                    text: format!("{key}: web"),
+                });
+            }
+            2 => {
+                lines.push(Line::Raw {
+                    indent: 2,
+                    text: "- &a !x".to_string(),
+                });
+                lines.push(Line::Raw {
+                    indent: 4,
+                    text: format!("{key}: web"),
+                });
+            }
+            3 => {
+                lines.push(Line::Raw {
+                    indent: 2,
+                    text: "- # c".to_string(),
+                });
+                lines.push(Line::Raw {
+                    indent: 4,
+                    text: format!("{key}: web"),
+                });
+            }
+            4 => lines.push(Line::Raw {
+                indent: 2,
+                text: format!("- - {key}: 1"),
+            }),
+            5 => lines.push(Line::Raw {
+                indent: 2,
+                text: format!("- {{{key}: 1}}"),
+            }),
+            _ => lines.push(Line::Raw {
+                indent: 2,
+                text: "- scalar".to_string(),
+            }),
+        }
+        lines
+    })
+}
+
 fn arb_custom_tag_block() -> impl Strategy<Value = Vec<Line>> {
     prop_oneof![Just("!e!keep"), Just("!e!other")].prop_map(|tag| {
         vec![
@@ -452,6 +521,9 @@ fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
         2 => (arb_block_scalar_block(), arb_newline()).prop_map(|(lines, newline)| {
+            lines.into_iter().map(|line| (line, newline)).collect()
+        }),
+        2 => (arb_seq_of_mappings_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
     ]

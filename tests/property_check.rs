@@ -11,7 +11,7 @@ use ryl::lint::lint_str;
 
 use harness::{
     check_spans_in_bounds, collect_spans, comments_indentation_open_config,
-    trigger_all_config,
+    hyphens_dash_on_own_line_config, trigger_all_config,
 };
 use strategy::arb_document;
 
@@ -91,6 +91,25 @@ proptest! {
                 strict.contains(violation),
                 "allow-any-open-indent reported {violation:?} the default did not, \
                  for {content:?}"
+            );
+        }
+    }
+
+    /// `hyphens: dash-on-own-line` is purely additive: enabling it preserves every
+    /// `max-spaces-after` violation the default reports and only *adds* dash-on-own-line
+    /// violations. Exercises the scanner-driven detection over generated sequences of
+    /// mappings and pins that contract (the inverse of the relaxing option above).
+    #[test]
+    fn dash_on_own_line_only_adds_hyphens_violations(document in arb_document()) {
+        use ryl::rules::hyphens::{Config, check};
+        let content = document.render();
+        let base = check(&content, &Config::new_for_tests(1));
+        let enhanced =
+            check(&content, &Config::new_for_tests(1).with_dash_on_own_line(true));
+        for violation in &base {
+            prop_assert!(
+                enhanced.contains(violation),
+                "dash-on-own-line dropped base violation {violation:?} for {content:?}"
             );
         }
     }
@@ -180,6 +199,23 @@ fn open_indent_config_relaxes_a_generated_shape() {
         !strict.is_empty() && relaxed.is_empty(),
         "open-indent config must accept an open-level comment the default flags: \
          strict={strict:?} relaxed={relaxed:?}"
+    );
+}
+
+#[test]
+fn dash_on_own_line_config_flags_a_generated_shape() {
+    // Mirrors the open-indent guard: a sequence-of-mappings shape `arb_document` emits
+    // (a `- key: val` entry) must be *flagged* by the harness's dash-on-own-line config
+    // but ignored by the default, so the second `collect_spans` dispatch (and the
+    // monotonicity property) is not exercised vacuously.
+    use ryl::rules::hyphens::{Config, check};
+    let content = "items:\n  - name: web\n    port: 80\n";
+    let base = check(content, &Config::resolve(trigger_all_config()));
+    let enhanced = check(content, &Config::resolve(hyphens_dash_on_own_line_config()));
+    assert!(
+        base.is_empty() && !enhanced.is_empty(),
+        "dash-on-own-line config must flag a sequence-of-mappings the default ignores: \
+         base={base:?} enhanced={enhanced:?}"
     );
 }
 

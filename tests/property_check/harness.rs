@@ -131,6 +131,21 @@ pub fn comments_indentation_open_config() -> &'static YamlLintConfig {
     &CONFIG
 }
 
+// `dash-on-own-line` is ryl-only (TOML), so the dash-on-own-line path of `hyphens` is
+// fuzzed through this config in addition to the default YAML one above.
+const HYPHENS_DASH_ON_OWN_LINE_TOML: &str = "[rules.hyphens]
+dash-on-own-line = true
+";
+
+#[must_use]
+pub fn hyphens_dash_on_own_line_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(HYPHENS_DASH_ON_OWN_LINE_TOML)
+            .expect("property-check hyphens dash-on-own-line config must parse")
+    });
+    &CONFIG
+}
+
 macro_rules! collect_standard {
     ($spans:ident, $cfg:expr, $content:expr, $module:path) => {{
         use $module as rule;
@@ -173,6 +188,12 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::empty_values);
     collect_standard!(spans, cfg, content, ryl::rules::float_values);
     collect_standard!(spans, cfg, content, ryl::rules::hyphens);
+    collect_standard!(
+        spans,
+        hyphens_dash_on_own_line_config(),
+        content,
+        ryl::rules::hyphens
+    );
     collect_standard!(spans, cfg, content, ryl::rules::indentation);
     collect_standard!(spans, cfg, content, ryl::rules::key_duplicates);
     collect_standard!(

@@ -348,20 +348,6 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntryForHyphensOptions": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "$ref": "#/$defs/RuleSwitch"
-        },
-        {
-          "$ref": "#/$defs/RuleOptionsForHyphensOptions"
-        }
-      ],
-      "description": "Common rule entry shape used by TOML config."
-    },
     "RuleEntryForIndentationOptions": {
       "anyOf": [
         {
@@ -470,6 +456,20 @@
         },
         {
           "$ref": "#/$defs/RuleOptionsForTomlAnchorsOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
+    "RuleEntryForTomlHyphensOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForTomlHyphensOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
@@ -1057,50 +1057,6 @@
       },
       "type": "object"
     },
-    "RuleOptionsForHyphensOptions": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "max-spaces-after": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
     "RuleOptionsForIndentationOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1518,6 +1474,56 @@
       },
       "type": "object"
     },
+    "RuleOptionsForTomlHyphensOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "dash-on-own-line": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max-spaces-after": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RuleOptionsForTomlKeyDuplicatesOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1862,7 +1868,7 @@
         "hyphens": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForHyphensOptions"
+              "$ref": "#/$defs/RuleEntryForTomlHyphensOptions"
             },
             {
               "type": "null"

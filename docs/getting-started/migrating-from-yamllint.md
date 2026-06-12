@@ -193,6 +193,27 @@ options:
 With the option off (the default) ryl matches yamllint exactly. Being ryl-only, the
 option is configured in TOML and rejected in yamllint-compatible YAML config.
 
+### Dash on its own line before a block mapping
+
+yamllint's `hyphens` rule only limits the spaces after a `-`. ryl adds a ryl-only,
+off-by-default [`hyphens: dash-on-own-line`](../rules/hyphens.md) option that requires a
+block-sequence entry's `-` to be on its own line when the entry is a block mapping
+&mdash; the spec-style "sequence of mappings" layout requested in
+[adrienverge/yamllint#527](https://github.com/adrienverge/yamllint/issues/527), which
+the maintainer welcomed but yamllint has not implemented:
+
+```yaml
+items:
+  - name: web    # flagged under the option: mapping starts on the dash line
+    port: 80
+  -
+    name: db     # accepted: dash alone, mapping body indented below
+    port: 90
+```
+
+With the option off (the default) ryl matches yamllint exactly. Being ryl-only, the
+option is configured in TOML and rejected in yamllint-compatible YAML config.
+
 ## Side-by-side example
 
 === "yamllint (.yamllint)"
