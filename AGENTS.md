@@ -147,8 +147,10 @@ rather than shipping silently. Work this checklist (*Automated Tests* expands st
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, and `zizmor` should be installed as global
-  tools (if they don't appear to be installed raise that with the user).
+- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, and `cargo-audit` should be
+  installed as global tools (if they don't appear to be installed raise that with the
+  user). `cargo-audit` backs the `cargo audit --deny warnings` prek hook; install it with
+  `cargo install cargo-audit --locked`.
 - `gh` will be available in most, but not all environments to inspect GitHub.
 - For PR feedback, use `gh pr view <n> --json comments,reviews` for summary threads and
   `gh api repos/<owner>/<repo>/pulls/<n>/comments` for inline review details (avoid

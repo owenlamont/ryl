@@ -37,6 +37,11 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@873c7452cadb7c034694a1282227095d93fbdf92
+        with:
+          tool: cargo-audit
+
       - name: Run prek hooks (lint and static checks)
         env:
           SKIP: no-commit-to-branch,nextest
