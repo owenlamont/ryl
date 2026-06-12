@@ -49,7 +49,7 @@ jobs:
       SCHEMASTORE_NEGATIVE_TEST_DIR: src/negative_test/ryl
     steps:
       - name: Checkout ryl
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           persist-credentials: false
           ref: ${{ inputs.source_ref || github.sha }}
@@ -85,7 +85,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
 
       - name: Generate SchemaStore-compatible schema
         run: uv run scripts/print_ryl_schemastore_schema.py > ryl-schemastore.json
