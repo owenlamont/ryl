@@ -1,4 +1,25 @@
-# ryl config presets (TOML)
+# ryl config presets
+
+## Applying a preset
+
+ryl applies one configuration file to each file it lints. The nearest
+config in that file's directory or a parent wins, and any configs further
+up are ignored; ryl never merges several together. A monorepo can hold
+many `ryl.toml` files (one per subtree), each governed by exactly one of
+them. Every rule is enabled explicitly, so the config that applies fully
+describes what is checked, with no default-on rules.
+
+Presets are starting points for a config, not something ryl inherits behind
+the scenes:
+
+- **TOML config (recommended):** there is no `preset` or `extends` key. The
+  tables below *are* the presets, so copy the one you want into your
+  `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
+  one explicit config.
+- **YAML config (yamllint parity):** a yamllint-style config may use
+  `extends: default`, `extends: relaxed`, or `extends: empty` to start from a
+  preset and override individual rules under `rules:`. This exists for
+  compatibility with yamllint; the TOML format has no equivalent by design.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
 `relaxed`, `empty`) from [src/conf/mod.rs](/home/owen/Code/ryl_repos/ryl/src/conf/mod.rs).
