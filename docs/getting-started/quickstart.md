@@ -112,6 +112,16 @@ host-file level (one diff per `.md`).
 
 ## Configure for your project
 
+The recommended TOML config is deliberately **explicit** and **local**: it has
+no default-on rules and no `extends`/inheritance, so a single `.ryl.toml`
+(discovered by searching upward, and preferred over a `.yamllint`) is the
+entire ruleset for the files beneath it; a monorepo can have many, each
+governing its subtree. A yamllint-style YAML config instead keeps yamllint
+semantics, where `extends:` merges in a preset or another file. When no
+project config is found, ryl falls back to a single user-global config (see
+below). Either way there are no default-on rules, so a config that enables
+nothing exits `2` rather than silently linting nothing.
+
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
 configuration is flat &mdash; copy the preset you want from
 [Configuration presets](../config-presets.md) and customise from there:

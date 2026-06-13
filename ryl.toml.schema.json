@@ -2161,6 +2161,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "JSON Schema root for `ryl` TOML configuration.",
   "properties": {
     "files": {

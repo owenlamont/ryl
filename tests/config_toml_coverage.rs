@@ -4,14 +4,10 @@ use ryl::config::{Overrides, discover_config, discover_per_file};
 use tempfile::tempdir;
 
 #[test]
-fn discover_config_uses_project_toml_and_parses_float_values() {
+fn discover_config_uses_project_toml() {
     let td = tempdir().unwrap();
     let root = td.path();
-    fs::write(
-        root.join(".ryl.toml"),
-        "flag = true\nratio = 1.25\nstamp = 1979-05-27T07:32:00Z\n[rules]\nanchors = 'disable'\n",
-    )
-    .unwrap();
+    fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
     let file = root.join("file.yaml");
     fs::write(&file, "a: 1\n").unwrap();
 

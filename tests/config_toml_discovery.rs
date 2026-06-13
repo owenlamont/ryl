@@ -236,13 +236,16 @@ fn explicit_toml_parse_error_is_reported() {
 }
 
 #[test]
-fn toml_scalar_types_are_accepted_for_unknown_keys() {
+fn toml_scalar_typed_unknown_keys_are_rejected() {
+    // Unknown top-level keys are rejected regardless of TOML value type; the bool, float,
+    // and datetime values here also exercise non-string entries in `extra` and the
+    // multi-key listing in the error.
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
         "flag = true\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n[rules]\nanchors = 'disable'\n",
     );
-    discover_config_with(
+    let err = discover_config_with(
         &[],
         &Overrides {
             config_file: Some(cfg),
@@ -250,16 +253,23 @@ fn toml_scalar_types_are_accepted_for_unknown_keys() {
         },
         &env,
     )
-    .expect("scalar conversion should parse");
+    .expect_err("unrecognised top-level keys must be rejected");
+    assert!(
+        err.contains("unrecognised TOML configuration key")
+            && err.contains("`flag`")
+            && err.contains("`ratio`")
+            && err.contains("`stamp`"),
+        "error should name all unknown keys: {err}"
+    );
 }
 
 #[test]
-fn toml_integer_scalar_is_accepted_for_unknown_keys() {
+fn toml_integer_unknown_key_is_rejected() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new()
         .with_cwd(PathBuf::from("/repo"))
         .with_file(cfg.clone(), "answer = 42\n[rules]\nanchors = 'disable'\n");
-    discover_config_with(
+    let err = discover_config_with(
         &[],
         &Overrides {
             config_file: Some(cfg),
@@ -267,7 +277,11 @@ fn toml_integer_scalar_is_accepted_for_unknown_keys() {
         },
         &env,
     )
-    .expect("integer conversion should parse");
+    .expect_err("an unrecognised integer-valued top-level key must be rejected");
+    assert!(
+        err.contains("unrecognised TOML configuration key") && err.contains("`answer`"),
+        "error should name the unknown key: {err}"
+    );
 }
 
 #[test]

@@ -1,7 +1,37 @@
-# ryl config presets (TOML)
+# ryl config presets
+
+## Applying a preset
+
+ryl's TOML config (recommended) is the single, explicit source of a file's
+rules: it has no `preset` or `extends` key, inherits nothing, and merges
+nothing, so what it enables is the file's whole ruleset, with no default-on
+rules.
+
+ryl resolves one config per file by searching upward from the file. A TOML
+config (`.ryl.toml`, `ryl.toml`, or `pyproject.toml` `[tool.ryl]`) found
+anywhere up the tree is preferred over a `.yamllint`, even a nearer one;
+among configs of the same kind the nearest wins. A monorepo can therefore
+hold many `ryl.toml` files, one per subtree, each governing its own files. If
+the upward search finds no project config, ryl falls back to a single
+user-global config; see the
+[quick start](getting-started/quickstart.md).
+
+Presets are starting points for that config, not something ryl inherits behind
+the scenes:
+
+- **TOML config (recommended):** there is no `preset` or `extends` key. The
+  tables below *are* the presets, so copy the one you want into your
+  `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
+  one explicit config.
+- **YAML config (yamllint parity):** a yamllint-style config may `extends:` a
+  built-in preset (`default`, `relaxed`, `empty`) or another config file, and
+  ryl merges the inherited settings in (with overrides under `rules:`). This
+  inheritance is the yamllint behaviour the recommended TOML format omits by
+  design.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
-`relaxed`, `empty`) from [src/conf/mod.rs](/home/owen/Code/ryl_repos/ryl/src/conf/mod.rs).
+`relaxed`, `empty`) from
+[src/conf/mod.rs](https://github.com/owenlamont/ryl/blob/main/src/conf/mod.rs).
 
 ## `default` (TOML equivalent)
 

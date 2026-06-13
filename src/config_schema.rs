@@ -846,9 +846,21 @@ pub enum TruthyAllowedValue {
     OffLower,
 }
 
+/// Build the JSON Schema for `ryl` TOML configuration.
+///
+/// # Panics
+/// Panics if schemars stops emitting an object schema root for `TomlConfig`.
 #[must_use]
 pub fn schema() -> Schema {
-    schema_for!(TomlConfig)
+    let mut schema = schema_for!(TomlConfig);
+    // The CLI rejects unrecognised top-level keys (`validate_toml_config`), but schemars
+    // cannot emit `additionalProperties: false` on the root because the flattened `extra`
+    // catch-all is skipped; set it here so editors flag the same typos the CLI does.
+    schema
+        .as_object_mut()
+        .expect("schema root should be an object")
+        .insert("additionalProperties".to_string(), Value::Bool(false));
+    schema
 }
 
 /// Build the JSON Schema for yamllint-compatible YAML configuration.
@@ -1023,6 +1035,21 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
              `yaml = [...]` instead"
                 .to_string(),
         );
+    }
+
+    // Top-level unknown keys cannot use `deny_unknown_fields` (serde forbids it
+    // alongside the flattened `extra`), so the same strictness the nested tables
+    // get is enforced manually here. `extends`/`yaml-files` are handled above.
+    if !config.extra.is_empty() {
+        let keys = config
+            .extra
+            .keys()
+            .map(|key| format!("`{key}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "invalid config: unrecognised TOML configuration key(s): {keys}"
+        ));
     }
 
     if let Some(entries) = config.per_line_ignores.as_deref() {

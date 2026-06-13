@@ -118,14 +118,17 @@ fn toml_config_parses_exact_typed_fix_variants() {
 }
 
 #[test]
-fn toml_config_with_datetime_extra_parses_fix_policy() {
+fn toml_config_with_unrecognised_top_level_key_is_rejected() {
+    // A stray top-level key (here a datetime-valued `stamp`) is not silently absorbed:
+    // ryl's TOML config is the single explicit source of rules, so it errors and names
+    // the key. The datetime value also exercises a non-string value in the `extra` map.
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
         "stamp = 1979-05-27T07:32:00Z\n[fix]\nfixable = ['ALL']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
     );
 
-    let ctx = discover_config_with(
+    let err = discover_config_with(
         &[],
         &Overrides {
             config_file: Some(cfg),
@@ -133,16 +136,11 @@ fn toml_config_with_datetime_extra_parses_fix_policy() {
         },
         &env,
     )
-    .expect("TOML config with datetime extra should still parse fix policy");
+    .expect_err("an unrecognised top-level TOML key must be rejected");
 
-    assert_eq!(ctx.config.fix().fixable(), [FixRuleSelector::All]);
-    assert_eq!(
-        ctx.config.fix().unfixable(),
-        [
-            FixRule::Brackets,
-            FixRule::Commas,
-            FixRule::CommentsIndentation
-        ]
+    assert!(
+        err.contains("unrecognised TOML configuration key") && err.contains("`stamp`"),
+        "error should name the unknown key: {err}"
     );
 }
 
