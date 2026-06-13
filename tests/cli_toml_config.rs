@@ -59,6 +59,38 @@ fn explicit_pyproject_without_tool_ryl_errors() {
 }
 
 #[test]
+fn unrecognised_top_level_toml_key_is_rejected() {
+    // A valid rule is present so the failure is specifically the unknown key, not the
+    // "no rules enabled" guard. ryl's TOML config is the single explicit source of a
+    // file's rules, so a stray/typo'd top-level key (here `preset`) must error rather
+    // than be silently ignored.
+    let td = tempdir().unwrap();
+    let root = td.path();
+    let cfg = root.join("ryl.toml");
+    fs::write(
+        &cfg,
+        "preset = 'relaxed'\n[rules]\ndocument-start = 'enable'\n",
+    )
+    .unwrap();
+    fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(root.join("a.yaml")));
+    assert_eq!(
+        code, 2,
+        "an unrecognised top-level TOML key must error: {stderr}"
+    );
+    assert!(
+        stderr.contains("unrecognised TOML configuration key")
+            && stderr.contains("`preset`"),
+        "error should name the unknown key: {stderr}"
+    );
+}
+
+#[test]
 fn discovered_empty_toml_config_is_rejected() {
     let td = tempdir().unwrap();
     let root = td.path();

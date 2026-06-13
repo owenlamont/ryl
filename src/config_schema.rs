@@ -1025,6 +1025,21 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         );
     }
 
+    // Top-level unknown keys cannot use `deny_unknown_fields` (serde forbids it
+    // alongside the flattened `extra`), so the same strictness the nested tables
+    // get is enforced manually here. `extends`/`yaml-files` are handled above.
+    if !config.extra.is_empty() {
+        let keys = config
+            .extra
+            .keys()
+            .map(|key| format!("`{key}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "invalid config: unrecognised TOML configuration key(s): {keys}"
+        ));
+    }
+
     if let Some(entries) = config.per_line_ignores.as_deref() {
         validation::validate_per_line_ignores(entries)?;
     }
