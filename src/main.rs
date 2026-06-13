@@ -207,19 +207,22 @@ struct Cli {
     #[arg(short = 'd', long = "config-data", value_name = "YAML")]
     config_data: Option<String>,
 
-    /// Output format (auto, standard, colored, github, parsable, junit, gitlab)
-    #[arg(short = 'f', long = "format", default_value_t = CliFormat::Auto, value_enum)]
-    format: CliFormat,
+    /// Output format (auto, standard, colored, github, parsable, junit, gitlab). Repeatable:
+    /// each `--format` may be followed by an `--output-file` to send that format to a file,
+    /// so console and report artifacts can be produced together.
+    #[arg(short = 'f', long = "format", value_enum)]
+    format: Vec<CliFormat>,
 
-    /// Write the formatted output to this file instead of the default stream (stderr for
-    /// the console formats, stdout for junit/gitlab)
+    /// Destination for the preceding `--format` (a path, or `-` for stdout). Repeatable;
+    /// each binds to the most recent `--format`. Default stream otherwise: stderr for the
+    /// console formats, stdout for junit/gitlab.
     #[arg(
         short = 'o',
         long = "output-file",
         value_name = "FILE",
         conflicts_with = "diff"
     )]
-    output_file: Option<PathBuf>,
+    output_file: Vec<PathBuf>,
 
     // These print-and-exit meta-actions ignore every other input/flag; mark them
     // `exclusive` so combining them with a lint/fix/format request is a usage error
@@ -366,6 +369,17 @@ impl OutputFormat {
             Self::Standard | Self::Colored | Self::Github | Self::Parsable
         )
     }
+}
+
+// TODO(#285): temporary bridge while `--format`/`-o` are repeatable but the multi-target
+// resolution is not wired yet — collapse to the last occurrence (current single-output
+// behavior). Replaced by the (format -> destination) target resolution.
+fn primary_format(formats: &[CliFormat]) -> CliFormat {
+    formats.last().copied().unwrap_or(CliFormat::Auto)
+}
+
+fn primary_output_file(files: &[PathBuf]) -> Option<&Path> {
+    files.last().map(PathBuf::as_path)
 }
 
 fn detect_output_format(choice: CliFormat) -> OutputFormat {
@@ -540,7 +554,7 @@ fn supports_color() -> bool {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match run_cli(cli) {
+    match run_cli(&cli) {
         Ok(code) => code,
         Err(err) => {
             // Usage/config errors embed user-controlled paths and config values;
@@ -552,7 +566,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_cli(cli: Cli) -> Result<ExitCode, String> {
+fn run_cli(cli: &Cli) -> Result<ExitCode, String> {
     // A pure meta-action that ignores every other input/flag, like the
     // schema-print flags below; clap_complete derives the script from `Cli`.
     if let Some(shell) = cli.generate_completions {
@@ -576,13 +590,13 @@ fn run_cli(cli: Cli) -> Result<ExitCode, String> {
     }
 
     if cli.migrate_configs {
-        return run_migration(&cli);
+        return run_migration(cli);
     }
 
     run_lint(cli)
 }
 
-fn run_lint(cli: Cli) -> Result<ExitCode, String> {
+fn run_lint(cli: &Cli) -> Result<ExitCode, String> {
     let stdin_input = Path::new("-");
     let has_stdin = cli.inputs.iter().any(|p| p.as_path() == stdin_input);
     if has_stdin {
@@ -596,7 +610,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
                 "error: `--fix` is not supported when reading from stdin".to_string()
             );
         }
-        return run_stdin_lint(&cli);
+        return run_stdin_lint(cli);
     }
 
     if cli.stdin_filename.is_some() {
@@ -614,7 +628,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     }
 
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
-    let mut global_cfg = build_global_cfg(&cli.inputs, &cli)?;
+    let mut global_cfg = build_global_cfg(&cli.inputs, cli)?;
     if cli.lint.markdown
         && let Some(ctx) = global_cfg.as_mut()
     {
@@ -626,12 +640,12 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
             eprintln!("{}", sanitize_control(notice));
         }
     }
-    let inputs = cli.inputs;
+    let inputs = &cli.inputs;
 
     // Determine files to parse from mixed inputs.
     // - Directories: recursively gather only .yml/.yaml
     // - Files: include as-is (even if extension isn't yaml)
-    let (candidates, explicit_files) = gather_inputs(&inputs);
+    let (candidates, explicit_files) = gather_inputs(inputs);
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
@@ -654,12 +668,12 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let output_format = detect_output_format(cli.format);
+    let output_format = detect_output_format(primary_format(&cli.format));
     reject_diff_with_report_format(cli.lint.fix.diff, output_format)?;
 
     // Refuse an --output-file that resolves to a linted input: writing the report there
     // would truncate the source we just linted (and, with --fix, the freshly-fixed file).
-    if let Some(output) = cli.output_file.as_deref() {
+    if let Some(output) = primary_output_file(&cli.output_file) {
         reject_output_file_collision(
             output,
             files.iter().map(|(path, ..)| path.as_path()),
@@ -669,7 +683,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     if files.is_empty() {
         // A clean or fully-ignored project still gets a valid empty report, so CI artifact
         // ingestion sees `[]` / `<testsuites .../>` rather than a missing or invalid file.
-        emit_empty_report(cli.output_file.as_deref(), output_format)?;
+        emit_empty_report(primary_output_file(&cli.output_file), output_format)?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -681,20 +695,33 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(emit_diff(&diff_safe_fixes_for_files(&files)?));
     }
 
-    // Open the destination before `--fix` mutates anything, so an unopenable --output-file
-    // fails fast rather than leaving sources fixed-but-no-report.
-    let mut sink = open_output_sink(cli.output_file.as_deref(), output_format)?;
+    lint_and_exit(&files, cli, output_format)
+}
+
+/// Open the output destination (before `--fix` mutates anything, so an unopenable
+/// `--output-file` fails fast), apply fixes if requested, lint, render the chosen format,
+/// write it, print the `--fix` summary, and map the tally to an exit code.
+///
+/// # Errors
+///
+/// Returns an error if a file cannot be read/written or the output destination fails.
+fn lint_and_exit(
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+    cli: &Cli,
+    output_format: OutputFormat,
+) -> Result<ExitCode, String> {
+    let mut sink =
+        open_output_sink(primary_output_file(&cli.output_file), output_format)?;
 
     let initial_problem_count = if cli.lint.fix.fix {
-        apply_fixes_reporting_skips(&files, cli.lint.compatibility.no_warnings)?
+        apply_fixes_reporting_skips(files, cli.lint.compatibility.no_warnings)?
     } else {
         0
     };
 
-    let results = lint_files(&files);
-
+    let results = lint_files(files);
     let (summary, output) = process_results(
-        &files,
+        files,
         results,
         output_format,
         cli.lint.compatibility.no_warnings,
@@ -751,12 +778,12 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
 
 fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files, config_found) = resolve_stdin_ctx(cli)?;
-    let output_format = detect_output_format(cli.format);
+    let output_format = detect_output_format(primary_format(&cli.format));
     reject_diff_with_report_format(cli.lint.fix.diff, output_format)?;
 
     // The stdin content is labelled by `--stdin-filename`; refuse writing the report to
     // that same path so it cannot truncate the file the label names.
-    if let Some(output) = cli.output_file.as_deref() {
+    if let Some(output) = primary_output_file(&cli.output_file) {
         reject_output_file_collision(output, std::iter::once(path.as_path()))?;
     }
 
@@ -764,7 +791,7 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     else {
         // An ignored stdin filename is an empty input set: still emit a valid empty
         // report so CI artifact ingestion does not see a missing file.
-        emit_empty_report(cli.output_file.as_deref(), output_format)?;
+        emit_empty_report(primary_output_file(&cli.output_file), output_format)?;
         return Ok(ExitCode::SUCCESS);
     };
 
@@ -786,7 +813,8 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     let files = vec![(path, base_dir, cfg, kind)];
     let results = vec![(0usize, outcome)];
 
-    let mut sink = open_output_sink(cli.output_file.as_deref(), output_format)?;
+    let mut sink =
+        open_output_sink(primary_output_file(&cli.output_file), output_format)?;
     let (summary, output) = process_results(
         &files,
         results,
