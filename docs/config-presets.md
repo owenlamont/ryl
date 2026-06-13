@@ -22,7 +22,8 @@ the scenes:
   compatibility with yamllint; the TOML format has no equivalent by design.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
-`relaxed`, `empty`) from [src/conf/mod.rs](/home/owen/Code/ryl_repos/ryl/src/conf/mod.rs).
+`relaxed`, `empty`) from
+[src/conf/mod.rs](https://github.com/owenlamont/ryl/blob/main/src/conf/mod.rs).
 
 ## `default` (TOML equivalent)
 
