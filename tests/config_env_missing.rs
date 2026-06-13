@@ -47,6 +47,30 @@ fn env_tilde_path_uses_closure_home_dir() {
 }
 
 #[test]
+fn env_xdg_config_home_discovers_ryl_native_user_global() {
+    // discover_config_with_env routes XDG_CONFIG_HOME through the closure, so the
+    // ryl-native user-global (<config-dir>/ryl/ryl.toml) is discoverable via that API.
+    let dir = tempdir().unwrap();
+    let ryl_cfg = dir.path().join("ryl").join("ryl.toml");
+    fs::create_dir_all(ryl_cfg.parent().unwrap()).unwrap();
+    fs::write(&ryl_cfg, "[rules]\nkey-duplicates = 'enable'\n").unwrap();
+
+    let project_root = dir.path().join("workspace");
+    fs::create_dir_all(&project_root).unwrap();
+    let inputs = vec![project_root.join("input.yaml")];
+    // HOME bounds the project-config walk to the tempdir; XDG_CONFIG_HOME points the
+    // user-global lookup at the tempdir so the test never reads the real config dir.
+    let ctx = discover_config_with_env(&inputs, &Overrides::default(), &|k| match k {
+        "XDG_CONFIG_HOME" => Some(dir.path().to_str().unwrap().into()),
+        "HOME" => Some(dir.path().to_str().unwrap().into()),
+        _ => None,
+    })
+    .expect("discover should succeed");
+
+    assert_eq!(ctx.source.as_deref(), Some(ryl_cfg.as_path()));
+}
+
+#[test]
 fn env_tilde_path_without_home_falls_back_to_system_home() {
     let workspace = tempdir().unwrap();
     let inputs = vec![workspace.path().join("input.yaml")];

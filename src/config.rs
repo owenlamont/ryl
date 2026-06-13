@@ -106,7 +106,10 @@ impl Env for ClosureEnv<'_> {
     }
 
     fn config_dir(&self) -> Option<PathBuf> {
-        SystemEnv.config_dir()
+        // Resolve config_dir purely from the injected XDG_CONFIG_HOME so this injection env
+        // stays hermetic and never reads the real config dir; an un-injected value yields
+        // None (production uses SystemEnv, which adds the platform-native fallback).
+        (self.get)("XDG_CONFIG_HOME").map(PathBuf::from)
     }
 
     fn home_dir(&self) -> Option<PathBuf> {
@@ -602,6 +605,29 @@ impl YamlLintConfig {
     #[must_use]
     pub fn ignore_patterns(&self) -> &[String] {
         &self.ignore_patterns
+    }
+
+    /// Drop `ignore-from-file` so the serialized config emits the patterns `finalize`
+    /// already resolved into `ignore`. User-global migration calls this so the converted
+    /// config is self-contained and keeps working after it moves to ryl's config directory
+    /// (the original relative path would otherwise dangle). Call only after `finalize`.
+    pub fn inline_resolved_ignore_from_file(&mut self) {
+        self.ignore_from_files.clear();
+    }
+
+    /// Whether any rule sets a *relative* rule-level `ignore-from-file`. User-global
+    /// migration refuses these: the rule config is serialized verbatim, so a relative path
+    /// cannot be relocated to ryl's config directory without rewriting it (the top-level
+    /// case is inlined instead). An absolute rule-level path is left as-is — moving the
+    /// config cannot invalidate it. Call only after `finalize`, which populates rule
+    /// filters.
+    #[must_use]
+    pub fn has_relative_rule_level_ignore_from_file(&self) -> bool {
+        self.rules
+            .values()
+            .filter_map(|rule| rule.filter.as_ref())
+            .flat_map(|filter| filter.from_files.iter())
+            .any(|path| !Path::new(path).is_absolute())
     }
 
     #[must_use]
@@ -1370,7 +1396,8 @@ fn finalize_context(
 }
 
 /// Discover configuration with precedence:
-/// config-data > config-file > project (TOML-first, YAML fallback) > env var > user-global > defaults.
+/// config-data > config-file > project (TOML-first, YAML fallback) > env var >
+/// ryl user-global (TOML) > yamllint user-global (YAML) > defaults.
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
@@ -1394,7 +1421,7 @@ pub fn discover_config_with(
     overrides: &Overrides,
     envx: &dyn Env,
 ) -> Result<ConfigContext, String> {
-    // Global config resolution: inline > file > project > env var.
+    // Global config resolution: inline > file > project > env var > user-global.
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
         let cfg =
@@ -1543,12 +1570,83 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
 
 // no separate try_env_config_with; discover_config_with_env uses ClosureEnv + discover_config_with
 
+/// User-global config fallback. ryl checks its own branded location first, then the
+/// yamllint-compatible path so migrators keep working.
 fn try_user_global_core(
     envx: &dyn Env,
     base_dir: &Path,
 ) -> Result<Option<ConfigContext>, String> {
-    envx.config_dir()
+    if let Some(ctx) = try_ryl_user_global_core(envx, base_dir)? {
+        return Ok(Some(ctx));
+    }
+    try_yamllint_user_global_core(envx, base_dir)
+}
+
+/// Directory holding ryl's own user-global config, following the ruff/Biome convention
+/// via `config_dir` (`$XDG_CONFIG_HOME` else the platform-native dir), so on macOS it
+/// resolves under `~/Library/Application Support/ryl`, unlike the yamllint path.
+fn ryl_user_global_dir(envx: &dyn Env) -> Option<PathBuf> {
+    envx.config_dir().map(|base| base.join("ryl"))
+}
+
+/// yamllint's user-global config path, matching yamllint exactly across platforms:
+/// `$XDG_CONFIG_HOME/yamllint/config` if set, else `~/.config/yamllint/config` —
+/// deliberately NOT the platform-native config dir (verified against yamllint/cli.py).
+fn yamllint_user_global_path(envx: &dyn Env) -> Option<PathBuf> {
+    envx.env_var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| envx.home_dir().map(|home| home.join(".config")))
         .map(|base| base.join("yamllint").join("config"))
+}
+
+/// Resolve the `(yamllint source, ryl target)` paths for migrating a yamllint user-global
+/// config to ryl's own location. `None` when no config directory or home can be
+/// determined. The target is `ryl.toml` (non-hidden, in the dedicated `ryl/` dir).
+#[must_use]
+pub fn user_config_migration_paths(envx: &dyn Env) -> Option<(PathBuf, PathBuf)> {
+    let source = yamllint_user_global_path(envx)?;
+    let target = ryl_user_global_dir(envx)?.join("ryl.toml");
+    Some((source, target))
+}
+
+/// ryl-native user-global config: `<config-dir>/ryl/{.ryl.toml,ryl.toml}`, TOML only per
+/// the YAML-mirrors-yamllint / TOML-for-ryl-only split.
+fn try_ryl_user_global_core(
+    envx: &dyn Env,
+    base_dir: &Path,
+) -> Result<Option<ConfigContext>, String> {
+    let Some(dir) = ryl_user_global_dir(envx) else {
+        return Ok(None);
+    };
+    for name in RYL_USER_GLOBAL_CONFIG_CANDIDATES {
+        let candidate = dir.join(name);
+        if !envx.path_exists(&candidate) {
+            continue;
+        }
+        let cfg = load_config_from_path_core(envx, &candidate, base_dir, false)?
+            .expect(
+                "non-pyproject .toml always yields a config (empty errors earlier)",
+            );
+        return finalize_context(
+            envx,
+            cfg,
+            base_dir.to_path_buf(),
+            Some(candidate),
+            Vec::new(),
+            true,
+        )
+        .map(Some);
+    }
+    Ok(None)
+}
+
+/// yamllint-compatible user-global config (`<base>/yamllint/config`, YAML), kept for
+/// users migrating from yamllint.
+fn try_yamllint_user_global_core(
+    envx: &dyn Env,
+    base_dir: &Path,
+) -> Result<Option<ConfigContext>, String> {
+    yamllint_user_global_path(envx)
         .filter(|p| envx.path_exists(p))
         .map(|p| {
             let data = envx.read_to_string(&p)?;
@@ -1573,6 +1671,8 @@ const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
     [".ryl.toml", "ryl.toml", "pyproject.toml"];
 const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
     [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
+// ryl-native user-global candidates (TOML only); checked inside `<config-dir>/ryl/`.
+const RYL_USER_GLOBAL_CONFIG_CANDIDATES: [&str; 2] = [".ryl.toml", "ryl.toml"];
 
 #[derive(Debug, Clone)]
 struct ProjectConfigDiscovery {

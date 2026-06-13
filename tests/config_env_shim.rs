@@ -198,14 +198,98 @@ fn shim_project_config_discovered_from_inputs() {
 }
 
 #[test]
-fn shim_user_global_config_applies_when_no_project_or_env() {
+fn shim_yamllint_user_global_config_applies_when_no_project_or_env() {
+    // The yamllint-compat path resolves via XDG_CONFIG_HOME (or ~/.config), matching
+    // yamllint itself, not the platform-native config dir.
     let env = FakeEnv::default()
         .with_cwd("/wd")
-        .with_config_dir("/xdg")
+        .set_var("XDG_CONFIG_HOME", "/xdg")
         .add_file("/xdg/yamllint/config", cfg_rules_empty())
         .add_exist("/xdg/yamllint/config");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert!(ctx.source.unwrap().ends_with("yamllint/config"));
+}
+
+#[test]
+fn shim_ryl_user_global_toml_applies_when_no_project_or_env() {
+    let env = FakeEnv::default()
+        .with_cwd("/wd")
+        .with_config_dir("/xdg")
+        .add_file("/xdg/ryl/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_exist("/xdg/ryl/ryl.toml");
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/ryl.toml"));
+    // Confirms the file was parsed as TOML (a `[rules]` table), not YAML.
+    assert!(
+        ctx.config
+            .rule_names()
+            .iter()
+            .any(|r| r == "key-duplicates")
+    );
+}
+
+#[test]
+fn shim_ryl_user_global_prefers_dotfile_over_plain() {
+    let env = FakeEnv::default()
+        .with_cwd("/wd")
+        .with_config_dir("/xdg")
+        .add_file("/xdg/ryl/.ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_exist("/xdg/ryl/.ryl.toml")
+        .add_file("/xdg/ryl/ryl.toml", "[rules]\ntrailing-spaces = 'enable'\n")
+        .add_exist("/xdg/ryl/ryl.toml");
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/.ryl.toml"));
+    // The dotfile's own contents loaded (key-duplicates, not ryl.toml's trailing-spaces),
+    // so the dotfile won by being read, not merely by appearing first in the path list.
+    let rules = ctx.config.rule_names();
+    assert!(
+        rules.iter().any(|r| r == "key-duplicates")
+            && !rules.iter().any(|r| r == "trailing-spaces"),
+        "expected .ryl.toml contents to load, got {rules:?}"
+    );
+}
+
+#[test]
+fn shim_ryl_user_global_takes_precedence_over_yamllint() {
+    let env = FakeEnv::default()
+        .with_cwd("/wd")
+        .with_config_dir("/xdg")
+        .set_var("XDG_CONFIG_HOME", "/xdg")
+        .add_file("/xdg/ryl/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_exist("/xdg/ryl/ryl.toml")
+        .add_file("/xdg/yamllint/config", cfg_rules_empty())
+        .add_exist("/xdg/yamllint/config");
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/ryl.toml"));
+}
+
+#[test]
+fn shim_ryl_user_global_unreadable_config_errors() {
+    // The ryl-native config exists but cannot be read: discovery must surface the error
+    // rather than silently falling through to the yamllint path or the empty default.
+    let env = FakeEnv::default()
+        .with_cwd("/wd")
+        .with_config_dir("/xdg")
+        .add_exist("/xdg/ryl/ryl.toml");
+    let err = discover_config_with(&[], &Overrides::default(), &env).unwrap_err();
+    assert!(err.contains("failed to read"), "unexpected error: {err}");
+}
+
+#[test]
+fn shim_yamllint_user_global_falls_back_to_home_config_without_xdg() {
+    // With no XDG_CONFIG_HOME, yamllint's user-global lives at ~/.config/yamllint/config
+    // on every platform (not the native config dir); config_dir is unset here, which also
+    // exercises the ryl-native path returning None before the yamllint fallback.
+    let env = FakeEnv::default()
+        .with_cwd("/wd")
+        .with_home("/home/tester")
+        .add_file("/home/tester/.config/yamllint/config", cfg_rules_empty())
+        .add_exist("/home/tester/.config/yamllint/config");
+    let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
+    assert_eq!(
+        ctx.source.unwrap(),
+        PathBuf::from("/home/tester/.config/yamllint/config")
+    );
 }
 
 #[test]
@@ -291,7 +375,7 @@ fn shim_env_var_tilde_backslash_only_returns_home() {
 fn shim_discover_per_file_uses_project_else_user_global_else_default() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
-        .with_config_dir("/xdg")
+        .set_var("XDG_CONFIG_HOME", "/xdg")
         .add_file("/xdg/yamllint/config", cfg_rules_empty())
         .add_exist("/xdg/yamllint/config");
     // No project config, so user-global applies
