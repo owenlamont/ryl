@@ -846,9 +846,21 @@ pub enum TruthyAllowedValue {
     OffLower,
 }
 
+/// Build the JSON Schema for `ryl` TOML configuration.
+///
+/// # Panics
+/// Panics if schemars stops emitting an object schema root for `TomlConfig`.
 #[must_use]
 pub fn schema() -> Schema {
-    schema_for!(TomlConfig)
+    let mut schema = schema_for!(TomlConfig);
+    // The CLI rejects unrecognised top-level keys (`validate_toml_config`), but schemars
+    // cannot emit `additionalProperties: false` on the root because the flattened `extra`
+    // catch-all is skipped; set it here so editors flag the same typos the CLI does.
+    schema
+        .as_object_mut()
+        .expect("schema root should be an object")
+        .insert("additionalProperties".to_string(), Value::Bool(false));
+    schema
 }
 
 /// Build the JSON Schema for yamllint-compatible YAML configuration.

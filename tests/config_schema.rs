@@ -209,9 +209,11 @@ fn generated_schema_accepts_valid_sample_config() {
     let validator = validator_for(&schema).expect("generated schema should compile");
     let instance = toml_to_json(
         r#"
-yaml-files = ["*.yaml", "*.yml"]
 ignore = ["vendor/**", "generated/**"]
 locale = "en_US.UTF-8"
+
+[files]
+yaml = ["*.yaml", "*.yml"]
 
 [per-file-ignores]
 "**/values.yaml" = ["document-start"]
@@ -1078,5 +1080,31 @@ fn every_rule_round_trips_through_toml_serialization() {
     assert!(
         dropped.is_empty(),
         "rules dropped from rules_table_to_value serialization: {dropped:?}"
+    );
+}
+
+#[test]
+fn toml_schema_root_rejects_unknown_top_level_keys() {
+    // The CLI rejects unrecognised top-level TOML keys (validate_toml_config); the
+    // published schema must agree so editors flag the same typos rather than accepting a
+    // key the CLI then errors on.
+    let schema = schema_value();
+    assert_eq!(
+        schema.get("additionalProperties"),
+        Some(&json!(false)),
+        "TOML schema root must forbid unknown top-level keys"
+    );
+
+    let validator = validator_for(&schema).expect("generated schema should compile");
+    let unknown =
+        json!({ "preset": "relaxed", "rules": { "document-start": "enable" } });
+    assert!(
+        !validator.is_valid(&unknown),
+        "schema should reject an unknown top-level key like `preset`"
+    );
+    let valid = json!({ "rules": { "document-start": "enable" } });
+    assert!(
+        validator.is_valid(&valid),
+        "a config using only known top-level keys should pass"
     );
 }
