@@ -144,3 +144,20 @@ ryl --migrate-configs --migrate-write
 ```
 
 See [Migrating from yamllint](migrating-from-yamllint.md) for details.
+
+## Configure across projects (user-global)
+
+When no project config is found, ryl falls back to a user-global config so you
+can set personal defaults once. It reads its own TOML config first &mdash;
+`<config-dir>/ryl/.ryl.toml` (or `ryl.toml`), following the ruff/Biome
+convention where `<config-dir>` is `$XDG_CONFIG_HOME` if set, else the
+platform-native config dir (`~/.config/ryl` on Linux, `~/Library/Application
+Support/ryl` on macOS, `%APPDATA%\ryl` on Windows) &mdash; then falls back to
+yamllint's `<config-dir>/yamllint/config` for compatibility. A project config,
+`-c`/`-d`, or `YAMLLINT_CONFIG_FILE` all take precedence over the user-global
+config.
+
+If you have a yamllint user-global config, `ryl --migrate-user-config
+--migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from
+yamllint](migrating-from-yamllint.md)). Migration is optional, since ryl also
+reads the yamllint location directly.
