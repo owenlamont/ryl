@@ -112,11 +112,13 @@ host-file level (one diff per `.md`).
 
 ## Configure for your project
 
-ryl's configuration is deliberately **explicit** and **local**: every rule
-is enabled explicitly, and each file's rules come from a single config file
-(the nearest one wins, so a monorepo can have many `ryl.toml` files without
-ryl merging them). There are no default-on rules, so a config that enables
-nothing exits `2` rather than silently linting nothing.
+ryl's configuration is deliberately **explicit** and **local**: every rule is
+enabled explicitly, and each file's rules come from a single config file that
+ryl finds by searching upward (a TOML config anywhere up the tree is preferred
+over a `.yamllint`). The recommended TOML config inherits and merges nothing,
+so what it enables is the whole ruleset, and a monorepo can have many
+`ryl.toml` files, each governing its subtree. There are no default-on rules, so
+a config that enables nothing exits `2` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
 configuration is flat &mdash; copy the preset you want from

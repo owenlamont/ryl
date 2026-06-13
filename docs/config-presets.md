@@ -2,24 +2,29 @@
 
 ## Applying a preset
 
-ryl applies one configuration file to each file it lints. The nearest
-config in that file's directory or a parent wins, and any configs further
-up are ignored; ryl never merges several together. A monorepo can hold
-many `ryl.toml` files (one per subtree), each governed by exactly one of
-them. Every rule is enabled explicitly, so the config that applies fully
-describes what is checked, with no default-on rules.
+ryl's TOML config (recommended) is the single, explicit source of a file's
+rules: it has no `preset` or `extends` key, inherits nothing, and merges
+nothing, so what it enables is the file's whole ruleset, with no default-on
+rules.
 
-Presets are starting points for a config, not something ryl inherits behind
+ryl resolves one config per file by searching upward from the file. A TOML
+config (`.ryl.toml`, `ryl.toml`, or `pyproject.toml` `[tool.ryl]`) found
+anywhere up the tree is preferred over a `.yamllint`, even a nearer one;
+among configs of the same kind the nearest wins. A monorepo can therefore
+hold many `ryl.toml` files, one per subtree, each governing its own files.
+
+Presets are starting points for that config, not something ryl inherits behind
 the scenes:
 
 - **TOML config (recommended):** there is no `preset` or `extends` key. The
   tables below *are* the presets, so copy the one you want into your
   `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
   one explicit config.
-- **YAML config (yamllint parity):** a yamllint-style config may use
-  `extends: default`, `extends: relaxed`, or `extends: empty` to start from a
-  preset and override individual rules under `rules:`. This exists for
-  compatibility with yamllint; the TOML format has no equivalent by design.
+- **YAML config (yamllint parity):** a yamllint-style config may `extends:` a
+  built-in preset (`default`, `relaxed`, `empty`) or another config file, and
+  ryl merges the inherited settings in (with overrides under `rules:`). This
+  inheritance is the yamllint behaviour the recommended TOML format omits by
+  design.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
 `relaxed`, `empty`) from
