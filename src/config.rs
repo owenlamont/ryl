@@ -615,16 +615,19 @@ impl YamlLintConfig {
         self.ignore_from_files.clear();
     }
 
-    /// Whether any rule sets a rule-level `ignore-from-file`. User-global migration refuses
-    /// these: the rule config is serialized verbatim, so the relative path cannot be
-    /// relocated to ryl's config directory without rewriting it (the top-level case is
-    /// inlined instead). Call only after `finalize`, which populates rule filters.
+    /// Whether any rule sets a *relative* rule-level `ignore-from-file`. User-global
+    /// migration refuses these: the rule config is serialized verbatim, so a relative path
+    /// cannot be relocated to ryl's config directory without rewriting it (the top-level
+    /// case is inlined instead). An absolute rule-level path is left as-is — moving the
+    /// config cannot invalidate it. Call only after `finalize`, which populates rule
+    /// filters.
     #[must_use]
-    pub fn has_rule_level_ignore_from_file(&self) -> bool {
+    pub fn has_relative_rule_level_ignore_from_file(&self) -> bool {
         self.rules
             .values()
             .filter_map(|rule| rule.filter.as_ref())
-            .any(|filter| !filter.from_files.is_empty())
+            .flat_map(|filter| filter.from_files.iter())
+            .any(|path| !Path::new(path).is_absolute())
     }
 
     #[must_use]

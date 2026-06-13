@@ -534,6 +534,45 @@ fn migrate_user_config_refuses_rule_level_ignore_from_file() {
     );
 }
 
+#[test]
+fn migrate_user_config_allows_absolute_rule_level_ignore_from_file() {
+    let td = tempdir().unwrap();
+    let source = td.path().join("yamllint").join("config");
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    let abs_ignore = td.path().join("abs_ignore.txt");
+    fs::write(&abs_ignore, "generated/\n").unwrap();
+    // An absolute rule-level ignore-from-file survives the move, so it is not refused.
+    fs::write(
+        &source,
+        format!(
+            "rules:\n  key-duplicates:\n    level: error\n    ignore-from-file: {}\n",
+            abs_ignore.display()
+        ),
+    )
+    .unwrap();
+    let opts = MigrateOptions {
+        project_root: None,
+        user_config: Some(UserConfigMigration {
+            source,
+            target: td.path().join("ryl").join("ryl.toml"),
+        }),
+        write_mode: WriteMode::Preview,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Keep,
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert_eq!(
+        res.entries.len(),
+        1,
+        "an absolute rule-level ignore-from-file must migrate, not be refused"
+    );
+    assert!(
+        res.entries[0].toml.contains("ignore-from-file"),
+        "the absolute rule-level path is preserved: {}",
+        res.entries[0].toml
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn migrate_skips_symlinked_source() {

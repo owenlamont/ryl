@@ -285,11 +285,11 @@ fn build_entry(
         },
     )?;
     if user_global {
-        if ctx.config.has_rule_level_ignore_from_file() {
+        if ctx.config.has_relative_rule_level_ignore_from_file() {
             plan.warnings.push(format!(
-                "warning: skipping migration of {}: a rule-level ignore-from-file cannot be \
-                 relocated to the ryl user-global config; inline the patterns or use an \
-                 absolute path, then re-run",
+                "warning: skipping migration of {}: a relative rule-level ignore-from-file \
+                 cannot be relocated to the ryl user-global config; inline the patterns or \
+                 use an absolute path, then re-run",
                 source.display()
             ));
             return Ok(false);
