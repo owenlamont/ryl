@@ -26,6 +26,7 @@ nav = [
     { "Per-line ignores" = "per-line-ignores.md" },
     { "YAML in Markdown" = "markdown.md" },
   ]},
+  { "Output formats" = "output-formats.md" },
   { "YAML version compatibility" = "yaml-version.md" },
 ]
 

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Vendored from the GitLab Code Quality report format (https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-format), a documented subset of the Code Climate engine spec. ryl validates its `--format gitlab` output against this so the emitter cannot drift from the published contract.",
+  "items": {
+    "properties": {
+      "check_name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "fingerprint": {
+        "type": "string"
+      },
+      "location": {
+        "properties": {
+          "lines": {
+            "properties": {
+              "begin": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "begin"
+            ],
+            "type": "object"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "lines"
+        ],
+        "type": "object"
+      },
+      "severity": {
+        "enum": [
+          "info",
+          "minor",
+          "major",
+          "critical",
+          "blocker"
+        ]
+      }
+    },
+    "required": [
+      "description",
+      "check_name",
+      "fingerprint",
+      "severity",
+      "location"
+    ],
+    "type": "object"
+  },
+  "title": "GitLab Code Quality report",
+  "type": "array"
+}

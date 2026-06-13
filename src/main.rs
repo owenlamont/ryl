@@ -8,15 +8,17 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fmt::Write as _;
-use std::io::{IsTerminal, Read};
+use std::fs::File;
+use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use ryl::cli_support::{lexical_abspath, resolve_ctx, sanitize_control};
+use ryl::cli_support::{
+    github_escape, lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
+};
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
 };
@@ -29,11 +31,19 @@ use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
     migrate_configs,
 };
+use ryl::report::{ReportEntry, render_gitlab, render_junit};
 use ryl::{
     LintProblem, Severity, lint_file, lint_markdown_file, lint_markdown_str, lint_str,
 };
+use same_file::Handle;
 
 const STDIN_LABEL: &str = "<stdin>";
+
+// Formatted output is built in an owned `Vec<u8>`, whose `io::Write` never errors, so the
+// per-diagnostic writes are `expect`s rather than `?`s that would leave dead error arms.
+// Only the final write to the destination (file/stdout/stderr) is fallible.
+const OUTPUT_INFALLIBLE: &str =
+    "writing diagnostics to an in-memory buffer cannot fail";
 
 // A resolved config that enables no rules would lint nothing while exiting 0 — a
 // silent no-op that almost always means a misconfiguration. The lint commands fail
@@ -174,6 +184,8 @@ enum CliFormat {
     Colored,
     Github,
     Parsable,
+    Junit,
+    Gitlab,
 }
 
 #[derive(Parser, Debug)]
@@ -195,9 +207,19 @@ struct Cli {
     #[arg(short = 'd', long = "config-data", value_name = "YAML")]
     config_data: Option<String>,
 
-    /// Output format (auto, standard, colored, github, parsable)
+    /// Output format (auto, standard, colored, github, parsable, junit, gitlab)
     #[arg(short = 'f', long = "format", default_value_t = CliFormat::Auto, value_enum)]
     format: CliFormat,
+
+    /// Write the formatted output to this file instead of the default stream (stderr for
+    /// the console formats, stdout for junit/gitlab)
+    #[arg(
+        short = 'o',
+        long = "output-file",
+        value_name = "FILE",
+        conflicts_with = "diff"
+    )]
+    output_file: Option<PathBuf>,
 
     // These print-and-exit meta-actions ignore every other input/flag; mark them
     // `exclusive` so combining them with a lint/fix/format request is a usage error
@@ -331,6 +353,19 @@ enum OutputFormat {
     Colored,
     Github,
     Parsable,
+    Junit,
+    Gitlab,
+}
+
+impl OutputFormat {
+    /// Streaming formats emit one line per diagnostic as files are visited; the
+    /// whole-document formats (junit/gitlab) buffer every diagnostic and serialize once.
+    const fn is_streaming(self) -> bool {
+        matches!(
+            self,
+            Self::Standard | Self::Colored | Self::Github | Self::Parsable
+        )
+    }
 }
 
 fn detect_output_format(choice: CliFormat) -> OutputFormat {
@@ -339,6 +374,8 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
         CliFormat::Colored => OutputFormat::Colored,
         CliFormat::Github => OutputFormat::Github,
         CliFormat::Parsable => OutputFormat::Parsable,
+        CliFormat::Junit => OutputFormat::Junit,
+        CliFormat::Gitlab => OutputFormat::Gitlab,
         CliFormat::Auto => {
             if github_env_active() {
                 OutputFormat::Github
@@ -349,6 +386,140 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
             }
         }
     }
+}
+
+/// Open the destination for formatted output: the `--output-file` path when given,
+/// otherwise stdout for the whole-document report formats (so they can be redirected or
+/// piped as an artifact) and stderr for the streaming console formats (unchanged
+/// behavior). The console diagnostics are the only thing routed here; notices, `--fix`
+/// summaries, and skip messages always stay on stderr.
+///
+/// # Errors
+///
+/// Returns an error if the `--output-file` path cannot be created.
+fn open_output_sink(
+    output_file: Option<&Path>,
+    format: OutputFormat,
+) -> Result<Box<dyn Write>, String> {
+    if let Some(path) = output_file {
+        let file = File::create(path).map_err(|err| {
+            format!(
+                "error: cannot open --output-file {}: {err}",
+                sanitize_control(&path.display().to_string())
+            )
+        })?;
+        return Ok(Box::new(BufWriter::new(file)));
+    }
+    if format.is_streaming() {
+        Ok(Box::new(std::io::stderr()))
+    } else {
+        Ok(Box::new(BufWriter::new(std::io::stdout())))
+    }
+}
+
+/// `--diff` previews safe fixes and ignores `--format`, so combining it with a
+/// whole-document report format is a usage error rather than a silent no-op. (`--diff`
+/// with `--output-file` is rejected declaratively by clap's `conflicts_with`.)
+///
+/// # Errors
+///
+/// Returns a usage error when `--diff` is combined with `--format junit|gitlab`.
+fn reject_diff_with_report_format(
+    diff: bool,
+    format: OutputFormat,
+) -> Result<(), String> {
+    if diff && !format.is_streaming() {
+        return Err(
+            "error: `--diff` cannot be combined with `--format junit` or `--format gitlab`"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Emit a valid empty report for the whole-document formats when there are no files to
+/// lint, so CI artifact ingestion sees a present, valid file. Streaming formats emit
+/// nothing (unchanged).
+///
+/// # Errors
+///
+/// Returns an error if the `--output-file` cannot be created or written.
+fn emit_empty_report(
+    output_file: Option<&Path>,
+    output_format: OutputFormat,
+) -> Result<(), String> {
+    // A streaming format writes nothing to its default stream for an empty input, but an
+    // explicit --output-file is still created (empty) and validated, so `-o` uniformly
+    // produces the file and an unopenable destination still errors.
+    if output_file.is_none() && output_format.is_streaming() {
+        return Ok(());
+    }
+    let mut sink = open_output_sink(output_file, output_format)?;
+    let (_summary, output) = process_results(&[], Vec::new(), output_format, false);
+    write_output(sink.as_mut(), &output)
+}
+
+/// Refuse an `--output-file` whose lexical path matches a linted input, so a report can
+/// never truncate the source it just linted (or, with `--fix`, the freshly-fixed file).
+/// Matches on the lexical identity (`lexical_abspath`) used for input de-duplication —
+/// which also covers a not-yet-created destination — and, for a destination that already
+/// exists, on its underlying file identity via `same_file::Handle`, so an `-o` that is a
+/// symlink *or* a hard link onto a linted input is caught too.
+///
+/// # Errors
+///
+/// Returns a usage error when `output` resolves to one of the `inputs` (for stdin, the
+/// single `--stdin-filename`/label entry). `output` is the clap-parsed `--output-file`,
+/// which clap guarantees is non-empty, so `lexical_abspath` never sees an empty path.
+fn reject_output_file_collision<'a>(
+    output: &Path,
+    inputs: impl Iterator<Item = &'a Path>,
+) -> Result<(), String> {
+    let output_abs = lexical_abspath(output);
+    let output_handle = Handle::from_path(output).ok();
+    let collides = inputs.into_iter().any(|input| {
+        lexical_abspath(input) == output_abs
+            || output_handle.as_ref().is_some_and(|handle| {
+                Handle::from_path(input).ok().as_ref() == Some(handle)
+            })
+    });
+    if collides {
+        return Err(format!(
+            "error: --output-file {} is also a linted input; refusing to overwrite it",
+            sanitize_control(&output.display().to_string())
+        ));
+    }
+    Ok(())
+}
+
+/// The project root that report paths are made relative to: `CI_PROJECT_DIR` when set
+/// (matching ruff's GitLab integration), otherwise `.` (which `lexical_abspath` resolves
+/// to the working directory). Computed once per run, not per file.
+fn report_project_root() -> PathBuf {
+    // An empty `CI_PROJECT_DIR` (set but blank, e.g. a misconfigured CI) is treated as
+    // unset: an empty path would panic `lexical_abspath`, and `.` resolves to the cwd.
+    std::env::var_os("CI_PROJECT_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| PathBuf::from("."), PathBuf::from)
+}
+
+fn write_output_error(err: &std::io::Error) -> String {
+    format!(
+        "error: failed to write output: {}",
+        sanitize_control(&err.to_string())
+    )
+}
+
+/// Write the buffered, formatted output to its destination: the single fallible step of
+/// the output pipeline (the formatting itself is infallible, see [`OUTPUT_INFALLIBLE`]).
+///
+/// # Errors
+///
+/// Returns an error if the destination cannot be written or flushed (e.g. a full disk).
+fn write_output(sink: &mut dyn Write, output: &[u8]) -> Result<(), String> {
+    sink.write_all(output)
+        .and_then(|()| sink.flush())
+        .map_err(|err| write_output_error(&err))
 }
 
 fn github_env_active() -> bool {
@@ -483,7 +654,22 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    let output_format = detect_output_format(cli.format);
+    reject_diff_with_report_format(cli.lint.fix.diff, output_format)?;
+
+    // Refuse an --output-file that resolves to a linted input: writing the report there
+    // would truncate the source we just linted (and, with --fix, the freshly-fixed file).
+    if let Some(output) = cli.output_file.as_deref() {
+        reject_output_file_collision(
+            output,
+            files.iter().map(|(path, ..)| path.as_path()),
+        )?;
+    }
+
     if files.is_empty() {
+        // A clean or fully-ignored project still gets a valid empty report, so CI artifact
+        // ingestion sees `[]` / `<testsuites .../>` rather than a missing or invalid file.
+        emit_empty_report(cli.output_file.as_deref(), output_format)?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -495,6 +681,10 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(emit_diff(&diff_safe_fixes_for_files(&files)?));
     }
 
+    // Open the destination before `--fix` mutates anything, so an unopenable --output-file
+    // fails fast rather than leaving sources fixed-but-no-report.
+    let mut sink = open_output_sink(cli.output_file.as_deref(), output_format)?;
+
     let initial_problem_count = if cli.lint.fix.fix {
         apply_fixes_reporting_skips(&files, cli.lint.compatibility.no_warnings)?
     } else {
@@ -503,13 +693,13 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
 
     let results = lint_files(&files);
 
-    let output_format = detect_output_format(cli.format);
-    let summary = process_results(
+    let (summary, output) = process_results(
         &files,
         results,
         output_format,
         cli.lint.compatibility.no_warnings,
     );
+    write_output(sink.as_mut(), &output)?;
 
     if cli.lint.fix.fix && initial_problem_count > 0 {
         eprintln!(
@@ -561,9 +751,20 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
 
 fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files, config_found) = resolve_stdin_ctx(cli)?;
+    let output_format = detect_output_format(cli.format);
+    reject_diff_with_report_format(cli.lint.fix.diff, output_format)?;
+
+    // The stdin content is labelled by `--stdin-filename`; refuse writing the report to
+    // that same path so it cannot truncate the file the label names.
+    if let Some(output) = cli.output_file.as_deref() {
+        reject_output_file_collision(output, std::iter::once(path.as_path()))?;
+    }
 
     let Some(kind) = resolve_stdin_kind(cli, &cfg, &path, &base_dir, apply_yaml_files)?
     else {
+        // An ignored stdin filename is an empty input set: still emit a valid empty
+        // report so CI artifact ingestion does not see a missing file.
+        emit_empty_report(cli.output_file.as_deref(), output_format)?;
         return Ok(ExitCode::SUCCESS);
     };
 
@@ -585,13 +786,14 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     let files = vec![(path, base_dir, cfg, kind)];
     let results = vec![(0usize, outcome)];
 
-    let output_format = detect_output_format(cli.format);
-    let summary = process_results(
+    let mut sink = open_output_sink(cli.output_file.as_deref(), output_format)?;
+    let (summary, output) = process_results(
         &files,
         results,
         output_format,
         cli.lint.compatibility.no_warnings,
     );
+    write_output(sink.as_mut(), &output)?;
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
 }
 
@@ -822,13 +1024,26 @@ fn gather_lint_files(
     Ok(ruleless_config_found)
 }
 
+/// Filter, tally, and format diagnostics into an owned buffer. Streaming formats append
+/// one line per diagnostic as files are visited; the whole-document formats (junit/gitlab)
+/// buffer every file into a [`ReportEntry`] and serialize once after the loop. The buffer
+/// is written to its destination by the caller (a single fallible step); the returned
+/// [`LintSummary`] (and thus the exit code) is identical across all formats. Output is
+/// built in memory so the per-diagnostic writes cannot fail (see [`OUTPUT_INFALLIBLE`]).
+///
+/// Buffering rather than streaming the console formats is not a regression: `lint_files`
+/// has already collected every result (in parallel) before this runs, so output only ever
+/// appears after linting completes — the buffer just emits the same bytes in one write.
 fn process_results(
     files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
     output_format: OutputFormat,
     no_warnings: bool,
-) -> LintSummary {
+) -> (LintSummary, Vec<u8>) {
     let mut summary = LintSummary::default();
+    let mut entries: Vec<ReportEntry> = Vec::new();
+    let mut out: Vec<u8> = Vec::new();
+    let project_root = report_project_root();
 
     for (idx, outcome) in results {
         let (path, ..) = &files[idx];
@@ -838,83 +1053,64 @@ fn process_results(
                 // crafted filename cannot inject terminal escapes or (via a newline)
                 // a GitHub workflow command. `sanitize_control` is safe for every
                 // format because it neutralises the newline that injection needs.
-                eprintln!("{}", sanitize_control(&message));
+                let message = sanitize_control(&message).into_owned();
                 summary.has_error = true;
                 summary.problem_count += 1;
+                if output_format.is_streaming() {
+                    writeln!(out, "{message}").expect(OUTPUT_INFALLIBLE);
+                } else {
+                    entries.push(ReportEntry {
+                        path: report_display_path(path, &project_root),
+                        problems: Vec::new(),
+                        error: Some(message),
+                    });
+                }
             }
             Ok(diagnostics) => {
-                let mut problems = diagnostics
-                    .iter()
-                    .filter(|problem| {
-                        !(no_warnings && problem.level == Severity::Warning)
-                    })
-                    .peekable();
+                let mut kept: Vec<LintProblem> = Vec::new();
+                for problem in diagnostics {
+                    if no_warnings && problem.level == Severity::Warning {
+                        continue;
+                    }
+                    match problem.level {
+                        Severity::Error => summary.has_error = true,
+                        Severity::Warning => summary.has_warning = true,
+                    }
+                    summary.problem_count += 1;
+                    kept.push(problem);
+                }
 
-                if problems.peek().is_none() {
+                // Streaming formats print nothing for a file with no reportable
+                // diagnostics; junit still records it as a passing test, so the
+                // whole-document formats keep the (possibly empty) entry.
+                if output_format.is_streaming() && kept.is_empty() {
                     continue;
                 }
 
                 match output_format {
-                    OutputFormat::Standard => {
-                        eprintln!("{}", sanitize_control(&path.display().to_string()));
-                        for problem in problems {
-                            eprintln!("{}", format_standard(problem));
-                            match problem.level {
-                                Severity::Error => summary.has_error = true,
-                                Severity::Warning => summary.has_warning = true,
-                            }
-                            summary.problem_count += 1;
-                        }
-                        eprintln!();
-                    }
-                    OutputFormat::Colored => {
-                        eprintln!(
-                            "\u{001b}[4m{}\u{001b}[0m",
-                            sanitize_control(&path.display().to_string())
-                        );
-                        for problem in problems {
-                            eprintln!("{}", format_colored(problem));
-                            match problem.level {
-                                Severity::Error => summary.has_error = true,
-                                Severity::Warning => summary.has_warning = true,
-                            }
-                            summary.problem_count += 1;
-                        }
-                        eprintln!();
-                    }
-                    OutputFormat::Github => {
-                        let path_str = path.display().to_string();
-                        eprintln!("::group::{}", github_escape(&path_str, false));
-                        let escaped_file = github_escape(&path_str, true);
-                        for problem in problems {
-                            eprintln!("{}", format_github(problem, &escaped_file));
-                            match problem.level {
-                                Severity::Error => summary.has_error = true,
-                                Severity::Warning => summary.has_warning = true,
-                            }
-                            summary.problem_count += 1;
-                        }
-                        eprintln!("::endgroup::");
-                        eprintln!();
-                    }
-                    OutputFormat::Parsable => {
-                        let sanitized_path =
-                            sanitize_control(&path.display().to_string()).into_owned();
-                        for problem in problems {
-                            eprintln!("{}", format_parsable(problem, &sanitized_path));
-                            match problem.level {
-                                Severity::Error => summary.has_error = true,
-                                Severity::Warning => summary.has_warning = true,
-                            }
-                            summary.problem_count += 1;
-                        }
+                    OutputFormat::Standard => append_standard(&mut out, path, &kept),
+                    OutputFormat::Colored => append_colored(&mut out, path, &kept),
+                    OutputFormat::Github => append_github(&mut out, path, &kept),
+                    OutputFormat::Parsable => append_parsable(&mut out, path, &kept),
+                    OutputFormat::Junit | OutputFormat::Gitlab => {
+                        entries.push(ReportEntry {
+                            path: report_display_path(path, &project_root),
+                            problems: kept,
+                            error: None,
+                        });
                     }
                 }
             }
         }
     }
 
-    summary
+    match output_format {
+        OutputFormat::Junit => out = render_junit(&entries),
+        OutputFormat::Gitlab => out = render_gitlab(&entries),
+        _ => {}
+    }
+
+    (summary, out)
 }
 
 #[derive(Default)]
@@ -942,6 +1138,60 @@ fn count_reported_problems(
 
 fn pluralize(singular: &str, count: usize) -> &str {
     if count == 1 { singular } else { "problems" }
+}
+
+// The streaming formats append a per-file block to the in-memory output buffer. Each is
+// only reached with a non-empty `problems` slice (the caller skips clean files), and each
+// write is infallible (see `OUTPUT_INFALLIBLE`).
+
+/// Shared shape of the standard/colored formats: a file `header` line, one `format_line`
+/// per diagnostic, then a trailing blank line.
+fn append_grouped(
+    out: &mut Vec<u8>,
+    header: &str,
+    problems: &[LintProblem],
+    format_line: fn(&LintProblem) -> String,
+) {
+    writeln!(out, "{header}").expect(OUTPUT_INFALLIBLE);
+    for problem in problems {
+        writeln!(out, "{}", format_line(problem)).expect(OUTPUT_INFALLIBLE);
+    }
+    writeln!(out).expect(OUTPUT_INFALLIBLE);
+}
+
+fn append_standard(out: &mut Vec<u8>, path: &Path, problems: &[LintProblem]) {
+    let display = path.display().to_string();
+    let header = sanitize_control(&display);
+    append_grouped(out, &header, problems, format_standard);
+}
+
+fn append_colored(out: &mut Vec<u8>, path: &Path, problems: &[LintProblem]) {
+    let header = format!(
+        "\u{001b}[4m{}\u{001b}[0m",
+        sanitize_control(&path.display().to_string())
+    );
+    append_grouped(out, &header, problems, format_colored);
+}
+
+fn append_github(out: &mut Vec<u8>, path: &Path, problems: &[LintProblem]) {
+    let path_str = path.display().to_string();
+    writeln!(out, "::group::{}", github_escape(&path_str, false))
+        .expect(OUTPUT_INFALLIBLE);
+    let escaped_file = github_escape(&path_str, true);
+    for problem in problems {
+        writeln!(out, "{}", format_github(problem, &escaped_file))
+            .expect(OUTPUT_INFALLIBLE);
+    }
+    writeln!(out, "::endgroup::").expect(OUTPUT_INFALLIBLE);
+    writeln!(out).expect(OUTPUT_INFALLIBLE);
+}
+
+fn append_parsable(out: &mut Vec<u8>, path: &Path, problems: &[LintProblem]) {
+    let sanitized_path = sanitize_control(&path.display().to_string()).into_owned();
+    for problem in problems {
+        writeln!(out, "{}", format_parsable(problem, &sanitized_path))
+            .expect(OUTPUT_INFALLIBLE);
+    }
 }
 
 fn format_standard(problem: &LintProblem) -> String {
@@ -977,32 +1227,6 @@ fn format_colored(problem: &LintProblem) -> String {
         line.push_str(")\u{001b}[0m");
     }
     line
-}
-
-// User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
-// Actions workflow-command output, where a raw newline would start a new
-// `::command::` — a command-injection vector in CI. Encode it the way GitHub's
-// `@actions/core` does (data escapes `%`/CR/LF; a `property` such as `file=` also
-// escapes `:`/`,`), and additionally render any other control character as a
-// literal `\u{..}` — never a `%XX`, which the runner would decode back into the raw
-// control char and let it drive ANSI sequences in the log viewer.
-fn github_escape(value: &str, property: bool) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '%' => out.push_str("%25"),
-            '\r' => out.push_str("%0D"),
-            '\n' => out.push_str("%0A"),
-            ':' if property => out.push_str("%3A"),
-            ',' if property => out.push_str("%2C"),
-            c if c.is_control() => {
-                write!(out, "\\u{{{:x}}}", c as u32)
-                    .expect("writing to a String is infallible");
-            }
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// `escaped_file` is the `file=` property value, escaped once per file by the

@@ -214,6 +214,14 @@ items:
 With the option off (the default) ryl matches yamllint exactly. Being ryl-only, the
 option is configured in TOML and rejected in yamllint-compatible YAML config.
 
+### JUnit and GitLab report formats
+
+yamllint offers `standard`, `parsable`, `colored`, `github`, and `auto` output formats.
+ryl keeps those and adds two machine-readable report formats modelled on ruff:
+`--format junit` (JUnit XML) and `--format gitlab` (GitLab Code Quality JSON). These write
+to stdout (or to a file with `-o`/`--output-file`) so a Git forge can ingest them as a
+report artifact. See [Output formats](../output-formats.md).
+
 ## Side-by-side example
 
 === "yamllint (.yamllint)"

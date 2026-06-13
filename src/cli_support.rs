@@ -60,6 +60,71 @@ pub fn lexical_abspath(path: &Path) -> PathBuf {
     out
 }
 
+// User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
+// Actions workflow-command output, where a raw newline would start a new
+// `::command::` — a command-injection vector in CI. Encode it the way GitHub's
+// `@actions/core` does (data escapes `%`/CR/LF; a `property` such as `file=` also
+// escapes `:`/`,`), and additionally render any other control character as a
+// literal `\u{..}` — never a `%XX`, which the runner would decode back into the raw
+// control char and let it drive ANSI sequences in the log viewer. The result never
+// contains a control character, so it cannot inject or split a workflow-command line.
+#[must_use]
+pub fn github_escape(value: &str, property: bool) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '\r' => out.push_str("%0D"),
+            '\n' => out.push_str("%0A"),
+            ':' if property => out.push_str("%3A"),
+            ',' if property => out.push_str("%2C"),
+            c if c.is_control() => {
+                write!(out, "\\u{{{:x}}}", c as u32)
+                    .expect("writing to a String is infallible");
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The display path for a report (`location.path` in GitLab, `name`/`classname` in JUnit):
+/// `display` made relative to `project_root` with forward slashes and no `./` prefix, as
+/// GitLab requires. The caller relativizes against the project root (`CI_PROJECT_DIR` or
+/// the working directory, like ruff), so a `--stdin-filename` or a path under the repo
+/// stays relative even when the config lives elsewhere. A path outside the project root
+/// is expressed with `..` segments (like ruff's `pathdiff`) rather than kept absolute.
+/// Control characters are stripped so a crafted filename cannot inject into the report.
+#[must_use]
+pub fn report_display_path(display: &Path, project_root: &Path) -> String {
+    let absolute = lexical_abspath(display);
+    let root = lexical_abspath(project_root);
+    let relative = relativize(&absolute, &root);
+    let text = relative.to_string_lossy().replace('\\', "/");
+    sanitize_control(&text).into_owned()
+}
+
+/// `target` expressed relative to `base`, with `..` segments for the part of `base` that
+/// `target` does not share. Both are absolute and lexically normalized (no `.`/`..`
+/// components), so this is a pure component walk: drop the common prefix, emit one `..`
+/// per remaining `base` component, then append the rest of `target`. On a shared root this
+/// yields a clean relative path; two different Windows drive prefixes share nothing and
+/// fall back to a best-effort `..`-prefixed path (no relative path exists across drives).
+fn relativize(target: &Path, base: &Path) -> PathBuf {
+    let mut target_parts = target.components().peekable();
+    let mut base_parts = base.components().peekable();
+    while target_parts.peek().is_some() && target_parts.peek() == base_parts.peek() {
+        target_parts.next();
+        base_parts.next();
+    }
+    let mut relative = PathBuf::new();
+    for _ in base_parts {
+        relative.push("..");
+    }
+    relative.extend(target_parts);
+    relative
+}
+
 /// Resolve the configuration context for a given file path, optionally using a cached
 /// global configuration.
 ///

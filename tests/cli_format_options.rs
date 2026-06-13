@@ -457,3 +457,739 @@ fn auto_format_respects_no_color_env() {
         "NO_COLOR should disable ANSI sequences: {stderr}"
     );
 }
+
+// --- JUnit / GitLab report formats (issue #285) ---
+
+/// A file missing its trailing newline trips `new-line-at-end-of-file`, giving every
+/// report format at least one diagnostic to render.
+fn dirty_yaml(dir: &std::path::Path) -> std::path::PathBuf {
+    let file = dir.join("dirty.yaml");
+    fs::write(&file, "key: value").unwrap();
+    file
+}
+
+#[test]
+fn gitlab_format_writes_json_array_to_stdout() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "gitlab format keeps the error exit code");
+    assert!(
+        stderr.is_empty(),
+        "report formats go to stdout, not stderr: {stderr}"
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("gitlab output is a JSON array");
+    let issues = json.as_array().expect("top level array");
+    assert_eq!(issues.len(), 1, "one diagnostic expected: {stdout}");
+    assert_eq!(issues[0]["check_name"], "new-line-at-end-of-file");
+    assert_eq!(issues[0]["severity"], "major");
+    assert_eq!(issues[0]["location"]["lines"]["begin"], 1);
+}
+
+#[test]
+fn junit_format_writes_xml_to_stdout() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("junit")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "junit format keeps the error exit code");
+    assert!(
+        stderr.is_empty(),
+        "report formats go to stdout, not stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("<testsuites name=\"ryl\""),
+        "junit output should start with a testsuites root: {stdout}"
+    );
+    assert!(
+        stdout.contains("type=\"new-line-at-end-of-file\""),
+        "the diagnostic's rule id should appear as the failure type: {stdout}"
+    );
+}
+
+#[test]
+fn output_file_writes_report_and_leaves_streams_clean() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let report = dir.path().join("report.xml");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("junit")
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "--output-file keeps the error exit code");
+    assert!(
+        stdout.is_empty(),
+        "with --output-file nothing goes to stdout: {stdout}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "with --output-file nothing goes to stderr: {stderr}"
+    );
+    let written = fs::read_to_string(&report).expect("report file written");
+    assert!(
+        written.contains("<testsuites"),
+        "the report file holds the junit document: {written}"
+    );
+}
+
+#[test]
+fn output_file_redirects_streaming_format() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let report = dir.path().join("out.txt");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("parsable")
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "redirected streaming format keeps the error exit");
+    assert!(
+        stderr.is_empty(),
+        "--output-file diverts the streaming diagnostics: {stderr}"
+    );
+    let written = fs::read_to_string(&report).expect("report file written");
+    assert!(
+        written.contains(": [error]") && written.contains("new-line-at-end-of-file"),
+        "the parsable diagnostic should be in the file: {written}"
+    );
+}
+
+#[test]
+fn output_file_open_failure_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    // A path under a directory that does not exist cannot be created.
+    let report = dir.path().join("missing-dir").join("report.json");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "an unopenable --output-file is a usage error");
+    assert!(
+        stderr.contains("cannot open --output-file"),
+        "expected an open-failure message: {stderr}"
+    );
+}
+
+#[test]
+fn diff_with_report_format_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("--diff")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "--diff with a report format is a usage error");
+    assert!(
+        stderr.contains("`--diff` cannot be combined with"),
+        "expected the diff/report conflict message: {stderr}"
+    );
+}
+
+#[test]
+fn gitlab_reports_processing_error_as_blocker() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let missing = dir.path().join("absent.yaml");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&missing));
+    assert_eq!(code, 1, "a file that cannot be read is an error");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("gitlab output is JSON");
+    let issues = json.as_array().expect("array");
+    assert_eq!(issues.len(), 1, "the read failure is one issue: {stdout}");
+    assert_eq!(issues[0]["check_name"], "error");
+    assert_eq!(issues[0]["severity"], "blocker");
+}
+
+#[test]
+fn gitlab_format_reads_stdin_with_filename() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let mut child = Command::new(exe)
+        // The path is relativized against CI_PROJECT_DIR when set; clear it so the
+        // assertion holds regardless of the surrounding (GitLab) CI environment.
+        .env_remove("CI_PROJECT_DIR")
+        .arg("-")
+        .arg("--format")
+        .arg("gitlab")
+        .arg("--stdin-filename")
+        .arg("nested/from-stdin.yaml")
+        .arg("-c")
+        .arg(&cfg)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ryl");
+    use std::io::Write as _;
+    child.stdin.take().unwrap().write_all(b"key: value").ok();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdin diagnostic keeps error exit"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("gitlab output is JSON");
+    assert_eq!(
+        json[0]["location"]["path"], "nested/from-stdin.yaml",
+        "the stdin filename becomes location.path: {stdout}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn output_file_write_failure_is_reported() {
+    // `/dev/full` opens successfully but fails every write with ENOSPC, exercising the
+    // destination-write error path (the one fallible step of the output pipeline).
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg("/dev/full")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "a failed write is a usage error");
+    assert!(
+        stderr.contains("failed to write output"),
+        "expected a write-failure message: {stderr}"
+    );
+}
+
+/// Spawn ryl reading `input` from stdin with the given args, returning (code, stdout, stderr).
+fn run_stdin(args: &[&str], input: &[u8]) -> (i32, String, String) {
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let mut child = Command::new(exe)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ryl");
+    use std::io::Write as _;
+    // A usage error (e.g. a rejected `--output-file`) makes ryl exit before reading stdin,
+    // closing the pipe; a broken-pipe write here is expected, so the exit code/output (not
+    // the write) is what the caller asserts.
+    child.stdin.take().unwrap().write_all(input).ok();
+    let out = child.wait_with_output().unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn stdin_diff_with_report_format_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let cfg = cfg.to_str().unwrap();
+
+    let (code, _stdout, stderr) = run_stdin(
+        &["-", "--format", "gitlab", "--diff", "-c", cfg],
+        b"key: value",
+    );
+    assert_eq!(
+        code, 2,
+        "--diff with a report format is a usage error on stdin"
+    );
+    assert!(
+        stderr.contains("`--diff` cannot be combined with"),
+        "expected the diff/report conflict message: {stderr}"
+    );
+}
+
+#[test]
+fn stdin_output_file_open_failure_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let bad = dir.path().join("missing-dir").join("report.json");
+    let (code, _stdout, stderr) = run_stdin(
+        &[
+            "-",
+            "--format",
+            "gitlab",
+            "-o",
+            bad.to_str().unwrap(),
+            "-c",
+            cfg.to_str().unwrap(),
+        ],
+        b"key: value",
+    );
+    assert_eq!(
+        code, 2,
+        "an unopenable --output-file is a usage error on stdin"
+    );
+    assert!(
+        stderr.contains("cannot open --output-file"),
+        "expected an open-failure message: {stderr}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn stdin_output_file_write_failure_is_reported() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let (code, _stdout, stderr) = run_stdin(
+        &[
+            "-",
+            "--format",
+            "gitlab",
+            "-o",
+            "/dev/full",
+            "-c",
+            cfg.to_str().unwrap(),
+        ],
+        b"key: value",
+    );
+    assert_eq!(code, 2, "a failed write is a usage error on stdin");
+    assert!(
+        stderr.contains("failed to write output"),
+        "expected a write-failure message: {stderr}"
+    );
+}
+
+#[test]
+fn output_file_pointing_at_a_linted_input_is_rejected() {
+    // Guard against data loss: writing the report to a file that is also being linted
+    // would truncate the source. Must be refused before any lint/fix runs.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let original = fs::read_to_string(&file).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&file)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 2,
+        "output file colliding with an input is a usage error"
+    );
+    assert!(
+        stderr.contains("is also a linted input"),
+        "expected a collision message: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original,
+        "the input file must be left untouched"
+    );
+}
+
+#[test]
+fn empty_input_emits_an_empty_gitlab_report() {
+    // A clean/empty project must still produce a valid `[]` artifact, not a missing file.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let report = dir.path().join("gl.json");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&empty));
+    assert_eq!(code, 0, "an empty project lints clean");
+    assert_eq!(
+        fs::read_to_string(&report).unwrap().trim(),
+        "[]",
+        "the report file holds an empty JSON array"
+    );
+}
+
+#[test]
+fn gitlab_path_is_relative_to_ci_project_dir() {
+    // Like ruff, location.path is relativized against CI_PROJECT_DIR when set.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let nested = dir.path().join("pkg");
+    fs::create_dir(&nested).unwrap();
+    let file = nested.join("dirty.yaml");
+    fs::write(&file, "key: value").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        .env("CI_PROJECT_DIR", dir.path())
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("gitlab output is JSON");
+    assert_eq!(
+        json[0]["location"]["path"], "pkg/dirty.yaml",
+        "path is relative to CI_PROJECT_DIR: {stdout}"
+    );
+}
+
+#[test]
+fn empty_input_report_open_failure_is_usage_error() {
+    // The empty-report path must still surface an unopenable --output-file as a usage error.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let report = dir.path().join("missing-dir").join("gl.json");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&empty));
+    assert_eq!(
+        code, 2,
+        "an unopenable --output-file is a usage error even when empty"
+    );
+    assert!(
+        stderr.contains("cannot open --output-file"),
+        "expected an open-failure message: {stderr}"
+    );
+}
+
+#[test]
+fn ignored_stdin_emits_an_empty_gitlab_report() {
+    // An ignored stdin filename is an empty input set; the report must still be a valid `[]`.
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "ignore = [\"ignored.yaml\"]\n[rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let mut child = Command::new(exe)
+        .current_dir(dir.path())
+        .arg("-")
+        .arg("--stdin-filename")
+        .arg(dir.path().join("ignored.yaml"))
+        .arg("--format")
+        .arg("gitlab")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ryl");
+    use std::io::Write as _;
+    child.stdin.take().unwrap().write_all(b"key:  value\n").ok();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "ignored stdin lints clean");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "[]",
+        "ignored stdin still emits an empty JSON array"
+    );
+}
+
+#[test]
+fn ignored_stdin_report_open_failure_is_usage_error() {
+    // The ignored-stdin empty-report path must still surface an unopenable --output-file.
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "ignore = [\"ignored.yaml\"]\n[rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+    let report = dir.path().join("missing-dir").join("gl.json");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let mut child = Command::new(exe)
+        .current_dir(dir.path())
+        .arg("-")
+        .arg("--stdin-filename")
+        .arg(dir.path().join("ignored.yaml"))
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&report)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ryl");
+    use std::io::Write as _;
+    child.stdin.take().unwrap().write_all(b"key:  value\n").ok();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "unopenable --output-file is a usage error"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("cannot open --output-file"),
+        "expected an open-failure message: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn empty_input_with_output_file_creates_file_for_streaming_format() {
+    // --output-file uniformly produces the file even for an empty streaming-format run.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let report = dir.path().join("lint.txt");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("parsable")
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&empty));
+    assert_eq!(code, 0, "an empty project lints clean");
+    assert_eq!(
+        fs::read_to_string(&report).unwrap(),
+        "",
+        "the output file is created empty for a clean streaming run"
+    );
+}
+
+#[test]
+fn stdin_output_file_matching_stdin_filename_is_rejected() {
+    // The stdin path must honor the same data-loss guard: `-o` equal to the
+    // --stdin-filename would truncate the file that label names.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let target = dir.path().join("config.yaml");
+    fs::write(&target, "original: content\n").unwrap();
+    let original = fs::read_to_string(&target).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let mut child = Command::new(exe)
+        .arg("-")
+        .arg("--stdin-filename")
+        .arg(&target)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&target)
+        .arg("-c")
+        .arg(&cfg)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ryl");
+    use std::io::Write as _;
+    child.stdin.take().unwrap().write_all(b"key: value").ok();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stdin output-file collision is a usage error"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("is also a linted input"),
+        "expected a collision message: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        original,
+        "the named file must be left untouched"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn output_file_symlinked_to_an_input_is_rejected() {
+    // A symlinked --output-file resolving to a linted input must be refused (canonical-path
+    // match), not just an exact lexical match, so the report cannot truncate the source.
+    use std::os::unix::fs::symlink;
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let input = dir.path().join("real.yaml");
+    fs::write(&input, "key: value").unwrap();
+    let original = fs::read_to_string(&input).unwrap();
+    let link = dir.path().join("alias.yaml");
+    symlink(&input, &link).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&link)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&input));
+    assert_eq!(code, 2, "a symlinked output aliasing an input is refused");
+    assert!(
+        stderr.contains("is also a linted input"),
+        "expected a collision message: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&input).unwrap(),
+        original,
+        "the aliased input must be left untouched"
+    );
+}
+
+#[test]
+fn blank_ci_project_dir_does_not_panic() {
+    // A set-but-blank CI_PROJECT_DIR is treated as unset; it must not panic lexical_abspath.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        .env("CI_PROJECT_DIR", "")
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 1,
+        "a blank CI_PROJECT_DIR must report diagnostics, not panic"
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("valid JSON output, not a panic");
+    assert_eq!(
+        json.as_array().unwrap().len(),
+        1,
+        "the diagnostic is still reported"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn output_file_hardlinked_to_an_input_is_rejected() {
+    // A hard-linked --output-file shares the input's inode under a distinct path; the
+    // file-identity (same-file) check must refuse it so the report cannot truncate the
+    // input through the hard link.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let input = dir.path().join("real.yaml");
+    fs::write(&input, "key: value").unwrap();
+    let original = fs::read_to_string(&input).unwrap();
+    let hardlink = dir.path().join("hard.yaml");
+    fs::hard_link(&input, &hardlink).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&hardlink)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&input));
+    assert_eq!(code, 2, "a hard-linked output aliasing an input is refused");
+    assert!(
+        stderr.contains("is also a linted input"),
+        "expected a collision message: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&input).unwrap(),
+        original,
+        "the hard-linked input must be left untouched"
+    );
+}
+
+#[test]
+fn gitlab_path_uses_dotdot_for_files_outside_the_project_root() {
+    // A file above CI_PROJECT_DIR is expressed with `..` segments (ruff-style), not an
+    // absolute path.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("dirty.yaml");
+    fs::write(&file, "key: value").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        // Project root is a subdirectory below the file, so the file is one level up.
+        .env("CI_PROJECT_DIR", dir.path().join("sub"))
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("gitlab output is JSON");
+    assert_eq!(
+        json[0]["location"]["path"], "../dirty.yaml",
+        "a file above the project root uses a `..` segment: {stdout}"
+    );
+}

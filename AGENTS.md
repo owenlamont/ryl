@@ -581,13 +581,21 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   YAML/TOML config errors ("not a mapping" / "configuration is empty") rather than
   silently linting nothing. Output is injection-safe: the GitHub format escapes user
   text (`github_escape_data`/`_property`) so a crafted key/anchor/filename can't
-  inject a `::command::`; the other formats run user text through `sanitize_control`.
+  inject a `::command::` (it is a line-oriented command protocol); the streaming
+  console formats run user text through `sanitize_control`. The `junit`/`gitlab`
+  report formats are structured data, not command protocols, so the analogous risk is
+  breaking out of an XML attribute / JSON string: `sanitize_control` first strips
+  control chars, then `quick-xml` (XML) and `serde_json` (JSON) apply structural
+  escaping, and fixed fields (`severity`, `check_name`, the testcase `name`) are
+  derived from the rule/level, not the message. `tests/property_report.rs` fuzzes this
+  (every output must stay well-formed XML / schema-valid JSON under hostile input).
   granit caps nesting recursion (~256), and config regexes
   (`key-ordering`/`quoted-strings`) are validated at parse time with the linear-time
   `regex` crate (no ReDoS). Guards:
   `tests/cli_alias_bomb.rs`, `cli_fix_symlink.rs`, `cli_config_data_error.rs`,
   `cli_toml_config.rs`, `config_extends_inline.rs`, `cli_format_options.rs`,
-  `cli_markdown_embed.rs`, `property_config.rs`.
+  `cli_markdown_embed.rs`, `property_config.rs`, `report_formats.rs`,
+  `property_report.rs`.
 - Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding detection as
   files; `-` can't be combined with other inputs or with `--fix`. `--stdin-filename
   <PATH>` (ruff convention) sets the diagnostic label, anchors config discovery at the
@@ -614,4 +622,34 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks the
   message. The `default`/`relaxed`/`empty` presets stay available via `extends:` (YAML
   only). `--migrate-configs` (warns instead) and `--list-files` are exempt.
+- Output formats (`--format`/`-f`): the streaming console formats `standard`/`colored`/
+  `github`/`parsable` write per-diagnostic lines to **stderr** (unchanged); the
+  whole-document report formats `junit` (JUnit XML via `quick-xml`) and `gitlab` (GitLab
+  Code Quality JSON via `serde_json`) buffer every file and serialize once to **stdout**.
+  `auto` never selects junit/gitlab. `process_results` (in `main`) does the shared
+  filter+tally pass for all formats then either streams or hands a `Vec<ReportEntry>` to
+  `ryl::report::render_junit`/`render_gitlab`. `-o/--output-file` redirects the selected
+  format to a file (any format), `conflicts_with` `--diff`; `--format junit|gitlab` with
+  `--diff` is rejected by `reject_diff_with_report_format`. An `--output-file` that
+  lexically resolves to a linted input or the `--stdin-filename` is refused
+  (`reject_output_file_collision`: lexical-path match, plus a `same_file::Handle`
+  file-identity match for an existing destination so a symlinked or hard-linked `-o` is
+  caught too) so the report cannot truncate the source — stricter than ruff, which guards
+  nothing; other destinations (e.g. a config file) are overwritten as directed. An
+  empty/all-ignored input set still emits a valid empty report (`emit_empty_report`:
+  `[]` / `<testsuites .../>`) so CI artifact ingestion does not see a missing file.
+  `report::ReportEntry` carries the report display path (relativized via
+  `cli_support::report_display_path` against the project root =
+  `CI_PROJECT_DIR` or cwd, like ruff; forward-slashed, no `./` prefix; a path outside the
+  root gets `..` segments), the kept problems, and an optional processing-error
+  message. GitLab severity maps error->`major`, warning->`minor`, a read/parse
+  failure->`blocker`; its `fingerprint` is a stable SHA-256 (`sha2`) of
+  `(path, rule, message)` — deliberately NOT line/column, so an edit that shifts the line
+  keeps the issue tracked — salted to stay unique within a report (`DefaultHasher` would
+  not be stable across toolchains). A clean file is a passing JUnit testcase and is omitted
+  from GitLab. Output is validated against authoritative sources in tests: GitLab against
+  the vendored `tests/fixtures/gitlab-code-quality.schema.json` (via the `jsonschema`
+  dev-dep), JUnit by re-parsing with `quick-xml`. See `docs/output-formats.md`. ryl follows
+  ruff's model (single format + `--output-file`); it does not (yet) emit a report file and
+  console output simultaneously.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
