@@ -265,6 +265,10 @@ def main(
             sum(1 for r in reacts if r.get("content") == "eyes"),
         )
 
+    # Baseline the trigger's reactions like the other channels: in --no-trigger mode an
+    # existing trigger may already carry the bot's thumbs-up, so only a NEW one is clean.
+    base_thumbs, _ = reactions()
+
     def report_verdict(rev: list, iss: list, inl: list, thumbs: int) -> bool:
         """Print the verdict if one has landed on any of the three channels; return
         True when it has (caller should stop).
@@ -280,7 +284,7 @@ def main(
             else:
                 typer.echo(f"RESULT: ISSUE-COMMENT (read it) -- {body[:300]}")
             return True
-        if thumbs > 0:
+        if thumbs > base_thumbs:
             typer.echo("RESULT: CLEAN -- thumbs-up on the trigger comment")
             return True
         if len(rev) > base_rev:  # new review = findings (inline comments)
