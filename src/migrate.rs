@@ -75,6 +75,29 @@ pub fn apply_migration_entries(
     cleanup_only_sources: &[PathBuf],
     cleanup: &SourceCleanup,
 ) -> Result<(), String> {
+    // Preflight rename-backup collisions before writing any target, so a collision never
+    // leaves migrated targets behind (a retry would then skip them as already migrated).
+    // Symlinked sources are excluded because cleanup never renames them.
+    if let SourceCleanup::RenameSuffix(suffix) = cleanup {
+        for source in entries
+            .iter()
+            .map(|entry| entry.source.as_path())
+            .chain(cleanup_only_sources.iter().map(PathBuf::as_path))
+        {
+            if is_symlink(source) {
+                continue;
+            }
+            let renamed = rename_destination(source, suffix);
+            if fs::symlink_metadata(&renamed).is_ok() {
+                return Err(format!(
+                    "refusing to overwrite existing backup {} when renaming {}",
+                    renamed.display(),
+                    source.display()
+                ));
+            }
+        }
+    }
+
     let apply_cleanup = |source: &Path| -> Result<(), String> {
         // Never delete or rename through a symlink: acting on the link's target would
         // orphan the real file, so a symlinked source is preserved untouched (mirrors
@@ -93,20 +116,8 @@ pub fn apply_migration_entries(
                 })?;
             }
             SourceCleanup::RenameSuffix(suffix) => {
-                let source_name = source.file_name().map_or_else(String::new, |name| {
-                    name.to_string_lossy().to_string()
-                });
-                let renamed = source.with_file_name(format!("{source_name}{suffix}"));
-                // `fs::rename` clobbers its destination, so refuse when a backup already
-                // exists rather than destroy it (`symlink_metadata` detects any entry,
-                // including a symlink or dangling link).
-                if fs::symlink_metadata(&renamed).is_ok() {
-                    return Err(format!(
-                        "refusing to overwrite existing backup {} when renaming {}",
-                        renamed.display(),
-                        source.display()
-                    ));
-                }
+                // The backup-collision refusal is preflighted before any target is written.
+                let renamed = rename_destination(source, suffix);
                 fs::rename(source, &renamed).map_err(|err| {
                     format!(
                         "failed to rename migrated source config {} to {}: {err}",
@@ -204,6 +215,14 @@ fn discover_legacy_yaml_configs(root: &Path) -> Vec<PathBuf> {
 /// `--fix`/`--diff` symlink check.
 fn is_symlink(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// The backup path a `RenameSuffix` cleanup would move `source` to (its name + suffix).
+fn rename_destination(source: &Path, suffix: &str) -> PathBuf {
+    let name = source
+        .file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().to_string());
+    source.with_file_name(format!("{name}{suffix}"))
 }
 
 /// An existing ryl-native TOML config *file* in `target`'s directory that a migration into

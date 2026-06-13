@@ -423,6 +423,11 @@ fn migrate_rename_refuses_to_overwrite_existing_backup() {
         "previous backup\n",
         "an existing backup is preserved, not clobbered"
     );
+    // Preflighted before writing, so no target is left behind for a retry to skip.
+    assert!(
+        !td.path().join(".ryl.toml").exists(),
+        "no target written when a rename collision is detected"
+    );
 }
 
 #[test]
@@ -523,11 +528,21 @@ fn apply_entries_cleanup_skips_symlinked_source() {
     fs::write(&real, "rules: {}\n").unwrap();
     let link = td.path().join(".yamllint.yml");
     std::os::unix::fs::symlink(&real, &link).unwrap();
-    apply_migration_entries(&[], std::slice::from_ref(&link), &SourceCleanup::Delete)
-        .unwrap();
+    // RenameSuffix exercises both the rename preflight (which skips symlinks) and the
+    // cleanup-time symlink guard; neither should rename through the symlink.
+    apply_migration_entries(
+        &[],
+        std::slice::from_ref(&link),
+        &SourceCleanup::RenameSuffix(".bak".to_string()),
+    )
+    .unwrap();
     assert!(
         fs::symlink_metadata(&link).is_ok(),
-        "a symlinked source is preserved, not deleted through"
+        "a symlinked source is preserved, not renamed through"
+    );
+    assert!(
+        !td.path().join(".yamllint.yml.bak").exists(),
+        "no backup is created for a skipped symlinked source"
     );
     assert!(real.exists(), "the symlink's real target is untouched");
 }

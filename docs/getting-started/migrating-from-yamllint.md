@@ -77,6 +77,13 @@ write), migration may leave a partial config file behind. The next run reports i
 via the "a ryl-native config already exists" skip warning, so delete the partial
 file and re-run.
 
+When migration flattens a relative `extends` or `ignore-from-file`, it resolves
+the reference relative to the config's own directory first, then the current
+directory. So a file kept next to a user-global config (e.g.
+`~/.config/yamllint/team.yaml`) is inlined correctly. If the same relative name
+exists both next to the config and in the current directory with different
+contents, the copy next to the config wins.
+
 After migration, run `ryl .` to confirm diagnostics match what yamllint
 produced.
 
