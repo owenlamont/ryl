@@ -443,6 +443,18 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   opaque mechanic that names cannot (the standard minimal-comment bar applies).
 - `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
   tests in `tests/` so LLVM regions stay unique.
+- **Config-discovery isolation.** ryl's project-config discovery climbs from each input
+  through its ancestors up to `HOME`, so a test whose inputs live under the system temp
+  dir can walk into that shared dir and discover a stray `ryl.toml`/`.ryl.toml`/
+  `pyproject.toml`/`.yamllint*` left by another test, a concurrent process, or a manual
+  smoke run — silently overriding the test's setup (and a TOML candidate outranks a
+  tempdir's `.yamllint`, so an adjacent YAML config does not shield it). Any test that
+  exercises discovery (does **not** pass `-c`/`-d`, and has no adjacent TOML config in its
+  input's directory) must build its command via `common::cli::ryl(<its tempdir>)`, which
+  sets `HOME` to bound the walk at the tempdir. Tests that pass `-c`/`-d` bypass discovery
+  and need no isolation; tests that write an adjacent `.ryl.toml` are already shielded.
+  Correspondingly, manual/agent smoke runs must keep scratch configs in a dedicated
+  subdirectory and never drop a config-candidate-named file at the temp root.
 - CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment,
   where `GITHUB_ACTIONS` makes ryl auto-select the GitHub output format
   (`::error file=…,line=L,col=C::L:C [rule] message`) rather than the standard format
@@ -623,33 +635,56 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   message. The `default`/`relaxed`/`empty` presets stay available via `extends:` (YAML
   only). `--migrate-configs` (warns instead) and `--list-files` are exempt.
 - Output formats (`--format`/`-f`): the streaming console formats `standard`/`colored`/
-  `github`/`parsable` write per-diagnostic lines to **stderr** (unchanged); the
-  whole-document report formats `junit` (JUnit XML via `quick-xml`) and `gitlab` (GitLab
-  Code Quality JSON via `serde_json`) buffer every file and serialize once to **stdout**.
-  `auto` never selects junit/gitlab. `process_results` (in `main`) does the shared
-  filter+tally pass for all formats then either streams or hands a `Vec<ReportEntry>` to
-  `ryl::report::render_junit`/`render_gitlab`. `-o/--output-file` redirects the selected
-  format to a file (any format), `conflicts_with` `--diff`; `--format junit|gitlab` with
-  `--diff` is rejected by `reject_diff_with_report_format`. An `--output-file` that
-  lexically resolves to a linted input or the `--stdin-filename` is refused
-  (`reject_output_file_collision`: lexical-path match, plus a `same_file::Handle`
-  file-identity match for an existing destination so a symlinked or hard-linked `-o` is
-  caught too) so the report cannot truncate the source — stricter than ruff, which guards
-  nothing; other destinations (e.g. a config file) are overwritten as directed. An
-  empty/all-ignored input set still emits a valid empty report (`emit_empty_report`:
-  `[]` / `<testsuites .../>`) so CI artifact ingestion does not see a missing file.
-  `report::ReportEntry` carries the report display path (relativized via
-  `cli_support::report_display_path` against the project root =
-  `CI_PROJECT_DIR` or cwd, like ruff; forward-slashed, no `./` prefix; a path outside the
-  root gets `..` segments), the kept problems, and an optional processing-error
-  message. GitLab severity maps error->`major`, warning->`minor`, a read/parse
-  failure->`blocker`; its `fingerprint` is a stable SHA-256 (`sha2`) of
+  `github`/`parsable` default to **stderr**; the whole-document report formats `junit`
+  (JUnit XML via `quick-xml`) and `gitlab` (GitLab Code Quality JSON via `serde_json`)
+  default to **stdout**. `auto` never selects junit/gitlab. **Multiple outputs per run**
+  (RuboCop/Biome model): `--format` is repeatable and each `-o/--output-file` binds to
+  the most recent `--format` (`resolve_cli_targets` recovers CLI order via
+  `ArgMatches::indices_of`, so `main` uses `Cli::command().get_matches()` +
+  `from_arg_matches`); `-o -` is stdout, a path is a file, none is the format's default
+  stream. Console + a report file in one run is therefore supported (closes #285's
+  original ask), e.g. `--format auto --format gitlab -o gl.json`. An `[output]` **TOML
+  table** (ryl-only, TOML-only — `config_schema::OutputTable`/`OutputDestination`,
+  rejected in YAML config) configures the same per-format destinations
+  (`[output.gitlab] path=…`; absent `path` = default stream, `"-"` = stdout). Precedence
+  **CLI > config > default**: `resolve_targets` returns the CLI pairs if any `--format`
+  was given, else `config_targets_from_table` of the run config's `[output]`, else one
+  default auto-console target. The `[output]` is read run-level by `run_output_config`
+  (the `-c`/`-d`/env global config, else the inputs-anchored project config so `ryl .`
+  honors a project `.ryl.toml`; a malformed config is propagated — the empty-input case
+  has no per-file discovery to surface it, so an invalid `[output]` still errors). `--diff`
+  skips config `[output]` (it has its own unified-diff output), so only an explicit CLI
+  `--format junit|gitlab` conflicts with it. Pipeline: `collect_records` does the shared
+  filter+tally once into format-agnostic `FileRecord{path,kept,error}`; `write_targets`
+  renders each target via `render_target` (`render_streaming` + an `append_*` fn for
+  console formats; `render_junit`/`render_gitlab` over `build_entries` for reports, built
+  once and shared) and `commit`s to each `open_destination` (a file is opened create+write
+  **without** truncate, then truncated+written at commit, so an *existing* artifact survives
+  a later target failing to open; a *freshly*-created destination may be left empty on a
+  rejected run — cleaning it by path would race a concurrent writer, so it is left for the
+  failed run, gate CI artifact use on the exit code). `open_targets` opens all destinations
+  before `--fix` mutates (unopenable `-o` fails fast). Guards (each exit 2):
+  `resolve_cli_targets` rejects an unpaired `-o` and a second `-o` on one `--format`;
+  `validate_targets` rejects `--diff` with a report format and two outputs on one stream
+  (`reject_duplicate_streams`, ≤1 stdout / ≤1 stderr); `open_targets` then rejects two
+  outputs resolving to one file (`reject_colliding_output_files`, post-open so file
+  identity resolves symlink/hard-link/aliased-parent destinations — `PathIdentity` =
+  lexical + `same_file::Handle`; an unreadable existing destination matches lexically only,
+  an adversarial case); `reject_input_collisions` refuses an output that is also a linted
+  input or the `--stdin-filename` (same lexical + `same_file::Handle` match), so a report
+  can never truncate the source. `--output-file` `conflicts_with` `--diff` in clap. An
+  empty/all-ignored input set still emits a valid empty report per target (`emit_targets`
+  with empty records → `[]` / `<testsuites .../>`). `report::ReportEntry`
+  carries the report display path (relativized via `cli_support::report_display_path`
+  against the project root = `CI_PROJECT_DIR` or cwd, like ruff; forward-slashed, no `./`
+  prefix; a path outside the root gets `..` segments), the kept problems, and an optional
+  processing-error message. GitLab severity maps error->`major`, warning->`minor`, a
+  read/parse failure->`blocker`; its `fingerprint` is a stable SHA-256 (`sha2`) of
   `(path, rule, message)` — deliberately NOT line/column, so an edit that shifts the line
   keeps the issue tracked — salted to stay unique within a report (`DefaultHasher` would
-  not be stable across toolchains). A clean file is a passing JUnit testcase and is omitted
-  from GitLab. Output is validated against authoritative sources in tests: GitLab against
-  the vendored `tests/fixtures/gitlab-code-quality.schema.json` (via the `jsonschema`
-  dev-dep), JUnit by re-parsing with `quick-xml`. See `docs/output-formats.md`. ryl follows
-  ruff's model (single format + `--output-file`); it does not (yet) emit a report file and
-  console output simultaneously.
+  not be stable across toolchains). A clean file is a passing JUnit testcase and is
+  omitted from GitLab. Output is validated against authoritative sources in tests: GitLab
+  against the vendored `tests/fixtures/gitlab-code-quality.schema.json` (via the
+  `jsonschema` dev-dep), JUnit by re-parsing with `quick-xml`. See
+  `docs/output-formats.md`.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

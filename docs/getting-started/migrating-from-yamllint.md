@@ -217,10 +217,12 @@ option is configured in TOML and rejected in yamllint-compatible YAML config.
 ### JUnit and GitLab report formats
 
 yamllint offers `standard`, `parsable`, `colored`, `github`, and `auto` output formats.
-ryl keeps those and adds two machine-readable report formats modelled on ruff:
-`--format junit` (JUnit XML) and `--format gitlab` (GitLab Code Quality JSON). These write
-to stdout (or to a file with `-o`/`--output-file`) so a Git forge can ingest them as a
-report artifact. See [Output formats](../output-formats.md).
+ryl keeps those and adds two machine-readable report formats: `--format junit` (JUnit XML)
+and `--format gitlab` (GitLab Code Quality JSON), which write to stdout (or to a file with
+`-o`/`--output-file`) so a Git forge can ingest them as a report artifact. Going beyond
+yamllint, `--format` is repeatable and each pairs with its own `--output-file`, so a single
+run can emit console diagnostics **and** one or more report files; the same targets can be
+set in a ryl-only TOML `[output]` table. See [Output formats](../output-formats.md).
 
 ## Side-by-side example
 

@@ -693,7 +693,7 @@ fn gitlab_format_reads_stdin_with_filename() {
 #[test]
 fn output_file_write_failure_is_reported() {
     // `/dev/full` opens successfully but fails every write with ENOSPC, exercising the
-    // destination-write error path (the one fallible step of the output pipeline).
+    // destination-write error path (the one fallible step once rendering is done).
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());
     let file = dirty_yaml(dir.path());
@@ -758,6 +758,33 @@ fn stdin_diff_with_report_format_is_usage_error() {
 }
 
 #[test]
+fn stdin_output_file_without_format_is_usage_error() {
+    // The stdin path resolves output targets too, so an unpaired `--output-file` is the
+    // same usage error there as for file inputs.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let report = dir.path().join("out.txt");
+    let (code, _stdout, stderr) = run_stdin(
+        &[
+            "-",
+            "-o",
+            report.to_str().unwrap(),
+            "-c",
+            cfg.to_str().unwrap(),
+        ],
+        b"key: value",
+    );
+    assert_eq!(
+        code, 2,
+        "an unpaired --output-file is a usage error on stdin"
+    );
+    assert!(
+        stderr.contains("--output-file must follow a --format"),
+        "expected the unpaired-output message: {stderr}"
+    );
+}
+
+#[test]
 fn stdin_output_file_open_failure_is_usage_error() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());
@@ -787,6 +814,8 @@ fn stdin_output_file_open_failure_is_usage_error() {
 #[cfg(target_os = "linux")]
 #[test]
 fn stdin_output_file_write_failure_is_reported() {
+    // The stdin path writes through the same commit step; `/dev/full` opens but fails the
+    // write, surfacing it on the stdin code path too.
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());
     let (code, _stdout, stderr) = run_stdin(
@@ -997,6 +1026,227 @@ fn ignored_stdin_report_open_failure_is_usage_error() {
     );
 }
 
+// --- Multiple output targets (issue #285): repeatable --format, each paired to an
+// --output-file, so console diagnostics and report artifacts can be produced together. ---
+
+#[test]
+fn console_and_reports_emit_together() {
+    // The headline of the redesign: one run produces console diagnostics *and* two report
+    // files. Each `--output-file` binds to the most recent `--format` (RuboCop/Biome style).
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let xml = dir.path().join("report.xml");
+    let json = dir.path().join("report.json");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("standard")
+        .arg("--format")
+        .arg("junit")
+        .arg("-o")
+        .arg(&xml)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&json)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "any diagnostic keeps the error exit code");
+    assert!(
+        stdout.is_empty(),
+        "neither report defaulted to stdout (both have files): {stdout}"
+    );
+    assert!(
+        stderr.contains("1:11") && stderr.contains("new-line-at-end-of-file"),
+        "the standard console format still goes to stderr: {stderr}"
+    );
+    assert!(
+        fs::read_to_string(&xml).unwrap().contains("<testsuites"),
+        "the junit report file is written"
+    );
+    let issues: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&json).unwrap())
+            .expect("gitlab report file is JSON");
+    assert_eq!(
+        issues.as_array().unwrap().len(),
+        1,
+        "the gitlab report file holds the diagnostic"
+    );
+}
+
+#[test]
+fn console_and_report_use_distinct_default_streams() {
+    // With no --output-file, a console format defaults to stderr and a report format to
+    // stdout, so the two can coexist on their distinct default streams.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("standard")
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("new-line-at-end-of-file"),
+        "the console format goes to stderr: {stderr}"
+    );
+    let issues: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("the report format goes to stdout as JSON");
+    assert_eq!(issues.as_array().unwrap().len(), 1, "one issue on stdout");
+}
+
+#[test]
+fn output_file_dash_writes_report_to_stdout() {
+    // `-o -` is an explicit request for stdout (the streams convention), distinct from the
+    // default stream the format would otherwise pick.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg("-")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    let issues: serde_json::Value =
+        serde_json::from_str(&stdout).expect("`-o -` sends the report to stdout");
+    assert_eq!(issues.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn output_file_without_preceding_format_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let report = dir.path().join("out.txt");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("-o")
+        .arg(&report)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "an unpaired --output-file is a usage error");
+    assert!(
+        stderr.contains("--output-file must follow a --format"),
+        "expected the unpaired-output message: {stderr}"
+    );
+}
+
+#[test]
+fn format_with_two_output_files_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(dir.path().join("a.json"))
+        .arg("-o")
+        .arg(dir.path().join("b.json"))
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 2,
+        "binding two files to one --format is a usage error"
+    );
+    assert!(
+        stderr.contains("a --format takes at most one --output-file"),
+        "expected the one-output-per-format message: {stderr}"
+    );
+}
+
+#[test]
+fn two_formats_to_stdout_is_usage_error() {
+    // Two whole-document reports interleaved on stdout would be an unparsable artifact.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("--format")
+        .arg("junit")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "two reports defaulting to stdout is a usage error");
+    assert!(
+        stderr.contains("at most one output may go to stdout"),
+        "expected the duplicate-stdout message: {stderr}"
+    );
+}
+
+#[test]
+fn two_formats_to_console_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("standard")
+        .arg("--format")
+        .arg("parsable")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "two console formats on stderr is a usage error");
+    assert!(
+        stderr.contains("at most one output may go to the console"),
+        "expected the duplicate-stderr message: {stderr}"
+    );
+}
+
+#[test]
+fn two_formats_to_same_file_is_usage_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let same = dir.path().join("report.out");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&same)
+        .arg("--format")
+        .arg("junit")
+        .arg("-o")
+        .arg(&same)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "two reports to one file is a usage error");
+    assert!(
+        stderr.contains("is written by more than one format"),
+        "expected the colliding-output message: {stderr}"
+    );
+}
+
 #[test]
 fn empty_input_with_output_file_creates_file_for_streaming_format() {
     // --output-file uniformly produces the file even for an empty streaming-format run.
@@ -1191,5 +1441,360 @@ fn gitlab_path_uses_dotdot_for_files_outside_the_project_root() {
     assert_eq!(
         json[0]["location"]["path"], "../dirty.yaml",
         "a file above the project root uses a `..` segment: {stdout}"
+    );
+}
+
+// --- TOML [output] config (issue #285): a project's config can define output targets;
+// a CLI --format overrides them wholesale (CLI > config > default). ---
+
+/// Write a TOML config enabling new-line-at-end-of-file (so `dirty_yaml` trips) plus the
+/// given `[output]` body, and return its path.
+fn output_config(dir: &std::path::Path, output_body: &str) -> std::path::PathBuf {
+    let cfg = dir.join("ryl.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "[rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n{output_body}"
+        ),
+    )
+    .unwrap();
+    cfg
+}
+
+#[test]
+fn config_output_writes_report_to_file() {
+    let dir = tempdir().unwrap();
+    let cfg = output_config(dir.path(), "[output.gitlab]\npath = \"gl.json\"\n");
+    let file = dirty_yaml(dir.path());
+    let report = dir.path().join("gl.json");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    // Run from the project dir so the config's relative `path` lands beside the inputs.
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .current_dir(dir.path())
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "the diagnostic keeps the error exit code");
+    assert!(
+        stdout.is_empty() && stderr.is_empty(),
+        "the report went to the file"
+    );
+    let issues: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&report).unwrap())
+            .expect("config-driven gitlab report is JSON");
+    assert_eq!(
+        issues.as_array().unwrap().len(),
+        1,
+        "one diagnostic in the report"
+    );
+}
+
+#[test]
+fn config_output_console_and_report_together() {
+    // `[output.auto]` (no path) keeps the console on its default stream while a second
+    // entry writes a report file: the issue's simultaneous-output ask, set in config.
+    let dir = tempdir().unwrap();
+    let cfg = output_config(
+        dir.path(),
+        "[output.auto]\n\n[output.gitlab]\npath = \"gl.json\"\n",
+    );
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .current_dir(dir.path())
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("new-line-at-end-of-file"),
+        "the auto console format stays on stderr: {stderr}"
+    );
+    let issues: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("gl.json")).unwrap())
+            .expect("the gitlab report file is JSON");
+    assert_eq!(issues.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn config_output_dash_path_is_stdout() {
+    let dir = tempdir().unwrap();
+    let cfg = output_config(dir.path(), "[output.gitlab]\npath = \"-\"\n");
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, _stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    assert_eq!(code, 1);
+    let issues: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("`path = \"-\"` sends the report to stdout");
+    assert_eq!(issues.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn cli_format_overrides_config_output() {
+    // A CLI --format replaces the config's [output] wholesale; the config report is not
+    // written.
+    let dir = tempdir().unwrap();
+    let cfg = output_config(dir.path(), "[output.gitlab]\npath = \"gl.json\"\n");
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("parsable")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("new-line-at-end-of-file"),
+        "the CLI format went to stderr: {stderr}"
+    );
+    assert!(
+        !dir.path().join("gl.json").exists(),
+        "the config's gitlab report must not be written when --format overrides it"
+    );
+}
+
+#[test]
+fn config_output_is_auto_discovered_from_project_config() {
+    // Without -c, the run reads [output] from the project config governing the inputs, so
+    // `ryl .` honors a project's `.ryl.toml [output]` (the run_output_config None branch).
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("dirty.yaml"), "key: value").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, _stderr) =
+        run(Command::new(exe).current_dir(dir.path()).arg("."));
+    assert_eq!(code, 1, "the project config's rule still fires");
+    let issues: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("gl.json")).unwrap())
+            .expect("auto-discovered gitlab report is JSON");
+    assert_eq!(issues.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn yaml_config_rejects_output_table() {
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("config.yaml");
+    fs::write(
+        &cfg,
+        "rules:\n  new-line-at-end-of-file: enable\noutput:\n  gitlab:\n    path: gl.json\n",
+    )
+    .unwrap();
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    assert_eq!(code, 2, "`output` in YAML config is a usage error");
+    assert!(
+        stderr.contains("output is only supported in TOML configuration"),
+        "expected the TOML-only message: {stderr}"
+    );
+}
+
+#[test]
+fn config_output_empty_path_is_error() {
+    let dir = tempdir().unwrap();
+    let cfg = output_config(dir.path(), "[output.gitlab]\npath = \"\"\n");
+    let file = dirty_yaml(dir.path());
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    assert_eq!(code, 2, "an empty output path is a config error");
+    assert!(
+        stderr.contains("output.gitlab.path must not be empty"),
+        "expected the empty-path message: {stderr}"
+    );
+}
+
+#[test]
+fn diff_ignores_config_output_report_format() {
+    // Regression: a project `[output.gitlab]` must not turn `--diff` into a usage error.
+    // `--diff` previews fixes with its own output and ignores output formatting, so a
+    // config-declared report target is irrelevant to it (only an explicit CLI
+    // `--format junit|gitlab` conflicts with `--diff`).
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ntrailing-spaces = \"enable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("dirty.yaml"), "key: value  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .current_dir(dir.path())
+        .arg("--diff")
+        .arg("."));
+    assert_eq!(
+        code, 1,
+        "the trailing-spaces fix would change a file: {stderr}"
+    );
+    assert!(
+        !stderr.contains("cannot be combined with"),
+        "a config report format must not block --diff: {stderr}"
+    );
+    assert!(
+        stdout.contains("@@"),
+        "the unified diff preview is printed to stdout: {stdout}"
+    );
+    assert!(
+        !dir.path().join("gl.json").exists(),
+        "--diff writes no report file"
+    );
+}
+
+#[test]
+fn diff_with_multiple_streaming_formats_is_allowed() {
+    // --diff emits only its own unified diff and ignores --format, so multiple streaming
+    // formats (which would otherwise both default to stderr) must not be a usage error.
+    let dir = tempdir().unwrap();
+    let cfg = dir.path().join("c.toml");
+    fs::write(&cfg, "[rules]\ntrailing-spaces = \"enable\"\n").unwrap();
+    let file = dir.path().join("dirty.yaml");
+    fs::write(&file, "key: value  \n").unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("--diff")
+        .arg("--format")
+        .arg("standard")
+        .arg("--format")
+        .arg("parsable")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 1,
+        "the trailing-spaces fix would change the file: {stderr}"
+    );
+    assert!(
+        !stderr.contains("at most one output"),
+        "no duplicate-stream error on the --diff path: {stderr}"
+    );
+    assert!(
+        stdout.contains("@@"),
+        "the unified diff is printed: {stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn two_output_files_aliasing_the_same_file_are_rejected() {
+    // Two `--output-file` paths that resolve (via symlink) to one existing file must be
+    // rejected by file identity, not just lexical comparison, or the second report would
+    // clobber the first.
+    use std::os::unix::fs::symlink;
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let real = dir.path().join("real.json");
+    fs::write(&real, "stale").unwrap();
+    let link = dir.path().join("link.json");
+    symlink(&real, &link).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&real)
+        .arg("--format")
+        .arg("junit")
+        .arg("-o")
+        .arg(&link)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "two outputs aliasing one file is a usage error");
+    assert!(
+        stderr.contains("is written by more than one format"),
+        "expected the colliding-output message: {stderr}"
+    );
+}
+
+#[test]
+fn earlier_output_artifact_survives_a_later_unopenable_target() {
+    // Opening targets must not truncate an existing artifact before a later target fails to
+    // open: the earlier file's contents must be intact after the run errors.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let keep = dir.path().join("keep.json");
+    fs::write(&keep, "STALE").unwrap();
+    let unopenable = dir.path().join("missing-dir").join("r.xml");
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(&keep)
+        .arg("--format")
+        .arg("junit")
+        .arg("-o")
+        .arg(&unopenable)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 2,
+        "an unopenable later target is a usage error: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot open --output-file"),
+        "expected the open-failure message: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&keep).unwrap(),
+        "STALE",
+        "the earlier artifact must not be truncated when a later target fails to open"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn two_outputs_under_aliased_parent_dirs_are_rejected() {
+    // Two not-yet-created `--output-file` leaves under symlink-aliased parent directories
+    // resolve to the same file once opened. Their lexical paths differ and neither leaf
+    // exists beforehand, so only the post-open file-identity check catches the collision
+    // (before either report is written).
+    use std::os::unix::fs::symlink;
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let real = dir.path().join("real");
+    fs::create_dir(&real).unwrap();
+    let link = dir.path().join("link");
+    symlink(&real, &link).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("--format")
+        .arg("gitlab")
+        .arg("-o")
+        .arg(real.join("r.json"))
+        .arg("--format")
+        .arg("junit")
+        .arg("-o")
+        .arg(link.join("r.json"))
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(
+        code, 2,
+        "outputs aliasing one file via a parent symlink is a usage error: {stderr}"
+    );
+    assert!(
+        stderr.contains("is written by more than one format"),
+        "expected the colliding-output message: {stderr}"
     );
 }

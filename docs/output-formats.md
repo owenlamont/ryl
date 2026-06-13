@@ -20,34 +20,76 @@ error.
 
 ## Choosing where output goes
 
-The console formats (`standard`, `colored`, `github`, `parsable`) print diagnostics to
-**stderr**. The report formats (`junit`, `gitlab`) print to **stdout**, so they can be
-redirected into an artifact file:
+Each format has a default stream: the console formats (`standard`, `colored`, `github`,
+`parsable`) go to **stderr**, and the report formats (`junit`, `gitlab`) go to **stdout**,
+so a report can be redirected into an artifact file:
 
 ```console
 $ ryl --format gitlab . > gl-code-quality-report.json
 ```
 
-`--output-file` (`-o`) writes the selected format to a file instead of its default
-stream, which is the most robust option in CI (no shell redirection of the wrong stream):
+### Multiple outputs in one run
+
+`--format` (`-f`) is repeatable, and each `--output-file` (`-o`) binds to the **most
+recent** `--format`, so a single run can produce several outputs at once (the RuboCop /
+Biome model). `-o` takes a file path, or `-` for stdout:
 
 ```console
-$ ryl --format junit -o report.xml .
-$ ryl --format gitlab -o gl-code-quality-report.json .
+# console diagnostics on stderr AND a GitLab report written to a file
+$ ryl --format auto --format gitlab -o gl-code-quality-report.json .
+
+# a JUnit file and a GitLab file together, with no console output
+$ ryl --format junit -o report.xml --format gitlab -o gl.json .
 ```
 
-This follows the same model as ruff and eslint: one format goes to one place per run. To
-see human output **and** keep a report file in a single run, pipe the console output
-through `tee`, or run `ryl` twice.
+A `--format` with no `--output-file` uses its default stream, so the way to get your usual
+console output **and** a report file is to add the report `--format` with its own `-o`, as
+in the first example above.
 
-`--output-file` cannot be combined with `--diff` (which previews fixes and ignores
-`--format`), and `--format junit`/`--format gitlab` cannot be combined with `--diff`. An
-`--output-file` that points at a file being linted (or at the `--stdin-filename`) is
-refused, so a report can never truncate the source it just linted. Otherwise
-`--output-file` overwrites its destination, so do not point it at a file you want to keep
-(such as a config file). A clean or empty project still produces a valid empty report
-(`[]` for GitLab, an empty `<testsuites>` for JUnit), so a CI step that ingests the
-artifact never fails on a missing file.
+The rules that keep the outputs unambiguous (each a usage error, exit code 2):
+
+- an `--output-file` must follow a `--format`, since it binds to that format;
+- a `--format` takes at most one `--output-file`;
+- at most one output may go to stdout and at most one to the console (stderr); two
+  documents sharing a stream would interleave, so give the others a file destination;
+- two outputs may not resolve to the same file (the second would clobber the first);
+- an output file that is also a linted input (or the `--stdin-filename`) is refused, so a
+  report can never truncate the source it just linted.
+
+Otherwise an `--output-file` overwrites its destination, so do not point it at a file you
+want to keep. `--diff` previews fixes and ignores `--format`, so it combines with neither
+`--output-file` nor `--format junit`/`--format gitlab`. A clean or empty project still
+produces a valid empty report for each report target (`[]` for GitLab, an empty
+`<testsuites>` for JUnit), so a CI step that ingests the artifact never fails on a missing
+file.
+
+### Configuring outputs in TOML
+
+The same outputs can be set once in a project's TOML config under `[output]`, so `ryl .`
+in CI produces the artifacts without repeating the flags. Each format is a sub-table; an
+absent `path` uses that format's default stream, `path = "-"` is stdout, and any other
+value is a file:
+
+```toml
+# keep the normal console output, and also write a GitLab report file
+[output.auto]
+
+[output.gitlab]
+path = "gl-code-quality-report.json"
+```
+
+`[output]` is ryl-only and TOML-only (it is rejected in a YAML config). It is read once
+from the configuration governing the run: the `-c`/`-d` config, or the project config
+discovered for the inputs (so a project's `.ryl.toml` applies to `ryl .`). A CLI
+`--format` overrides the entire `[output]` table, so the command line always wins over the
+config. The same unambiguous-output rules above apply to a config that declares several
+targets.
+
+`[output]` produces a single, run-level set of artifacts, so it is read from one config.
+That is unambiguous for a single project (one root, or subdirectories that share the
+project config). If you point one run at *separate* projects that each declare their own
+differing `[output]`, the first project config discovered along the inputs wins; pass
+`-c`/`-d` to choose the output config explicitly in that case.
 
 ## JUnit XML
 
@@ -71,13 +113,19 @@ clean file is a single passing testcase; a file that could not be read or parsed
 ```
 
 In GitLab CI it is published with `artifacts:reports:junit`; other forges that render
-JUnit reports consume it the same way. The shape follows the de-facto
-[JUnit XML specification](https://llg.cubic.org/docs/junit/).
+JUnit reports consume it the same way. JUnit XML has no single official standard; `ryl`
+follows the [`junit-10.xsd`](https://github.com/jenkinsci/xunit-plugin/blob/master/src/main/resources/org/jenkinsci/plugins/xunit/types/model/xsd/junit-10.xsd)
+schema maintained by the Jenkins xUnit plugin (the most authoritative published schema),
+cross-checked against the widely cited
+[JUnit XML reference](https://llg.cubic.org/docs/junit/).
 
 ## GitLab Code Quality
 
 The GitLab report is a single JSON array, one object per diagnostic, matching the
-[Code Quality report format](https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-format):
+[Code Quality report format](https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-format),
+a documented subset of the Code Climate engine's
+[`spec/analyzers/SPEC.md`](https://github.com/codeclimate/platform/blob/master/spec/analyzers/SPEC.md)
+(the underlying standard):
 
 ```json
 [

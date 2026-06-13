@@ -1,5 +1,9 @@
 use std::process::Command;
+
 use tempfile::tempdir;
+
+mod common;
+use common::cli::ryl;
 
 fn run(cmd: &mut Command) -> (i32, String, String) {
     let out = cmd.output().expect("failed to run ryl");
@@ -23,8 +27,9 @@ fn no_arguments_returns_usage_error_code_2() {
 #[test]
 fn empty_directory_results_in_success() {
     let dir = tempdir().unwrap();
-    let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _out, err) = run(Command::new(exe).arg(dir.path()));
+    // Bound discovery at the tempdir: the run-level `[output]` read climbs from the inputs,
+    // so a stray config in the shared temp root must not turn this clean run into an error.
+    let (code, _out, err) = run(ryl(dir.path()).arg(dir.path()));
     assert_eq!(code, 0, "expected success when no YAML files: {err}");
 }
 

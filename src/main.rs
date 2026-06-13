@@ -13,7 +13,7 @@ use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, ValueEnum};
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::{
@@ -22,7 +22,9 @@ use ryl::cli_support::{
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
 };
-use ryl::config_schema::{schema_string_pretty, yaml_schema_string_pretty};
+use ryl::config_schema::{
+    OutputDestination, OutputTable, schema_string_pretty, yaml_schema_string_pretty,
+};
 use ryl::decoder;
 use ryl::fix::{
     DiffStats, apply_safe_fixes_to_files, diff_outcome, diff_safe_fixes_for_files,
@@ -120,6 +122,40 @@ fn build_global_cfg(
     }
 }
 
+/// The TOML `[output]` table governing the run, or `None` if no config declares one.
+/// Read from the global config when one was provided (`-c`/`-d`/env), otherwise from the
+/// project config discovered for the inputs (so `ryl .` picks up the project's
+/// `.ryl.toml [output]`). This is a run-level setting, read once rather than per file; a
+/// CLI `--format` overrides whatever it returns.
+///
+/// `[output]` is a single, run-level artifact set, so it is sourced from one config. For a
+/// single root (the usual case) that is unambiguous, and inputs that are subdirectories of
+/// one project share that project's config. A run spanning *separate* projects with their
+/// own differing `[output]` tables takes the first project config discovered along the
+/// inputs (deterministic for a given argument list, but argument-order sensitive); pass
+/// `-c`/`-d` to make the output config explicit when that matters.
+///
+/// # Errors
+///
+/// Propagates a config discovery/parse/validation error from the inputs-anchored project
+/// config. With lintable files present this is the same config the per-file path also
+/// reports on; the value here is the empty-input case, where no per-file discovery runs,
+/// so a malformed run config (e.g. an invalid `[output]`) is surfaced rather than silently
+/// ignored — and a CI step relying on a configured report is not left without one.
+fn run_output_config(
+    global_cfg: Option<&ConfigContext>,
+    inputs: &[PathBuf],
+    cli: &Cli,
+) -> Result<Option<OutputTable>, String> {
+    if let Some(ctx) = global_cfg {
+        return Ok(ctx.config.output().cloned());
+    }
+    Ok(discover_config(inputs, &cli_overrides(cli))?
+        .config
+        .output()
+        .cloned())
+}
+
 fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     let cleanup = if let Some(suffix) = &cli.migrate.rename_old {
         SourceCleanup::RenameSuffix(suffix.clone())
@@ -207,19 +243,22 @@ struct Cli {
     #[arg(short = 'd', long = "config-data", value_name = "YAML")]
     config_data: Option<String>,
 
-    /// Output format (auto, standard, colored, github, parsable, junit, gitlab)
-    #[arg(short = 'f', long = "format", default_value_t = CliFormat::Auto, value_enum)]
-    format: CliFormat,
+    /// Output format (auto, standard, colored, github, parsable, junit, gitlab). Repeatable:
+    /// each `--format` may be followed by an `--output-file` to send that format to a file,
+    /// so console and report artifacts can be produced together.
+    #[arg(short = 'f', long = "format", value_enum)]
+    format: Vec<CliFormat>,
 
-    /// Write the formatted output to this file instead of the default stream (stderr for
-    /// the console formats, stdout for junit/gitlab)
+    /// Destination for the preceding `--format` (a path, or `-` for stdout). Repeatable;
+    /// each binds to the most recent `--format`. Default stream otherwise: stderr for the
+    /// console formats, stdout for junit/gitlab.
     #[arg(
         short = 'o',
         long = "output-file",
         value_name = "FILE",
         conflicts_with = "diff"
     )]
-    output_file: Option<PathBuf>,
+    output_file: Vec<PathBuf>,
 
     // These print-and-exit meta-actions ignore every other input/flag; mark them
     // `exclusive` so combining them with a lint/fix/format request is a usage error
@@ -368,6 +407,156 @@ impl OutputFormat {
     }
 }
 
+/// Where one output is written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Destination {
+    Stdout,
+    Stderr,
+    File(PathBuf),
+}
+
+/// One resolved output: a format and where it goes. The unit both the CLI
+/// (`--format` + paired `--output-file`) and the TOML `[output]` table resolve to.
+struct OutputTarget {
+    format: OutputFormat,
+    destination: Destination,
+}
+
+/// A format's destination when none is given: console formats go to stderr (unchanged),
+/// the whole-document report formats to stdout so they can be piped/redirected.
+fn default_destination(format: OutputFormat) -> Destination {
+    if format.is_streaming() {
+        Destination::Stderr
+    } else {
+        Destination::Stdout
+    }
+}
+
+/// Resolve the `--format`/`--output-file` occurrences into output targets, pairing each
+/// `--output-file` with the most recent `--format` (RuboCop/Biome style). `-` means stdout.
+/// Returns an empty vec when no `--format` was given (the caller then falls back to config
+/// `[output]` or the default). Relies on clap arg indices to recover CLI order.
+///
+/// # Errors
+///
+/// Returns a usage error for an `--output-file` with no preceding `--format`, or a second
+/// `--output-file` bound to the same `--format`.
+fn resolve_cli_targets(
+    matches: &ArgMatches,
+    cli: &Cli,
+) -> Result<Vec<OutputTarget>, String> {
+    enum Occurrence {
+        Format(OutputFormat),
+        Output(PathBuf),
+    }
+    let mut occurrences: Vec<(usize, Occurrence)> = Vec::new();
+    if let Some(indices) = matches.indices_of("format") {
+        for (index, format) in indices.zip(&cli.format) {
+            occurrences
+                .push((index, Occurrence::Format(detect_output_format(*format))));
+        }
+    }
+    if let Some(indices) = matches.indices_of("output_file") {
+        for (index, path) in indices.zip(&cli.output_file) {
+            occurrences.push((index, Occurrence::Output(path.clone())));
+        }
+    }
+    occurrences.sort_by_key(|(index, _)| *index);
+
+    // Build (format, explicit destination?) pairs in CLI order; fill defaults at the end.
+    let mut pending: Vec<(OutputFormat, Option<Destination>)> = Vec::new();
+    for (_, occurrence) in occurrences {
+        match occurrence {
+            Occurrence::Format(format) => pending.push((format, None)),
+            Occurrence::Output(path) => {
+                let Some((_, destination)) = pending.last_mut() else {
+                    return Err(
+                        "error: --output-file must follow a --format".to_string()
+                    );
+                };
+                if destination.is_some() {
+                    return Err(
+                        "error: a --format takes at most one --output-file".to_string()
+                    );
+                }
+                *destination = Some(if path.as_os_str() == "-" {
+                    Destination::Stdout
+                } else {
+                    Destination::File(path)
+                });
+            }
+        }
+    }
+    Ok(pending
+        .into_iter()
+        .map(|(format, destination)| OutputTarget {
+            format,
+            destination: destination.unwrap_or_else(|| default_destination(format)),
+        })
+        .collect())
+}
+
+/// The output targets for a run, in precedence order CLI > config > default: the CLI
+/// `--format`/`--output-file` pairs when any `--format` was given, otherwise the TOML
+/// `[output]` table from the run's config when it declares any target, otherwise the
+/// single default target (the auto-detected console format on its default stream).
+///
+/// # Errors
+///
+/// Propagates a `--format`/`--output-file` pairing error from [`resolve_cli_targets`].
+fn resolve_targets(
+    matches: &ArgMatches,
+    cli: &Cli,
+    config_output: Option<&OutputTable>,
+) -> Result<Vec<OutputTarget>, String> {
+    let cli_targets = resolve_cli_targets(matches, cli)?;
+    if !cli_targets.is_empty() {
+        return Ok(cli_targets);
+    }
+    if let Some(config_targets) = config_output.map(config_targets_from_table)
+        && !config_targets.is_empty()
+    {
+        return Ok(config_targets);
+    }
+    let format = detect_output_format(CliFormat::Auto);
+    Ok(vec![OutputTarget {
+        destination: default_destination(format),
+        format,
+    }])
+}
+
+/// Resolve a TOML `[output]` table into targets, one per declared format, in
+/// `OutputTable::entries` order (deterministic output and stream-conflict reporting). Each
+/// entry's name maps to its `CliFormat` (the table field names are exactly the `--format`
+/// value names), so `auto` is env-resolved like the CLI's `--format auto`.
+fn config_targets_from_table(table: &OutputTable) -> Vec<OutputTarget> {
+    table
+        .entries()
+        .into_iter()
+        .filter_map(|(name, destination)| {
+            let destination = destination?;
+            let choice = CliFormat::from_str(name, false)
+                .expect("OutputTable field names match CliFormat value names");
+            Some(config_target(choice, destination))
+        })
+        .collect()
+}
+
+/// One config output entry to a target: `path` absent uses the format's default stream,
+/// `"-"` is stdout, anything else is a file path.
+fn config_target(choice: CliFormat, destination: &OutputDestination) -> OutputTarget {
+    let format = detect_output_format(choice);
+    let destination = match destination.path.as_deref() {
+        None => default_destination(format),
+        Some("-") => Destination::Stdout,
+        Some(path) => Destination::File(PathBuf::from(path)),
+    };
+    OutputTarget {
+        format,
+        destination,
+    }
+}
+
 fn detect_output_format(choice: CliFormat) -> OutputFormat {
     match choice {
         CliFormat::Standard => OutputFormat::Standard,
@@ -388,47 +577,217 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
     }
 }
 
-/// Open the destination for formatted output: the `--output-file` path when given,
-/// otherwise stdout for the whole-document report formats (so they can be redirected or
-/// piped as an artifact) and stderr for the streaming console formats (unchanged
-/// behavior). The console diagnostics are the only thing routed here; notices, `--fix`
-/// summaries, and skip messages always stay on stderr.
-///
-/// # Errors
-///
-/// Returns an error if the `--output-file` path cannot be created.
-fn open_output_sink(
-    output_file: Option<&Path>,
-    format: OutputFormat,
-) -> Result<Box<dyn Write>, String> {
-    if let Some(path) = output_file {
-        let file = File::create(path).map_err(|err| {
-            format!(
-                "error: cannot open --output-file {}: {err}",
-                sanitize_control(&path.display().to_string())
-            )
-        })?;
-        return Ok(Box::new(BufWriter::new(file)));
-    }
-    if format.is_streaming() {
-        Ok(Box::new(std::io::stderr()))
-    } else {
-        Ok(Box::new(BufWriter::new(std::io::stdout())))
+/// An opened output destination. A file is opened with create+write but **not** truncate,
+/// so its current contents survive until [`OutputSink::commit`] truncates and rewrites it —
+/// a later target failing to open then cannot destroy an *existing* artifact (a freshly
+/// created one may be left empty if a later target aborts the run; see [`open_destination`]).
+enum OutputSink {
+    /// stdout or stderr (a console stream; written and flushed as-is).
+    Stream(Box<dyn Write>),
+    /// A `--output-file` target, truncated then written at commit time.
+    File(File),
+}
+
+impl OutputSink {
+    /// Write `bytes` as this sink's complete contents: a stream is written then flushed; a
+    /// file is truncated (clearing any prior artifact) then written from the start and
+    /// flushed. The single fallible step of the output pipeline (rendering is infallible,
+    /// see [`OUTPUT_INFALLIBLE`]); the write/flush are chained into one coverable error.
+    fn commit(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        match self {
+            Self::Stream(writer) => {
+                writer.write_all(bytes).and_then(|()| writer.flush())
+            }
+            Self::File(file) => {
+                file.set_len(0).and_then(|()| file.write_all(bytes))?;
+                file.flush()
+            }
+        }
     }
 }
 
-/// `--diff` previews safe fixes and ignores `--format`, so combining it with a
-/// whole-document report format is a usage error rather than a silent no-op. (`--diff`
-/// with `--output-file` is rejected declaratively by clap's `conflicts_with`.)
+/// Open one destination for writing: stdout, stderr, or a file. A file is opened with
+/// create+write but **not** truncate, so an unopenable `--output-file` fails fast (before
+/// `--fix` mutates anything) yet an existing destination's contents survive until
+/// [`OutputSink::commit`] truncates and rewrites it — a later target failing to open then
+/// cannot destroy an existing artifact. (A *freshly*-created destination is left in place,
+/// possibly empty, if a later target/collision aborts the run: cleaning it up by path would
+/// race a concurrent writer at that path, so the empty artifact is left for the failed run
+/// — gate CI artifact use on the exit code.) Console diagnostics are the only thing routed
+/// here; notices, `--fix` summaries, and skip messages always stay on stderr.
 ///
 /// # Errors
 ///
-/// Returns a usage error when `--diff` is combined with `--format junit|gitlab`.
-fn reject_diff_with_report_format(
-    diff: bool,
-    format: OutputFormat,
+/// Returns an error if a [`Destination::File`] path cannot be opened/created.
+fn open_destination(destination: &Destination) -> Result<OutputSink, String> {
+    match destination {
+        Destination::Stdout => Ok(OutputSink::Stream(Box::new(BufWriter::new(
+            std::io::stdout(),
+        )))),
+        Destination::Stderr => Ok(OutputSink::Stream(Box::new(std::io::stderr()))),
+        Destination::File(path) => {
+            let file = File::options()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(path)
+                .map_err(|err| {
+                    format!(
+                        "error: cannot open --output-file {}: {err}",
+                        sanitize_control(&path.display().to_string())
+                    )
+                })?;
+            Ok(OutputSink::File(file))
+        }
+    }
+}
+
+/// Open every target's destination up front (so an unopenable `--output-file` fails before
+/// `--fix` mutates any source), then reject two outputs that resolve to the same file. The
+/// collision check runs after opening, so each destination exists and `same_file::Handle`
+/// resolves it through an existing symlink/hard link / aliased parent. Returns the sinks in
+/// target order.
+///
+/// # Errors
+///
+/// Propagates the first [`open_destination`] failure, or a same-file collision among the
+/// `--output-file` targets.
+fn open_targets(targets: &[OutputTarget]) -> Result<Vec<OutputSink>, String> {
+    let sinks = targets
+        .iter()
+        .map(|target| open_destination(&target.destination))
+        .collect::<Result<Vec<_>, _>>()?;
+    reject_colliding_output_files(targets)?;
+    Ok(sinks)
+}
+
+/// Render `records` for each target and write the bytes to that target's (already-opened)
+/// sink. Report entries are built once and shared across any report targets.
+///
+/// # Errors
+///
+/// Propagates the first destination write failure.
+fn write_targets(
+    targets: &[OutputTarget],
+    sinks: &mut [OutputSink],
+    records: &[FileRecord],
 ) -> Result<(), String> {
-    if diff && !format.is_streaming() {
+    let project_root = report_project_root();
+    let entries = targets
+        .iter()
+        .any(|target| !target.format.is_streaming())
+        .then(|| build_entries(records, &project_root));
+    for (target, sink) in targets.iter().zip(sinks.iter_mut()) {
+        let bytes = render_target(target.format, records, entries.as_deref());
+        sink.commit(&bytes)
+            .map_err(|err| write_output_error(&err))?;
+    }
+    Ok(())
+}
+
+/// Open every target's destination, then render and write `records` to each. The combined
+/// open+write step for paths without a `--fix` ordering constraint (the empty-input and
+/// stdin cases); the `--fix` path opens early via [`open_targets`] instead.
+///
+/// # Errors
+///
+/// Propagates an open or write failure.
+fn emit_targets(
+    targets: &[OutputTarget],
+    records: &[FileRecord],
+) -> Result<(), String> {
+    let mut sinks = open_targets(targets)?;
+    write_targets(targets, &mut sinks, records)
+}
+
+/// Render `records` to bytes in `format`. The streaming formats append per-file blocks;
+/// the report formats serialize the pre-built `entries` (always `Some` when a report
+/// target is present, see [`write_targets`]).
+fn render_target(
+    format: OutputFormat,
+    records: &[FileRecord],
+    entries: Option<&[ReportEntry]>,
+) -> Vec<u8> {
+    match format {
+        OutputFormat::Standard => render_streaming(records, append_standard),
+        OutputFormat::Colored => render_streaming(records, append_colored),
+        OutputFormat::Github => render_streaming(records, append_github),
+        OutputFormat::Parsable => render_streaming(records, append_parsable),
+        OutputFormat::Junit => render_junit(entries.expect(REPORT_ENTRIES_BUILT)),
+        OutputFormat::Gitlab => render_gitlab(entries.expect(REPORT_ENTRIES_BUILT)),
+    }
+}
+
+// Report entries are built whenever any target uses a report format, so the Junit/Gitlab
+// arms of `render_target` only ever see `Some`; the `expect` documents that invariant
+// rather than leaving an uncovered `None` arm.
+const REPORT_ENTRIES_BUILT: &str =
+    "report entries are built when a report target is present";
+
+/// Append every record's per-file block to an owned buffer using `append`, skipping clean
+/// files (no error, no kept diagnostics) — the streaming formats print nothing for those.
+/// A processing-error record contributes its (already-sanitized) message line.
+fn render_streaming(
+    records: &[FileRecord],
+    append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
+) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    for record in records {
+        if let Some(message) = &record.error {
+            writeln!(out, "{message}").expect(OUTPUT_INFALLIBLE);
+        } else if !record.kept.is_empty() {
+            append(&mut out, record.path, &record.kept);
+        }
+    }
+    out
+}
+
+/// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
+/// relative display path. Clean files become passing `JUnit` testcases / are omitted by
+/// `GitLab`; the report emitters decide.
+fn build_entries(records: &[FileRecord], project_root: &Path) -> Vec<ReportEntry> {
+    records
+        .iter()
+        .map(|record| ReportEntry {
+            path: report_display_path(record.path, project_root),
+            problems: record.kept.clone(),
+            error: record.error.clone(),
+        })
+        .collect()
+}
+
+/// The `--output-file` paths among `targets` (a stdout/stderr destination has none).
+fn output_file_paths(targets: &[OutputTarget]) -> impl Iterator<Item = &Path> {
+    targets
+        .iter()
+        .filter_map(|target| match &target.destination {
+            Destination::File(path) => Some(path.as_path()),
+            Destination::Stdout | Destination::Stderr => None,
+        })
+}
+
+/// File-independent guards on the resolved targets: `--diff` cannot pair with a report
+/// format, and at most one target may write to each console stream (two would interleave).
+/// The same-file collision guard needs the files opened (so symlinked parents resolve), so
+/// it lives in [`open_targets`] rather than here.
+///
+/// # Errors
+///
+/// Returns a usage error for any of the conflicts above.
+fn validate_targets(targets: &[OutputTarget], diff: bool) -> Result<(), String> {
+    if diff {
+        // `--diff` emits only its own unified diff and ignores output formatting, so no
+        // target is ever rendered on the diff path: the stream-uniqueness and file-collision
+        // checks do not apply, and the sole conflict is an explicit report format.
+        return reject_diff_report_conflict(targets);
+    }
+    reject_duplicate_streams(targets)
+}
+
+/// `--diff` with a whole-document report format is a usage error: the report would never be
+/// produced (the diff path emits only its patch), so the combination signals confusion.
+fn reject_diff_report_conflict(targets: &[OutputTarget]) -> Result<(), String> {
+    if targets.iter().any(|target| !target.format.is_streaming()) {
         return Err(
             "error: `--diff` cannot be combined with `--format junit` or `--format gitlab`"
                 .to_string(),
@@ -437,57 +796,113 @@ fn reject_diff_with_report_format(
     Ok(())
 }
 
-/// Emit a valid empty report for the whole-document formats when there are no files to
-/// lint, so CI artifact ingestion sees a present, valid file. Streaming formats emit
-/// nothing (unchanged).
-///
-/// # Errors
-///
-/// Returns an error if the `--output-file` cannot be created or written.
-fn emit_empty_report(
-    output_file: Option<&Path>,
-    output_format: OutputFormat,
-) -> Result<(), String> {
-    // A streaming format writes nothing to its default stream for an empty input, but an
-    // explicit --output-file is still created (empty) and validated, so `-o` uniformly
-    // produces the file and an unopenable destination still errors.
-    if output_file.is_none() && output_format.is_streaming() {
-        return Ok(());
+/// At most one target may write to stdout (`-`) and one to stderr; two whole-document
+/// reports interleaved on one stream produce an unparsable artifact.
+fn reject_duplicate_streams(targets: &[OutputTarget]) -> Result<(), String> {
+    let (mut stdout, mut stderr) = (false, false);
+    for target in targets {
+        match target.destination {
+            Destination::Stdout if stdout => {
+                return Err(
+                    "error: at most one output may go to stdout (`-`); give the others a \
+                     file destination"
+                        .to_string(),
+                );
+            }
+            Destination::Stderr if stderr => {
+                return Err(
+                    "error: at most one output may go to the console (stderr); give the \
+                     others a file destination"
+                        .to_string(),
+                );
+            }
+            Destination::Stdout => stdout = true,
+            Destination::Stderr => stderr = true,
+            Destination::File(_) => {}
+        }
     }
-    let mut sink = open_output_sink(output_file, output_format)?;
-    let (_summary, output) = process_results(&[], Vec::new(), output_format, false);
-    write_output(sink.as_mut(), &output)
+    Ok(())
 }
 
-/// Refuse an `--output-file` whose lexical path matches a linted input, so a report can
+/// A path's identity for collision checks: its lexical absolute form (which also covers a
+/// not-yet-created destination) plus, for a path that already exists, its underlying file
+/// identity via `same_file::Handle`. The shared comparison behind both the output-output
+/// and the output-input collision guards.
+struct PathIdentity<'a> {
+    display: &'a Path,
+    abs: PathBuf,
+    handle: Option<Handle>,
+}
+
+impl<'a> PathIdentity<'a> {
+    fn of(path: &'a Path) -> Self {
+        Self {
+            display: path,
+            abs: lexical_abspath(path),
+            handle: Handle::from_path(path).ok(),
+        }
+    }
+
+    /// Whether `self` and `other` resolve to the same file: lexically equal, or — when
+    /// `self` exists — the same underlying file (so a symlink or hard link is caught).
+    fn same_file(&self, other: &PathIdentity) -> bool {
+        self.abs == other.abs || (self.handle.is_some() && self.handle == other.handle)
+    }
+}
+
+/// No two `--output-file` targets may resolve to the same file: the second's write would
+/// clobber the first's report. Called from [`open_targets`] *after* the destinations are
+/// opened, so each exists and `same_file::Handle` resolves it through an existing
+/// symlink/hard link or an aliased parent directory (a lexical comparison alone would miss
+/// two distinct paths pointing at one file). A destination whose existing file is not
+/// readable (mode without read permission) cannot be identity-checked and is matched only
+/// lexically — an adversarial, non-real-world case for a report path.
+fn reject_colliding_output_files(targets: &[OutputTarget]) -> Result<(), String> {
+    let outputs: Vec<PathIdentity> =
+        output_file_paths(targets).map(PathIdentity::of).collect();
+    for (index, output) in outputs.iter().enumerate() {
+        if outputs[index + 1..]
+            .iter()
+            .any(|other| output.same_file(other))
+        {
+            return Err(format!(
+                "error: output path {} is written by more than one format",
+                sanitize_control(&output.display.display().to_string())
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Refuse any `--output-file` target whose path matches a linted input, so a report can
 /// never truncate the source it just linted (or, with `--fix`, the freshly-fixed file).
-/// Matches on the lexical identity (`lexical_abspath`) used for input de-duplication —
-/// which also covers a not-yet-created destination — and, for a destination that already
-/// exists, on its underlying file identity via `same_file::Handle`, so an `-o` that is a
-/// symlink *or* a hard link onto a linted input is caught too.
+/// Uses the same lexical + file-identity match as [`reject_colliding_output_files`], so an
+/// `-o` that is a symlink *or* a hard link onto an input is caught. The output identities
+/// are computed once and reused across all inputs.
 ///
 /// # Errors
 ///
-/// Returns a usage error when `output` resolves to one of the `inputs` (for stdin, the
-/// single `--stdin-filename`/label entry). `output` is the clap-parsed `--output-file`,
-/// which clap guarantees is non-empty, so `lexical_abspath` never sees an empty path.
-fn reject_output_file_collision<'a>(
-    output: &Path,
+/// Returns a usage error when an output path resolves to one of the `inputs` (for stdin,
+/// the single `--stdin-filename`/label entry).
+fn reject_input_collisions<'a>(
+    targets: &[OutputTarget],
     inputs: impl Iterator<Item = &'a Path>,
 ) -> Result<(), String> {
-    let output_abs = lexical_abspath(output);
-    let output_handle = Handle::from_path(output).ok();
-    let collides = inputs.into_iter().any(|input| {
-        lexical_abspath(input) == output_abs
-            || output_handle.as_ref().is_some_and(|handle| {
-                Handle::from_path(input).ok().as_ref() == Some(handle)
-            })
-    });
-    if collides {
-        return Err(format!(
-            "error: --output-file {} is also a linted input; refusing to overwrite it",
-            sanitize_control(&output.display().to_string())
-        ));
+    let outputs: Vec<PathIdentity> =
+        output_file_paths(targets).map(PathIdentity::of).collect();
+    if outputs.is_empty() {
+        return Ok(());
+    }
+    for input in inputs {
+        let input = PathIdentity::of(input);
+        for output in &outputs {
+            if output.same_file(&input) {
+                return Err(format!(
+                    "error: output file {} is also a linted input; refusing to overwrite it",
+                    sanitize_control(&output.display.display().to_string())
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -510,18 +925,6 @@ fn write_output_error(err: &std::io::Error) -> String {
     )
 }
 
-/// Write the buffered, formatted output to its destination: the single fallible step of
-/// the output pipeline (the formatting itself is infallible, see [`OUTPUT_INFALLIBLE`]).
-///
-/// # Errors
-///
-/// Returns an error if the destination cannot be written or flushed (e.g. a full disk).
-fn write_output(sink: &mut dyn Write, output: &[u8]) -> Result<(), String> {
-    sink.write_all(output)
-        .and_then(|()| sink.flush())
-        .map_err(|err| write_output_error(&err))
-}
-
 fn github_env_active() -> bool {
     std::env::var_os("GITHUB_ACTIONS").is_some()
         && std::env::var_os("GITHUB_WORKFLOW").is_some()
@@ -538,9 +941,15 @@ fn supports_color() -> bool {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // `get_matches` parses (handling `--help`/`--version`/usage errors by exiting) and
+    // keeps the `ArgMatches` so `resolve_cli_targets` can recover the CLI order of the
+    // repeatable `--format`/`--output-file` pairs via `indices_of`; `from_arg_matches`
+    // then builds the typed `Cli` from those same matches (infallible here).
+    let matches = Cli::command().get_matches();
+    let cli =
+        Cli::from_arg_matches(&matches).expect("Cli parses from its own ArgMatches");
 
-    match run_cli(cli) {
+    match run_cli(&cli, &matches) {
         Ok(code) => code,
         Err(err) => {
             // Usage/config errors embed user-controlled paths and config values;
@@ -552,7 +961,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_cli(cli: Cli) -> Result<ExitCode, String> {
+fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     // A pure meta-action that ignores every other input/flag, like the
     // schema-print flags below; clap_complete derives the script from `Cli`.
     if let Some(shell) = cli.generate_completions {
@@ -576,13 +985,17 @@ fn run_cli(cli: Cli) -> Result<ExitCode, String> {
     }
 
     if cli.migrate_configs {
-        return run_migration(&cli);
+        return run_migration(cli);
     }
 
-    run_lint(cli)
+    // Output targets are resolved on the lint path (the meta-actions above ignore
+    // formatting), inside `run_lint`/`run_stdin_lint` where the run's config — and thus a
+    // TOML `[output]` fallback — is known. `matches` carries the CLI arg indices needed to
+    // order-pair `--format` with `--output-file`.
+    run_lint(cli, matches)
 }
 
-fn run_lint(cli: Cli) -> Result<ExitCode, String> {
+fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     let stdin_input = Path::new("-");
     let has_stdin = cli.inputs.iter().any(|p| p.as_path() == stdin_input);
     if has_stdin {
@@ -596,7 +1009,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
                 "error: `--fix` is not supported when reading from stdin".to_string()
             );
         }
-        return run_stdin_lint(&cli);
+        return run_stdin_lint(cli, matches);
     }
 
     if cli.stdin_filename.is_some() {
@@ -614,7 +1027,7 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
     }
 
     // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
-    let mut global_cfg = build_global_cfg(&cli.inputs, &cli)?;
+    let mut global_cfg = build_global_cfg(&cli.inputs, cli)?;
     if cli.lint.markdown
         && let Some(ctx) = global_cfg.as_mut()
     {
@@ -626,12 +1039,12 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
             eprintln!("{}", sanitize_control(notice));
         }
     }
-    let inputs = cli.inputs;
+    let inputs = &cli.inputs;
 
     // Determine files to parse from mixed inputs.
     // - Directories: recursively gather only .yml/.yaml
     // - Files: include as-is (even if extension isn't yaml)
-    let (candidates, explicit_files) = gather_inputs(&inputs);
+    let (candidates, explicit_files) = gather_inputs(inputs);
 
     // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
@@ -654,22 +1067,31 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let output_format = detect_output_format(cli.format);
-    reject_diff_with_report_format(cli.lint.fix.diff, output_format)?;
+    // Resolve output targets now that the run's config is known: a TOML `[output]` table
+    // is read from the global config (`-c`/`-d`/env) or the project config governing the
+    // inputs, so `ryl .` honors a project's `.ryl.toml [output]`. A CLI `--format`
+    // overrides it. (`list_files`/`migrate` above are exempt, like the no-rules check.)
+    // `--diff` previews fixes and has its own unified-diff output; it ignores output
+    // formatting, so a config `[output]` report target must not block it. Only an
+    // explicit CLI `--format junit|gitlab` conflicts with `--diff` (caught by
+    // `validate_targets` via the CLI-derived targets, which are read regardless).
+    let output_config = if cli.lint.fix.diff {
+        None
+    } else {
+        run_output_config(global_cfg.as_ref(), &cli.inputs, cli)?
+    };
+    let targets = resolve_targets(matches, cli, output_config.as_ref())?;
+    validate_targets(&targets, cli.lint.fix.diff)?;
+    let targets = &targets;
 
     // Refuse an --output-file that resolves to a linted input: writing the report there
     // would truncate the source we just linted (and, with --fix, the freshly-fixed file).
-    if let Some(output) = cli.output_file.as_deref() {
-        reject_output_file_collision(
-            output,
-            files.iter().map(|(path, ..)| path.as_path()),
-        )?;
-    }
+    reject_input_collisions(targets, files.iter().map(|(path, ..)| path.as_path()))?;
 
     if files.is_empty() {
-        // A clean or fully-ignored project still gets a valid empty report, so CI artifact
-        // ingestion sees `[]` / `<testsuites .../>` rather than a missing or invalid file.
-        emit_empty_report(cli.output_file.as_deref(), output_format)?;
+        // A clean or fully-ignored project still gets a valid empty report per target, so
+        // CI artifact ingestion sees `[]` / `<testsuites .../>` rather than a missing file.
+        emit_targets(targets, &[])?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -681,25 +1103,33 @@ fn run_lint(cli: Cli) -> Result<ExitCode, String> {
         return Ok(emit_diff(&diff_safe_fixes_for_files(&files)?));
     }
 
-    // Open the destination before `--fix` mutates anything, so an unopenable --output-file
-    // fails fast rather than leaving sources fixed-but-no-report.
-    let mut sink = open_output_sink(cli.output_file.as_deref(), output_format)?;
+    lint_and_exit(&files, cli, targets)
+}
+
+/// Open every output destination (before `--fix` mutates anything, so an unopenable
+/// `--output-file` fails fast), apply fixes if requested, lint, render each target's
+/// format, write it, print the `--fix` summary, and map the tally to an exit code.
+///
+/// # Errors
+///
+/// Returns an error if a file cannot be read/written or an output destination fails.
+fn lint_and_exit(
+    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+    cli: &Cli,
+    targets: &[OutputTarget],
+) -> Result<ExitCode, String> {
+    let mut sinks = open_targets(targets)?;
 
     let initial_problem_count = if cli.lint.fix.fix {
-        apply_fixes_reporting_skips(&files, cli.lint.compatibility.no_warnings)?
+        apply_fixes_reporting_skips(files, cli.lint.compatibility.no_warnings)?
     } else {
         0
     };
 
-    let results = lint_files(&files);
-
-    let (summary, output) = process_results(
-        &files,
-        results,
-        output_format,
-        cli.lint.compatibility.no_warnings,
-    );
-    write_output(sink.as_mut(), &output)?;
+    let results = lint_files(files);
+    let (summary, records) =
+        collect_records(files, results, cli.lint.compatibility.no_warnings);
+    write_targets(targets, &mut sinks, &records)?;
 
     if cli.lint.fix.fix && initial_problem_count > 0 {
         eprintln!(
@@ -749,22 +1179,30 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
     }
 }
 
-fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
+fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files, config_found) = resolve_stdin_ctx(cli)?;
-    let output_format = detect_output_format(cli.format);
-    reject_diff_with_report_format(cli.lint.fix.diff, output_format)?;
+
+    // The stdin config's `[output]` defines the run targets (a CLI `--format` overrides).
+    // As in `run_lint`, `--diff` ignores config `[output]` so a config report can't block
+    // it; an explicit CLI `--format junit|gitlab` still conflicts via the CLI targets.
+    let config_output = if cli.lint.fix.diff {
+        None
+    } else {
+        cfg.output()
+    };
+    let targets = resolve_targets(matches, cli, config_output)?;
+    validate_targets(&targets, cli.lint.fix.diff)?;
+    let targets = &targets;
 
     // The stdin content is labelled by `--stdin-filename`; refuse writing the report to
     // that same path so it cannot truncate the file the label names.
-    if let Some(output) = cli.output_file.as_deref() {
-        reject_output_file_collision(output, std::iter::once(path.as_path()))?;
-    }
+    reject_input_collisions(targets, std::iter::once(path.as_path()))?;
 
     let Some(kind) = resolve_stdin_kind(cli, &cfg, &path, &base_dir, apply_yaml_files)?
     else {
         // An ignored stdin filename is an empty input set: still emit a valid empty
-        // report so CI artifact ingestion does not see a missing file.
-        emit_empty_report(cli.output_file.as_deref(), output_format)?;
+        // report per target so CI artifact ingestion does not see a missing file.
+        emit_targets(targets, &[])?;
         return Ok(ExitCode::SUCCESS);
     };
 
@@ -786,14 +1224,10 @@ fn run_stdin_lint(cli: &Cli) -> Result<ExitCode, String> {
     let files = vec![(path, base_dir, cfg, kind)];
     let results = vec![(0usize, outcome)];
 
-    let mut sink = open_output_sink(cli.output_file.as_deref(), output_format)?;
-    let (summary, output) = process_results(
-        &files,
-        results,
-        output_format,
-        cli.lint.compatibility.no_warnings,
-    );
-    write_output(sink.as_mut(), &output)?;
+    let mut sinks = open_targets(targets)?;
+    let (summary, records) =
+        collect_records(&files, results, cli.lint.compatibility.no_warnings);
+    write_targets(targets, &mut sinks, &records)?;
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
 }
 
@@ -1024,26 +1458,28 @@ fn gather_lint_files(
     Ok(ruleless_config_found)
 }
 
-/// Filter, tally, and format diagnostics into an owned buffer. Streaming formats append
-/// one line per diagnostic as files are visited; the whole-document formats (junit/gitlab)
-/// buffer every file into a [`ReportEntry`] and serialize once after the loop. The buffer
-/// is written to its destination by the caller (a single fallible step); the returned
-/// [`LintSummary`] (and thus the exit code) is identical across all formats. Output is
-/// built in memory so the per-diagnostic writes cannot fail (see [`OUTPUT_INFALLIBLE`]).
-///
-/// Buffering rather than streaming the console formats is not a regression: `lint_files`
-/// has already collected every result (in parallel) before this runs, so output only ever
-/// appears after linting completes — the buffer just emits the same bytes in one write.
-fn process_results(
-    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+/// One linted file's filtered outcome, format-agnostic: a borrowed source path plus
+/// either its kept diagnostics or a single processing-error message (mutually exclusive,
+/// a clean file has neither). Each output target renders the same records its own way
+/// ([`render_target`]), so the filter+tally pass below runs exactly once regardless of how
+/// many targets a run has.
+struct FileRecord<'a> {
+    path: &'a Path,
+    kept: Vec<LintProblem>,
+    error: Option<String>,
+}
+
+/// Filter and tally every lint result into format-agnostic [`FileRecord`]s in file order.
+/// The returned [`LintSummary`] (and thus the exit code) is independent of which formats
+/// the records are later rendered to. `no_warnings` drops warning-level diagnostics before
+/// they are kept or counted, exactly as the streaming path used to.
+fn collect_records<'a>(
+    files: &'a [(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
-    output_format: OutputFormat,
     no_warnings: bool,
-) -> (LintSummary, Vec<u8>) {
+) -> (LintSummary, Vec<FileRecord<'a>>) {
     let mut summary = LintSummary::default();
-    let mut entries: Vec<ReportEntry> = Vec::new();
-    let mut out: Vec<u8> = Vec::new();
-    let project_root = report_project_root();
+    let mut records: Vec<FileRecord<'a>> = Vec::with_capacity(results.len());
 
     for (idx, outcome) in results {
         let (path, ..) = &files[idx];
@@ -1056,15 +1492,11 @@ fn process_results(
                 let message = sanitize_control(&message).into_owned();
                 summary.has_error = true;
                 summary.problem_count += 1;
-                if output_format.is_streaming() {
-                    writeln!(out, "{message}").expect(OUTPUT_INFALLIBLE);
-                } else {
-                    entries.push(ReportEntry {
-                        path: report_display_path(path, &project_root),
-                        problems: Vec::new(),
-                        error: Some(message),
-                    });
-                }
+                records.push(FileRecord {
+                    path,
+                    kept: Vec::new(),
+                    error: Some(message),
+                });
             }
             Ok(diagnostics) => {
                 let mut kept: Vec<LintProblem> = Vec::new();
@@ -1079,38 +1511,16 @@ fn process_results(
                     summary.problem_count += 1;
                     kept.push(problem);
                 }
-
-                // Streaming formats print nothing for a file with no reportable
-                // diagnostics; junit still records it as a passing test, so the
-                // whole-document formats keep the (possibly empty) entry.
-                if output_format.is_streaming() && kept.is_empty() {
-                    continue;
-                }
-
-                match output_format {
-                    OutputFormat::Standard => append_standard(&mut out, path, &kept),
-                    OutputFormat::Colored => append_colored(&mut out, path, &kept),
-                    OutputFormat::Github => append_github(&mut out, path, &kept),
-                    OutputFormat::Parsable => append_parsable(&mut out, path, &kept),
-                    OutputFormat::Junit | OutputFormat::Gitlab => {
-                        entries.push(ReportEntry {
-                            path: report_display_path(path, &project_root),
-                            problems: kept,
-                            error: None,
-                        });
-                    }
-                }
+                records.push(FileRecord {
+                    path,
+                    kept,
+                    error: None,
+                });
             }
         }
     }
 
-    match output_format {
-        OutputFormat::Junit => out = render_junit(&entries),
-        OutputFormat::Gitlab => out = render_gitlab(&entries),
-        _ => {}
-    }
-
-    (summary, out)
+    (summary, records)
 }
 
 #[derive(Default)]

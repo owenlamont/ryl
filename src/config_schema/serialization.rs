@@ -160,6 +160,7 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
             .as_ref()
             .and_then(|files| files.markdown.clone()),
         markdown: config.markdown.as_ref().map(normalize_markdown_table),
+        output: config.output.clone(),
         locale: config.locale.clone(),
         fix: config.fix.as_ref().map(normalize_fix_table),
         rules: config
@@ -185,6 +186,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
         yaml_file_patterns: config.yaml_files.clone(),
         markdown_file_patterns: None,
         markdown: None,
+        output: None,
         locale: config.locale.clone(),
         fix: None,
         rules: config
@@ -296,6 +298,7 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
     let mut table = toml::map::Map::new();
     insert_serialized(&mut table, "files", config.files.as_ref());
     insert_serialized(&mut table, "markdown", config.markdown.as_ref());
+    insert_serialized(&mut table, "output", config.output.as_ref());
     insert_serialized(&mut table, "ignore", config.ignore.as_ref());
     insert_serialized(
         &mut table,
@@ -372,6 +375,8 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
             normalized_markdown_to_toml_value(markdown),
         );
     }
+
+    insert_serialized(&mut table, "output", config.output.as_ref());
 
     if let Some(ignore_from_file) = config.ignore_from_files.as_ref() {
         insert_string_array(&mut table, "ignore-from-file", ignore_from_file);
