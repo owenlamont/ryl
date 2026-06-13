@@ -89,38 +89,30 @@ ryl is a CLI tool for linting yaml files
   `config_schema::yaml_schema` prunes it, so it's configurable only via TOML
   (`[rules.<id>]`).
 
-## Adding a New Rule
+## Dev Skills
 
-A rule touches several disconnected sites; a missing one usually fails a guard test
-rather than shipping silently. Work this checklist (*Automated Tests* expands steps 5–6):
+Task-scoped procedures live as on-demand skills in `.agents/skills/` (the shared
+project-scope skills dir most non-Claude agents auto-load); load the matching one when
+its task comes up rather than carrying it in this always-on file. Each is a
+self-contained `SKILL.md`; the `coverage` and `codex-review-watch` skills also carry a
+`uv`-runnable helper script.
 
-1. **Rule module** `src/rules/<rule>.rs`: a `pub const ID`, a `Config` with
-   `resolve(&YamlLintConfig)`, a `check(...) -> Vec<Violation>` (or `Option`), and a
-   `Violation { line, column, message }`. Open with a `//!` header — one-line purpose,
-   a `Sources:` line (spec / yamllint / authoritative refs), and the "no safe `--fix`"
-   note where applicable. Prefer granit scanner/event tokens over char heuristics; if
-   the rule tracks key/value position, advance the shared
-   `support::mapping_key_walker::Walker` on *every* node event, including
-   `Event::Alias` (`Walker::skip_node`), or key/value alternation desyncs.
-2. **Register** in `src/rules/mod.rs`: `pub mod <rule>;` plus the `ID` in `ALL_RULE_IDS`
-   — and in `RYL_ONLY_RULE_IDS` when yamllint has no equivalent (that reserves it to
-   TOML config; see the YAML-vs-TOML note above).
-3. **Dispatch**: one `lint_rule!(...)` call in `src/lint.rs`, in the right
-   reported-order slot of the matching batch fn (`collect_layout` / `collect_value` /
-   `collect_block_diagnostics`). Pick the arm matching the rule's shape (config or not,
-   `Vec`/`Option`, per-violation or fixed `MESSAGE`).
-4. **TOML config wiring** (`src/config_schema.rs` + `config_schema/serialization.rs`):
-   a `RuleName` variant + `as_str` arm, a `RulesTable` field with its `…Options` type,
-   and the `insert_serialized` line in `rules_table_to_value`. These four parallel lists
-   have no compile-time cross-check; the `every_rule_round_trips_through_toml_serialization`
-   guard test catches a forgotten serialization line. Regenerate the committed
-   `ryl.{toml,yaml}.schema.json` (see *Testing Tips*) and run `prek`.
-5. **Tests**: add the rule to `property_check`'s `collect_spans` + a `RULE_TRIGGERS`
-   row; if it has a safe `--fix`, also `SAFE_FIX_RULES` and the safe-fix generator. Add
-   a CLI test `tests/cli_<rule>_rule.rs` (use the shared `common::cli` harness) and an
-   embedded-markdown regression test in `tests/cli_markdown_embed.rs`.
-6. **Docs**: a `docs/rules/<rule>.md` page + the index, and a "How ryl differs from
-   yamllint" entry for any deliberate divergence.
+- **`adding-a-rule`** (`.agents/skills/adding-a-rule/SKILL.md`) — the multi-site
+  checklist for adding a new lint rule or changing an existing rule's wiring.
+- **`property-tests`** (`.agents/skills/property-tests/SKILL.md`) — extending the
+  safe-fix / rule-checker / markdown-fix / config property suites, the ~1000× pre-commit
+  run, and the rules that intentionally have no safe `--fix`.
+- **`coverage`** (`.agents/skills/coverage/SKILL.md`) — closing missed lines/regions for
+  the CI gate, the `coverage-missing.py` workflow, and coverage-friendly Rust idioms.
+- **`release`** (`.agents/skills/release/SKILL.md`) — the lockstep version bump,
+  tag/push gate, and post-release SchemaStore + publishing flow.
+- **`codex-review-watch`** (`.agents/skills/codex-review-watch/SKILL.md`) — trigger and
+  monitor a Codex CI review on a PR and classify the verdict.
+
+Claude Code does not auto-load `.agents/skills/`, so this list is the cross-tool
+fallback: any agent that reads `AGENTS.md` is pointed here, and even a skill-unaware
+agent can just open the file. `skills/` (no dot) is reserved for published downstream
+user skills; `.agents/skills/` is in-repo contributor tooling and is never published.
 
 ## Code Change Requirements
 
@@ -131,9 +123,9 @@ rather than shipping silently. Work this checklist (*Automated Tests* expands st
   invoking those individually. Re-run `prek run --all-files` until the auto-fixes
   stabilise and a full pass succeeds without modifying files before running coverage.
 - Whenever source files are edited ensure the full test suite passes (run
-  `./scripts/coverage-missing.sh` (Unix) or
-  `pwsh ./scripts/coverage-missing.ps1` (Windows) to regenerate coverage; it reports
-  uncovered ranges and confirms when coverage is complete)
+  `uv run .agents/skills/coverage/coverage-missing.py` to regenerate coverage; it
+  reports uncovered ranges and confirms when coverage is complete). See the `coverage`
+  dev skill for the full workflow.
 - After lint, tests, and coverage are green, review code size changes with
   `uv run scripts/source_size.py --compare-to <branch-or-ref>` (typically the branch
   point or `HEAD`). If the size increase looks large relative to the added
@@ -155,16 +147,12 @@ rather than shipping silently. Work this checklist (*Automated Tests* expands st
 - For PR feedback, use `gh pr view <n> --json comments,reviews` for summary threads and
   `gh api repos/<owner>/<repo>/pulls/<n>/comments` for inline review details (avoid
   unsupported flags like `--review-comments`).
-- Codex reviews need an explicit `@codex review` comment; auto-review is unreliable
-  (even on PR open), so post it again after each push you want reviewed. Within ~1 min
-  Codex acks with a 👀 (`eyes`) reaction on the trigger comment; if it doesn't appear,
-  re-comment. The verdict then arrives as one of: a new PR review, a new issue comment
-  (often the "no major issues" all-clear), or a 👍 on the trigger comment — poll for
-  **any** of them (a verdict can take 20+ min). Capture baseline counts of reviews,
-  issue comments, and trigger-comment reactions, then poll (~45s) in a background
-  command. The bot login is `chatgpt-codex-connector[bot]`; filter with
-  `select(.user.login=="chatgpt-codex-connector[bot]")` (the bare login without `[bot]`
-  matches nothing).
+- Codex reviews need an explicit `@codex review` comment (auto-review is unreliable
+  even on PR open, so re-post it after each push you want reviewed). The polling
+  mechanics — the transient 👀 ack, the three verdict channels, the REST-not-GraphQL
+  bot-login gotcha — are encoded in the `codex-review-watch` dev skill
+  (`.agents/skills/codex-review-watch/`); run its `watch.py` rather than re-deriving the
+  poll.
 - Codex's adversarial review escalates indefinitely on file I/O (TOCTOU, partial/
   interrupted writes, cross-file non-atomicity). Converge on real bugs, document the
   rest as known limitations, and ship; do not re-introduce atomic temp+rename via a
@@ -207,237 +195,13 @@ rather than shipping silently. Work this checklist (*Automated Tests* expands st
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
   tests in `tests/` instead.
 - When implementing a new rule or changing an existing one, extend the relevant
-  property-test generator(s) so the new/updated syntax is actually exercised (each suite
-  below lists exactly what to extend and the deterministic guard to add), then do a
-  one-off **~1000× thorough run** before committing: e.g.
-  `PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites'
-  in-CI default is 512 cases — tuned for speed, not exhaustiveness). Build `--release`
-  and run it in the background; it routinely flushes rare interleavings the small count
-  misses. Commit only once it is green, and keep any newly-persisted seeds in
-  `tests/proptest-regressions/`.
-
-### Property Tests For Safe Fixes
-
-`tests/property_safe_fix.rs` runs generated YAML through `apply_safe_fixes` and asserts
-three *soundness* invariants (a safe fix must never change meaning, but need not be
-complete — so it does *not* assert "no diagnostics remain"): idempotence, parse
-preservation (parses to an equal `YamlOwned`), and a leading `# ryl disable` making the
-fix a byte-for-byte no-op. It runs a matrix of named configs — five YAML
-(`yamllint-default`, `best-practice`, `strict-single`, `strict-double`, `consistent`)
-plus one TOML-backed (`best-practice-toml`, covering ryl-only options like
-`allow-double-quotes-for-escaping`). Deterministic siblings pin known-dirty /
-production-bug inputs through the same checks (and assert the fixer clears them) so the
-property can't pass vacuously.
-
-When you add a new `FixSafety::Safe` rule:
-
-1. Add its rule id to `SAFE_FIX_RULES` and to `COMMON_SAFE_FIX_RULES_YAML` in
-   `tests/property_safe_fix.rs`. If the new rule introduces meaningful config
-   axes, add a variant to `QUOTED_STRINGS_VARIANTS` (or a peer constant for that
-   rule) so the matrix exercises each regime; ryl-only options must go through
-   the TOML slot rather than YAML.
-2. Extend the AST / renderer in that file so generated documents exercise the
-   syntax the new fixer targets. Skipping this leaves the property tests green
-   for the wrong reason — the fixer has nothing to do.
-3. Run `cargo test --test property_safe_fix` and resolve any failures before
-   landing the rule.
-4. Add a focused CLI-level regression test in `tests/cli_fix.rs` (or the
-   rule-specific file) for any production bug discovered along the way, so the
-   property suite is backed by a deterministic guard.
-
-Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.txt`
-and replayed first on every run. That file is committed to git so the regression
-follows the codebase, not the developer's machine.
-
-### Property Tests For Rule Checkers
-
-`tests/property_check.rs` property-tests the **detection** path: it runs every rule's
-`check()` over generated YAML and asserts oracle-free invariants — `check()` never
-panics, every span is in-bounds and **character-aligned** (`1 <= line <= line_count`,
-`1 <= column <= chars_on_line + 1`), a leading `# ryl disable` mutes every rule (only a
-syntax error survives), and block-disabling a firing rule removes its diagnostics. It
-targets ryl's fragile byte↔char offset arithmetic rather than semantic correctness (the
-fast complement to the slow `yamllint_compat_*` differential suite).
-`property_check/strategy.rs` generates documents biased to trigger every rule (truthy
-words, octal/float scalars, duplicate/unordered keys, flow spacing, anchors, long lines,
-odd indentation, trailing spaces) interleaved with multibyte chars, raw NEL/LS/PS, and
-mixed LF/CRLF/bare-CR (a bare `\r` is a YAML 1.2 line break everywhere, so the oracle
-`line_char_lengths` is CR-aware too). `harness.rs` holds the
-trigger-all config and the per-rule dispatch, which calls each `check()` directly (not
-`lint_str`, which drops rule spans on a parse error) so spans are bounds-checked even on
-input that fails to parse.
-
-When you add a new rule, extend `collect_spans` in `harness.rs` to call its
-`check()` and add a `(rule-id, triggering-input)` row to `RULE_TRIGGERS` in
-`property_check.rs`. The deterministic `each_rule_triggers_and_reports_in_bounds_spans`
-test asserts each rule fires on its crafted input, so the property assertions
-cannot silently pass vacuously if the generator drifts. Failing inputs persist
-to the committed `tests/proptest-regressions/property_check.txt`. Run with
-`cargo test --test property_check`.
-
-### Property Tests For Markdown `--fix`
-
-`tests/property_markdown_fix.rs` property-tests `fix::fix_markdown_str` (write-back into
-embedded YAML). It reuses the safe-fix generator via `#[path]` and wraps the documents
-into a Markdown host (`property_markdown_fix/wrap.rs`), asserting four oracle-free
-invariants across the config matrix: host bytes outside regions stay byte-identical
-(region count/kinds stable), each region's parsed value is preserved, each region is
-untouched or rewritten to exactly its `apply_safe_fixes_filtered` form, and it's
-idempotent. Deterministic siblings pin known-dirty / CRLF / ragged /
-fence-crossing-front-matter cases.
-
-Extend this suite only when the Markdown extractor/wrapper grows new region shapes:
-add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to the
-committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
-`cargo test --test property_markdown_fix`.
-
-### Property Tests For Config Parsing
-
-`tests/property_config.rs` property-tests **configuration robustness**:
-`property_config/strategy.rs` generates randomized configs (random rule subsets, levels,
-and options, mixing valid with hostile values — invalid regexes, ill-typed/out-of-range
-scalars, bogus locales) rendered to both YAML and TOML. The oracle-free invariant: the
-pipeline errors or succeeds but **never panics** — YAML via `YamlLintConfig::from_yaml_str`
-(then linting samples, to drive the `.expect()`s in `key-ordering`/`quoted-strings`
-`resolve()`), TOML via `parse_toml_config_str -> validate_toml_config ->
-normalize_toml_config`. Deterministic siblings pin empty-config, invalid-regex,
-billion-laughs, and rich-valid cases. When a rule gains a config-compiled regex or typed
-option, add its key(s) to `CATALOG` in `strategy.rs`.
-
-### Rules Without A Safe `--fix`
-
-These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the
-one-sentence reason `--fix` cannot rewrite the rule without risking changed
-parsed values or unintended user-visible behaviour. Revisit this list when
-considering a partial safe fix — if you can satisfy the property-test
-invariants for some subset, move the rule into `SAFE_FIX_RULES` and document
-the unsafe-trigger subset in that rule's module-level doc comment instead.
-
-- `anchors` — Fixing requires choosing which anchor an undeclared alias
-  should point at, which duplicate to keep, or whether an "unused" anchor is
-  actually referenced from a template the linter cannot see.
-- `block-scalar-chomping` — YAML has no explicit *clip* indicator (only `-`
-  strip and `+` keep exist), so a bare `|`/`>` cannot be annotated without
-  switching it to strip or keep, which changes the scalar's trailing newlines
-  and resolved value; the choice is the author's intent.
-- `colons` — Collapsing extra space around colons safely needs precise parser
-  context tracking (plain scalars, alias keys, explicit `?`/`:` mappings)
-  equivalent to re-implementing the YAML mapping scanner.
-- `empty-values` — The rule's intent is to force the user to choose between
-  `~`, `null`, or restructuring; auto-inserting a literal contradicts the
-  rule's purpose and would silently change downstream behaviour.
-- `float-values` — Rewrites such as `0.5 → .5`, `.5 → 0.5`, expanding
-  `1e3 → 1000`, or replacing `.nan`/`.inf` all change the scalar's string
-  representation and, in tagged or string-typed consumers, its semantic value.
-- `hyphens` — Collapsing trailing spaces after `-` in a block sequence
-  changes the indent of any nested block mapping/sequence that follows on
-  subsequent lines and so can change the parsed structure; the `dash-on-own-line`
-  option is likewise no-fix, since breaking the `-` onto its own line re-indents
-  the mapping body.
-- `indentation` — Re-indenting alters the block-structure boundaries the
-  YAML grammar uses to delimit mappings, sequences, and scalars; any
-  non-trivial fix risks changing the parsed value.
-- `key-duplicates` — Resolving a duplicate requires deciding which key (and
-  value) to keep; both choices alter the parsed mapping and need user intent.
-- `key-ordering` — Reordering a mapping silently disassociates any comment
-  the user placed above or beside a key from that key, losing information the
-  YAML grammar does not carry.
-- `line-length` — Splitting an over-long line requires line-folding decisions
-  that depend on whether the scalar is plain, quoted, or block-styled, and on
-  whether folding is semantically allowed; no single rewrite is universally
-  safe.
-- `merge-keys` — Removing a `<<` merge requires inlining the merged mapping's
-  resolved keys/values (which the source text alone does not carry) and would
-  change the document's structure; quoting the `<<` silently drops the merge, so
-  no rewrite is universally safe.
-- `octal-values` — Resolving `010` requires knowing whether the user meant
-  the integer `8`, the integer `10`, or the string `"010"`; the YAML source
-  alone cannot disambiguate.
-- `tags` — Rewriting or removing a flagged tag changes the node's resolved
-  type (`!!omap` to a plain mapping, `!env` to a string, …) or requires
-  guessing the intended value, so no rewrite is universally safe.
-- `truthy` — Rewriting `Yes/No/On/Off` requires choosing between quoting them
-  (preserves the string), normalising to `true/false` (changes type), or
-  rewording — all of which depend on the user's intent.
-- `unicode-line-breaks` — The `\N`/`\L`/`\P` escape is valid only inside a
-  double-quoted scalar; rewriting a raw NEL/LS/PS in a plain or single-quoted
-  scalar, a comment, or a block scalar would require changing the quoting style
-  or guessing intent, so no rewrite is universally safe.
-
-## Coverage Workflow
-
-The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
-hunting through scattered tips:
-
-1. First run `prek run --all-files` and rerun it until all automatic fixes have
-   stabilised and a full pass succeeds without modifying files.
-2. Quick status before pushing: run `./scripts/coverage-missing.sh` (Unix) or
-   `pwsh ./scripts/coverage-missing.ps1` (Windows). It reruns the coverage suite and
-   prints any uncovered ranges, or explicitly confirms when coverage is complete.
-3. If the coverage script itself fails, run the relevant test suite manually first,
-   fix the failing tests, then rerun the coverage script.
-4. If the script reports files, extend CLI/system tests targeting those ranges until
-   the script produces no output.
-5. For richer artifacts (HTML/LCOV), see the cargo-llvm-cov docs (HTML isn't easily
-   machine-readable).
-6. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
-   that drive `env!("CARGO_BIN_EXE_ryl")` so you exercise the same paths as users.
-7. When you need to observe the exact flow through an uncovered branch, run the
-   failing test under `rust-lldb` (ships with the toolchain). Start with
-   `cargo test --no-run` and then
-   `rust-lldb target/debug/deps/<test-binary> -- <filter args>` to set breakpoints
-   on the problematic lines.
-8. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
-
-### Coverage-Friendly Rust Idioms
-
-- Guard invariants with `expect` (or an early `return Err(...)`) when the
-  “else” branch is truly unreachable. Leaving a `return` in the unreachable path
-  often shows up as a permanent uncovered region even though the condition is
-  ruled out. Reserve `assert!` for test-only code or cases where a runtime panic
-  is acceptable.
-- When walking indices backwards, call `checked_sub(1).expect("…")` instead of
-  matching on `checked_sub`; the `expect` documents the invariant and removes
-  the uncovered `None` branch that instrumentation reports.
-- When collecting spans, store the raw `(start, end)` and filter once at the end rather
-  than pushing `Range` conditionally, so LLVM records the conversion branch once.
-- Normalize prefix checks with `strip_prefix(...).expect(...)` when the prefix is already
-  guaranteed; this removes the otherwise-uncovered `return` path.
-
-Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already listed in
-`rust-toolchain.toml`). Run from a Developer Command Prompt if linker tools go missing.
-
-### Common hotspots
-
-- Configuration discovery: use the `Env` abstraction (`discover_config_with`) and fake
-  envs to hit inline data, explicit files (success and YAML failure), and env-var paths.
-- Project configuration search: cover empty inputs, single files without parents, and
-  multiple files in the same directory to trigger dedup logic.
-- YAML parsing: drive `from_yaml_str` through string vs sequence options and ensure rule
-  merges hit both update and insert branches.
-- CLI context resolution: pass an empty `PathBuf` into `resolve_ctx` to trigger the
-  fallback to `.`.
-- Flow scanners in rules: always reconcile parser byte spans with `char_indices()` via
-  `crate::rules::span_utils` to avoid off-by-byte bugs when UTF-8 characters appear.
-- Rules using the shared `crate::rules::support::mapping_key_walker::Walker` to track
-  key/value position must advance it for *every* node-producing event, including
-  `Event::Alias` (call `Walker::skip_node`). An alias in value position (`k: *a`, or a
-  `<<: *base` merge) that does not advance the walker desyncs the key/value alternation,
-  so the following key is read as a value and vice-versa. Exercise rules with aliases in
-  both key and value position.
-- Resolving a scalar to its typed value (int/bool/null/float/string) is centralised in
-  `crate::yaml_dom::scalar` (`resolve_scalar` / `resolve_plain_scalar`); reuse it rather
-  than reinventing parsing. ryl resolves scalars per the YAML 1.2 **core** schema
-  everywhere (leading-zero decimal is an int, an empty plain scalar is null, `0x`/`0o`
-  radixes, full bool/null spelling sets); keep that schema choice consistent across rules
-  instead of switching to JSON/1.1 semantics in any single rule.
-- Matching a core-schema tag (`!!int`, `!!str`, …): use
-  `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`, **never** granit's
-  `Tag::is_yaml_core_schema` (it inspects only the *handle*, so a verbatim core tag
-  `!<tag:yaml.org,2002:int>` slips past it). The shared helpers handle the canonical
-  handle (incl. a resolving `%TAG`) and the verbatim spelling, but not a `%TAG` that
-  splits the URI mid-token; to match one type regardless of split point, compare the
-  full resolved URI (`handle` ++ `suffix`), as `rules::support::merge_key` does.
+  property-test generator(s) so the new/updated syntax is actually exercised, then do a
+  one-off **~1000× thorough run** before committing (e.g.
+  `PROPTEST_CASES=512000 cargo test --release --test property_check`, built `--release`
+  in the background). The `property-tests` dev skill
+  (`.agents/skills/property-tests/SKILL.md`) details each suite (safe-fix / rule-checker
+  / markdown-fix / config), exactly what each generator must be extended with, the
+  deterministic guard to add, and the rules that intentionally have no safe `--fix`.
 
 ## Testing Tips
 
@@ -490,35 +254,6 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   `HEAD`). `tests/config_schema.rs` compares order-insensitively, but the files must
   still be committed sorted to keep `prek` idempotent; when an options type is renamed,
   update the `RuleEntryFor…`/`RuleOptionsFor…` names asserted there too.
-
-## Release Checklist
-
-- Bump versions in lockstep:
-  - Cargo: update `Cargo.toml` `version`.
-  - Python: update `pyproject.toml` `[project].version`.
-  - NPM: update `package.json` `version`.
-- Refresh lockfile and validate:
-  - Run `cargo generate-lockfile` (or `cargo check`) to refresh `Cargo.lock`.
-  - Stage: `git add Cargo.toml Cargo.lock pyproject.toml package.json`.
-  - Run `prek run --all-files` (re-run if files were auto-fixed).
-- Docs and notes:
-  - Update README/AGENTS for behavior changes.
-  - Summarize notable changes in the PR description or changelog (if present).
-- Tag and push (when releasing):
-  - `git tag -a vX.Y.Z -m "vX.Y.Z"`
-  - `git push && git push --tags`
-  - `.github/workflows/release.yml` validates that the pushed tag version
-    matches `Cargo.toml`, `pyproject.toml`, and `package.json` versions
-    before release jobs run.
-- After a successful release, `.github/workflows/sync-schemastore.yml` projects
-  `ryl.toml.schema.json` into SchemaStore's draft-07 format, updates the user's
-  SchemaStore fork, and prints a manual upstream PR handoff for
-  `owenlamont/schemastore:ryl-schema-update`.
-- Publishing uses Trusted Publishing on all registries (crates.io via GitHub OIDC, PyPI
-  via `pypa/gh-action-pypi-publish`, NPM via `actions/setup-node` OIDC). GitHub release
-  creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a
-  draft until assets upload, with auto-generated notes; reruns skip publish steps for a
-  version that already exists.
 
 ## Documentation Site
 

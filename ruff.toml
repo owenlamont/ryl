@@ -62,6 +62,10 @@ preview = true
 [lint.per-file-ignores]
 "tests/**" = ["D102", "D103", "S101"]
 "tests/uv_secure/package_info/test_dependency_file_parser.py" = ["E501"]
+# Embedded dev-skill helper scripts (.agents/skills/**) are self-contained CLI
+# tooling that shells out to cargo/gh, so relax the subprocess-security rules and
+# the Google-docstring conventions that suit library code rather than scripts.
+".agents/skills/**/*.py" = ["D103", "D205", "DOC201", "DOC501", "E501", "S404", "S603", "S607"]
 "scripts/benchmark_perf_vs_yamllint.py" = [
     "B008",
     "B904",
