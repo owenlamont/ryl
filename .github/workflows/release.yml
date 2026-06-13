@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
       - name: Verify version consistency
-        run: |
+        run: |-
           set -euo pipefail
           EVENT_NAME="${GITHUB_EVENT_NAME}"
           REF_NAME="${GITHUB_REF_NAME}"
@@ -99,7 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
+        run: |-
           set -euo pipefail
           release_query_err_file="$(mktemp)"
           if release_is_draft="$(gh release view "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
@@ -159,7 +159,7 @@ jobs:
         with:
           save-cache: false
       - name: Install wheel and run CLI
-        run: |
+        run: |-
           set -euxo pipefail
           uv python install ${{ matrix.python }}
           uv venv -p ${{ matrix.python }} .venv
@@ -202,7 +202,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install wheel and run CLI in Alpine
-        run: |
+        run: |-
           set -euxo pipefail
           docker run --rm -v "$PWD/dist":/dist python:${{ matrix.python_image }} \
             sh -euxc "python --version; python -m pip install --no-index --find-links /dist ryl; ryl --version"
@@ -247,7 +247,7 @@ jobs:
           save-cache: false
       - name: Install wheel and run CLI
         shell: bash
-        run: |
+        run: |-
           set -euxo pipefail
           uv python install ${{ matrix.python }}
           uv venv -p ${{ matrix.python }} .venv
@@ -296,7 +296,7 @@ jobs:
         with:
           save-cache: false
       - name: Install wheel and run CLI
-        run: |
+        run: |-
           set -euxo pipefail
           uv python install ${{ matrix.python }}
           uv venv -p ${{ matrix.python }} .venv
@@ -372,7 +372,7 @@ jobs:
           dry-run: true
       - name: Collect release assets for ${{ matrix.target }}
         shell: bash
-        run: |
+        run: |-
           set -euo pipefail
           shopt -s nullglob
           mkdir -p release-assets
@@ -419,7 +419,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
+        run: |-
           set -euo pipefail
           if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
             echo "Ref '${GITHUB_REF}' is not a release tag (refs/tags/v*)." >&2
@@ -468,7 +468,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
       - name: Read crate metadata
         id: crate_metadata
-        run: |
+        run: |-
           set -euo pipefail
           crate_name="$(python - <<'PY'
           import tomllib
@@ -492,7 +492,7 @@ jobs:
           CRATE_NAME: ${{ steps.crate_metadata.outputs.name }}
           CRATE_VERSION: ${{ steps.crate_metadata.outputs.version }}
           HTTP_USER_AGENT: ryl-release-workflow/1.0 (+https://github.com/${{ github.repository }})
-        run: |
+        run: |-
           set -euo pipefail
           url="https://crates.io/api/v1/crates/${CRATE_NAME}/${CRATE_VERSION}"
           http_status="$(curl -sS -A "${HTTP_USER_AGENT}" -o /dev/null -w "%{http_code}" "${url}")"
@@ -538,7 +538,7 @@ jobs:
           path: dist
       - name: Read package metadata
         id: package_metadata
-        run: |
+        run: |-
           set -euo pipefail
           package_name="$(python - <<'PY'
           import tomllib
@@ -562,7 +562,7 @@ jobs:
           PACKAGE_NAME: ${{ steps.package_metadata.outputs.name }}
           PACKAGE_VERSION: ${{ steps.package_metadata.outputs.version }}
           HTTP_USER_AGENT: ryl-release-workflow/1.0 (+https://github.com/${{ github.repository }})
-        run: |
+        run: |-
           set -euo pipefail
           url="https://pypi.org/pypi/${PACKAGE_NAME}/${PACKAGE_VERSION}/json"
           http_status="$(curl -sS -A "${HTTP_USER_AGENT}" -o /dev/null -w "%{http_code}" "${url}")"
@@ -614,7 +614,7 @@ jobs:
         with:
           node-version: '24'
       - name: Pack npm packages
-        run: |
+        run: |-
           set -euo pipefail
           mkdir -p dist/npm-tarballs
           for package_dir in dist/npm/*; do
@@ -626,7 +626,7 @@ jobs:
           done
       - name: Compute npm platform matrix
         id: platform_matrix
-        run: |
+        run: |-
           set -euo pipefail
           matrix_json="$(python3 - <<'PY'
           import json
@@ -674,7 +674,7 @@ jobs:
           name: npm-packages
           path: dist/npm-tarballs
       - name: Verify Node and npm versions for Trusted Publishing
-        run: |
+        run: |-
           set -euo pipefail
           node --version
           npm --version
@@ -710,7 +710,7 @@ jobs:
           PY
       - name: Read package metadata
         id: package_metadata
-        run: |
+        run: |-
           set -euo pipefail
           tarball_path=$(find dist/npm-tarballs -maxdepth 1 -type f -name "*${{ matrix.folder_name }}-*.tgz" | head -n 1)
           [ -n "${tarball_path}" ]
@@ -735,7 +735,7 @@ jobs:
         env:
           PACKAGE_NAME: ${{ steps.package_metadata.outputs.name }}
           PACKAGE_VERSION: ${{ steps.package_metadata.outputs.version }}
-        run: |
+        run: |-
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version > /dev/null 2>&1; then
             echo "already_published=true" >> "${GITHUB_OUTPUT}"
@@ -772,7 +772,7 @@ jobs:
           name: npm-packages
           path: dist/npm-tarballs
       - name: Verify Node and npm versions for Trusted Publishing
-        run: |
+        run: |-
           set -euo pipefail
           node --version
           npm --version
@@ -807,7 +807,7 @@ jobs:
           PY
       - name: Read package metadata
         id: package_metadata
-        run: |
+        run: |-
           set -euo pipefail
           tarball_path="dist/npm-tarballs/owenlamont-ryl-${GITHUB_REF_NAME#v}.tgz"
           [ -f "${tarball_path}" ]
@@ -832,7 +832,7 @@ jobs:
         env:
           PACKAGE_NAME: ${{ steps.package_metadata.outputs.name }}
           PACKAGE_VERSION: ${{ steps.package_metadata.outputs.version }}
-        run: |
+        run: |-
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version > /dev/null 2>&1; then
             echo "already_published=true" >> "${GITHUB_OUTPUT}"
@@ -903,7 +903,7 @@ jobs:
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
+        run: |-
           set -euo pipefail
           version="${RELEASE_TAG#v}"
           curl --fail -X POST \

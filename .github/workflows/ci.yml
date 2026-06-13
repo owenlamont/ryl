@@ -18,7 +18,7 @@ jobs:
         run: uv tool install prek --force
 
       - name: Install yamllint
-        run: |
+        run: |-
           uv tool install yamllint --force
           yamllint --version
 
@@ -48,7 +48,7 @@ jobs:
         run: prek run --all-files
 
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
-        run: |
+        run: |-
           set -euo pipefail
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
           echo '```text' >> coverage.md
@@ -93,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: coverage
-          path: |
+          path: |-
             coverage.md
             lcov.info
 
@@ -105,7 +105,7 @@ jobs:
           path: coverage.md
 
       - name: Enforce coverage thresholds
-        run: |
+        run: |-
           # Enforce zero missed lines and regions
           cargo llvm-cov nextest --summary-only \
             --fail-uncovered-lines 0 \

@@ -60,7 +60,7 @@ jobs:
 
       - name: Read release version
         id: version
-        run: |
+        run: |-
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import tomllib
           from pathlib import Path
@@ -73,7 +73,7 @@ jobs:
         id: fetch
         env:
           SCHEMA_URL: https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/ryl.json
-        run: |
+        run: |-
           set -euo pipefail
           if curl --fail --silent --show-error --location "$SCHEMA_URL" > schemastore-current.json; then
             echo "remote_schema_exists=true" >> "$GITHUB_OUTPUT"
@@ -92,7 +92,7 @@ jobs:
 
       - name: Compare schemas
         id: compare
-        run: |
+        run: |-
           set -euo pipefail
           if [ "${{ steps.fetch.outputs.remote_schema_exists }}" != "true" ]; then
             echo "schemas_match=false" >> "$GITHUB_OUTPUT"
@@ -134,7 +134,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
+        run: |-
           set -euo pipefail
 
           git config --global user.name "github-actions[bot]"
@@ -232,7 +232,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
+        run: |-
           set -euo pipefail
 
           if [ "${{ steps.fetch.outputs.remote_schema_exists }}" = "true" ]; then
@@ -279,7 +279,7 @@ jobs:
 
       - name: Dry run summary
         if: steps.compare.outputs.schemas_match == 'false' && inputs.dry_run == true
-        run: |
+        run: |-
           echo "## Dry run summary" >> "$GITHUB_STEP_SUMMARY"
           echo >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.fetch.outputs.remote_schema_exists }}" = "true" ]; then

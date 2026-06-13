@@ -4,9 +4,16 @@ yaml = [
     "*.yml",
     ".yamllint",
 ]
+markdown = ["*.md", "*.markdown", "*.mdx", "*.qmd", "*.Rmd"]
+
+# Lint YAML front matter in Markdown but not fenced ```yaml blocks: docs/rules/*.md
+# deliberately embed invalid YAML to demonstrate each rule.
+[markdown]
+fenced-blocks = false
 
 [rules]
 anchors = "enable"
+block-scalar-chomping = "enable"
 comments = "disable"
 comments-indentation = "disable"
 document-end = "disable"
@@ -16,12 +23,15 @@ float-values = "disable"
 key-duplicates = "enable"
 key-ordering = "disable"
 line-length = "disable"
+merge-keys = "enable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
 quoted-strings = "disable"
+tags = "enable"
 trailing-spaces = "enable"
 truthy = "disable"
+unicode-line-breaks = "enable"
 
 [rules.braces]
 level = "warning"

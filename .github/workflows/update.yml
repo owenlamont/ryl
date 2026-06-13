@@ -41,7 +41,7 @@ jobs:
 
       - name: Check for changes
         id: check_diff
-        run: |
+        run: |-
           if git diff --quiet; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
@@ -65,7 +65,7 @@ jobs:
           token: ${{ steps.generate-token.outputs.token }}
           commit-message: "chore: refresh dependencies and linters"
           title: "chore: refresh dependencies and linters"
-          body: |
+          body: |-
             Automated dependency and linter refresh:
             - Ran `cargo update`
             - Ran `prek autoupdate --cooldown-days 7`
