@@ -454,6 +454,86 @@ fn apply_entries_refuses_to_overwrite_existing_target() {
     );
 }
 
+#[test]
+fn migrate_user_config_inlines_top_level_ignore_from_file() {
+    let td = tempdir().unwrap();
+    let source = td.path().join("yamllint").join("config");
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    fs::write(
+        &source,
+        "rules:\n  key-duplicates: enable\nignore-from-file: ignores.txt\n",
+    )
+    .unwrap();
+    fs::write(
+        source.parent().unwrap().join("ignores.txt"),
+        "build/\n*.gen.yaml\n",
+    )
+    .unwrap();
+    let opts = MigrateOptions {
+        project_root: None,
+        user_config: Some(UserConfigMigration {
+            source,
+            target: td.path().join("ryl").join("ryl.toml"),
+        }),
+        write_mode: WriteMode::Preview,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Keep,
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert_eq!(res.entries.len(), 1);
+    let toml = &res.entries[0].toml;
+    // The relative path would dangle once the config moves to ryl/, so it is inlined.
+    assert!(
+        toml.contains("ignore = [")
+            && toml.contains("build/")
+            && toml.contains("*.gen.yaml"),
+        "ignore-from-file must be inlined as ignore patterns: {toml}"
+    );
+    assert!(
+        !toml.contains("ignore-from-file"),
+        "the relative ignore-from-file path must not survive migration: {toml}"
+    );
+}
+
+#[test]
+fn migrate_user_config_refuses_rule_level_ignore_from_file() {
+    let td = tempdir().unwrap();
+    let source = td.path().join("yamllint").join("config");
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    fs::write(
+        &source,
+        "rules:\n  key-duplicates:\n    ignore-from-file: rignore.txt\n",
+    )
+    .unwrap();
+    fs::write(source.parent().unwrap().join("rignore.txt"), "generated/\n").unwrap();
+    let opts = MigrateOptions {
+        project_root: None,
+        user_config: Some(UserConfigMigration {
+            source: source.clone(),
+            target: td.path().join("ryl").join("ryl.toml"),
+        }),
+        write_mode: WriteMode::Write,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Delete,
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert!(
+        res.entries.is_empty(),
+        "rule-level ignore-from-file is refused"
+    );
+    assert!(
+        res.warnings
+            .iter()
+            .any(|w| w.contains("rule-level ignore-from-file")),
+        "expected a rule-level refusal warning: {:?}",
+        res.warnings
+    );
+    assert!(
+        source.exists(),
+        "source preserved when refused, even with --delete"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn migrate_skips_symlinked_source() {

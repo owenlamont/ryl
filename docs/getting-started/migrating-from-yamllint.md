@@ -77,12 +77,16 @@ write), migration may leave a partial config file behind. The next run reports i
 via the "a ryl-native config already exists" skip warning, so delete the partial
 file and re-run.
 
-When migration flattens a relative `extends` or `ignore-from-file`, it resolves
-the reference relative to the config's own directory first, then the current
-directory. So a file kept next to a user-global config (e.g.
-`~/.config/yamllint/team.yaml`) is inlined correctly. If the same relative name
-exists both next to the config and in the current directory with different
-contents, the copy next to the config wins.
+Migration produces a self-contained config. A relative `extends` is flattened
+(its rules are inlined), resolved relative to the config's own directory first,
+then the current directory. The user-global config moves to a new directory
+(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `ignore`
+patterns there too, rather than left as a relative path that would no longer
+resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
+with a warning (inline those patterns or use an absolute path, then re-run),
+since its rule config cannot be relocated safely. Project migration keeps a
+relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
+directory.
 
 After migration, run `ryl .` to confirm diagnostics match what yamllint
 produced.

@@ -607,6 +607,26 @@ impl YamlLintConfig {
         &self.ignore_patterns
     }
 
+    /// Drop `ignore-from-file` so the serialized config emits the patterns `finalize`
+    /// already resolved into `ignore`. User-global migration calls this so the converted
+    /// config is self-contained and keeps working after it moves to ryl's config directory
+    /// (the original relative path would otherwise dangle). Call only after `finalize`.
+    pub fn inline_resolved_ignore_from_file(&mut self) {
+        self.ignore_from_files.clear();
+    }
+
+    /// Whether any rule sets a rule-level `ignore-from-file`. User-global migration refuses
+    /// these: the rule config is serialized verbatim, so the relative path cannot be
+    /// relocated to ryl's config directory without rewriting it (the top-level case is
+    /// inlined instead). Call only after `finalize`, which populates rule filters.
+    #[must_use]
+    pub fn has_rule_level_ignore_from_file(&self) -> bool {
+        self.rules
+            .values()
+            .filter_map(|rule| rule.filter.as_ref())
+            .any(|filter| !filter.from_files.is_empty())
+    }
+
     #[must_use]
     pub fn rule_names(&self) -> &[String] {
         &self.rule_names

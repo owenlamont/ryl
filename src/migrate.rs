@@ -244,10 +244,16 @@ fn existing_ryl_native_config(target: &Path) -> Option<PathBuf> {
 /// migration never follows a symlink, clobbers an existing config, or is silently shadowed.
 /// Returns `true` when an entry was added, `false` when the migration was skipped — callers
 /// use this to avoid cleaning up sources for a directory that was not migrated.
+///
+/// `user_global` marks the user-global config, whose target moves to a different directory
+/// (`<config-dir>/ryl/`): a top-level `ignore-from-file` is inlined so the relative path
+/// does not dangle, and a rule-level `ignore-from-file` (which cannot be relocated without
+/// rewriting the rule config) is refused.
 fn build_entry(
     source: &Path,
     target: PathBuf,
     plan: &mut MigrationPlan,
+    user_global: bool,
 ) -> Result<bool, String> {
     if is_symlink(source) {
         plan.warnings.push(format!(
@@ -271,13 +277,27 @@ fn build_entry(
         ));
         return Ok(false);
     }
-    let ctx = discover_config(
+    let mut ctx = discover_config(
         &[],
         &Overrides {
             config_file: Some(source.to_path_buf()),
             config_data: None,
         },
     )?;
+    if user_global {
+        if ctx.config.has_rule_level_ignore_from_file() {
+            plan.warnings.push(format!(
+                "warning: skipping migration of {}: a rule-level ignore-from-file cannot be \
+                 relocated to the ryl user-global config; inline the patterns or use an \
+                 absolute path, then re-run",
+                source.display()
+            ));
+            return Ok(false);
+        }
+        // The target moves to <config-dir>/ryl/, so a relative top-level ignore-from-file
+        // would dangle; inline its already-resolved patterns to keep the config working.
+        ctx.config.inline_resolved_ignore_from_file();
+    }
     if !ctx.config.enables_any_rule() {
         plan.warnings.push(format!(
             "warning: migrated config {} enables no rules; ryl will not lint with it \
@@ -321,7 +341,7 @@ fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), St
         // Only enqueue lower-precedence siblings for cleanup once the primary actually
         // migrated; otherwise a skipped directory (collision/symlink) would still delete
         // or rename its siblings with --delete-old/--rename-old.
-        if build_entry(&primary, dir.join(".ryl.toml"), plan)? {
+        if build_entry(&primary, dir.join(".ryl.toml"), plan, false)? {
             for ignored in paths.iter().skip(1) {
                 plan.cleanup_only_sources.push(ignored.clone());
                 plan.warnings.push(format!(
@@ -354,7 +374,7 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
     if let Some(user) = &options.user_config
         && user.source.exists()
     {
-        build_entry(&user.source, user.target.clone(), &mut plan)?;
+        build_entry(&user.source, user.target.clone(), &mut plan, true)?;
     }
     if options.write_mode == WriteMode::Write {
         apply_migration_entries(
