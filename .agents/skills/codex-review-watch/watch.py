@@ -43,15 +43,28 @@ DASHBOARD = "https://chatgpt.com/codex/settings/usage"
 
 
 def gh(*args: str) -> str:
-    return subprocess.run(["gh", *args], capture_output=True, text=True).stdout
+    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        # A swallowed gh failure (auth, transient API error, rejected post) would let an
+        # old verdict look new or reuse a stale trigger, so abort loudly instead.
+        typer.echo(
+            f"gh {' '.join(args)} failed (exit {result.returncode}): "
+            f"{result.stderr.strip()}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return result.stdout
 
 
-def gh_json(path: str) -> list | dict:
-    out = gh("api", path)
+def gh_json(path: str) -> list:
+    # --paginate reads every page (array endpoints default to 30 results/page) and
+    # --slurp wraps the pages in one outer array; flatten back to a flat item list.
+    out = gh("api", "--paginate", "--slurp", path)
     try:
-        return json.loads(out) if out.strip() else []
+        pages = json.loads(out) if out.strip() else []
     except json.JSONDecodeError:
         return []
+    return [item for page in pages for item in page]
 
 
 def by_bot(items: list) -> list:
