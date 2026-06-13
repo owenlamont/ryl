@@ -21,6 +21,9 @@ uv run .agents/skills/codex-review-watch/watch.py <PR> [--repo owner/repo] [--no
 
 - Default: prints a **quota preflight**, posts `@codex review` (after capturing
   baselines), then polls. Pass `--no-trigger` to monitor a review you already triggered.
+  Verdict detection compares against the baseline captured at startup, so in
+  `--no-trigger` mode the verdict must land *after* you start watching; a review that
+  already completed before startup is in the baseline and is not reported as new.
 - `--repo` defaults to the current repo (`gh repo view`). Needs `gh` authenticated.
 - Tunables: `--interval` (default 45s), `--max-polls` (default 40 ≈ 30 min).
 

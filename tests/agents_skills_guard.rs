@@ -64,10 +64,18 @@ fn on_disk_skill_names(skills_dir: &Path) -> BTreeSet<String> {
 #[test]
 fn dev_skill_pointers_match_on_disk() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let agents_md =
-        fs::read_to_string(root.join("AGENTS.md")).expect("AGENTS.md should exist");
+    let agents_md_path = root.join("AGENTS.md");
     let skills_dir = root.join(".agents").join("skills");
 
+    // AGENTS.md and .agents/ are contributor-only and excluded from the published
+    // package, so this guard runs from a source checkout and is skipped when those
+    // files are absent (e.g. `cargo test` against a packaged crate).
+    if !agents_md_path.is_file() || !skills_dir.is_dir() {
+        return;
+    }
+
+    let agents_md =
+        fs::read_to_string(&agents_md_path).expect("AGENTS.md should exist");
     assert_eq!(
         referenced_skill_names(&agents_md),
         on_disk_skill_names(&skills_dir),
