@@ -4,7 +4,7 @@ yaml = [
     "*.yml",
     ".yamllint",
 ]
-markdown = ["*.md"]
+markdown = ["*.md", "*.markdown", "*.mdx", "*.qmd", "*.Rmd"]
 
 # Lint YAML front matter in Markdown but not fenced ```yaml blocks: docs/rules/*.md
 # deliberately embed invalid YAML to demonstrate each rule.

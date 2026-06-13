@@ -239,22 +239,27 @@ def main(
         f"baseline: reviews={base_rev} issue_comments={base_iss} inline={base_inl}"
     )
 
-    trig_id = None
     if trigger:
         gh("pr", "comment", pr, "--repo", repo, "--body", "@codex review")
-        triggers = [
-            c
-            for c in gh_json(f"repos/{repo}/issues/{pr}/comments")
-            if c.get("body") == "@codex review"
-        ]
-        trig_id = triggers[-1]["id"] if triggers else None
-        typer.echo(f"posted @codex review (trigger id={trig_id})")
+    # Locate the latest @codex review trigger comment whether we posted it or are
+    # monitoring an existing one (--no-trigger), so reactions() can see its verdict.
+    triggers = [
+        c
+        for c in gh_json(f"repos/{repo}/issues/{pr}/comments")
+        if c.get("body") == "@codex review"
+    ]
+    trig_id = triggers[-1]["id"] if triggers else None
+    typer.echo(
+        f"posted @codex review (trigger id={trig_id})"
+        if trigger
+        else f"monitoring existing trigger id={trig_id}"
+    )
 
     def reactions() -> tuple[int, int]:
-        """(thumbs, eyes) on the trigger comment, or (0, 0) without a trigger."""
+        """(thumbs, eyes) from the bot on the trigger comment, or (0, 0) without one."""
         if not trig_id:
             return 0, 0
-        reacts = gh_json(f"repos/{repo}/issues/comments/{trig_id}/reactions")
+        reacts = by_bot(gh_json(f"repos/{repo}/issues/comments/{trig_id}/reactions"))
         return (
             sum(1 for r in reacts if r.get("content") == "+1"),
             sum(1 for r in reacts if r.get("content") == "eyes"),
