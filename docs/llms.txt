@@ -1,0 +1,24 @@
+# ryl
+
+> A fast YAML linter, written in Rust
+
+## Getting Started
+
+- [Installation](https://ryl-docs.pages.dev/getting-started/installation/): ryl ships as a single binary. Pick the install method that matches your toolchain.
+- [Shell completions](https://ryl-docs.pages.dev/getting-started/shell-completions/): ryl can generate tab-completion scripts for its flags. `ryl --generate-completions <SHELL>` prints the script for one shell to stdout, where `<SHELL>` is one of `bash`, `zsh`, `fish`, `powershell`, or `elvish`:
+- [Quick Start](https://ryl-docs.pages.dev/getting-started/quickstart/): Point ryl at a file or directory:
+- [Using ryl with AI agents](https://ryl-docs.pages.dev/using-ryl-with-ai-agents/): This page is for AI coding agents (and the people configuring them) that run ryl in a downstream repository. ryl is built for programmatic use: stable exit codes, machine-readable output, in-place fixes, and stdin support. The [`ryl` Agent Skill](https://github.com/owenlamont/ryl/blob/main/skills/ryl/SKILL.md) is the tightened, trigger-oriented version of this guidance; this page is the canonical source.
+- [Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/): ryl is designed as a drop-in replacement for yamllint's existing rule set. If you are coming from yamllint you have two paths:
+
+## Configuration
+
+- [Presets](https://ryl-docs.pages.dev/config-presets/): ryl's TOML config (recommended) is the single, explicit source of a file's rules: it has no `preset` or `extends` key, inherits nothing, and merges nothing, so what it enables is the file's whole ruleset, with no default-on rules.
+- [Inline directives](https://ryl-docs.pages.dev/directives/): Sometimes a single line legitimately breaks a rule and changing the file is the wrong fix. ryl supports inline comment directives that switch rules off for part of a file, just like yamllint. The preferred spelling uses `ryl`:
+- [Per-line ignores](https://ryl-docs.pages.dev/per-line-ignores/): [Inline directives](directives.md) switch rules off at a specific spot in a file. `per-line-ignores` does the same thing from configuration: it suppresses chosen rules on every line matching a pattern, across all files, without editing them. It is the tool for recurring exceptions &mdash; tool-directive comments and machine-managed markers that legitimately break a rule everywhere they appear.
+- [YAML in Markdown](https://ryl-docs.pages.dev/markdown/): `ryl` can lint YAML that lives **inside** Markdown documents, in addition to standalone `.yaml`/`.yml` files. Two kinds of embedded YAML are recognised:
+
+## Other pages
+
+- [Rules](https://ryl-docs.pages.dev/rules/): ryl implements 27 rules for checking YAML files. This page is a categorised index of every rule with a brief description and a link to its detailed documentation. Each rule page covers what the rule does, why it matters, configuration options, and (where applicable) automatic fix behaviour.
+- [Output formats](https://ryl-docs.pages.dev/output-formats/): `ryl` renders diagnostics in several formats, selected with `--format` (`-f`). The default, `auto`, picks a human-readable format for your environment; the machine-readable formats are opt-in and are meant to be consumed by editors, CI, and Git forges.
+- [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/): ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork) and resolves scalars per the YAML 1.2 core schema. yamllint, by comparison, is built on [PyYAML][pyyaml], which defaults to YAML 1.1 semantics for boolean and other implicit type resolution.

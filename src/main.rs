@@ -368,15 +368,15 @@ struct FixFlags {
 
 #[derive(clap::Args, Debug, Default)]
 struct CompatibilityLintFlags {
-    /// List files that would be linted (reserved)
+    /// List the files that would be linted (one per line), then exit
     #[arg(long = "list-files", default_value_t = false)]
     list_files: bool,
 
-    /// Strict mode (reserved)
+    /// Return exit code 2 when only warnings (no errors) are found
     #[arg(short = 's', long = "strict", default_value_t = false)]
     strict: bool,
 
-    /// Suppress warnings (reserved)
+    /// Suppress warning-level problems (report only errors)
     #[arg(long = "no-warnings", default_value_t = false)]
     no_warnings: bool,
 }

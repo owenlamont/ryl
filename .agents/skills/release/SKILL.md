@@ -21,6 +21,11 @@ description: >-
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed
     in this release (a moved command, renamed test, new wiring step), and update
     the affected `SKILL.md`.
+  - Review the downstream agent skill `skills/ryl/SKILL.md` and the
+    `docs/using-ryl-with-ai-agents.md` page for any behaviour, flag, format, or
+    rule changes in this release. The `agent_skill_drift_guard` test catches a
+    removed/renamed flag, but new flags or behaviour need a manual update. (The
+    `gen-llms-txt` prek hook keeps `docs/llms.txt` current automatically.)
   - Summarize notable changes in the PR description or changelog (if present).
 - Tag and push (when releasing):
   - `git tag -a vX.Y.Z -m "vX.Y.Z"`
