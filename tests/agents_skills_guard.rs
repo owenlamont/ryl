@@ -68,9 +68,9 @@ fn dev_skill_pointers_match_on_disk() {
     let skills_dir = root.join(".agents").join("skills");
 
     // AGENTS.md and .agents/ are contributor-only and excluded from the published
-    // package, so this guard runs from a source checkout and is skipped when those
-    // files are absent (e.g. `cargo test` against a packaged crate).
-    if !agents_md_path.is_file() || !skills_dir.is_dir() {
+    // package, so skip only when BOTH are absent (a packaged crate). If just one is
+    // missing, fall through so the assertion fails on the real repo inconsistency.
+    if !agents_md_path.is_file() && !skills_dir.is_dir() {
         return;
     }
 
