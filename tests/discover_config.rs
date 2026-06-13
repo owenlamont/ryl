@@ -41,10 +41,11 @@ fn discover_errors_when_project_config_is_unreadable() {
 
 #[test]
 fn discover_uses_user_global_when_no_project_config() {
+    // The yamllint-compat user-global resolves via XDG_CONFIG_HOME, matching yamllint.
     let global_cfg = PathBuf::from("/xdg/yamllint/config");
     let env = FakeEnv::new()
         .with_cwd(PathBuf::from("/proj"))
-        .with_config_dir(PathBuf::from("/xdg"))
+        .with_var("XDG_CONFIG_HOME", "/xdg")
         .with_file(global_cfg.clone(), "ignore: ['**/a.yaml']\n");
     let inputs = vec![PathBuf::from("/proj")];
     let ctx = discover_config_with(&inputs, &Overrides::default(), &env)
@@ -83,10 +84,35 @@ fn discover_errors_on_project_config_parse_error() {
 }
 
 #[test]
+fn user_config_migration_paths_resolves_source_and_target() {
+    let env = FakeEnv::new()
+        .with_var("XDG_CONFIG_HOME", "/xdg")
+        .with_config_dir(PathBuf::from("/xdg"));
+    let (source, target) =
+        ryl::config::user_config_migration_paths(&env).expect("both paths resolve");
+    assert_eq!(source, PathBuf::from("/xdg/yamllint/config"));
+    assert_eq!(target, PathBuf::from("/xdg/ryl/ryl.toml"));
+}
+
+#[test]
+fn user_config_migration_paths_none_without_home_or_xdg() {
+    // No XDG_CONFIG_HOME and no home: the yamllint source is unresolvable.
+    let env = FakeEnv::new();
+    assert!(ryl::config::user_config_migration_paths(&env).is_none());
+}
+
+#[test]
+fn user_config_migration_paths_none_without_config_dir() {
+    // Source resolves via home, but no config dir means no ryl target.
+    let env = FakeEnv::new().with_home(PathBuf::from("/home/u"));
+    assert!(ryl::config::user_config_migration_paths(&env).is_none());
+}
+
+#[test]
 fn discover_errors_when_user_global_config_is_unreadable() {
     let env = FakeEnv::new()
         .with_cwd(PathBuf::from("/proj"))
-        .with_config_dir(PathBuf::from("/xdg"))
+        .with_var("XDG_CONFIG_HOME", "/xdg")
         .with_exists(PathBuf::from("/xdg/yamllint/config"));
     let inputs = vec![PathBuf::from("/proj")];
     let err = discover_config_with(&inputs, &Overrides::default(), &env)

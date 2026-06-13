@@ -178,7 +178,7 @@ fn migrate_configs_empty_default_root_prints_no_configs_message() {
         .current_dir(td.path())
         .arg("--migrate-configs"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
-    assert!(stdout.contains("No legacy YAML config files found under"));
+    assert!(stdout.contains("No legacy YAML config files migrated under"));
 }
 
 #[test]
@@ -217,6 +217,97 @@ fn migrate_configs_write_with_delete_old_removes_source() {
     assert!(td.path().join(".ryl.toml").exists());
 }
 
+// The user-global tests point XDG_CONFIG_HOME at a tempdir so they resolve the yamllint
+// source and ryl target inside it, never touching the real config directory.
+#[test]
+fn migrate_user_config_write_creates_ryl_toml() {
+    let td = tempdir().unwrap();
+    let xdg = td.path();
+    fs::create_dir_all(xdg.join("yamllint")).unwrap();
+    fs::write(
+        xdg.join("yamllint").join("config"),
+        "rules: { key-duplicates: enable }\n",
+    )
+    .unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .env("XDG_CONFIG_HOME", xdg)
+        .arg("--migrate-user-config")
+        .arg("--migrate-write"));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    let toml = fs::read_to_string(xdg.join("ryl").join("ryl.toml")).unwrap();
+    assert!(toml.contains("key-duplicates = \"enable\""), "got: {toml}");
+}
+
+#[test]
+fn migrate_user_config_dry_run_previews_without_writing() {
+    let td = tempdir().unwrap();
+    let xdg = td.path();
+    fs::create_dir_all(xdg.join("yamllint")).unwrap();
+    fs::write(
+        xdg.join("yamllint").join("config"),
+        "rules: { key-duplicates: enable }\n",
+    )
+    .unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .env("XDG_CONFIG_HOME", xdg)
+        .arg("--migrate-user-config"));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stdout.contains("config ->"),
+        "preview line expected: {stdout}"
+    );
+    assert!(!xdg.join("ryl").join("ryl.toml").exists());
+}
+
+#[test]
+fn migrate_user_config_absent_source_reports_message() {
+    let td = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .env("XDG_CONFIG_HOME", td.path())
+        .arg("--migrate-user-config"));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stdout.contains("No yamllint user-global config migrated"),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn migrate_combined_project_and_user_config_in_one_run() {
+    let td = tempdir().unwrap();
+    let proj = td.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(
+        proj.join(".yamllint"),
+        "rules: { key-duplicates: enable }\n",
+    )
+    .unwrap();
+    let xdg = td.path().join("xdg");
+    fs::create_dir_all(xdg.join("yamllint")).unwrap();
+    fs::write(
+        xdg.join("yamllint").join("config"),
+        "rules: { key-duplicates: enable }\n",
+    )
+    .unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .env("XDG_CONFIG_HOME", &xdg)
+        .arg("--migrate-configs")
+        .arg("--migrate-root")
+        .arg(&proj)
+        .arg("--migrate-user-config")
+        .arg("--migrate-write"));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(proj.join(".ryl.toml").exists(), "project config migrated");
+    assert!(
+        xdg.join("ryl").join("ryl.toml").exists(),
+        "user-global migrated"
+    );
+}
+
 #[test]
 fn migrate_configs_missing_root_returns_usage_error() {
     let exe = env!("CARGO_BIN_EXE_ryl");
@@ -226,4 +317,35 @@ fn migrate_configs_missing_root_returns_usage_error() {
         .arg("/definitely/no/such/ryl/path"));
     assert_eq!(code, 2, "stderr={stderr}");
     assert!(stderr.contains("migrate root does not exist"));
+}
+
+#[test]
+fn migrate_combined_reports_absent_user_config_even_when_project_migrates() {
+    let td = tempdir().unwrap();
+    let proj = td.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(
+        proj.join(".yamllint"),
+        "rules: { key-duplicates: enable }\n",
+    )
+    .unwrap();
+    // XDG dir exists but holds no yamllint/config, so the user-global source is absent.
+    let xdg = td.path().join("xdg");
+    fs::create_dir_all(&xdg).unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .env("XDG_CONFIG_HOME", &xdg)
+        .arg("--migrate-configs")
+        .arg("--migrate-root")
+        .arg(&proj)
+        .arg("--migrate-user-config"));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stdout.contains(".yamllint ->"),
+        "project migrated: {stdout}"
+    );
+    assert!(
+        stdout.contains("No yamllint user-global config migrated"),
+        "absent user-global reported even though the project migrated: {stdout}"
+    );
 }

@@ -165,6 +165,12 @@ rather than shipping silently. Work this checklist (*Automated Tests* expands st
   command. The bot login is `chatgpt-codex-connector[bot]`; filter with
   `select(.user.login=="chatgpt-codex-connector[bot]")` (the bare login without `[bot]`
   matches nothing).
+- Codex's adversarial review escalates indefinitely on file I/O (TOCTOU, partial/
+  interrupted writes, cross-file non-atomicity). Converge on real bugs, document the
+  rest as known limitations, and ship; do not re-introduce atomic temp+rename via a
+  runtime `tempfile` dep (tried on #285, reverted: 0600-perms regression + `clippy::cargo
+  multiple_crate_versions`). ryl's threat model (#246) is realistic payloads, not a
+  concurrent fs racer.
 - When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
   (e.g. an upstream `yamllint` issue), always use the fully-qualified
   `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo

@@ -20,7 +20,8 @@ use ryl::cli_support::{
     github_escape, lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
 };
 use ryl::config::{
-    ConfigContext, Overrides, SourceKind, YamlLintConfig, discover_config,
+    ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
+    user_config_migration_paths,
 };
 use ryl::config_schema::{
     OutputDestination, OutputTable, schema_string_pretty, yaml_schema_string_pretty,
@@ -30,8 +31,8 @@ use ryl::fix::{
     DiffStats, apply_safe_fixes_to_files, diff_outcome, diff_safe_fixes_for_files,
 };
 use ryl::migrate::{
-    MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup, WriteMode,
-    migrate_configs,
+    MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
+    UserConfigMigration, WriteMode, migrate_configs,
 };
 use ryl::report::{ReportEntry, render_gitlab, render_junit};
 use ryl::{
@@ -164,12 +165,21 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     } else {
         SourceCleanup::Keep
     };
-    let options = MigrateOptions {
-        root: cli
-            .migrate
+    let project_root = cli.migrate_configs.then(|| {
+        cli.migrate
             .root
             .clone()
-            .unwrap_or_else(|| PathBuf::from(".")),
+            .unwrap_or_else(|| PathBuf::from("."))
+    });
+    let user_config = if cli.migrate_user_config {
+        user_config_migration_paths(&SystemEnv)
+            .map(|(source, target)| UserConfigMigration { source, target })
+    } else {
+        None
+    };
+    let options = MigrateOptions {
+        project_root: project_root.clone(),
+        user_config: user_config.clone(),
         write_mode: if cli.migrate.write {
             WriteMode::Write
         } else {
@@ -183,23 +193,38 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         cleanup,
     };
     let result = migrate_configs(&options)?;
-    for warning in result.warnings {
-        eprintln!("{}", sanitize_control(&warning));
+    for warning in &result.warnings {
+        eprintln!("{}", sanitize_control(warning));
     }
-    if result.entries.is_empty() {
-        println!(
-            "No legacy YAML config files found under {}",
-            sanitize_control(&options.root.display().to_string())
-        );
-        return Ok(ExitCode::SUCCESS);
-    }
-
     for entry in &result.entries {
         println!(
             "{} -> {}",
             sanitize_control(&entry.source.display().to_string()),
             sanitize_control(&entry.target.display().to_string())
         );
+    }
+    // Per-trigger "nothing migrated" feedback, reported independently so a combined run
+    // still surfaces an empty trigger even when the other produced entries. The single
+    // user-global entry (if any) is identified by its source path; the rest are project.
+    let user_source = user_config.as_ref().map(|user| user.source.as_path());
+    if let Some(root) = &project_root {
+        let project_migrated = result
+            .entries
+            .iter()
+            .any(|entry| Some(entry.source.as_path()) != user_source);
+        if !project_migrated {
+            println!(
+                "No legacy YAML config files migrated under {}",
+                sanitize_control(&root.display().to_string())
+            );
+        }
+    }
+    if cli.migrate_user_config {
+        let user_migrated = user_source
+            .is_some_and(|source| result.entries.iter().any(|e| e.source == source));
+        if !user_migrated {
+            println!("No yamllint user-global config migrated.");
+        }
     }
     if options.output_mode == MigrateOutputMode::IncludeToml {
         for entry in &result.entries {
@@ -225,7 +250,18 @@ enum CliFormat {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "ryl", version, about = "Fast YAML linter written in Rust")]
+#[command(
+    name = "ryl",
+    version,
+    about = "Fast YAML linter written in Rust",
+    // Shared `--migrate-*` sub-flags require at least one migration trigger; either
+    // `--migrate-configs` (project tree) or `--migrate-user-config` (user-global) works.
+    group(clap::ArgGroup::new("migrate_mode")
+        .args(["migrate_configs", "migrate_user_config"])
+        .multiple(true))
+)]
+// CLI flags are independent user-facing toggles, not state better modeled as an enum.
+#[allow(clippy::struct_excessive_bools)]
 struct Cli {
     /// One or more paths: files and/or directories, or `-` to read from stdin
     #[arg(value_name = "PATH_OR_FILE")]
@@ -283,6 +319,10 @@ struct Cli {
     /// Convert discovered legacy YAML config files into .ryl.toml files
     #[arg(long = "migrate-configs", default_value_t = false)]
     migrate_configs: bool,
+
+    /// Convert the yamllint user-global config into ryl's own user-global ryl.toml
+    #[arg(long = "migrate-user-config", default_value_t = false)]
+    migrate_user_config: bool,
 
     /// Print a shell completion script for SHELL and exit
     #[arg(
@@ -351,11 +391,11 @@ struct MigrateFlags {
     )]
     root: Option<PathBuf>,
 
-    /// Write migrated .ryl.toml files (otherwise preview only)
+    /// Write migrated TOML files (otherwise preview only)
     #[arg(
         long = "migrate-write",
         default_value_t = false,
-        requires = "migrate_configs"
+        requires = "migrate_mode"
     )]
     write: bool,
 
@@ -363,7 +403,7 @@ struct MigrateFlags {
     #[arg(
         long = "migrate-stdout",
         default_value_t = false,
-        requires = "migrate_configs"
+        requires = "migrate_mode"
     )]
     stdout: bool,
 
@@ -372,7 +412,7 @@ struct MigrateFlags {
         long = "migrate-rename-old",
         value_name = "SUFFIX",
         conflicts_with = "delete_old",
-        requires_all = ["write", "migrate_configs"]
+        requires_all = ["write", "migrate_mode"]
     )]
     rename_old: Option<String>,
 
@@ -381,7 +421,7 @@ struct MigrateFlags {
         long = "migrate-delete-old",
         default_value_t = false,
         conflicts_with = "rename_old",
-        requires_all = ["write", "migrate_configs"]
+        requires_all = ["write", "migrate_mode"]
     )]
     delete_old: bool,
 }
@@ -984,7 +1024,7 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    if cli.migrate_configs {
+    if cli.migrate_configs || cli.migrate_user_config {
         return run_migration(cli);
     }
 

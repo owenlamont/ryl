@@ -29,14 +29,64 @@ ryl --migrate-configs --migrate-write --migrate-delete-old
 ryl --migrate-configs --migrate-write --migrate-rename-old .bak
 ```
 
+To migrate your **user-global** yamllint config (the personal defaults at
+`<config-dir>/yamllint/config`) to ryl's own location
+(`<config-dir>/ryl/ryl.toml`), use `--migrate-user-config`:
+
+```bash
+# Preview the user-global conversion
+ryl --migrate-user-config
+
+# Write it (creating the ryl/ directory if needed)
+ryl --migrate-user-config --migrate-write
+
+# Migrate project configs and the user-global config in one run
+ryl --migrate-configs --migrate-user-config --migrate-write
+```
+
+Migrating the user-global config is optional: ryl still reads
+`<config-dir>/yamllint/config` directly, so an unmigrated yamllint user-global
+config keeps working.
+
 Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-root <DIR>` | Search root (defaults to `.`) |
+| `--migrate-configs` | Migrate project-tree YAML configs |
+| `--migrate-user-config` | Migrate the user-global yamllint config |
+| `--migrate-root <DIR>` | Project search root (defaults to `.`) |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
+| `--migrate-write` | Write files (otherwise preview only) |
 | `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration |
 | `--migrate-delete-old` | Delete source YAML configs after migration |
+
+The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
+`--migrate-delete-old` flags apply to whichever migration trigger
+(`--migrate-configs`, `--migrate-user-config`, or both) is set; `--migrate-root`
+applies to project migration only.
+
+Migration never overwrites or deletes through surprises: it skips (with a
+warning, leaving the source untouched) any config whose target directory already
+contains a ryl-native config (`.ryl.toml` or `ryl.toml`), and it refuses to
+follow a symlink for either the source or the target (mirroring `--fix`). It also
+refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
+one.
+
+Known limitation: if a write is interrupted (for example, the disk fills mid
+write), migration may leave a partial config file behind. The next run reports it
+via the "a ryl-native config already exists" skip warning, so delete the partial
+file and re-run.
+
+Migration produces a self-contained config. A relative `extends` is flattened
+(its rules are inlined), resolved relative to the config's own directory first,
+then the current directory. The user-global config moves to a new directory
+(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `ignore`
+patterns there too, rather than left as a relative path that would no longer
+resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
+with a warning (inline those patterns or use an absolute path, then re-run),
+since its rule config cannot be relocated safely. Project migration keeps a
+relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
+directory.
 
 After migration, run `ryl .` to confirm diagnostics match what yamllint
 produced.
@@ -50,8 +100,12 @@ produced.
 - Configuration discovery walks the same locations as yamllint, with TOML
   formats checked in addition: an explicit `--config-file`, then a
   project-local `.ryl.toml`, `ryl.toml`, `pyproject.toml`, `.yamllint`,
-  `.yamllint.yaml`, or `.yamllint.yml`, then the user-level config
-  directory.
+  `.yamllint.yaml`, or `.yamllint.yml`, then the `YAMLLINT_CONFIG_FILE` env
+  var, then a user-global config. At the user-global step ryl checks its own
+  `<config-dir>/ryl/.ryl.toml` (or `ryl.toml`) first, then falls back to
+  yamllint's `<config-dir>/yamllint/config` (see
+  [ryl-native user-global config](#ryl-native-user-global-config) for how
+  `<config-dir>` resolves per platform).
 - The three built-in presets &mdash; `default`, `relaxed`, and `empty` &mdash;
   match yamllint's behaviour. YAML configs can still use `extends:` to
   reference them; TOML configs must inline the `default`/`relaxed` content (see
@@ -223,6 +277,17 @@ and `--format gitlab` (GitLab Code Quality JSON), which write to stdout (or to a
 yamllint, `--format` is repeatable and each pairs with its own `--output-file`, so a single
 run can emit console diagnostics **and** one or more report files; the same targets can be
 set in a ryl-only TOML `[output]` table. See [Output formats](../output-formats.md).
+
+### ryl-native user-global config
+
+yamllint's only user-global config lives at `$XDG_CONFIG_HOME/yamllint/config` (else
+`~/.config/yamllint/config` on every platform). ryl still reads that path for migrators,
+but checks its own `<config-dir>/ryl/.ryl.toml` (or `ryl.toml`) first, following the
+ruff/Biome convention: `<config-dir>` is `$XDG_CONFIG_HOME` if set, else the platform-native
+config dir (`~/.config/ryl` on Linux, `~/Library/Application Support/ryl` on macOS,
+`%APPDATA%\ryl` on Windows). Being ryl-only, the ryl-native path is TOML; the
+yamllint-compatible path stays YAML and, matching yamllint, always resolves under
+`$XDG_CONFIG_HOME` or `~/.config` (not the native dir).
 
 ## Side-by-side example
 
