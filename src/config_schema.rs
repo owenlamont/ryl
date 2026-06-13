@@ -21,6 +21,8 @@ pub struct TomlConfig {
     pub files: Option<FilesTable>,
     /// Behaviour for YAML embedded in markdown (front matter and fenced blocks).
     pub markdown: Option<MarkdownTable>,
+    /// Output targets: which format goes to which destination (file/stdout/stderr).
+    pub output: Option<OutputTable>,
     /// Ignore patterns, either as one multi-line string or a list of patterns.
     pub ignore: Option<StringOrVec>,
     /// Paths to files that contain ignore patterns.
@@ -72,6 +74,56 @@ pub struct MarkdownTable {
     /// Lint fenced `yaml`/`yml` code blocks. Defaults to `true`.
     #[serde(rename = "fenced-blocks")]
     pub fenced_blocks: Option<bool>,
+}
+
+/// Output targets (ryl-only; TOML). Each format present is rendered to its destination,
+/// so several formats produce several outputs in one run (e.g. console plus a report
+/// file). A CLI `--format` overrides this table wholesale. yamllint has no equivalent;
+/// see `docs/output-formats.md`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutputTable {
+    /// Auto-detected console format (GitHub annotations in CI, otherwise colored/plain).
+    pub auto: Option<OutputDestination>,
+    /// Plain text grouped per file.
+    pub standard: Option<OutputDestination>,
+    /// Plain text with ANSI colors.
+    pub colored: Option<OutputDestination>,
+    /// GitHub Actions workflow commands.
+    pub github: Option<OutputDestination>,
+    /// One `path:line:col: [level] message (rule)` line per diagnostic.
+    pub parsable: Option<OutputDestination>,
+    /// `JUnit` XML test report.
+    pub junit: Option<OutputDestination>,
+    /// `GitLab` Code Quality JSON report.
+    pub gitlab: Option<OutputDestination>,
+}
+
+impl OutputTable {
+    /// Every format entry as `(format-name, destination?)`, in a fixed order. The single
+    /// authoritative enumeration of the table's fields: validation iterates it, and the
+    /// CLI resolves each name to a target, so neither hand-maintains a parallel list.
+    #[must_use]
+    pub fn entries(&self) -> [(&'static str, Option<&OutputDestination>); 7] {
+        [
+            ("auto", self.auto.as_ref()),
+            ("standard", self.standard.as_ref()),
+            ("colored", self.colored.as_ref()),
+            ("github", self.github.as_ref()),
+            ("parsable", self.parsable.as_ref()),
+            ("junit", self.junit.as_ref()),
+            ("gitlab", self.gitlab.as_ref()),
+        ]
+    }
+}
+
+/// Where one format's output goes. An absent `path` means the format's default stream
+/// (stderr for the console formats, stdout for `junit`/`gitlab`); `"-"` means stdout; any
+/// other value is a file path.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutputDestination {
+    pub path: Option<String>,
 }
 
 /// JSON Schema root for yamllint-compatible YAML configuration.
@@ -977,11 +1029,32 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         validation::validate_per_line_ignores(entries)?;
     }
 
+    if let Some(output) = config.output.as_ref() {
+        validate_output_table(output)?;
+    }
+
     validate_common_config(
         config.ignore.as_ref(),
         config.ignore_from_file.as_ref(),
         config.rules.as_ref(),
     )
+}
+
+/// Reject an empty `path` in an `[output.<format>]` table. An empty path can neither be a
+/// file (`File::create("")` fails) nor mean stdout (`"-"`), and the CLI's lexical path
+/// normalization rejects empty paths, so it is a config error rather than a silent no-op.
+fn validate_output_table(output: &OutputTable) -> Result<(), String> {
+    for (name, destination) in output.entries() {
+        if let Some(destination) = destination
+            && destination.path.as_deref() == Some("")
+        {
+            return Err(format!(
+                "invalid config: output.{name}.path must not be empty (omit it for the \
+                 default stream, or use \"-\" for stdout)"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Validate semantic constraints for a typed YAML config model.
@@ -1031,6 +1104,9 @@ pub struct NormalizedConfig {
     pub yaml_file_patterns: Option<Vec<String>>,
     pub markdown_file_patterns: Option<Vec<String>>,
     pub markdown: Option<NormalizedMarkdown>,
+    /// Output targets, passed through unchanged (no transformation needed; the CLI
+    /// resolves each format/path into a destination at render time).
+    pub output: Option<OutputTable>,
     pub locale: Option<String>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
@@ -1111,6 +1187,13 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     if doc.as_mapping_get("per-line-ignores").is_some() {
         return Err(
             "invalid config: per-line-ignores is only supported in TOML configuration"
+                .to_string(),
+        );
+    }
+
+    if doc.as_mapping_get("output").is_some() {
+        return Err(
+            "invalid config: output is only supported in TOML configuration"
                 .to_string(),
         );
     }

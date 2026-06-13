@@ -1,10 +1,9 @@
 use std::fs;
-use std::process::Command;
 
 use tempfile::tempdir;
 
 mod common;
-use common::cli::run;
+use common::cli::{run, ryl};
 
 #[test]
 fn list_files_outputs_expected_entries() {
@@ -12,9 +11,10 @@ fn list_files_outputs_expected_entries() {
     let file = dir.path().join("sample.yaml");
     fs::write(&file, "key: value\n").unwrap();
 
-    let exe = env!("CARGO_BIN_EXE_ryl");
+    // Bound discovery at the tempdir so a stray config in the shared temp root cannot
+    // change which files `--list-files` selects.
     let (code, stdout, stderr) =
-        run(Command::new(exe).arg("--list-files").arg(dir.path()));
+        run(ryl(dir.path()).arg("--list-files").arg(dir.path()));
     assert_eq!(code, 0, "list-files should succeed: stderr={stderr}");
     assert!(stderr.trim().is_empty(), "unexpected stderr: {stderr}");
     assert!(

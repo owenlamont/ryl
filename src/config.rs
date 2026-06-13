@@ -13,7 +13,7 @@ use regex::Regex;
 use crate::config_schema::{
     FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
     NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore,
-    TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
+    OutputTable, TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
     parse_toml_config_str, parse_yaml_config, validate_toml_config,
     yaml_rule_filter_patterns, yaml_rule_level,
 };
@@ -154,6 +154,9 @@ pub struct YamlLintConfig {
     markdown_from_flag: bool,
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
+    /// Output targets from a TOML `[output]` table (ryl-only). Run-level: read once from
+    /// the config governing the invocation, then resolved into destinations by the CLI.
+    output: Option<OutputTable>,
     locale: Option<String>,
     fix: FixConfig,
 }
@@ -508,6 +511,7 @@ impl Default for YamlLintConfig {
             markdown_from_flag: false,
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
+            output: None,
             locale: None,
             fix: FixConfig::default(),
         }
@@ -798,6 +802,13 @@ impl YamlLintConfig {
         self.lint_markdown_fenced_blocks
     }
 
+    /// The TOML `[output]` table, if the config declared one (ryl-only). The CLI resolves
+    /// it into output destinations; a CLI `--format` overrides it wholesale.
+    #[must_use]
+    pub fn output(&self) -> Option<&OutputTable> {
+        self.output.as_ref()
+    }
+
     fn from_yaml_str_with_env(
         s: &str,
         envx: Option<&dyn Env>,
@@ -915,6 +926,12 @@ impl YamlLintConfig {
             if let Some(fenced_blocks) = markdown.fenced_blocks {
                 self.lint_markdown_fenced_blocks = fenced_blocks;
             }
+        }
+
+        // A child config's `[output]` replaces an `extends:` base's wholesale (last wins);
+        // omitting it preserves the base, mirroring the other top-level tables here.
+        if normalized.output.is_some() {
+            self.output = normalized.output;
         }
 
         if !normalized.per_file_ignores.is_empty() {
@@ -1258,6 +1275,7 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
                 fenced_blocks: Some(config.lint_markdown_fenced_blocks),
             },
         ),
+        output: config.output.clone(),
         locale: config.locale.clone(),
         fix: normalized_fix_config(&config.fix),
         rules: config

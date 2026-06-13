@@ -2,13 +2,17 @@
 //!
 //! Unlike the streaming console formats (standard/colored/github/parsable), these emit a
 //! single root document (one `<testsuites>` / one JSON array), so the caller buffers every
-//! file's diagnostics into [`ReportEntry`]s and renders once. Rendering takes a
-//! `&mut dyn Write`, so the destination (file, stdout, in-memory) is the caller's choice.
+//! file's diagnostics into [`ReportEntry`]s and renders once into an owned `Vec<u8>` it
+//! then writes to its chosen destination (file, stdout, stderr).
 //!
-//! Sources:
-//! - `JUnit`: <https://llg.cubic.org/docs/junit/>; shape modelled on ruff's emitter.
+//! Sources (`JUnit` has no single official standard, so we follow the most authoritative
+//! published schema; `GitLab` documents a subset of the Code Climate engine spec):
+//! - `JUnit`: <https://github.com/jenkinsci/xunit-plugin/blob/master/src/main/resources/org/jenkinsci/plugins/xunit/types/model/xsd/junit-10.xsd>
+//!   (the Jenkins xUnit plugin's `junit-10.xsd`), readable companion
+//!   <https://llg.cubic.org/docs/junit/>; shape modelled on ruff's emitter.
 //! - `GitLab`: <https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-format>,
-//!   a documented subset of the Code Climate engine spec.
+//!   a documented subset of the Code Climate engine spec
+//!   <https://github.com/codeclimate/platform/blob/master/spec/analyzers/SPEC.md>.
 //!
 //! All user text is sanitized before serialization — `JUnit` via `xml_sanitize` (control
 //! chars plus the U+FFFE/U+FFFF noncharacters XML forbids), `GitLab` via
