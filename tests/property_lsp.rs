@@ -12,6 +12,9 @@
 //! - `uri_to_path` is total (never panics, whatever the input).
 //! - the fix-all edit, applied via an *independent* position->byte converter,
 //!   reproduces `apply_safe_fixes` exactly (so `full_range` covers the document).
+//! - `offset_at` (the inverse converter for incremental sync) is bounded, lands on a
+//!   char boundary, and is monotone in the column.
+//! - renaming an anchor rewrites every same-name occurrence in its document.
 
 #[path = "property_check/harness.rs"]
 #[allow(dead_code)] // shared harness; this suite uses only a few of its helpers
@@ -21,13 +24,15 @@ mod strategy;
 
 use std::path::Path;
 
+use lsp_types::Position;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 
 use ryl::config::SourceKind;
 use ryl::fix::apply_safe_fixes;
 use ryl::lsp::analysis::{diagnostics, fix_all_edit};
-use ryl::lsp::encoding::{PositionEncoding, problem_range, uri_to_path};
+use ryl::lsp::encoding::{PositionEncoding, offset_at, problem_range, uri_to_path};
+use ryl::lsp::rename::rename_edits;
 
 use harness::trigger_all_config;
 use strategy::arb_document;
@@ -55,6 +60,17 @@ fn arb_line() -> impl Strategy<Value = String> {
             .filter(|ch| *ch != '\n' && *ch != '\r')
             .collect()
     })
+}
+
+/// A few lines joined with assorted YAML 1.2 breaks, for exercising the CR-aware
+/// inverse converter over multibyte, multi-line input.
+fn arb_text() -> impl Strategy<Value = String> {
+    let part = (
+        arb_line(),
+        prop_oneof![Just("\n"), Just("\r\n"), Just("\r")],
+    );
+    prop::collection::vec(part, 0..5)
+        .prop_map(|parts| parts.into_iter().map(|(l, b)| format!("{l}{b}")).collect())
 }
 
 /// URIs biased toward `file:` forms (plus arbitrary strings) to exercise the
@@ -172,6 +188,37 @@ proptest! {
     #[test]
     fn uri_to_path_is_total(uri in arb_uri()) {
         let _ = uri_to_path(&uri);
+    }
+
+    #[test]
+    fn offset_at_is_bounded_on_a_boundary_and_monotone(
+        text in arb_text(),
+        line in 0u32..6,
+        character in 0u32..40,
+    ) {
+        for enc in ENCODINGS {
+            let offset = offset_at(&text, Position::new(line, character), enc);
+            prop_assert!(offset <= text.len(), "never past the end");
+            prop_assert!(
+                text.is_char_boundary(offset),
+                "offset lands on a char boundary so a splice is valid"
+            );
+            let next = offset_at(&text, Position::new(line, character + 1), enc);
+            prop_assert!(next >= offset, "monotone in the column");
+        }
+    }
+
+    #[test]
+    fn rename_rewrites_every_same_name_occurrence(name in "[a-z][a-z0-9]{0,5}") {
+        // The anchor name starts at 0-based char 4 of `k: &<name> ...`.
+        let text = format!("k: &{name} 1\nv: *{name}\nw: *{name}\n");
+        let edits = rename_edits(&text, Position::new(0, 4), "renamed", PositionEncoding::Utf16)
+            .expect("a legal new name")
+            .expect("the position is on the anchor");
+        prop_assert_eq!(edits.len(), 3, "the anchor and both aliases are rewritten");
+        for edit in &edits {
+            prop_assert_eq!(&edit.new_text, "renamed");
+        }
     }
 
     #[test]

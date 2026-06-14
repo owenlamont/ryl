@@ -28,13 +28,14 @@ use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::{
     CodeActionContext, CodeActionParams, DidChangeTextDocumentParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentFormattingParams,
-    FormattingOptions, InitializeParams, PartialResultParams, PublishDiagnosticsParams,
-    Range, TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
-    Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    FormattingOptions, InitializeParams, PartialResultParams, Position,
+    PublishDiagnosticsParams, Range, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, Uri, VersionedTextDocumentIdentifier,
+    WorkDoneProgressParams,
 };
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use serde_json::{Value, to_value};
+use serde_json::{Value, json, to_value};
 use tempfile::tempdir;
 
 use ryl::config::{Overrides, SourceKind, discover_config};
@@ -149,6 +150,32 @@ fn doc_path(dir: &Path, index: u8) -> std::path::PathBuf {
     dir.join(format!("doc{index}.yaml"))
 }
 
+/// Byte offset of the start of `line` (0-based) in `text`, CR-aware. Independent of the
+/// server's converter so an incremental edit at column 0 cross-checks `offset_at`'s
+/// line counting; clamps a line past the end to the text end.
+fn line_start_byte(text: &str, line: u32) -> usize {
+    let bytes = text.as_bytes();
+    let mut byte = 0;
+    let mut current = 0;
+    while current < line && byte < bytes.len() {
+        match bytes[byte] {
+            b'\r' => {
+                byte += 1;
+                if bytes.get(byte) == Some(&b'\n') {
+                    byte += 1;
+                }
+                current += 1;
+            }
+            b'\n' => {
+                byte += 1;
+                current += 1;
+            }
+            _ => byte += 1,
+        }
+    }
+    byte
+}
+
 fn doc_uri(dir: &Path, index: u8) -> Uri {
     // Valid file URI cross-platform (forward slashes; leading slash before a
     // Windows drive) so the suite runs on every OS.
@@ -169,6 +196,8 @@ enum Op {
     Close(u8),
     CodeAction(u8),
     Formatting(u8),
+    Hover(u8),
+    Diagnostic(u8),
 }
 
 fn arb_op() -> impl Strategy<Value = Op> {
@@ -187,6 +216,8 @@ fn arb_op() -> impl Strategy<Value = Op> {
             }),
         index.clone().prop_map(Op::Close),
         index.clone().prop_map(Op::CodeAction),
+        index.clone().prop_map(Op::Hover),
+        index.clone().prop_map(Op::Diagnostic),
         index.prop_map(Op::Formatting),
     ]
 }
@@ -334,11 +365,91 @@ proptest! {
                     };
                     prop_assert!(response.error.is_none(), "formatting never errors");
                 }
+                Op::Hover(index) => {
+                    let params = json!({
+                        "textDocument": { "uri": doc_uri(dir.path(), index) },
+                        "position": { "line": 0, "character": 0 },
+                    });
+                    let id = driver.request("textDocument/hover", params);
+                    let Message::Response(response) = driver.await_response(&id) else {
+                        unreachable!("await_response returns a response");
+                    };
+                    prop_assert!(response.error.is_none(), "hover never errors");
+                }
+                Op::Diagnostic(index) => {
+                    let params =
+                        json!({ "textDocument": { "uri": doc_uri(dir.path(), index) } });
+                    let id = driver.request("textDocument/diagnostic", params);
+                    let Message::Response(response) = driver.await_response(&id) else {
+                        unreachable!("await_response returns a response");
+                    };
+                    prop_assert!(response.error.is_none(), "pull diagnostic never errors");
+                }
             }
         }
 
         // A clean shutdown/exit must terminate the server; Drop then joins the
         // thread, so a panic or hang in the loop surfaces here.
+        driver.shutdown();
+    }
+
+    #[test]
+    fn incremental_edits_keep_diagnostics_faithful(
+        initial in arb_document().prop_map(|document| document.render()),
+        inserts in prop::collection::vec(
+            (0u32..6, prop_oneof![Just(" "), Just("x"), Just("k: 1\n")]),
+            0..6,
+        ),
+    ) {
+        let dir = tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(".ryl.toml"), CONFIG).expect("write config");
+        let mut driver = Driver::start();
+        let uri = doc_uri(dir.path(), 0);
+        let mut version = 1;
+        driver.notify(
+            "textDocument/didOpen",
+            to_value(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "yaml".to_string(),
+                    version,
+                    text: initial.clone(),
+                },
+            })
+            .expect("serialize"),
+        );
+        let published = driver.await_publish();
+        let mut model = initial;
+        check_update(dir.path(), 0, version, &model, &published)?;
+
+        for (line, insert) in inserts {
+            // The server applies the ranged edit via its own converter; the model
+            // applies it at the independently-computed line-start byte (column 0
+            // is unit-unambiguous), so the two texts must stay byte-identical.
+            let at = line_start_byte(&model, line);
+            model.insert_str(at, insert);
+            version += 1;
+            driver.notify(
+                "textDocument/didChange",
+                to_value(DidChangeTextDocumentParams {
+                    text_document: VersionedTextDocumentIdentifier {
+                        uri: uri.clone(),
+                        version,
+                    },
+                    content_changes: vec![TextDocumentContentChangeEvent {
+                        range: Some(Range::new(
+                            Position::new(line, 0),
+                            Position::new(line, 0),
+                        )),
+                        range_length: None,
+                        text: insert.to_string(),
+                    }],
+                })
+                .expect("serialize"),
+            );
+            let published = driver.await_publish();
+            check_update(dir.path(), 0, version, &model, &published)?;
+        }
         driver.shutdown();
     }
 }

@@ -131,6 +131,13 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
   invoking those individually. Re-run `prek run --all-files` until the auto-fixes
   stabilise and a full pass succeeds without modifying files before running coverage.
+- When editing **feature-gated** code (e.g. anything `#[cfg(feature = "lsp")]`), reproduce
+  CI's two clippy gates locally with `-D warnings` (prek's clippy does not, so it misses
+  these): `cargo clippy --all-targets -- -D warnings` and `cargo clippy --all-targets
+  --no-default-features -- -D warnings`. The `-D warnings` is what promotes a `dead_code`
+  warning to an error — e.g. an `lsp`-only helper with no caller once the feature is off
+  fails the minimal build, which a plain `cargo clippy` run shows only as a warning and
+  silently passes.
 - Whenever source files are edited ensure the full test suite passes (run
   `uv run .agents/skills/coverage/coverage-missing.py` to regenerate coverage; it
   reports uncovered ranges and confirms when coverage is complete). See the `coverage`
@@ -445,19 +452,39 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - Language server (`ryl server`, `src/lsp/`, behind the default-on `lsp` feature): a
   synchronous `lsp-server`+`lsp-types` adapter over the engine. `serve(&Connection)`
   runs the handshake + message loop; `run()` wires stdio and drops the connection
-  before `io_threads.join()` so the writer thread finishes. It reuses
-  `lint_str`/`lint_markdown_str` for diagnostics and `apply_safe_fixes`/`fix_markdown_str`
-  for `source.fixAll.ryl` + `textDocument/formatting` (whole-file/per-rule fixes only —
-  the engine has no per-occurrence fix; the fix-all action honours `context.only`). Config
-  is resolved per document via `discover_config` (full CLI precedence incl.
-  `YAMLLINT_CONFIG_FILE`); a rule-less/absent config lints nothing silently, a malformed
-  one lints nothing but is surfaced once via `window/showMessage` (no hard exit-2).
-  **Position encoding is the one
-  load-bearing new piece:** LSP columns are UTF-16 code units by default (NOT ryl's
-  1-based code-point columns); `encoding::problem_range` walks the line CR-aware via
-  `line_syntax` and the negotiated encoding (UTF-8/16/32), so multibyte/astral-plane
-  columns need real surrogate-pair fixtures (BMP `café`/`å` pass vacuously). `lsp-types`
-  0.97 forces a benign `bitflags` 1-vs-2 duplicate, allowlisted in `clippy.toml`. The
-  `lsp` feature must stay compilable out: CI runs `cargo clippy --no-default-features`
-  (the LSP tests are `#![cfg(feature = "lsp")]`). See `docs/editor-integration.md`.
+  before `io_threads.join()` so the writer thread finishes. `mod.rs` is the protocol
+  loop/dispatch; the connection-free logic lives in submodules so it is unit/property
+  testable: `encoding` (position math + `uri_to_path`/`path_to_uri`), `analysis`
+  (lint/fix → LSP), `actions` (code-action builders), `hover`, `rename`. Capabilities:
+  push diagnostics (`publishDiagnostics`); pull diagnostics (`textDocument/diagnostic` +
+  `workspace/diagnostic`, the latter over a per-entry-cancellable
+  `discover::gather_yaml_from_dir_cancellable` walk of every root, deduped, full report
+  each call, no result-id caching; it runs on a background worker thread — so the message
+  loop stays responsive — lints files in parallel via `rayon`, and is cancellable via
+  `$/cancelRequest`/shutdown through an `AtomicBool` the worker checks (the walk per
+  entry; only an in-progress single-file read is uninterrupted). A new pull
+  supersedes/cancels any in-flight one (bounding workers); `serve` joins outstanding
+  workers before returning); `source.fixAll.ryl` + per-rule
+  `source.fixAll.ryl.<rule>` (via `fix::SAFE_FIX_RULE_IDS`, YAML only) + `quickfix`
+  disable-rule inserts (`# ryl disable-line` / first-line `# ryl disable-file`; the
+  disable-line is suppressed for a diagnostic inside a block scalar, where a `#` would be
+  content not a directive, via `protected_scalar_lines`); `textDocument/formatting`; hover
+  (rule + message + docs link for a covered diagnostic); anchor/alias `rename` +
+  `prepareRename` (granit scanner tokens, document-scoped, YAML only); and INCREMENTAL
+  sync (ranged edits applied via `encoding::offset_at`). The engine has no per-occurrence
+  fix; code actions honour `context.only`. Config is resolved per document via
+  `discover_config` (full CLI precedence incl. `YAMLLINT_CONFIG_FILE`), layering the
+  client's `Settings` (`initializationOptions` / `workspace/didChangeConfiguration`:
+  `configPath`/`configData`/`enable`, CLI-equivalent precedence). Config-file changes
+  re-lint open docs via a dynamic `didChangeWatchedFiles` registration (push model;
+  `workspace/configuration` pull is deferred). A rule-less/absent config or `enable:false`
+  lints nothing silently; a malformed one lints nothing but is surfaced once via
+  `window/showMessage` (no hard exit-2). **Position encoding is the one load-bearing
+  piece:** LSP columns are UTF-16 code units by default (NOT ryl's 1-based code-point
+  columns); `encoding::problem_range`/`offset_at` walk the line CR-aware via `line_syntax`
+  and the negotiated encoding (UTF-8/16/32), so multibyte/astral-plane columns need real
+  surrogate-pair fixtures (BMP `café`/`å` pass vacuously). `lsp-types` 0.97 forces a benign
+  `bitflags` 1-vs-2 duplicate, allowlisted in `clippy.toml`. The `lsp` feature must stay
+  compilable out: CI runs `cargo clippy --no-default-features` (the LSP tests are
+  `#![cfg(feature = "lsp")]`). See `docs/editor-integration.md`.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

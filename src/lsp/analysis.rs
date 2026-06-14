@@ -8,7 +8,9 @@ use std::path::Path;
 use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, TextEdit};
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::{apply_safe_fixes, fix_markdown_str};
+use crate::fix::{
+    SAFE_FIX_RULE_IDS, apply_safe_fixes, apply_safe_fixes_filtered, fix_markdown_str,
+};
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::lsp::encoding::{PositionEncoding, full_range, problem_range};
 use crate::markdown_embed::lint_markdown_str;
@@ -77,5 +79,31 @@ pub fn fix_all_edit(
         SourceKind::Markdown => fix_markdown_str(text, path, cfg, base_dir)?,
         SourceKind::Yaml => apply_safe_fixes(text, cfg, path, base_dir),
     };
+    (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
+}
+
+/// The whole-document edit applying only `rule`'s safe fix — every other safe fixer is
+/// skipped — or `None` when nothing changes, `rule` has no safe fix, or `kind` is not
+/// plain YAML (the markdown fix path has no per-rule variant). Backs the per-rule
+/// `source.fixAll.ryl.<rule>` code action.
+#[must_use]
+pub fn fix_rule_edit(
+    text: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    kind: SourceKind,
+    enc: PositionEncoding,
+    rule: &str,
+) -> Option<TextEdit> {
+    if matches!(kind, SourceKind::Markdown) || !SAFE_FIX_RULE_IDS.contains(&rule) {
+        return None;
+    }
+    let skip: Vec<&str> = SAFE_FIX_RULE_IDS
+        .iter()
+        .copied()
+        .filter(|id| *id != rule)
+        .collect();
+    let fixed = apply_safe_fixes_filtered(text, cfg, path, base_dir, &skip);
     (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
 }
