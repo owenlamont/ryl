@@ -47,12 +47,12 @@ ryl <path|file ...>     # files and/or directories; `ryl .` recurses, honouring 
 ryl --list-files .      # preview which files would be linted, then exit
 ```
 
-- `0`: no problems.
-- `1`: lint errors, invalid YAML, or an unreadable path.
-- `2`: usage error, no config found, or a config that enables no rules.
+- `0`: no errors (warning-level findings still exit `0` unless `--strict`).
+- `1`: error-level findings, invalid YAML, or an unreadable path.
+- `2`: usage error (no inputs, bad flags), no config / no rules enabled, or `--strict`
+  with only warnings.
 
-Warnings alone exit `0`; add `--strict` to fail on warnings (exit `2`), or `--no-warnings`
-to report only errors.
+Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only errors.
 
 ## Fix or preview
 
