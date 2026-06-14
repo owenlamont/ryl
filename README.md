@@ -94,6 +94,13 @@ winget install owenlamont.ryl       # winget (Windows)
   all path-based filtering is skipped so every enabled rule runs.
   `-` cannot be combined with other inputs; `--fix` cannot read from
   stdin, but `--diff` can.
+- `ryl server` runs ryl as a Language Server (LSP) over stdio, giving
+  editors inline diagnostics, a `source.fixAll.ryl` code action, and
+  formatting (= apply safe fixes). It complements Red Hat's
+  `yaml-language-server` rather than replacing it, and is built in by
+  default (a minimal binary without it builds with
+  `cargo install ryl --no-default-features`). See
+  <https://ryl-docs.pages.dev/editor-integration/>.
 - Run `ryl --help` for the authoritative CLI reference.
 
 For installation walkthroughs, configuration presets, and per-rule

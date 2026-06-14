@@ -260,6 +260,9 @@ enum CliFormat {
         .args(["migrate_configs", "migrate_user_config"])
         .multiple(true))
 )]
+// `ryl server` (the LSP) is the only subcommand; bare `ryl <paths>` still lints, so the
+// lint args and the subcommand are mutually exclusive.
+#[cfg_attr(feature = "lsp", command(args_conflicts_with_subcommands = true))]
 // CLI flags are independent user-facing toggles, not state better modeled as an enum.
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
@@ -338,6 +341,21 @@ struct Cli {
 
     #[command(flatten)]
     migrate: MigrateFlags,
+
+    #[cfg(feature = "lsp")]
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+/// Subcommands. None (bare `ryl <paths>`) lints, preserving the historical flat CLI.
+/// As with any subcommand-based CLI (cargo, ruff), the bare token `server` resolves to
+/// this subcommand rather than a path of that name; lint such a path as `ryl ./server`
+/// or `ryl server/` (only the exact bare `server` collides, and it matches no yaml glob).
+#[cfg(feature = "lsp")]
+#[derive(clap::Subcommand, Debug)]
+enum Commands {
+    /// Run the language server (LSP) over stdio for editor integration
+    Server,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -1002,6 +1020,11 @@ fn main() -> ExitCode {
 }
 
 fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
+    #[cfg(feature = "lsp")]
+    if matches!(cli.command, Some(Commands::Server)) {
+        return Ok(ryl::lsp::run());
+    }
+
     // A pure meta-action that ignores every other input/flag, like the
     // schema-print flags below; clap_complete derives the script from `Cli`.
     if let Some(shell) = cli.generate_completions {

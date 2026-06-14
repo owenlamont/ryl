@@ -28,6 +28,7 @@ nav = [
     { "YAML in Markdown" = "markdown.md" },
   ]},
   { "Output formats" = "output-formats.md" },
+  { "Editor integration" = "editor-integration.md" },
   { "YAML version compatibility" = "yaml-version.md" },
 ]
 
