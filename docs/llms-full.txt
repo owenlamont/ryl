@@ -29,6 +29,13 @@ toolchain.
     npm install --global @owenlamont/ryl
     ```
 
+=== "conda"
+
+    ```bash
+    pixi global install ryl
+    # or: conda install -c conda-forge ryl
+    ```
+
 === "winget (Windows)"
 
     ```powershell

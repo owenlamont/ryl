@@ -47,6 +47,7 @@ uv tool install ryl                 # uv
 npm install -g @owenlamont/ryl      # npm
 pip install ryl                     # pip
 cargo install ryl                   # cargo
+pixi global install ryl             # conda-forge
 winget install owenlamont.ryl       # winget (Windows)
 ```
 

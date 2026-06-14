@@ -57,6 +57,9 @@ pip install ryl
 # Or with npm
 npm install --global @owenlamont/ryl
 
+# Or with conda (conda-forge)
+pixi global install ryl
+
 # Or with winget (Windows)
 winget install owenlamont.ryl
 
