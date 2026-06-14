@@ -42,12 +42,14 @@ description: >-
   `ryl.toml.schema.json` into SchemaStore's draft-07 format, updates the user's
   SchemaStore fork, and prints a manual upstream PR handoff for
   `owenlamont/schemastore:ryl-schema-update`.
-  - Known failure: if the sync job errors with "refusing to allow an OAuth App to
-    create or update workflow", the fork's `master` is stale and/or the GitHub App
-    lacks workflow-write scope. Sync the fork from upstream via the GitHub web
-    "Sync fork" button (`gh repo sync` hits the same OAuth wall), and grant the App
-    Workflows: Read and write. PR #265 added `permissions: workflows: write` to the
-    workflow as the durable fix.
+  - Known failure: the sync branch is built directly on `upstream/master`
+    (`git checkout -B … upstream/master`), so it carries upstream's `.github/workflows/`
+    files; pushing them needs the App token's **workflows: write** scope. If the job
+    errors with "refusing to allow an OAuth App to create or update workflow", that scope
+    is missing — confirm the `actions/create-github-app-token` step requests
+    `permission-workflows: write` (added in PR #265) and that the GitHub App installation
+    actually grants Workflows: Read and write. The fork's `master` state is *not*
+    involved (the branch never derives from it).
 - Publishing uses Trusted Publishing on all registries (crates.io via GitHub OIDC, PyPI
   via `pypa/gh-action-pypi-publish`, NPM via `actions/setup-node` OIDC). GitHub release
   creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a

@@ -25,7 +25,8 @@ Signals (all derived from the transcript, no model needed):
   and its ``tool_result`` is the tool's real duration. A long wait that ends in an
   error/cancellation is the worst friction (a long block on a broken tool) and is
   reported first — a signal pure text classification cannot see.
-- retry clusters: the same Bash command issued repeatedly (trial-and-error).
+- retry clusters: the same Bash command re-issued back-to-back, with no intervening
+  tool or human turn (a blind retry — trial-and-error, not normal edit-then-rerun).
 - user corrections: human turns carrying redirection markers ("no", "actually", "wrong",
   "instead", "revert", ...).
 
@@ -247,7 +248,11 @@ def extract(path: Path, label: str, threshold: float) -> SessionDigest:
                     command = (block.get("input") or {}).get("command", "")
                     if command and command == last_command:
                         bump_retry(digest, command)
-                    last_command = command or last_command
+                    last_command = command or None
+                else:
+                    # A non-Bash tool between two identical Bash commands breaks the
+                    # back-to-back run, so the later one is iteration, not a blind retry.
+                    last_command = None
             elif kind == "tool_result":
                 is_error = bool(block.get("is_error"))
                 if is_error:
@@ -262,7 +267,10 @@ def extract(path: Path, label: str, threshold: float) -> SessionDigest:
                     threshold=threshold,
                 )
         if event.get("type") == "user":
-            scan_correction(digest, text_of(message))
+            text = text_of(message)
+            if text.strip():  # a human turn (not a tool_result delivery) ends a run
+                last_command = None
+            scan_correction(digest, text)
     return digest
 
 
