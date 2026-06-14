@@ -15,6 +15,8 @@ pub mod directives;
 pub mod discover;
 pub mod fix;
 pub mod lint;
+#[cfg(feature = "lsp")]
+pub mod lsp;
 pub mod markdown_embed;
 pub mod migrate;
 pub mod report;
