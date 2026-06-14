@@ -14,9 +14,9 @@ so an agent learns the correct ryl invocation and config patterns:
 gh skill install owenlamont/ryl ryl --agent claude-code --scope user
 ```
 
-Swap `--agent` for `cursor`, `codex`, `gemini-cli`, `copilot`, and others; or run
-`gh skill search ryl` to discover it. The skill is the canonical, tightened agent
-reference; this page only links to it.
+Swap `--agent` for `cursor`, `codex`, `antigravity`, `github-copilot`, and others (run
+`gh skill install --help` for the full list); or run `gh skill search ryl` to discover
+it. The skill is the canonical, tightened agent reference; this page only links to it.
 
 ## Prompting in AGENTS.md
 
