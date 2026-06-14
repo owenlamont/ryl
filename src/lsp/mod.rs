@@ -393,21 +393,27 @@ impl Server {
         };
         // Full CLI precedence for this one input: project config (walking up from
         // the path), then `YAMLLINT_CONFIG_FILE`, then user-global, then empty.
-        let context =
+        let mut context =
             discover_config(std::slice::from_ref(&path), &Overrides::default())?;
-        if !context.config.enables_any_rule()
-            || context.config.is_file_ignored(&path, &context.base_dir)
-        {
+        if !context.config.enables_any_rule() {
             return Ok(None);
         }
         let kind = if is_file {
-            // A real file: its kind comes from `[files]`. An overlapping glob makes
-            // `source_kind` error (surfaced like any config mistake); no match skips it.
+            // A real file: honour path-based ignores, and take its kind from
+            // `[files]`. An overlapping glob makes `source_kind` error (surfaced
+            // like any config mistake); no match skips the file.
+            if context.config.is_file_ignored(&path, &context.base_dir) {
+                return Ok(None);
+            }
             match context.config.source_kind(&path, &context.base_dir)? {
                 Some(kind) => kind,
                 None => return Ok(None),
             }
         } else {
+            // A non-file (untitled/unsaved) buffer has no real path: like stdin
+            // without `--stdin-filename`, disable every path-based filter (whole-file
+            // ignore, per-file and per-rule ignores) and lint it as YAML.
+            context.config.disable_path_based_rule_ignores();
             SourceKind::Yaml
         };
         Ok(Some(Target {

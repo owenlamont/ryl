@@ -32,7 +32,13 @@ fn uri(text: &str) -> Uri {
 }
 
 fn file_uri(dir: &Path, name: &str) -> Uri {
-    uri(&format!("file://{}/{}", dir.display(), name))
+    // Build a valid file URI cross-platform: forward slashes, and a leading slash
+    // before a Windows drive (`C:/…` -> `/C:/…`) so it round-trips on every OS.
+    let mut path = dir.join(name).display().to_string().replace('\\', "/");
+    if !path.starts_with('/') {
+        path.insert(0, '/');
+    }
+    uri(&format!("file://{path}"))
 }
 
 /// A temp project directory carrying a `.ryl.toml`; the adjacent config shields
@@ -444,6 +450,20 @@ fn untitled_buffer_is_linted_as_yaml_despite_custom_file_globs() {
         client.diagnostics().len(),
         1,
         "an untitled buffer is linted as YAML regardless of [files] globs"
+    );
+}
+
+#[test]
+fn untitled_buffer_is_not_suppressed_by_path_ignores() {
+    // An `ignore` glob that would match the synthetic untitled.yaml must not
+    // suppress an unsaved buffer, which has no real path to filter on.
+    let dir = project("ignore = [\"*.yaml\"]\n[rules]\ntrailing-spaces = \"enable\"\n");
+    let (client, _init) = Client::launch_full(None, None, true, Some(dir.path()));
+    client.did_open(uri("untitled:Untitled-5"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "path-based ignores do not apply to an untitled buffer"
     );
 }
 

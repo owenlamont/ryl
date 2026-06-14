@@ -150,8 +150,16 @@ fn doc_path(dir: &Path, index: u8) -> std::path::PathBuf {
 }
 
 fn doc_uri(dir: &Path, index: u8) -> Uri {
-    Uri::from_str(&format!("file://{}/doc{index}.yaml", dir.display()))
-        .expect("valid URI")
+    // Valid file URI cross-platform (forward slashes; leading slash before a
+    // Windows drive) so the suite runs on every OS.
+    let mut path = doc_path(dir, index)
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    if !path.starts_with('/') {
+        path.insert(0, '/');
+    }
+    Uri::from_str(&format!("file://{path}")).expect("valid URI")
 }
 
 #[derive(Debug, Clone)]
