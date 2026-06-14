@@ -103,8 +103,9 @@ def generate_report_json(root: Path) -> dict:
     if summary.returncode != 0:
         # Surface the failing tests in one shot rather than forcing a manual re-run:
         # nextest's FAIL/panic lines are in the captured stream (only `--summary-only`'s
-        # coverage table is suppressed, not the test output), so highlight them and fall
-        # back to a tail.
+        # coverage table is suppressed, not the test output). Show which tests failed
+        # (highlights) AND the output tail — the tail carries the panic/assertion context
+        # that the highlight lines alone omit, so the failure is diagnosable here.
         lines = (summary.stdout or "").splitlines()
         highlights = [
             line
@@ -114,8 +115,11 @@ def generate_report_json(root: Path) -> dict:
             or "assertion" in line
             or line.startswith("error")
         ]
-        detail = "\n".join(highlights[:40]) if highlights else "\n".join(lines[-40:])
-        sys.exit(f"cargo llvm-cov nextest failed:\n{detail}")
+        tail = lines[-60:]
+        parts = (
+            [*highlights[:40], "", "--- output tail ---", *tail] if highlights else tail
+        )
+        sys.exit("cargo llvm-cov nextest failed:\n" + "\n".join(parts))
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
         tmp_path = Path(handle.name)
     try:

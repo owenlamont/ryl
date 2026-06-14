@@ -471,8 +471,15 @@ def main(
                 prior = json.loads(manifest.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 prior = []
+            resolved_root = out_dir.resolve()
             for relative in prior:
-                (out_dir / relative).unlink(missing_ok=True)
+                if not isinstance(relative, str):
+                    continue
+                candidate = (out_dir / relative).resolve()
+                # Only unlink entries that stay under out_dir, so a tampered or foreign
+                # manifest (absolute or `..` entries) cannot reach an unrelated file.
+                if candidate.is_relative_to(resolved_root):
+                    candidate.unlink(missing_ok=True)
         written: list[str] = []
         for digest in digests:
             # Mirror the transcript's relative path under out_dir so nested sessions
