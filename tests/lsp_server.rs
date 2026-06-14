@@ -432,6 +432,22 @@ fn untitled_document_anchors_config_at_root_uri() {
 }
 
 #[test]
+fn untitled_buffer_is_linted_as_yaml_despite_custom_file_globs() {
+    // A project whose `[files].yaml` would not match the synthetic `untitled.yaml`
+    // must still lint an unsaved YAML buffer as YAML (non-file URIs force YAML).
+    let dir = project(
+        "[files]\nyaml = [\"config/*.yml\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+    );
+    let (client, _init) = Client::launch_full(None, None, true, Some(dir.path()));
+    client.did_open(uri("untitled:Untitled-4"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "an untitled buffer is linted as YAML regardless of [files] globs"
+    );
+}
+
+#[test]
 fn code_action_offers_versioned_fix_all() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None); // advertises documentChanges
@@ -712,6 +728,41 @@ fn serve_rejects_malformed_initialize_params() {
     );
     drop(client);
     assert!(handle.join().is_ok(), "serve returns without panicking");
+}
+
+#[test]
+fn rejected_initialize_then_exit_is_abnormal() {
+    // After a rejected handshake, the server keeps draining and treats a bare
+    // `exit` as an abnormal session end (rather than hanging or panicking).
+    let (server, client) = Connection::memory();
+    let handle = thread::spawn(move || ryl::lsp::serve(&server));
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            RequestId::from(1),
+            "initialize".to_string(),
+            Value::String("bad".to_string()),
+        )))
+        .expect("send initialize");
+    let _ = client.receiver.recv().expect("error response");
+    // A non-exit notification is ignored by the drain; only `exit` ends it.
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_string(),
+            Value::Null,
+        )))
+        .expect("send initialized");
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_string(),
+            Value::Null,
+        )))
+        .expect("send exit");
+    let outcome = handle.join().expect("serve returns");
+    assert_eq!(outcome, ryl::lsp::SessionOutcome::Abnormal);
+    drop(client);
 }
 
 #[test]

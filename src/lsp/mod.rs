@@ -92,8 +92,10 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
     let params: InitializeParams = match serde_json::from_value(raw_params) {
         Ok(params) => params,
         Err(error) => {
-            // Reject the handshake so the client stops waiting; a silent return
-            // would leave a stdio client's reader blocked, hanging run()'s join.
+            // Reject the handshake, then keep draining until the client ends the
+            // session with `exit` or by closing the connection. Returning here
+            // instead would leave a stdio client's reader thread blocked, hanging
+            // run()'s io_threads.join().
             send(
                 connection,
                 Message::Response(Response::new_err(
@@ -102,7 +104,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
                     format!("invalid initialize params: {error}"),
                 )),
             );
-            return SessionOutcome::Clean;
+            return drain_until_session_end(connection);
         }
     };
     let encoding = negotiate(
@@ -382,8 +384,13 @@ impl Server {
     /// nothing to lint (no config, no rules, ignored, or not a linted kind); `Err`
     /// is a config-discovery/parse failure the caller surfaces to the user.
     fn resolve(&self, uri: &str) -> Result<Option<Target>, String> {
-        let path = uri_to_path(uri)
-            .unwrap_or_else(|| self.fallback_base().join("untitled.yaml"));
+        // A non-file URI is an untitled/unsaved buffer with no real path: anchor
+        // discovery at the workspace fallback and (below) lint it as YAML regardless
+        // of `[files]`, since it is unsaved YAML the user is editing.
+        let (path, is_file) = match uri_to_path(uri) {
+            Some(path) => (path, true),
+            None => (self.fallback_base().join("untitled.yaml"), false),
+        };
         // Full CLI precedence for this one input: project config (walking up from
         // the path), then `YAMLLINT_CONFIG_FILE`, then user-global, then empty.
         let context =
@@ -393,10 +400,17 @@ impl Server {
         {
             return Ok(None);
         }
-        // An overlapping yaml/markdown glob makes `source_kind` error; propagate it
-        // so the caller surfaces it like any other config mistake (the CLI hard-errors).
-        let kind = context.config.source_kind(&path, &context.base_dir)?;
-        Ok(kind.map(|kind| Target {
+        let kind = if is_file {
+            // A real file: its kind comes from `[files]`. An overlapping glob makes
+            // `source_kind` error (surfaced like any config mistake); no match skips it.
+            match context.config.source_kind(&path, &context.base_dir)? {
+                Some(kind) => kind,
+                None => return Ok(None),
+            }
+        } else {
+            SourceKind::Yaml
+        };
+        Ok(Some(Target {
             path,
             context,
             kind,
@@ -459,6 +473,20 @@ fn fix_all_requested(context: &CodeActionContext) -> bool {
             FIX_ALL_KIND == kind || FIX_ALL_KIND.starts_with(&format!("{kind}."))
         }),
     }
+}
+
+/// After a rejected handshake the session is uninitialized: ignore every message
+/// until the client ends it with `exit` (abnormal) or by closing the connection,
+/// keeping the stdio reader draining so `run`'s join unwinds instead of blocking.
+fn drain_until_session_end(connection: &Connection) -> SessionOutcome {
+    for message in &connection.receiver {
+        if let Message::Notification(notification) = message
+            && notification.method == "exit"
+        {
+            return SessionOutcome::Abnormal;
+        }
+    }
+    SessionOutcome::Clean
 }
 
 fn parse<P: serde::de::DeserializeOwned>(params: &serde_json::Value) -> Option<P> {
