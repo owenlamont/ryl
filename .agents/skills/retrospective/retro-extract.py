@@ -75,6 +75,10 @@ DEFAULT_WAIT_THRESHOLD: Final = 120.0
 # how long you were away — not friction — so they are excluded from the wait analysis.
 INTERACTIVE_TOOLS: Final = frozenset({"AskUserQuestion", "ExitPlanMode"})
 
+# Manifest this tool writes under --out-dir listing the digests it produced, so a later
+# run removes only its own files and never an unrelated *.digest.json kept there.
+MANIFEST_NAME: Final = ".retro-manifest.json"
+
 
 def parse_ts(value: str | None) -> datetime | None:
     """Parse an ISO-8601 transcript timestamp (``...Z``) to a datetime.
@@ -154,14 +158,21 @@ def text_of(message: dict) -> str:
     )
 
 
-def bump_retry(digest: SessionDigest, command: str) -> None:
-    """Increment (or start) the retry counter for a repeated Bash command."""
-    snippet = command.strip().replace("\n", " ")[:120]
-    for entry in digest.retries:
-        if entry["cmd"] == snippet:
-            entry["count"] += 1
-            return
-    digest.retries.append({"cmd": snippet, "count": 2})  # the original + this repeat
+def note_retry(digest: SessionDigest, command: str, cluster: dict | None) -> dict:
+    """Record one back-to-back repeat of ``command``, extending or opening a cluster.
+
+    Each maximal run of consecutive identical Bash commands is its own cluster, so two
+    runs of the same command separated by a break are counted separately, not merged.
+
+    Returns:
+        The open cluster dict, to thread into the next call.
+    """
+    if cluster is not None:
+        cluster["count"] += 1
+        return cluster
+    opened = {"cmd": command.strip().replace("\n", " ")[:120], "count": 2}
+    digest.retries.append(opened)
+    return opened
 
 
 def add_error_sample(digest: SessionDigest, block: dict) -> None:
@@ -220,6 +231,8 @@ def extract(path: Path, label: str, threshold: float) -> SessionDigest:
     digest = SessionDigest(session=label)
     pending: dict[str, tuple[datetime, str]] = {}  # tool_use_id -> (start, tool name)
     last_command: str | None = None
+    cluster: dict | None = None  # the open back-to-back retry cluster, if any
+    seen_human = False  # the first human turn is the initial request, not a correction
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             event = json.loads(raw)
@@ -247,12 +260,15 @@ def extract(path: Path, label: str, threshold: float) -> SessionDigest:
                 if block.get("name") == "Bash":
                     command = (block.get("input") or {}).get("command", "")
                     if command and command == last_command:
-                        bump_retry(digest, command)
+                        cluster = note_retry(digest, command, cluster)
+                    else:
+                        cluster = None  # a different command ends the current cluster
                     last_command = command or None
                 else:
                     # A non-Bash tool between two identical Bash commands breaks the
                     # back-to-back run, so the later one is iteration, not a blind retry.
                     last_command = None
+                    cluster = None
             elif kind == "tool_result":
                 is_error = bool(block.get("is_error"))
                 if is_error:
@@ -270,7 +286,11 @@ def extract(path: Path, label: str, threshold: float) -> SessionDigest:
             text = text_of(message)
             if text.strip():  # a human turn (not a tool_result delivery) ends a run
                 last_command = None
-            scan_correction(digest, text)
+                cluster = None
+                # Skip the first human turn: it is the initial request, not a correction.
+                if seen_human:
+                    scan_correction(digest, text)
+                seen_human = True
     return digest
 
 
@@ -442,18 +462,28 @@ def main(
 
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
-        # Clear a prior run's digests so the directory reflects exactly this run's
-        # selection — a wider --include-nested/--since run must not leave stale,
-        # now-excluded digests behind for a downstream fan-out to misclassify.
-        for stale in out_dir.rglob("*.digest.json"):
-            stale.unlink()
+        # Remove only the digests a PRIOR run recorded in its manifest, so the directory
+        # reflects exactly this run's selection without ever deleting unrelated
+        # *.digest.json a user may keep under out_dir (e.g. --out-dir .).
+        manifest = out_dir / MANIFEST_NAME
+        if manifest.is_file():
+            try:
+                prior = json.loads(manifest.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                prior = []
+            for relative in prior:
+                (out_dir / relative).unlink(missing_ok=True)
+        written: list[str] = []
         for digest in digests:
             # Mirror the transcript's relative path under out_dir so nested sessions
             # cannot collide (flattening `/`->`-` is not injective). `digest.session`
             # is the forward-slashed relative path; pathlib splits it into components.
-            target = out_dir / f"{digest.session}.digest.json"
+            relative = f"{digest.session}.digest.json"
+            target = out_dir / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(json.dumps(digest.as_json(), indent=2), encoding="utf-8")
+            written.append(relative)
+        manifest.write_text(json.dumps(written, indent=2), encoding="utf-8")
         typer.echo(f"\nWrote {len(digests)} digests to {out_dir}")
 
 
