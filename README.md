@@ -47,6 +47,7 @@ uv tool install ryl                 # uv
 npm install -g @owenlamont/ryl      # npm
 pip install ryl                     # pip
 cargo install ryl                   # cargo
+winget install owenlamont.ryl       # winget (Windows)
 ```
 
 ## Status and scope

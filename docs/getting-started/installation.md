@@ -21,6 +21,12 @@ toolchain.
     npm install --global @owenlamont/ryl
     ```
 
+=== "winget (Windows)"
+
+    ```powershell
+    winget install owenlamont.ryl
+    ```
+
 === "Prebuilt binary"
 
     Download a release artifact from the

@@ -55,3 +55,10 @@ description: >-
   creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a
   draft until assets upload, with auto-generated notes; reruns skip publish steps for a
   version that already exists.
+- After the release is un-drafted, the `publish-winget` job submits a winget-pkgs PR via
+  `wingetcreate update owenlamont.ryl` (token: the classic `public_repo` `WINGET_PAT`
+  secret in the `automation` environment). It requires the package to already exist in
+  winget-pkgs from the one-time `wingetcreate new` bootstrap; `update` preserves the
+  nested-portable config and `Microsoft.VCRedist.2015+` dependencies, swapping only
+  version, URLs, and SHA256. Re-running a published version would attempt a duplicate
+  winget PR (no existence guard, unlike the crates/PyPI/NPM steps).

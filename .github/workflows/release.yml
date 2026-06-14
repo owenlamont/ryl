@@ -863,6 +863,37 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release edit "$RELEASE_TAG" -R "${GITHUB_REPOSITORY}" --draft=false
 
+  publish-winget:
+    name: Publish to winget
+    # Must follow finalize-github-release: wingetcreate downloads each release
+    # asset to recompute its SHA256, so the assets have to be publicly
+    # downloadable (un-drafted) first.
+    needs:
+      - finalize-github-release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    runs-on: windows-latest
+    environment: automation
+    permissions:
+      contents: read
+    steps:
+      - name: Submit ryl to winget-pkgs
+        shell: pwsh
+        env:
+          # wingetcreate reads the classic public_repo PAT from this env var (its
+          # documented CI path), keeping the token out of argv and process logs.
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_PAT }}
+        run: |-
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          $version = ${env:GITHUB_REF_NAME} -replace '^v', ''
+          $base = "https://github.com/${env:GITHUB_REPOSITORY}/releases/download/${env:GITHUB_REF_NAME}"
+          .\wingetcreate.exe update owenlamont.ryl `
+            --version $version `
+            --submit `
+            --urls "${base}/ryl-x86_64-pc-windows-msvc.zip|x64" "${base}/ryl-aarch64-pc-windows-msvc.zip|arm64"
+
   sync-schemastore:
     name: Sync SchemaStore
     needs:
