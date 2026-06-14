@@ -30,9 +30,11 @@ a config first:
 ryl -d 'extends: default' .          # quick: yamllint's standard rule set
 ```
 
-Or commit a `ryl.toml` (or `.ryl.toml`, or `[tool.ryl]` in `pyproject.toml`):
+Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
+`tool.ryl`, so `[rules]` becomes `[tool.ryl.rules]`):
 
 ```toml
+# ryl.toml
 [rules]
 trailing-spaces = "enable"
 new-line-at-end-of-file = "enable"
@@ -57,9 +59,9 @@ to report only errors.
 - `--fix` applies safe fixes in place, then reports remaining problems.
 - `--diff` previews the fixes (unified diff on stdout), writes nothing, exits `1` if any
   file would change. Use `--diff` for a non-mutating check, `--fix` to apply.
-- Under `--fix`/`--diff` the exit codes differ from a normal lint: a file that cannot be
-  safely processed (unparsable, symlinked, or, for `--diff`, non-UTF-8) is skipped with
-  a notice and no exit-code effect, while one that cannot be read/decoded exits `2`.
+- `--diff` is preview-only: files it can't process (unparsable, symlink, non-UTF-8) are
+  skipped with a notice and don't change the exit code. `--fix` also won't write such
+  files but still reports their diagnostics, so an unparsable file under `--fix` exits `1`.
 
 ## Machine-readable output
 

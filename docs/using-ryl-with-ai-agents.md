@@ -32,7 +32,8 @@ trailing-spaces = "enable"
 new-line-at-end-of-file = "enable"
 ```
 
-See [Quick start](getting-started/quickstart.md) and [Presets](config-presets.md).
+In `pyproject.toml`, nest these under `[tool.ryl]` (e.g. `[tool.ryl.rules]`). See
+[Quick start](getting-started/quickstart.md) and [Presets](config-presets.md).
 
 ## Invocation and exit codes
 
@@ -48,10 +49,10 @@ Branch on the exit code:
 - `2`: usage error (no inputs, bad flags, no configuration found, or a configuration
   that enables no rules).
 
-These codes describe a normal lint run. Under `--fix`/`--diff` a file that cannot be
-safely processed (unparsable, a symlink, or, for `--diff`, non-UTF-8) is skipped with a
-per-file notice and no effect on the exit code, while a file that cannot be read or
-decoded at all exits `2`.
+These codes describe a normal lint run. `--diff` is preview-only: a file it cannot
+process (unparsable, a symlink, or non-UTF-8) is skipped with a per-file notice and does
+not affect the exit code. `--fix` likewise never writes such a file, but it still lints
+it, so an unparsable file under `--fix` is reported and exits `1`.
 
 Warnings alone do not fail the run (they exit `0`). To make warnings fail, pass
 `--strict` (warnings then exit `2`) or raise the rule's level to `error` in the

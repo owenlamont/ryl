@@ -1,7 +1,12 @@
 #!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.14"
-# dependencies = []
+# dependencies = ["typer"]
+#
+# [tool.uv]
+# # One-week dependency cooldown (rolling): ignore releases newer than one week
+# # before each run as a supply-chain-safety buffer.
+# exclude-newer = "1 week ago"
 # ///
 
 """Generate ``docs/llms.txt`` from the Zensical nav and docs pages.
@@ -15,27 +20,26 @@ file is current (exit 1 if it would change).
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import re
-import sys
+from typing import Annotated, Final
 
 import tomllib
+import typer
 
 
-ROOT = Path(__file__).resolve().parents[1]
-ZENSICAL = ROOT / "zensical.toml"
-DOCS = ROOT / "docs"
-OUTPUT = DOCS / "llms.txt"
-
+ROOT: Final = Path(__file__).resolve().parents[1]
+ZENSICAL: Final = ROOT / "zensical.toml"
+DOCS: Final = ROOT / "docs"
+OUTPUT: Final = DOCS / "llms.txt"
 
 # Block prefixes that end the lead paragraph (heading, fence, list, quote, table).
-BLOCK_PREFIXES = ("#", "```", "-", "*", ">", "|")
+BLOCK_PREFIXES: Final = ("#", "```", "-", "*", ">", "|")
 
 # Markdown links: `[text](url)` and reference style `[text][ref]`. Both are unusable in
 # the served /llms.txt (relative/reference targets do not resolve), so descriptions keep
 # only the link text.
-LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)|\[([^\]]+)\]\[[^\]]*\]")
+LINK: Final = re.compile(r"\[([^\]]+)\]\([^)]*\)|\[([^\]]+)\]\[[^\]]*\]")
 
 
 def strip_links(text: str) -> str:
@@ -117,29 +121,34 @@ def render(config: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def main() -> None:
-    """Generate ``docs/llms.txt``, or verify it is current with ``--check``."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="fail (exit 1) if the committed docs/llms.txt is stale",
-    )
-    args = parser.parse_args()
+def main(
+    *,
+    check: Annotated[
+        bool,
+        typer.Option(help="Fail (exit 1) if the committed docs/llms.txt is stale."),
+    ] = False,
+) -> None:
+    """Generate ``docs/llms.txt``, or verify it is current with ``--check``.
 
+    Raises:
+        typer.Exit: code 1 when ``--check`` finds ``docs/llms.txt`` stale.
+    """
     content = render(tomllib.loads(ZENSICAL.read_text(encoding="utf-8")))
-    if args.check:
+    if check:
         # Read raw (newline="") so a CRLF-divergent committed file is detected, not
         # silently normalized to match the always-LF rendered content.
         current = (
             OUTPUT.read_text(encoding="utf-8", newline="") if OUTPUT.is_file() else ""
         )
         if current != content:
-            sys.exit("docs/llms.txt is stale; run `uv run scripts/gen_llms_txt.py`")
+            typer.echo(
+                "docs/llms.txt is stale; run `uv run scripts/gen_llms_txt.py`", err=True
+            )
+            raise typer.Exit(code=1)
         return
     # Always write LF regardless of platform so the output is deterministic.
     OUTPUT.write_text(content, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
