@@ -41,6 +41,7 @@ signal). Prints a cross-session summary; with ``--out-dir`` it also writes one
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
@@ -222,6 +223,16 @@ def scan_correction(digest: SessionDigest, text: str) -> None:
         digest.correction_samples.append(text.strip().replace("\n", " ")[:200])
 
 
+def stream_lines(path: Path) -> Iterator[str]:
+    """Yield the transcript's lines lazily, closing the file when the iterator is done.
+
+    Yields:
+        Each raw JSONL line, without materializing the whole multi-MB file at once.
+    """
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        yield from handle
+
+
 def extract(path: Path, label: str, threshold: float) -> SessionDigest:
     """Stream one transcript and build its digest in a single pass.
 
@@ -233,7 +244,7 @@ def extract(path: Path, label: str, threshold: float) -> SessionDigest:
     last_command: str | None = None
     cluster: dict | None = None  # the open back-to-back retry cluster, if any
     seen_human = False  # the first human turn is the initial request, not a correction
-    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw in stream_lines(path):
         try:
             event = json.loads(raw)
         except json.JSONDecodeError:
@@ -473,11 +484,14 @@ def main(
                 prior = []
             resolved_root = out_dir.resolve()
             for relative in prior:
-                if not isinstance(relative, str):
+                if not isinstance(relative, str) or not relative.endswith(
+                    ".digest.json"
+                ):
                     continue
                 candidate = (out_dir / relative).resolve()
-                # Only unlink entries that stay under out_dir, so a tampered or foreign
-                # manifest (absolute or `..` entries) cannot reach an unrelated file.
+                # Unlink only this tool's digest files that stay under out_dir, so a
+                # tampered/foreign manifest can't delete an unrelated file — neither a
+                # non-digest path (e.g. Cargo.toml) nor one escaping via absolute/`..`.
                 if candidate.is_relative_to(resolved_root):
                     candidate.unlink(missing_ok=True)
         written: list[str] = []
