@@ -47,6 +47,8 @@ ryl <path|file ...>     # files and/or directories; `ryl .` recurses, honouring 
 ryl --list-files .      # preview which files would be linted, then exit
 ```
 
+Exit codes from a plain lint run (`--fix`/`--diff` differ, see below):
+
 - `0`: no errors (warning-level findings still exit `0` unless `--strict`).
 - `1`: error-level findings, invalid YAML, or an unreadable path.
 - `2`: usage error (no inputs, bad flags), no config / no rules enabled, or `--strict`
