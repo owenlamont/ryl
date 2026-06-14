@@ -1718,3 +1718,2353 @@ For documents that need to be portable between 1.1 and 1.2 consumers,
 the safest pattern is to quote any bareword that 1.1 would coerce. ryl
 will not get in your way as long as `quoted-strings.required` is `true`
 (or unset / disabled) rather than `"only-when-needed"`.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/anchors/
+
+# anchors
+
+## What this rule does
+
+Reports problems with YAML anchors and aliases &mdash; duplicated anchor
+names, aliases that reference undeclared anchors, anchors that are declared
+but never used, and (optionally) anchor/alias names that are ambiguous because
+a `:` is welded to them.
+
+## Why this matters
+
+- **Forward references fail at runtime.** An alias that points at an
+  anchor declared later in the document is rejected by most YAML parsers.
+- **Duplicates are silently ambiguous.** When two `&name` declarations
+  share a name, downstream consumers may bind to either one depending on
+  parser order.
+- **Unused anchors clutter intent.** Removing dead anchors keeps the
+  document's data-sharing structure explicit.
+- **A `:` in a name means different things to different parsers.** YAML
+  1.2.2 §6.9.2 lets an anchor/alias name contain any non-space character
+  except the flow indicators `,[]{}`, so `:` is a *legal* name character.
+  But parsers disagree where the name ends: ryl's parser, the YAML reference
+  parser, and `ruamel.yaml` read `&foo:`/`*foo:` as the name `foo:` (colon
+  included), while PyYAML/libyaml stop at the `:` (name `foo`, colon treated
+  as a mapping separator). So a document of `a: &foo: 42` then `m:` / `- *foo:`
+  resolves to `{a: 42, m: [42]}` under `ruamel.yaml` but raises a parse error
+  under PyYAML — the same bytes, two different meanings. A single space
+  disambiguates (`*foo : bar` is read the same way everywhere), so that is
+  the form to use when an alias is genuinely a mapping key. Because ryl
+  follows the spec here, the undeclared/duplicated/unused checks can differ
+  from yamllint on colon-containing names; see
+  [How ryl differs from yamllint](../getting-started/migrating-from-yamllint.md#how-ryl-differs-from-yamllint).
+
+## Configuration
+
+```toml
+[rules.anchors]
+level = "error"
+forbid-undeclared-aliases = true
+forbid-duplicated-anchors = false
+forbid-unused-anchors = false
+forbid-ambiguous-anchor-alias-names = false   # ryl-only
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid-undeclared-aliases` | `true` | Report aliases (`*name`) whose anchor (`&name`) has not been declared earlier. |
+| `forbid-duplicated-anchors` | `false` | Report when the same anchor name is declared more than once. |
+| `forbid-unused-anchors` | `false` | Report anchors that are never referenced by an alias. |
+| `forbid-ambiguous-anchor-alias-names` | `false` | **ryl-only.** Report an anchor (`&name`) or alias (`*name`) whose name has a `:` welded to it &mdash; trailing (`&foo:`), internal (`&foo:bar`), or leading (`&:foo`) &mdash; the construct parsers disagree on. A space before the `:` (`*foo : bar`) is the unambiguous alias-key form and is never flagged. |
+
+`forbid-ambiguous-anchor-alias-names` is ryl-only and configurable only in
+TOML; a yamllint-compatible YAML config rejects it so the YAML `anchors`
+namespace stays reserved for any future yamllint option.
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+---
+- &anchor
+  foo: bar
+- *anchor
+```
+
+### :x: Reported (with `forbid-undeclared-aliases: true`)
+
+```yaml
+---
+- &anchor
+  foo: bar
+- *unknown
+```
+
+### :x: Reported (with `forbid-duplicated-anchors: true`)
+
+```yaml
+---
+- &anchor Foo Bar
+- &anchor [item 1, item 2]
+```
+
+### :x: Reported (with `forbid-ambiguous-anchor-alias-names: true`)
+
+```yaml
+---
+a: &foo: 42
+m:
+  - *foo:
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; anchor and alias graphs require human
+judgement to rewrite safely.
+
+## Related rules
+
+- [`key-duplicates`](key-duplicates.md) &mdash; covers a related class of
+  ambiguity in mappings.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/block-scalar-chomping/
+
+# block-scalar-chomping
+
+## What this rule does
+
+Requires every literal (`|`) or folded (`>`) block scalar to carry an explicit
+**chomping indicator** &mdash; `-` (strip) or `+` (keep):
+
+```yaml
+script: |-
+  echo "hello"
+```
+
+A bare `|`/`>`, or a header with only an indentation indicator such as `|2`, is
+flagged because its chomping is still the implicit default. The rule is **off by
+default**.
+
+## Why this matters
+
+A block scalar header may end with a chomping indicator that fixes how the
+scalar's *trailing* line breaks are handled (YAML 1.2.2
+[§8.1.1.2](https://yaml.org/spec/1.2.2/#8112-block-chomping-indicator)):
+
+- `-` &mdash; **strip**: remove every trailing line break.
+- `+` &mdash; **keep**: keep every trailing line break.
+- *(none)* &mdash; **clip**: keep exactly one final line break. This is the
+  default a bare `|`/`>` selects.
+
+The clip default is implicit and easy to forget, so whether a block scalar ends
+with a newline (or how many) silently depends on a detail that is not written
+down. That trailing newline frequently matters &mdash; an embedded shell script,
+a certificate, a key, or a templated config can behave differently with or
+without it. Spelling the indicator out documents the author's intent at the point
+it is decided.
+
+An indentation indicator on its own (`|2`) is **not** a chomping indicator, so it
+is still flagged: the chomping remains the implicit clip default.
+
+Note that YAML has **no explicit clip indicator** &mdash; only `-` and `+` exist.
+This rule therefore asks you to choose deliberately between strip and keep rather
+than rely on the silent clip default; it cannot be satisfied by "making clip
+explicit", because there is no such spelling.
+
+Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
+[yaml.info block-scalar chomp examples](https://www.yaml.info/learn/quote#chomp).
+
+## Configuration
+
+`block-scalar-chomping` is a ryl-only rule (yamllint has no equivalent), so it is
+configured **only in TOML** &mdash; `[rules.block-scalar-chomping]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.block-scalar-chomping]` in
+`pyproject.toml`. It is rejected in yamllint-compatible YAML config (including `-d`
+data) so the YAML namespace stays reserved for any future yamllint rule.
+
+```toml
+[rules.block-scalar-chomping]
+level = "error"
+```
+
+The rule has no options: when enabled it requires an explicit `-`/`+` on every
+literal/folded block scalar.
+
+## Examples
+
+### :x: Reported
+
+```yaml
+clip: |
+  one line
+folded: >
+  some prose
+indent_only: |2
+  body
+```
+
+```text
+1:7   error  missing explicit chomping indicator ("-" or "+")  (block-scalar-chomping)
+3:9   error  missing explicit chomping indicator ("-" or "+")  (block-scalar-chomping)
+5:14  error  missing explicit chomping indicator ("-" or "+")  (block-scalar-chomping)
+```
+
+### :white_check_mark: Allowed
+
+```yaml
+strip: |-
+  no trailing newline
+keep: >+
+  every trailing newline kept
+```
+
+## Automatic fixing
+
+This rule does not auto-fix. YAML has no explicit clip indicator, so a bare
+`|`/`>` cannot be annotated without switching it to strip (`-`) or keep (`+`)
+&mdash; which changes the scalar's trailing newlines and therefore its resolved
+value. Choosing between strip and keep is the author's intent, so no single
+rewrite is universally safe.
+
+## Related rules
+
+- [`indentation`](indentation.md) &mdash; its `check-multi-line-strings` option
+  governs the *indentation* of block scalar content; this rule governs the
+  *chomping indicator* in the header.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/braces/
+
+# braces
+
+## What this rule does
+
+Controls whether YAML flow mappings (`{...}`) are allowed and how much
+whitespace they may contain.
+
+## Why this matters
+
+- **Stylistic consistency.** Mixing `{a: 1, b: 2}` and block mappings in
+  the same file makes diffs noisier and intent harder to scan.
+- **Tooling friendliness.** Some YAML consumers handle block style better
+  than flow style; forbidding flow mappings can simplify downstream
+  parsing.
+
+## Configuration
+
+```toml
+[rules.braces]
+level = "error"
+forbid = false
+min-spaces-inside = 0
+max-spaces-inside = 0
+min-spaces-inside-empty = -1
+max-spaces-inside-empty = -1
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid` | `false` | `false`, `"non-empty"`, or `true`. Forbid flow mappings outright or only when non-empty. |
+| `min-spaces-inside` | `0` | Minimum spaces between `{` and the first key (and between the last value and `}`). |
+| `max-spaces-inside` | `0` | Maximum spaces at the same positions. |
+| `min-spaces-inside-empty` | `-1` | Minimum spaces inside an empty `{}`. `-1` falls back to `min-spaces-inside`. |
+| `max-spaces-inside-empty` | `-1` | Maximum spaces inside an empty `{}`. `-1` falls back to `max-spaces-inside`. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+object: {key1: 4, key2: 8}
+```
+
+### :x: Reported (defaults)
+
+```yaml
+object: { key1: 4, key2: 8 }
+```
+
+### :x: Reported (with `forbid: non-empty`)
+
+```yaml
+object: {key1: 4, key2: 8}
+```
+
+## Automatic fixing
+
+`ryl --fix` adjusts whitespace inside braces to satisfy the configured
+`min-spaces-inside` / `max-spaces-inside` bounds. The `forbid` constraint
+is not auto-fixed because converting flow to block style requires
+re-flowing the surrounding document.
+
+## Related rules
+
+- [`brackets`](brackets.md) &mdash; the equivalent rule for flow
+  sequences `[...]`.
+- [`commas`](commas.md) &mdash; controls spacing between flow mapping
+  entries.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/brackets/
+
+# brackets
+
+## What this rule does
+
+Controls whether YAML flow sequences (`[...]`) are allowed and how much
+whitespace they may contain.
+
+## Why this matters
+
+- **Stylistic consistency.** Inline flow sequences read very differently
+  from block sequences and projects often want one style throughout.
+- **Predictable diffs.** Fixing the spacing rules avoids whitespace-only
+  changes when editors normalise.
+
+## Configuration
+
+```toml
+[rules.brackets]
+level = "error"
+forbid = false
+min-spaces-inside = 0
+max-spaces-inside = 0
+min-spaces-inside-empty = -1
+max-spaces-inside-empty = -1
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid` | `false` | `false`, `"non-empty"`, or `true`. Forbid flow sequences outright or only when non-empty. |
+| `min-spaces-inside` | `0` | Minimum spaces between `[` and the first item (and between the last item and `]`). |
+| `max-spaces-inside` | `0` | Maximum spaces at the same positions. |
+| `min-spaces-inside-empty` | `-1` | Minimum spaces inside an empty `[]`. `-1` falls back to `min-spaces-inside`. |
+| `max-spaces-inside-empty` | `-1` | Maximum spaces inside an empty `[]`. `-1` falls back to `max-spaces-inside`. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+object: [1, 2, abc]
+```
+
+### :x: Reported (defaults)
+
+```yaml
+object: [ 1, 2, abc ]
+```
+
+### :x: Reported (with `forbid: true`)
+
+```yaml
+object: [1, 2, abc]
+```
+
+## Automatic fixing
+
+`ryl --fix` adjusts whitespace inside brackets to satisfy the configured
+bounds. The `forbid` constraint is not auto-fixed because converting flow
+sequences to block style requires re-flowing the document.
+
+## Related rules
+
+- [`braces`](braces.md) &mdash; the equivalent rule for flow mappings.
+- [`commas`](commas.md) &mdash; controls spacing between flow sequence
+  items.
+- [`hyphens`](hyphens.md) &mdash; spacing rule for block sequences.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/colons/
+
+# colons
+
+## What this rule does
+
+Controls the number of spaces around mapping colons (`:`).
+
+## Why this matters
+
+- **Readability.** Consistent spacing makes columnar layouts easier to
+  scan, especially in configuration files with many short keys.
+- **Avoids ambiguity.** Stray spaces around the colon can hide subtle
+  parsing bugs, particularly when keys contain values that look like
+  flow-style content.
+
+## Configuration
+
+```toml
+[rules.colons]
+level = "error"
+max-spaces-before = 0
+max-spaces-after = 1
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `max-spaces-before` | `0` | Maximum spaces between the key and the `:`. Use `-1` to disable. |
+| `max-spaces-after` | `1` | Maximum spaces between the `:` and the value. Use `-1` to disable. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+key: value
+object:
+  - a
+  - b
+```
+
+### :x: Reported (defaults)
+
+```yaml
+key : value
+key:   value
+```
+
+### :white_check_mark: Allowed (with `max-spaces-after: 2`)
+
+```yaml
+first:  1
+second: 2
+third:  3
+```
+
+### Alias mapping keys
+
+A YAML anchor/alias name may legally contain `:`, so `*anchor:` welds into an alias to an
+anchor named `anchor:` (a parse error here, since no mapping colon remains). Using an
+alias as a mapping key therefore *requires* one separating space before the colon
+&mdash; `*anchor : value`. When exactly that one space is present the colon's spacing is
+not reported (the rule defers to the parser's view of the alias); more than one space
+before the colon is reported as usual.
+
+```yaml
+base: &a name
+*a : value     # allowed: the one required separating space is not reported
+```
+
+```yaml
+base: &a name
+*a  : value    # reported (2:4): too many spaces before colon
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; correct spacing manually.
+
+## Related rules
+
+- [`commas`](commas.md) &mdash; the analogous rule for flow collection
+  commas.
+- [`hyphens`](hyphens.md) &mdash; spacing for block sequence hyphens.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/commas/
+
+# commas
+
+## What this rule does
+
+Controls the number of spaces before and after commas (`,`) in flow
+mappings and flow sequences.
+
+## Why this matters
+
+- **Readability.** `[1, 2, 3]` is easier to scan than `[1,2 ,  3]`.
+- **Consistent diffs.** Normalising comma spacing prevents whitespace-only
+  diffs.
+
+## Configuration
+
+```toml
+[rules.commas]
+level = "error"
+max-spaces-before = 0
+min-spaces-after = 1
+max-spaces-after = 1
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `max-spaces-before` | `0` | Maximum spaces before the comma. Use `-1` to disable. |
+| `min-spaces-after` | `1` | Minimum spaces after the comma. |
+| `max-spaces-after` | `1` | Maximum spaces after the comma. Use `-1` to disable. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+list: [10, 20, 30, {x: 1, y: 2}]
+```
+
+### :x: Reported (defaults)
+
+```yaml
+list: [10, 20 ,30,   {x: 1,   y: 2}]
+```
+
+### :wrench: After `ryl --fix`
+
+```yaml
+list: [10, 20, 30, {x: 1, y: 2}]
+```
+
+## Automatic fixing
+
+`ryl --fix` normalises whitespace around commas to satisfy the configured
+limits. Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["commas"]
+```
+
+## Related rules
+
+- [`braces`](braces.md) and [`brackets`](brackets.md) &mdash; spacing
+  inside the flow delimiters themselves.
+- [`colons`](colons.md) &mdash; the analogous rule for mapping colons.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/comments-indentation/
+
+# comments-indentation
+
+## What this rule does
+
+Requires that standalone comment lines line up with the surrounding
+content. A comment must share the indentation of the line that follows it
+(or, when at the end of the file, the line that precedes it).
+
+## Why this matters
+
+- **Visual grouping.** Comments that float at unrelated indent levels
+  confuse readers about which block they describe.
+- **Diff stability.** Aligning comments with their content makes it
+  obvious when an edit moves or breaks the relationship.
+
+## Configuration
+
+```toml
+[rules.comments-indentation]
+level = "error"
+# Accept a comment aligned to any still-open enclosing block level (default false).
+allow-any-open-indent = false
+```
+
+### `allow-any-open-indent`
+
+A ryl-only option (configurable in TOML only; rejected in yamllint-compatible YAML
+config). When `true`, a standalone comment is also accepted if its indentation
+matches **any currently-open enclosing block level**, not just the content that
+follows it &mdash; useful for a comment that marks where a nested block ends. A
+comment indented more deeply than every open level (or at a non-boundary indent) is
+still reported. The default `false` keeps the yamllint-compatible behaviour. Origin:
+[adrienverge/yamllint#141](https://github.com/adrienverge/yamllint/issues/141).
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+parent:
+  # describes the child key
+  child: value
+```
+
+### :x: Reported
+
+```yaml
+parent:
+    # this comment is over-indented compared to `child`
+  child: value
+```
+
+### :white_check_mark: Allowed with `allow-any-open-indent = true`
+
+```yaml
+config:
+    entry:
+        - things
+    # aligned to the open `entry:` level — flagged by default, accepted with the option
+options:
+    - more stuff
+```
+
+### :wrench: After `ryl --fix`
+
+```yaml
+parent:
+  # this comment is over-indented compared to `child`
+  child: value
+```
+
+## Automatic fixing
+
+`ryl --fix` reindents standalone comment lines to match the line that
+follows them. Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["comments-indentation"]
+```
+
+## Related rules
+
+- [`comments`](comments.md) &mdash; controls the formatting of comment
+  text itself.
+- [`indentation`](indentation.md) &mdash; the general indentation rule
+  these comments are aligned against.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/comments/
+
+# comments
+
+## What this rule does
+
+Controls formatting of `#` comments &mdash; whether a space is required
+after the `#`, and how far inline comments must sit from preceding
+content.
+
+## Why this matters
+
+- **Legibility.** `#comment` and `# comment` read very differently;
+  enforcing a space keeps comments visually distinct from directive-like
+  prefixes.
+- **Inline comments.** Pushing inline comments away from values prevents
+  visual collisions when values change length.
+
+## Configuration
+
+```toml
+[rules.comments]
+level = "error"
+require-starting-space = true
+ignore-shebangs = true
+min-spaces-from-content = 2
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `require-starting-space` | `true` | Require at least one space between `#` and the comment text. |
+| `ignore-shebangs` | `true` | Skip `#!` shebang lines when `require-starting-space` is on. |
+| `min-spaces-from-content` | `2` | Minimum spaces between code and an inline `#` comment. Use `-1` to disable. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+# a properly spaced comment
+key: value  # inline comment with two spaces of padding
+```
+
+### :x: Reported (defaults)
+
+```yaml
+#missing space after the hash
+key: value # only one space before inline comment
+```
+
+### :wrench: After `ryl --fix`
+
+```yaml
+# missing space after the hash
+key: value  # only one space before inline comment
+```
+
+## Automatic fixing
+
+`ryl --fix` inserts the missing space after `#` and pads inline comments
+to the configured `min-spaces-from-content`. Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["comments"]
+```
+
+## Related rules
+
+- [`comments-indentation`](comments-indentation.md) &mdash; controls the
+  vertical alignment of standalone comments.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/document-end/
+
+# document-end
+
+## What this rule does
+
+Requires or forbids the YAML document end marker (`...`).
+
+## Why this matters
+
+- **Streaming consumers.** Producers that emit multiple YAML documents
+  benefit from explicit end markers so consumers know each document is
+  complete.
+- **Single-document files.** Most single-document YAML files omit `...`;
+  forbidding it removes a trailing footer that adds no information.
+
+## Configuration
+
+```toml
+[rules.document-end]
+level = "error"
+present = true
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `present` | `true` | When `true`, require a `...` marker at the end of every document. When `false`, forbid it. |
+
+## Examples
+
+### :white_check_mark: Allowed (with `present: true`)
+
+```yaml
+---
+this: is the only document
+...
+```
+
+### :x: Reported (with `present: true`)
+
+```yaml
+---
+this: is the only document
+```
+
+### :white_check_mark: Allowed (with `present: false`)
+
+```yaml
+---
+this: is the only document
+```
+
+### :wrench: After `ryl --fix` (with `present: true`)
+
+```yaml
+---
+this: is the only document
+...
+```
+
+## Automatic fixing
+
+`ryl --fix` appends a `...` end marker when `present: true` and the
+document does not already have one. The fix is **partial** by design:
+it only runs when the buffer is a single document. A buffer is treated
+as single-document when, after skipping leading blank lines, comments,
+and `%`-directive lines:
+
+- it contains at most one `---` marker, and that marker is not preceded
+  by real (non-comment, non-directive) content, and
+- it contains no `...` marker anywhere.
+
+Multi-document streams are left for manual intervention because each
+document needs its own `...` placed at the correct byte offset, and the
+rule does not record per-document end positions. The `present: false`
+case (removing existing `...` markers) is never auto-fixed.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["document-end"]
+```
+
+## Related rules
+
+- [`document-start`](document-start.md) &mdash; the matching rule for the
+  `---` start marker.
+- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+  the final newline character.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/document-start/
+
+# document-start
+
+## What this rule does
+
+Requires or forbids the YAML document start marker (`---`).
+
+## Why this matters
+
+- **Multi-document streams.** Files containing more than one YAML
+  document need `---` to separate them.
+- **Explicit intent.** Requiring `---` even in single-document files
+  makes the format unambiguous and clearly signals that the file is
+  YAML rather than another similar markup.
+
+## Configuration
+
+```toml
+[rules.document-start]
+level = "error"
+present = true
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `present` | `true` | When `true`, require a `---` marker at the start of every document. When `false`, forbid it. |
+
+## Examples
+
+### :white_check_mark: Allowed (with `present: true`)
+
+```yaml
+---
+title: example
+```
+
+### :x: Reported (with `present: true`)
+
+```yaml
+title: example
+```
+
+### :white_check_mark: Allowed (with `present: false`)
+
+```yaml
+title: example
+```
+
+### :wrench: After `ryl --fix` (with `present: true`)
+
+```yaml
+---
+title: example
+```
+
+## Automatic fixing
+
+`ryl --fix` prepends a `---` start marker when `present: true` and the
+document does not already have one. The fix is **partial** by design:
+it only runs when
+
+- the buffer is a single document (no inner `---`/`...` markers anywhere
+  in the file),
+- the buffer does not begin (after leading comments and blank lines)
+  with a `%YAML`/`%TAG` directive, and
+- a leading UTF-8 BOM, if any, stays at byte 0 with the new `---`
+  inserted after it.
+
+Multi-document streams and files with directives are left for manual
+intervention, because the correct marker placement there depends on
+context the rule does not record. The `present: false` case (removing
+existing `---` markers) is never auto-fixed because removal can collide
+with multi-document boundaries.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["document-start"]
+```
+
+## Related rules
+
+- [`document-end`](document-end.md) &mdash; the matching rule for the
+  `...` end marker.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/empty-lines/
+
+# empty-lines
+
+## What this rule does
+
+Controls the number of consecutive empty lines allowed in the body of the
+file, at the start of the file, and at the end of the file.
+
+## Why this matters
+
+- **Vertical density.** Too many blank lines fragment related content;
+  too few make sections run together.
+- **Trailing blanks.** Empty lines at the end of a file are usually
+  unintentional and produce noisy diffs.
+
+## Configuration
+
+```toml
+[rules.empty-lines]
+level = "error"
+max = 2
+max-start = 0
+max-end = 0
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `max` | `2` | Maximum consecutive empty lines anywhere in the document. |
+| `max-start` | `0` | Maximum empty lines allowed at the start of the file. |
+| `max-end` | `0` | Maximum empty lines allowed at the end of the file. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+---
+a: 1
+
+b: 2
+
+
+c: 3
+```
+
+### :x: Reported (defaults)
+
+```yaml
+---
+a: 1
+
+
+
+b: 2
+```
+
+### :wrench: After `ryl --fix` (defaults)
+
+```yaml
+---
+a: 1
+
+
+b: 2
+```
+
+## Automatic fixing
+
+`ryl --fix` trims runs of empty lines down to `max` (or `max-start`
+and `max-end` for the leading and trailing run). The fix is **partial**
+by design: blank lines that fall inside any multi-line scalar — literal
+or folded block scalars (`|`/`>`), multi-line single- or double-quoted
+scalars, or multi-line plain scalars — are left untouched, because
+those blank lines contribute to the parsed value.
+
+The protected line set is computed via the YAML parser, so the fix
+bails (leaves the file untouched) when the input cannot be parsed.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["empty-lines"]
+```
+
+## Related rules
+
+- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+  the single trailing newline character (distinct from "empty lines at
+  end").
+- [`trailing-spaces`](trailing-spaces.md) &mdash; reports whitespace on
+  otherwise-empty lines.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/empty-values/
+
+# empty-values
+
+## What this rule does
+
+Reports keys whose value is missing (empty), separately for block
+mappings, flow mappings, and block sequences.
+
+## Why this matters
+
+- **Accidental nulls.** A key without a value parses as `null`, which is
+  often unintentional and can mask typos in the value.
+- **Schema validation.** Some downstream consumers treat missing values
+  differently from explicit `null`, leading to surprising bugs.
+
+## Configuration
+
+```toml
+[rules.empty-values]
+level = "error"
+forbid-in-block-mappings = true
+forbid-in-flow-mappings = true
+forbid-in-block-sequences = true
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid-in-block-mappings` | `true` | Forbid empty values in block-style mappings. |
+| `forbid-in-flow-mappings` | `true` | Forbid empty values in flow-style mappings. |
+| `forbid-in-block-sequences` | `true` | Forbid empty list items in block-style sequences. |
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+---
+some-key: value
+explicit-null: null
+```
+
+### :x: Reported (with `forbid-in-block-mappings: true`)
+
+```yaml
+---
+some-key:
+other-key: value
+```
+
+### :x: Reported (with `forbid-in-flow-mappings: true`)
+
+```yaml
+---
+inline: {first: 1, second: }
+```
+
+### :x: Reported (with `forbid-in-block-sequences: true`)
+
+```yaml
+---
+items:
+  -
+  - value
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; supplying a value (including an explicit
+`null`) is a content change that requires intent from the author.
+
+## Related rules
+
+- [`truthy`](truthy.md) &mdash; complementary rule for ambiguous bareword
+  values.
+- [`quoted-strings`](quoted-strings.md) &mdash; controls quoting of
+  values, including the literal string `"null"`.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/float-values/
+
+# float-values
+
+## What this rule does
+
+Constrains how floating-point literals are written. Optionally rejects
+implicit leading-decimal notation, scientific notation, and the special
+values `.nan` and `.inf`.
+
+## Why this matters
+
+- **Parser compatibility.** Not every YAML consumer recognises `.nan` or
+  `.inf`; forbidding them keeps documents portable.
+- **Readability.** `.5` and `5e10` are valid YAML but can be misread.
+  Requiring `0.5` and an explicit form makes intent obvious.
+
+## Configuration
+
+```toml
+[rules.float-values]
+level = "error"
+require-numeral-before-decimal = false
+forbid-scientific-notation = false
+forbid-nan = false
+forbid-inf = false
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `require-numeral-before-decimal` | `false` | Require a digit before the decimal point (forbid `.5`, accept `0.5`). |
+| `forbid-scientific-notation` | `false` | Forbid scientific notation like `1e6`. |
+| `forbid-nan` | `false` | Forbid `.nan` literals. |
+| `forbid-inf` | `false` | Forbid `.inf` and `-.inf` literals. |
+
+## Examples
+
+### :white_check_mark: Allowed (with `require-numeral-before-decimal: true`)
+
+```yaml
+factor: 0.5
+ratio: 0.0
+```
+
+### :x: Reported (with `require-numeral-before-decimal: true`)
+
+```yaml
+factor: .5
+```
+
+### :x: Reported (with `forbid-nan: true` and `forbid-inf: true`)
+
+```yaml
+not-a-number: .nan
+infinity: .inf
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; rewriting the literal requires care to
+preserve the intended value.
+
+## Related rules
+
+- [`octal-values`](octal-values.md) &mdash; the analogous rule for
+  integer literals in octal notation.
+- [`quoted-strings`](quoted-strings.md) &mdash; useful when you want to
+  pin a value to a string regardless of how it would otherwise parse.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/hyphens/
+
+# hyphens
+
+## What this rule does
+
+Controls the number of spaces between the hyphen (`-`) and the value in
+block sequences.
+
+## Why this matters
+
+- **Alignment.** Consistent spacing keeps sequence items lined up under
+  the same column, which matters for readability of long lists.
+- **Diff stability.** Editors that "fix" hyphen spacing during a save
+  produce noisy diffs when the rule is unset.
+
+## Configuration
+
+```toml
+[rules.hyphens]
+level = "error"
+max-spaces-after = 1
+dash-on-own-line = false
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `max-spaces-after` | `1` | Maximum spaces between the `-` and the item value. |
+| `dash-on-own-line` | `false` | Require the `-` on its own line when the entry is a block mapping (ryl-only; TOML config only). |
+
+`dash-on-own-line` is a ryl-only extension with no yamllint counterpart, so it is
+configured in TOML config only and rejected in yamllint-compatible YAML config.
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+list:
+  - first
+  - second
+```
+
+### :x: Reported (defaults)
+
+```yaml
+list:
+  -  first
+  -   second
+```
+
+### :white_check_mark: Allowed (with `max-spaces-after: 3`)
+
+```yaml
+list:
+  -   first
+  -   second
+```
+
+### :x: Reported (with `dash-on-own-line: true`)
+
+The mapping starts on the dash's line, so the `-` is not on its own line:
+
+```yaml
+items:
+  - name: web
+    port: 80
+```
+
+### :white_check_mark: Allowed (with `dash-on-own-line: true`)
+
+The `-` stands alone and the mapping body is indented below it (a dash carrying
+only an anchor/tag or a comment is also accepted, since the keys remain below):
+
+```yaml
+items:
+  -
+    name: web
+    port: 80
+```
+
+## Automatic fixing
+
+This rule does not auto-fix. Trim the extra spaces (`max-spaces-after`) or break the
+mapping onto the line below the `-` (`dash-on-own-line`) manually: re-indenting the
+mapping body is a structural change ryl will not make automatically.
+
+## Related rules
+
+- [`indentation`](indentation.md) &mdash; controls how sequence items are
+  indented relative to their parent key.
+- [`brackets`](brackets.md) and [`commas`](commas.md) &mdash; the flow
+  sequence equivalents.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/indentation/
+
+# indentation
+
+## What this rule does
+
+Enforces consistent indentation throughout the document. Specifically:
+
+- The indent width used by block mappings and block sequences.
+- Whether block sequence items are indented under their parent key or
+  start at the same column.
+- Optionally, the indentation of content inside multi-line block scalars.
+
+## Why this matters
+
+- **Mixed indents cause parse surprises.** YAML's whitespace sensitivity
+  means inconsistent indents can change which key a value belongs to.
+- **Cross-tool diffing.** Editors with different default tab widths can
+  silently introduce mixed indentation; the rule catches drift early.
+- **Convention.** Most projects settle on either 2- or 4-space indents;
+  pinning the width prevents new files from drifting.
+
+## Configuration
+
+```toml
+[rules.indentation]
+level = "error"
+spaces = "consistent"
+indent-sequences = true
+check-multi-line-strings = false
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `spaces` | `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
+| `indent-sequences` | `true` | `true`, `false`, `"whatever"`, or `"consistent"`. Whether block sequence items are indented under the parent key. |
+| `check-multi-line-strings` | `false` | When `true`, apply indent checks inside block scalars and multi-line flow strings. |
+
+## Examples
+
+### :white_check_mark: Allowed (with `spaces: 2, indent-sequences: true`)
+
+```yaml
+parent:
+  list:
+    - item one
+    - item two
+```
+
+### :x: Reported (with `spaces: 2, indent-sequences: true`)
+
+```yaml
+parent:
+  list:
+  - item one
+  - item two
+```
+
+### :white_check_mark: Allowed (with `indent-sequences: false`)
+
+```yaml
+parent:
+  list:
+  - item one
+  - item two
+```
+
+### :x: Reported (with `spaces: 2`)
+
+```yaml
+parent:
+   over-indented: value
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; indentation changes can shift values into
+different parents, so corrections need human review.
+
+## Related rules
+
+- [`hyphens`](hyphens.md) &mdash; spacing between `-` and the sequence
+  item value.
+- [`comments-indentation`](comments-indentation.md) &mdash; standalone
+  comments must follow the same indent as the next line.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/key-duplicates/
+
+# key-duplicates
+
+## What this rule does
+
+Reports duplicate keys in a single mapping. Optionally also reports
+duplicated `<<` merge keys, keys that are *semantically* equal after YAML 1.2
+core-schema resolution, and keys that collide once `<<` merges are expanded.
+
+## Why this matters
+
+- **Silent overwrites.** When two entries share a key, most YAML parsers
+  keep only one of them; the other's value is silently discarded.
+- **Schema validation.** Some downstream consumers reject documents with
+  duplicate keys outright, so catching the duplication early avoids
+  surprises in production.
+- **Equal-but-differently-spelled keys.** The YAML 1.2.2 spec requires mapping
+  keys to be unique and defines equality by each tag's canonical form, so
+  `0xB` and `11` are the *same* integer key even though the text differs.
+- **Invisible merge precedence.** When a single `<<` merges two mappings that
+  define the same key, YAML silently keeps the first and discards the second.
+
+## Configuration
+
+```toml
+[rules.key-duplicates]
+level = "error"
+forbid-duplicated-merge-keys = false
+check-canonical = false              # ryl-only
+forbid-merge-key-shadowing = false   # ryl-only
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid-duplicated-merge-keys` | `false` | Also report duplicate `<<` merge keys in the same mapping. |
+| `check-canonical` | `false` | **ryl-only.** Compare keys by their YAML 1.2 core-schema canonical form, so `0xB`/`011`/`11` (integer 11) or `Null`/`~` collide, while a quoted `"11"` (a string) stays distinct from the integer `11`. A key carrying a local / non-core tag falls back to literal-text comparison. Also reports *merge-vs-merge* collisions: a `<<` whose merged mappings assign **different values** to the same key (sources that agree, or the same anchor merged twice, are not flagged). |
+| `forbid-merge-key-shadowing` | `false` | **ryl-only.** Also report a key that is set both by a merge and explicitly when the two **values differ** &mdash; the value-changing `<<: *defaults` + override pattern. A redundant override to the merged value is not flagged. (Merge-vs-merge collisions are reported whenever either ryl-only knob is on.) |
+
+`check-canonical` and `forbid-merge-key-shadowing` are ryl-only and configurable
+only in TOML; a yamllint-compatible YAML config rejects them.
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+---
+first: 1
+second: 2
+```
+
+```yaml
+# check-canonical: an intentional merge override is not a duplicate
+defaults: &d {timeout: 30}
+prod:
+  <<: *d
+  timeout: 60
+```
+
+### :x: Reported
+
+```yaml
+---
+key: 1
+key: 2
+```
+
+### :x: Reported (with `forbid-duplicated-merge-keys: true`)
+
+```yaml
+---
+<<: *anchor-one
+<<: *anchor-two
+extra: value
+```
+
+### :x: Reported (with `check-canonical: true`)
+
+```yaml
+# 0xB and 11 are both the integer 11
+0xB: a
+11: b
+```
+
+```yaml
+# both merged mappings define `x`; the second is silently dropped
+a: &a {x: 1}
+b: &b {x: 2}
+c:
+  <<: [*a, *b]
+```
+
+### :x: Reported (with `forbid-merge-key-shadowing: true`)
+
+```yaml
+# the explicit `timeout` shadows the merged one
+defaults: &d {timeout: 30}
+prod:
+  <<: *d
+  timeout: 60
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; resolving a duplicate requires deciding
+which value is canonical.
+
+## Related rules
+
+- [`key-ordering`](key-ordering.md) &mdash; enforces alphabetical key
+  order, which makes duplicates harder to introduce accidentally.
+- [`anchors`](anchors.md) &mdash; covers a related class of ambiguity
+  for anchor/alias declarations.
+- [`merge-keys`](merge-keys.md) &mdash; forbids the `<<` merge key outright;
+  this rule's merge options instead detect *duplicate* or value-changing merges.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/key-ordering/
+
+# key-ordering
+
+## What this rule does
+
+Requires that the keys within each mapping appear in lexicographic
+(locale-aware) order.
+
+## Why this matters
+
+- **Predictable diffs.** When new keys are inserted in sorted order,
+  diffs are localised to the area of change.
+- **Reviewability.** A consistent key order makes it easy to spot when a
+  key is missing or misnamed.
+
+## Configuration
+
+```toml
+[rules.key-ordering]
+level = "error"
+ignored-keys = []
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `ignored-keys` | `[]` | Regular expressions; keys matching any pattern may appear in any order. |
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+---
+alpha: 1
+beta: 2
+gamma: 3
+```
+
+### :x: Reported
+
+```yaml
+---
+gamma: 3
+alpha: 1
+beta: 2
+```
+
+### :white_check_mark: Allowed (with `ignored-keys: ["^x-"]`)
+
+```yaml
+---
+x-trailing-extension: value
+alpha: 1
+beta: 2
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; reordering keys can disturb mappings whose
+order is significant to readers (for example documenting fields in a
+logical workflow).
+
+## Related rules
+
+- [`key-duplicates`](key-duplicates.md) &mdash; ordering and uniqueness
+  are commonly enforced together.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/line-length/
+
+# line-length
+
+## What this rule does
+
+Enforces a maximum visible width for each line in a YAML file. Lines that
+exceed `max` characters are reported.
+
+## Why this matters
+
+- **Reviewability.** Long lines wrap awkwardly in code review tools, diffs,
+  and terminal viewers.
+- **Side-by-side editing.** Many editors are configured for two-pane work
+  at 80 or 100 columns; consistent line lengths keep both panes legible.
+- **Generated YAML.** Linting line length is a low-cost way to catch
+  templating bugs that produce runaway concatenated values.
+
+## Examples
+
+### :white_check_mark: Allowed (at the default `max = 80`)
+
+```yaml
+description: A short summary that fits within the configured line limit.
+```
+
+### :x: Reported
+
+```yaml
+description: This single line is well over eighty characters wide and so the line-length rule will flag it as too long.
+```
+
+### :wrench: How to fix
+
+Break the value onto multiple lines using a block scalar:
+
+```yaml
+description: >
+  This text was previously one very long line, but is now folded onto
+  multiple shorter lines that all fit within the configured width.
+```
+
+## Configuration
+
+```toml
+[rules.line-length]
+level = "warning"
+max = 80
+allow-non-breakable-words = true
+allow-non-breakable-inline-mappings = false
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `max` | `80` | Maximum number of characters allowed per line. |
+| `allow-non-breakable-words` | `true` | Allow over-length lines whose long token has no whitespace to break on (typical for URLs or hashes). |
+| `allow-non-breakable-inline-mappings` | `false` | Extend the above allowance to lines like `key: <single long token>` where the value has no break candidate. |
+
+## Automatic fixing
+
+This rule does not currently auto-fix; long lines need to be reflowed by
+hand or wrapped with a block scalar.
+
+## Related rules
+
+- [`empty-lines`](empty-lines.md) &mdash; controls vertical density which
+  often pairs with horizontal width preferences.
+- [`indentation`](indentation.md) &mdash; deep indentation makes the
+  effective content width narrower; consider both rules together when
+  picking a `max`.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/merge-keys/
+
+# merge-keys
+
+## What this rule does
+
+Reports the `<<` merge key. A merge key splices the keys of another mapping into
+the current one:
+
+```yaml
+defaults: &defaults
+  retries: 3
+  timeout: 30
+prod:
+  <<: *defaults       # prod gains retries: 3 and timeout: 30
+  host: prod.example.com
+```
+
+When enabled the rule flags every `<<` key, whether its value is an alias
+(`<<: *defaults`), an inline mapping (`<<: {a: 1}`), or a list of either
+(`<<: [*a, *b]`). A key explicitly tagged `!!merge` is also flagged regardless of
+its text (`!!merge foo:` merges in the same loaders that honour `<<`). It is
+**off by default**.
+
+## Why this matters
+
+The merge key is a YAML **1.1** type (`yaml.org/type/merge.html`). YAML **1.2**
+removed it: "The merge `<<` and value `=` special mapping keys have been removed"
+(YAML 1.2.2 changes page). ryl resolves scalars under the YAML 1.2 core schema,
+where `<<` is an ordinary string key with no special meaning.
+
+That makes `<<` a portability trap. Whether `<<: *defaults` actually merges
+anything depends entirely on the parsing library: some still honour the 1.1 merge,
+others treat `<<` as a literal key, so the same document can produce a different
+mapping depending on the tool. A portability-sensitive repository can enable this
+rule to forbid the construct outright.
+
+A quoted `"<<"` is **not** flagged: quoting turns it into a plain string key that
+never merges in any parser (verified against PyYAML and ruamel.yaml), so it is not
+a portability hazard. Note that quoting is therefore not a way to *keep* a merge —
+it removes the merge behaviour entirely.
+
+Sources: YAML 1.2.2 changes page; YAML merge type (`yaml.org/type/merge.html`).
+
+## Configuration
+
+`merge-keys` is a ryl-only rule (yamllint has no equivalent), so it is configured
+**only in TOML** &mdash; `[rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.rules.merge-keys]` in `pyproject.toml`. It is rejected in
+yamllint-compatible YAML config (including `-d` data) so the YAML namespace stays
+reserved for any future yamllint rule.
+
+```toml
+[rules.merge-keys]
+level = "error"
+```
+
+The rule has no options: when enabled it flags every `<<` merge key.
+
+## Examples
+
+### :x: Reported
+
+```yaml
+defaults: &defaults
+  retries: 3
+prod:
+  <<: *defaults
+  host: prod.example.com
+```
+
+```text
+4:3  error  forbidden merge key "<<"  (merge-keys)
+```
+
+### :white_check_mark: Allowed
+
+Write the keys explicitly instead of merging:
+
+```yaml
+defaults: &defaults
+  retries: 3
+prod:
+  retries: 3
+  host: prod.example.com
+```
+
+## Automatic fixing
+
+This rule does not auto-fix. Removing a merge requires inlining the merged
+mapping's resolved keys and values (which the source text alone does not carry),
+and quoting the `<<` would silently drop the merge; no single rewrite is
+universally safe.
+
+## Related rules
+
+- [`key-duplicates`](key-duplicates.md) &mdash; its `forbid-duplicated-merge-keys`
+  option targets a *repeated* `<<` in one mapping, and its `check-canonical` /
+  `forbid-merge-key-shadowing` options flag merges that silently change a key's
+  value. `merge-keys` instead forbids *any* use of `<<`.
+- [`anchors`](anchors.md) &mdash; governs the anchors and aliases (`&`/`*`) a
+  merge typically relies on.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/
+
+# new-line-at-end-of-file
+
+## What this rule does
+
+Requires the file to end with exactly one trailing newline character.
+
+## Why this matters
+
+- **POSIX text files** are defined as a sequence of zero or more lines,
+  each terminated by a newline. Many tools (concat, cat, version control
+  diff renderers) behave unexpectedly without the trailing newline.
+- **Editor friendliness.** Most editors silently add or strip a trailing
+  newline on save; pinning the rule keeps diffs from oscillating between
+  contributors.
+
+## Configuration
+
+```toml
+[rules.new-line-at-end-of-file]
+level = "error"
+```
+
+This rule has no options beyond `level`.
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+---
+key: value
+```
+
+(File ends with a single `\n` after the last line.)
+
+### :x: Reported
+
+A file whose final byte is not a newline character, or that ends with two
+or more consecutive newlines.
+
+### :wrench: After `ryl --fix`
+
+ryl appends a single newline if missing, and trims any extra trailing
+newlines to leave exactly one.
+
+## Automatic fixing
+
+`ryl --fix` adjusts the trailing newline to exactly one. Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["new-line-at-end-of-file"]
+```
+
+## Related rules
+
+- [`empty-lines`](empty-lines.md) &mdash; controls multiple empty lines
+  at the end of file (distinct from a single trailing newline).
+- [`new-lines`](new-lines.md) &mdash; controls which line ending
+  character is used.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/new-lines/
+
+# new-lines
+
+## What this rule does
+
+Enforces a consistent line-ending style across the file &mdash; either
+Unix (LF), DOS/Windows (CRLF), or whatever the host platform produces.
+
+## Why this matters
+
+- **Cross-platform contributors.** Mixed CRLF and LF line endings show up
+  in diffs as full-file changes when a contributor's editor normalises
+  them.
+- **Tool compatibility.** Some YAML consumers and shell utilities behave
+  unexpectedly with the "wrong" line ending for the platform.
+
+## Configuration
+
+```toml
+[rules.new-lines]
+level = "error"
+type = "unix"
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `type` | `"unix"` | `"unix"` (LF), `"dos"` (CRLF), or `"platform"` to match the host operating system. |
+
+## Examples
+
+The rule operates on the bytes of the file, so visible examples are
+limited. With `type: "unix"`:
+
+### :white_check_mark: Allowed
+
+A file whose every line ends with `\n`.
+
+### :x: Reported
+
+A file whose lines end with `\r\n`.
+
+### :wrench: After `ryl --fix`
+
+`ryl --fix` rewrites the file so every line ends with the configured
+character sequence.
+
+## Bare carriage returns
+
+A bare `\r` (a carriage return not part of `\r\n`) is a YAML 1.2 line break, so
+ryl treats it as a line ending here too. It is never one of the configurable
+styles (`unix`/`dos`/`platform`), so when the file's first line break is a bare
+`\r` the rule reports it as wrong and `ryl --fix` rewrites it to the configured
+ending. This is a deliberate divergence from yamllint, whose line layer cannot
+see a bare `\r` and whose `type` has no `mac` value; on supported LF/CRLF files
+the behaviour is identical. See
+[Migrating from yamllint](../getting-started/migrating-from-yamllint.md#bare-carriage-return-r-line-breaks).
+
+## Automatic fixing
+
+`ryl --fix` rewrites all line endings to match `type`. Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["new-lines"]
+```
+
+## Related rules
+
+- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+  the single trailing newline at end of file.
+- [`trailing-spaces`](trailing-spaces.md) &mdash; reports whitespace
+  before the line ending.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/octal-values/
+
+# octal-values
+
+## What this rule does
+
+Reports octal integer literals. By default both YAML 1.1 implicit form
+(`0755`) and YAML 1.2 explicit form (`0o755`) are flagged.
+
+## Why this matters
+
+- **YAML 1.1 vs 1.2 mismatch.** `0755` is octal in YAML 1.1 (value 493)
+  but decimal in YAML 1.2 (value 755). The same literal therefore means
+  different things to different consumers.
+- **Surprise.** Permissions or version numbers that begin with `0` are
+  often intended as plain strings or decimal numbers, not octals.
+
+## Configuration
+
+```toml
+[rules.octal-values]
+level = "error"
+forbid-implicit-octal = true
+forbid-explicit-octal = true
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid-implicit-octal` | `true` | Forbid `0nnn` style literals that YAML 1.1 treats as octal. |
+| `forbid-explicit-octal` | `true` | Forbid `0o755`-style literals that YAML 1.2 treats as octal. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+permissions: "0755"
+explicit: 493
+```
+
+### :x: Reported (with `forbid-implicit-octal: true`)
+
+```yaml
+permissions: 0755
+```
+
+### :x: Reported (with `forbid-explicit-octal: true`)
+
+```yaml
+permissions: 0o755
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; rewriting an integer literal requires
+deciding whether the intended value is octal, decimal, or a string.
+
+## Related rules
+
+- [`float-values`](float-values.md) &mdash; the analogous rule for
+  floating-point literal formats.
+- [`quoted-strings`](quoted-strings.md) &mdash; quoting a value pins it
+  to a string regardless of how it would otherwise parse.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/quoted-strings/
+
+# quoted-strings
+
+## What this rule does
+
+Enforces a consistent quoting style for string scalars and controls when
+quotes are required.
+
+The rule answers three questions:
+
+1. **Which quote type is preferred** &mdash; single, double, or either.
+2. **When must a string be quoted** &mdash; always, only when YAML would
+   otherwise interpret it as a non-string type, or never.
+3. **Which scalars are in scope** &mdash; values only, or both values and
+   mapping keys.
+
+## Why this matters
+
+- **Avoid accidental retyping.** Bareword values like `yes` or `1.0` are
+  silently parsed as booleans or floats. Quoting prevents this.
+- **Consistent diffs.** Mixing `'foo'` and `"foo"` in the same file causes
+  noisy diffs whenever an editor or formatter normalises the style.
+- **Escapes and interpolation.** Single-quoted YAML scalars do not process
+  escape sequences; double-quoted ones do. Picking the right type per
+  project avoids surprises with `\n`, `\t`, and Unicode escapes.
+
+## Examples
+
+The examples below assume `quote-type = "double"` and
+`required = "only-when-needed"` (the recommended starting point).
+
+### :white_check_mark: Allowed
+
+```yaml
+title: A plain bareword string
+flag: "yes"            # quoted because yes would parse as a boolean
+escape: "line1\nline2" # quoted because it uses an escape sequence
+```
+
+### :x: Reported
+
+```yaml
+flag: yes              # unintentional boolean
+title: 'A plain string'  # single-quoted when double is configured
+```
+
+### :wrench: After `ryl --fix`
+
+```yaml
+flag: "yes"
+title: "A plain string"
+```
+
+## Configuration
+
+```toml
+[rules.quoted-strings]
+level = "warning"
+quote-type = "any"
+required = true
+extra-required = []
+extra-allowed = []
+allow-quoted-quotes = false
+allow-double-quotes-for-escaping = false  # ryl-only
+check-keys = false
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `quote-type` | `"any"` | `"single"`, `"double"`, or `"any"`. The quote style required when the rule decides a string must be quoted. |
+| `required` | `true` | `true` &mdash; every string scalar must be quoted. `false` &mdash; no string scalar may be quoted. `"only-when-needed"` &mdash; require quotes only when leaving the scalar bare would change its YAML type. |
+| `extra-required` | `[]` | Regular expressions; values matching any pattern must be quoted regardless of `required`. |
+| `extra-allowed` | `[]` | Regular expressions; values matching any pattern may be quoted even when `required = false`. |
+| `allow-quoted-quotes` | `false` | Permit single quotes inside a single-quoted string (and analogously for doubles) instead of forcing a switch to the other quote type. |
+| `allow-double-quotes-for-escaping` | `false` | **ryl-only.** When `quote-type = "single"` and `required = "only-when-needed"`, allow double quotes specifically for strings that need an escape sequence. |
+| `check-keys` | `false` | Also apply the rule to mapping keys, not only values. |
+
+## Automatic fixing
+
+`ryl --fix` rewrites string scalars to use the configured `quote-type` and
+adds or removes quotes to satisfy `required`. The fix is conservative: it
+only changes scalars where the corrected form parses to the same value as
+the original.
+
+Disable the fix for this rule by adding it to `[fix].unfixable`:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["quoted-strings"]
+```
+
+## YAML 1.2 caveat with `required = "only-when-needed"`
+
+ryl applies YAML 1.2 implicit-type resolution when deciding whether a
+quoted scalar is redundantly quoted. Under YAML 1.2 the barewords `yes`,
+`no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
+plain strings, whereas YAML 1.1 treats them as booleans. (`true`, `True`,
+`TRUE`, `false`, `False`, and `FALSE` are booleans under both versions, so
+they are unaffected.) yamllint uses YAML 1.1 semantics, where the longer
+list is boolean.
+
+The practical consequence is that `"yes"` (with `required:
+"only-when-needed"`, `quote-type: "double"`) is flagged by ryl as
+redundantly quoted but accepted by yamllint. To match yamllint's
+behaviour, set `required = true` so all string scalars are quoted
+regardless of type, or rely on the [`truthy`](truthy.md) rule to flag
+ambiguous barewords and keep `quoted-strings` off. See
+[YAML version compatibility](../yaml-version.md) for more context.
+
+## Related rules
+
+- [`truthy`](truthy.md) &mdash; complements `quoted-strings` by reporting
+  bareword booleans that would otherwise need quoting.
+- [`empty-values`](empty-values.md) &mdash; controls how missing values are
+  written, which interacts with whether nulls should be quoted.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/tags/
+
+# tags
+
+## What this rule does
+
+Inspects the YAML tags attached to nodes (`!!python/object/apply`, `!!omap`,
+`!env`, …) for safety and portability. The rule bundles three independent
+checks, all **off by default**; enable only the ones your project needs.
+
+## Why this matters
+
+- **Unsafe construction tags.** Language-specific tags such as
+  `!!python/object/apply`, `!ruby/object:`, or `!!java/…` drive
+  arbitrary-object construction in some loaders. PyYAML's documentation warns
+  that `yaml.load` "is as powerful as `pickle.load`" and recommends
+  `safe_load`; authoring YAML that depends on such tags is a recognised
+  anti-pattern.
+- **Removed YAML 1.1 types.** `!!omap`, `!!pairs`, `!!set`, `!!timestamp`, and
+  `!!binary` were removed in YAML 1.2. ryl targets YAML 1.2, so flagging them
+  keeps documents portable.
+- **Local / non-core tags.** Local tags such as `!env` or `!include` are
+  application-specific and "may even have different semantics in different
+  documents" (YAML 1.2.2 spec). An allowlist lets a team permit only the
+  handles it actually uses.
+
+Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; PyYAML docs; The
+YAML Company.
+
+## Configuration
+
+`tags` is a ryl-only rule (yamllint has no equivalent), so it is configured
+**only in TOML** &mdash; `[rules.tags]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.rules.tags]` in `pyproject.toml`. It is rejected in
+yamllint-compatible YAML config (including `-d` data) so the YAML `tags`
+namespace stays reserved for any future yamllint rule.
+
+```toml
+[rules.tags]
+level = "error"
+forbid-unsafe-tags = false
+forbid-removed-types = false
+allowed-tags = []
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `forbid-unsafe-tags` | `false` | Forbid language-specific construction tags whose suffix begins with a known namespace: `python/`, `ruby/`, `perl/`, `php/`, `java/`, `java.`, or `javax.`. This list is a curated best-effort, not an exhaustive denylist. |
+| `forbid-removed-types` | `false` | Forbid the YAML 1.1 types removed in 1.2: `!!omap`, `!!pairs`, `!!set`, `!!timestamp`, `!!binary`. |
+| `allowed-tags` | `[]` | When non-empty, report any other local / non-core tag (e.g. `!env`) that is not listed. Core-schema tags (`!!str`, `!!omap`, …) are governed by the other two options, not by this allowlist. |
+
+List `allowed-tags` entries as the author-facing tag spelling (e.g. `!env`).
+Custom `%TAG` handles are matched as written, so `!e!keep` is allowlisted with
+`"!e!keep"` rather than its resolved URI. Verbatim tags use their normalised
+verbatim spelling (`!<…>`). The non-specific `!` tag is never reported.
+
+When more than one check matches the same node, a single diagnostic is
+reported in the order: unsafe, removed type, not allowed.
+
+Diagnostics point at the explicit tag token, including when a tagged block
+collection begins on the next line.
+
+## Examples
+
+### :x: Reported (with `forbid-unsafe-tags: true`)
+
+```yaml
+payload: !!python/object/apply:os.system ["id"]
+record: !ruby/object:Account {}
+```
+
+### :x: Reported (with `forbid-removed-types: true`)
+
+```yaml
+ordered: !!omap [{a: 1}]
+unique: !!set {a, b}
+```
+
+### :x: Reported (with `allowed-tags: ["!keep"]`)
+
+```yaml
+database: !env DATABASE_URL
+```
+
+### :white_check_mark: Allowed (with `allowed-tags: ["!keep"]`)
+
+```yaml
+secret: !keep VALUE
+name: !!str 42
+```
+
+## Automatic fixing
+
+This rule does not auto-fix. Rewriting or removing a tag would change the
+node's resolved type (or require guessing the intended value), so no single
+rewrite is universally safe.
+
+## Related rules
+
+- [`anchors`](anchors.md) &mdash; the analogous rule for the other piece of
+  node metadata, anchors and aliases.
+- [`quoted-strings`](quoted-strings.md) &mdash; useful when you want to pin a
+  value to a string instead of relying on a tag.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/trailing-spaces/
+
+# trailing-spaces
+
+## What this rule does
+
+Reports whitespace at the end of any line.
+
+## Why this matters
+
+- **Invisible drift.** Trailing whitespace is invisible in most editors
+  but shows up as a change in every diff, polluting code review.
+- **Editor normalisation.** Many editors strip trailing whitespace on
+  save; without this rule, contributors with different editor settings
+  produce conflicting commits.
+
+## Configuration
+
+```toml
+[rules.trailing-spaces]
+level = "error"
+```
+
+This rule has no options beyond `level`.
+
+## Examples
+
+### :white_check_mark: Allowed
+
+```yaml
+---
+key: value
+```
+
+(No spaces between `value` and the newline.)
+
+### :x: Reported
+
+```yaml
+---
+key: value···
+```
+
+(Where `···` represents trailing whitespace characters.)
+
+### :wrench: After `ryl --fix`
+
+```yaml
+---
+key: value
+```
+
+## Automatic fixing
+
+`ryl --fix` strips trailing spaces and tabs from each line. The fix is
+**partial** by design: lines inside literal/folded block scalars
+(`|`/`>`) and inside multi-line double-quoted scalars are left untouched,
+because in those contexts trailing whitespace can be part of the parsed
+scalar value. The diagnostic still fires on those lines so the
+remaining trailing whitespace is visible after `--fix`; edit them by
+hand if you want them clean. Multi-line single-quoted and plain scalars
+fold trailing whitespace away at parse time, so the fix can safely
+strip those.
+
+The fix bails (leaves the file untouched) when the input cannot be
+parsed as YAML, so a broken document is never made worse.
+
+Disable with:
+
+```toml
+[fix]
+fixable = ["ALL"]
+unfixable = ["trailing-spaces"]
+```
+
+## Related rules
+
+- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+  the trailing newline character.
+- [`empty-lines`](empty-lines.md) &mdash; controls fully blank lines (a
+  separate concern from trailing whitespace on content lines).
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/truthy/
+
+# truthy
+
+## What this rule does
+
+Reports bareword string values that YAML 1.1 would interpret as booleans.
+By default only `true` and `false` are accepted; all other YAML 1.1
+truthy words (`yes`, `no`, `on`, `off`, `True`, `Yes`, ...) are flagged.
+
+## Why this matters
+
+- **Silent type coercion.** A literal `yes` parses as the boolean `true`
+  under YAML 1.1, which is rarely what an author intended for a country
+  code, a country name, or a configuration value.
+- **Cross-parser drift.** Some libraries still default to YAML 1.1
+  semantics, others to 1.2; flagging the ambiguous words makes the
+  document behave the same way everywhere.
+
+## Configuration
+
+```toml
+[rules.truthy]
+level = "error"
+allowed-values = ["true", "false"]
+check-keys = true
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `allowed-values` | `["true", "false"]` | Bareword values that are permitted. Everything else triggers the rule. |
+| `check-keys` | `true` | Also report truthy values used as mapping keys. |
+
+## Examples
+
+### :white_check_mark: Allowed (defaults)
+
+```yaml
+enabled: true
+visible: false
+```
+
+### :x: Reported (defaults)
+
+```yaml
+enabled: yes
+flag: On
+country: NO
+```
+
+### :white_check_mark: Allowed (with `allowed-values: ["true", "false", "yes", "no"]`)
+
+```yaml
+enabled: yes
+visible: no
+```
+
+## Automatic fixing
+
+This rule does not auto-fix; replacing a bareword changes the value's
+type and meaning, which requires intent from the author.
+
+## Related rules
+
+- [`quoted-strings`](quoted-strings.md) &mdash; quoting a value disables
+  type coercion so the literal stays a string.
+- [`empty-values`](empty-values.md) &mdash; a related class of "what did
+  the author actually mean" ambiguity.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/unicode-line-breaks/
+
+# unicode-line-breaks
+
+## What this rule does
+
+Reports raw occurrences of three Unicode characters that YAML 1.1 treated as
+line breaks but YAML 1.2 does not:
+
+| Character | Name | YAML escape |
+| :--- | :--- | :--- |
+| `U+0085` | next line (NEL) | `\N` |
+| `U+2028` | line separator | `\L` |
+| `U+2029` | paragraph separator | `\P` |
+
+The rule scans the decoded source text and flags every raw occurrence, wherever
+it appears — inside a scalar, a key, or a comment. It is **off by default**.
+
+## Why this matters
+
+YAML 1.1 treated a broad Unicode set as line breaks, including NEL, LS, and PS.
+YAML 1.2 narrowed line breaks to just line feed (`\n`) and carriage return
+(`\r`), and the 1.2.2 changes page records that these three characters "are no
+longer considered line-break characters." ryl targets YAML 1.2.
+
+This makes a raw occurrence a portability trap: a YAML 1.1 parser splits the
+line where a 1.2 parser keeps the character as ordinary scalar content, so the
+same bytes can produce a different parsed structure depending on the tool. The
+characters are also invisible in virtually every editor, so a stray one — pasted
+in from a word processor, a PDF, or a web page — is almost impossible to spot by
+eye.
+
+If you genuinely need one of these characters, YAML 1.2 gives each a dedicated
+escape (`\N`, `\L`, `\P`) that includes it visibly and portably inside a
+double-quoted scalar.
+
+Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
+(line-break characters), §5.7 (escaped characters).
+
+## Configuration
+
+`unicode-line-breaks` is a ryl-only rule (yamllint has no equivalent), so it is
+configured **only in TOML** &mdash; `[rules.unicode-line-breaks]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.unicode-line-breaks]` in
+`pyproject.toml`. It is rejected in yamllint-compatible YAML config (including
+`-d` data) so the YAML namespace stays reserved for any future yamllint rule.
+
+```toml
+[rules.unicode-line-breaks]
+level = "error"
+```
+
+The rule has no options: when enabled it flags all three characters everywhere.
+
+## Examples
+
+### :x: Reported
+
+A double-quoted scalar containing a raw `U+2028` (shown here as `<LS>`; in a real
+file the character is invisible):
+
+```yaml
+title: "first line<LS>second line"
+```
+
+```text
+1:19  error  forbidden raw line separator U+2028; escape as "\L" in a double-quoted scalar  (unicode-line-breaks)
+```
+
+The rule also fires on a raw `U+0085`/`U+2029` in a plain scalar or a comment.
+
+### :white_check_mark: Allowed
+
+Use the dedicated escape inside a double-quoted scalar:
+
+```yaml
+title: "first line\Lsecond line"
+```
+
+## Automatic fixing
+
+This rule does not auto-fix. The escape (`\N`/`\L`/`\P`) is only valid inside a
+double-quoted scalar, so rewriting a plain or single-quoted scalar, a comment,
+or a block scalar would require changing the quoting style or guessing intent;
+no single rewrite is universally safe.
+
+## Related rules
+
+- [`new-lines`](new-lines.md) &mdash; enforces a consistent *line ending*
+  (LF vs CRLF) for the real line breaks.
+- [`quoted-strings`](quoted-strings.md) &mdash; governs the quoting style you
+  need in order to write a `\L`/`\N`/`\P` escape.

@@ -124,6 +124,25 @@ def nav_pages(nav: list) -> list[str]:
     return pages
 
 
+def all_doc_pages(nav: list) -> list[str]:
+    """All docs page paths for the full feed: nav order first, then remaining pages.
+
+    Pages not listed in the nav (e.g. the per-rule pages under ``docs/rules/``) are
+    appended in sorted order so ``llms-full.txt`` is complete; ``index.md`` is excluded.
+
+    Returns:
+        Flattened ``rel_path`` strings covering every ``docs/*.md`` except ``index.md``.
+    """
+    ordered = nav_pages(nav)
+    seen = {*ordered, "index.md"}
+    extra = sorted(
+        rel
+        for path in DOCS.rglob("*.md")
+        if (rel := path.relative_to(DOCS).as_posix()) not in seen
+    )
+    return ordered + extra
+
+
 def render(config: dict) -> str:
     """Render the ``llms.txt`` index from the parsed Zensical config.
 
@@ -158,7 +177,7 @@ def render_full(config: dict) -> str:
     project = config["project"]
     site_url = project["site_url"].rstrip("/") + "/"
     parts = [f"# {project['site_name']}", "", f"> {project['site_description']}", ""]
-    for rel_path in nav_pages(project["nav"]):
+    for rel_path in all_doc_pages(project["nav"]):
         body = (DOCS / rel_path).read_text(encoding="utf-8").strip()
         parts += ["---", "", f"Source: {page_url(rel_path, site_url)}", "", body, ""]
     return "\n".join(parts).rstrip() + "\n"
