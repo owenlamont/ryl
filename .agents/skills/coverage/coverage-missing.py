@@ -95,15 +95,27 @@ def generate_report_json(root: Path) -> dict:
     summary = subprocess.run(
         ["cargo", "llvm-cov", "nextest", "--summary-only"],
         cwd=root,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
         check=False,
     )
     if summary.returncode != 0:
-        sys.exit(
-            "cargo llvm-cov nextest --summary-only failed; "
-            "rerun it directly to see the error."
-        )
+        # Surface the failing tests in one shot rather than forcing a manual re-run:
+        # nextest's FAIL/panic lines are in the captured stream (only `--summary-only`'s
+        # coverage table is suppressed, not the test output), so highlight them and fall
+        # back to a tail.
+        lines = (summary.stdout or "").splitlines()
+        highlights = [
+            line
+            for line in lines
+            if "FAIL" in line
+            or "panicked" in line
+            or "assertion" in line
+            or line.startswith("error")
+        ]
+        detail = "\n".join(highlights[:40]) if highlights else "\n".join(lines[-40:])
+        sys.exit(f"cargo llvm-cov nextest failed:\n{detail}")
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
         tmp_path = Path(handle.name)
     try:

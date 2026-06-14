@@ -82,6 +82,14 @@ a preflight (or via `--quota-only`):
 - If a future Codex CLI adds a live non-consuming usage command, prefer it over the
   cached snapshot.
 
+**Never sleep until a "reset time."** The snapshot's reset timestamp is just where the
+rolling window currently lands, not a fixed clock alarm — it moves. Do not schedule a
+wait against a derived reset time (this cost ~23 idle minutes once); poll for the
+verdict, or hand back to the user. And a **dropped trigger** (no 👀 in the first ~2 min,
+no verdict) is **not** the same as rate-limited — re-trigger once immediately rather than
+waiting out the full poll window, and confirm a real wall with `--quota-only` before
+assuming quota.
+
 ## Acting on findings
 
 Codex reviews the **code**, not the PR comment threads — it does **not** read replies
@@ -94,3 +102,7 @@ to its comments. So:
   record — but don't expect Codex to acknowledge it, and a re-review may re-raise it.
 - Don't loop re-refuting an already-refuted by-design item; defer to the maintainer's
   merge call.
+- When Codex re-raises the **same theme** with progressively narrower edges (common on
+  prose/docs, not only file-I/O), state the full precise behaviour **once**
+  comprehensively — or scope the bullet down — rather than patching per-edge, round by
+  round. Hitting the daily review quota is a legitimate convergence stop.

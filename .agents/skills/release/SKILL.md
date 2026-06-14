@@ -8,13 +8,18 @@ description: >-
 
 # Release Checklist
 
-- Bump versions in lockstep:
+- Bump versions in lockstep, in the release feature branch (never a separate post-merge
+  bump PR — a forgotten bump has forced one before):
   - Cargo: update `Cargo.toml` `version`.
   - Python: update `pyproject.toml` `[project].version`.
   - NPM: update `package.json` `version`.
-- Refresh lockfile and validate:
-  - Run `cargo generate-lockfile` (or `cargo check`) to refresh `Cargo.lock`.
-  - Stage: `git add Cargo.toml Cargo.lock pyproject.toml package.json`.
+- Refresh both lockfiles and validate (five version-bearing files in total):
+  - Run `cargo generate-lockfile` to refresh `Cargo.lock`. This deliberately sweeps in
+    semver-compatible transitive bumps — the maintainer prefers staying current, so do
+    **not** revert that churn as "separate-PR noise" (a recurring past mistake). Reach
+    for a frozen `cargo check` only when keeping the lockfile pinned is explicitly wanted.
+  - Run `uv lock` to refresh `uv.lock` (it carries the project version too).
+  - Stage: `git add Cargo.toml Cargo.lock pyproject.toml package.json uv.lock`.
   - Run `prek run --all-files` (re-run if files were auto-fixed).
 - Docs and notes:
   - Update README/AGENTS for behavior changes.
@@ -37,6 +42,12 @@ description: >-
   `ryl.toml.schema.json` into SchemaStore's draft-07 format, updates the user's
   SchemaStore fork, and prints a manual upstream PR handoff for
   `owenlamont/schemastore:ryl-schema-update`.
+  - Known failure: if the sync job errors with "refusing to allow an OAuth App to
+    create or update workflow", the fork's `master` is stale and/or the GitHub App
+    lacks workflow-write scope. Sync the fork from upstream via the GitHub web
+    "Sync fork" button (`gh repo sync` hits the same OAuth wall), and grant the App
+    Workflows: Read and write. PR #265 added `permissions: workflows: write` to the
+    workflow as the durable fix.
 - Publishing uses Trusted Publishing on all registries (crates.io via GitHub OIDC, PyPI
   via `pypa/gh-action-pypi-publish`, NPM via `actions/setup-node` OIDC). GitHub release
   creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a

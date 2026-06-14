@@ -18,8 +18,9 @@ hunting through scattered tips:
    (cross-platform; needs `uv` + a Rust toolchain with `cargo-llvm-cov`). It reruns the
    coverage suite and prints any uncovered ranges, or explicitly confirms when coverage
    is complete.
-3. If the coverage script itself fails, run the relevant test suite manually first,
-   fix the failing tests, then rerun the coverage script.
+3. If the coverage script itself fails, it prints the failing nextest output (the FAIL
+   lines + panic tails); fix those tests, then rerun. Fall back to a manual
+   `cargo nextest run` only when you need the full log.
 4. If the script reports files, extend CLI/system tests targeting those ranges until
    the script produces no output.
 5. For richer artifacts (HTML/LCOV), see the cargo-llvm-cov docs (HTML isn't easily
@@ -31,7 +32,11 @@ hunting through scattered tips:
    `cargo test --no-run` and then
    `rust-lldb target/debug/deps/<test-binary> -- <filter args>` to set breakpoints
    on the problematic lines.
-8. If cached coverage lingers, clear `target/llvm-cov-target` and rerun.
+8. If cached coverage lingers, clear `target/llvm-cov-target` and rerun. But **a single
+   stubborn uncovered region is usually an unreachable branch, not stale cache** — before
+   clearing, confirm the missed line is reachable by *some* input. An unhit `if let`
+   else / error arm looks identical to a cache miss but is closed by a test (or an
+   `expect`), not a rebuild; chasing the cache first has burned multiple rebuilds.
 
 ## Coverage-Friendly Rust Idioms
 
@@ -53,6 +58,9 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
 
 ## Common hotspots
 
+- A CLI/system test that sets a subprocess working dir via `Command::current_dir` can stop
+  the instrumented child writing its `.profraw` (so its lines read as uncovered). Drive
+  coverage-sensitive dedup/path tests with absolute paths instead of changing cwd.
 - Configuration discovery: use the `Env` abstraction (`discover_config_with`) and fake
   envs to hit inline data, explicit files (success and YAML failure), and env-var paths.
 - Project configuration search: cover empty inputs, single files without parents, and

@@ -94,8 +94,8 @@ ryl is a CLI tool for linting yaml files
 Task-scoped procedures live as on-demand skills in `.agents/skills/` (the shared
 project-scope skills dir most non-Claude agents auto-load); load the matching one when
 its task comes up rather than carrying it in this always-on file. Each is a
-self-contained `SKILL.md`; the `coverage` and `codex-review-watch` skills also carry a
-`uv`-runnable helper script.
+self-contained `SKILL.md`; the `coverage`, `codex-review-watch`, and `retrospective`
+skills also carry a `uv`-runnable helper script.
 
 - **`adding-a-rule`** (`.agents/skills/adding-a-rule/SKILL.md`) — the multi-site
   checklist for adding a new lint rule or changing an existing rule's wiring.
@@ -108,6 +108,12 @@ self-contained `SKILL.md`; the `coverage` and `codex-review-watch` skills also c
   tag/push gate, and post-release SchemaStore + publishing flow.
 - **`codex-review-watch`** (`.agents/skills/codex-review-watch/SKILL.md`) — trigger and
   monitor a Codex CI review on a PR and classify the verdict.
+- **`filing-issues`** (`.agents/skills/filing-issues/SKILL.md`) — filing/editing issues
+  and PRs for ryl or another repo: the cross-repo `#NNN` footgun, the draft-locally gate,
+  the never-on-an-assumption rule, and verified Sources.
+- **`retrospective`** (`.agents/skills/retrospective/SKILL.md`) — quantify development
+  friction across recent sessions with a deterministic transcript extractor
+  (`retro-extract.py`) feeding a small classifier-agent fan-out.
 
 Claude Code does not auto-load `.agents/skills/`, so this list is the cross-tool
 fallback: any agent that reads `AGENTS.md` is pointed here, and even a skill-unaware
@@ -177,6 +183,11 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - Linters/tests may write outside the workspace (e.g. `~/.cache/prek`); if sandboxed,
   request permission escalation for `prek`/`cargo test`/coverage. Allow ≥1-minute
   timeouts per invocation (more for larger runs/CI).
+- Wait on long-running work (tests, coverage, CI, a Codex review) via the harness's
+  background-task notifications or the Monitor tool: launch it with `run_in_background`
+  and act on the completion event. Don't hand-roll `for i in $(seq …); sleep` poll loops
+  — they burn turns, and a stalled or broken job dead-polls to its timeout instead of
+  surfacing the failure (see the `codex-review-watch` skill for the Codex-specific poll).
 
 ## Automated Tests
 

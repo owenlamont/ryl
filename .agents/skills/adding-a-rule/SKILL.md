@@ -39,4 +39,26 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    a CLI test `tests/cli_<rule>_rule.rs` (use the shared `common::cli` harness) and an
    embedded-markdown regression test in `tests/cli_markdown_embed.rs`.
 6. **Docs**: a `docs/rules/<rule>.md` page + the index, and a "How ryl differs from
-   yamllint" entry for any deliberate divergence.
+   yamllint" entry for any deliberate divergence. When a doc page shows example CLI
+   output, produce the `line:col`/message by **running ryl** on the shown input — not by
+   hand (hand-written examples have shipped with wrong columns).
+
+## granit event/span gotchas (pinned 0.0.1)
+
+Verified facts that each cost a throwaway probe to rediscover — re-verify on a granit bump:
+
+- `Span.indent` is always `None`; recover a column/indent from `marker_byte_offset` (+ the
+  source), not from the span.
+- A **tagged or anchored block** collection reports `MappingStart`/`SequenceStart` at the
+  **key/value column, not the tag column** — don't assume the event marks the tag.
+- Any rule reading granit token/event line numbers must index lines split the
+  granit-aligned way (`\r\n|\r|\n`, via `line_syntax`), never `\n`-only: a bare `\r`
+  is a line break to granit, so a `\n`-only split desyncs and can panic out-of-bounds.
+- For an indentation/column-sensitive rule, derive structure from granit events from the
+  start; a line-based `classify_mapping` is YAML-unsound on colons-in-scalars, quoted
+  escapes, and multiline plain scalars (the comments-indentation rewrite learned this over
+  ~5 review rounds).
+- Matching a core-schema tag (`!!int`, …): use `crate::yaml_dom::core_schema_suffix` /
+  `is_core_schema`, **never** granit's handle-only `Tag::is_yaml_core_schema` (a verbatim
+  `!<tag:yaml.org,2002:int>` slips past it); compare the full resolved URI when a `%TAG`
+  can split it, as `support::merge_key` does.
