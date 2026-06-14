@@ -1198,13 +1198,7 @@ fn apply_fixes_reporting_skips(
         count_reported_problems(&lint_files(files), no_warnings);
     let fix_stats = apply_safe_fixes_to_files(files)?;
     for (path, problem) in &fix_stats.skipped {
-        eprintln!(
-            "{}:{}:{} skipped by --fix: {}",
-            sanitize_control(&path.display().to_string()),
-            problem.line,
-            problem.column,
-            sanitize_control(&problem.message),
-        );
+        eprint_skip_notice(path, problem, "--fix");
     }
     Ok(initial_problem_count)
 }
@@ -1217,6 +1211,19 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// Stderr notice for a file `--fix`/`--diff` left untouched (it does not parse, is a
+/// symlink, or is non-UTF-8): `<path>:L:C skipped by <action>: <message>`. Both path and
+/// message are user-controlled, so both are sanitized; `action` is the literal flag name.
+fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
+    eprintln!(
+        "{}:{}:{} skipped by {action}: {}",
+        sanitize_control(&path.display().to_string()),
+        problem.line,
+        problem.column,
+        sanitize_control(&problem.message),
+    );
 }
 
 fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
@@ -1356,13 +1363,7 @@ fn run_stdin_diff(
 /// diagnostics are neither printed nor counted here.
 fn emit_diff(stats: &DiffStats) -> ExitCode {
     for (path, problem) in &stats.skipped {
-        eprintln!(
-            "{}:{}:{} skipped by --diff: {}",
-            sanitize_control(&path.display().to_string()),
-            problem.line,
-            problem.column,
-            sanitize_control(&problem.message),
-        );
+        eprint_skip_notice(path, problem, "--diff");
     }
     // Each diff already carries the trailing newline similar emits, so concatenating
     // and printing once keeps stdout a clean sequence of `--- / +++ / @@` blocks.
@@ -1442,57 +1443,43 @@ fn gather_lint_files(
     // block that fails to apply on the second copy). Unlike yamllint, which keeps
     // duplicates.
     let mut seen: HashSet<PathBuf> = HashSet::new();
-    for f in candidates {
+    // Directory candidates first (a file matching no source kind is silently skipped),
+    // then explicit args (a no-kind file is a hard error, since the user named it);
+    // `explicit` selects which. `seen` spans both, so a file reached via the walk and
+    // also named on the command line is linted exactly once, in walk order.
+    let tagged = candidates
+        .iter()
+        .map(|path| (path, false))
+        .chain(explicit_files.iter().map(|path| (path, true)));
+    for (path, explicit) in tagged {
         let (base_dir, cfg, notices, found) =
-            resolve_ctx(f, global_cfg, markdown, cache)?;
+            resolve_ctx(path, global_cfg, markdown, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{}", sanitize_control(notice.as_str()));
             }
         }
-        if cfg.is_file_ignored(f, &base_dir) {
+        if cfg.is_file_ignored(path, &base_dir) {
             continue;
         }
-        if let Some(kind) = cfg.source_kind(f, &base_dir)? {
-            if !seen.insert(lexical_abspath(f)) {
-                continue;
-            }
-            if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
-                ruleless_config_found = Some(found);
-            }
-            files.push((f.clone(), base_dir, cfg, kind));
-        }
-    }
-
-    for ef in explicit_files {
-        let (base_dir, cfg, notices, found) =
-            resolve_ctx(ef, global_cfg, markdown, cache)?;
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{}", sanitize_control(notice.as_str()));
-            }
-        }
-        if cfg.is_file_ignored(ef, &base_dir) {
-            continue;
-        }
-        match cfg.source_kind(ef, &base_dir)? {
-            Some(kind) => {
-                if !seen.insert(lexical_abspath(ef)) {
-                    continue;
-                }
-                if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
-                    ruleless_config_found = Some(found);
-                }
-                files.push((ef.clone(), base_dir, cfg, kind));
-            }
-            None => {
+        let kind = match cfg.source_kind(path, &base_dir)? {
+            Some(kind) => kind,
+            None if explicit => {
                 return Err(format!(
                     "{}: no source kind matches; add a matching glob under \
                      [files].yaml or [files].markdown",
-                    ef.display()
+                    path.display()
                 ));
             }
+            None => continue,
+        };
+        if !seen.insert(lexical_abspath(path)) {
+            continue;
         }
+        if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
+            ruleless_config_found = Some(found);
+        }
+        files.push((path.clone(), base_dir, cfg, kind));
     }
 
     Ok(ruleless_config_found)
