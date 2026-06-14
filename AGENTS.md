@@ -9,6 +9,9 @@ ryl is a CLI tool for linting yaml files
 ## Project Structure
 
 - **/src/** – All application code lives here.
+- **/src/lsp/** – the `ryl server` language server (LSP), behind the default-on `lsp`
+  cargo feature; a thin protocol adapter (`lsp-server`+`lsp-types`) over the existing
+  engine. See [CLI Behavior](#cli-behavior).
 - **/tests/** – Unit and integration tests.
 - **/docs/** – Source content for the Zensical documentation site.
 - **pyproject.toml** - Package configuration
@@ -439,4 +442,22 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   against the vendored `tests/fixtures/gitlab-code-quality.schema.json` (via the
   `jsonschema` dev-dep), JUnit by re-parsing with `quick-xml`. See
   `docs/output-formats.md`.
+- Language server (`ryl server`, `src/lsp/`, behind the default-on `lsp` feature): a
+  synchronous `lsp-server`+`lsp-types` adapter over the engine. `serve(&Connection)`
+  runs the handshake + message loop; `run()` wires stdio and drops the connection
+  before `io_threads.join()` so the writer thread finishes. It reuses
+  `lint_str`/`lint_markdown_str` for diagnostics and `apply_safe_fixes`/`fix_markdown_str`
+  for `source.fixAll.ryl` + `textDocument/formatting` (whole-file/per-rule fixes only —
+  the engine has no per-occurrence fix; the fix-all action honours `context.only`). Config
+  is resolved per document via `discover_config` (full CLI precedence incl.
+  `YAMLLINT_CONFIG_FILE`); a rule-less/absent config lints nothing silently, a malformed
+  one lints nothing but is surfaced once via `window/showMessage` (no hard exit-2).
+  **Position encoding is the one
+  load-bearing new piece:** LSP columns are UTF-16 code units by default (NOT ryl's
+  1-based code-point columns); `encoding::problem_range` walks the line CR-aware via
+  `line_syntax` and the negotiated encoding (UTF-8/16/32), so multibyte/astral-plane
+  columns need real surrogate-pair fixtures (BMP `café`/`å` pass vacuously). `lsp-types`
+  0.97 forces a benign `bitflags` 1-vs-2 duplicate, allowlisted in `clippy.toml`. The
+  `lsp` feature must stay compilable out: CI runs `cargo clippy --no-default-features`
+  (the LSP tests are `#![cfg(feature = "lsp")]`). See `docs/editor-integration.md`.
 - Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).

@@ -47,6 +47,9 @@ jobs:
           SKIP: no-commit-to-branch,nextest
         run: prek run --all-files
 
+      - name: Check the minimal build (LSP feature compiled out)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+
       - name: Validate the agent skill (skills/ryl)
         env:
           GH_TOKEN: ${{ github.token }}
