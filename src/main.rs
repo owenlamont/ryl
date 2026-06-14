@@ -1022,8 +1022,7 @@ fn main() -> ExitCode {
 fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     #[cfg(feature = "lsp")]
     if matches!(cli.command, Some(Commands::Server)) {
-        ryl::lsp::run();
-        return Ok(ExitCode::SUCCESS);
+        return Ok(ryl::lsp::run());
     }
 
     // A pure meta-action that ignores every other input/flag, like the

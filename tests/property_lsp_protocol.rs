@@ -58,7 +58,9 @@ struct Driver {
 impl Driver {
     fn start() -> Self {
         let (server, client) = Connection::memory();
-        let thread = thread::spawn(move || ryl::lsp::serve(&server));
+        let thread = thread::spawn(move || {
+            let _ = ryl::lsp::serve(&server);
+        });
         let mut driver = Self {
             conn: Some(client),
             thread: Some(thread),

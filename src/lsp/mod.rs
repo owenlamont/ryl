@@ -16,6 +16,7 @@ pub mod encoding;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use lsp_server::{
     Connection, ErrorCode, Message, Notification, Request, RequestId, Response,
@@ -38,21 +39,36 @@ use crate::lsp::encoding::{PositionEncoding, negotiate, uri_to_path};
 /// `editor.codeActionsOnSave` (a `source.fixAll` request subsumes it).
 const FIX_ALL_KIND: &str = "source.fixAll.ryl";
 
+/// How a session ended, mapped to a process exit code by [`run`]. Per the LSP
+/// spec an `exit` notification *without* a prior `shutdown` is abnormal (exit 1);
+/// every other ending (clean shutdown, dropped connection, rejected handshake) is
+/// a normal exit 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionOutcome {
+    Clean,
+    Abnormal,
+}
+
 /// Run the language server over stdio until the client disconnects or completes
-/// the shutdown/exit handshake.
+/// the shutdown/exit handshake, returning the process exit code.
 ///
 /// # Panics
 /// Panics only if the stdio reader/writer threads fail to join, which a working
 /// transport never triggers. Malformed client input ends the session cleanly.
-pub fn run() {
+#[must_use]
+pub fn run() -> ExitCode {
     let (connection, io_threads) = Connection::stdio();
-    serve(&connection);
+    let outcome = serve(&connection);
     // Drop our connection handle so the outgoing channel closes; without this the
     // stdio writer thread never finishes and `io_threads.join()` would hang.
     drop(connection);
     io_threads
         .join()
         .expect("LSP stdio reader/writer threads should join cleanly");
+    match outcome {
+        SessionOutcome::Clean => ExitCode::SUCCESS,
+        SessionOutcome::Abnormal => ExitCode::from(1),
+    }
 }
 
 /// Drive the protocol over an established connection: the `initialize` handshake
@@ -60,19 +76,34 @@ pub fn run() {
 /// [`Connection`] — `run` wires stdio, tests use an in-process
 /// `Connection::memory()` pair. The caller owns the connection and must drop it
 /// after this returns so a stdio writer thread can finish (see [`run`]). A
-/// malformed `initialize` returns early without entering the loop.
+/// malformed `initialize` is rejected with an error response and returns without
+/// entering the loop.
 ///
 /// # Panics
 /// Panics only if serialising ryl's own server capabilities fails, which cannot
 /// happen. Malformed client input ends the session cleanly instead.
-pub fn serve(connection: &Connection) {
+#[must_use]
+pub fn serve(connection: &Connection) -> SessionOutcome {
     // The initialize request and its params are client-controlled, so a malformed
     // one ends the session cleanly rather than panicking.
     let Ok((id, raw_params)) = connection.initialize_start() else {
-        return;
+        return SessionOutcome::Clean;
     };
-    let Ok(params) = serde_json::from_value::<InitializeParams>(raw_params) else {
-        return;
+    let params: InitializeParams = match serde_json::from_value(raw_params) {
+        Ok(params) => params,
+        Err(error) => {
+            // Reject the handshake so the client stops waiting; a silent return
+            // would leave a stdio client's reader blocked, hanging run()'s join.
+            send(
+                connection,
+                Message::Response(Response::new_err(
+                    id,
+                    ErrorCode::InvalidParams as i32,
+                    format!("invalid initialize params: {error}"),
+                )),
+            );
+            return SessionOutcome::Clean;
+        }
     };
     let encoding = negotiate(
         params
@@ -121,7 +152,7 @@ pub fn serve(connection: &Connection) {
         documents: HashMap::new(),
         reported_errors: HashSet::new(),
     };
-    server.message_loop(connection);
+    server.message_loop(connection)
 }
 
 fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
@@ -159,7 +190,7 @@ struct Server {
 }
 
 impl Server {
-    fn message_loop(mut self, connection: &Connection) {
+    fn message_loop(mut self, connection: &Connection) -> SessionOutcome {
         for message in &connection.receiver {
             match message {
                 Message::Request(request) => {
@@ -168,22 +199,25 @@ impl Server {
                     // either way the session is over, so end the loop gracefully
                     // rather than panicking.
                     if connection.handle_shutdown(&request).unwrap_or(true) {
-                        return;
+                        return SessionOutcome::Clean;
                     }
                     self.handle_request(connection, request);
                 }
                 Message::Notification(notification) => {
                     // A bare `exit` (the spec allows it without a prior `shutdown`)
-                    // must terminate the server; the normal shutdown/exit sequence is
-                    // consumed by `handle_shutdown` above and never reaches here.
+                    // must terminate the server and, per the spec, is an abnormal
+                    // exit; the normal shutdown/exit sequence is consumed by
+                    // `handle_shutdown` above and never reaches here.
                     if notification.method == "exit" {
-                        return;
+                        return SessionOutcome::Abnormal;
                     }
                     self.handle_notification(connection, notification);
                 }
                 Message::Response(_) => {}
             }
         }
+        // The client dropped the connection without a shutdown/exit: a normal end.
+        SessionOutcome::Clean
     }
 
     fn handle_request(&self, connection: &Connection, request: Request) {

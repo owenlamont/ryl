@@ -66,7 +66,9 @@ impl Client {
         root_uri: Option<&Path>,
     ) -> (Self, InitializeResult) {
         let (server, client) = Connection::memory();
-        let thread = thread::spawn(move || ryl::lsp::serve(&server));
+        let thread = thread::spawn(move || {
+            let _ = ryl::lsp::serve(&server);
+        });
         let mut this = Client {
             conn: Some(client),
             thread: Some(thread),
@@ -686,19 +688,28 @@ fn serve_returns_cleanly_without_an_initialize() {
 }
 
 #[test]
-fn serve_returns_cleanly_on_malformed_initialize_params() {
-    // An `initialize` request whose params are the wrong shape ends the session
-    // gracefully rather than panicking.
+fn serve_rejects_malformed_initialize_params() {
+    // An `initialize` request whose params are the wrong shape is rejected with an
+    // error response (so a real client stops waiting), not silently dropped.
     let (server, client) = Connection::memory();
+    let id = RequestId::from(1);
     let handle = thread::spawn(move || ryl::lsp::serve(&server));
     client
         .sender
         .send(Message::Request(Request::new(
-            RequestId::from(1),
+            id.clone(),
             "initialize".to_string(),
             Value::String("not the InitializeParams shape".to_string()),
         )))
         .expect("send");
+    let Message::Response(response) = client.receiver.recv().expect("recv") else {
+        panic!("expected an error response to the malformed initialize");
+    };
+    assert_eq!(response.id, id);
+    assert!(
+        response.error.is_some(),
+        "malformed initialize is rejected with an error"
+    );
     drop(client);
     assert!(handle.join().is_ok(), "serve returns without panicking");
 }
@@ -731,8 +742,10 @@ fn bare_exit_notification_ends_the_session() {
             Value::Null,
         )))
         .expect("send exit");
-    // Connection is still open; the server must terminate on `exit` regardless.
-    assert!(handle.join().is_ok(), "server terminates on a bare exit");
+    // Connection is still open; the server must terminate on `exit` regardless,
+    // and report it as an abnormal exit (no prior shutdown) per the LSP spec.
+    let outcome = handle.join().expect("server terminates on a bare exit");
+    assert_eq!(outcome, ryl::lsp::SessionOutcome::Abnormal);
     drop(client);
 }
 
@@ -891,4 +904,44 @@ fn server_binary_runs_over_stdio() {
 
     let status = child.wait().expect("wait for child");
     assert!(status.success(), "clean shutdown exits 0");
+}
+
+#[test]
+fn server_binary_exits_nonzero_on_bare_exit() {
+    let dir = project(TRAILING);
+    let mut child: Child = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("server")
+        .env("HOME", dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn ryl server");
+    let mut stdin = child.stdin.take().expect("child stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("child stdout"));
+
+    Message::Request(Request::new(
+        RequestId::from(1),
+        "initialize".to_string(),
+        InitializeParams::default(),
+    ))
+    .write(&mut stdin)
+    .expect("write initialize");
+    let Message::Response(_) = read_message(&mut stdout) else {
+        panic!("expected initialize response");
+    };
+    Message::Notification(Notification::new(
+        "initialized".to_string(),
+        serde_json::json!({}),
+    ))
+    .write(&mut stdin)
+    .expect("write initialized");
+    // A bare `exit` with no prior `shutdown` is an abnormal termination (exit 1).
+    Message::Notification(Notification::new("exit".to_string(), Value::Null))
+        .write(&mut stdin)
+        .expect("write exit");
+    drop(stdin); // EOF lets the stdio reader thread finish.
+
+    let status = child.wait().expect("wait for child");
+    assert_eq!(status.code(), Some(1), "a bare exit (no shutdown) exits 1");
 }
