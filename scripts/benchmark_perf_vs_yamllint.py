@@ -61,7 +61,9 @@ def quote_shell(text: str) -> str:
 def run_checked(
     args: list[str], *, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, check=True, text=True, capture_output=True)
+    return subprocess.run(
+        args, cwd=cwd, check=True, text=True, capture_output=True, encoding="utf-8"
+    )
 
 
 def require_command(name: str) -> None:

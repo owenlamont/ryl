@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
 
 SCHEMASTORE_ID = "https://json.schemastore.org/ryl.json"
@@ -46,7 +47,7 @@ def main() -> None:
     Raises:
         SystemExit: If the transformed schema root is not a JSON object.
     """
-    transformed = transform_schema(json.loads(SOURCE_PATH.read_text()))
+    transformed = transform_schema(json.loads(SOURCE_PATH.read_text(encoding="utf-8")))
     if not isinstance(transformed, dict):
         raise SystemExit("transformed schema root must be an object")
     transformed["$schema"] = SCHEMASTORE_META_SCHEMA
@@ -55,4 +56,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows stdio defaults to cp1252; the ensure_ascii=False JSON may carry
+    # non-ASCII, so force UTF-8 to avoid an encode crash.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()

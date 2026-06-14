@@ -32,6 +32,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 from typing import Annotated
 
@@ -43,7 +44,9 @@ DASHBOARD = "https://chatgpt.com/codex/settings/usage"
 
 
 def gh(*args: str) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    result = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, encoding="utf-8"
+    )
     if result.returncode != 0:
         # A swallowed gh failure (auth, transient API error, rejected post) would let an
         # old verdict look new or reuse a stale trigger, so abort loudly instead.
@@ -107,7 +110,7 @@ def read_quota() -> dict | None:
     for path in files[:10]:
         found = None
         try:
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
         except OSError:
             continue
         for line in text.splitlines():
@@ -207,6 +210,10 @@ def main(
     ] = 15,
 ) -> None:
     """Watch a Codex CI review on a GitHub PR and classify the verdict."""
+    # Windows stdout/stderr default to cp1252; the Codex verdict and quota text
+    # carry non-ASCII (emoji, P-badges), so force UTF-8 to avoid an encode crash.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     quota = read_quota()
     if quota_only:
         report_quota(quota)

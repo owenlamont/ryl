@@ -47,6 +47,7 @@ from datetime import datetime
 import json
 from operator import itemgetter
 from pathlib import Path
+import sys
 from typing import Annotated, Final
 
 import typer
@@ -509,4 +510,8 @@ def main(
 
 
 if __name__ == "__main__":
+    # Windows stdio defaults to cp1252; transcript text in the printed summary
+    # carries non-ASCII, so force UTF-8 to avoid an encode crash.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     typer.run(main)

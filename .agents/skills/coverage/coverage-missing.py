@@ -98,6 +98,7 @@ def generate_report_json(root: Path) -> dict:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     if summary.returncode != 0:
@@ -164,4 +165,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows stdio defaults to cp1252; cargo output (e.g. unicode test names)
+    # printed on failure would crash the encode, so force UTF-8.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()
