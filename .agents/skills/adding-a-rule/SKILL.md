@@ -43,14 +43,13 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    output, produce the `line:col`/message by **running ryl** on the shown input — not by
    hand (hand-written examples have shipped with wrong columns).
 
-## granit event/span gotchas (pinned 0.0.1)
+## granit event/span gotchas (granit-parser 0.0.5)
 
-Verified facts that each cost a throwaway probe to rediscover — re-verify on a granit bump:
+Facts the codebase relies on; re-verify on a granit bump:
 
-- `Span.indent` is always `None`; recover a column/indent from `marker_byte_offset` (+ the
-  source), not from the span.
-- A **tagged or anchored block** collection reports `MappingStart`/`SequenceStart` at the
-  **key/value column, not the tag column** — don't assume the event marks the tag.
+- Derive a token's position from `marker.byte_offset()` via
+  `crate::rules::support::span_utils` (the pattern every span-using rule follows), rather
+  than reading offsets off the raw `Span` by hand.
 - Any rule reading granit token/event line numbers must index lines split the
   granit-aligned way (`\r\n|\r|\n`, via `line_syntax`), never `\n`-only: a bare `\r`
   is a line break to granit, so a `\n`-only split desyncs and can panic out-of-bounds.
