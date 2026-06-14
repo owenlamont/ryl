@@ -44,7 +44,11 @@ def main() -> None:
     output = SNAPSHOT_PATH.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     data = fetch_json(DEFAULT_URL)
-    output.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    output.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     print(f"Updated {output}")
 
 

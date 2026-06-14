@@ -46,7 +46,7 @@ def main() -> None:
     Raises:
         SystemExit: If the transformed schema root is not a JSON object.
     """
-    transformed = transform_schema(json.loads(SOURCE_PATH.read_text()))
+    transformed = transform_schema(json.loads(SOURCE_PATH.read_text(encoding="utf-8")))
     if not isinstance(transformed, dict):
         raise SystemExit("transformed schema root must be an object")
     transformed["$schema"] = SCHEMASTORE_META_SCHEMA

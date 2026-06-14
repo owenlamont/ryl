@@ -107,7 +107,7 @@ def read_quota() -> dict | None:
     for path in files[:10]:
         found = None
         try:
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
         except OSError:
             continue
         for line in text.splitlines():
