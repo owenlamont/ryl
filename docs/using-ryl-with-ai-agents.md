@@ -28,11 +28,12 @@ ryl and avoid its main gotcha:
 
 ## Feeding the docs to an LLM
 
-The docs site publishes an [llmstxt.org](https://llmstxt.org) index for agents that fetch
+The docs site publishes [llmstxt.org](https://llmstxt.org) files for agents that fetch
 documentation live (Cursor, Copilot, Claude Code, Windsurf):
 
 ```text
-https://ryl-docs.pages.dev/llms.txt
+https://ryl-docs.pages.dev/llms.txt        # index: links + one-line summaries
+https://ryl-docs.pages.dev/llms-full.txt   # the full docs concatenated in one file
 ```
 
 ## No MCP server

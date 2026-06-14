@@ -9,13 +9,15 @@
 # exclude-newer = "1 week ago"
 # ///
 
-"""Generate ``docs/llms.txt`` from the Zensical nav and docs pages.
+"""Generate ``docs/llms.txt`` and ``docs/llms-full.txt`` from the Zensical docs.
 
-Emits an llmstxt.org-format index (H1 site name, blockquote summary, one H2
-section per nav group, one link per page) into ``docs/llms.txt``. Zensical copies
-that file verbatim into the built site, so it is served at ``<site_url>/llms.txt``
-for IDE agents that fetch docs live. Run with ``--check`` to verify the committed
-file is current (exit 1 if it would change).
+``llms.txt`` is the llmstxt.org index (H1 site name, blockquote summary, one H2
+section per nav group, one link + one-line description per page). ``llms-full.txt``
+is the self-contained companion: every page's full Markdown concatenated in nav
+order, useful because the index links resolve to HTML, not raw Markdown. Zensical
+copies both into the built site, so they are served at ``<site_url>/llms.txt`` and
+``<site_url>/llms-full.txt``. Run with ``--check`` to verify both committed files
+are current (exit 1 if either would change).
 """
 
 from __future__ import annotations
@@ -32,13 +34,14 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 ZENSICAL: Final = ROOT / "zensical.toml"
 DOCS: Final = ROOT / "docs"
 OUTPUT: Final = DOCS / "llms.txt"
+OUTPUT_FULL: Final = DOCS / "llms-full.txt"
 
 # Block prefixes that end the lead paragraph (heading, fence, list, quote, table).
 BLOCK_PREFIXES: Final = ("#", "```", "-", "*", ">", "|")
 
 # Markdown links: `[text](url)` and reference style `[text][ref]`. Both are unusable in
-# the served /llms.txt (relative/reference targets do not resolve), so descriptions keep
-# only the link text.
+# the served /llms.txt descriptions (relative/reference targets do not resolve), so they
+# keep only the link text.
 LINK: Final = re.compile(r"\[([^\]]+)\]\([^)]*\)|\[([^\]]+)\]\[[^\]]*\]")
 
 
@@ -84,24 +87,48 @@ def first_paragraph(markdown: str) -> str:
     return " ".join(collected)
 
 
+def page_url(rel_path: str, site_url: str) -> str:
+    """Return the deployed URL for a docs page path.
+
+    Returns:
+        ``<site_url>`` for the landing page, else ``<site_url><slug>/``.
+    """
+    slug = rel_path.removesuffix(".md")
+    return site_url if slug == "index" else f"{site_url}{slug}/"
+
+
 def page_link(label: str, rel_path: str, site_url: str) -> str:
-    """Build one llmstxt list item for a docs page.
+    """Build one llmstxt index list item for a docs page.
 
     Returns:
         A ``- [label](url): description`` line (description omitted when absent).
     """
-    slug = rel_path.removesuffix(".md")
-    url = site_url if slug == "index" else f"{site_url}{slug}/"
     desc = strip_links(first_paragraph((DOCS / rel_path).read_text(encoding="utf-8")))
-    item = f"- [{label}]({url})"
+    item = f"- [{label}]({page_url(rel_path, site_url)})"
     return f"{item}: {desc}" if desc else item
 
 
-def render(config: dict) -> str:
-    """Render the full ``llms.txt`` body from the parsed Zensical config.
+def nav_pages(nav: list) -> list[str]:
+    """Return docs page paths in nav order, excluding the landing page.
 
     Returns:
-        The llmstxt.org-format document, newline-terminated.
+        Flattened ``rel_path`` strings for every nav entry except ``index.md``.
+    """
+    pages: list[str] = []
+    for entry in nav:
+        value = next(iter(entry.values()))
+        if isinstance(value, list):
+            pages += [next(iter(sub.values())) for sub in value]
+        elif value != "index.md":
+            pages.append(value)
+    return pages
+
+
+def render(config: dict) -> str:
+    """Render the ``llms.txt`` index from the parsed Zensical config.
+
+    Returns:
+        The llmstxt.org-format index document, newline-terminated.
     """
     project = config["project"]
     site_url = project["site_url"].rstrip("/") + "/"
@@ -121,33 +148,48 @@ def render(config: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_full(config: dict) -> str:
+    """Render the self-contained ``llms-full.txt`` from the parsed Zensical config.
+
+    Returns:
+        The H1/summary header followed by every page's full Markdown (verbatim, so
+        intra-doc links are preserved) in nav order, each under a ``Source:`` URL.
+    """
+    project = config["project"]
+    site_url = project["site_url"].rstrip("/") + "/"
+    parts = [f"# {project['site_name']}", "", f"> {project['site_description']}", ""]
+    for rel_path in nav_pages(project["nav"]):
+        body = (DOCS / rel_path).read_text(encoding="utf-8").strip()
+        parts += ["---", "", f"Source: {page_url(rel_path, site_url)}", "", body, ""]
+    return "\n".join(parts).rstrip() + "\n"
+
+
 def main(
     *,
     check: Annotated[
-        bool,
-        typer.Option(help="Fail (exit 1) if the committed docs/llms.txt is stale."),
+        bool, typer.Option(help="Fail (exit 1) if a committed llms file is stale.")
     ] = False,
 ) -> None:
-    """Generate ``docs/llms.txt``, or verify it is current with ``--check``.
+    """Generate the llms files, or verify they are current with ``--check``.
 
     Raises:
-        typer.Exit: code 1 when ``--check`` finds ``docs/llms.txt`` stale.
+        typer.Exit: code 1 when ``--check`` finds a committed llms file stale.
     """
-    content = render(tomllib.loads(ZENSICAL.read_text(encoding="utf-8")))
-    if check:
+    config = tomllib.loads(ZENSICAL.read_text(encoding="utf-8"))
+    targets = [(OUTPUT, render(config)), (OUTPUT_FULL, render_full(config))]
+    for path, content in targets:
+        if not check:
+            # Always write LF regardless of platform so the output is deterministic.
+            path.write_text(content, encoding="utf-8", newline="\n")
+            continue
         # Read raw (newline="") so a CRLF-divergent committed file is detected, not
         # silently normalized to match the always-LF rendered content.
-        current = (
-            OUTPUT.read_text(encoding="utf-8", newline="") if OUTPUT.is_file() else ""
-        )
+        current = path.read_text(encoding="utf-8", newline="") if path.is_file() else ""
         if current != content:
             typer.echo(
-                "docs/llms.txt is stale; run `uv run scripts/gen_llms_txt.py`", err=True
+                f"{path.name} is stale; run `uv run scripts/gen_llms_txt.py`", err=True
             )
             raise typer.Exit(code=1)
-        return
-    # Always write LF regardless of platform so the output is deterministic.
-    OUTPUT.write_text(content, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
