@@ -57,6 +57,9 @@ to report only errors.
 - `--fix` applies safe fixes in place, then reports remaining problems.
 - `--diff` previews the fixes (unified diff on stdout), writes nothing, exits `1` if any
   file would change. Use `--diff` for a non-mutating check, `--fix` to apply.
+- Under `--fix`/`--diff` the exit codes differ from a normal lint: a file that cannot be
+  safely processed (unparsable, symlinked, or, for `--diff`, non-UTF-8) is skipped with
+  a notice and no exit-code effect, while one that cannot be read/decoded exits `2`.
 
 ## Machine-readable output
 

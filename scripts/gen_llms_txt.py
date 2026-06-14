@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import sys
 
 import tomllib
@@ -30,6 +31,20 @@ OUTPUT = DOCS / "llms.txt"
 
 # Block prefixes that end the lead paragraph (heading, fence, list, quote, table).
 BLOCK_PREFIXES = ("#", "```", "-", "*", ">", "|")
+
+# Markdown links: `[text](url)` and reference style `[text][ref]`. Both are unusable in
+# the served /llms.txt (relative/reference targets do not resolve), so descriptions keep
+# only the link text.
+LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)|\[([^\]]+)\]\[[^\]]*\]")
+
+
+def strip_links(text: str) -> str:
+    """Replace Markdown links with their link text.
+
+    Returns:
+        The text with `[label](url)` / `[label][ref]` reduced to `label`.
+    """
+    return LINK.sub(lambda m: m.group(1) or m.group(2), text)
 
 
 def first_paragraph(markdown: str) -> str:
@@ -73,7 +88,7 @@ def page_link(label: str, rel_path: str, site_url: str) -> str:
     """
     slug = rel_path.removesuffix(".md")
     url = site_url if slug == "index" else f"{site_url}{slug}/"
-    desc = first_paragraph((DOCS / rel_path).read_text(encoding="utf-8"))
+    desc = strip_links(first_paragraph((DOCS / rel_path).read_text(encoding="utf-8")))
     item = f"- [{label}]({url})"
     return f"{item}: {desc}" if desc else item
 
