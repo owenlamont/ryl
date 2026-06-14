@@ -32,6 +32,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 from typing import Annotated
 
@@ -209,6 +210,10 @@ def main(
     ] = 15,
 ) -> None:
     """Watch a Codex CI review on a GitHub PR and classify the verdict."""
+    # Windows stdout/stderr default to cp1252; the Codex verdict and quota text
+    # carry non-ASCII (emoji, P-badges), so force UTF-8 to avoid an encode crash.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     quota = read_quota()
     if quota_only:
         report_quota(quota)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
 
 SCHEMASTORE_ID = "https://json.schemastore.org/ryl.json"
@@ -55,4 +56,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows stdio defaults to cp1252; the ensure_ascii=False JSON may carry
+    # non-ASCII, so force UTF-8 to avoid an encode crash.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()
