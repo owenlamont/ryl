@@ -50,9 +50,10 @@ Branch on the exit code:
   that enables no rules).
 
 These codes describe a normal lint run. `--diff` is preview-only: a file it cannot
-process (unparsable, a symlink, or non-UTF-8) is skipped with a per-file notice and does
-not affect the exit code. `--fix` likewise never writes such a file, but it still lints
-it, so an unparsable file under `--fix` is reported and exits `1`.
+represent as a text diff (unparsable, a symlink, or non-UTF-8/BOM) is skipped with a
+per-file notice and no exit-code effect. `--fix` writes in place: it refuses symlinks and
+does not rewrite an unparsable file (whose syntax error still exits `1`), but it does
+re-encode a non-UTF-8/BOM file.
 
 Warnings alone do not fail the run (they exit `0`). To make warnings fail, pass
 `--strict` (warnings then exit `2`) or raise the rule's level to `error` in the

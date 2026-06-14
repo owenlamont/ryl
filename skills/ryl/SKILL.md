@@ -59,9 +59,9 @@ to report only errors.
 - `--fix` applies safe fixes in place, then reports remaining problems.
 - `--diff` previews the fixes (unified diff on stdout), writes nothing, exits `1` if any
   file would change. Use `--diff` for a non-mutating check, `--fix` to apply.
-- `--diff` is preview-only: files it can't process (unparsable, symlink, non-UTF-8) are
-  skipped with a notice and don't change the exit code. `--fix` also won't write such
-  files but still reports their diagnostics, so an unparsable file under `--fix` exits `1`.
+- `--diff` only previews: files it can't represent as a text diff are skipped with a
+  notice and don't change the exit code. `--fix` writes in place, but an unparsable file
+  is reported (not rewritten) and still exits `1`.
 
 ## Machine-readable output
 
