@@ -17,6 +17,7 @@ nav = [
     { "Installation" = "getting-started/installation.md" },
     { "Shell completions" = "getting-started/shell-completions.md" },
     { "Quick Start" = "getting-started/quickstart.md" },
+    { "Using ryl with AI agents" = "using-ryl-with-ai-agents.md" },
     { "Migrating from yamllint" = "getting-started/migrating-from-yamllint.md" },
   ]},
   { "Rules" = "rules.md" },

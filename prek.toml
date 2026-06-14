@@ -108,6 +108,14 @@ hooks = [
     entry = "cargo audit --deny warnings",
     always_run = true,
     pass_filenames = false
+  },
+  {
+    id = "gen-llms-txt",
+    name = "docs/llms.txt is current",
+    language = "system",
+    entry = "uv run scripts/gen_llms_txt.py --check",
+    files = '^(zensical\.toml|docs/.*\.md|docs/llms(-full)?\.txt|scripts/gen_llms_txt\.py)$',
+    pass_filenames = false
   }
 ]
 
