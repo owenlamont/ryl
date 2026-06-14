@@ -43,7 +43,9 @@ DASHBOARD = "https://chatgpt.com/codex/settings/usage"
 
 
 def gh(*args: str) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    result = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, encoding="utf-8"
+    )
     if result.returncode != 0:
         # A swallowed gh failure (auth, transient API error, rejected post) would let an
         # old verdict look new or reuse a stale trigger, so abort loudly instead.

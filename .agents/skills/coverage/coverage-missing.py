@@ -98,6 +98,7 @@ def generate_report_json(root: Path) -> dict:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     if summary.returncode != 0:
