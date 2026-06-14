@@ -41,8 +41,8 @@ Verify the install:
 ryl --version
 ```
 
-Set up tab-completion with [Shell completions](shell-completions.md), or
-continue to the [Quick start](quickstart.md) to run your first lint.
+Set up tab-completion with [Shell completions](https://ryl-docs.pages.dev/getting-started/shell-completions/), or
+continue to the [Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/) to run your first lint.
 
 ---
 
@@ -203,7 +203,7 @@ ryl can automatically fix a subset of rules:
 ryl --fix .
 ```
 
-See the [Rules reference](../rules.md) for which rules are fixable.
+See the [Rules reference](https://ryl-docs.pages.dev/rules/) for which rules are fixable.
 
 `--fix` rewrites files in place but never writes through a symlink: a
 symlinked input is linted but skipped for fixing (with a warning on
@@ -254,7 +254,7 @@ nothing exits `2` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
 configuration is flat &mdash; copy the preset you want from
-[Configuration presets](../config-presets.md) and customise from there:
+[Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise from there:
 
 ```toml
 [files]
@@ -283,7 +283,7 @@ If you already have a yamllint configuration, use the built-in converter:
 ryl --migrate-configs --migrate-write
 ```
 
-See [Migrating from yamllint](migrating-from-yamllint.md) for details.
+See [Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/) for details.
 
 ## Configure across projects (user-global)
 
@@ -299,7 +299,7 @@ config.
 
 If you have a yamllint user-global config, `ryl --migrate-user-config
 --migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from
-yamllint](migrating-from-yamllint.md)). Migration is optional, since ryl also
+yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/)). Migration is optional, since ryl also
 reads the yamllint location directly.
 
 ---
@@ -311,7 +311,7 @@ Source: https://ryl-docs.pages.dev/using-ryl-with-ai-agents/
 ryl is built for programmatic use (stable exit codes, machine-readable output,
 `--fix`/`--diff`, stdin), so AI coding agents can drive it directly. This page points to
 the agent-facing resources; the rest of these docs (start with
-[Quick start](getting-started/quickstart.md)) cover the CLI itself.
+[Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/)) cover the CLI itself.
 
 ## The ryl Agent Skill
 
@@ -466,11 +466,11 @@ produced.
   reference them; TOML configs must inline the `default`/`relaxed` content (see
   the example below). `empty` has no usable TOML form because ryl rejects a
   config that enables no rules. The full preset content is in
-  [Configuration presets](../config-presets.md).
+  [Configuration presets](https://ryl-docs.pages.dev/config-presets/).
 - Inline `# yamllint disable` / `disable-line` / `enable` comments are honoured
   with the same grammar and semantics, so existing in-file suppressions keep
   working. The equivalent `# ryl …` spelling is preferred for new files; see
-  [Inline directives](../directives.md).
+  [Inline directives](https://ryl-docs.pages.dev/directives/).
 
 ## How ryl differs from yamllint
 
@@ -491,7 +491,7 @@ silently doing nothing &mdash; is surprising. ryl makes the rule set explicit an
 reports loudly when there isn't one. The presets stay available as explicit
 opt-ins, so the one-line equivalent of yamllint's out-of-the-box behaviour is a
 YAML config containing `extends: default` (or the corresponding TOML preset from
-[Configuration presets](../config-presets.md)). The migration converter flattens an
+[Configuration presets](https://ryl-docs.pages.dev/config-presets/)). The migration converter flattens an
 `extends: default` source into the generated TOML automatically, and warns when a
 migrated config ends up enabling no rules.
 
@@ -516,7 +516,7 @@ authority, and PyYAML's narrowing at `:` is non-conformant (see
 [adrienverge/yamllint#780](https://github.com/adrienverge/yamllint/issues/780)).
 The portable, unambiguous way to use an alias as a mapping key is a **space before
 the colon** &mdash; `*foo : bar` &mdash; which every parser reads identically. The
-ryl-only [`anchors: forbid-ambiguous-anchor-alias-names`](../rules/anchors.md)
+ryl-only [`anchors: forbid-ambiguous-anchor-alias-names`](https://ryl-docs.pages.dev/rules/anchors/)
 option flags welded colons so you can forbid the construct outright.
 
 ### De-duplicated inputs
@@ -572,7 +572,7 @@ linted CR-aware like any other.
 
 ### Per-line ignores
 
-ryl adds a [`per-line-ignores`](../per-line-ignores.md) config table with no
+ryl adds a [`per-line-ignores`](https://ryl-docs.pages.dev/per-line-ignores/) config table with no
 yamllint counterpart: it suppresses chosen rules on lines (and/or files) matching a
 regex/glob, the config-level complement to inline `# ryl disable-line`. yamllint
 offers only inline directives and per-file path ignores, so a recurring exception
@@ -584,7 +584,7 @@ yamllint-compatible YAML config.
 
 yamllint's `comments-indentation` requires a standalone comment to match the
 indentation of the content that follows it. ryl adds a ryl-only, off-by-default
-[`comments-indentation: allow-any-open-indent`](../rules/comments-indentation.md)
+[`comments-indentation: allow-any-open-indent`](https://ryl-docs.pages.dev/rules/comments-indentation/)
 option that *also* accepts a comment aligned to any still-open enclosing block
 level &mdash; the pattern requested in
 [adrienverge/yamllint#141](https://github.com/adrienverge/yamllint/issues/141),
@@ -605,7 +605,7 @@ option is configured in TOML and rejected in yamllint-compatible YAML config.
 ### Dash on its own line before a block mapping
 
 yamllint's `hyphens` rule only limits the spaces after a `-`. ryl adds a ryl-only,
-off-by-default [`hyphens: dash-on-own-line`](../rules/hyphens.md) option that requires a
+off-by-default [`hyphens: dash-on-own-line`](https://ryl-docs.pages.dev/rules/hyphens/) option that requires a
 block-sequence entry's `-` to be on its own line when the entry is a block mapping
 &mdash; the spec-style "sequence of mappings" layout requested in
 [adrienverge/yamllint#527](https://github.com/adrienverge/yamllint/issues/527), which
@@ -631,7 +631,7 @@ and `--format gitlab` (GitLab Code Quality JSON), which write to stdout (or to a
 `-o`/`--output-file`) so a Git forge can ingest them as a report artifact. Going beyond
 yamllint, `--format` is repeatable and each pairs with its own `--output-file`, so a single
 run can emit console diagnostics **and** one or more report files; the same targets can be
-set in a ryl-only TOML `[output]` table. See [Output formats](../output-formats.md).
+set in a ryl-only TOML `[output]` table. See [Output formats](https://ryl-docs.pages.dev/output-formats/).
 
 ### ryl-native user-global config
 
@@ -716,7 +716,7 @@ yamllint-compatible path stays YAML and, matching yamllint, always resolves unde
     inline so the entire effective rule set is visible in one file. The
     `--migrate-configs` flag handles the expansion for you; if you write a
     TOML config by hand, start from the preset content in
-    [Configuration presets](../config-presets.md).
+    [Configuration presets](https://ryl-docs.pages.dev/config-presets/).
 
 ## Optional: configure auto-fixes
 
@@ -728,7 +728,7 @@ fixable = ["ALL"]
 unfixable = ["comments"]
 ```
 
-This is a ryl-only feature. See the [Rules reference](../rules.md) for the
+This is a ryl-only feature. See the [Rules reference](https://ryl-docs.pages.dev/rules/) for the
 list of rules that support automatic fixing.
 
 ## Keeping both files
@@ -754,8 +754,8 @@ documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
 
 For configuration discovery, presets, and file selection, see
-[Configuration presets](config-presets.md). For migrating from yamllint, see
-[Migrating from yamllint](getting-started/migrating-from-yamllint.md).
+[Configuration presets](https://ryl-docs.pages.dev/config-presets/). For migrating from yamllint, see
+[Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/).
 
 ## Rule categories
 
@@ -772,48 +772,48 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
-| [`block-scalar-chomping`](rules/block-scalar-chomping.md) | Explicit chomping indicator (`-`/`+`) on block scalars. |  |
-| [`braces`](rules/braces.md) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
-| [`brackets`](rules/brackets.md) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
-| [`colons`](rules/colons.md) | Spaces around mapping colons. |  |
-| [`commas`](rules/commas.md) | Spaces around flow collection commas. | :wrench: |
-| [`empty-lines`](rules/empty-lines.md) | Number of consecutive empty lines. | :wrench: |
-| [`hyphens`](rules/hyphens.md) | Spaces after sequence hyphens. |  |
-| [`indentation`](rules/indentation.md) | Block indentation, sequence indentation, multi-line strings. |  |
-| [`line-length`](rules/line-length.md) | Maximum line length. |  |
-| [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A single trailing newline at end of file. | :wrench: |
-| [`new-lines`](rules/new-lines.md) | Consistent line endings (LF vs CRLF). | :wrench: |
-| [`trailing-spaces`](rules/trailing-spaces.md) | Trailing whitespace at end of lines. | :wrench: |
-| [`unicode-line-breaks`](rules/unicode-line-breaks.md) | Raw NEL / LS / PS characters (not YAML 1.2 line breaks). |  |
+| [`block-scalar-chomping`](https://ryl-docs.pages.dev/rules/block-scalar-chomping/) | Explicit chomping indicator (`-`/`+`) on block scalars. |  |
+| [`braces`](https://ryl-docs.pages.dev/rules/braces/) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
+| [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
+| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | Spaces around mapping colons. |  |
+| [`commas`](https://ryl-docs.pages.dev/rules/commas/) | Spaces around flow collection commas. | :wrench: |
+| [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | Number of consecutive empty lines. | :wrench: |
+| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | Spaces after sequence hyphens. |  |
+| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | Block indentation, sequence indentation, multi-line strings. |  |
+| [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Maximum line length. |  |
+| [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | A single trailing newline at end of file. | :wrench: |
+| [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | Consistent line endings (LF vs CRLF). | :wrench: |
+| [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Trailing whitespace at end of lines. | :wrench: |
+| [`unicode-line-breaks`](https://ryl-docs.pages.dev/rules/unicode-line-breaks/) | Raw NEL / LS / PS characters (not YAML 1.2 line breaks). |  |
 
 ## Document structure
 
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
-| [`anchors`](rules/anchors.md) | Anchor and alias declarations and usage. |  |
-| [`document-end`](rules/document-end.md) | Document end marker `...`. | :wrench: |
-| [`document-start`](rules/document-start.md) | Document start marker `---`. | :wrench: |
-| [`empty-values`](rules/empty-values.md) | Empty values in mappings and sequences. |  |
-| [`key-duplicates`](rules/key-duplicates.md) | Duplicate keys in mappings. |  |
-| [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. |  |
-| [`merge-keys`](rules/merge-keys.md) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
-| [`tags`](rules/tags.md) | Unsafe and non-portable YAML tags. |  |
+| [`anchors`](https://ryl-docs.pages.dev/rules/anchors/) | Anchor and alias declarations and usage. |  |
+| [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | Document end marker `...`. | :wrench: |
+| [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | Document start marker `---`. | :wrench: |
+| [`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/) | Empty values in mappings and sequences. |  |
+| [`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/) | Duplicate keys in mappings. |  |
+| [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/) | Alphabetical ordering of mapping keys. |  |
+| [`merge-keys`](https://ryl-docs.pages.dev/rules/merge-keys/) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
+| [`tags`](https://ryl-docs.pages.dev/rules/tags/) | Unsafe and non-portable YAML tags. |  |
 
 ## Comments
 
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
-| [`comments`](rules/comments.md) | Spaces after `#` and before inline comments. | :wrench: |
-| [`comments-indentation`](rules/comments-indentation.md) | Comment alignment with surrounding content. | :wrench: |
+| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | Spaces after `#` and before inline comments. | :wrench: |
+| [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) | Comment alignment with surrounding content. | :wrench: |
 
 ## Values
 
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
-| [`float-values`](rules/float-values.md) | Float value formats. |  |
-| [`octal-values`](rules/octal-values.md) | Octal value formats. |  |
-| [`quoted-strings`](rules/quoted-strings.md) | Quoted string styles and when to require quotes. | :wrench: |
-| [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. |  |
+| [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) | Float value formats. |  |
+| [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) | Octal value formats. |  |
+| [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | Quoted string styles and when to require quotes. | :wrench: |
+| [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) | Truthy values like `yes`, `no`, `on`, `off`. |  |
 
 ## Severity levels
 
@@ -842,10 +842,10 @@ key-ordering = "enable"
 Enabling a rule without options applies its defaults. The built-in `default`
 and `relaxed` presets cover the common starting points (the `empty` preset is
 YAML-`extends:` only, with no usable TOML form); see
-[Configuration presets](config-presets.md).
+[Configuration presets](https://ryl-docs.pages.dev/config-presets/).
 
 To switch rules off for part of a file with `# ryl disable` /
-`# yamllint disable` comments, see [Inline directives](directives.md).
+`# yamllint disable` comments, see [Inline directives](https://ryl-docs.pages.dev/directives/).
 
 ## Automatic fixing
 
@@ -883,7 +883,7 @@ among configs of the same kind the nearest wins. A monorepo can therefore
 hold many `ryl.toml` files, one per subtree, each governing its own files. If
 the upward search finds no project config, ryl falls back to a single
 user-global config; see the
-[quick start](getting-started/quickstart.md).
+[quick start](https://ryl-docs.pages.dev/getting-started/quickstart/).
 
 Presets are starting points for that config, not something ryl inherits behind
 the scenes:
@@ -1122,7 +1122,7 @@ untouched while still fixing `c:   3`.
 
 Directives work inside YAML embedded in Markdown (front matter and fenced
 `yaml` blocks). A directive in a fenced block applies within that block; see
-[YAML in Markdown](markdown.md).
+[YAML in Markdown](https://ryl-docs.pages.dev/markdown/).
 
 ---
 
@@ -1132,7 +1132,7 @@ Source: https://ryl-docs.pages.dev/per-line-ignores/
 
 ## Suppressing rules from configuration
 
-[Inline directives](directives.md) switch rules off at a specific spot in a
+[Inline directives](https://ryl-docs.pages.dev/directives/) switch rules off at a specific spot in a
 file. `per-line-ignores` does the same thing from configuration: it suppresses
 chosen rules on every line matching a pattern, across all files, without editing
 them. It is the tool for recurring exceptions &mdash; tool-directive comments and
@@ -1141,9 +1141,9 @@ machine-managed markers that legitimately break a rule everywhere they appear.
 Two common cases:
 
 - `#cloud-config` directives must keep their exact spelling, so they trip
-  [`comments`](rules/comments.md) (`require-starting-space`).
+  [`comments`](https://ryl-docs.pages.dev/rules/comments/) (`require-starting-space`).
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
-  [`line-length`](rules/line-length.md).
+  [`line-length`](https://ryl-docs.pages.dev/rules/line-length/).
 
 `per-line-ignores` is **ryl-only** and configured in TOML only (yamllint has no
 equivalent); it is rejected in yamllint-compatible YAML config.
@@ -1170,7 +1170,7 @@ rules = ["line-length"]
 | Field | Required | Description |
 | :--- | :--- | :--- |
 | `regex` | one of `regex`/`path` | Regex matched against the whole physical source line (unanchored &mdash; add `^`/`$` yourself). |
-| `path` | one of `regex`/`path` | Glob matched against the file path (same glob semantics as [`per-file-ignores`](config-presets.md), including a leading `!` to negate &mdash; apply to files *not* matching). |
+| `path` | one of `regex`/`path` | Glob matched against the file path (same glob semantics as [`per-file-ignores`](https://ryl-docs.pages.dev/config-presets/), including a leading `!` to negate &mdash; apply to files *not* matching). |
 | `rules` | yes | Rule IDs to suppress, or `["ALL"]` for every rule. |
 
 Present conditions are combined with logical **AND**: an entry with both `regex` and
@@ -1203,7 +1203,7 @@ rules = ["braces"]
 - **`--fix`** never rewrites a suppressed line: an edit a fixer would make to a
   line whose rule is suppressed here is reverted, exactly as for an inline
   `# ryl disable-line`.
-- **Embedded [YAML in Markdown](markdown.md)**: `path` matches the host Markdown
+- **Embedded [YAML in Markdown](https://ryl-docs.pages.dev/markdown/)**: `path` matches the host Markdown
   file, while `regex` matches the embedded YAML line (after any list/blockquote
   prefix is stripped), so the same pattern works for standalone and embedded YAML.
 - **Syntax errors are never suppressed** &mdash; `per-line-ignores` only mutes the
@@ -1211,7 +1211,7 @@ rules = ["braces"]
 
 ## Related
 
-- [Inline directives](directives.md) &mdash; per-file, in-line suppression with
+- [Inline directives](https://ryl-docs.pages.dev/directives/) &mdash; per-file, in-line suppression with
   `# ryl disable` / `disable-line`.
 
 ---
@@ -1339,7 +1339,7 @@ embedded region &mdash; layout (`indentation`, `colons`, `line-length`,
 `trailing-spaces`), keys and values (`key-duplicates`, `truthy`), and the ryl-only
 `tags`, `unicode-line-breaks`, and `merge-keys` rules alike.
 
-[Inline directives](directives.md) (`# ryl disable` / `# yamllint disable`) also
+[Inline directives](https://ryl-docs.pages.dev/directives/) (`# ryl disable` / `# yamllint disable`) also
 work inside an embedded region; a directive applies within the region that
 contains it.
 
@@ -1635,7 +1635,7 @@ Most YAML files do not exercise the parts of the language where the two
 versions disagree, so in practice the difference rarely shows up. The two
 places it matters in ryl are:
 
-- The [`quoted-strings`](rules/quoted-strings.md) rule when used with
+- The [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) rule when used with
   `required: "only-when-needed"`.
 - Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
   configuration files inherited from yamllint.
@@ -1672,7 +1672,7 @@ required = true              # always quote, regardless of type
 quote-type = "double"
 ```
 
-…or rely on the [`truthy`](rules/truthy.md) rule to flag bareword
+…or rely on the [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) rule to flag bareword
 booleans instead and keep `quoted-strings` off.
 
 ## Implications for configuration files
@@ -1706,12 +1706,12 @@ The rules below behave the way they do *because* ryl reads inputs as
 YAML 1.2. Most of these are intentional and align with yamllint when
 yamllint is configured for 1.2 explicitly:
 
-- [`truthy`](rules/truthy.md) &mdash; the rule itself still recognises
+- [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) &mdash; the rule itself still recognises
   the 1.1 truthy word list as ambiguous and flags barewords like `yes`
   or `On` so authors are warned about consumers that still use 1.1.
-- [`octal-values`](rules/octal-values.md) &mdash; `0755` is treated as
+- [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) &mdash; `0755` is treated as
   decimal `755`; the rule can still report it for ambiguity reasons.
-- [`float-values`](rules/float-values.md) &mdash; numeric formats follow
+- [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) &mdash; numeric formats follow
   the 1.2 spec.
 
 For documents that need to be portable between 1.1 and 1.2 consumers,
@@ -1754,7 +1754,7 @@ a `:` is welded to them.
   the form to use when an alias is genuinely a mapping key. Because ryl
   follows the spec here, the undeclared/duplicated/unused checks can differ
   from yamllint on colon-containing names; see
-  [How ryl differs from yamllint](../getting-started/migrating-from-yamllint.md#how-ryl-differs-from-yamllint).
+  [How ryl differs from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint).
 
 ## Configuration
 
@@ -1822,7 +1822,7 @@ judgement to rewrite safely.
 
 ## Related rules
 
-- [`key-duplicates`](key-duplicates.md) &mdash; covers a related class of
+- [`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/) &mdash; covers a related class of
   ambiguity in mappings.
 
 ---
@@ -1928,7 +1928,7 @@ rewrite is universally safe.
 
 ## Related rules
 
-- [`indentation`](indentation.md) &mdash; its `check-multi-line-strings` option
+- [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) &mdash; its `check-multi-line-strings` option
   governs the *indentation* of block scalar content; this rule governs the
   *chomping indicator* in the header.
 
@@ -2000,9 +2000,9 @@ re-flowing the surrounding document.
 
 ## Related rules
 
-- [`brackets`](brackets.md) &mdash; the equivalent rule for flow
+- [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) &mdash; the equivalent rule for flow
   sequences `[...]`.
-- [`commas`](commas.md) &mdash; controls spacing between flow mapping
+- [`commas`](https://ryl-docs.pages.dev/rules/commas/) &mdash; controls spacing between flow mapping
   entries.
 
 ---
@@ -2071,10 +2071,10 @@ sequences to block style requires re-flowing the document.
 
 ## Related rules
 
-- [`braces`](braces.md) &mdash; the equivalent rule for flow mappings.
-- [`commas`](commas.md) &mdash; controls spacing between flow sequence
+- [`braces`](https://ryl-docs.pages.dev/rules/braces/) &mdash; the equivalent rule for flow mappings.
+- [`commas`](https://ryl-docs.pages.dev/rules/commas/) &mdash; controls spacing between flow sequence
   items.
-- [`hyphens`](hyphens.md) &mdash; spacing rule for block sequences.
+- [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) &mdash; spacing rule for block sequences.
 
 ---
 
@@ -2159,9 +2159,9 @@ This rule does not auto-fix; correct spacing manually.
 
 ## Related rules
 
-- [`commas`](commas.md) &mdash; the analogous rule for flow collection
+- [`commas`](https://ryl-docs.pages.dev/rules/commas/) &mdash; the analogous rule for flow collection
   commas.
-- [`hyphens`](hyphens.md) &mdash; spacing for block sequence hyphens.
+- [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) &mdash; spacing for block sequence hyphens.
 
 ---
 
@@ -2229,9 +2229,9 @@ unfixable = ["commas"]
 
 ## Related rules
 
-- [`braces`](braces.md) and [`brackets`](brackets.md) &mdash; spacing
+- [`braces`](https://ryl-docs.pages.dev/rules/braces/) and [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) &mdash; spacing
   inside the flow delimiters themselves.
-- [`colons`](colons.md) &mdash; the analogous rule for mapping colons.
+- [`colons`](https://ryl-docs.pages.dev/rules/colons/) &mdash; the analogous rule for mapping colons.
 
 ---
 
@@ -2321,9 +2321,9 @@ unfixable = ["comments-indentation"]
 
 ## Related rules
 
-- [`comments`](comments.md) &mdash; controls the formatting of comment
+- [`comments`](https://ryl-docs.pages.dev/rules/comments/) &mdash; controls the formatting of comment
   text itself.
-- [`indentation`](indentation.md) &mdash; the general indentation rule
+- [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) &mdash; the general indentation rule
   these comments are aligned against.
 
 ---
@@ -2398,7 +2398,7 @@ unfixable = ["comments"]
 
 ## Related rules
 
-- [`comments-indentation`](comments-indentation.md) &mdash; controls the
+- [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) &mdash; controls the
   vertical alignment of standalone comments.
 
 ---
@@ -2490,9 +2490,9 @@ unfixable = ["document-end"]
 
 ## Related rules
 
-- [`document-start`](document-start.md) &mdash; the matching rule for the
+- [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) &mdash; the matching rule for the
   `---` start marker.
-- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+- [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) &mdash; controls
   the final newline character.
 
 ---
@@ -2582,7 +2582,7 @@ unfixable = ["document-start"]
 
 ## Related rules
 
-- [`document-end`](document-end.md) &mdash; the matching rule for the
+- [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) &mdash; the matching rule for the
   `...` end marker.
 
 ---
@@ -2676,10 +2676,10 @@ unfixable = ["empty-lines"]
 
 ## Related rules
 
-- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+- [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) &mdash; controls
   the single trailing newline character (distinct from "empty lines at
   end").
-- [`trailing-spaces`](trailing-spaces.md) &mdash; reports whitespace on
+- [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) &mdash; reports whitespace on
   otherwise-empty lines.
 
 ---
@@ -2757,9 +2757,9 @@ This rule does not auto-fix; supplying a value (including an explicit
 
 ## Related rules
 
-- [`truthy`](truthy.md) &mdash; complementary rule for ambiguous bareword
+- [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) &mdash; complementary rule for ambiguous bareword
   values.
-- [`quoted-strings`](quoted-strings.md) &mdash; controls quoting of
+- [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; controls quoting of
   values, including the literal string `"null"`.
 
 ---
@@ -2828,9 +2828,9 @@ preserve the intended value.
 
 ## Related rules
 
-- [`octal-values`](octal-values.md) &mdash; the analogous rule for
+- [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) &mdash; the analogous rule for
   integer literals in octal notation.
-- [`quoted-strings`](quoted-strings.md) &mdash; useful when you want to
+- [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; useful when you want to
   pin a value to a string regardless of how it would otherwise parse.
 
 ---
@@ -2924,9 +2924,9 @@ mapping body is a structural change ryl will not make automatically.
 
 ## Related rules
 
-- [`indentation`](indentation.md) &mdash; controls how sequence items are
+- [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) &mdash; controls how sequence items are
   indented relative to their parent key.
-- [`brackets`](brackets.md) and [`commas`](commas.md) &mdash; the flow
+- [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) and [`commas`](https://ryl-docs.pages.dev/rules/commas/) &mdash; the flow
   sequence equivalents.
 
 ---
@@ -3012,9 +3012,9 @@ different parents, so corrections need human review.
 
 ## Related rules
 
-- [`hyphens`](hyphens.md) &mdash; spacing between `-` and the sequence
+- [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) &mdash; spacing between `-` and the sequence
   item value.
-- [`comments-indentation`](comments-indentation.md) &mdash; standalone
+- [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) &mdash; standalone
   comments must follow the same indent as the next line.
 
 ---
@@ -3129,11 +3129,11 @@ which value is canonical.
 
 ## Related rules
 
-- [`key-ordering`](key-ordering.md) &mdash; enforces alphabetical key
+- [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/) &mdash; enforces alphabetical key
   order, which makes duplicates harder to introduce accidentally.
-- [`anchors`](anchors.md) &mdash; covers a related class of ambiguity
+- [`anchors`](https://ryl-docs.pages.dev/rules/anchors/) &mdash; covers a related class of ambiguity
   for anchor/alias declarations.
-- [`merge-keys`](merge-keys.md) &mdash; forbids the `<<` merge key outright;
+- [`merge-keys`](https://ryl-docs.pages.dev/rules/merge-keys/) &mdash; forbids the `<<` merge key outright;
   this rule's merge options instead detect *duplicate* or value-changing merges.
 
 ---
@@ -3203,7 +3203,7 @@ logical workflow).
 
 ## Related rules
 
-- [`key-duplicates`](key-duplicates.md) &mdash; ordering and uniqueness
+- [`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/) &mdash; ordering and uniqueness
   are commonly enforced together.
 
 ---
@@ -3273,9 +3273,9 @@ hand or wrapped with a block scalar.
 
 ## Related rules
 
-- [`empty-lines`](empty-lines.md) &mdash; controls vertical density which
+- [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) &mdash; controls vertical density which
   often pairs with horizontal width preferences.
-- [`indentation`](indentation.md) &mdash; deep indentation makes the
+- [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) &mdash; deep indentation makes the
   effective content width narrower; consider both rules together when
   picking a `max`.
 
@@ -3377,11 +3377,11 @@ universally safe.
 
 ## Related rules
 
-- [`key-duplicates`](key-duplicates.md) &mdash; its `forbid-duplicated-merge-keys`
+- [`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/) &mdash; its `forbid-duplicated-merge-keys`
   option targets a *repeated* `<<` in one mapping, and its `check-canonical` /
   `forbid-merge-key-shadowing` options flag merges that silently change a key's
   value. `merge-keys` instead forbids *any* use of `<<`.
-- [`anchors`](anchors.md) &mdash; governs the anchors and aliases (`&`/`*`) a
+- [`anchors`](https://ryl-docs.pages.dev/rules/anchors/) &mdash; governs the anchors and aliases (`&`/`*`) a
   merge typically relies on.
 
 ---
@@ -3445,9 +3445,9 @@ unfixable = ["new-line-at-end-of-file"]
 
 ## Related rules
 
-- [`empty-lines`](empty-lines.md) &mdash; controls multiple empty lines
+- [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) &mdash; controls multiple empty lines
   at the end of file (distinct from a single trailing newline).
-- [`new-lines`](new-lines.md) &mdash; controls which line ending
+- [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) &mdash; controls which line ending
   character is used.
 
 ---
@@ -3508,7 +3508,7 @@ styles (`unix`/`dos`/`platform`), so when the file's first line break is a bare
 ending. This is a deliberate divergence from yamllint, whose line layer cannot
 see a bare `\r` and whose `type` has no `mac` value; on supported LF/CRLF files
 the behaviour is identical. See
-[Migrating from yamllint](../getting-started/migrating-from-yamllint.md#bare-carriage-return-r-line-breaks).
+[Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#bare-carriage-return-r-line-breaks).
 
 ## Automatic fixing
 
@@ -3522,9 +3522,9 @@ unfixable = ["new-lines"]
 
 ## Related rules
 
-- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+- [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) &mdash; controls
   the single trailing newline at end of file.
-- [`trailing-spaces`](trailing-spaces.md) &mdash; reports whitespace
+- [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) &mdash; reports whitespace
   before the line ending.
 
 ---
@@ -3588,9 +3588,9 @@ deciding whether the intended value is octal, decimal, or a string.
 
 ## Related rules
 
-- [`float-values`](float-values.md) &mdash; the analogous rule for
+- [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) &mdash; the analogous rule for
   floating-point literal formats.
-- [`quoted-strings`](quoted-strings.md) &mdash; quoting a value pins it
+- [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; quoting a value pins it
   to a string regardless of how it would otherwise parse.
 
 ---
@@ -3702,15 +3702,15 @@ The practical consequence is that `"yes"` (with `required:
 "only-when-needed"`, `quote-type: "double"`) is flagged by ryl as
 redundantly quoted but accepted by yamllint. To match yamllint's
 behaviour, set `required = true` so all string scalars are quoted
-regardless of type, or rely on the [`truthy`](truthy.md) rule to flag
+regardless of type, or rely on the [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) rule to flag
 ambiguous barewords and keep `quoted-strings` off. See
-[YAML version compatibility](../yaml-version.md) for more context.
+[YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/) for more context.
 
 ## Related rules
 
-- [`truthy`](truthy.md) &mdash; complements `quoted-strings` by reporting
+- [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) &mdash; complements `quoted-strings` by reporting
   bareword booleans that would otherwise need quoting.
-- [`empty-values`](empty-values.md) &mdash; controls how missing values are
+- [`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/) &mdash; controls how missing values are
   written, which interacts with whether nulls should be quoted.
 
 ---
@@ -3814,9 +3814,9 @@ rewrite is universally safe.
 
 ## Related rules
 
-- [`anchors`](anchors.md) &mdash; the analogous rule for the other piece of
+- [`anchors`](https://ryl-docs.pages.dev/rules/anchors/) &mdash; the analogous rule for the other piece of
   node metadata, anchors and aliases.
-- [`quoted-strings`](quoted-strings.md) &mdash; useful when you want to pin a
+- [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; useful when you want to pin a
   value to a string instead of relying on a tag.
 
 ---
@@ -3898,9 +3898,9 @@ unfixable = ["trailing-spaces"]
 
 ## Related rules
 
-- [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
+- [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) &mdash; controls
   the trailing newline character.
-- [`empty-lines`](empty-lines.md) &mdash; controls fully blank lines (a
+- [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) &mdash; controls fully blank lines (a
   separate concern from trailing whitespace on content lines).
 
 ---
@@ -3969,9 +3969,9 @@ type and meaning, which requires intent from the author.
 
 ## Related rules
 
-- [`quoted-strings`](quoted-strings.md) &mdash; quoting a value disables
+- [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; quoting a value disables
   type coercion so the literal stays a string.
-- [`empty-values`](empty-values.md) &mdash; a related class of "what did
+- [`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/) &mdash; a related class of "what did
   the author actually mean" ambiguity.
 
 ---
@@ -4064,7 +4064,7 @@ no single rewrite is universally safe.
 
 ## Related rules
 
-- [`new-lines`](new-lines.md) &mdash; enforces a consistent *line ending*
+- [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) &mdash; enforces a consistent *line ending*
   (LF vs CRLF) for the real line breaks.
-- [`quoted-strings`](quoted-strings.md) &mdash; governs the quoting style you
+- [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; governs the quoting style you
   need in order to write a `\L`/`\N`/`\P` escape.

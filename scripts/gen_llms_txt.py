@@ -23,6 +23,7 @@ are current (exit 1 if either would change).
 from __future__ import annotations
 
 from pathlib import Path
+import posixpath
 import re
 from typing import Annotated, Final
 
@@ -44,6 +45,9 @@ BLOCK_PREFIXES: Final = ("#", "```", "-", "*", ">", "|")
 # keep only the link text.
 LINK: Final = re.compile(r"\[([^\]]+)\]\([^)]*\)|\[([^\]]+)\]\[[^\]]*\]")
 
+# Inline link `[text](target)`, for rewriting relative .md targets in the full feed.
+INLINE_LINK: Final = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
 
 def strip_links(text: str) -> str:
     """Replace Markdown links with their link text.
@@ -52,6 +56,31 @@ def strip_links(text: str) -> str:
         The text with `[label](url)` / `[label][ref]` reduced to `label`.
     """
     return LINK.sub(lambda m: m.group(1) or m.group(2), text)
+
+
+def absolutize_links(body: str, rel_path: str, site_url: str) -> str:
+    """Rewrite a page's relative ``.md`` links to absolute deployed URLs.
+
+    llms-full.txt concatenates pages, so a relative ``(other.md)`` would not resolve;
+    each is rewritten to its served URL (preserving any ``#anchor``). Absolute,
+    external, anchor-only, and non-``.md`` targets are left untouched.
+
+    Returns:
+        The body with relative ``.md`` links absolutized.
+    """
+    page_dir = posixpath.dirname(rel_path)
+
+    def fix(match: re.Match) -> str:
+        text, target = match.group(1), match.group(2)
+        base, sep, anchor = target.partition("#")
+        if not base.endswith(".md") or base.startswith(
+            ("/", "http://", "https://", "mailto:")
+        ):
+            return match.group(0)
+        resolved = posixpath.normpath(posixpath.join(page_dir, base))
+        return f"[{text}]({page_url(resolved, site_url)}{sep}{anchor})"
+
+    return INLINE_LINK.sub(fix, body)
 
 
 def first_paragraph(markdown: str) -> str:
@@ -178,7 +207,8 @@ def render_full(config: dict) -> str:
     site_url = project["site_url"].rstrip("/") + "/"
     parts = [f"# {project['site_name']}", "", f"> {project['site_description']}", ""]
     for rel_path in all_doc_pages(project["nav"]):
-        body = (DOCS / rel_path).read_text(encoding="utf-8").strip()
+        raw = (DOCS / rel_path).read_text(encoding="utf-8").strip()
+        body = absolutize_links(raw, rel_path, site_url)
         parts += ["---", "", f"Source: {page_url(rel_path, site_url)}", "", body, ""]
     return "\n".join(parts).rstrip() + "\n"
 
