@@ -34,9 +34,20 @@ uv run .agents/skills/codex-review-watch/watch.py <PR> [--repo owner/repo] \
   review` only if no auto-start fires in that window (so the worst case is exactly the
   default behavior, no regression). Use it **only** for the first review; **subsequent**
   (post-push) reviews have no auto-start and need the explicit prompt, so leave it off.
+  - The auto-review also stalls the *other* way — it acks with 👀 then silently posts
+    nothing ("stuck eyes," a real Codex flake). So `--first-review` trusts the 👀 ack
+    but not forever: after `--stuck-after` (default 600s ≈ 10 min) of monitoring with no
+    verdict it **escalates once** with an explicit `@codex review`. The default is
+    deliberately generous — a healthy Codex review can genuinely take several minutes,
+    and escalating too eagerly re-introduces the double-trigger this mode exists to
+    avoid. A merely-slow review that lands first means the watchdog never fires; set
+    `--stuck-after 0` to disable it. Keep `--stuck-after` comfortably below the overall
+    `--max-polls × --interval` budget (default 30 min) so the escalated review still has
+    time to land.
 - `--repo` defaults to the current repo (`gh repo view`). Needs `gh` authenticated.
 - Tunables: `--interval` (default 45s), `--max-polls` (default 40 ≈ 30 min),
-  `--auto-wait` (default 90s, `--first-review` only).
+  `--auto-wait` (default 90s) + `--stuck-after` (default 600s ≈ 10 min), both
+  `--first-review` only.
 
 For a **standalone quota check** (no PR, no trigger, consumes no quota):
 
@@ -78,6 +89,16 @@ of:
   `--first-review` to detect it instead of double-triggering. The auto-start is *only*
   on PR open — after every push, re-post `@codex review` (the default mode, no
   `--first-review`) to get the next review.
+- **Writing `@codex` is itself a trigger — even inside backticks.** Per OpenAI's docs,
+  `@codex review` requests a review, but `@codex` followed by *any other text* starts a
+  cloud **task** (the autonomous agent) using the PR as context. It fires from a PR/issue
+  **body or comment**, and (observed on this repo) backtick-quoting does **not** shield
+  it: a PR description full of backticked `@codex review` mentions got routed to the task
+  agent, which ran ~20 min then posted a phantom "committed / opened a follow-up PR"
+  summary that never actually touched the repo. So when writing *about* the trigger (a PR
+  body, an upstream issue), neutralize the mention — write `&#64;codex` (renders as
+  `@codex`, no literal `@` token) — and only post a bare `@codex review` when you truly
+  want a review.
 
 ## Quota / rate limits
 

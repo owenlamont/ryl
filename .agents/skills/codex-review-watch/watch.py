@@ -31,6 +31,10 @@ Each gotcha below was a real mistake this script exists to prevent:
     and skips re-posting @codex review, falling back to posting only if no auto-start
     fires. Leave it OFF for subsequent (post-push) reviews: those have no auto-start
     and need an explicit @codex review.
+  * The auto-review also fails the OTHER way: it acks (eyes) then silently STALLS
+    without posting a verdict (Codex's "stuck eyes" flake). So under ``--first-review``
+    the eyes ack is trusted, but not forever -- after ``--stuck-after``s of monitoring
+    with no verdict the watchdog escalates once with an explicit @codex review.
 """
 
 from __future__ import annotations
@@ -221,6 +225,15 @@ def main(
             "(eyes on the PR body) before falling back to posting '@codex review'"
         ),
     ] = 90,
+    stuck_after: Annotated[
+        int,
+        typer.Option(
+            help="--first-review: if a detected auto-review posts no verdict within "
+            "this many seconds of monitoring, escalate once with '@codex review' "
+            "(handles Codex's stuck-eyes flake). Generous by default since a healthy "
+            "review can genuinely run several minutes. 0 disables the escalation."
+        ),
+    ] = 600,
     ack_timeout: Annotated[
         int,
         typer.Option(
@@ -263,6 +276,19 @@ def main(
 
     def inlines() -> list:
         return by_bot(gh_json(f"repos/{repo}/pulls/{pr}/comments"))
+
+    def latest_trigger_id() -> int | None:
+        """Id of the most recent '@codex review' comment (ours or a human's), or None."""
+        triggers = [
+            c
+            for c in gh_json(f"repos/{repo}/issues/{pr}/comments")
+            if c.get("body") == "@codex review"
+        ]
+        return triggers[-1]["id"] if triggers else None
+
+    def post_trigger() -> int | None:
+        gh("pr", "comment", pr, "--repo", repo, "--body", "@codex review")
+        return latest_trigger_id()
 
     auto_started = False
     # Set once a '@codex review' comment exists (posted by us or found in --no-trigger).
@@ -330,7 +356,12 @@ def main(
     # before posting so we don't double-trigger it; only fall back to posting if no
     # auto-start fires within --auto-wait.
     if first_review:
-        auto_base_thumbs, _ = reactions()  # trig_id is None here -> PR-body reactions
+        # Zero the body-thumbs baseline like every other channel: a fresh PR carries no
+        # prior Codex output, so any bot thumbs-up on the body IS the auto-review's clean
+        # verdict -- including one that already landed before this watcher started (eyes
+        # already gone). Baselining it at the current count would miss that clean verdict
+        # and fall back to a redundant @codex review.
+        auto_base_thumbs = 0
         waited = 0
         while True:
             rev, iss, inl = reviews(), issues(), inlines()
@@ -354,16 +385,10 @@ def main(
         if auto_started:
             trigger = False  # the auto-review is running; monitor it, don't re-trigger
 
-    if trigger:
-        gh("pr", "comment", pr, "--repo", repo, "--body", "@codex review")
-    # Locate the latest @codex review trigger comment whether we posted it or are
-    # monitoring an existing one (--no-trigger), so reactions() can see its verdict.
-    triggers = [
-        c
-        for c in gh_json(f"repos/{repo}/issues/{pr}/comments")
-        if c.get("body") == "@codex review"
-    ]
-    trig_id = triggers[-1]["id"] if triggers else None
+    # Post (or, in --no-trigger, just locate) the @codex review comment so reactions()
+    # can see its verdict. auto-monitor mode (auto_started) posts nothing here -- it
+    # relies on the running auto-review until the watchdog escalates.
+    trig_id = post_trigger() if trigger else latest_trigger_id()
     if trigger:
         typer.echo(f"posted @codex review (trigger id={trig_id})")
     elif auto_started:
@@ -373,10 +398,12 @@ def main(
     else:
         typer.echo("monitoring without a trigger (no '@codex review' comment found)")
 
-    # Baseline the ack target's reactions like the other channels: an existing trigger
-    # (or, in auto-review monitor mode, the PR body) may already carry a bot thumbs-up,
-    # so only a NEW one is a clean verdict.
-    base_thumbs, _ = reactions()
+    # Baseline the ack target's reactions like the other channels. In --first-review the
+    # baseline is zero (a fresh PR's body has no prior bot thumbs-up, and a just-posted
+    # fallback trigger has none either), so an already-present clean thumbs-up still
+    # counts. Otherwise an existing trigger may already carry one, so only a NEW
+    # thumbs-up is a clean verdict.
+    base_thumbs = 0 if first_review else reactions()[0]
 
     # Fail fast on a missing ack: Codex normally adds an eyes/thumbs reaction within a
     # minute of the trigger, so its ABSENCE within `ack_timeout`s means the trigger was
@@ -408,12 +435,30 @@ def main(
             raise typer.Exit(code=1)
 
     # Acked (or --no-trigger / auto-review monitor): poll the three channels for verdict.
+    # Watchdog: a detected auto-review that acked (eyes) then silently stalled (Codex's
+    # stuck-eyes flake) would otherwise be monitored to timeout. After `stuck_after`s of
+    # monitoring with no verdict, escalate ONCE with an explicit @codex review. Gated on
+    # auto_started, so the normal/--no-trigger paths (which already have a trigger or
+    # chose not to) never escalate.
+    monitored = 0
+    escalated = False
     for i in range(1, max_polls + 1):
         time.sleep(interval)
+        monitored += interval
         rev, iss, inl = reviews(), issues(), inlines()
         thumbs, _eyes = reactions()
         if report_verdict(rev, iss, inl, thumbs, base_thumbs):
             return
+        if auto_started and stuck_after and not escalated and monitored >= stuck_after:
+            typer.echo(
+                f"auto-review stalled (no verdict after {monitored}s); "
+                "escalating with @codex review"
+            )
+            trig_id = post_trigger()
+            base_thumbs, _ = reactions()
+            escalated = True
+            typer.echo(f"posted @codex review (trigger id={trig_id})")
+            continue
         typer.echo(
             f"poll {i}/{max_polls}: reviews={len(rev)} issue={len(iss)} "
             f"inline={len(inl)} thumbs={thumbs} (no verdict)"
