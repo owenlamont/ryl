@@ -104,6 +104,9 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
     let Ok((id, raw_params)) = connection.initialize_start() else {
         return SessionOutcome::Clean;
     };
+    // Read before `from_value` consumes `raw_params`: this capability lives at a JSON key
+    // `lsp-types` cannot reach (see `client_supports_diagnostic_refresh`).
+    let supports_diagnostic_refresh = client_supports_diagnostic_refresh(&raw_params);
     let params: InitializeParams = match serde_json::from_value(raw_params) {
         Ok(params) => params,
         Err(error) => {
@@ -164,7 +167,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
             .and_then(|workspace_edit| workspace_edit.document_changes)
             .unwrap_or(false),
         push_diagnostics: !client_supports_pull_diagnostics(&params),
-        supports_diagnostic_refresh: client_supports_diagnostic_refresh(&params),
+        supports_diagnostic_refresh,
         next_refresh_id: 0,
         settings,
         documents: HashMap::new(),
@@ -232,13 +235,17 @@ fn client_supports_pull_diagnostics(params: &InitializeParams) -> bool {
 /// pull client needs it: a config change re-pushes for a push client, but a pull client's
 /// results are gated off, so without a refresh it would keep showing diagnostics computed
 /// under the old config.
-fn client_supports_diagnostic_refresh(params: &InitializeParams) -> bool {
-    params
-        .capabilities
-        .workspace
-        .as_ref()
-        .and_then(|workspace| workspace.diagnostic.as_ref())
-        .and_then(|diagnostic| diagnostic.refresh_support)
+///
+/// Read from the *raw* initialize JSON, not `InitializeParams`: the spec's key is the
+/// plural `workspace.diagnostics.refreshSupport`, but `lsp-types` 0.97 deserializes its
+/// `WorkspaceClientCapabilities::diagnostic` from the singular `workspace.diagnostic` key
+/// (no rename — a known bug, tower-lsp-community/tower-lsp-server#50), so the typed field
+/// is always `None` for a conforming client (VS Code included). The textDocument pull
+/// capability above is genuinely singular per spec, so it stays on the typed path.
+fn client_supports_diagnostic_refresh(raw_params: &serde_json::Value) -> bool {
+    raw_params
+        .pointer("/capabilities/workspace/diagnostics/refreshSupport")
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
 

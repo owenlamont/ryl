@@ -14,15 +14,15 @@ use lsp_server::{Connection, Message, Notification, Request, RequestId, Response
 use lsp_types::{
     ClientCapabilities, CodeActionContext, CodeActionKind, CodeActionOrCommand,
     CodeActionParams, CodeActionResponse, Diagnostic, DiagnosticClientCapabilities,
-    DiagnosticWorkspaceClientCapabilities, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesClientCapabilities, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentChanges, DocumentDiagnosticReport,
-    DocumentFormattingParams, FormattingOptions, GeneralClientCapabilities, Hover,
-    HoverContents, InitializeParams, InitializeResult, NumberOrString, OneOf,
-    PartialResultParams, Position, PositionEncodingKind, PrepareRenameResponse,
-    PublishDiagnosticsParams, Range, TextDocumentClientCapabilities,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, TextEdit,
-    Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesClientCapabilities,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChanges,
+    DocumentDiagnosticReport, DocumentFormattingParams, FormattingOptions,
+    GeneralClientCapabilities, Hover, HoverContents, InitializeParams,
+    InitializeResult, NumberOrString, OneOf, PartialResultParams, Position,
+    PositionEncodingKind, PrepareRenameResponse, PublishDiagnosticsParams, Range,
+    TextDocumentClientCapabilities, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri,
+    VersionedTextDocumentIdentifier, WorkDoneProgressParams,
     WorkspaceClientCapabilities, WorkspaceDiagnosticReport,
     WorkspaceDocumentDiagnosticReport, WorkspaceEdit, WorkspaceEditClientCapabilities,
     WorkspaceFolder,
@@ -137,7 +137,7 @@ impl Client {
         root: Option<&Path>,
         refresh_support: bool,
     ) -> (Self, InitializeResult) {
-        Self::launch_params(InitializeParams {
+        let mut params = serde_json::to_value(InitializeParams {
             capabilities: ClientCapabilities {
                 text_document: Some(TextDocumentClientCapabilities {
                     diagnostic: Some(DiagnosticClientCapabilities::default()),
@@ -148,11 +148,6 @@ impl Client {
                         document_changes: Some(true),
                         ..Default::default()
                     }),
-                    diagnostic: refresh_support.then_some(
-                        DiagnosticWorkspaceClientCapabilities {
-                            refresh_support: Some(true),
-                        },
-                    ),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -165,12 +160,22 @@ impl Client {
             }),
             ..Default::default()
         })
+        .expect("serialize initialize params");
+        if refresh_support {
+            // A real client (VS Code) advertises refresh support at the spec's plural
+            // `workspace.diagnostics.refreshSupport`; lsp-types can only emit the singular
+            // `diagnostic` key, so inject the plural key the server actually reads. Sending
+            // the lsp-types field instead would mask the very bug the server works around.
+            params["capabilities"]["workspace"]["diagnostics"] =
+                json!({ "refreshSupport": true });
+        }
+        Self::launch_params(params)
     }
 
     /// Spawn a server thread and complete the `initialize`/`initialized` handshake with
     /// the given client capabilities. The bespoke launches build their own params; the
     /// positional `launch_with` chain goes through `initialize` instead.
-    fn launch_params(params: InitializeParams) -> (Self, InitializeResult) {
+    fn launch_params<P: serde::Serialize>(params: P) -> (Self, InitializeResult) {
         let (server, client) = Connection::memory();
         let thread = thread::spawn(move || {
             let _ = ryl::lsp::serve(&server);
