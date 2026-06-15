@@ -415,6 +415,25 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
         with:
           subject-path: 'release-assets/*'
+      # Publish one authoritative SHA256SUMS covering every per-target archive so
+      # downstream consumers (the ryl-vscode extension, package managers, manual
+      # installers) can verify and regenerate the hashes. Generated after the attestation
+      # so the checksums file is not itself a build-provenance subject, and uploaded with
+      # the rest below. sha256sum runs inside release-assets so the lines carry bare
+      # archive names, not the release-assets/ prefix.
+      - name: Generate SHA256SUMS
+        working-directory: release-assets
+        shell: bash
+        run: |-
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(ryl-*.tar.gz ryl-*.zip)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "No release archives found to checksum" >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
       - name: Ensure draft tag release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
