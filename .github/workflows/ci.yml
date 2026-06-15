@@ -44,7 +44,7 @@ jobs:
 
       - name: Run prek hooks (lint and static checks)
         env:
-          SKIP: no-commit-to-branch,nextest
+          SKIP: no-commit-to-branch
         run: prek run --all-files
 
       - name: Check the minimal build (LSP feature compiled out)
@@ -58,12 +58,15 @@ jobs:
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
         run: |-
           set -euo pipefail
+          # Run the suite once; every report below is derived from this single run's
+          # cached profile data via `cargo llvm-cov report` (no re-execution).
+          cargo llvm-cov nextest --no-report
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
           echo '```text' >> coverage.md
-          cargo llvm-cov nextest --summary-only | tee -a coverage.md
+          cargo llvm-cov report --summary-only | tee -a coverage.md
           echo '```' >> coverage.md
           # Produce LCOV for detailed per-line/branch analysis
-          cargo llvm-cov nextest --lcov --output-path lcov.info
+          cargo llvm-cov report --lcov --output-path lcov.info
           echo '' >> coverage.md
           echo '#### Missed Lines (per file)' >> coverage.md
           awk -F: '
@@ -114,7 +117,9 @@ jobs:
 
       - name: Enforce coverage thresholds
         run: |-
-          # Enforce zero missed lines and regions
-          cargo llvm-cov nextest --summary-only \
+          # Enforce zero missed lines and regions, reusing the single test run's data.
+          # Kept as the final step so the coverage report and PR comment are already
+          # produced when a coverage gap fails the job.
+          cargo llvm-cov report --summary-only \
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0

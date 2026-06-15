@@ -1,13 +1,29 @@
 version: 2
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+
+# Combine cargo and github-actions version updates into a single weekly PR via a
+# Dependabot multi-ecosystem group (GA 2025-07), so each refresh is one PR, not one
+# per ecosystem. `cargo update` in update.yml still refreshes the lockfile within the
+# existing Cargo.toml ranges; Dependabot additionally bumps the Cargo.toml requirements
+# themselves (including major versions like hashlink 0.11 -> 0.12) that `cargo update`
+# leaves alone.
+multi-ecosystem-groups:
+  dependencies:
     schedule:
       interval: "weekly"
       day: "friday"
-    groups:
-      actions-dependencies:
-        patterns:
-          - "*"
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    patterns:
+      - "*"
+    multi-ecosystem-group: "dependencies"
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "cargo"
+    directory: "/"
+    patterns:
+      - "*"
+    multi-ecosystem-group: "dependencies"
     cooldown:
       default-days: 7
