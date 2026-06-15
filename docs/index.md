@@ -60,9 +60,6 @@ npm install --global @owenlamont/ryl
 # Or with conda (conda-forge)
 pixi global install ryl
 
-# Or with winget (Windows)
-winget install owenlamont.ryl
-
 # Lint a file or directory
 ryl path/to/file.yaml
 ryl .

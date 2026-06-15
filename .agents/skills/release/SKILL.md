@@ -55,10 +55,17 @@ description: >-
   creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a
   draft until assets upload, with auto-generated notes; reruns skip publish steps for a
   version that already exists.
-- After the release is un-drafted, the `publish-winget` job submits a winget-pkgs PR via
-  `wingetcreate update owenlamont.ryl` (token: the classic `public_repo` `WINGET_PAT`
-  secret in the `automation` environment). It requires the package to already exist in
-  winget-pkgs from the one-time `wingetcreate new` bootstrap; `update` preserves the
-  nested-portable config and `Microsoft.VCRedist.2015+` dependencies, swapping only
-  version, URLs, and SHA256. Re-running a published version would attempt a duplicate
-  winget PR (no existence guard, unlike the crates/PyPI/NPM steps).
+- The `publish-winget` job is currently **commented out** in `release.yml` (and the
+  winget install instructions are removed from the docs) pending the winget-pkgs
+  New-Package bootstrap PR microsoft/winget-pkgs#387703, which is still stuck in upstream
+  moderation. `wingetcreate update` requires the package to already exist in winget-pkgs,
+  so until that PR lands the package does not exist upstream and the job would fail every
+  release. Re-enable both once it merges and `winget install owenlamont.ryl` works.
+- When re-enabled, after the release is un-drafted the `publish-winget` job submits a
+  winget-pkgs PR via `wingetcreate update owenlamont.ryl` (token: the classic
+  `public_repo` `WINGET_PAT` secret in the `automation` environment). It requires the
+  package to already exist in winget-pkgs from the one-time `wingetcreate new` bootstrap;
+  `update` preserves the nested-portable config and `Microsoft.VCRedist.2015+`
+  dependencies, swapping only version, URLs, and SHA256. Re-running a published version
+  would attempt a duplicate winget PR (no existence guard, unlike the crates/PyPI/NPM
+  steps).
