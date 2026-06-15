@@ -863,53 +863,63 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release edit "$RELEASE_TAG" -R "${GITHUB_REPOSITORY}" --draft=false
 
-  publish-winget:
-    name: Publish to winget
-    # Must follow finalize-github-release: wingetcreate downloads each release
-    # asset to recompute its SHA256, so the assets have to be publicly
-    # downloadable (un-drafted) first.
-    needs:
-      - finalize-github-release
-    if: >-
-      startsWith(github.ref, 'refs/tags/v') &&
-      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
-    runs-on: windows-latest
-    environment: automation
-    permissions:
-      contents: read
-    steps:
-      - name: Download and verify wingetcreate
-        shell: pwsh
-        # Pin to a reviewed release and verify its published SHA256 before the next
-        # step runs it with WINGET_PAT in scope, so a mutated download (or a
-        # compromised redirect) can never execute against the token. Bump the
-        # version and hash together; the hash is the `wingetcreate.exe.txt` checksum
-        # published alongside the release asset.
-        env:
-          WINGETCREATE_VERSION: v1.12.8.0
-          WINGETCREATE_SHA256: 8BD738851B524885410112678E3771B341C5C716DE60FBBECB88AB0A363ED85D
-        run: |-
-          $ErrorActionPreference = 'Stop'
-          $url = "https://github.com/microsoft/winget-create/releases/download/${env:WINGETCREATE_VERSION}/wingetcreate.exe"
-          Invoke-WebRequest $url -OutFile wingetcreate.exe
-          $actual = (Get-FileHash wingetcreate.exe -Algorithm SHA256).Hash
-          if ($actual -ne ${env:WINGETCREATE_SHA256}) {
-            throw "wingetcreate.exe SHA256 mismatch: expected ${env:WINGETCREATE_SHA256}, got $actual"
-          }
-      - name: Submit ryl to winget-pkgs
-        shell: pwsh
-        env:
-          # wingetcreate reads the classic public_repo PAT from this env var (its
-          # documented CI path), keeping the token out of argv and process logs.
-          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_PAT }}
-        run: |-
-          $ErrorActionPreference = 'Stop'
-          $version = ${env:GITHUB_REF_NAME} -replace '^v', ''
-          $base = "https://github.com/${env:GITHUB_REPOSITORY}/releases/download/${env:GITHUB_REF_NAME}"
-          .\wingetcreate.exe update owenlamont.ryl `
-            --version $version `
-            --submit `
-            --urls "${base}/ryl-x86_64-pc-windows-msvc.zip|x64" "${base}/ryl-aarch64-pc-windows-msvc.zip|arm64"
+# ---------------------------------------------------------------------------
+# publish-winget is TEMPORARILY DISABLED (commented out) pending the winget-pkgs
+# New-Package bootstrap PR microsoft/winget-pkgs#387703, which is still stuck in
+# upstream moderation. `wingetcreate update owenlamont.ryl` requires the package
+# to already exist in winget-pkgs, so until that PR lands the package does not
+# exist upstream and this job would fail on every release. To re-enable: strip
+# the leading `# ` from the job below (originally added in #312, commit d1efb05)
+# once the bootstrap PR merges and `winget install owenlamont.ryl` works, and
+# restore the winget install instructions removed from the docs at the same time.
+# ---------------------------------------------------------------------------
+#   publish-winget:
+#     name: Publish to winget
+#     # Must follow finalize-github-release: wingetcreate downloads each release
+#     # asset to recompute its SHA256, so the assets have to be publicly
+#     # downloadable (un-drafted) first.
+#     needs:
+#       - finalize-github-release
+#     if: >-
+#       startsWith(github.ref, 'refs/tags/v') &&
+#       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+#     runs-on: windows-latest
+#     environment: automation
+#     permissions:
+#       contents: read
+#     steps:
+#       - name: Download and verify wingetcreate
+#         shell: pwsh
+#         # Pin to a reviewed release and verify its published SHA256 before the next
+#         # step runs it with WINGET_PAT in scope, so a mutated download (or a
+#         # compromised redirect) can never execute against the token. Bump the
+#         # version and hash together; the hash is the `wingetcreate.exe.txt` checksum
+#         # published alongside the release asset.
+#         env:
+#           WINGETCREATE_VERSION: v1.12.8.0
+#           WINGETCREATE_SHA256: 8BD738851B524885410112678E3771B341C5C716DE60FBBECB88AB0A363ED85D
+#         run: |-
+#           $ErrorActionPreference = 'Stop'
+#           $url = "https://github.com/microsoft/winget-create/releases/download/${env:WINGETCREATE_VERSION}/wingetcreate.exe"
+#           Invoke-WebRequest $url -OutFile wingetcreate.exe
+#           $actual = (Get-FileHash wingetcreate.exe -Algorithm SHA256).Hash
+#           if ($actual -ne ${env:WINGETCREATE_SHA256}) {
+#             throw "wingetcreate.exe SHA256 mismatch: expected ${env:WINGETCREATE_SHA256}, got $actual"
+#           }
+#       - name: Submit ryl to winget-pkgs
+#         shell: pwsh
+#         env:
+#           # wingetcreate reads the classic public_repo PAT from this env var (its
+#           # documented CI path), keeping the token out of argv and process logs.
+#           WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_PAT }}
+#         run: |-
+#           $ErrorActionPreference = 'Stop'
+#           $version = ${env:GITHUB_REF_NAME} -replace '^v', ''
+#           $base = "https://github.com/${env:GITHUB_REPOSITORY}/releases/download/${env:GITHUB_REF_NAME}"
+#           .\wingetcreate.exe update owenlamont.ryl `
+#             --version $version `
+#             --submit `
+#             --urls "${base}/ryl-x86_64-pc-windows-msvc.zip|x64" "${base}/ryl-aarch64-pc-windows-msvc.zip|arm64"
 
   sync-schemastore:
     name: Sync SchemaStore
