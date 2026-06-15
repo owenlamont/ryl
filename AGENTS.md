@@ -456,7 +456,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   loop/dispatch; the connection-free logic lives in submodules so it is unit/property
   testable: `encoding` (position math + `uri_to_path`/`path_to_uri`), `analysis`
   (lint/fix → LSP), `actions` (code-action builders), `hover`, `rename`. Capabilities:
-  push diagnostics (`publishDiagnostics`); pull diagnostics (`textDocument/diagnostic` +
+  push diagnostics (`publishDiagnostics`, gated on `Server::push_diagnostics` =
+  `!client_supports_pull_diagnostics` so a pull-capable client gets diagnostics once via
+  pull, not twice — clients like VS Code merge the two channels); pull diagnostics
+  (`textDocument/diagnostic` +
   `workspace/diagnostic`, the latter over a per-entry-cancellable
   `discover::gather_yaml_from_dir_cancellable` walk of every root, deduped, full report
   each call, no result-id caching; it runs on a background worker thread — so the message
@@ -475,9 +478,12 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   fix; code actions honour `context.only`. Config is resolved per document via
   `discover_config` (full CLI precedence incl. `YAMLLINT_CONFIG_FILE`), layering the
   client's `Settings` (`initializationOptions` / `workspace/didChangeConfiguration`:
-  `configPath`/`configData`/`enable`, CLI-equivalent precedence). Config-file changes
-  re-lint open docs via a dynamic `didChangeWatchedFiles` registration (push model;
-  `workspace/configuration` pull is deferred). A rule-less/absent config or `enable:false`
+  `configPath`/`configData`/`enable`, CLI-equivalent precedence). Config-file changes go
+  through `handle_config_change` via a dynamic `didChangeWatchedFiles` registration: a push
+  client gets a re-lint+re-push, a pull client (whose pushes are gated off) is asked to
+  re-pull via `workspace/diagnostic/refresh` when it advertised `refreshSupport`
+  (`client_supports_diagnostic_refresh`), else it re-pulls on its own cadence.
+  `workspace/configuration` pull is deferred. A rule-less/absent config or `enable:false`
   lints nothing silently; a malformed one lints nothing but is surfaced once via
   `window/showMessage` (no hard exit-2). **Position encoding is the one load-bearing
   piece:** LSP columns are UTF-16 code units by default (NOT ryl's 1-based code-point
