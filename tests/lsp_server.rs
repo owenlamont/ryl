@@ -13,15 +13,16 @@ use std::thread::{self, JoinHandle};
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
     ClientCapabilities, CodeActionContext, CodeActionKind, CodeActionOrCommand,
-    CodeActionParams, CodeActionResponse, Diagnostic, DidChangeTextDocumentParams,
+    CodeActionParams, CodeActionResponse, Diagnostic, DiagnosticClientCapabilities,
+    DiagnosticWorkspaceClientCapabilities, DidChangeTextDocumentParams,
     DidChangeWatchedFilesClientCapabilities, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentChanges, DocumentDiagnosticReport,
     DocumentFormattingParams, FormattingOptions, GeneralClientCapabilities, Hover,
     HoverContents, InitializeParams, InitializeResult, NumberOrString, OneOf,
     PartialResultParams, Position, PositionEncodingKind, PrepareRenameResponse,
-    PublishDiagnosticsParams, Range, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri,
-    VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    PublishDiagnosticsParams, Range, TextDocumentClientCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, TextEdit,
+    Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
     WorkspaceClientCapabilities, WorkspaceDiagnosticReport,
     WorkspaceDocumentDiagnosticReport, WorkspaceEdit, WorkspaceEditClientCapabilities,
     WorkspaceFolder,
@@ -57,6 +58,30 @@ fn project(config: &str) -> TempDir {
     dir
 }
 
+/// Assert none of the drained notifications is a diagnostics push — the invariant a
+/// pull-capable client relies on: it gets diagnostics only via pull, never an extra
+/// push that a client merging the two channels (VS Code) would double-count.
+fn assert_no_diagnostics_push(notifications: &[Notification]) {
+    assert!(
+        notifications
+            .iter()
+            .all(|note| note.method != "textDocument/publishDiagnostics"),
+        "a pull-capable client must not receive a publishDiagnostics push"
+    );
+}
+
+/// The diagnostic items from a `textDocument/diagnostic` full-report response (ryl never
+/// caches result ids, so the report is always full).
+fn pull_items(response: Response) -> Vec<Diagnostic> {
+    let report: DocumentDiagnosticReport =
+        serde_json::from_value(response.result.expect("diagnostic result"))
+            .expect("DocumentDiagnosticReport");
+    let DocumentDiagnosticReport::Full(report) = report else {
+        panic!("expected a full report");
+    };
+    report.full_document_diagnostic_report.items
+}
+
 /// A one-character ryl diagnostic for `rule` at a 0-based position, as a client echoes
 /// back in a code-action request's context (carrying ryl's `source` as the real server
 /// does, so the source filter accepts it).
@@ -90,16 +115,7 @@ impl Client {
 
     /// Launch advertising several workspace folders (a multi-root workspace).
     fn launch_roots(roots: &[&Path]) -> (Self, InitializeResult) {
-        let (server, client) = Connection::memory();
-        let thread = thread::spawn(move || {
-            let _ = ryl::lsp::serve(&server);
-        });
-        let mut this = Client {
-            conn: Some(client),
-            thread: Some(thread),
-            next_id: 0,
-        };
-        let params = InitializeParams {
+        Self::launch_params(InitializeParams {
             workspace_folders: Some(
                 roots
                     .iter()
@@ -110,6 +126,59 @@ impl Client {
                     .collect(),
             ),
             ..Default::default()
+        })
+    }
+
+    /// Launch advertising the LSP 3.17 pull-diagnostics client capability (plus versioned
+    /// edits, as a real pull client like VS Code does). The server must then rely on pull
+    /// and never push `publishDiagnostics`. `refresh_support` advertises
+    /// `workspace/diagnostic/refresh` so a config change can ask the client to re-pull.
+    fn launch_pull(
+        root: Option<&Path>,
+        refresh_support: bool,
+    ) -> (Self, InitializeResult) {
+        Self::launch_params(InitializeParams {
+            capabilities: ClientCapabilities {
+                text_document: Some(TextDocumentClientCapabilities {
+                    diagnostic: Some(DiagnosticClientCapabilities::default()),
+                    ..Default::default()
+                }),
+                workspace: Some(WorkspaceClientCapabilities {
+                    workspace_edit: Some(WorkspaceEditClientCapabilities {
+                        document_changes: Some(true),
+                        ..Default::default()
+                    }),
+                    diagnostic: refresh_support.then_some(
+                        DiagnosticWorkspaceClientCapabilities {
+                            refresh_support: Some(true),
+                        },
+                    ),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            workspace_folders: root.map(|path| {
+                vec![WorkspaceFolder {
+                    uri: file_uri(path, ""),
+                    name: "root".to_string(),
+                }]
+            }),
+            ..Default::default()
+        })
+    }
+
+    /// Spawn a server thread and complete the `initialize`/`initialized` handshake with
+    /// the given client capabilities. The bespoke launches build their own params; the
+    /// positional `launch_with` chain goes through `initialize` instead.
+    fn launch_params(params: InitializeParams) -> (Self, InitializeResult) {
+        let (server, client) = Connection::memory();
+        let thread = thread::spawn(move || {
+            let _ = ryl::lsp::serve(&server);
+        });
+        let mut this = Client {
+            conn: Some(client),
+            thread: Some(thread),
+            next_id: 0,
         };
         let id = this.request("initialize", params);
         let response = this.response(&id);
@@ -194,6 +263,42 @@ impl Client {
             match self.conn().receiver.recv().expect("recv") {
                 Message::Response(response) if &response.id == id => return response,
                 _ => {}
+            }
+        }
+    }
+
+    /// Drain messages up to and including the response to `id`, returning every
+    /// notification seen on the way. Because the server's loop is single-threaded and
+    /// in-order, any push triggered by an earlier notification arrives before this
+    /// response — so a test can assert a pull-capable client got *no* `publishDiagnostics`.
+    fn notifications_until_response(
+        &self,
+        id: &RequestId,
+    ) -> (Vec<Notification>, Response) {
+        let mut notifications = Vec::new();
+        loop {
+            match self.conn().receiver.recv().expect("recv") {
+                Message::Response(response) if &response.id == id => {
+                    return (notifications, response);
+                }
+                Message::Notification(note) => notifications.push(note),
+                _ => {}
+            }
+        }
+    }
+
+    /// Drain messages up to and including the response to `id`, returning every message
+    /// (server-to-client requests *and* notifications) seen on the way. Lets a test assert
+    /// the server sent a particular request — e.g. `workspace/diagnostic/refresh` — while
+    /// confirming no diagnostics push escaped.
+    fn messages_until_response(&self, id: &RequestId) -> (Vec<Message>, Response) {
+        let mut messages = Vec::new();
+        loop {
+            match self.conn().receiver.recv().expect("recv") {
+                Message::Response(response) if &response.id == id => {
+                    return (messages, response);
+                }
+                other => messages.push(other),
             }
         }
     }
@@ -590,6 +695,155 @@ fn did_close_clears_diagnostics() {
     assert!(
         client.diagnostics().is_empty(),
         "closing clears diagnostics"
+    );
+}
+
+// Regression for #323: when the client advertises the pull model, the server must not
+// *also* push `publishDiagnostics`. A client that keeps the push and pull channels in
+// separate collections (VS Code via `vscode-languageclient`) would otherwise list every
+// diagnostic twice. Every other test launches a push-only client, so they pin that the
+// push path still works; these pin the pull path stays silent across open/change/close.
+#[test]
+fn pull_capable_client_receives_no_push_on_open() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(None, false);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    // A pull request flushes the loop: any stray push from didOpen would arrive ahead
+    // of this response. The response must still carry the violation (pull works).
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({ "textDocument": { "uri": doc } }),
+    );
+    let (notifications, response) = client.notifications_until_response(&id);
+    assert_no_diagnostics_push(&notifications);
+    assert_eq!(
+        pull_items(response).len(),
+        1,
+        "pull still reports the trailing space"
+    );
+}
+
+#[test]
+fn pull_capable_client_receives_no_push_on_change() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(None, false);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1\n");
+    client.did_change(doc.clone(), "a: 1 \n");
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({ "textDocument": { "uri": doc } }),
+    );
+    let (notifications, response) = client.notifications_until_response(&id);
+    assert_no_diagnostics_push(&notifications);
+    // The change introduced the trailing space; pull must reflect the new state, not the
+    // clean text opened a moment ago.
+    assert_eq!(
+        pull_items(response).len(),
+        1,
+        "pull reflects the post-change buffer"
+    );
+}
+
+#[test]
+fn pull_capable_client_receives_no_clear_on_close() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(None, false);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    client.did_close(doc);
+    // The didClose clear is a push too; probe with an unhandled request so any escaped
+    // clear arrives before the probe's error response.
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (notifications, response) = client.notifications_until_response(&id);
+    assert_no_diagnostics_push(&notifications);
+    assert!(response.error.is_some(), "the probe is still answered");
+}
+
+// A pull client's diagnostics are gated off, so after a config change it must be told to
+// re-pull (LSP `workspace/diagnostic/refresh`) or it would keep showing diagnostics from
+// the old config. Push clients re-push instead (covered by the *_relints tests above).
+#[test]
+fn pull_client_is_asked_to_refresh_after_config_change() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), true);
+    client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
+    // Simulate the watched config file changing on disk.
+    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    // Flush with a probe; any refresh request / stray push arrives before its response.
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, response) = client.messages_until_response(&id);
+    assert!(response.error.is_some(), "the probe is still answered");
+    let refreshes = messages
+        .iter()
+        .filter(|message| {
+            matches!(message, Message::Request(request)
+                if request.method == "workspace/diagnostic/refresh")
+        })
+        .count();
+    assert_eq!(
+        refreshes, 1,
+        "a pull client is asked to re-pull after a config change"
+    );
+    assert!(
+        messages.iter().all(|message| {
+            !matches!(message, Message::Notification(note)
+                if note.method == "textDocument/publishDiagnostics")
+        }),
+        "the refresh replaces a push for a pull client, it does not accompany one"
+    );
+}
+
+#[test]
+fn repeated_config_changes_send_distinct_refresh_request_ids() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), true);
+    client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
+    // Two changes before any response: their refresh requests are concurrently outstanding,
+    // so reusing one id would break the client's response correlation (JSON-RPC).
+    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, response) = client.messages_until_response(&id);
+    assert!(response.error.is_some(), "the probe is still answered");
+    let refresh_ids: Vec<_> = messages
+        .iter()
+        .filter_map(|message| match message {
+            Message::Request(request)
+                if request.method == "workspace/diagnostic/refresh" =>
+            {
+                Some(request.id.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        refresh_ids.len(),
+        2,
+        "each config change asks for a refresh"
+    );
+    assert_ne!(
+        refresh_ids[0], refresh_ids[1],
+        "concurrent refreshes use distinct ids so the client can correlate responses"
+    );
+}
+
+#[test]
+fn pull_client_without_refresh_support_gets_no_refresh() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
+    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, response) = client.messages_until_response(&id);
+    assert!(response.error.is_some(), "the probe is still answered");
+    assert!(
+        messages.iter().all(|message| {
+            !matches!(message, Message::Request(request)
+                if request.method == "workspace/diagnostic/refresh")
+        }),
+        "no refresh is sent to a client that did not advertise support for it"
     );
 }
 

@@ -14,7 +14,7 @@ hover only explains ryl's own diagnostics.
 
 | Capability | LSP feature | Behaviour |
 | --- | --- | --- |
-| Diagnostics (push) | `textDocument/publishDiagnostics` | Every enabled rule, re-linted on open and on each change |
+| Diagnostics (push) | `textDocument/publishDiagnostics` | Every enabled rule, re-linted on open and on each change. Sent only to a client that does *not* advertise the pull model (see below) |
 | Diagnostics (pull) | `textDocument/diagnostic`, `workspace/diagnostic` | On-demand diagnostics for one document or every `*.yaml`/`*.yml` under the workspace root |
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
@@ -22,7 +22,7 @@ hover only explains ryl's own diagnostics.
 | Formatting | `textDocument/formatting` | Same as "fix all": formatting *is* applying safe fixes |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
-| Config watching | `workspace/didChangeWatchedFiles` | Re-lints open documents when a ryl/yamllint config file changes on disk |
+| Config watching | `workspace/didChangeWatchedFiles` | When a ryl/yamllint config file changes on disk, re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh` |
 
 The fix-all action and formatting both apply ryl's whole-file safe fixes; ryl has no
 per-occurrence "fix just this one" action, because its fix engine operates per file (the
@@ -111,6 +111,16 @@ format-on-save via `editor.defaultFormatter`.
 - **Rename** targets YAML anchors/aliases only (not Markdown-embedded YAML), and is scoped
   to the document the anchor lives in: a name reused across a `---`/`...` boundary is a
   distinct anchor and is left untouched.
+- **Push vs pull is chosen per client, never both.** The server advertises the pull model
+  (`textDocument/diagnostic`) *and* can push (`textDocument/publishDiagnostics`), but emits
+  only one per document: if the client advertises pull support, the server relies on pull and
+  does not push. The LSP spec does not say how the two models interact when a server supports
+  both, and clients that keep them in separate diagnostic collections (VS Code via
+  `vscode-languageclient`) would otherwise show every problem twice. A client that does not
+  advertise pull (older editors) still gets pushes as before. After a config change, a pull
+  client is asked to re-pull via `workspace/diagnostic/refresh` (if it advertised
+  `refreshSupport`), since its gated-off push results would otherwise leave stale diagnostics
+  on screen; a pull client without that capability re-pulls only on its own cadence.
 - **Workspace pull diagnostics** cover `*.yaml`/`*.yml` files under each workspace root
   (git-ignored files excluded); Markdown and files matched only by custom `[files]` globs
   are diagnosed when opened or pulled individually. The scan runs on a background thread

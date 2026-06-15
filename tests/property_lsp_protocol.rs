@@ -19,19 +19,21 @@
 #[path = "property_check/strategy.rs"]
 mod strategy;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use lsp_server::{Connection, Message, Notification, Request, RequestId};
+use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
-    CodeActionContext, CodeActionParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentFormattingParams,
-    FormattingOptions, InitializeParams, PartialResultParams, Position,
-    PublishDiagnosticsParams, Range, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, Uri, VersionedTextDocumentIdentifier,
-    WorkDoneProgressParams,
+    ClientCapabilities, CodeActionContext, CodeActionParams, Diagnostic,
+    DiagnosticClientCapabilities, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentDiagnosticReport,
+    DocumentFormattingParams, FormattingOptions, InitializeParams, PartialResultParams,
+    Position, PublishDiagnosticsParams, Range, TextDocumentClientCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Uri,
+    VersionedTextDocumentIdentifier, WorkDoneProgressParams,
 };
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
@@ -57,7 +59,30 @@ struct Driver {
 }
 
 impl Driver {
+    /// Default client capabilities -> a push client (the server negotiates UTF-16 and
+    /// pushes diagnostics).
     fn start() -> Self {
+        Self::launch(to_value(InitializeParams::default()).expect("serialize init"))
+    }
+
+    /// A pull-capable client (it advertises `textDocument/diagnostic`). The server must
+    /// then rely on pull and never push `publishDiagnostics`.
+    fn start_pull() -> Self {
+        let init = to_value(InitializeParams {
+            capabilities: ClientCapabilities {
+                text_document: Some(TextDocumentClientCapabilities {
+                    diagnostic: Some(DiagnosticClientCapabilities::default()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .expect("serialize init");
+        Self::launch(init)
+    }
+
+    fn launch(init: Value) -> Self {
         let (server, client) = Connection::memory();
         let thread = thread::spawn(move || {
             let _ = ryl::lsp::serve(&server);
@@ -67,8 +92,6 @@ impl Driver {
             thread: Some(thread),
             next_id: 0,
         };
-        // Default client capabilities -> the server negotiates UTF-16.
-        let init = to_value(InitializeParams::default()).expect("serialize init");
         let id = driver.request("initialize", init);
         let _ = driver.await_response(&id);
         driver.notify("initialized", Value::Null);
@@ -87,6 +110,51 @@ impl Driver {
                 params,
             )))
             .expect("send notification");
+    }
+
+    // The document-lifecycle notifications, shared by every replay loop so the message
+    // shapes have a single source of truth (a `range`-less change is a full replace).
+    fn open(&self, uri: &Uri, version: i32, text: &str) {
+        self.notify(
+            "textDocument/didOpen",
+            to_value(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "yaml".to_string(),
+                    version,
+                    text: text.to_string(),
+                },
+            })
+            .expect("serialize"),
+        );
+    }
+
+    fn change_full(&self, uri: &Uri, version: i32, text: &str) {
+        self.notify(
+            "textDocument/didChange",
+            to_value(DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: text.to_string(),
+                }],
+            })
+            .expect("serialize"),
+        );
+    }
+
+    fn close(&self, uri: &Uri) {
+        self.notify(
+            "textDocument/didClose",
+            to_value(DidCloseTextDocumentParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+            })
+            .expect("serialize"),
+        );
     }
 
     fn request(&mut self, method: &str, params: Value) -> RequestId {
@@ -115,6 +183,26 @@ impl Driver {
             let message = self.recv();
             if matches!(&message, Message::Response(response) if &response.id == id) {
                 return message;
+            }
+        }
+    }
+
+    /// Drain messages up to the response to `id`, returning every notification seen on
+    /// the way plus that response. The loop is single-threaded and in-order, so any push
+    /// an earlier op triggered arrives before this response — letting the pull-client
+    /// test assert no `publishDiagnostics` escaped while still inspecting the pull result.
+    fn notifications_until_response(
+        &self,
+        id: &RequestId,
+    ) -> (Vec<Notification>, Response) {
+        let mut notifications = Vec::new();
+        loop {
+            match self.recv() {
+                Message::Response(response) if &response.id == id => {
+                    return (notifications, response);
+                }
+                Message::Notification(note) => notifications.push(note),
+                _ => {}
             }
         }
     }
@@ -222,6 +310,60 @@ fn arb_op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// The document-lifecycle ops — the only ones that publish diagnostics — for the
+/// capability-respecting property. Separate from [`Op`] so that test replays just the
+/// channel-relevant ops (request ops never push, so they would only dilute the property).
+#[derive(Debug, Clone)]
+enum DocOp {
+    Open(u8, String),
+    Change(u8, String),
+    Close(u8),
+}
+
+impl DocOp {
+    fn index(&self) -> u8 {
+        match self {
+            DocOp::Open(index, _) | DocOp::Change(index, _) | DocOp::Close(index) => {
+                *index
+            }
+        }
+    }
+}
+
+fn arb_doc_op() -> impl Strategy<Value = DocOp> {
+    let index = 0u8..DOC_POOL;
+    prop_oneof![
+        (
+            index.clone(),
+            any::<bool>(),
+            arb_document().prop_map(|document| document.render())
+        )
+            .prop_map(|(index, is_open, text)| if is_open {
+                DocOp::Open(index, text)
+            } else {
+                DocOp::Change(index, text)
+            }),
+        index.prop_map(DocOp::Close),
+    ]
+}
+
+/// A fresh lint of `text` as the document at `dir/doc{index}.yaml`, computed the same
+/// way the server does (per-document config discovery, UTF-16 columns). Both diagnostic
+/// channels must reproduce this exactly, so it is the oracle for push and pull alike.
+fn fresh_lint(dir: &Path, index: u8, text: &str) -> Vec<Diagnostic> {
+    let path = doc_path(dir, index);
+    let context = discover_config(std::slice::from_ref(&path), &Overrides::default())
+        .expect("config discovers");
+    diagnostics(
+        text,
+        &path,
+        &context.config,
+        &context.base_dir,
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+    )
+}
+
 /// didOpen/didChange handling is identical server-side (store + publish); verify
 /// the version echo and that the published diagnostics match a fresh lint.
 fn check_update(
@@ -236,20 +378,9 @@ fn check_update(
         Some(version),
         "publishDiagnostics echoes the document version"
     );
-    let path = doc_path(dir, index);
-    let context = discover_config(std::slice::from_ref(&path), &Overrides::default())
-        .expect("config discovers");
-    let expected = diagnostics(
-        text,
-        &path,
-        &context.config,
-        &context.base_dir,
-        SourceKind::Yaml,
-        PositionEncoding::Utf16,
-    );
     prop_assert_eq!(
         &diagnostics_params.diagnostics,
-        &expected,
+        &fresh_lint(dir, index, text),
         "published diagnostics match a fresh lint of the current text"
     );
     Ok(())
@@ -299,50 +430,18 @@ proptest! {
             match op {
                 Op::Open(index, text) => {
                     version += 1;
-                    let document = TextDocumentItem {
-                        uri: doc_uri(dir.path(), index),
-                        language_id: "yaml".to_string(),
-                        version,
-                        text: text.clone(),
-                    };
-                    driver.notify(
-                        "textDocument/didOpen",
-                        to_value(DidOpenTextDocumentParams { text_document: document })
-                            .expect("serialize"),
-                    );
+                    driver.open(&doc_uri(dir.path(), index), version, &text);
                     let published = driver.await_publish();
                     check_update(dir.path(), index, version, &text, &published)?;
                 }
                 Op::Change(index, text) => {
                     version += 1;
-                    driver.notify(
-                        "textDocument/didChange",
-                        to_value(DidChangeTextDocumentParams {
-                            text_document: VersionedTextDocumentIdentifier {
-                                uri: doc_uri(dir.path(), index),
-                                version,
-                            },
-                            content_changes: vec![TextDocumentContentChangeEvent {
-                                range: None,
-                                range_length: None,
-                                text: text.clone(),
-                            }],
-                        })
-                        .expect("serialize"),
-                    );
+                    driver.change_full(&doc_uri(dir.path(), index), version, &text);
                     let published = driver.await_publish();
                     check_update(dir.path(), index, version, &text, &published)?;
                 }
                 Op::Close(index) => {
-                    driver.notify(
-                        "textDocument/didClose",
-                        to_value(DidCloseTextDocumentParams {
-                            text_document: TextDocumentIdentifier {
-                                uri: doc_uri(dir.path(), index),
-                            },
-                        })
-                        .expect("serialize"),
-                    );
+                    driver.close(&doc_uri(dir.path(), index));
                     let published = driver.await_publish();
                     prop_assert!(
                         published.diagnostics.is_empty(),
@@ -449,6 +548,95 @@ proptest! {
             );
             let published = driver.await_publish();
             check_update(dir.path(), 0, version, &model, &published)?;
+        }
+        driver.shutdown();
+    }
+
+    /// #323 regression, generalized over the advertised capability. A mock client either
+    /// advertises pull support or not, then replays a random didOpen/didChange/didClose
+    /// sequence. The server must use the channel the client asked for — pull-capable ⟹ no
+    /// `publishDiagnostics` push ever (diagnostics arrive only when pulled); push-only ⟹ a
+    /// push per op — and on whichever channel the diagnostics must be a faithful, complete
+    /// lint of the document's current state. Together these pin that an editor merging the
+    /// two channels (VS Code) can neither double-count nor see the channels disagree, for
+    /// either kind of client. Also pins liveness (clean shutdown). `pull` is the only
+    /// client capability that changes diagnostic behaviour, so randomizing it covers the
+    /// relevant capability space.
+    #[test]
+    fn server_respects_diagnostic_capability(
+        pull in any::<bool>(),
+        ops in prop::collection::vec(arb_doc_op(), 0..12),
+    ) {
+        let dir = tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(".ryl.toml"), CONFIG).expect("write config");
+        let mut driver = if pull { Driver::start_pull() } else { Driver::start() };
+        let mut version = 0;
+        // Mirror the server's open-buffer store so the expected diagnostics are a fresh
+        // lint of the current buffer (or empty once the doc is closed — the server then
+        // reads the absent on-disk file). A range-less change is a full replace, so the
+        // buffer becomes `text` whether or not the doc was already open.
+        let mut open_text: HashMap<u8, String> = HashMap::new();
+
+        for op in ops {
+            let index = op.index();
+            let uri = doc_uri(dir.path(), index);
+            match op {
+                DocOp::Open(_, text) => {
+                    version += 1;
+                    open_text.insert(index, text.clone());
+                    driver.open(&uri, version, &text);
+                }
+                DocOp::Change(_, text) => {
+                    version += 1;
+                    open_text.insert(index, text.clone());
+                    driver.change_full(&uri, version, &text);
+                }
+                DocOp::Close(_) => {
+                    open_text.remove(&index);
+                    driver.close(&uri);
+                }
+            }
+            let expected = open_text
+                .get(&index)
+                .map(|text| fresh_lint(dir.path(), index, text))
+                .unwrap_or_default();
+
+            if pull {
+                // No push may escape; a flushing pull returns the faithful diagnostics
+                // (any push the op triggered would arrive ahead of this response).
+                let id = driver.request(
+                    "textDocument/diagnostic",
+                    json!({ "textDocument": { "uri": uri } }),
+                );
+                let (notifications, response) =
+                    driver.notifications_until_response(&id);
+                prop_assert!(
+                    notifications
+                        .iter()
+                        .all(|note| note.method != "textDocument/publishDiagnostics"),
+                    "a pull-capable client must never receive a publishDiagnostics push"
+                );
+                let report: DocumentDiagnosticReport =
+                    serde_json::from_value(response.result.expect("pull result"))
+                        .expect("DocumentDiagnosticReport");
+                let DocumentDiagnosticReport::Full(report) = report else {
+                    unreachable!("ryl never caches result ids, so every report is full");
+                };
+                prop_assert_eq!(
+                    report.full_document_diagnostic_report.items,
+                    expected,
+                    "pull returns a faithful, complete lint of the current state"
+                );
+            } else {
+                // A push-only client gets a publishDiagnostics for this op, carrying the
+                // faithful diagnostics (empty once the doc is closed).
+                let published = driver.await_publish();
+                prop_assert_eq!(
+                    published.diagnostics,
+                    expected,
+                    "push carries a faithful, complete lint of the current state"
+                );
+            }
         }
         driver.shutdown();
     }
