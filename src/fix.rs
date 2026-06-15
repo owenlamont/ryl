@@ -93,6 +93,25 @@ const EMPTY_LINES_FIX: RuleFix = RuleFix {
     safety: FixSafety::Safe,
 };
 
+/// Every rule with a safe `--fix`, in application order. Referencing each rule's `ID`
+/// keeps the spellings in sync with the `ctx.apply` sequence in
+/// [`apply_safe_fixes_filtered`]; extend both together when adding a safe fixer. The LSP
+/// drives per-rule "Fix all `<rule>`" actions off this list (skipping every other id).
+pub const SAFE_FIX_RULE_IDS: [&str; 12] = [
+    new_lines::ID,
+    comments::ID,
+    comments_indentation::ID,
+    commas::ID,
+    braces::ID,
+    brackets::ID,
+    new_line_at_end_of_file::ID,
+    quoted_strings::ID,
+    trailing_spaces::ID,
+    document_start::ID,
+    document_end::ID,
+    empty_lines::ID,
+];
+
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,

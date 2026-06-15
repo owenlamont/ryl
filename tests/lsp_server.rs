@@ -14,18 +14,26 @@ use lsp_server::{Connection, Message, Notification, Request, RequestId, Response
 use lsp_types::{
     ClientCapabilities, CodeActionContext, CodeActionKind, CodeActionOrCommand,
     CodeActionParams, CodeActionResponse, Diagnostic, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChanges,
-    DocumentFormattingParams, FormattingOptions, GeneralClientCapabilities,
-    InitializeParams, InitializeResult, OneOf, PartialResultParams,
-    PositionEncodingKind, PublishDiagnosticsParams, Range,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, TextEdit,
-    Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
-    WorkspaceClientCapabilities, WorkspaceEditClientCapabilities, WorkspaceFolder,
+    DidChangeWatchedFilesClientCapabilities, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentChanges, DocumentDiagnosticReport,
+    DocumentFormattingParams, FormattingOptions, GeneralClientCapabilities, Hover,
+    HoverContents, InitializeParams, InitializeResult, NumberOrString, OneOf,
+    PartialResultParams, Position, PositionEncodingKind, PrepareRenameResponse,
+    PublishDiagnosticsParams, Range, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri,
+    VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    WorkspaceClientCapabilities, WorkspaceDiagnosticReport,
+    WorkspaceDocumentDiagnosticReport, WorkspaceEdit, WorkspaceEditClientCapabilities,
+    WorkspaceFolder,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use tempfile::{TempDir, tempdir};
 
 const TRAILING: &str = "[rules]\ntrailing-spaces = \"enable\"\n";
+
+/// A method ryl does not (and will not) handle, so requesting it always yields a
+/// `MethodNotFound` error — used to probe that the server is still responsive.
+const UNHANDLED_METHOD: &str = "ryl/internalUnhandledProbe";
 
 fn uri(text: &str) -> Uri {
     Uri::from_str(text).expect("valid URI")
@@ -49,6 +57,21 @@ fn project(config: &str) -> TempDir {
     dir
 }
 
+/// A one-character ryl diagnostic for `rule` at a 0-based position, as a client echoes
+/// back in a code-action request's context (carrying ryl's `source` as the real server
+/// does, so the source filter accepts it).
+fn diag(rule: &str, line: u32, character: u32) -> Diagnostic {
+    Diagnostic {
+        range: Range::new(
+            Position::new(line, character),
+            Position::new(line, character + 1),
+        ),
+        code: Some(NumberOrString::String(rule.to_string())),
+        source: Some("ryl".to_string()),
+        ..Default::default()
+    }
+}
+
 /// In-process client driving a server thread over a memory connection.
 struct Client {
     conn: Option<Connection>,
@@ -65,11 +88,53 @@ impl Client {
         Self::launch_full(encodings, root, true, None)
     }
 
+    /// Launch advertising several workspace folders (a multi-root workspace).
+    fn launch_roots(roots: &[&Path]) -> (Self, InitializeResult) {
+        let (server, client) = Connection::memory();
+        let thread = thread::spawn(move || {
+            let _ = ryl::lsp::serve(&server);
+        });
+        let mut this = Client {
+            conn: Some(client),
+            thread: Some(thread),
+            next_id: 0,
+        };
+        let params = InitializeParams {
+            workspace_folders: Some(
+                roots
+                    .iter()
+                    .map(|path| WorkspaceFolder {
+                        uri: file_uri(path, ""),
+                        name: "root".to_string(),
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        let id = this.request("initialize", params);
+        let response = this.response(&id);
+        this.notify("initialized", serde_json::json!({}));
+        let init = serde_json::from_value(response.result.expect("initialize result"))
+            .expect("InitializeResult");
+        (this, init)
+    }
+
     fn launch_full(
         encodings: Option<Vec<PositionEncodingKind>>,
         root: Option<&Path>,
         document_changes: bool,
         root_uri: Option<&Path>,
+    ) -> (Self, InitializeResult) {
+        Self::launch_with(encodings, root, document_changes, root_uri, false, None)
+    }
+
+    fn launch_with(
+        encodings: Option<Vec<PositionEncodingKind>>,
+        root: Option<&Path>,
+        document_changes: bool,
+        root_uri: Option<&Path>,
+        watch: bool,
+        options: Option<Value>,
     ) -> (Self, InitializeResult) {
         let (server, client) = Connection::memory();
         let thread = thread::spawn(move || {
@@ -80,7 +145,14 @@ impl Client {
             thread: Some(thread),
             next_id: 0,
         };
-        let init = this.initialize(encodings, root, document_changes, root_uri);
+        let init = this.initialize(
+            encodings,
+            root,
+            document_changes,
+            root_uri,
+            watch,
+            options,
+        );
         (this, init)
     }
 
@@ -169,6 +241,8 @@ impl Client {
         root: Option<&Path>,
         document_changes: bool,
         root_uri: Option<&Path>,
+        watch: bool,
+        options: Option<Value>,
     ) -> InitializeResult {
         let params = InitializeParams {
             capabilities: ClientCapabilities {
@@ -178,15 +252,26 @@ impl Client {
                         ..Default::default()
                     }
                 }),
-                workspace: document_changes.then(|| WorkspaceClientCapabilities {
-                    workspace_edit: Some(WorkspaceEditClientCapabilities {
-                        document_changes: Some(true),
+                workspace: (document_changes || watch).then(|| {
+                    WorkspaceClientCapabilities {
+                        workspace_edit: document_changes.then(|| {
+                            WorkspaceEditClientCapabilities {
+                                document_changes: Some(true),
+                                ..Default::default()
+                            }
+                        }),
+                        did_change_watched_files: watch.then(|| {
+                            DidChangeWatchedFilesClientCapabilities {
+                                dynamic_registration: Some(true),
+                                ..Default::default()
+                            }
+                        }),
                         ..Default::default()
-                    }),
-                    ..Default::default()
+                    }
                 }),
                 ..Default::default()
             },
+            initialization_options: options,
             workspace_folders: root.map(|path| {
                 vec![WorkspaceFolder {
                     uri: file_uri(path, ""),
@@ -279,10 +364,118 @@ impl Client {
             .expect("response")
     }
 
+    fn code_action_with_diagnostics(
+        &mut self,
+        uri: Uri,
+        diagnostics: Vec<Diagnostic>,
+    ) -> Option<CodeActionResponse> {
+        let params = CodeActionParams {
+            text_document: TextDocumentIdentifier { uri },
+            range: Range::default(),
+            context: CodeActionContext {
+                diagnostics,
+                only: None,
+                trigger_kind: None,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        };
+        let id = self.request("textDocument/codeAction", params);
+        let response = self.response(&id);
+        serde_json::from_value(response.result.expect("code action result"))
+            .expect("response")
+    }
+
+    fn hover(&mut self, uri: &Uri, line: u32, character: u32) -> Option<Hover> {
+        let params = json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character },
+        });
+        let id = self.request("textDocument/hover", params);
+        let response = self.response(&id);
+        serde_json::from_value(response.result.expect("hover result"))
+            .expect("Option<Hover>")
+    }
+
+    fn prepare_rename(
+        &mut self,
+        uri: &Uri,
+        line: u32,
+        character: u32,
+    ) -> Option<PrepareRenameResponse> {
+        let params = json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character },
+        });
+        let id = self.request("textDocument/prepareRename", params);
+        let response = self.response(&id);
+        serde_json::from_value(response.result.expect("prepareRename result"))
+            .expect("Option<PrepareRenameResponse>")
+    }
+
+    /// Send a rename and return the raw response (so a test can check error vs result).
+    fn rename(
+        &mut self,
+        uri: &Uri,
+        line: u32,
+        character: u32,
+        new_name: &str,
+    ) -> Response {
+        let params = json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character },
+            "newName": new_name,
+        });
+        let id = self.request("textDocument/rename", params);
+        self.response(&id)
+    }
+
+    fn document_diagnostic(&mut self, uri: &Uri) -> DocumentDiagnosticReport {
+        let params = json!({ "textDocument": { "uri": uri } });
+        let id = self.request("textDocument/diagnostic", params);
+        let response = self.response(&id);
+        serde_json::from_value(response.result.expect("diagnostic result"))
+            .expect("DocumentDiagnosticReport")
+    }
+
+    fn workspace_diagnostic(&mut self) -> WorkspaceDiagnosticReport {
+        let params = json!({ "previousResultIds": [] });
+        let id = self.request("workspace/diagnostic", params);
+        let response = self.response(&id);
+        serde_json::from_value(response.result.expect("workspace diagnostic result"))
+            .expect("WorkspaceDiagnosticReport")
+    }
+
+    /// Send an incremental (ranged) change replacing `range` with `text`.
+    fn did_change_range(&self, uri: Uri, version: i32, range: Range, text: &str) {
+        self.notify(
+            "textDocument/didChange",
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier { uri, version },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: Some(range),
+                    range_length: None,
+                    text: text.to_string(),
+                }],
+            },
+        );
+    }
+
+    /// Receive the next server-to-client request, skipping notifications/responses.
+    fn recv_request(&self) -> Request {
+        loop {
+            if let Message::Request(request) =
+                self.conn().receiver.recv().expect("recv")
+            {
+                return request;
+            }
+        }
+    }
+
     /// Confirm the server still processes messages (an unknown request gets an
     /// error response). Used after sending something the server should ignore.
     fn assert_alive(&mut self) {
-        let id = self.request("textDocument/hover", Value::Null);
+        let id = self.request(UNHANDLED_METHOD, Value::Null);
         let response = self.response(&id);
         assert!(
             response.error.is_some(),
@@ -641,7 +834,7 @@ fn formatting_a_clean_document_is_null() {
 #[test]
 fn unknown_request_is_method_not_found() {
     let (mut client, _init) = Client::launch(None, None);
-    let id = client.request("textDocument/hover", Value::Null);
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
     let response = client.response(&id);
     let error = response.error.expect("unknown method errors");
     assert_eq!(error.code, lsp_server::ErrorCode::MethodNotFound as i32);
@@ -900,6 +1093,940 @@ fn file_matching_two_source_kinds_is_reported() {
     assert!(
         messages.iter().any(is_show_message),
         "ambiguous source kind is surfaced via window/showMessage"
+    );
+}
+
+// --- #317 nice-to-haves: capabilities, watching, config, actions, hover, sync, rename,
+//     and pull diagnostics. ---
+
+#[test]
+fn initialize_advertises_extended_capabilities() {
+    let (_client, init) = Client::launch(None, None);
+    let caps = init.capabilities;
+    assert!(caps.hover_provider.is_some(), "advertises hover");
+    assert!(caps.rename_provider.is_some(), "advertises rename");
+    assert!(
+        caps.diagnostic_provider.is_some(),
+        "advertises pull diagnostics"
+    );
+    assert!(
+        matches!(
+            caps.text_document_sync,
+            Some(lsp_types::TextDocumentSyncCapability::Kind(
+                lsp_types::TextDocumentSyncKind::INCREMENTAL
+            ))
+        ),
+        "negotiates incremental sync"
+    );
+}
+
+#[test]
+fn registers_config_watcher_when_the_client_supports_it() {
+    let dir = project(TRAILING);
+    let (client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, true, None);
+    let request = client.recv_request();
+    assert_eq!(request.method, "client/registerCapability");
+    let params = request.params.to_string();
+    assert!(
+        params.contains("didChangeWatchedFiles"),
+        "registers the watched-files capability: {params}"
+    );
+    assert!(
+        params.contains("ryl.toml"),
+        "watches ryl config files: {params}"
+    );
+}
+
+#[test]
+fn config_watcher_includes_an_explicit_config_path() {
+    let root = tempdir().expect("tempdir");
+    let config = root.path().join("custom.toml");
+    std::fs::write(&config, TRAILING).expect("config");
+    let config_path = config.display().to_string().replace('\\', "/");
+    let options = json!({ "configPath": config_path });
+    let (client, _init) =
+        Client::launch_with(None, Some(root.path()), true, None, true, Some(options));
+    let request = client.recv_request();
+    assert_eq!(request.method, "client/registerCapability");
+    let params = request.params.to_string();
+    assert!(
+        params.contains("custom.toml"),
+        "an explicit configPath (non-standard name) is also watched: {params}"
+    );
+}
+
+#[test]
+fn watched_file_change_relints_open_documents() {
+    // Start under a config that does not flag the trailing space.
+    let dir = project("[rules]\nkey-duplicates = \"enable\"\n");
+    let (client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, true, None);
+    assert_eq!(
+        client.recv_request().method,
+        "client/registerCapability",
+        "the watcher is registered first"
+    );
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc, "a: 1 \n");
+    assert!(
+        client.diagnostics().is_empty(),
+        "clean under the initial config"
+    );
+    // Swap in a config that enables trailing-spaces, then signal the watcher.
+    std::fs::write(dir.path().join(".ryl.toml"), TRAILING).expect("rewrite config");
+    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "the new on-disk config re-lints the open document"
+    );
+}
+
+#[test]
+fn config_data_init_option_enables_linting() {
+    // An empty workspace root with no project config: only the inline configData makes
+    // trailing-spaces apply to the untitled buffer.
+    let root = tempdir().expect("tempdir");
+    let options = json!({ "configData": "rules:\n  trailing-spaces: enable\n" });
+    let (client, _init) =
+        Client::launch_with(None, Some(root.path()), true, None, false, Some(options));
+    client.did_open(uri("untitled:Untitled-cfg"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "inline configData enables the rule for an otherwise config-less buffer"
+    );
+}
+
+#[test]
+fn enable_false_turns_linting_off() {
+    let dir = project(TRAILING);
+    let options = json!({ "enable": false });
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, Some(options));
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    assert!(
+        client.diagnostics().is_empty(),
+        "ryl is turned off via enable=false"
+    );
+    assert!(client.code_action(doc).is_none(), "and offers no actions");
+}
+
+#[test]
+fn did_change_configuration_updates_settings_and_relints() {
+    let dir = project(TRAILING);
+    let options = json!({ "enable": false });
+    let (client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, Some(options));
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc, "a: 1 \n");
+    assert!(client.diagnostics().is_empty(), "disabled at start");
+    client.notify(
+        "workspace/didChangeConfiguration",
+        json!({ "settings": { "ryl": { "enable": true } } }),
+    );
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "re-enabling via didChangeConfiguration re-lints open docs"
+    );
+}
+
+#[test]
+fn hover_reports_the_rule_and_docs_link() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    // The trailing space is column 5 (1-based) -> 0-based character 4.
+    let hover = client
+        .hover(&doc, 0, 4)
+        .expect("hovering the flagged position");
+    let HoverContents::Markup(markup) = hover.contents else {
+        panic!("expected markup contents");
+    };
+    assert!(markup.value.contains("trailing-spaces"), "names the rule");
+    assert!(
+        markup.value.contains("ryl-docs.pages.dev/rules"),
+        "links to the rules reference"
+    );
+}
+
+#[test]
+fn hover_off_a_diagnostic_is_null() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    assert!(
+        client.hover(&doc, 0, 0).is_none(),
+        "no diagnostic covers the start of the line"
+    );
+}
+
+#[test]
+fn code_action_offers_disable_and_per_rule_fixes() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("trailing-spaces", 0, 4)])
+        .expect("a flagged document offers actions");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(
+        titles.contains(&"Fix all ryl problems"),
+        "fix-all: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"Fix all trailing-spaces problems"),
+        "per-rule fix-all: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"Disable trailing-spaces for this line"),
+        "disable-line: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"Disable ryl for this file"),
+        "disable-file: {titles:?}"
+    );
+}
+
+#[test]
+fn disable_line_action_inserts_a_directive_above_the_line() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("trailing-spaces", 0, 4)])
+        .expect("actions offered");
+    let action = actions
+        .iter()
+        .find_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action)
+                if action.title == "Disable trailing-spaces for this line" =>
+            {
+                Some(action)
+            }
+            _ => None,
+        })
+        .expect("the disable-line action is present");
+    let Some(DocumentChanges::Edits(edits)) = action
+        .edit
+        .as_ref()
+        .and_then(|edit| edit.document_changes.as_ref())
+    else {
+        panic!("expected a versioned edit");
+    };
+    let OneOf::Left(text_edit) = &edits[0].edits[0] else {
+        panic!("expected a plain TextEdit");
+    };
+    assert_eq!(
+        text_edit.new_text, "# ryl disable-line rule:trailing-spaces\n",
+        "inserts the directive on its own line"
+    );
+    assert_eq!(
+        (text_edit.range.start.line, text_edit.range.start.character),
+        (0, 0),
+        "above the diagnostic's line"
+    );
+}
+
+#[test]
+fn incremental_change_patches_the_document() {
+    let dir = project(TRAILING);
+    let (client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1\n");
+    assert!(client.diagnostics().is_empty(), "clean on open");
+    // Insert a trailing space at the end of the first line's content.
+    let at_eol = Range::new(Position::new(0, 4), Position::new(0, 4));
+    client.did_change_range(doc, 2, at_eol, " ");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "the incrementally inserted space is flagged"
+    );
+}
+
+#[test]
+fn rename_rewrites_an_anchor_and_its_aliases() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: &anchor 1\nb: *anchor\n");
+    let _ = client.diagnostics();
+    let prepared = client
+        .prepare_rename(&doc, 0, 6)
+        .expect("the anchor name is renameable");
+    let PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } = prepared
+    else {
+        panic!("expected a range + placeholder");
+    };
+    assert_eq!(placeholder, "anchor");
+    let response = client.rename(&doc, 0, 6, "renamed");
+    let edit: WorkspaceEdit =
+        serde_json::from_value(response.result.expect("rename produces an edit"))
+            .expect("workspace edit");
+    let Some(DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected versioned document changes");
+    };
+    assert_eq!(
+        edits[0].edits.len(),
+        2,
+        "the anchor and its alias are renamed"
+    );
+}
+
+#[test]
+fn rename_rejects_an_illegal_name() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: &anchor 1\n");
+    let _ = client.diagnostics();
+    let response = client.rename(&doc, 0, 6, "bad name");
+    assert!(response.error.is_some(), "a name with a space is rejected");
+}
+
+#[test]
+fn rename_off_an_anchor_is_null() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1\n");
+    let _ = client.diagnostics();
+    let response = client.rename(&doc, 0, 0, "x");
+    assert_eq!(response.result, Some(Value::Null), "nothing to rename here");
+    assert!(response.error.is_none());
+}
+
+#[test]
+fn code_action_offers_no_disable_actions_for_markdown() {
+    let dir = project(
+        "[files]\nmarkdown = [\"*.md\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+    );
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.md");
+    client.did_open(doc.clone(), "```yaml\na: 1 \n```\n");
+    let _ = client.diagnostics();
+    // The trailing space is on the embedded-YAML line; a disable comment can't be inserted
+    // reliably into a Markdown host, so only the (region-aware) fix-all is offered.
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("trailing-spaces", 1, 4)])
+        .expect("fix-all is offered for markdown");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(titles.contains(&"Fix all ryl problems"), "{titles:?}");
+    assert!(
+        !titles.iter().any(|title| title.starts_with("Disable")),
+        "no disable actions are offered for a markdown document: {titles:?}"
+    );
+}
+
+#[test]
+fn rename_is_disabled_for_markdown_documents() {
+    let dir = project(
+        "[files]\nmarkdown = [\"*.md\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+    );
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.md");
+    client.did_open(doc.clone(), "```yaml\na: &anchor 1\n```\n");
+    let _ = client.diagnostics();
+    assert!(
+        client.prepare_rename(&doc, 1, 6).is_none(),
+        "rename targets YAML documents, not markdown hosts"
+    );
+}
+
+#[test]
+fn document_diagnostic_pull_reports_open_and_disk_files() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let open = file_uri(dir.path(), "open.yaml");
+    client.did_open(open.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&open)
+    else {
+        panic!("expected a full report");
+    };
+    assert_eq!(
+        report.full_document_diagnostic_report.items.len(),
+        1,
+        "the open buffer is linted on pull"
+    );
+    // A file only on disk is read and linted too.
+    std::fs::write(dir.path().join("disk.yaml"), "b: 2 \n").expect("write disk file");
+    let on_disk = file_uri(dir.path(), "disk.yaml");
+    let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&on_disk)
+    else {
+        panic!("expected a full report");
+    };
+    assert_eq!(
+        report.full_document_diagnostic_report.items.len(),
+        1,
+        "a closed file is read from disk and linted"
+    );
+}
+
+#[test]
+fn document_diagnostic_pull_is_empty_for_unreadable_targets() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let missing = file_uri(dir.path(), "nope.yaml");
+    let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&missing)
+    else {
+        panic!("expected a full report");
+    };
+    assert!(
+        report.full_document_diagnostic_report.items.is_empty(),
+        "a missing file yields no diagnostics"
+    );
+    let DocumentDiagnosticReport::Full(report) =
+        client.document_diagnostic(&uri("untitled:none"))
+    else {
+        panic!("expected a full report");
+    };
+    assert!(
+        report.full_document_diagnostic_report.items.is_empty(),
+        "an unopened untitled buffer has no path to read"
+    );
+}
+
+#[test]
+fn workspace_diagnostic_pull_reports_repo_files() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write bad");
+    std::fs::write(dir.path().join("good.yaml"), "a: 1\n").expect("write good");
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let report = client.workspace_diagnostic();
+    let bad = report
+        .items
+        .iter()
+        .find_map(|item| match item {
+            WorkspaceDocumentDiagnosticReport::Full(full)
+                if full.uri.as_str().ends_with("bad.yaml") =>
+            {
+                Some(full)
+            }
+            _ => None,
+        })
+        .expect("bad.yaml is reported");
+    assert_eq!(
+        bad.full_document_diagnostic_report.items.len(),
+        1,
+        "the trailing space in bad.yaml is reported"
+    );
+}
+
+#[test]
+fn code_action_ignores_a_foreign_servers_diagnostics() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n"); // a real trailing space -> fix-all available
+    let _ = client.diagnostics();
+    // A diagnostic from a coexisting server (e.g. yaml-language-server) must not produce
+    // ryl disable/per-rule actions or a "disable ryl" action.
+    let foreign = Diagnostic {
+        range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+        code: Some(NumberOrString::String("schema-error".to_string())),
+        source: Some("yaml-language-server".to_string()),
+        ..Default::default()
+    };
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![foreign])
+        .expect("the whole-file fix-all is still offered from the text");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(titles.contains(&"Fix all ryl problems"), "{titles:?}");
+    assert!(
+        !titles.iter().any(|title| title.starts_with("Disable")),
+        "no disable actions for a foreign diagnostic: {titles:?}"
+    );
+}
+
+#[test]
+fn document_diagnostic_pull_surfaces_a_config_error() {
+    let dir = project("this is not valid toml = =\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1\n");
+    let _ = client.diagnostics();
+    let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&doc)
+    else {
+        panic!("expected a full report");
+    };
+    let items = report.full_document_diagnostic_report.items;
+    assert_eq!(items.len(), 1, "the config error surfaces as a diagnostic");
+    assert!(
+        items[0].message.contains("configuration error"),
+        "{:?}",
+        items[0].message
+    );
+}
+
+#[test]
+fn workspace_diagnostic_pull_surfaces_a_config_error() {
+    let dir = project("this is not valid toml = =\n");
+    std::fs::write(dir.path().join("a.yaml"), "x: 1\n").expect("write");
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let report = client.workspace_diagnostic();
+    let surfaced = report.items.iter().any(|item| match item {
+        WorkspaceDocumentDiagnosticReport::Full(full) => full
+            .full_document_diagnostic_report
+            .items
+            .iter()
+            .any(|d| d.message.contains("configuration error")),
+        WorkspaceDocumentDiagnosticReport::Unchanged(_) => false,
+    });
+    assert!(
+        surfaced,
+        "a malformed config surfaces as an error diagnostic, not a silent clean report"
+    );
+}
+
+#[test]
+fn workspace_diagnostic_pull_spans_multiple_roots_and_dedups() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write");
+    // The same directory advertised as two roots: every file is walked twice, so the
+    // report must de-duplicate it to one entry.
+    let (mut client, _init) = Client::launch_roots(&[dir.path(), dir.path()]);
+    let report = client.workspace_diagnostic();
+    let bad_reports = report
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                WorkspaceDocumentDiagnosticReport::Full(full)
+                    if full.uri.as_str().ends_with("bad.yaml")
+            )
+        })
+        .count();
+    assert_eq!(
+        bad_reports, 1,
+        "a file reachable from two roots is reported once"
+    );
+}
+
+#[test]
+fn workspace_diagnostic_can_be_cancelled() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("a.yaml"), "a: 1 \n").expect("write");
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    // Cancel by id. Depending on the race the worker answers with the report or a
+    // RequestCancelled error, but the request is always answered (the loop never hangs).
+    client.notify("$/cancelRequest", json!({ "id": client.next_id }));
+    let response = client.response(&id);
+    assert!(
+        response.result.is_some() || response.error.is_some(),
+        "a cancelled workspace pull is always answered"
+    );
+}
+
+#[test]
+fn cancel_request_for_unknown_or_malformed_id_is_ignored() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("a.yaml"), "a: 1 \n").expect("write");
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    // A string id matches no in-flight scan; a malformed params is ignored entirely.
+    client.notify("$/cancelRequest", json!({ "id": "no-such-request" }));
+    client.notify("$/cancelRequest", json!("not the params shape"));
+    let _ = client.response(&id); // the pull still completes
+    client.assert_alive();
+}
+
+#[test]
+fn workspace_diagnostic_reaps_finished_workers() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("a.yaml"), "a: 1\n").expect("write");
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    // Two sequential pulls: the second's spawn reaps the first's finished worker.
+    let _ = client.workspace_diagnostic();
+    let _ = client.workspace_diagnostic();
+    client.assert_alive();
+}
+
+#[test]
+fn workspace_diagnostic_without_a_root_is_empty() {
+    let (mut client, _init) = Client::launch(None, None);
+    assert!(
+        client.workspace_diagnostic().items.is_empty(),
+        "without a workspace root there is nothing to scan"
+    );
+}
+
+#[test]
+fn workspace_diagnostic_pull_handles_open_ignored_and_unreadable_files() {
+    let dir =
+        project("ignore = [\"skip.yaml\"]\n[rules]\ntrailing-spaces = \"enable\"\n");
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("bad");
+    std::fs::write(dir.path().join("skip.yaml"), "a: 1 \n").expect("ignored");
+    // A UTF-16 LE BOM followed by an odd byte count cannot be decoded.
+    std::fs::write(dir.path().join("binary.yaml"), [0xFF, 0xFE, 0x41])
+        .expect("undecodable");
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    // Open one walked file (so the open-buffer text is used) and an untitled buffer (a
+    // non-file URI the open map skips).
+    client.did_open(file_uri(dir.path(), "bad.yaml"), "a: 1 \n");
+    let _ = client.diagnostics();
+    client.did_open(uri("untitled:ws"), "a: 1\n");
+    let _ = client.diagnostics();
+    let report = client.workspace_diagnostic();
+    let paths: Vec<&str> = report
+        .items
+        .iter()
+        .map(|item| match item {
+            WorkspaceDocumentDiagnosticReport::Full(full) => full.uri.as_str(),
+            WorkspaceDocumentDiagnosticReport::Unchanged(unchanged) => {
+                unchanged.uri.as_str()
+            }
+        })
+        .collect();
+    assert!(
+        paths.iter().any(|path| path.ends_with("bad.yaml")),
+        "the open walked file is reported: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|path| path.ends_with("skip.yaml")),
+        "the config-ignored file is skipped: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|path| path.ends_with("binary.yaml")),
+        "the undecodable file is skipped: {paths:?}"
+    );
+}
+
+#[test]
+fn config_path_init_option_points_at_a_config_file() {
+    let root = tempdir().expect("tempdir");
+    let config = root.path().join("custom.toml");
+    std::fs::write(&config, TRAILING).expect("write config");
+    let config_path = config.display().to_string().replace('\\', "/");
+    let options = json!({ "configPath": config_path });
+    let (client, _init) =
+        Client::launch_with(None, Some(root.path()), true, None, false, Some(options));
+    client.did_open(uri("untitled:cfg-path"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "configPath supplies the rules for an otherwise config-less buffer"
+    );
+}
+
+#[test]
+fn malformed_did_change_configuration_is_ignored() {
+    let (mut client, _init) = Client::launch(None, None);
+    client.notify(
+        "workspace/didChangeConfiguration",
+        Value::String("bad".to_string()),
+    );
+    client.assert_alive();
+}
+
+#[test]
+fn incremental_change_ignores_a_reversed_range() {
+    let dir = project(TRAILING);
+    let (client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1\n");
+    assert!(client.diagnostics().is_empty(), "clean on open");
+    // A reversed range (start after end) is skipped, leaving the document unchanged.
+    let reversed = Range::new(Position::new(0, 4), Position::new(0, 0));
+    client.did_change_range(doc, 2, reversed, " ");
+    assert!(
+        client.diagnostics().is_empty(),
+        "a reversed-range edit is ignored, so no problem appears"
+    );
+}
+
+#[test]
+fn formatting_with_unresolvable_config_is_null() {
+    let dir = project("this is not valid toml = =\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    assert!(
+        client.formatting(doc).is_none(),
+        "no resolvable config -> nothing to format"
+    );
+}
+
+#[test]
+fn prepare_rename_on_an_unopened_document_is_null() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    assert!(
+        client
+            .prepare_rename(&file_uri(dir.path(), "never.yaml"), 0, 0)
+            .is_none(),
+        "an unopened document has no buffer to rename in"
+    );
+}
+
+#[test]
+fn malformed_rename_params_yield_a_null_result() {
+    let (mut client, _init) = Client::launch(None, None);
+    let id = client.request("textDocument/rename", Value::String("bad".to_string()));
+    let response = client.response(&id);
+    assert_eq!(
+        response.result,
+        Some(Value::Null),
+        "bad rename params -> null"
+    );
+}
+
+#[test]
+fn rename_on_an_unopened_document_is_null() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let response = client.rename(&file_uri(dir.path(), "never.yaml"), 0, 0, "x");
+    assert_eq!(
+        response.result,
+        Some(Value::Null),
+        "an unopened document yields no rename edit"
+    );
+}
+
+#[test]
+fn rename_on_a_markdown_document_is_null() {
+    let dir = project(
+        "[files]\nmarkdown = [\"*.md\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+    );
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.md");
+    client.did_open(doc.clone(), "```yaml\na: &anchor 1\n```\n");
+    let _ = client.diagnostics();
+    let response = client.rename(&doc, 1, 6, "renamed");
+    assert_eq!(
+        response.result,
+        Some(Value::Null),
+        "rename targets YAML documents, not markdown hosts"
+    );
+}
+
+#[test]
+fn code_action_handles_edge_case_diagnostics() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: 1 \n");
+    let _ = client.diagnostics();
+    let mut rule_less = diag("trailing-spaces", 0, 4);
+    rule_less.code = None; // a syntax-style diagnostic the client may echo back
+    let diagnostics = vec![
+        diag("trailing-spaces", 0, 4),
+        diag("trailing-spaces", 0, 4), // duplicate (rule, line) -> deduped
+        diag("commas", 0, 0),          // fixable, but no comma fix applies here
+        diag("trailing-spaces", 99, 0), // line past the document -> no disable action
+        diag("not-a-real-rule", 0, 0), // ryl-sourced but unknown rule id -> skipped
+        rule_less,                     // no rule code -> skipped
+    ];
+    let actions = client
+        .code_action_with_diagnostics(doc, diagnostics)
+        .expect("at least the fix-all action is offered");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(
+        !titles.contains(&"Fix all commas problems"),
+        "no per-rule action when that rule changes nothing: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"Fix all trailing-spaces problems"),
+        "the rule that does have a fix is offered: {titles:?}"
+    );
+    let trailing_disables = titles
+        .iter()
+        .filter(|title| title.starts_with("Disable trailing-spaces"))
+        .count();
+    assert_eq!(
+        trailing_disables, 1,
+        "the duplicate is deduped and the out-of-range line is dropped: {titles:?}"
+    );
+}
+
+#[test]
+fn disable_line_is_not_offered_inside_a_block_scalar() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    // The trailing space on line 2 (0-based) is inside a literal block scalar, where a
+    // `# ryl disable-line` insert would be scalar content rather than a directive.
+    client.did_open(doc.clone(), "key: |\n  aaa\n  bbb \nmore: 1\n");
+    let _ = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("trailing-spaces", 2, 7)])
+        .expect("disable-file is still offered");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(
+        !titles
+            .iter()
+            .any(|title| title.starts_with("Disable trailing-spaces for this line")),
+        "no disable-line action inside a block scalar: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"Disable ryl for this file"),
+        "the whole-file disable is still offered: {titles:?}"
+    );
+}
+
+#[test]
+fn disable_line_is_not_offered_inside_a_multiline_quoted_scalar() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    // A double-quoted scalar continued onto line 2 (0-based 1): a disable-line insert there
+    // would land inside the still-open quote and corrupt the value, so it is not offered.
+    client.did_open(doc.clone(), "key: \"first\n  second\"\n");
+    let _ = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("trailing-spaces", 1, 2)])
+        .expect("disable-file is still offered");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(
+        !titles
+            .iter()
+            .any(|title| title.starts_with("Disable trailing-spaces for this line")),
+        "no disable-line inside a multiline quoted scalar: {titles:?}"
+    );
+}
+
+#[test]
+fn disable_line_is_suppressed_when_the_document_cannot_parse() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    // The undefined alias makes the document unparsable, so block-scalar detection fails
+    // and a disable-line could land in the literal block's content. Suppress it (but the
+    // line-0 disable-file prepend is always safe).
+    client.did_open(doc.clone(), "a: |\n  text \nb: *undefined\n");
+    let _ = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("trailing-spaces", 1, 6)])
+        .expect("disable-file is still offered");
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+            CodeActionOrCommand::Command(_) => None,
+        })
+        .collect();
+    assert!(
+        !titles
+            .iter()
+            .any(|title| title.starts_with("Disable trailing-spaces for this line")),
+        "no disable-line when block-scalar detection cannot run: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"Disable ryl for this file"),
+        "the line-0 disable-file is still offered: {titles:?}"
+    );
+}
+
+#[test]
+fn rename_respects_enable_false() {
+    let dir = project(TRAILING);
+    let options = json!({ "enable": false });
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, Some(options));
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: &anchor 1\n");
+    let _ = client.diagnostics();
+    assert!(
+        client.prepare_rename(&doc, 0, 6).is_none(),
+        "rename is off when ryl is disabled"
+    );
+}
+
+#[test]
+fn prepare_rename_with_unresolvable_config_is_null() {
+    let dir = project("this is not valid toml = =\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a: &anchor 1\n");
+    let _ = client.diagnostics();
+    assert!(
+        client.prepare_rename(&doc, 0, 6).is_none(),
+        "a broken config disables rename too"
+    );
+}
+
+#[test]
+fn rename_works_on_an_untitled_yaml_buffer() {
+    let dir = project(TRAILING);
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let doc = uri("untitled:anchors");
+    client.did_open(doc.clone(), "a: &anchor 1\nb: *anchor\n");
+    let _ = client.diagnostics();
+    assert!(
+        client.prepare_rename(&doc, 0, 6).is_some(),
+        "an untitled YAML buffer's anchors are renameable"
+    );
+}
+
+#[test]
+fn prepare_rename_on_an_ignored_file_is_null() {
+    let dir =
+        project("ignore = [\"skip.yaml\"]\n[rules]\ntrailing-spaces = \"enable\"\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "skip.yaml");
+    client.did_open(doc.clone(), "a: &anchor 1\n");
+    let _ = client.diagnostics();
+    assert!(
+        client.prepare_rename(&doc, 0, 6).is_none(),
+        "a config-ignored file is not renameable"
     );
 }
 

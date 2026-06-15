@@ -1,9 +1,10 @@
 //! The `ryl server` language server: a thin synchronous protocol adapter over
 //! ryl's existing lint and fix engine, built on `lsp-server` + `lsp-types` (the
-//! rust-analyzer / Ruff stack). It provides diagnostics, a `source.fixAll.ryl`
-//! code action, and `textDocument/formatting` (= apply safe fixes). Schema
-//! validation, completion, and hover are intentionally left to Red Hat's
-//! `yaml-language-server`, which ryl coexists with.
+//! rust-analyzer / Ruff stack). It provides diagnostics (push + pull), code actions
+//! (`source.fixAll.ryl`, per-rule fix-all, and disable-rule inserts),
+//! `textDocument/formatting` (= apply safe fixes), hover, anchor/alias rename, and
+//! config-file watching. Schema validation, completion, and schema hover are
+//! intentionally left to Red Hat's `yaml-language-server`, which ryl coexists with.
 //!
 //! Handling is graceful throughout: a malformed `initialize` (client-controlled)
 //! ends the session cleanly, unknown requests get a `MethodNotFound` response, and
@@ -11,33 +12,47 @@
 //! shutdown/exit handshake. The only `expect` is on serialising ryl's own
 //! capabilities, which cannot fail.
 
+pub mod actions;
 pub mod analysis;
 pub mod encoding;
+pub mod hover;
+pub mod rename;
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
+
+use rayon::prelude::*;
 
 use lsp_server::{
     Connection, ErrorCode, Message, Notification, Request, RequestId, Response,
 };
 use lsp_types::{
-    CodeAction, CodeActionContext, CodeActionKind, CodeActionOrCommand,
-    CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentChanges, DocumentFormattingParams, InitializeParams, InitializeResult,
-    MessageType, OneOf, OptionalVersionedTextDocumentIdentifier,
-    PublishDiagnosticsParams, ServerCapabilities, ServerInfo, ShowMessageParams,
-    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
-    WorkspaceEdit,
+    CancelParams, CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
+    Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DiagnosticSeverity,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentFormattingParams, FileSystemWatcher, FullDocumentDiagnosticReport,
+    GlobPattern, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, MessageType, NumberOrString, OneOf, Position,
+    PrepareRenameResponse, PublishDiagnosticsParams, Range, Registration,
+    RegistrationParams, RelatedFullDocumentDiagnosticReport, RenameOptions,
+    RenameParams, ServerCapabilities, ServerInfo, ShowMessageParams,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Uri, WorkDoneProgressOptions, WorkspaceDiagnosticReport,
+    WorkspaceDocumentDiagnosticReport, WorkspaceEdit,
+    WorkspaceFullDocumentDiagnosticReport,
 };
 
 use crate::config::{ConfigContext, Overrides, SourceKind, discover_config};
-use crate::lsp::encoding::{PositionEncoding, negotiate, uri_to_path};
-
-/// The code-action kind ryl offers: a whole-file safe-fix, usable for
-/// `editor.codeActionsOnSave` (a `source.fixAll` request subsumes it).
-const FIX_ALL_KIND: &str = "source.fixAll.ryl";
+use crate::discover::gather_yaml_from_dir_cancellable;
+use crate::lsp::encoding::{
+    PositionEncoding, negotiate, offset_at, path_to_uri, uri_to_path,
+};
 
 /// How a session ended, mapped to a process exit code by [`run`]. Per the LSP
 /// spec an `exit` notification *without* a prior `shutdown` is abnormal (exit 1);
@@ -127,23 +142,20 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         serde_json::to_value(result).expect("server capabilities always serialize");
     let _ = connection.initialize_finish(id, result);
 
+    let settings = Settings::from_options(params.initialization_options.as_ref());
+
+    // `initialize_finish` above blocks until the client's `initialized` notification
+    // arrives, so the session is fully initialized here — registering a capability now
+    // respects the LSP ordering (it is not sent before `initialized`). Register a
+    // config-file watcher only when the client supports dynamic registration for it;
+    // older clients simply get no auto-reload (they can still re-open files).
+    if client_supports_watch_registration(&params) {
+        register_config_watchers(connection, settings.config_file.as_deref());
+    }
+
     let server = Server {
         encoding,
-        // Anchors config discovery for untitled (non-file) buffers. Prefer the
-        // first workspace folder; fall back to the LSP-3.17-deprecated `root_uri`
-        // for older clients that send only it (hence the scoped allow).
-        root: params
-            .workspace_folders
-            .as_ref()
-            .and_then(|folders| folders.first())
-            .and_then(|folder| uri_to_path(folder.uri.as_str()))
-            .or_else(|| {
-                #[allow(deprecated)]
-                params
-                    .root_uri
-                    .as_ref()
-                    .and_then(|uri| uri_to_path(uri.as_str()))
-            }),
+        roots: workspace_roots(&params),
         supports_document_changes: params
             .capabilities
             .workspace
@@ -151,8 +163,10 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
             .and_then(|workspace| workspace.workspace_edit.as_ref())
             .and_then(|workspace_edit| workspace_edit.document_changes)
             .unwrap_or(false),
+        settings,
         documents: HashMap::new(),
         reported_errors: HashSet::new(),
+        workers: Vec::new(),
     };
     server.message_loop(connection)
 }
@@ -160,39 +174,217 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
 fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
     ServerCapabilities {
         position_encoding: Some(encoding.kind()),
+        // INCREMENTAL: a change carries only the edited range (saves transfer); ryl
+        // re-lints the whole reconstructed document regardless.
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::FULL,
+            TextDocumentSyncKind::INCREMENTAL,
         )),
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
+        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
+            DiagnosticOptions {
+                identifier: Some("ryl".to_string()),
+                // Each YAML file is linted independently — no cross-file diagnostics.
+                inter_file_dependencies: false,
+                workspace_diagnostics: true,
+                ..Default::default()
+            },
+        )),
         ..Default::default()
     }
 }
 
-/// An open document: its latest full text (FULL sync sends the whole text on
-/// every change) and version, the latter stamped into fix-all edits so a client
-/// can drop a stale edit if the buffer moved on before it was applied.
+/// Whether the client can accept a dynamic `didChangeWatchedFiles` registration.
+fn client_supports_watch_registration(params: &InitializeParams) -> bool {
+    params
+        .capabilities
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+        .and_then(|watched| watched.dynamic_registration)
+        .unwrap_or(false)
+}
+
+/// The client's workspace roots: every `workspace_folders` path, or the
+/// LSP-3.17-deprecated `root_uri` for an older client that sends only it (hence the
+/// scoped allow). Anchors untitled-buffer config discovery and bounds the
+/// `workspace/diagnostic` walk.
+fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
+    if let Some(folders) = params.workspace_folders.as_ref()
+        && !folders.is_empty()
+    {
+        return folders
+            .iter()
+            .filter_map(|folder| uri_to_path(folder.uri.as_str()))
+            .collect();
+    }
+    #[allow(deprecated)]
+    params
+        .root_uri
+        .as_ref()
+        .and_then(|uri| uri_to_path(uri.as_str()))
+        .into_iter()
+        .collect()
+}
+
+/// Ask the client to watch ryl's config files so an out-of-editor edit re-lints open
+/// documents. Watches the standard config filenames anywhere in the workspace, plus an
+/// explicitly-configured `config_file` (whose name need not match the standard set).
+/// Fire-and-forget: the response is irrelevant and is ignored in the loop.
+///
+/// Known limitation: files pulled in via a config's `extends:`, and a `configPath` changed
+/// after startup, are not (re-)watched — re-open a document to refresh after editing those.
+fn register_config_watchers(connection: &Connection, config_file: Option<&Path>) {
+    let mut watchers = vec![FileSystemWatcher {
+        glob_pattern: GlobPattern::String(
+            "**/{ryl.toml,.ryl.toml,pyproject.toml,.yamllint,.yamllint.yaml,\
+             .yamllint.yml}"
+                .to_string(),
+        ),
+        kind: None,
+    }];
+    // An explicit config path may live outside the roots or use a non-standard name, so
+    // watch it directly (the `**/` glob above would miss it).
+    if let Some(path) = config_file.and_then(Path::to_str) {
+        watchers.push(FileSystemWatcher {
+            glob_pattern: GlobPattern::String(path.replace('\\', "/")),
+            kind: None,
+        });
+    }
+    let options = DidChangeWatchedFilesRegistrationOptions { watchers };
+    let registration = Registration {
+        id: "ryl-watch-config".to_string(),
+        method: "workspace/didChangeWatchedFiles".to_string(),
+        register_options: serde_json::to_value(options).ok(),
+    };
+    let params = RegistrationParams {
+        registrations: vec![registration],
+    };
+    send(
+        connection,
+        Message::Request(Request::new(
+            RequestId::from("ryl-register-watchers".to_string()),
+            "client/registerCapability".to_string(),
+            params,
+        )),
+    );
+}
+
+/// An open document: its URI, latest full text (reconstructed from incremental changes),
+/// and version. The version is stamped into edits so a client can drop a stale edit if
+/// the buffer moved on before it was applied; the URI is kept so re-linting open
+/// documents needs no re-parse of the key.
 struct Document {
+    uri: Uri,
     version: i32,
     text: String,
 }
 
+/// Client-provided settings (from `initializationOptions` or
+/// `workspace/didChangeConfiguration`): a config-file path / inline data override
+/// (mirroring the CLI's `-c`/`-d`) and an on/off toggle (`ryl.enable`). `pub` only so the
+/// free `workspace_scan` (which a worker thread runs) is unit-testable.
+#[derive(Debug, Clone)]
+pub struct Settings {
+    config_file: Option<PathBuf>,
+    config_data: Option<String>,
+    enable: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            config_file: None,
+            config_data: None,
+            enable: true,
+        }
+    }
+}
+
+impl Settings {
+    /// Parse settings from a client payload, falling back to defaults for absent keys.
+    fn from_options(value: Option<&serde_json::Value>) -> Self {
+        let mut settings = Self::default();
+        // Accept either a bare settings object (our `initializationOptions`) or one
+        // nested under a `ryl` section (the `didChangeConfiguration` convention).
+        if let Some(section) = value.map(|value| value.get("ryl").unwrap_or(value)) {
+            if let Some(path) = section.get("configPath").and_then(as_nonempty_str) {
+                settings.config_file = Some(PathBuf::from(path));
+            }
+            if let Some(data) = section.get("configData").and_then(as_nonempty_str) {
+                settings.config_data = Some(data.to_string());
+            }
+            if let Some(enable) =
+                section.get("enable").and_then(serde_json::Value::as_bool)
+            {
+                settings.enable = enable;
+            }
+        }
+        settings
+    }
+
+    fn overrides(&self) -> Overrides {
+        Overrides {
+            config_file: self.config_file.clone(),
+            config_data: self.config_data.clone(),
+        }
+    }
+}
+
+fn as_nonempty_str(value: &serde_json::Value) -> Option<&str> {
+    value.as_str().filter(|text| !text.is_empty())
+}
+
 struct Server {
     encoding: PositionEncoding,
-    /// Workspace root for anchoring config discovery of non-file (untitled) URIs.
-    root: Option<PathBuf>,
-    /// Whether the client supports `WorkspaceEdit.documentChanges` (versioned
-    /// edits). When it does not, fix-all falls back to the unversioned `changes` map.
+    /// Workspace roots (all client folders) for anchoring config discovery of non-file
+    /// (untitled) URIs and for enumerating files in a `workspace/diagnostic` pull. Empty
+    /// when the client sent no folders.
+    roots: Vec<PathBuf>,
+    /// Whether the client supports `WorkspaceEdit.documentChanges` (versioned edits).
     supports_document_changes: bool,
+    /// Client-provided overrides and on/off toggle.
+    settings: Settings,
     /// Open documents, keyed by their URI string.
     documents: HashMap<String, Document>,
     /// Config-discovery error messages already surfaced via `window/showMessage`,
     /// so a broken config is reported once rather than on every file/keystroke.
     reported_errors: HashSet<String>,
+    /// In-flight `workspace/diagnostic` scans, each on its own thread so the (potentially
+    /// large) repo walk never blocks the message loop. Each carries a cancellation flag
+    /// the loop flips on `$/cancelRequest` or at shutdown.
+    workers: Vec<Worker>,
 }
+
+/// A `workspace/diagnostic` scan running on a background thread.
+struct Worker {
+    id: RequestId,
+    cancel: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
+/// Open-document text/version snapshot, keyed by path, handed to a worker so it can prefer
+/// unsaved buffer content over on-disk content without sharing the live document store.
+pub type OpenText = HashMap<PathBuf, (String, i32)>;
 
 impl Server {
     fn message_loop(mut self, connection: &Connection) -> SessionOutcome {
+        let outcome = self.run_loop(connection);
+        // Signal and join any in-flight workspace scans so no detached thread outlives the
+        // session (each checks its cancel flag between files, so this returns promptly).
+        for worker in self.workers.drain(..) {
+            worker.cancel.store(true, Ordering::Relaxed);
+            let _ = worker.handle.join();
+        }
+        outcome
+    }
+
+    fn run_loop(&mut self, connection: &Connection) -> SessionOutcome {
         for message in &connection.receiver {
             match message {
                 Message::Request(request) => {
@@ -215,6 +407,7 @@ impl Server {
                     }
                     self.handle_notification(connection, notification);
                 }
+                // Responses (e.g. to our fire-and-forget registerCapability) are ignored.
                 Message::Response(_) => {}
             }
         }
@@ -222,7 +415,7 @@ impl Server {
         SessionOutcome::Clean
     }
 
-    fn handle_request(&self, connection: &Connection, request: Request) {
+    fn handle_request(&mut self, connection: &Connection, request: Request) {
         let Request { id, method, params } = request;
         match method.as_str() {
             "textDocument/codeAction" => {
@@ -235,6 +428,23 @@ impl Server {
                     .and_then(|params| self.formatting(&params));
                 respond(connection, id, result);
             }
+            "textDocument/hover" => {
+                let result = parse::<HoverParams>(&params)
+                    .and_then(|params| self.hover(&params));
+                respond(connection, id, result);
+            }
+            "textDocument/prepareRename" => {
+                let result = parse::<TextDocumentPositionParams>(&params)
+                    .and_then(|params| self.prepare_rename(&params));
+                respond(connection, id, result);
+            }
+            "textDocument/rename" => self.rename(connection, id, &params),
+            "textDocument/diagnostic" => {
+                let result = parse::<DocumentDiagnosticParams>(&params)
+                    .map(|params| self.document_diagnostic(&params));
+                respond(connection, id, result);
+            }
+            "workspace/diagnostic" => self.spawn_workspace_diagnostic(connection, id),
             other => {
                 send(
                     connection,
@@ -267,16 +477,8 @@ impl Server {
                 }
             }
             "textDocument/didChange" => {
-                if let Some(params) = parse::<DidChangeTextDocumentParams>(&params)
-                    && let Some(change) = params.content_changes.into_iter().next_back()
-                {
-                    let document = params.text_document;
-                    self.update(
-                        connection,
-                        document.uri,
-                        document.version,
-                        change.text,
-                    );
+                if let Some(params) = parse::<DidChangeTextDocumentParams>(&params) {
+                    self.apply_changes(connection, params);
                 }
             }
             "textDocument/didClose" => {
@@ -286,11 +488,69 @@ impl Server {
                     publish(connection, uri, None, Vec::new());
                 }
             }
+            // A watched config file changed: config is resolved per request (no cache),
+            // so just re-lint open docs. Clear the surfaced-errors set so a still-broken
+            // config re-reports once.
+            "workspace/didChangeWatchedFiles" => {
+                self.reported_errors.clear();
+                self.relint_open_documents(connection);
+            }
+            "workspace/didChangeConfiguration" => {
+                if let Some(params) = parse::<DidChangeConfigurationParams>(&params) {
+                    self.settings = Settings::from_options(Some(&params.settings));
+                    self.reported_errors.clear();
+                    self.relint_open_documents(connection);
+                }
+            }
+            // Cancel an in-flight workspace scan: flip its cancel flag so the worker stops
+            // between files and answers with a RequestCancelled error.
+            "$/cancelRequest" => {
+                if let Some(params) = parse::<CancelParams>(&params) {
+                    let target = request_id(params.id);
+                    for worker in &self.workers {
+                        if worker.id == target {
+                            worker.cancel.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
 
-    /// Store the latest text/version for `uri` and publish fresh diagnostics.
+    /// Reconstruct the document from incremental (or full-replace) changes, store it, and
+    /// publish fresh diagnostics. A change with a range patches the current text at that
+    /// range; a range-less change replaces the whole document.
+    fn apply_changes(
+        &mut self,
+        connection: &Connection,
+        params: DidChangeTextDocumentParams,
+    ) {
+        let uri = params.text_document.uri;
+        let version = params.text_document.version;
+        let mut text = self
+            .documents
+            .get(uri.as_str())
+            .map_or_else(String::new, |document| document.text.clone());
+        for change in params.content_changes {
+            match change.range {
+                Some(range) => {
+                    let start = offset_at(&text, range.start, self.encoding);
+                    let end = offset_at(&text, range.end, self.encoding);
+                    // Ignore a reversed range (offsets are clamped to the text and land
+                    // on char boundaries, so the splice itself is always valid).
+                    if start <= end {
+                        text.replace_range(start..end, &change.text);
+                    }
+                }
+                None => text = change.text,
+            }
+        }
+        self.update(connection, uri, version, text);
+    }
+
+    /// Store the latest text/version for `uri` and publish fresh diagnostics, surfacing a
+    /// config error once if discovery fails.
     fn update(
         &mut self,
         connection: &Connection,
@@ -298,27 +558,43 @@ impl Server {
         version: i32,
         text: String,
     ) {
-        let diagnostics = match self.resolve(uri.as_str()) {
-            Ok(Some(target)) => analysis::diagnostics(
-                &text,
-                &target.path,
-                &target.context.config,
-                &target.context.base_dir,
-                target.kind,
-                self.encoding,
-            ),
-            // No config / no rules / ignored / not a linted kind: nothing to report.
-            Ok(None) => Vec::new(),
-            // A broken config disables linting silently, which is confusing — tell
-            // the user once, then publish empty diagnostics like the other cases.
+        let diagnostics = match self.diagnostics_for(uri.as_str(), &text) {
+            Ok(diagnostics) => diagnostics,
+            // A broken config disables linting silently, which is confusing — tell the
+            // user once, then publish empty diagnostics.
             Err(error) => {
                 self.report_config_error(connection, &error);
                 Vec::new()
             }
         };
-        self.documents
-            .insert(uri.as_str().to_string(), Document { version, text });
+        self.documents.insert(
+            uri.as_str().to_string(),
+            Document {
+                uri: uri.clone(),
+                version,
+                text,
+            },
+        );
         publish(connection, uri, Some(version), diagnostics);
+    }
+
+    /// Re-lint and republish every open document (after a config or watched-file change).
+    fn relint_open_documents(&mut self, connection: &Connection) {
+        // Snapshot to avoid borrowing `documents` while `update` mutates it.
+        let snapshot: Vec<(Uri, i32, String)> = self
+            .documents
+            .values()
+            .map(|document| {
+                (
+                    document.uri.clone(),
+                    document.version,
+                    document.text.clone(),
+                )
+            })
+            .collect();
+        for (uri, version, text) in snapshot {
+            self.update(connection, uri, version, text);
+        }
     }
 
     /// Surface a config-discovery error to the user once (deduped by message).
@@ -326,7 +602,7 @@ impl Server {
         if self.reported_errors.insert(error.to_string()) {
             let params = ShowMessageParams {
                 typ: MessageType::ERROR,
-                message: format!("ryl: configuration error, linting is off: {error}"),
+                message: config_error_text(error),
             };
             send(
                 connection,
@@ -339,93 +615,246 @@ impl Server {
     }
 
     fn code_action(&self, params: &CodeActionParams) -> Option<CodeActionResponse> {
-        if !fix_all_requested(&params.context) {
-            return None;
-        }
         let uri = &params.text_document.uri;
-        let version = self.documents.get(uri.as_str())?.version;
-        let edit = self.fix_edit(uri.as_str())?;
-        let action = CodeAction {
-            title: "Fix all ryl problems".to_string(),
-            kind: Some(CodeActionKind::new(FIX_ALL_KIND)),
-            edit: Some(workspace_edit(
-                uri.clone(),
-                version,
-                edit,
-                self.supports_document_changes,
-            )),
-            ..Default::default()
+        let document = self.documents.get(uri.as_str())?;
+        let target = self.resolve(uri.as_str()).ok().flatten()?;
+        let input = actions::Input {
+            uri,
+            text: &document.text,
+            version: document.version,
+            path: &target.path,
+            cfg: &target.context.config,
+            base_dir: &target.context.base_dir,
+            kind: target.kind,
+            enc: self.encoding,
+            supports_document_changes: self.supports_document_changes,
         };
-        Some(vec![CodeActionOrCommand::CodeAction(action)])
+        actions::build(&input, &params.context)
     }
 
     fn formatting(&self, params: &DocumentFormattingParams) -> Option<Vec<TextEdit>> {
-        Some(vec![self.fix_edit(params.text_document.uri.as_str())?])
-    }
-
-    /// The whole-document safe-fix edit for an open document, shared by the
-    /// fix-all code action and formatting.
-    fn fix_edit(&self, uri: &str) -> Option<TextEdit> {
+        let uri = params.text_document.uri.as_str();
         let document = self.documents.get(uri)?;
-        // A config error or non-linted file means there is nothing to fix; the
-        // error itself was already surfaced when the document was opened/changed.
         let target = self.resolve(uri).ok().flatten()?;
-        analysis::fix_all_edit(
+        Some(vec![analysis::fix_all_edit(
             &document.text,
             &target.path,
             &target.context.config,
             &target.context.base_dir,
             target.kind,
             self.encoding,
-        )
+        )?])
     }
 
-    /// Resolve the path, config, and source kind for a URI. `Ok(None)` means
-    /// nothing to lint (no config, no rules, ignored, or not a linted kind); `Err`
-    /// is a config-discovery/parse failure the caller surfaces to the user.
+    fn hover(&self, params: &HoverParams) -> Option<Hover> {
+        let position = &params.text_document_position_params;
+        let document = self.documents.get(position.text_document.uri.as_str())?;
+        // Recompute diagnostics for hit-testing; the engine is sub-ms/file and this
+        // avoids caching published diagnostics. A config error here is silent (it was
+        // already surfaced on open/change).
+        let diagnostics = self
+            .diagnostics_for(position.text_document.uri.as_str(), &document.text)
+            .unwrap_or_default();
+        hover::hover(&diagnostics, position.position)
+    }
+
+    fn prepare_rename(
+        &self,
+        params: &TextDocumentPositionParams,
+    ) -> Option<PrepareRenameResponse> {
+        let uri = params.text_document.uri.as_str();
+        if !matches!(self.document_kind(uri), Some(SourceKind::Yaml)) {
+            return None;
+        }
+        let document = self.documents.get(uri)?;
+        rename::prepare_rename(&document.text, params.position, self.encoding)
+    }
+
+    fn rename(
+        &self,
+        connection: &Connection,
+        id: RequestId,
+        params: &serde_json::Value,
+    ) {
+        let null = || respond(connection, id.clone(), Option::<WorkspaceEdit>::None);
+        let Some(params) = parse::<RenameParams>(params) else {
+            null();
+            return;
+        };
+        let uri = &params.text_document_position.text_document.uri;
+        let Some(document) = self.documents.get(uri.as_str()) else {
+            null();
+            return;
+        };
+        if !matches!(self.document_kind(uri.as_str()), Some(SourceKind::Yaml)) {
+            null();
+            return;
+        }
+        match rename::rename_edits(
+            &document.text,
+            params.text_document_position.position,
+            &params.new_name,
+            self.encoding,
+        ) {
+            Ok(Some(edits)) => {
+                let edit = actions::workspace_edit(
+                    uri.clone(),
+                    document.version,
+                    edits,
+                    self.supports_document_changes,
+                );
+                respond(connection, id, Some(edit));
+            }
+            Ok(None) => null(),
+            // An illegal new name is a request error, per the LSP rename spec.
+            Err(message) => send(
+                connection,
+                Message::Response(Response::new_err(
+                    id,
+                    ErrorCode::InvalidParams as i32,
+                    message,
+                )),
+            ),
+        }
+    }
+
+    /// The pull-diagnostic report for one document (stored text if open, else read from
+    /// disk).
+    fn document_diagnostic(
+        &self,
+        params: &DocumentDiagnosticParams,
+    ) -> DocumentDiagnosticReport {
+        let uri = params.text_document.uri.as_str();
+        let items = self.document_text(uri).map_or_else(Vec::new, |text| {
+            // Surface a config failure as an error diagnostic rather than an empty (clean)
+            // report, so a pull-only client is not misled into thinking the file is fine.
+            self.diagnostics_for(uri, &text)
+                .unwrap_or_else(|error| vec![config_error_diagnostic(&error)])
+        });
+        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+            related_documents: None,
+            full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                result_id: None,
+                items,
+            },
+        })
+    }
+
+    /// Snapshot open documents (text + version) by path, so a worker can prefer unsaved
+    /// buffer content over on-disk content without sharing the live document store.
+    fn open_snapshot(&self) -> OpenText {
+        self.documents
+            .iter()
+            .filter_map(|(uri, document)| {
+                uri_to_path(uri)
+                    .map(|path| (path, (document.text.clone(), document.version)))
+            })
+            .collect()
+    }
+
+    /// Start a `workspace/diagnostic` scan on a background thread so the (potentially
+    /// large) repo walk + parallel lint never blocks the message loop. The worker answers
+    /// the request itself over the connection; the loop stays responsive and can cancel it.
+    fn spawn_workspace_diagnostic(&mut self, connection: &Connection, id: RequestId) {
+        // Supersede any in-flight scan: cancel it (it answers RequestCancelled) so a client
+        // issuing rapid pulls (e.g. on every save) does not accumulate concurrent
+        // walks/snapshots — only the latest pull does real work, keeping the worker count
+        // bounded. Then drop the handles of any that have already finished.
+        for worker in &self.workers {
+            worker.cancel.store(true, Ordering::Relaxed);
+        }
+        self.workers.retain(|worker| !worker.handle.is_finished());
+        let cancel = Arc::new(AtomicBool::new(false));
+        let token = Arc::clone(&cancel);
+        let sender = connection.sender.clone();
+        let roots = self.roots.clone();
+        let settings = self.settings.clone();
+        let encoding = self.encoding;
+        let open = self.open_snapshot();
+        let response_id = id.clone();
+        let handle = thread::spawn(move || {
+            let scan = workspace_scan(&roots, &open, &settings, encoding, &token);
+            let _ =
+                sender.send(Message::Response(workspace_response(response_id, scan)));
+        });
+        self.workers.push(Worker { id, cancel, handle });
+    }
+
+    /// Text of `uri`: the open buffer if tracked, else the file decoded from disk.
+    fn document_text(&self, uri: &str) -> Option<String> {
+        if let Some(document) = self.documents.get(uri) {
+            return Some(document.text.clone());
+        }
+        let path = uri_to_path(uri)?;
+        crate::decoder::read_file(&path).ok()
+    }
+
+    /// Diagnostics for `text` resolved against `uri`'s config, or `Err` on a config
+    /// failure (callers decide whether to surface it).
+    fn diagnostics_for(
+        &self,
+        uri: &str,
+        text: &str,
+    ) -> Result<Vec<Diagnostic>, String> {
+        Ok(match self.resolve(uri)? {
+            Some(target) => analysis::diagnostics(
+                text,
+                &target.path,
+                &target.context.config,
+                &target.context.base_dir,
+                target.kind,
+                self.encoding,
+            ),
+            None => Vec::new(),
+        })
+    }
+
+    /// Resolve the path, config, and source kind for a URI. `Ok(None)` means nothing to
+    /// lint (disabled, no config, no rules, ignored, or not a linted kind); `Err` is a
+    /// config-discovery/parse failure the caller surfaces to the user.
     fn resolve(&self, uri: &str) -> Result<Option<Target>, String> {
-        // A non-file URI is an untitled/unsaved buffer with no real path: anchor
-        // discovery at the workspace fallback and (below) lint it as YAML regardless
-        // of `[files]`, since it is unsaved YAML the user is editing.
-        let (path, is_file) = match uri_to_path(uri) {
+        let (path, is_file) = self.uri_path(uri);
+        self.resolve_path(path, is_file, true)
+    }
+
+    /// As [`Self::resolve`] but from an already-decoded path. `require_rules` gates on the
+    /// config enabling at least one rule (true for linting/fixing; false for rename, which
+    /// works regardless of lint config). Used by `document_kind`; the free
+    /// [`resolve_for_path`] backs both this and the worker (which has no `&self`).
+    fn resolve_path(
+        &self,
+        path: PathBuf,
+        is_file: bool,
+        require_rules: bool,
+    ) -> Result<Option<Target>, String> {
+        resolve_for_path(path, is_file, require_rules, &self.settings)
+    }
+
+    /// The source kind of `uri` ignoring whether any rule is enabled — rename works
+    /// regardless of lint config, but only on YAML documents. `None` when disabled,
+    /// ignored, config fails, or the kind is not YAML/markdown.
+    fn document_kind(&self, uri: &str) -> Option<SourceKind> {
+        let (path, is_file) = self.uri_path(uri);
+        self.resolve_path(path, is_file, false)
+            .ok()
+            .flatten()
+            .map(|target| target.kind)
+    }
+
+    /// Decode a URI to `(path, is_file)`: a non-file URI is an untitled/unsaved buffer
+    /// with no real path, anchored at the workspace fallback and linted as YAML.
+    fn uri_path(&self, uri: &str) -> (PathBuf, bool) {
+        match uri_to_path(uri) {
             Some(path) => (path, true),
             None => (self.fallback_base().join("untitled.yaml"), false),
-        };
-        // Full CLI precedence for this one input: project config (walking up from
-        // the path), then `YAMLLINT_CONFIG_FILE`, then user-global, then empty.
-        let mut context =
-            discover_config(std::slice::from_ref(&path), &Overrides::default())?;
-        if !context.config.enables_any_rule() {
-            return Ok(None);
         }
-        let kind = if is_file {
-            // A real file: honour path-based ignores, and take its kind from
-            // `[files]`. An overlapping glob makes `source_kind` error (surfaced
-            // like any config mistake); no match skips the file.
-            if context.config.is_file_ignored(&path, &context.base_dir) {
-                return Ok(None);
-            }
-            match context.config.source_kind(&path, &context.base_dir)? {
-                Some(kind) => kind,
-                None => return Ok(None),
-            }
-        } else {
-            // A non-file (untitled/unsaved) buffer has no real path: like stdin
-            // without `--stdin-filename`, disable every path-based filter (whole-file
-            // ignore, per-file and per-rule ignores) and lint it as YAML.
-            context.config.disable_path_based_rule_ignores();
-            SourceKind::Yaml
-        };
-        Ok(Some(Target {
-            path,
-            context,
-            kind,
-        }))
     }
 
     fn fallback_base(&self) -> PathBuf {
-        self.root
-            .clone()
+        // Anchor untitled buffers at the first workspace root, else the process cwd.
+        self.roots
+            .first()
+            .cloned()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
     }
 }
@@ -436,48 +865,140 @@ struct Target {
     kind: SourceKind,
 }
 
-/// Build the fix-all workspace edit. A client advertising `documentChanges`
-/// support gets a versioned `TextDocumentEdit` (so it can discard the edit if the
-/// buffer moved past `version` before the edit is applied); otherwise it gets the
-/// unversioned `changes` map. `Uri` has benign interior mutability (a fluent-uri
-/// parse cache) that never affects its hash/equality, hence the lint allow.
-#[allow(clippy::mutable_key_type)]
-fn workspace_edit(
-    uri: Uri,
-    version: i32,
-    edit: TextEdit,
-    supports_document_changes: bool,
-) -> WorkspaceEdit {
-    if supports_document_changes {
-        WorkspaceEdit {
-            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
-                text_document: OptionalVersionedTextDocumentIdentifier {
-                    uri,
-                    version: Some(version),
-                },
-                edits: vec![OneOf::Left(edit)],
-            }])),
-            ..Default::default()
+/// Resolve config + source kind for an already-decoded path, layering `settings` (the
+/// client overrides + enable toggle) onto CLI-precedence discovery. `require_rules` gates
+/// on the config enabling at least one rule (true for linting/fixing; false for rename).
+/// Free (no `&self`) so a `workspace/diagnostic` worker thread can call it too.
+fn resolve_for_path(
+    path: PathBuf,
+    is_file: bool,
+    require_rules: bool,
+    settings: &Settings,
+) -> Result<Option<Target>, String> {
+    if !settings.enable {
+        return Ok(None);
+    }
+    let mut context =
+        discover_config(std::slice::from_ref(&path), &settings.overrides())?;
+    if require_rules && !context.config.enables_any_rule() {
+        return Ok(None);
+    }
+    let kind = if is_file {
+        // A real file: honour path-based ignores, and take its kind from `[files]`.
+        if context.config.is_file_ignored(&path, &context.base_dir) {
+            return Ok(None);
+        }
+        match context.config.source_kind(&path, &context.base_dir)? {
+            Some(kind) => kind,
+            None => return Ok(None),
         }
     } else {
-        WorkspaceEdit {
-            changes: Some(HashMap::from([(uri, vec![edit])])),
-            ..Default::default()
+        // A non-file (untitled/unsaved) buffer has no real path: like stdin without
+        // `--stdin-filename`, disable every path-based filter and lint it as YAML.
+        context.config.disable_path_based_rule_ignores();
+        SourceKind::Yaml
+    };
+    Ok(Some(Target {
+        path,
+        context,
+        kind,
+    }))
+}
+
+/// Lint one workspace file for a pull report, preferring the open buffer's text. Returns
+/// `None` to skip a non-linted/ignored file or one that can't be read; a config failure
+/// becomes an error report rather than a silent omit (a pull client would read absence as
+/// clean).
+fn file_report(
+    path: &Path,
+    settings: &Settings,
+    encoding: PositionEncoding,
+    open: &OpenText,
+) -> Option<WorkspaceDocumentDiagnosticReport> {
+    let target = match resolve_for_path(path.to_path_buf(), true, true, settings) {
+        Ok(Some(target)) => target,
+        Ok(None) => return None,
+        Err(error) => {
+            return Some(workspace_report(
+                path_to_uri(path),
+                None,
+                vec![config_error_diagnostic(&error)],
+            ));
         }
+    };
+    let (text, version) = match open.get(path) {
+        Some((text, version)) => (text.clone(), Some(i64::from(*version))),
+        None => (crate::decoder::read_file(path).ok()?, None),
+    };
+    let items = analysis::diagnostics(
+        &text,
+        &target.path,
+        &target.context.config,
+        &target.context.base_dir,
+        target.kind,
+        encoding,
+    );
+    Some(workspace_report(path_to_uri(path), version, items))
+}
+
+/// The `workspace/diagnostic` scan: enumerate `*.yaml`/`*.yml` under each root (git-ignore
+/// honoured), de-duplicate across roots, then lint them in parallel ([`rayon`], like the
+/// CLI). Returns `None` if `cancel` is set (the request was cancelled), so the worker
+/// answers with `RequestCancelled`. The walk + lint run off the message loop, so the server
+/// stays responsive however large the tree. `pub` for unit testing (a worker runs it).
+pub fn workspace_scan(
+    roots: &[PathBuf],
+    open: &OpenText,
+    settings: &Settings,
+    encoding: PositionEncoding,
+    cancel: &AtomicBool,
+) -> Option<Vec<WorkspaceDocumentDiagnosticReport>> {
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots {
+        // The walk is per-entry cancellable, so a cancelled pull stops enumerating a (huge
+        // or slow) tree instead of finishing it; `?` propagates the cancellation. The lint
+        // pass below is fast and rayon-parallel and is not separately interrupted — the
+        // residual mid-`read_file` window is per ryl's threat model (realistic payloads,
+        // not a degraded-fs racer), and that in-progress failure mode cannot be tested
+        // deterministically.
+        for path in gather_yaml_from_dir_cancellable(root, cancel)? {
+            // De-duplicate so a file reachable from two (e.g. nested) roots is linted once.
+            if seen.insert(path.clone()) {
+                files.push(path);
+            }
+        }
+    }
+    Some(
+        files
+            .par_iter()
+            .filter_map(|path| file_report(path, settings, encoding, open))
+            .collect(),
+    )
+}
+
+/// Build the `workspace/diagnostic` response: the report, or a `RequestCancelled` error
+/// when the scan was cancelled. `pub` for unit testing.
+#[must_use]
+pub fn workspace_response(
+    id: RequestId,
+    scan: Option<Vec<WorkspaceDocumentDiagnosticReport>>,
+) -> Response {
+    match scan {
+        Some(items) => Response::new_ok(id, WorkspaceDiagnosticReport { items }),
+        None => Response::new_err(
+            id,
+            ErrorCode::RequestCanceled as i32,
+            "workspace diagnostic cancelled".to_string(),
+        ),
     }
 }
 
-/// Whether the client's `context.only` filter admits the fix-all action: no
-/// filter means yes, otherwise a requested kind must equal or be an ancestor of
-/// `source.fixAll.ryl` (so a `source` or `source.fixAll` request still matches,
-/// the way `editor.codeActionsOnSave` issues them).
-fn fix_all_requested(context: &CodeActionContext) -> bool {
-    match &context.only {
-        None => true,
-        Some(only) => only.iter().any(|kind| {
-            let kind = kind.as_str();
-            FIX_ALL_KIND == kind || FIX_ALL_KIND.starts_with(&format!("{kind}."))
-        }),
+/// Convert an LSP `$/cancelRequest` id to an `lsp-server` request id for matching.
+fn request_id(id: NumberOrString) -> RequestId {
+    match id {
+        NumberOrString::Number(number) => RequestId::from(number),
+        NumberOrString::String(text) => RequestId::from(text),
     }
 }
 
@@ -499,11 +1020,49 @@ fn parse<P: serde::de::DeserializeOwned>(params: &serde_json::Value) -> Option<P
     serde_json::from_value(params.clone()).ok()
 }
 
+/// The user-facing message for a config-discovery failure, shared by the push path's
+/// `window/showMessage` and the pull path's synthetic diagnostic.
+fn config_error_text(error: &str) -> String {
+    format!("ryl: configuration error, linting is off: {error}")
+}
+
+/// A single error diagnostic standing in for a config-discovery failure, so a pull
+/// request surfaces the failure (in the report the client consumes) rather than reporting
+/// the file as clean.
+fn config_error_diagnostic(error: &str) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position::new(0, 0),
+            end: Position::new(0, 0),
+        },
+        severity: Some(DiagnosticSeverity::ERROR),
+        source: Some("ryl".to_string()),
+        message: config_error_text(error),
+        ..Default::default()
+    }
+}
+
+/// One file's full report for a `workspace/diagnostic` result.
+fn workspace_report(
+    uri: Uri,
+    version: Option<i64>,
+    items: Vec<Diagnostic>,
+) -> WorkspaceDocumentDiagnosticReport {
+    WorkspaceDocumentDiagnosticReport::Full(WorkspaceFullDocumentDiagnosticReport {
+        uri,
+        version,
+        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+            result_id: None,
+            items,
+        },
+    })
+}
+
 fn publish(
     connection: &Connection,
     uri: Uri,
     version: Option<i32>,
-    diagnostics: Vec<lsp_types::Diagnostic>,
+    diagnostics: Vec<Diagnostic>,
 ) {
     let params = PublishDiagnosticsParams {
         uri,
