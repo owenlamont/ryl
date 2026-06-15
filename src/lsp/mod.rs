@@ -104,6 +104,9 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
     let Ok((id, raw_params)) = connection.initialize_start() else {
         return SessionOutcome::Clean;
     };
+    // Read before `from_value` consumes `raw_params`: this capability lives at a JSON key
+    // `lsp-types` cannot reach (see `client_supports_diagnostic_refresh`).
+    let supports_diagnostic_refresh = client_supports_diagnostic_refresh(&raw_params);
     let params: InitializeParams = match serde_json::from_value(raw_params) {
         Ok(params) => params,
         Err(error) => {
@@ -163,6 +166,9 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
             .and_then(|workspace| workspace.workspace_edit.as_ref())
             .and_then(|workspace_edit| workspace_edit.document_changes)
             .unwrap_or(false),
+        push_diagnostics: !client_supports_pull_diagnostics(&params),
+        supports_diagnostic_refresh,
+        next_refresh_id: 0,
         settings,
         documents: HashMap::new(),
         reported_errors: HashSet::new(),
@@ -207,6 +213,39 @@ fn client_supports_watch_registration(params: &InitializeParams) -> bool {
         .as_ref()
         .and_then(|workspace| workspace.did_change_watched_files.as_ref())
         .and_then(|watched| watched.dynamic_registration)
+        .unwrap_or(false)
+}
+
+/// Whether the client uses the LSP 3.17 pull-diagnostics model (it advertised the
+/// `textDocument/diagnostic` capability). When it does, the server must *not* also
+/// push `publishDiagnostics`: clients that keep the push and pull channels in
+/// separate collections (e.g. VS Code via `vscode-languageclient`) would then list
+/// every diagnostic twice. The spec is silent on how the two models interact, so the
+/// robust, client-agnostic rule is to emit only one model per document.
+fn client_supports_pull_diagnostics(params: &InitializeParams) -> bool {
+    params
+        .capabilities
+        .text_document
+        .as_ref()
+        .and_then(|text_document| text_document.diagnostic.as_ref())
+        .is_some()
+}
+
+/// Whether the client accepts a server-initiated `workspace/diagnostic/refresh`. Only a
+/// pull client needs it: a config change re-pushes for a push client, but a pull client's
+/// results are gated off, so without a refresh it would keep showing diagnostics computed
+/// under the old config.
+///
+/// Read from the *raw* initialize JSON, not `InitializeParams`: the spec's key is the
+/// plural `workspace.diagnostics.refreshSupport`, but `lsp-types` 0.97 deserializes its
+/// `WorkspaceClientCapabilities::diagnostic` from the singular `workspace.diagnostic` key
+/// (no rename — a known bug, tower-lsp-community/tower-lsp-server#50), so the typed field
+/// is always `None` for a conforming client (VS Code included). The textDocument pull
+/// capability above is genuinely singular per spec, so it stays on the typed path.
+fn client_supports_diagnostic_refresh(raw_params: &serde_json::Value) -> bool {
+    raw_params
+        .pointer("/capabilities/workspace/diagnostics/refreshSupport")
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
 
@@ -271,6 +310,24 @@ fn register_config_watchers(connection: &Connection, config_file: Option<&Path>)
             RequestId::from("ryl-register-watchers".to_string()),
             "client/registerCapability".to_string(),
             params,
+        )),
+    );
+}
+
+/// Ask a pull-capable client to re-pull every diagnostic (LSP `workspace/diagnostic/refresh`,
+/// which takes no params). Fire-and-forget — the response is ignored by the message loop —
+/// but `seq` still makes the id unique so a client can correlate concurrent refreshes.
+///
+/// `Value::Null` is the spec-correct no-params shape here, not a malformed `"params":null`:
+/// `lsp_server::Request` tags `params` with `skip_serializing_if = Value::is_null`, so a null
+/// is omitted from the wire entirely (`{"id":..,"method":..}`).
+fn request_diagnostic_refresh(connection: &Connection, seq: i32) {
+    send(
+        connection,
+        Message::Request(Request::new(
+            RequestId::from(format!("ryl-refresh-diagnostics-{seq}")),
+            "workspace/diagnostic/refresh".to_string(),
+            serde_json::Value::Null,
         )),
     );
 }
@@ -348,6 +405,17 @@ struct Server {
     roots: Vec<PathBuf>,
     /// Whether the client supports `WorkspaceEdit.documentChanges` (versioned edits).
     supports_document_changes: bool,
+    /// Whether to proactively push `publishDiagnostics`. False when the client uses the
+    /// pull model (see [`client_supports_pull_diagnostics`]), so it gets diagnostics
+    /// once via pull instead of twice.
+    push_diagnostics: bool,
+    /// Whether the client accepts `workspace/diagnostic/refresh`, so a pull client can be
+    /// asked to re-pull after a config change (see [`client_supports_diagnostic_refresh`]).
+    supports_diagnostic_refresh: bool,
+    /// Monotonic counter for `workspace/diagnostic/refresh` request ids. Each refresh needs
+    /// a distinct id so a client can correlate its response (JSON-RPC forbids reusing an id
+    /// for a still-outstanding request, and config changes can fire several in a row).
+    next_refresh_id: i32,
     /// Client-provided overrides and on/off toggle.
     settings: Settings,
     /// Open documents, keyed by their URI string.
@@ -485,21 +553,16 @@ impl Server {
                 if let Some(params) = parse::<DidCloseTextDocumentParams>(&params) {
                     let uri = params.text_document.uri;
                     self.documents.remove(uri.as_str());
-                    publish(connection, uri, None, Vec::new());
+                    self.push(connection, uri, None, Vec::new());
                 }
             }
-            // A watched config file changed: config is resolved per request (no cache),
-            // so just re-lint open docs. Clear the surfaced-errors set so a still-broken
-            // config re-reports once.
-            "workspace/didChangeWatchedFiles" => {
-                self.reported_errors.clear();
-                self.relint_open_documents(connection);
-            }
+            // A watched config file changed: config is resolved per request (no cache), so
+            // make open documents' diagnostics catch up (see `handle_config_change`).
+            "workspace/didChangeWatchedFiles" => self.handle_config_change(connection),
             "workspace/didChangeConfiguration" => {
                 if let Some(params) = parse::<DidChangeConfigurationParams>(&params) {
                     self.settings = Settings::from_options(Some(&params.settings));
-                    self.reported_errors.clear();
-                    self.relint_open_documents(connection);
+                    self.handle_config_change(connection);
                 }
             }
             // Cancel an in-flight workspace scan: flip its cancel flag so the worker stops
@@ -575,7 +638,41 @@ impl Server {
                 text,
             },
         );
-        publish(connection, uri, Some(version), diagnostics);
+        self.push(connection, uri, Some(version), diagnostics);
+    }
+
+    /// Push diagnostics to the client, unless it uses the pull model (then it owns
+    /// when to fetch them and a second push would double-report). Both the `update`
+    /// republish and the `didClose` clear route through here so the policy lives in
+    /// one place.
+    fn push(
+        &self,
+        connection: &Connection,
+        uri: Uri,
+        version: Option<i32>,
+        diagnostics: Vec<Diagnostic>,
+    ) {
+        if self.push_diagnostics {
+            publish(connection, uri, version, diagnostics);
+        }
+    }
+
+    /// React to a config or watched-file change. A push client gets a fresh re-push of
+    /// every open document; a pull client (whose push results are gated off) is asked to
+    /// re-pull via `workspace/diagnostic/refresh`, so it does not keep showing diagnostics
+    /// computed under the old config — config errors included, which it surfaces as a pull
+    /// diagnostic. A pull client that did not advertise refresh support re-pulls only on
+    /// its own cadence (an unavoidable client limitation).
+    fn handle_config_change(&mut self, connection: &Connection) {
+        // Clear the surfaced-errors set so a still-broken config re-reports once (push
+        // path); the pull path resurfaces it per document on the triggered re-pull.
+        self.reported_errors.clear();
+        if self.push_diagnostics {
+            self.relint_open_documents(connection);
+        } else if self.supports_diagnostic_refresh {
+            self.next_refresh_id += 1;
+            request_diagnostic_refresh(connection, self.next_refresh_id);
+        }
     }
 
     /// Re-lint and republish every open document (after a config or watched-file change).
