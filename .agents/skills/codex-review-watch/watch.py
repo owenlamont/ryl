@@ -3,7 +3,8 @@
 # dependencies = ["typer"]
 # ///
 """Trigger and/or monitor a Codex CI code review on a GitHub PR, then classify the
-verdict. Run with: ``uv run watch.py <pr> [--repo owner/repo] [--no-trigger]``, or
+verdict. Run with: ``uv run watch.py <pr> [--repo owner/repo] [--no-trigger]``
+(add ``--first-review`` for the first review on a freshly-opened PR), or
 ``uv run watch.py --quota-only`` to just print the Codex quota snapshot.
 
 Each gotcha below was a real mistake this script exists to prevent:
@@ -23,6 +24,13 @@ Each gotcha below was a real mistake this script exists to prevent:
     TUI-only), but the CLI caches the rate-limit snapshot from each response into its
     session rollout, which this reads as a preflight so a near-exhausted quota is
     flagged before a trigger silently stalls.
+  * On a freshly-opened PR Codex usually AUTO-starts a review (no @codex review
+    comment), acked by a transient eyes reaction on the PR BODY (the manual-prompt
+    eyes land on the @codex review comment instead). ``--first-review`` watches for
+    that auto-start -- a body eyes ack or a verdict landing within ``--auto-wait`` --
+    and skips re-posting @codex review, falling back to posting only if no auto-start
+    fires. Leave it OFF for subsequent (post-push) reviews: those have no auto-start
+    and need an explicit @codex review.
 """
 
 from __future__ import annotations
@@ -193,11 +201,26 @@ def main(
             help="post '@codex review' first (use --no-trigger to only monitor)"
         ),
     ] = True,
+    first_review: Annotated[
+        bool,
+        typer.Option(
+            help="first review on a freshly-opened PR: detect Codex's auto-started "
+            "review (transient eyes on the PR body) before posting '@codex review', "
+            "to avoid double-triggering. Leave OFF for subsequent (post-push) reviews."
+        ),
+    ] = False,
     quota_only: Annotated[
         bool, typer.Option(help="print the Codex quota snapshot and exit")
     ] = False,
     max_polls: Annotated[int, typer.Option(help="maximum poll attempts")] = 40,
     interval: Annotated[int, typer.Option(help="seconds between polls")] = 45,
+    auto_wait: Annotated[
+        int,
+        typer.Option(
+            help="--first-review: seconds to wait for the auto-started review's ack "
+            "(eyes on the PR body) before falling back to posting '@codex review'"
+        ),
+    ] = 90,
     ack_timeout: Annotated[
         int,
         typer.Option(
@@ -241,42 +264,39 @@ def main(
     def inlines() -> list:
         return by_bot(gh_json(f"repos/{repo}/pulls/{pr}/comments"))
 
-    base_rev, base_iss, base_inl = len(reviews()), len(issues()), len(inlines())
+    auto_started = False
+    # Set once a '@codex review' comment exists (posted by us or found in --no-trigger).
+    trig_id: int | None = None
+
+    if first_review:
+        # A freshly-opened PR: Codex has produced nothing yet, so baseline every bot
+        # channel at zero -- any bot review/comment/reaction below IS the auto-review.
+        base_rev = base_iss = base_inl = 0
+    else:
+        base_rev, base_iss, base_inl = len(reviews()), len(issues()), len(inlines())
     typer.echo(
         f"baseline: reviews={base_rev} issue_comments={base_iss} inline={base_inl}"
     )
 
-    if trigger:
-        gh("pr", "comment", pr, "--repo", repo, "--body", "@codex review")
-    # Locate the latest @codex review trigger comment whether we posted it or are
-    # monitoring an existing one (--no-trigger), so reactions() can see its verdict.
-    triggers = [
-        c
-        for c in gh_json(f"repos/{repo}/issues/{pr}/comments")
-        if c.get("body") == "@codex review"
-    ]
-    trig_id = triggers[-1]["id"] if triggers else None
-    typer.echo(
-        f"posted @codex review (trigger id={trig_id})"
-        if trigger
-        else f"monitoring existing trigger id={trig_id}"
-    )
-
     def reactions() -> tuple[int, int]:
-        """(thumbs, eyes) from the bot on the trigger comment, or (0, 0) without one."""
-        if not trig_id:
-            return 0, 0
-        reacts = by_bot(gh_json(f"repos/{repo}/issues/comments/{trig_id}/reactions"))
+        """(thumbs, eyes) from the bot on the verdict's ack target: the '@codex review'
+        trigger comment when one exists, else the PR body (Codex's auto-started review
+        on PR open has no comment, so it acks on the body).
+        """
+        path = (
+            f"repos/{repo}/issues/comments/{trig_id}/reactions"
+            if trig_id
+            else f"repos/{repo}/issues/{pr}/reactions"
+        )
+        reacts = by_bot(gh_json(path))
         return (
             sum(1 for r in reacts if r.get("content") == "+1"),
             sum(1 for r in reacts if r.get("content") == "eyes"),
         )
 
-    # Baseline the trigger's reactions like the other channels: in --no-trigger mode an
-    # existing trigger may already carry the bot's thumbs-up, so only a NEW one is clean.
-    base_thumbs, _ = reactions()
-
-    def report_verdict(rev: list, iss: list, inl: list, thumbs: int) -> bool:
+    def report_verdict(
+        rev: list, iss: list, inl: list, thumbs: int, base_thumbs: int
+    ) -> bool:
         """Print the verdict if one has landed on any of the three channels; return
         True when it has (caller should stop).
         """
@@ -292,7 +312,7 @@ def main(
                 typer.echo(f"RESULT: ISSUE-COMMENT (read it) -- {body[:300]}")
             return True
         if thumbs > base_thumbs:
-            typer.echo("RESULT: CLEAN -- thumbs-up on the trigger comment")
+            typer.echo("RESULT: CLEAN -- thumbs-up ack")
             return True
         if len(rev) > base_rev:  # new review = findings (inline comments)
             new = inl[base_inl:]
@@ -305,10 +325,65 @@ def main(
             return True
         return False
 
+    # First review on a freshly-opened PR: Codex usually AUTO-starts a review, acked by
+    # a transient eyes reaction on the PR body (no '@codex review' comment). Detect that
+    # before posting so we don't double-trigger it; only fall back to posting if no
+    # auto-start fires within --auto-wait.
+    if first_review:
+        auto_base_thumbs, _ = reactions()  # trig_id is None here -> PR-body reactions
+        waited = 0
+        while True:
+            rev, iss, inl = reviews(), issues(), inlines()
+            thumbs, eyes = reactions()
+            if report_verdict(rev, iss, inl, thumbs, auto_base_thumbs):
+                return  # the auto-review already landed (or finished before we looked)
+            if eyes > 0:
+                auto_started = True
+                typer.echo(
+                    f"auto-review underway (eyes on PR body, ~{waited}s); "
+                    "not re-triggering"
+                )
+                break
+            if waited >= auto_wait:
+                typer.echo(f"auto-detect: no auto-started review within {auto_wait}s")
+                break
+            step = min(ack_interval, auto_wait - waited)
+            time.sleep(step)
+            waited += step
+            typer.echo(f"auto-detect {waited}/{auto_wait}s: no auto-review ack yet")
+        if auto_started:
+            trigger = False  # the auto-review is running; monitor it, don't re-trigger
+
+    if trigger:
+        gh("pr", "comment", pr, "--repo", repo, "--body", "@codex review")
+    # Locate the latest @codex review trigger comment whether we posted it or are
+    # monitoring an existing one (--no-trigger), so reactions() can see its verdict.
+    triggers = [
+        c
+        for c in gh_json(f"repos/{repo}/issues/{pr}/comments")
+        if c.get("body") == "@codex review"
+    ]
+    trig_id = triggers[-1]["id"] if triggers else None
+    if trigger:
+        typer.echo(f"posted @codex review (trigger id={trig_id})")
+    elif auto_started:
+        typer.echo("monitoring Codex's auto-started review (no trigger posted)")
+    elif trig_id:
+        typer.echo(f"monitoring existing trigger id={trig_id}")
+    else:
+        typer.echo("monitoring without a trigger (no '@codex review' comment found)")
+
+    # Baseline the ack target's reactions like the other channels: an existing trigger
+    # (or, in auto-review monitor mode, the PR body) may already carry a bot thumbs-up,
+    # so only a NEW one is a clean verdict.
+    base_thumbs, _ = reactions()
+
     # Fail fast on a missing ack: Codex normally adds an eyes/thumbs reaction within a
     # minute of the trigger, so its ABSENCE within `ack_timeout`s means the trigger was
     # never picked up (rate-limited/stalled) -- bail instead of burning the full poll
-    # window. A verdict that lands during this short phase short-circuits too.
+    # window. A verdict that lands during this short phase short-circuits too. Skipped in
+    # auto-review monitor mode (trig_id is None): we already saw the auto-start's eyes,
+    # and that ack is transient, so its absence now is not a dropped trigger.
     if trig_id:
         waited = 0
         acked = False
@@ -318,7 +393,7 @@ def main(
             waited += step
             rev, iss, inl = reviews(), issues(), inlines()
             thumbs, eyes = reactions()
-            if report_verdict(rev, iss, inl, thumbs):
+            if report_verdict(rev, iss, inl, thumbs, base_thumbs):
                 return
             if eyes > 0 or thumbs > 0:
                 acked = True
@@ -332,12 +407,12 @@ def main(
             )
             raise typer.Exit(code=1)
 
-    # Acked (or --no-trigger monitor-only): poll the three channels for the verdict.
+    # Acked (or --no-trigger / auto-review monitor): poll the three channels for verdict.
     for i in range(1, max_polls + 1):
         time.sleep(interval)
         rev, iss, inl = reviews(), issues(), inlines()
         thumbs, _eyes = reactions()
-        if report_verdict(rev, iss, inl, thumbs):
+        if report_verdict(rev, iss, inl, thumbs, base_thumbs):
             return
         typer.echo(
             f"poll {i}/{max_polls}: reviews={len(rev)} issue={len(iss)} "
