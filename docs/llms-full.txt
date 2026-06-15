@@ -1643,19 +1643,27 @@ as you type. It is the same lint and fix engine as the CLI, exposed over the pro
 
 A ryl language server is a **linter** provider. It is meant to run *alongside* Red Hat's
 [`yaml-language-server`](https://github.com/redhat-developer/yaml-language-server) (schema
-validation, completion, hover), the way Ruff runs alongside Pylance: editors attach both
-and merge their diagnostics. ryl does not do schema validation, completion, or hover.
+validation, completion, schema hover), the way Ruff runs alongside Pylance: editors attach
+both and merge their diagnostics. ryl does not do schema validation or completion; its
+hover only explains ryl's own diagnostics.
 
 ## What it provides
 
 | Capability | LSP feature | Behaviour |
 | --- | --- | --- |
-| Diagnostics | `textDocument/publishDiagnostics` | Every enabled rule, re-linted on open and on each change |
+| Diagnostics (push) | `textDocument/publishDiagnostics` | Every enabled rule, re-linted on open and on each change |
+| Diagnostics (pull) | `textDocument/diagnostic`, `workspace/diagnostic` | On-demand diagnostics for one document or every `*.yaml`/`*.yml` under the workspace root |
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
+| Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
+| Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
 | Formatting | `textDocument/formatting` | Same as "fix all": formatting *is* applying safe fixes |
+| Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
+| Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
+| Config watching | `workspace/didChangeWatchedFiles` | Re-lints open documents when a ryl/yamllint config file changes on disk |
 
 The fix-all action and formatting both apply ryl's whole-file safe fixes; ryl has no
-per-occurrence "fix just this one" action, because its fix engine operates per file. A
+per-occurrence "fix just this one" action, because its fix engine operates per file (the
+per-rule fix-all is the finest grain available, and applies only to YAML, not Markdown). A
 document that does not parse is never modified (the same guarantee as `ryl --fix`).
 
 ## Running it
@@ -1674,6 +1682,22 @@ file with no discovered config that enables at least one rule produces no diagno
 YAML and Markdown (embedded YAML) documents are both supported; the source kind is resolved
 from your `[files]` globs just like the CLI. An untitled (unsaved) buffer is linted as YAML,
 with config discovery anchored at the workspace root.
+
+## Configuring it from the editor
+
+The server reads optional settings from the client, either in `initializationOptions` at
+startup or via a `workspace/didChangeConfiguration` notification (a `ryl` section is
+accepted, so `{"ryl": {...}}` and a bare `{...}` both work). Changing them re-lints open
+documents:
+
+| Setting | Effect |
+| --- | --- |
+| `enable` (bool, default `true`) | `false` turns ryl off: no diagnostics, no actions |
+| `configPath` (string) | Use this config file instead of discovering one (like `ryl -c`) |
+| `configData` (string) | Inline YAML config text, highest precedence (like `ryl -d`) |
+
+These are the same precedence as the CLI: `configData` > `configPath` > the discovered
+project/user config.
 
 ## Neovim
 
@@ -1708,9 +1732,34 @@ format-on-save via `editor.defaultFormatter`.
 - **Position encoding** is negotiated at startup (UTF-8, UTF-16, or UTF-32); ryl supports
   all three and defaults to UTF-16 when the client states no preference, so columns line up
   correctly even for multi-byte and astral-plane characters.
-- Diagnostics for an open document are recomputed when it is opened or edited. Editing a
-  **config file** on disk (`.ryl.toml`, `pyproject.toml`, a yamllint config) does not yet
-  re-lint already-open documents; re-open or edit a document to pick up the new config.
+- **Config watching** re-lints open documents when a ryl/yamllint config file changes on
+  disk, for clients that support dynamic `didChangeWatchedFiles` registration. It watches
+  the standard config filenames anywhere in the workspace plus an explicit `configPath`;
+  files pulled in via a config's `extends:` are not individually watched, so re-open a
+  document to refresh after editing those. A client without the capability simply picks up
+  a config change on the next edit or re-open.
+- **Document sync is incremental** — the editor sends only the edited range — but ryl
+  re-lints the whole reconstructed document each time (it is fast enough that this is
+  invisible).
+- **Disable-rule actions** insert a `# ryl disable-line` comment on its own line. A
+  diagnostic *inside* a block scalar gets no disable-line action (a `#` there would be
+  scalar content, not a directive) — use the whole-file disable or a config-level ignore
+  for those.
+- **Rename** targets YAML anchors/aliases only (not Markdown-embedded YAML), and is scoped
+  to the document the anchor lives in: a name reused across a `---`/`...` boundary is a
+  distinct anchor and is left untouched.
+- **Workspace pull diagnostics** cover `*.yaml`/`*.yml` files under each workspace root
+  (git-ignored files excluded); Markdown and files matched only by custom `[files]` globs
+  are diagnosed when opened or pulled individually. The scan runs on a background thread
+  (so editing, hover, and other requests stay responsive while it works) and lints files
+  in parallel across CPU cores. A new pull supersedes any in-flight one, and a
+  `$/cancelRequest` (and shutdown) stops it promptly: the directory walk is cancelled
+  per entry and the lint pass is fast, so only an in-progress single-file read is not
+  interrupted.
+- **Disable-rule actions are offered for YAML documents only** — in Markdown the
+  diagnostic's line is a host-file line whose embedded YAML carries a prefix, so a raw
+  comment insert would be unreliable; Markdown documents get the fix-all action (which is
+  region-aware) instead.
 - A missing config or one that enables no rules produces **no diagnostics** — the editor
   stays quiet, matching ryl's "no rule is on unless you enable it" philosophy. A
   **malformed** config (which would make `ryl` exit non-zero on the CLI) is reported once
