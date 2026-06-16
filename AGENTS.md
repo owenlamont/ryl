@@ -401,8 +401,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   TOML-only and anchors path globs/`ignore-from-file` at its parent (`config_base_dir`,
   #218). `YAMLLINT_CONFIG_FILE` is yamllint-only: a `.toml` target errors (exit 2) before
   the existence check (`try_env_config_core`, #332); use `-c`/`-d`/project discovery for
-  ryl TOML. User-global: ryl-native `<config-dir>/ryl/{.ryl,}.toml` then yamllint
-  `<config-dir>/yamllint/config`. Precedence diagram in `docs/getting-started/quickstart.md`.
+  ryl TOML. User-global: ryl-native `<config-dir>/ryl/.ryl.toml` or `ryl.toml`, then
+  yamllint `<config-dir>/yamllint/config`. Precedence diagram in
+  `docs/getting-started/quickstart.md`.
 - ryl never enables a rule that wasn't explicitly turned on (no "default-on" rules). Two
   cases exit `2`, both stricter than yamllint: **no config found anywhere** (resolution
   falls back to an *empty* config — `ConfigContext::config_found == false` — not the
