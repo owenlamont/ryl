@@ -6,7 +6,7 @@
 # [tool.uv]
 # # One-week dependency cooldown (rolling): ignore releases newer than one week
 # # before each run as a supply-chain-safety buffer.
-# exclude-newer = "1 week ago"
+# exclude-newer = "1 week"
 # ///
 
 """Generate ``docs/llms.txt`` and ``docs/llms-full.txt`` from the Zensical docs.
