@@ -8,12 +8,12 @@ nothing, so what it enables is the file's whole ruleset, with no default-on
 rules.
 
 ryl resolves one config per file by searching upward from the file. A TOML
-config (`.ryl.toml`, `ryl.toml`, or `pyproject.toml` `[tool.ryl]`) found
-anywhere up the tree is preferred over a `.yamllint`, even a nearer one;
-among configs of the same kind the nearest wins. A monorepo can therefore
-hold many `ryl.toml` files, one per subtree, each governing its own files. If
-the upward search finds no project config, ryl falls back to a single
-user-global config; see the
+config (`.ryl.toml`, `ryl.toml`, `.config/.ryl.toml`, `.config/ryl.toml`, or
+`pyproject.toml` `[tool.ryl]`, in that precedence order) found anywhere up the
+tree is preferred over a `.yamllint`, even a nearer one; among configs of the
+same kind the nearest wins. A monorepo can therefore hold many `ryl.toml`
+files, one per subtree, each governing its own files. If the upward search
+finds no project config, ryl falls back to a single user-global config; see the
 [quick start](getting-started/quickstart.md).
 
 Presets are starting points for that config, not something ryl inherits behind
