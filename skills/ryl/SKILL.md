@@ -79,7 +79,8 @@ ryl --format github --format gitlab -o code-quality.json .
 ## Configuration: YAML vs TOML
 
 - **YAML** (`.yamllint`, `YAMLLINT_CONFIG_FILE`) is yamllint-compatible (`extends:
-  default`/`relaxed`, presets).
+  default`/`relaxed`, presets). `YAMLLINT_CONFIG_FILE` takes a YAML config only: a
+  `.toml` target errors (use `-c`/`-d` or project discovery for ryl TOML).
 - **TOML** (`ryl.toml`, `.ryl.toml`, `[tool.ryl]`) holds ryl-only features: `[files]`
   globs, `[markdown]` embedding, `[output]` destinations, per-line ignores, ryl-only
   rules.

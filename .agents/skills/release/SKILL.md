@@ -23,9 +23,25 @@ description: >-
   - Run `prek run --all-files` (re-run if files were auto-fixed).
 - Docs and notes:
   - Update README/AGENTS for behavior changes.
+  - **Refresh the benchmark image** so its version label tracks the release. Build the
+    release binary and point the script at it with `--ryl-bin` (the label is read from
+    that binary's `--version`, so it always matches what was timed; without `--ryl-bin`
+    the script benchmarks whatever `ryl` is on `PATH`): `cargo build --release && uv run
+    scripts/benchmark_perf_vs_yamllint.py --ryl-bin target/release/ryl`. The no-arg
+    defaults reproduce the committed 5x5/5-run matrix; copy the run's
+    `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
+    `img/benchmark-5x5-5runs.svg` (only that file is committed; `manual_outputs/` is
+    gitignored) and confirm the `ryl <version>` label reads the release version.
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed
     in this release (a moved command, renamed test, new wiring step), and update
-    the affected `SKILL.md`.
+    the affected `SKILL.md`. If any `.agents/skills/` file changed, refresh the
+    gitignored local copies Claude Code loads (`.claude/skills/`) **from GitHub
+    pinned to the release tag, after the tag is pushed** — never `--from-local`
+    (that pins to unverified local state):
+    `gh skill install owenlamont/ryl --all --allow-hidden-dirs --agent claude-code
+    --scope project --pin vX.Y.Z --force` (then `gh skill update` for later
+    refreshes). Confirm the install pulls only the `.agents/skills/` dev skills and
+    not the published `skills/ryl`; scope by skill path if it does not.
   - Review the downstream agent skill `skills/ryl/SKILL.md` and the
     `docs/using-ryl-with-ai-agents.md` page for any behaviour, flag, format, or
     rule changes in this release. The `agent_skill_drift_guard` test catches a

@@ -386,6 +386,23 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   disabled lines via `Directives::reconcile`. Works region-locally in embedded Markdown.
   Validate against yamllint with `tests/yamllint_compat_directives.rs`. User docs:
   `docs/directives.md`.
+- Config discovery (`config::discover_config_with`, precedence high→low): `-d` (inline
+  YAML) > `-c` (file: TOML/YAML by extension) > project config > `YAMLLINT_CONFIG_FILE`
+  > user-global. `-d`/`-c`/a present `YAMLLINT_CONFIG_FILE` trigger run-wide resolution
+  (`main::build_global_cfg`); otherwise project + user-global discovery is per file via
+  `discover_per_file` (cached per dir), so a monorepo gets a config per subtree. Run-wide
+  resolution still applies the full precedence, so a project config found from the inputs
+  precedes the env config. Project candidates run every ancestor to `HOME`,
+  TOML-first (`TOML_PROJECT_CONFIG_CANDIDATES`: `.ryl.toml` > `ryl.toml` >
+  `.config/.ryl.toml` > `.config/ryl.toml` > `pyproject.toml [tool.ryl]`) across every
+  ancestor first, then `.yamllint*` in a separate full ancestor walk
+  (`find_first_yaml_candidate`), so any TOML config up-tree outranks even a nearer
+  `.yamllint`. `.config/` is
+  TOML-only and anchors path globs/`ignore-from-file` at its parent (`config_base_dir`,
+  #218). `YAMLLINT_CONFIG_FILE` is yamllint-only: a `.toml` target errors (exit 2) before
+  the existence check (`try_env_config_core`, #332); use `-c`/`-d`/project discovery for
+  ryl TOML. User-global: ryl-native `<config-dir>/ryl/{.ryl,}.toml` then yamllint
+  `<config-dir>/yamllint/config`. Precedence diagram in `docs/getting-started/quickstart.md`.
 - ryl never enables a rule that wasn't explicitly turned on (no "default-on" rules). Two
   cases exit `2`, both stricter than yamllint: **no config found anywhere** (resolution
   falls back to an *empty* config — `ConfigContext::config_found == false` — not the

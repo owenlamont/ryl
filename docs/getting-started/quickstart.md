@@ -189,3 +189,35 @@ If you have a yamllint user-global config, `ryl --migrate-user-config
 --migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from
 yamllint](migrating-from-yamllint.md)). Migration is optional, since ryl also
 reads the yamllint location directly.
+
+## Configuration precedence
+
+ryl resolves the configuration governing **each file** it lints, trying these
+sources in order and stopping at the first hit. `-d`/`-c` and
+`YAMLLINT_CONFIG_FILE` pin a single config for the whole run; otherwise project
+discovery runs per file, so a monorepo can hold many `.ryl.toml` files, each
+governing its own subtree. The winning config must enable at least one rule, or
+ryl exits `2`:
+
+```mermaid
+flowchart TD
+    Start([resolve config]) --> D{"-d / --config-data?"}
+    D -->|yes| UseInline["use inline YAML"] --> Done([config resolved])
+    D -->|no| C{"-c / --config-file?"}
+    C -->|yes| UseFile["load file: TOML or YAML by extension"] --> Done
+    C -->|no| P{"project config?<br/>walk up from inputs to HOME"}
+    P -->|"TOML up-tree"| UseProjToml["nearest TOML:<br/>.ryl.toml &gt; ryl.toml &gt; .config/*.toml<br/>&gt; pyproject.toml [tool.ryl]"] --> Done
+    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml"] --> Done
+    P -->|none| E{"YAMLLINT_CONFIG_FILE set?"}
+    E -->|"points at .toml"| Err1["error: use -c / project discovery<br/>for ryl TOML (exit 2)"]
+    E -->|"YAML and exists"| UseEnv["load as yamllint YAML"] --> Done
+    E -->|"missing or unset"| G{"user-global config?"}
+    G -->|"ryl TOML"| UseRyl["config-dir/ryl/.ryl.toml &gt; ryl.toml"] --> Done
+    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config"] --> Done
+    G -->|none| Err2["error: no configuration found (exit 2)"]
+    Done --> R{"any rule enabled?"}
+    R -->|yes| OK([lint])
+    R -->|no| Err3["error: no rules enabled (exit 2)"]
+    classDef default stroke-width:3px;
+    linkStyle default stroke-width:3px;
+```
