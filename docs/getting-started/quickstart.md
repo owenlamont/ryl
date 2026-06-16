@@ -182,7 +182,8 @@ platform-native config dir (`~/.config/ryl` on Linux, `~/Library/Application
 Support/ryl` on macOS, `%APPDATA%\ryl` on Windows) &mdash; then falls back to
 yamllint's `<config-dir>/yamllint/config` for compatibility. A project config,
 `-c`/`-d`, or `YAMLLINT_CONFIG_FILE` all take precedence over the user-global
-config.
+config. `YAMLLINT_CONFIG_FILE` accepts only a yamllint YAML config (pointing it
+at a `.toml` errors); use `-c`/`-d` or project discovery for ryl-native TOML.
 
 If you have a yamllint user-global config, `ryl --migrate-user-config
 --migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from

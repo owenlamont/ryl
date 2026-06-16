@@ -161,6 +161,22 @@ fn shim_env_var_tilde_without_home_keeps_literal_path() {
 }
 
 #[test]
+fn shim_env_var_rejects_toml_target_pointing_at_native_config() {
+    // YAMLLINT_CONFIG_FILE is yamllint's env var (YAML configs only). A `.toml` target
+    // used to load as a ryl-native config; it must now error and steer the user to
+    // -c / project discovery instead of silently loading TOML (#332).
+    let env = FakeEnv::default()
+        .with_cwd("/tmp/cwd")
+        .add_file("/proj/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .set_var("YAMLLINT_CONFIG_FILE", "/proj/ryl.toml");
+    let err = discover_config_with(&[], &Overrides::default(), &env).unwrap_err();
+    assert!(
+        err.contains("YAMLLINT_CONFIG_FILE") && err.contains("--config-file"),
+        "expected an actionable TOML-rejection error, got: {err}"
+    );
+}
+
+#[test]
 fn system_env_home_dir_accessible() {
     let env = SystemEnv;
     let _ = env.home_dir();

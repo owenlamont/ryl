@@ -1592,11 +1592,25 @@ fn expand_user_path(envx: &dyn Env, raw: &str) -> PathBuf {
 }
 
 fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> {
-    envx.env_var("YAMLLINT_CONFIG_FILE")
-        .map(|raw| expand_user_path(envx, &raw))
-        .filter(|p| envx.path_exists(p))
-        .map(|p| ctx_from_config_path_core(envx, &p, false, Vec::new()))
-        .transpose()
+    let Some(raw) = envx.env_var("YAMLLINT_CONFIG_FILE") else {
+        return Ok(None);
+    };
+    let path = expand_user_path(envx, &raw);
+    // YAMLLINT_CONFIG_FILE is yamllint's env var, so it accepts only yamllint YAML configs;
+    // a `.toml` target used to load as a ryl-native config (#332). Rejecting by extension
+    // (the loader's sole YAML-vs-TOML signal) fires before the existence check, since the
+    // value alone flags the misuse: `-c`/project discovery are the route for ryl TOML.
+    if is_toml_path(&path) {
+        return Err(format!(
+            "YAMLLINT_CONFIG_FILE points at a TOML file ({}); it accepts only yamllint YAML \
+             configs. Use -c/--config-file or project config discovery for ryl-native TOML.",
+            path.display()
+        ));
+    }
+    if !envx.path_exists(&path) {
+        return Ok(None);
+    }
+    ctx_from_config_path_core(envx, &path, false, Vec::new()).map(Some)
 }
 
 // no separate try_env_config_with; discover_config_with_env uses ClosureEnv + discover_config_with
