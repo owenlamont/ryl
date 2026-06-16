@@ -1536,15 +1536,46 @@ pub fn discover_per_file_with(
 }
 
 // Testable core helpers below.
+/// Project root for a config at `p`: normally its parent directory, but a `.config/`
+/// discovery candidate (`.config/.ryl.toml` or `.config/ryl.toml`) anchors at that
+/// directory's parent. `.config/` is a config container by convention (XDG/dot-config),
+/// never a content root, so `.config/ryl.toml` is a true drop-in for a root `ryl.toml` —
+/// path-based `[files]`/`ignore` globs and relative `ignore-from-file` paths resolve
+/// against the project root, not `.config/`. Applies to discovered and explicit (`-c`,
+/// `YAMLLINT_CONFIG_FILE`) configs alike so the same file behaves identically however it
+/// is reached. Gated on the candidate *filenames* (not just "any TOML in `.config/`") so
+/// discovery and explicit modes agree for exactly the names discovery recognizes: an
+/// arbitrarily-named TOML or a yamllint-compat YAML config explicitly pointed at inside a
+/// `.config/` folder keeps its parent-directory base, like any other explicit path. An
+/// empty grandparent (a relative `.config/<file>` in the cwd) resolves to the cwd.
+fn config_base_dir(envx: &dyn Env, p: &Path) -> PathBuf {
+    let base = p
+        .parent()
+        .map_or_else(|| envx.current_dir(), Path::to_path_buf);
+    let is_config_candidate = base.file_name().and_then(|name| name.to_str())
+        == Some(".config")
+        && matches!(
+            p.file_name().and_then(|name| name.to_str()),
+            Some(".ryl.toml" | "ryl.toml")
+        );
+    if !is_config_candidate {
+        return base;
+    }
+    match base.parent() {
+        Some(grandparent) if !grandparent.as_os_str().is_empty() => {
+            grandparent.to_path_buf()
+        }
+        _ => envx.current_dir(),
+    }
+}
+
 fn ctx_from_config_path_core(
     envx: &dyn Env,
     p: &Path,
     allow_missing_pyproject: bool,
     notices: Vec<String>,
 ) -> Result<ConfigContext, String> {
-    let base = p
-        .parent()
-        .map_or_else(|| envx.current_dir(), Path::to_path_buf);
+    let base = config_base_dir(envx, p);
     let cfg = load_config_from_path_core(envx, p, &base, allow_missing_pyproject)?
         .expect("missing [tool.ryl] should be filtered or returned as an error before this point");
     finalize_context(envx, cfg, base, Some(p.to_path_buf()), notices, true)
@@ -1667,8 +1698,23 @@ fn try_yamllint_user_global_core(
         .transpose()
 }
 
-const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
-    [".ryl.toml", "ryl.toml", "pyproject.toml"];
+// Project-level TOML config candidates, highest precedence first, checked at every
+// ancestor up to HOME. The `.config/` entries are the repo-local config-dir variants
+// (RuboCop/rumdl convention): a `.config/` directory keeps config out of the project
+// root, and we accept both the hidden (`.ryl.toml`) and plain (`ryl.toml`) names there
+// since a user relocating an existing dotfile into `.config/` keeps the dot. `/` is a
+// portable separator
+// (Windows accepts it too), but `candidate_path` splits and re-joins so the resolved
+// path uses the native separator and displays cleanly. The `.config/` variants are not
+// mirrored in the legacy YAML fallback (`YAML_PROJECT_CONFIG_CANDIDATES`): `.config/`
+// holds ryl-native TOML only, never the yamllint-compatible YAML configs.
+const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 5] = [
+    ".ryl.toml",
+    "ryl.toml",
+    ".config/.ryl.toml",
+    ".config/ryl.toml",
+    "pyproject.toml",
+];
 const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
     [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 // ryl-native user-global candidates (TOML only); checked inside `<config-dir>/ryl/`.
@@ -1721,6 +1767,14 @@ fn load_config_from_path_core(
 
 fn is_toml_path(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "toml")
+}
+
+/// Join a `/`-separated candidate (e.g. `.config/ryl.toml`) onto `dir` component by
+/// component so the result uses the platform-native separator rather than embedding a
+/// literal `/` that would render mixed-separator paths on Windows.
+fn candidate_path(dir: &Path, name: &str) -> PathBuf {
+    name.split('/')
+        .fold(dir.to_path_buf(), |path, part| path.join(part))
 }
 
 fn build_project_search_starts(envx: &dyn Env, inputs: &[PathBuf]) -> Vec<PathBuf> {
@@ -1794,7 +1848,7 @@ fn find_project_config_core(
         let mut dir = start.clone();
         loop {
             for name in TOML_PROJECT_CONFIG_CANDIDATES {
-                let candidate = dir.join(name);
+                let candidate = candidate_path(&dir, name);
                 if !envx.path_exists(&candidate) {
                     continue;
                 }

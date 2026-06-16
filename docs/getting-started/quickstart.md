@@ -147,6 +147,23 @@ discovered automatically. TOML is the recommended format for ryl-specific
 features (such as fix selection) that have no upstream yamllint
 equivalent.
 
+To keep config out of the project root, ryl also discovers a ryl-native TOML
+config inside a repo-local `.config/` directory (the RuboCop/rumdl convention).
+At each directory in the upward search the candidates are tried in this order,
+and the first match wins:
+
+1. `.ryl.toml`
+2. `ryl.toml`
+3. `.config/.ryl.toml`
+4. `.config/ryl.toml`
+5. `pyproject.toml` (only when it has a `[tool.ryl]` table)
+
+`.config/` holds ryl-native TOML only: the legacy `.yamllint`/`.yamllint.yaml`/
+`.yamllint.yml` files are discovered at the directory level, never inside
+`.config/`. A `.config/ryl.toml` is a true drop-in for a root `ryl.toml`: its
+`[files]`/`ignore` globs and relative `ignore-from-file` paths resolve against
+the project root (the directory containing `.config/`), not `.config/` itself.
+
 If you already have a yamllint configuration, use the built-in converter:
 
 ```bash

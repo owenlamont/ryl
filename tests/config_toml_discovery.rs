@@ -482,6 +482,286 @@ fn explicit_invalid_pyproject_toml_reports_parse_error() {
 }
 
 #[test]
+fn config_dir_plain_toml_is_discovered() {
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(
+            PathBuf::from("/repo/.config/ryl.toml"),
+            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("`.config/ryl.toml` should be discovered");
+    assert_eq!(
+        ctx.source.as_deref(),
+        Some(Path::new("/repo/.config/ryl.toml"))
+    );
+    assert_eq!(ctx.config.locale(), Some("fr_FR.UTF-8"));
+}
+
+#[test]
+fn config_dir_dotted_toml_is_discovered() {
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(
+            PathBuf::from("/repo/.config/.ryl.toml"),
+            "locale = 'de_DE.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("`.config/.ryl.toml` should be discovered");
+    assert_eq!(
+        ctx.source.as_deref(),
+        Some(Path::new("/repo/.config/.ryl.toml"))
+    );
+    assert_eq!(ctx.config.locale(), Some("de_DE.UTF-8"));
+}
+
+#[test]
+fn config_dir_dotted_beats_plain() {
+    // Within `.config/`, the hidden name wins, mirroring the root-level `.ryl.toml` >
+    // `ryl.toml` ordering so the dotted/plain precedence is uniform across both dirs.
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(
+            PathBuf::from("/repo/.config/.ryl.toml"),
+            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_file(
+            PathBuf::from("/repo/.config/ryl.toml"),
+            "locale = 'de_DE.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("dotted config-dir name should win");
+    assert_eq!(
+        ctx.source.as_deref(),
+        Some(Path::new("/repo/.config/.ryl.toml"))
+    );
+    assert_eq!(ctx.config.locale(), Some("fr_FR.UTF-8"));
+}
+
+#[test]
+fn root_toml_beats_config_dir() {
+    // A root-level `ryl.toml` outranks any `.config/` variant in the same directory.
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(
+            PathBuf::from("/repo/ryl.toml"),
+            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_file(
+            PathBuf::from("/repo/.config/.ryl.toml"),
+            "locale = 'de_DE.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("root `ryl.toml` should win over `.config/`");
+    assert_eq!(ctx.source.as_deref(), Some(Path::new("/repo/ryl.toml")));
+    assert_eq!(ctx.config.locale(), Some("fr_FR.UTF-8"));
+}
+
+#[test]
+fn config_dir_beats_pyproject() {
+    // `.config/ryl.toml` outranks a `pyproject.toml [tool.ryl]` in the same directory.
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_file(
+            PathBuf::from("/repo/.config/ryl.toml"),
+            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_file(
+            PathBuf::from("/repo/pyproject.toml"),
+            "[project]\nname = 'demo'\nversion = '0.1.0'\n[tool.ryl]\nlocale = 'de_DE.UTF-8'\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("`.config/ryl.toml` should win over pyproject");
+    assert_eq!(
+        ctx.source.as_deref(),
+        Some(Path::new("/repo/.config/ryl.toml"))
+    );
+    assert_eq!(ctx.config.locale(), Some("fr_FR.UTF-8"));
+}
+
+#[test]
+fn config_dir_resolves_from_ancestor() {
+    // The `.config/` candidate is checked at every ancestor, so a config-dir config at
+    // the repo root resolves for a file nested several directories deep.
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_var("HOME", "/repo")
+        .with_file(
+            PathBuf::from("/repo/.config/ryl.toml"),
+            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+        )
+        .with_exists(PathBuf::from("/repo/sub/deep/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/sub/deep/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("ancestor `.config/ryl.toml` should resolve");
+    assert_eq!(
+        ctx.source.as_deref(),
+        Some(Path::new("/repo/.config/ryl.toml"))
+    );
+}
+
+#[test]
+fn config_dir_does_not_discover_legacy_yaml() {
+    // `.config/` holds ryl-native TOML only; a `.config/.yamllint` is invisible to
+    // discovery (the legacy YAML fallback only checks root-level yamllint names).
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_var("HOME", "/repo")
+        .with_file(
+            PathBuf::from("/repo/.config/.yamllint"),
+            "locale: en_US.UTF-8\nrules: {}\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("discovery should succeed with no config found");
+    assert_eq!(
+        ctx.source, None,
+        "`.config/.yamllint` must not be discovered as a config source"
+    );
+}
+
+#[test]
+fn config_dir_anchors_path_globs_at_project_root() {
+    // A `.config/ryl.toml` must anchor path-based `[files]` globs at the project root
+    // (`.config/`'s parent), not at `.config/`, so it is a true drop-in for a root
+    // config; with the wrong base, `configs/**/*.yaml` would never match the repo's
+    // `configs/` and discovery would silently lint nothing.
+    let env = FakeEnv::new()
+        .with_cwd(PathBuf::from("/repo"))
+        .with_var("HOME", "/repo")
+        .with_file(
+            PathBuf::from("/repo/.config/ryl.toml"),
+            "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+        )
+        .with_exists(PathBuf::from("/repo/file.yaml"));
+    let ctx = discover_config_with(
+        &[PathBuf::from("/repo/file.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("`.config/ryl.toml` should be discovered");
+    assert_eq!(ctx.base_dir, Path::new("/repo"));
+    assert!(
+        ctx.config
+            .is_yaml_candidate(Path::new("/repo/configs/app.yaml"), &ctx.base_dir),
+        "path glob must match relative to the project root, not `.config/`"
+    );
+}
+
+#[test]
+fn config_dir_explicit_c_anchors_at_project_root() {
+    // The `.config/` anchoring applies to an explicit `-c` too (the "all routes"
+    // choice), so `-c .config/ryl.toml` is not a silent dead end for path-based globs.
+    let cfg = PathBuf::from("/repo/.config/ryl.toml");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+    );
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("explicit `-c .config/ryl.toml` should load");
+    assert_eq!(ctx.base_dir, Path::new("/repo"));
+    assert!(
+        ctx.config
+            .is_yaml_candidate(Path::new("/repo/configs/app.yaml"), &ctx.base_dir),
+        "explicit `-c` config in `.config/` must anchor globs at the project root"
+    );
+}
+
+#[test]
+fn config_dir_relative_explicit_c_anchors_at_cwd() {
+    // A relative `-c .config/ryl.toml` has an empty grandparent, so the project root
+    // resolves to the cwd (the directory the relative `.config/` sits in).
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        PathBuf::from(".config/ryl.toml"),
+        "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+    );
+    let ctx = discover_config_with(
+        &[],
+        &Overrides {
+            config_file: Some(PathBuf::from(".config/ryl.toml")),
+            config_data: None,
+        },
+        &env,
+    )
+    .expect("relative explicit `-c .config/ryl.toml` should load");
+    assert_eq!(ctx.base_dir, Path::new("/repo"));
+}
+
+#[test]
+fn config_dir_non_candidate_configs_keep_parent_base() {
+    // Only the `.config/` discovery candidate names (`.ryl.toml`/`ryl.toml`) re-anchor.
+    // An arbitrarily-named TOML or a yamllint-compat YAML config explicitly pointed at
+    // inside a `.config/` folder keeps its parent base, like any other `-c <path>` (so
+    // explicit mode never re-bases names discovery can't find, and yamllint-compat YAML
+    // semantics, including relative extends/ignore-from-file, stay intact).
+    for (name, body) in [
+        (
+            "custom.toml",
+            "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+        ),
+        ("custom.yaml", "locale: en_US.UTF-8\nrules: {}\n"),
+    ] {
+        let cfg = PathBuf::from("/repo/.config").join(name);
+        let env = FakeEnv::new()
+            .with_cwd(PathBuf::from("/repo"))
+            .with_file(cfg.clone(), body);
+        let ctx = discover_config_with(
+            &[],
+            &Overrides {
+                config_file: Some(cfg),
+                config_data: None,
+            },
+            &env,
+        )
+        .expect("explicit non-candidate config in `.config/` should load");
+        assert_eq!(
+            ctx.base_dir,
+            Path::new("/repo/.config"),
+            "non-candidate `{name}` in `.config/` must keep its parent base"
+        );
+    }
+}
+
+#[test]
 fn yaml_extends_toml_is_rejected() {
     let cfg = PathBuf::from("/repo/.yamllint");
     let env = FakeEnv::new()

@@ -330,6 +330,50 @@ fn migrate_project_skips_when_ryl_native_config_exists() {
 }
 
 #[test]
+fn migrate_project_skips_when_config_dir_ryl_config_exists() {
+    // A `.config/ryl.toml` is the project's active config; migrating a legacy `.yamllint`
+    // would write a root `.ryl.toml` that outranks and silently shadows it, so the
+    // collision guard must treat the `.config/` config as a collision and skip.
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join(".yamllint"),
+        "rules: { key-duplicates: enable }\n",
+    )
+    .unwrap();
+    fs::create_dir(td.path().join(".config")).unwrap();
+    fs::write(
+        td.path().join(".config").join("ryl.toml"),
+        "[rules]\nkey-duplicates = \"enable\"\n",
+    )
+    .unwrap();
+    let opts = MigrateOptions {
+        project_root: Some(td.path().to_path_buf()),
+        user_config: None,
+        write_mode: WriteMode::Write,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Delete,
+    };
+    let res = migrate_configs(&opts).unwrap();
+    assert!(
+        res.entries.is_empty(),
+        "no migration when a `.config/` ryl-native config exists"
+    );
+    assert!(
+        res.warnings.iter().any(|w| w.contains("already exists")),
+        "expected a collision warning: {:?}",
+        res.warnings
+    );
+    assert!(
+        !td.path().join(".ryl.toml").exists(),
+        "migration must not write a root config that shadows the `.config/` one"
+    );
+    assert!(
+        td.path().join(".yamllint").exists(),
+        "source preserved when migration is skipped"
+    );
+}
+
+#[test]
 fn migrate_user_config_skips_when_ryl_toml_exists() {
     let td = tempdir().unwrap();
     let source = td.path().join("yamllint").join("config");
