@@ -226,14 +226,24 @@ fn rename_destination(source: &Path, suffix: &str) -> PathBuf {
 }
 
 /// An existing ryl-native TOML config *file* in `target`'s directory that a migration into
-/// `target` would overwrite or be shadowed by (`.ryl.toml` outranks `ryl.toml` in
-/// discovery, so either is a collision). A non-file (e.g. a directory) is not treated as a
-/// collision so the write path still reports it.
+/// `target` would overwrite or be shadowed by. Covers the root names (`.ryl.toml` outranks
+/// `ryl.toml` in discovery, so either is a collision) and the repo-local `.config/`
+/// candidates (`.config/.ryl.toml`/`.config/ryl.toml`): migrating writes `<dir>/.ryl.toml`,
+/// which outranks an existing `.config/` config and would silently shadow it, so that is a
+/// collision too. A non-file (e.g. a directory) is not treated as a collision so the write
+/// path still reports it.
 fn existing_ryl_native_config(target: &Path) -> Option<PathBuf> {
     target
         .parent()
         .into_iter()
-        .flat_map(|dir| [".ryl.toml", "ryl.toml"].map(|name| dir.join(name)))
+        .flat_map(|dir| {
+            [
+                dir.join(".ryl.toml"),
+                dir.join("ryl.toml"),
+                dir.join(".config").join(".ryl.toml"),
+                dir.join(".config").join("ryl.toml"),
+            ]
+        })
         .find(|candidate| candidate.is_file())
 }
 
