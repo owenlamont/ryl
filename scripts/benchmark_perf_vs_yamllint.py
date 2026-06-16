@@ -5,7 +5,6 @@
 #   "matplotlib>=3.9,<4",
 #   "orjson>=3.11,<4",
 #   "polars>=1.30,<2",
-#   "ryl",
 #   "tqdm>=4.67,<5",
 #   "typer>=0.16,<1",
 #   "yamllint",
@@ -234,7 +233,7 @@ def plot_results(
 @app.command()
 def main(
     file_counts: str = typer.Option(
-        "25,100,400,1000",
+        "20,40,60,80,100",
         help="Comma-separated file counts. Ignored when --file-count-start/end/step are set.",
     ),
     file_count_start: int | None = typer.Option(
@@ -247,7 +246,7 @@ def main(
         None, help="Increment for file-count range."
     ),
     file_sizes_kib: str = typer.Option(
-        "1,8,32,128",
+        "1,3,5,7,9",
         help="Comma-separated file sizes in KiB. Ignored when --file-size-start-kib/end/step are set.",
     ),
     file_size_start_kib: int | None = typer.Option(
@@ -259,8 +258,16 @@ def main(
     file_size_step_kib: int | None = typer.Option(
         None, help="Increment for file-size range in KiB."
     ),
-    runs: int = typer.Option(10, help="Number of hyperfine runs per point."),
-    warmup: int = typer.Option(2, help="Number of warmup runs per point."),
+    runs: int = typer.Option(5, help="Number of hyperfine runs per point."),
+    warmup: int = typer.Option(1, help="Number of warmup runs per point."),
+    ryl_bin: Path | None = typer.Option(
+        None,
+        "--ryl-bin",
+        help="ryl binary to benchmark and label (default: the `ryl` on PATH). "
+        "Point at this branch's target/release/ryl so the image reflects the "
+        "release build rather than a stale global install; the version label is "
+        "read from this binary's --version, so it always matches what was timed.",
+    ),
     seed: int = typer.Option(7331, help="Base RNG seed for synthetic YAML generation."),
     output_dir: Path = typer.Option(
         Path("manual_outputs") / "benchmarks",
@@ -312,7 +319,9 @@ def main(
     raw_dir = run_dir / "hyperfine-json"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    ryl_bin = resolve_tool_path("ryl")
+    ryl_bin = ryl_bin if ryl_bin is not None else resolve_tool_path("ryl")
+    if not ryl_bin.is_file():
+        raise typer.BadParameter(f"--ryl-bin does not exist: {ryl_bin}")
     yamllint_bin = resolve_tool_path("yamllint")
     ryl_version = run_checked([str(ryl_bin), "--version"]).stdout.strip()
     yamllint_version = run_checked([str(yamllint_bin), "--version"]).stdout.strip()

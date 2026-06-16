@@ -120,6 +120,28 @@ produced.
   working. The equivalent `# ryl …` spelling is preferred for new files; see
   [Inline directives](../directives.md).
 
+## Configuration discovery precedence
+
+ryl resolves the configuration governing **each file** it lints, trying these
+sources in order and stopping at the first hit. `-d`/`-c` and
+`YAMLLINT_CONFIG_FILE` pin a single config for the whole run; otherwise project
+discovery runs per file, so a monorepo can hold many configs, each governing its
+own subtree. ryl recognises the same config sources as yamllint (`-d`/`-c`,
+project files, `YAMLLINT_CONFIG_FILE`, a user-global config) and adds ryl-native
+TOML for `-c`, project discovery, and the user-global config (but not
+`YAMLLINT_CONFIG_FILE`, which stays yamllint-YAML-only). It diverges from yamllint
+in two ways: yamllint folds `YAMLLINT_CONFIG_FILE` into the user-global slot (the
+env var *replaces* it, and a missing target falls through to `extends: default`),
+whereas ryl keeps the env var and the user-global config as distinct fall-through
+tiers; and ryl requires the resolved config to enable at least one rule or it
+exits `2` (yamllint instead lints with its `default` preset when nothing is found,
+and silently accepts a rule-less config).
+
+See the [configuration precedence
+diagram](quickstart.md#configuration-precedence) in the Quick Start for the full
+resolution flow, rendered from `-d`/`-c` through project and user-global tiers to
+the rule-enabled gate.
+
 ## How ryl differs from yamllint
 
 ryl is a drop-in replacement, but it intentionally diverges from yamllint in a
