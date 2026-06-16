@@ -206,7 +206,7 @@ flowchart TD
     D -->|no| C{"-c / --config-file?"}
     C -->|yes| UseFile["load file: TOML or YAML by extension"] --> Done
     C -->|no| P{"project config?<br/>walk up from inputs to HOME"}
-    P -->|"TOML up-tree"| UseProjToml["nearest TOML:<br/>.ryl.toml &gt; ryl.toml &gt; .config/*.toml<br/>&gt; pyproject.toml [tool.ryl]"] --> Done
+    P -->|"TOML up-tree"| UseProjToml["nearest TOML:<br/>.ryl.toml &gt; ryl.toml<br/>&gt; .config/.ryl.toml &gt; .config/ryl.toml<br/>&gt; pyproject.toml [tool.ryl]"] --> Done
     P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml"] --> Done
     P -->|none| E{"YAMLLINT_CONFIG_FILE set?"}
     E -->|"points at .toml"| Err1["error: use -c / project discovery<br/>for ryl TOML (exit 2)"]
