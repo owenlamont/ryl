@@ -106,6 +106,9 @@ produced.
   yamllint's `<config-dir>/yamllint/config` (see
   [ryl-native user-global config](#ryl-native-user-global-config) for how
   `<config-dir>` resolves per platform).
+- `YAMLLINT_CONFIG_FILE` honours only a yamllint YAML config; pointing it at a
+  `.toml` errors (see
+  [`YAMLLINT_CONFIG_FILE` rejects TOML](#yamllint_config_file-rejects-toml)).
 - The three built-in presets &mdash; `default`, `relaxed`, and `empty` &mdash;
   match yamllint's behaviour. YAML configs can still use `extends:` to
   reference them; TOML configs must inline the `default`/`relaxed` content (see
@@ -288,6 +291,29 @@ config dir (`~/.config/ryl` on Linux, `~/Library/Application Support/ryl` on mac
 `%APPDATA%\ryl` on Windows). Being ryl-only, the ryl-native path is TOML; the
 yamllint-compatible path stays YAML and, matching yamllint, always resolves under
 `$XDG_CONFIG_HOME` or `~/.config` (not the native dir).
+
+### `YAMLLINT_CONFIG_FILE` rejects TOML
+
+`YAMLLINT_CONFIG_FILE` is yamllint's env var, so ryl honours it only as a yamllint
+**YAML** config. Pointing it at a `.toml` errors (even when the file is absent),
+directing you to `-c`/`--config-file` or project discovery for ryl-native TOML. A
+YAML (or extension-less) target keeps full yamllint compatibility, including
+yamllint's behaviour of **silently ignoring a missing target** and falling through
+to the next config source.
+
+| `YAMLLINT_CONFIG_FILE` target | ryl | yamllint |
+| :--- | :--- | :--- |
+| present `.toml` | **error** (use `-c`) | parsed as YAML (not TOML) |
+| missing `.toml` | **error** (use `-c`) | ignored, falls through |
+| missing `.yml`/`config` | ignored, falls through | ignored, falls through |
+
+**Why ryl differs:** TOML is never a valid yamllint config, so there is no
+compatibility to preserve for a `.toml` target &mdash; loading one through the
+yamllint-named var was an accidental overlap with ryl's own format. ryl fails loudly
+on it and keeps ryl-native TOML on its dedicated channels (`-c`/`--config-file`,
+project discovery). yamllint's `-c` flag likewise errors on a missing file (only its
+env var is lenient), and biome's `BIOME_CONFIG_PATH` errors on a missing target
+outright, so failing loudly on the always-wrong `.toml` case is well-precedented.
 
 ## Side-by-side example
 
