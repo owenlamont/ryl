@@ -99,9 +99,10 @@ produced.
   existing log scrapers continue to work.
 - Configuration discovery walks the same locations as yamllint, with TOML
   formats checked in addition: an explicit `--config-file`, then a
-  project-local `.ryl.toml`, `ryl.toml`, `pyproject.toml`, `.yamllint`,
-  `.yamllint.yaml`, or `.yamllint.yml`, then the `YAMLLINT_CONFIG_FILE` env
-  var, then a user-global config. At the user-global step ryl checks its own
+  project-local `.ryl.toml`, `ryl.toml`, `.config/.ryl.toml`,
+  `.config/ryl.toml`, `pyproject.toml`, `.yamllint`, `.yamllint.yaml`, or
+  `.yamllint.yml`, then the `YAMLLINT_CONFIG_FILE` env var, then a
+  user-global config. At the user-global step ryl checks its own
   `<config-dir>/ryl/.ryl.toml` (or `ryl.toml`) first, then falls back to
   yamllint's `<config-dir>/yamllint/config` (see
   [ryl-native user-global config](#ryl-native-user-global-config) for how
@@ -179,6 +180,10 @@ not permit. ryl follows the spec, so the `anchors` rule can diverge:
 | `b: {*x: 2}` | `*x:` is an **undeclared** alias; `x` is **unused** | reads `{x: 2}` &mdash; no diagnostic |
 | `&foo:bar` and `&foo:baz` | two **distinct** anchors | one anchor `foo`, reported **duplicated** |
 | `*foo:baz` | a valid alias named `foo:baz` | a **syntax error** (PyYAML cannot scan it) |
+
+The *unused* note in row 1 and the *duplicated* report in row 2 require the matching
+non-default `anchors` options (`forbid-unused-anchors`, `forbid-duplicated-anchors`); the
+colon-in-name parsing divergence the table illustrates is independent of them.
 
 **Why ryl differs:** the YAML specification and its reference parser are the
 authority, and PyYAML's narrowing at `:` is non-conformant (see
@@ -381,7 +386,6 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     new-line-at-end-of-file = "enable"
     new-lines = "enable"
     octal-values = "disable"
-    quoted-strings = "disable"
     trailing-spaces = "enable"
     truthy = "disable"
 

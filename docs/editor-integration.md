@@ -85,10 +85,34 @@ Trigger the fix-all action with `vim.lsp.buf.code_action()`, or format with
 
 ## VS Code
 
-A dedicated VS Code extension is tracked in
-[issue #208](https://github.com/owenlamont/ryl/issues/208) and is not yet released. Once it
-ships, it will bundle the binary and wire `ryl server` up automatically, including
-format-on-save via `editor.defaultFormatter`.
+The **ryl VS Code extension** (`owenlamont.ryl`) is published on the
+[VS Marketplace](https://marketplace.visualstudio.com/items?itemName=owenlamont.ryl) and
+[Open VSX](https://open-vsx.org/extension/owenlamont/ryl). It is a thin client that runs
+`ryl server`, so the linting, fixing, and formatting all come from ryl itself. A
+platform-specific ryl binary is bundled, so it works with no separate install; if you
+already have ryl on your `PATH` or in a project environment, it uses that instead.
+
+![ryl flagging YAML problems inline (red squiggles) in VS Code](img/vscode-extension.png)
+
+It surfaces the language-server features described above - live diagnostics, fix-all (and
+per-rule fix-all), the disable-rule quick fixes, hover, and anchor/alias rename - and adds a
+`ryl.fixAll` command and a fix-on-save option. To make ryl your YAML formatter and apply
+safe fixes on save:
+
+```json
+{
+  "[yaml]": {
+    "editor.defaultFormatter": "owenlamont.ryl",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ryl": "explicit"
+    }
+  }
+}
+```
+
+Like the CLI, it enables no rules until it discovers a config that turns some on. Source and
+issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode).
 
 ## Notes
 

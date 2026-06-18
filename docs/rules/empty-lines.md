@@ -86,7 +86,7 @@ unfixable = ["empty-lines"]
 ## Related rules
 
 - [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
-  the single trailing newline character (distinct from "empty lines at
+  the trailing newline character (distinct from "empty lines at
   end").
 - [`trailing-spaces`](trailing-spaces.md) &mdash; reports whitespace on
   otherwise-empty lines.

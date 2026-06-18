@@ -15,8 +15,8 @@ The rule answers three questions:
 
 ## Why this matters
 
-- **Avoid accidental retyping.** Bareword values like `yes` or `1.0` are
-  silently parsed as booleans or floats. Quoting prevents this.
+- **Avoid accidental retyping.** Bareword values like `1.0` or `true` are
+  silently parsed as floats or booleans. Quoting keeps them strings.
 - **Consistent diffs.** Mixing `'foo'` and `"foo"` in the same file causes
   noisy diffs whenever an editor or formatter normalises the style.
 - **Escapes and interpolation.** Single-quoted YAML scalars do not process
@@ -31,23 +31,23 @@ The examples below assume `quote-type = "double"` and
 ### :white_check_mark: Allowed
 
 ```yaml
-title: A plain bareword string
-flag: "yes"            # quoted because yes would parse as a boolean
-escape: "line1\nline2" # quoted because it uses an escape sequence
+title: A plain bareword string  # needs no quotes, so left bare
+version: "1.0"                  # quoted because bare 1.0 would parse as a float
+escape: "line1\nline2"          # double-quoted to use an escape sequence
 ```
 
 ### :x: Reported
 
 ```yaml
-flag: yes              # unintentional boolean
-title: 'A plain string'  # single-quoted when double is configured
+name: "plain"   # redundantly quoted: a plain string needs no quotes
+version: '1.0'  # needs quoting, but single-quoted where double is required
 ```
 
 ### :wrench: After `ryl --fix`
 
 ```yaml
-flag: "yes"
-title: "A plain string"
+name: plain
+version: "1.0"
 ```
 
 ## Configuration

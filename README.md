@@ -48,18 +48,20 @@ npm install -g @owenlamont/ryl      # npm
 pip install ryl                     # pip
 cargo install ryl                   # cargo
 pixi global install ryl             # conda-forge
+winget install owenlamont.ryl       # winget (Windows)
 ```
 
 ## Status and scope
 
-- All 23 yamllint rules are implemented, plus a ryl-only `tags` rule (forbids
-  unsafe and non-portable YAML tags; configured in TOML only). The current rule
-  reference and per-rule pages are at
-  <https://ryl-docs.pages.dev/rules/>.
+- All 23 yamllint rules are implemented, plus four ryl-only rules with no
+  yamllint equivalent (`tags`, `merge-keys`, `block-scalar-chomping`, and
+  `unicode-line-breaks`), configured in TOML only. The current rule reference
+  and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.
 - Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `commas`,
-  `comments`, `comments-indentation`, `new-line-at-end-of-file`,
-  `new-lines`, and `quoted-strings`. The set of rules that may apply
-  fixes is configurable via the TOML `[fix]` table.
+  `comments`, `comments-indentation`, `document-end`, `document-start`,
+  `empty-lines`, `new-line-at-end-of-file`, `new-lines`, `quoted-strings`,
+  and `trailing-spaces`. The set of rules that may apply fixes is
+  configurable via the TOML `[fix]` table.
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file

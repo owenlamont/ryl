@@ -2,7 +2,7 @@
 
 ## What this rule does
 
-Requires the file to end with exactly one trailing newline character.
+Requires the file to end with a trailing newline character.
 
 ## Why this matters
 
@@ -35,17 +35,16 @@ key: value
 
 ### :x: Reported
 
-A file whose final byte is not a newline character, or that ends with two
-or more consecutive newlines.
+A file whose final byte is not a newline character. (Trailing *blank* lines
+are not this rule's concern; see [`empty-lines`](empty-lines.md).)
 
 ### :wrench: After `ryl --fix`
 
-ryl appends a single newline if missing, and trims any extra trailing
-newlines to leave exactly one.
+ryl appends a single newline when the file does not already end with one.
 
 ## Automatic fixing
 
-`ryl --fix` adjusts the trailing newline to exactly one. Disable with:
+`ryl --fix` appends a trailing newline when one is missing. Disable with:
 
 ```toml
 [fix]
@@ -56,6 +55,6 @@ unfixable = ["new-line-at-end-of-file"]
 ## Related rules
 
 - [`empty-lines`](empty-lines.md) &mdash; controls multiple empty lines
-  at the end of file (distinct from a single trailing newline).
+  at the end of file (distinct from the trailing newline).
 - [`new-lines`](new-lines.md) &mdash; controls which line ending
   character is used.
