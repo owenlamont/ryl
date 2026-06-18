@@ -517,9 +517,10 @@ produced.
   existing log scrapers continue to work.
 - Configuration discovery walks the same locations as yamllint, with TOML
   formats checked in addition: an explicit `--config-file`, then a
-  project-local `.ryl.toml`, `ryl.toml`, `pyproject.toml`, `.yamllint`,
-  `.yamllint.yaml`, or `.yamllint.yml`, then the `YAMLLINT_CONFIG_FILE` env
-  var, then a user-global config. At the user-global step ryl checks its own
+  project-local `.ryl.toml`, `ryl.toml`, `.config/.ryl.toml`,
+  `.config/ryl.toml`, `pyproject.toml`, `.yamllint`, `.yamllint.yaml`, or
+  `.yamllint.yml`, then the `YAMLLINT_CONFIG_FILE` env var, then a
+  user-global config. At the user-global step ryl checks its own
   `<config-dir>/ryl/.ryl.toml` (or `ryl.toml`) first, then falls back to
   yamllint's `<config-dir>/yamllint/config` (see
   [ryl-native user-global config](#ryl-native-user-global-config) for how
@@ -597,6 +598,10 @@ not permit. ryl follows the spec, so the `anchors` rule can diverge:
 | `b: {*x: 2}` | `*x:` is an **undeclared** alias; `x` is **unused** | reads `{x: 2}` &mdash; no diagnostic |
 | `&foo:bar` and `&foo:baz` | two **distinct** anchors | one anchor `foo`, reported **duplicated** |
 | `*foo:baz` | a valid alias named `foo:baz` | a **syntax error** (PyYAML cannot scan it) |
+
+The *unused* note in row 1 and the *duplicated* report in row 2 require the matching
+non-default `anchors` options (`forbid-unused-anchors`, `forbid-duplicated-anchors`); the
+colon-in-name parsing divergence the table illustrates is independent of them.
 
 **Why ryl differs:** the YAML specification and its reference parser are the
 authority, and PyYAML's narrowing at `:` is non-conformant (see
@@ -799,7 +804,6 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     new-line-at-end-of-file = "enable"
     new-lines = "enable"
     octal-values = "disable"
-    quoted-strings = "disable"
     trailing-spaces = "enable"
     truthy = "disable"
 
@@ -892,7 +896,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | Spaces after sequence hyphens. |  |
 | [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | Block indentation, sequence indentation, multi-line strings. |  |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Maximum line length. |  |
-| [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | A single trailing newline at end of file. | :wrench: |
+| [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | A trailing newline at end of file. | :wrench: |
 | [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | Consistent line endings (LF vs CRLF). | :wrench: |
 | [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Trailing whitespace at end of lines. | :wrench: |
 | [`unicode-line-breaks`](https://ryl-docs.pages.dev/rules/unicode-line-breaks/) | Raw NEL / LS / PS characters (not YAML 1.2 line breaks). |  |
@@ -1448,7 +1452,7 @@ regions, because a region is not a standalone file:
 Those four are the **only** rules suppressed; every other rule runs normally inside an
 embedded region &mdash; layout (`indentation`, `colons`, `line-length`,
 `trailing-spaces`), keys and values (`key-duplicates`, `truthy`), and the ryl-only
-`tags`, `unicode-line-breaks`, and `merge-keys` rules alike.
+`block-scalar-chomping`, `merge-keys`, `tags`, and `unicode-line-breaks` rules alike.
 
 [Inline directives](https://ryl-docs.pages.dev/directives/) (`# ryl disable` / `# yamllint disable`) also
 work inside an embedded region; a directive applies within the region that
@@ -1820,10 +1824,34 @@ Trigger the fix-all action with `vim.lsp.buf.code_action()`, or format with
 
 ## VS Code
 
-A dedicated VS Code extension is tracked in
-[issue #208](https://github.com/owenlamont/ryl/issues/208) and is not yet released. Once it
-ships, it will bundle the binary and wire `ryl server` up automatically, including
-format-on-save via `editor.defaultFormatter`.
+The **ryl VS Code extension** (`owenlamont.ryl`) is published on the
+[VS Marketplace](https://marketplace.visualstudio.com/items?itemName=owenlamont.ryl) and
+[Open VSX](https://open-vsx.org/extension/owenlamont/ryl). It is a thin client that runs
+`ryl server`, so the linting, fixing, and formatting all come from ryl itself. A
+platform-specific ryl binary is bundled, so it works with no separate install; if you
+already have ryl on your `PATH` or in a project environment, it uses that instead.
+
+![ryl flagging YAML problems inline (red squiggles) in VS Code](img/vscode-extension.png)
+
+It surfaces the language-server features described above - live diagnostics, fix-all (and
+per-rule fix-all), the disable-rule quick fixes, hover, and anchor/alias rename - and adds a
+`ryl.fixAll` command and a fix-on-save option. To make ryl your YAML formatter and apply
+safe fixes on save:
+
+```json
+{
+  "[yaml]": {
+    "editor.defaultFormatter": "owenlamont.ryl",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ryl": "explicit"
+    }
+  }
+}
+```
+
+Like the CLI, it enables no rules until it discovers a config that turns some on. Source and
+issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode).
 
 ## Notes
 
@@ -2934,7 +2962,7 @@ unfixable = ["empty-lines"]
 ## Related rules
 
 - [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) &mdash; controls
-  the single trailing newline character (distinct from "empty lines at
+  the trailing newline character (distinct from "empty lines at
   end").
 - [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) &mdash; reports whitespace on
   otherwise-empty lines.
@@ -3347,10 +3375,11 @@ key: 2
 ### :x: Reported (with `forbid-duplicated-merge-keys: true`)
 
 ```yaml
----
-<<: *anchor-one
-<<: *anchor-two
-extra: value
+base: &base {host: localhost}
+extra: &extra {port: 8080}
+server:
+  <<: *base
+  <<: *extra
 ```
 
 ### :x: Reported (with `check-canonical: true`)
@@ -3649,7 +3678,7 @@ Source: https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/
 
 ## What this rule does
 
-Requires the file to end with exactly one trailing newline character.
+Requires the file to end with a trailing newline character.
 
 ## Why this matters
 
@@ -3682,17 +3711,16 @@ key: value
 
 ### :x: Reported
 
-A file whose final byte is not a newline character, or that ends with two
-or more consecutive newlines.
+A file whose final byte is not a newline character. (Trailing *blank* lines
+are not this rule's concern; see [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/).)
 
 ### :wrench: After `ryl --fix`
 
-ryl appends a single newline if missing, and trims any extra trailing
-newlines to leave exactly one.
+ryl appends a single newline when the file does not already end with one.
 
 ## Automatic fixing
 
-`ryl --fix` adjusts the trailing newline to exactly one. Disable with:
+`ryl --fix` appends a trailing newline when one is missing. Disable with:
 
 ```toml
 [fix]
@@ -3703,7 +3731,7 @@ unfixable = ["new-line-at-end-of-file"]
 ## Related rules
 
 - [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) &mdash; controls multiple empty lines
-  at the end of file (distinct from a single trailing newline).
+  at the end of file (distinct from the trailing newline).
 - [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) &mdash; controls which line ending
   character is used.
 
@@ -3780,7 +3808,7 @@ unfixable = ["new-lines"]
 ## Related rules
 
 - [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) &mdash; controls
-  the single trailing newline at end of file.
+  the trailing newline at end of file.
 - [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) &mdash; reports whitespace
   before the line ending.
 
@@ -3871,8 +3899,8 @@ The rule answers three questions:
 
 ## Why this matters
 
-- **Avoid accidental retyping.** Bareword values like `yes` or `1.0` are
-  silently parsed as booleans or floats. Quoting prevents this.
+- **Avoid accidental retyping.** Bareword values like `1.0` or `true` are
+  silently parsed as floats or booleans. Quoting keeps them strings.
 - **Consistent diffs.** Mixing `'foo'` and `"foo"` in the same file causes
   noisy diffs whenever an editor or formatter normalises the style.
 - **Escapes and interpolation.** Single-quoted YAML scalars do not process
@@ -3887,23 +3915,23 @@ The examples below assume `quote-type = "double"` and
 ### :white_check_mark: Allowed
 
 ```yaml
-title: A plain bareword string
-flag: "yes"            # quoted because yes would parse as a boolean
-escape: "line1\nline2" # quoted because it uses an escape sequence
+title: A plain bareword string  # needs no quotes, so left bare
+version: "1.0"                  # quoted because bare 1.0 would parse as a float
+escape: "line1\nline2"          # double-quoted to use an escape sequence
 ```
 
 ### :x: Reported
 
 ```yaml
-flag: yes              # unintentional boolean
-title: 'A plain string'  # single-quoted when double is configured
+name: "plain"   # redundantly quoted: a plain string needs no quotes
+version: '1.0'  # needs quoting, but single-quoted where double is required
 ```
 
 ### :wrench: After `ryl --fix`
 
 ```yaml
-flag: "yes"
-title: "A plain string"
+name: plain
+version: "1.0"
 ```
 
 ## Configuration

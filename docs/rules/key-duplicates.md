@@ -67,10 +67,11 @@ key: 2
 ### :x: Reported (with `forbid-duplicated-merge-keys: true`)
 
 ```yaml
----
-<<: *anchor-one
-<<: *anchor-two
-extra: value
+base: &base {host: localhost}
+extra: &extra {port: 8080}
+server:
+  <<: *base
+  <<: *extra
 ```
 
 ### :x: Reported (with `check-canonical: true`)

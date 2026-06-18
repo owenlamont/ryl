@@ -117,7 +117,7 @@ regions, because a region is not a standalone file:
 Those four are the **only** rules suppressed; every other rule runs normally inside an
 embedded region &mdash; layout (`indentation`, `colons`, `line-length`,
 `trailing-spaces`), keys and values (`key-duplicates`, `truthy`), and the ryl-only
-`tags`, `unicode-line-breaks`, and `merge-keys` rules alike.
+`block-scalar-chomping`, `merge-keys`, `tags`, and `unicode-line-breaks` rules alike.
 
 [Inline directives](directives.md) (`# ryl disable` / `# yamllint disable`) also
 work inside an embedded region; a directive applies within the region that

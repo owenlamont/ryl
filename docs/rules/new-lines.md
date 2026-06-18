@@ -67,6 +67,6 @@ unfixable = ["new-lines"]
 ## Related rules
 
 - [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls
-  the single trailing newline at end of file.
+  the trailing newline at end of file.
 - [`trailing-spaces`](trailing-spaces.md) &mdash; reports whitespace
   before the line ending.

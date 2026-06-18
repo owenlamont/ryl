@@ -37,7 +37,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`hyphens`](rules/hyphens.md) | Spaces after sequence hyphens. |  |
 | [`indentation`](rules/indentation.md) | Block indentation, sequence indentation, multi-line strings. |  |
 | [`line-length`](rules/line-length.md) | Maximum line length. |  |
-| [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A single trailing newline at end of file. | :wrench: |
+| [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A trailing newline at end of file. | :wrench: |
 | [`new-lines`](rules/new-lines.md) | Consistent line endings (LF vs CRLF). | :wrench: |
 | [`trailing-spaces`](rules/trailing-spaces.md) | Trailing whitespace at end of lines. | :wrench: |
 | [`unicode-line-breaks`](rules/unicode-line-breaks.md) | Raw NEL / LS / PS characters (not YAML 1.2 line breaks). |  |

@@ -38,8 +38,8 @@ icon: lucide/braces
 
     ---
 
-    Single binary, distributed via Cargo, pip, and npm. No runtime
-    dependencies.
+    Single binary, distributed via Cargo, pip, npm, conda-forge, and
+    winget. No runtime dependencies.
 
     [:octicons-arrow-right-24: Install](getting-started/installation.md#installation)
 
