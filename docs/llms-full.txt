@@ -1608,7 +1608,9 @@ There are exactly two ways the two tools can disagree:
 
 Everything below is about steering clear of both. The configs were checked by running
 `formatter` then `ryl --fix` repeatedly until the file settled, and confirming the
-settled file passes `ryl` with no findings.
+settled file passes `ryl` with no findings. They were verified against the latest release
+of each formatter as of 2026-06-20: **yamlfmt 0.21.0**, **Prettier 3.8.4**, and
+**yamlfix 1.19.1**.
 
 Each recipe is tuned to its formatter's **default** configuration. The principle for
 adapting one: a formatter owns byte-level layout, so wherever ryl has a rule that overlaps
