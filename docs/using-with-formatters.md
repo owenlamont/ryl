@@ -222,9 +222,6 @@ max = 2
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
-required = "only-when-needed"
-
 [rules.line-length]
 max = 120
 ```
@@ -233,8 +230,10 @@ Notes:
 
 - Keep `document-end` off: yamlfix does not emit `...`, and ryl's `document-start` fix
   adds markers but never removes them, so requiring `...` would warn on every file.
-- `quoted-strings` must not require quotes: yamlfix strips unnecessary quotes, so
-  `required = true` loops. Use `only-when-needed`.
+- Leave `quoted-strings` off. yamlfix already normalises quotes, and pairing ryl's
+  `quoted-strings` with it is unsafe: ryl (YAML 1.2) treats `'no'`/`'yes'`/`'on'` as
+  redundantly-quoted strings and strips the quotes, after which yamlfix's truthy pass
+  rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
 - `truthy` is canonicalized only in **block** style (`key: yes`, `- yes`). yamlfix leaves
   truthy words inside a pre-existing flow collection (`flags: [yes, no]`) or before a
   trailing comment (`x: yes  # ...`) untouched, so `truthy = "enable"` still warns on
@@ -252,7 +251,7 @@ formatter (the recipes above already do):
 | `braces` inner spaces | `0` | `1` | `0` |
 | `brackets` inner spaces | `0` | `0` | `0` |
 | `comments` `min-spaces-from-content` | `1` | `1` | `2` |
-| `quoted-strings` | `required = "only-when-needed"` | `required = "only-when-needed"`, never `quote-type = "single"` | `required = "only-when-needed"` |
+| `quoted-strings` | `required = "only-when-needed"` | `required = "only-when-needed"`, never `quote-type = "single"` | off (yamlfix owns quoting; see note) |
 | `new-lines` `type` | `unix` † | `unix` | `unix` † |
 
 † yamlfmt and yamlfix emit the platform's native line endings (CRLF on Windows); see
