@@ -1661,10 +1661,16 @@ max = 120
 
 Notes:
 
-- If you prefer to keep `---`, set yamlfmt's `formatter.include_document_start: true` in
-  its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
+- If you prefer to keep `---`, set yamlfmt's
+  [`include_document_start: true`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
+  in its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
   two markers must agree. yamlfmt strips the `...` document-end marker, so leave ryl's
   `document-end` rule off.
+- yamlfmt's default
+  [`line_ending`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
+  is OS-dependent (`crlf` on Windows, `lf` otherwise), so on Windows the `new-lines = unix`
+  above would loop. Pin `line_ending: lf` in your `.yamlfmt` config to keep output LF on
+  every platform (matching `new-lines = unix`).
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
   and ryl cannot rewrite them.
 
@@ -1673,9 +1679,12 @@ Notes:
 Prettier pads flow mappings as `{ a: 1 }` but does not pad flow sequences, uses a single
 space before inline comments, preserves `---` if present but never adds it, indents with
 two spaces, and emits LF. It does not canonicalize truthy values. Prettier has no
-YAML-specific options; the general [options](https://prettier.io/docs/options) that affect
-YAML output are `printWidth`, `bracketSpacing` (the flow-mapping padding this recipe
-relies on), `singleQuote`, `proseWrap`, and `endOfLine`.
+YAML-specific options; the general options that affect YAML output are
+[`printWidth`](https://prettier.io/docs/options#print-width),
+[`bracketSpacing`](https://prettier.io/docs/options#bracket-spacing) (the flow-mapping
+padding this recipe relies on), [`singleQuote`](https://prettier.io/docs/options#quotes),
+[`proseWrap`](https://prettier.io/docs/options#prose-wrap), and
+[`endOfLine`](https://prettier.io/docs/options#end-of-line).
 
 ```toml
 # .ryl.toml, tuned for Prettier
@@ -1687,9 +1696,6 @@ comments-indentation = "enable"
 hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
-
-[rules.document-start]
-present = false             # Prettier never adds `---`
 
 [rules.braces]
 min-spaces-inside = 1       # Prettier pads `{ a: 1 }`
@@ -1717,6 +1723,10 @@ max = 120
 
 Notes:
 
+- `document-start` is left off here. Prettier never adds or removes `---`, and ryl's
+  document-start fix can add markers but not strip them, so `present = false` would
+  permanently flag any file that already has a `---`. To enforce consistent markers
+  instead, set `present = true` and run `ryl --fix` (ryl adds `---`, Prettier keeps it).
 - The flow-padding split is the key alignment: `braces` must allow one inner space, while
   `brackets` must allow none. Setting either `braces` or `brackets` to `forbid` clashes
   with Prettier, which keeps short collections in flow style.
@@ -1782,13 +1792,16 @@ formatter (the recipes above already do):
 
 | ryl setting | yamlfmt | Prettier | yamlfix |
 |---|---|---|---|
-| `document-start` `present` | `false` | either | `true` |
-| `document-end` `present` | off | either | off |
+| `document-start` `present` | `false` | off (or `true` + `--fix`) | `true` |
+| `document-end` `present` | off | off | off |
 | `braces` inner spaces | `0` | `1` | `0` |
 | `brackets` inner spaces | `0` | `0` | `0` |
 | `comments` `min-spaces-from-content` | `1` | `1` | `2` |
 | `quoted-strings` `quote-type` | any | not `single` | use `only-when-needed` |
-| `new-lines` `type` | `unix` | `unix` | `unix` |
+| `new-lines` `type` | `unix` † | `unix` | `unix` |
+
+† yamlfmt's default `line_ending` is `crlf` on Windows; set yamlfmt's `line_ending: lf`
+so `new-lines = unix` holds cross-platform.
 
 Two of these point in opposite directions across formatters, which is why there is no
 single config that suits all three at once: flow-mapping padding (`braces`, 1 for
