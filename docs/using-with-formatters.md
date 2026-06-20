@@ -37,6 +37,19 @@ Everything below is about steering clear of both. The configs were checked by ru
 `formatter` then `ryl --fix` repeatedly until the file settled, and confirming the
 settled file passes `ryl` with no findings.
 
+Each recipe is tuned to its formatter's **default** configuration. The principle for
+adapting one: a formatter owns byte-level layout, so wherever ryl has a rule that overlaps
+a layout decision, set that rule to match what your formatter actually produces; if you
+customize the formatter, realign the matching ryl rule (the per-formatter notes flag the
+settings that move together). That coupling is usually one ryl rule to one formatter
+option, but not always: a single formatter behaviour can need more than one ryl setting
+(Prettier padding `{ a: 1 }` while keeping `{}` tight needs both `braces`
+`max-spaces-inside` and `max-spaces-inside-empty`), and a formatter that only partly
+normalises a construct still leaves residual findings (yamlfix canonicalises block-style
+truthy but not flow-collection truthy). A complete formatter-to-ryl option matrix is
+intentionally out of scope; these recipes cover the common defaults and the couplings that
+actually cause a loop or a standing complaint.
+
 !!! note "Check mode vs fix mode"
 
     A few alignments rely on `ryl --fix` applying a one-time fix that the formatter then
