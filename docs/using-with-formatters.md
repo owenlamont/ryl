@@ -235,27 +235,26 @@ single config that suits all three at once: flow-mapping padding (`braces`, 1 fo
 Prettier but 0 for the others) and inline-comment spacing (`comments`, 1 for yamlfmt and
 Prettier but 2 for yamlfix). Pick the config for the formatter you actually use.
 
-## Rules that never conflict
+## Rules the formatter output already satisfies
 
-These rules govern things the formatters either produce the same way or leave untouched,
-so you can enable them with any formatter:
-
-- Layout ryl and the formatters agree on: `colons`, `commas`, `hyphens`, `brackets`
-  (default), `new-line-at-end-of-file`, `trailing-spaces`, `empty-lines`,
-  `comments-indentation`, `indentation` (two-space, sequences indented).
-- Content rules the formatters do not touch: `anchors`, `tags`, `key-duplicates`,
-  `merge-keys`, `empty-values`, `octal-values`, `float-values`,
-  `block-scalar-chomping`, `unicode-line-breaks`. These report their construct if it is
-  present; the formatter neither adds nor removes it.
+The formatters produce output that meets these rules, so enabling them adds no findings
+on formatted files: `colons`, `commas`, `hyphens`, `brackets` (default spacing),
+`new-line-at-end-of-file`, `trailing-spaces`, `empty-lines`, `comments-indentation`, and
+`indentation` (two-space, sequences indented).
 
 ## Rules that may warn without looping
 
-These never loop, but a formatter will not fix what they flag, so they warn until you
-align them or accept the finding:
+None of these loop, but a formatter will not fix what they flag, so they warn until you
+align them or accept the finding. They land here for one of two reasons:
 
-- `truthy`: yamlfmt and Prettier leave `yes`/`no` as written; only yamlfix canonicalizes.
-- `key-ordering`: no formatter reorders keys, so enable it only if your sources are
-  already ordered.
-- `line-length`: a formatter cannot break a long unbreakable scalar (such as a URL), so
-  set `max` to suit your formatter's print width and expect occasional findings on long
-  values.
+- The formatter produces the disfavoured form: `truthy` (yamlfmt and Prettier leave
+  `yes`/`no` as written; only yamlfix canonicalizes), `key-ordering` (no formatter
+  reorders keys, so enable it only if your sources are already ordered), and
+  `line-length` (a formatter cannot break a long unbreakable scalar such as a URL, so set
+  `max` to suit your print width and expect occasional findings on long values).
+- The rule checks content the formatter is neutral about, neither adding nor removing the
+  construct: `empty-values`, `octal-values`, `float-values`, `anchors`, `merge-keys`,
+  `block-scalar-chomping`, `key-duplicates`, `tags`, and `unicode-line-breaks`. These
+  behave exactly as they would with no formatter: each reports its construct if your
+  source contains it, and no formatter will fix it for you. Enable them as linting
+  choices, independent of your formatter.
