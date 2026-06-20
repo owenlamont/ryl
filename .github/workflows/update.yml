@@ -39,6 +39,39 @@ jobs:
       - name: Run prek autoupdate
         run: prek autoupdate --cooldown-days 7
 
+      - name: Bump pinned wingetcreate version
+        # Keep release.yml's reviewed wingetcreate pin (version + verified SHA256)
+        # current. The checksum is read from the release's `wingetcreate.exe.txt`
+        # asset (UTF-16) rather than recomputed, so the pin stays a value Microsoft
+        # published. No-op when already current, so the diff gate below decides
+        # whether a PR is opened.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |-
+          set -euo pipefail
+          release_file=.github/workflows/release.yml
+          current=$(grep -oP 'WINGETCREATE_VERSION:\s*\K\S+' "$release_file")
+          latest=$(gh api repos/microsoft/winget-create/releases/latest --jq .tag_name)
+          # latest is interpolated into the sed below, so reject anything but a
+          # vX.Y... tag: a sed metachar (&, |, \) in the tag must never reach it.
+          if [[ ! "$latest" =~ ^v[0-9.]+$ ]]; then
+            echo "Unexpected winget-create tag '$latest'" >&2
+            exit 1
+          fi
+          if [ "$current" = "$latest" ]; then
+            echo "wingetcreate already pinned to $current"
+            exit 0
+          fi
+          echo "Bumping wingetcreate $current -> $latest"
+          url="https://github.com/microsoft/winget-create/releases/download/${latest}/wingetcreate.exe.txt"
+          sha=$(curl -fsSL "$url" | iconv -f UTF-16 -t UTF-8 | tr -dc '0-9A-Fa-f')
+          if [ "${#sha}" -ne 64 ]; then
+            echo "Unexpected SHA256 length ${#sha} from ${url}" >&2
+            exit 1
+          fi
+          sed -i -E "s|(WINGETCREATE_VERSION: ).*|\1${latest}|" "$release_file"
+          sed -i -E "s|(WINGETCREATE_SHA256: ).*|\1${sha}|" "$release_file"
+
       - name: Check for changes
         id: check_diff
         run: |-
@@ -69,6 +102,10 @@ jobs:
             Automated dependency and linter refresh:
             - Ran `cargo update`
             - Ran `prek autoupdate --cooldown-days 7`
+            - Checked the pinned `wingetcreate` version against the latest `winget-create` release
+
+            If the `wingetcreate` pin changed, verify the version and SHA256 against
+            https://github.com/microsoft/winget-create/releases/latest before merging.
           branch: bot/update-deps-and-linters
           author: GitHub Actions <actions@github.com>
           delete-branch: true
