@@ -165,8 +165,9 @@ Notes:
 
 yamlfix is the most ryl-aligned of the three. It adds `---`, uses two spaces before
 inline comments (the same as ryl's default), does not pad flow collections, indents with
-two spaces, and canonicalizes truthy values (`yes` becomes `true`), so the `truthy` rule
-stays clean. It removes the `...` document-end marker. Like yamlfmt it writes the
+two spaces, and canonicalizes block-style truthy values (`yes` becomes `true`), so the
+`truthy` rule stays clean for ordinary mappings and sequences (with one caveat noted
+below). It removes the `...` document-end marker. Like yamlfmt it writes the
 platform's native line endings (CRLF on Windows; see
 [Line endings across operating systems](#line-endings-across-operating-systems)). Its
 settings are documented in the
@@ -183,7 +184,7 @@ comments-indentation = "enable"
 hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
-truthy = "enable"           # yamlfix canonicalizes yes/no to true/false
+truthy = "enable"           # yamlfix canonicalizes block-style yes/no (see caveat)
 
 [rules.document-start]
 present = true              # yamlfix adds `---`
@@ -214,6 +215,10 @@ Notes:
   adds markers but never removes them, so requiring `...` would warn on every file.
 - `quoted-strings` must not require quotes: yamlfix strips unnecessary quotes, so
   `required = true` loops. Use `only-when-needed`.
+- `truthy` is canonicalized only in **block** style (`key: yes`, `- yes`). yamlfix leaves
+  truthy words inside a pre-existing flow collection (`flags: [yes, no]`) or before a
+  trailing comment (`x: yes  # ...`) untouched, so `truthy = "enable"` still warns on
+  those. Fix them by hand, or drop `truthy` if your YAML relies on them.
 
 ## Settings that need the most care
 
@@ -271,7 +276,8 @@ None of these loop, but a formatter will not fix what they flag, so they warn un
 align them or accept the finding. They land here for one of two reasons:
 
 - The formatter produces the disfavoured form: `truthy` (yamlfmt and Prettier leave
-  `yes`/`no` as written; only yamlfix canonicalizes), `key-ordering` (no formatter
+  `yes`/`no` as written; only yamlfix canonicalizes, and only block-style truthy),
+  `key-ordering` (no formatter
   reorders keys, so enable it only if your sources are already ordered), and
   `line-length` (a formatter cannot break a long unbreakable scalar such as a URL, so set
   `max` to suit your print width and expect occasional findings on long values).
