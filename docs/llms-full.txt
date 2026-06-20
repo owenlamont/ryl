@@ -1735,8 +1735,10 @@ Notes:
   `max-spaces-inside-empty = 0`; without those, ryl rewrites `{}` to `{ }` and Prettier
   reverts it, an edit loop. Setting either `braces` or `brackets` to `forbid` clashes
   with Prettier, which keeps short collections in flow style.
-- `quoted-strings` must not require single quotes: Prettier normalizes to double quotes,
-  so `quote-type = "single"` loops. `only-when-needed` (or double) is safe.
+- `quoted-strings` must not require single quotes: Prettier normalizes to double quotes
+  by default (`singleQuote: false`), so `quote-type = "single"` loops; `only-when-needed`
+  (or `double`) is safe. If you set Prettier `singleQuote: true` (it does affect YAML),
+  flip to `quote-type = "single"` instead.
 - Leave `truthy` off (or expect warnings): Prettier does not canonicalize truthy values.
 
 ## yamlfix
@@ -1836,7 +1838,8 @@ the formatter rewrites it back to CRLF. Fixes:
   drop the `new-lines` rule, and normalize the committed form at the git layer with a
   `.gitattributes` entry such as `*.yaml text eol=lf`.
 - **Prettier** writes LF on every OS (its `endOfLine` defaults to `lf`), so no change is
-  needed.
+  needed by default. If you set Prettier `endOfLine: crlf`, switch ryl to `new-lines`
+  `type = "dos"` to match.
 
 On Linux and macOS all three already emit LF, so the `new-lines` `type = "unix"` setting
 is conflict-free there as written.
