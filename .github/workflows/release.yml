@@ -901,9 +901,10 @@ jobs:
         shell: pwsh
         # Pin to a reviewed release and verify its published SHA256 before the next
         # step runs it with WINGET_PAT in scope, so a mutated download (or a
-        # compromised redirect) can never execute against the token. Bump the
-        # version and hash together; the hash is the `wingetcreate.exe.txt` checksum
-        # published alongside the release asset.
+        # compromised redirect) can never execute against the token. The version and
+        # hash are bumped together (the hash is the `wingetcreate.exe.txt` checksum
+        # published alongside the release asset); the weekly update.yml workflow
+        # opens a PR with that bump when a newer winget-create release ships.
         env:
           WINGETCREATE_VERSION: v1.12.8.0
           WINGETCREATE_SHA256: 8BD738851B524885410112678E3771B341C5C716DE60FBBECB88AB0A363ED85D
