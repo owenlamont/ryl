@@ -1807,10 +1807,11 @@ Notes:
   `quoted-strings` with it is unsafe: ryl (YAML 1.2) treats `'no'`/`'yes'`/`'on'` as
   redundantly-quoted strings and strips the quotes, after which yamlfix's truthy pass
   rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
-- `truthy` is canonicalized only in **block** style (`key: yes`, `- yes`). yamlfix leaves
-  truthy words inside a pre-existing flow collection (`flags: [yes, no]`) or before a
-  trailing comment (`x: yes  # ...`) untouched, so `truthy = "enable"` still warns on
-  those. Fix them by hand, or drop `truthy` if your YAML relies on them.
+- yamlfix canonicalises truthy words only in **block** style (`key: yes`, `- yes`); it
+  leaves them untouched inside a pre-existing flow collection (`flags: [yes, no]`) or
+  before a trailing comment (`x: yes  # ...`). ryl's `truthy` rule only flags (it has no
+  auto-fix), so on those leftovers `truthy = "enable"` keeps complaining. Rewrite them by
+  hand, or drop `truthy` if your YAML relies on them.
 - yamlfix's truthy normalisation is itself a YAML 1.1 behaviour: it rewrites *unquoted*
   `yes`/`no`/`on`/`off` to booleans, which YAML 1.2 (and ryl) treat as strings. yamlfix
   does this on its own, independent of ryl, so if you intend any of those as strings,
