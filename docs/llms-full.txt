@@ -1698,8 +1698,10 @@ new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
 [rules.braces]
-min-spaces-inside = 1       # Prettier pads `{ a: 1 }`
+min-spaces-inside = 1        # Prettier pads `{ a: 1 }`
 max-spaces-inside = 1
+min-spaces-inside-empty = 0  # but keeps an empty `{}` tight
+max-spaces-inside-empty = 0
 
 [rules.comments]
 min-spaces-from-content = 1  # Prettier uses one space before inline comments
@@ -1728,7 +1730,10 @@ Notes:
   permanently flag any file that already has a `---`. To enforce consistent markers
   instead, set `present = true` and run `ryl --fix` (ryl adds `---`, Prettier keeps it).
 - The flow-padding split is the key alignment: `braces` must allow one inner space, while
-  `brackets` must allow none. Setting either `braces` or `brackets` to `forbid` clashes
+  `brackets` must allow none. Prettier pads a non-empty mapping (`{ a: 1 }`) but keeps an
+  empty one tight (`{}`), so the recipe also sets `min-spaces-inside-empty = 0` /
+  `max-spaces-inside-empty = 0`; without those, ryl rewrites `{}` to `{ }` and Prettier
+  reverts it, an edit loop. Setting either `braces` or `brackets` to `forbid` clashes
   with Prettier, which keeps short collections in flow style.
 - `quoted-strings` must not require single quotes: Prettier normalizes to double quotes,
   so `quote-type = "single"` loops. `only-when-needed` (or double) is safe.
