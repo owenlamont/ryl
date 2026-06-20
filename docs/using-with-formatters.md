@@ -189,8 +189,9 @@ yamlfix is the most ryl-aligned of the three. It adds `---`, uses two spaces bef
 inline comments (the same as ryl's default), does not pad flow collections, indents with
 two spaces, and canonicalizes block-style truthy values (`yes` becomes `true`), so the
 `truthy` rule stays clean for ordinary mappings and sequences (with one caveat noted
-below). It removes the `...` document-end marker. Like yamlfmt it writes the
-platform's native line endings (CRLF on Windows; see
+below). It removes the `...` document-end marker. On Windows it writes CRLF only on files
+it actually rewrites and leaves unchanged files alone, so with `ryl --fix` it settles back
+to LF rather than fighting it (see
 [Line endings across operating systems](#line-endings-across-operating-systems)). Its
 settings are documented in the
 [yamlfix configuration docs](https://lyz-code.github.io/yamlfix/).
@@ -261,7 +262,8 @@ formatter (the recipes above already do):
 | `quoted-strings` | `required = "only-when-needed"` | `required = "only-when-needed"`, never `quote-type = "single"` | off (yamlfix owns quoting; see note) |
 | `new-lines` `type` | `unix` † | `unix` | `unix` † |
 
-† yamlfmt and yamlfix emit the platform's native line endings (CRLF on Windows); see
+† On Windows, yamlfmt forces CRLF on every write (pin its `line_ending: lf`), while
+yamlfix emits CRLF only on files it rewrites and settles back to LF under `ryl --fix`; see
 [Line endings across operating systems](#line-endings-across-operating-systems).
 
 Two of these point in opposite directions across formatters, which is why there is no
@@ -271,18 +273,20 @@ Prettier but 2 for yamlfix). Pick the config for the formatter you actually use.
 
 ## Line endings across operating systems
 
-Every recipe above enables `new-lines` with `type = "unix"`, which expects LF. Prettier
-always writes LF, but **yamlfmt and yamlfix write the platform's native line endings, so
-on Windows they emit CRLF** and fight that `unix` setting: ryl rewrites the file to LF,
-the formatter rewrites it back to CRLF. Fixes:
+Every recipe above enables `new-lines` with `type = "unix"`, which expects LF. On Windows
+the three formatters behave differently:
 
-- **yamlfmt** has a line-ending option: set
+- **yamlfmt** rewrites line endings to the platform default on every run, so on Windows it
+  emits CRLF and genuinely fights `type = "unix"`: ryl rewrites the file to LF and yamlfmt
+  rewrites it back to CRLF, without end. Fix: set
   [`line_ending: lf`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
   in `.yamlfmt` and the recipe's `type = "unix"` holds on every OS.
-- **yamlfix** has no line-ending option, so either set `[rules.new-lines]` to
-  `type = "platform"` (ryl then accepts the local convention and never fights yamlfix) or
-  drop the `new-lines` rule, and normalize the committed form at the git layer with a
-  `.gitattributes` entry such as `*.yaml text eol=lf`.
+- **yamlfix** writes CRLF only on files it actually rewrites (it reads line endings
+  agnostically and skips unchanged files), so once `ryl --fix` normalizes a file to LF
+  yamlfix leaves it alone. The two converge to LF on Windows with no loop, so
+  `type = "unix"` needs no change; just keep `ryl --fix` running after yamlfix. As
+  belt-and-braces you can also pin the committed form with a `.gitattributes` entry such
+  as `*.yaml text eol=lf`.
 - **Prettier** writes LF on every OS (its `endOfLine` defaults to `lf`), so no change is
   needed by default. If you set Prettier `endOfLine: crlf`, switch ryl to `new-lines`
   `type = "dos"` to match.

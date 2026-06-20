@@ -75,6 +75,19 @@ preview = true
     "S404",
     "S603",
 ]
+# Manual, opt-in compatibility harness: shells out to ryl and the ephemeral formatter
+# runners, and embeds long YAML fixtures/recipes verbatim, so relax the subprocess
+# security checks, the line-length cap, and the library-style docstring conventions.
+"scripts/formatter_compat.py" = [
+    "D102",
+    "D205",
+    "DOC201",
+    "DOC501",
+    "E501",
+    "S404",
+    "S603",
+    "S607",
+]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
