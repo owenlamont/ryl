@@ -23,13 +23,16 @@ description: >-
   - Run `prek run --all-files` (re-run if files were auto-fixed).
 - Docs and notes:
   - Update README/AGENTS for behavior changes.
-  - **Refresh the benchmark image** so its version label tracks the release. Build the
-    release binary and point the script at it with `--ryl-bin` (the label is read from
-    that binary's `--version`, so it always matches what was timed; without `--ryl-bin`
-    the script benchmarks whatever `ryl` is on `PATH`): `cargo build --release && uv run
-    scripts/benchmark_perf_vs_yamllint.py --ryl-bin target/release/ryl`. The no-arg
-    defaults reproduce the committed 5x5/5-run matrix; copy the run's
-    `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
+  - **Refresh the benchmark image** when the release changes timed code: any minor or
+    major bump, or a patch that touches performance-relevant paths. Skip it for a
+    docs/packaging/bugfix patch with no perf delta, leaving the committed
+    `img/benchmark-5x5-5runs.svg` in place (a patch-digit-stale version label on the chart
+    is acceptable). To refresh: build the release binary and point the script at it with
+    `--ryl-bin` (the label is read from that binary's `--version`, so it always matches
+    what was timed; without `--ryl-bin` the script benchmarks whatever `ryl` is on
+    `PATH`): `cargo build --release && uv run scripts/benchmark_perf_vs_yamllint.py
+    --ryl-bin target/release/ryl`. The no-arg defaults reproduce the committed 5x5/5-run
+    matrix; copy the run's `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
     `img/benchmark-5x5-5runs.svg` (only that file is committed; `manual_outputs/` is
     gitignored) and confirm the `ryl <version>` label reads the release version.
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed

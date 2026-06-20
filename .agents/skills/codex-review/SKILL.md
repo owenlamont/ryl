@@ -1,9 +1,9 @@
 ---
-name: codex-review-watch
-description: Trigger and monitor a Codex CI code review on a GitHub PR and classify the verdict (clean / findings / rate-limited). Use after pushing changes to a PR you want Codex to (re-)review, or whenever waiting on a Codex GitHub review verdict — it encodes the polling gotchas (REST not GraphQL, three verdict channels, transient 👀) that make naive polling miss or misread the result.
+name: codex-review
+description: Drive a Codex CI code review on a GitHub PR end to end, from triggering it through monitoring and classifying the verdict (clean / findings / rate-limited) to handling the resulting comments (react, resolve, reply). Use after pushing changes you want Codex to (re-)review, while waiting on a verdict, or when triaging Codex's review comments. It encodes the polling gotchas (REST not GraphQL, three verdict channels, transient 👀) and the comment-handling conventions (when to thumbs-up/down, resolve, or reply).
 ---
 
-# Codex review watch
+# Codex review
 
 Codex's GitHub code-review bot (`chatgpt-codex-connector[bot]`) is triggered by an
 `@codex review` PR comment and answers a few minutes later. Detecting that answer
@@ -16,7 +16,7 @@ Run the watcher **as a background command** (it polls and blocks until a verdict
 timeout; backgrounding lets you keep working and get notified on exit):
 
 ```bash
-uv run .agents/skills/codex-review-watch/watch.py <PR> [--repo owner/repo] \
+uv run .agents/skills/codex-review/watch.py <PR> [--repo owner/repo] \
   [--first-review] [--no-trigger]
 ```
 
@@ -52,7 +52,7 @@ uv run .agents/skills/codex-review-watch/watch.py <PR> [--repo owner/repo] \
 For a **standalone quota check** (no PR, no trigger, consumes no quota):
 
 ```bash
-uv run .agents/skills/codex-review-watch/watch.py --quota-only
+uv run .agents/skills/codex-review/watch.py --quota-only
 ```
 
 When it exits, read its output file and relay the final `RESULT:` line. It prints one
@@ -128,19 +128,39 @@ no verdict) is **not** the same as rate-limited — re-trigger once immediately 
 waiting out the full poll window, and confirm a real wall with `--quota-only` before
 assuming quota.
 
-## Acting on findings
+## Handling review comments
 
-Codex reviews the **code**, not the PR comment threads — it does **not** read replies
-to its comments. So:
+When a verdict lands, drive each inline comment to a resolved state so the PR's open-thread
+list shows only genuinely open items. Codex reviews the **code**, not the threads (it does
+**not** read replies), so replies are for the human record and re-reviewing means re-running
+this skill against new commits, never answering inline.
 
-- To address a finding: change the code, then **re-run this skill** (re-trigger) and
-  confirm a clean verdict.
-- To refute a by-design finding: put the rationale **in the code/docs** (a clarifying
-  comment is the only Codex-visible mitigation) and reply on the thread for the human
-  record — but don't expect Codex to acknowledge it, and a re-review may re-raise it.
-- Don't loop re-refuting an already-refuted by-design item; defer to the maintainer's
-  merge call.
-- When Codex re-raises the **same theme** with progressively narrower edges (common on
-  prose/docs, not only file-I/O), state the full precise behaviour **once**
-  comprehensively — or scope the bullet down — rather than patching per-edge, round by
-  round. Hitting the daily review quota is a legitimate convergence stop.
+Pick one of three dispositions per comment, then **resolve the thread**:
+
+- **Valid: action it.** Fix it in the code or docs, react **👍** on the comment (Codex
+  treats the reaction as its feedback signal; its comments literally ask "Useful? React
+  with 👍/👎"), then resolve the thread and re-run this skill on the new commit to confirm
+  a clean verdict.
+- **Factually wrong: 👎.** If the comment is provably untrue (not merely debatable),
+  react **👎**, reply with the correction for the human record, then resolve the thread.
+- **A trade-off or opinion we decline: no reaction.** Do not react either way; reply on
+  the thread with the reasons we are not actioning it, then resolve. Put any durable
+  rationale in the code or docs too (the only Codex-visible mitigation), since a re-review
+  may re-raise it.
+
+Resolving a thread needs **GraphQL** (`resolveReviewThread`); the REST API cannot. React
+via REST, resolve via GraphQL:
+
+```bash
+# react 👍 (use content=-1 for 👎) to an inline comment by its REST id
+gh api -X POST repos/<owner>/<repo>/pulls/comments/<comment-id>/reactions -f content=+1
+# list unresolved threads (node id + first comment author), then resolve one by node id
+gh api graphql -f query='query{repository(owner:"<owner>",name:"<repo>"){pullRequest(number:<PR>){reviewThreads(first:50){nodes{id isResolved comments(first:1){nodes{databaseId author{login}}}}}}}}'
+gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -F id=<thread-node-id>
+```
+
+Do not loop re-refuting an already-declined by-design item; defer to the maintainer's
+merge call. When Codex re-raises the **same theme** with progressively narrower edges
+(common on prose/docs, not only file-I/O), state the full precise behaviour **once**
+comprehensively (or scope the bullet down) rather than patching per-edge, round by round.
+Hitting the daily review quota is a legitimate convergence stop.
