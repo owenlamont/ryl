@@ -87,6 +87,18 @@ link = "https://pypi.org/project/ryl/"
 icon = "fontawesome/brands/rust"
 link = "https://crates.io/crates/ryl"
 
+[[project.extra.social]]
+icon = "fontawesome/brands/npm"
+link = "https://www.npmjs.com/package/@owenlamont/ryl"
+
+[[project.extra.social]]
+icon = "simple/condaforge"
+link = "https://anaconda.org/conda-forge/ryl"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/windows"
+link = "https://winstall.app/apps/owenlamont.ryl"
+
 [project.markdown_extensions.abbr]
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.attr_list]
