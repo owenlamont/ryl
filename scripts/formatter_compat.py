@@ -272,13 +272,15 @@ EXPECTED_VALUE_CHANGE: set[tuple[str, str]] = {("yamlfix", "truthy.yaml")}
 
 MAX_ITERS = 6
 CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
-# ryl's standard/github console formats both carry the bare rule id in trailing parens.
+# CLEAN_ENV strips GITHUB_*, so ryl uses its standard console format, which ends each
+# diagnostic line with the bare rule id in parens, e.g. "(new-lines)". (The GitHub format
+# renders "[new-lines]" mid-line and would not match -- hence stripping GITHUB_*.)
 _RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 
 
 class Runner:
     """Drives the real tools in a throwaway workdir; memoises formatter output (a pure
-    function of input bytes) so the ephemeral pixi/npx/uvx calls are not repeated.
+    function of input bytes) so the ephemeral `pixi exec` calls are not repeated.
     """
 
     def __init__(self, workdir: Path) -> None:
