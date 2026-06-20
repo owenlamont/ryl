@@ -228,8 +228,8 @@ max = 120
 
 Notes:
 
-- Keep `document-end` off: yamlfix does not emit `...`, and ryl's `document-start` fix
-  adds markers but never removes them, so requiring `...` would warn on every file.
+- Keep `document-end` off: it would loop. ryl's `document-end` fix adds `...`, yamlfix
+  strips it back out on the next pass, and the two never settle.
 - Leave `quoted-strings` off. yamlfix already normalises quotes, and pairing ryl's
   `quoted-strings` with it is unsafe: ryl (YAML 1.2) treats `'no'`/`'yes'`/`'on'` as
   redundantly-quoted strings and strips the quotes, after which yamlfix's truthy pass
@@ -238,6 +238,10 @@ Notes:
   truthy words inside a pre-existing flow collection (`flags: [yes, no]`) or before a
   trailing comment (`x: yes  # ...`) untouched, so `truthy = "enable"` still warns on
   those. Fix them by hand, or drop `truthy` if your YAML relies on them.
+- yamlfix's truthy normalisation is itself a YAML 1.1 behaviour: it rewrites *unquoted*
+  `yes`/`no`/`on`/`off` to booleans, which YAML 1.2 (and ryl) treat as strings. yamlfix
+  does this on its own, independent of ryl, so if you intend any of those as strings,
+  quote them (yamlfix preserves quoted truthy words).
 
 ## Settings that need the most care
 
