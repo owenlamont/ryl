@@ -1670,7 +1670,8 @@ Notes:
   `document-end` rule off.
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
   and ryl cannot rewrite them.
-- On Windows, pin yamlfmt's `line_ending: lf` so `new-lines = unix` holds (see
+- On Windows, pin yamlfmt's `line_ending: lf` so the recipe's `new-lines` `type = "unix"`
+  holds (see
   [Line endings across operating systems](#line-endings-across-operating-systems)).
 
 ## Prettier
@@ -1812,23 +1813,23 @@ Prettier but 2 for yamlfix). Pick the config for the formatter you actually use.
 
 ## Line endings across operating systems
 
-Every recipe above sets `new-lines = unix`, which expects LF. Prettier always writes LF,
-but **yamlfmt and yamlfix write the platform's native line endings, so on Windows they
-emit CRLF** and fight `new-lines = unix`: ryl rewrites the file to LF, the formatter
-rewrites it back to CRLF. Fixes:
+Every recipe above enables `new-lines` with `type = "unix"`, which expects LF. Prettier
+always writes LF, but **yamlfmt and yamlfix write the platform's native line endings, so
+on Windows they emit CRLF** and fight that `unix` setting: ryl rewrites the file to LF,
+the formatter rewrites it back to CRLF. Fixes:
 
 - **yamlfmt** has a line-ending option: set
   [`line_ending: lf`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
-  in `.yamlfmt` and `new-lines = unix` holds on every OS.
-- **yamlfix** has no line-ending option, so either set ryl `new-lines = "platform"` (it
-  then accepts the local convention and never fights yamlfix) or drop the `new-lines`
-  rule, and normalize the committed form at the git layer with a `.gitattributes` entry
-  such as `*.yaml text eol=lf`.
+  in `.yamlfmt` and the recipe's `type = "unix"` holds on every OS.
+- **yamlfix** has no line-ending option, so either set `[rules.new-lines]` to
+  `type = "platform"` (ryl then accepts the local convention and never fights yamlfix) or
+  drop the `new-lines` rule, and normalize the committed form at the git layer with a
+  `.gitattributes` entry such as `*.yaml text eol=lf`.
 - **Prettier** writes LF on every OS (its `endOfLine` defaults to `lf`), so no change is
   needed.
 
-On Linux and macOS all three already emit LF, so `new-lines = unix` is conflict-free
-there as written.
+On Linux and macOS all three already emit LF, so the `new-lines` `type = "unix"` setting
+is conflict-free there as written.
 
 ## Rules the formatter output already satisfies
 
