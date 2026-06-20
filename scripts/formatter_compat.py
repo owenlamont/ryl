@@ -273,7 +273,6 @@ EXPECTED_RESIDUAL: dict[tuple[str, str], set[str]] = {
 EXPECTED_VALUE_CHANGE: set[tuple[str, str]] = {("yamlfix", "truthy.yaml")}
 
 MAX_ITERS = 6
-CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
 # ryl_lint forces `--format parsable`, whose line ends with the bare rule id in parens,
 # e.g. "...too many spaces after colon (colons)". That format is deterministic and ANSI-free
 # regardless of env; auto-detect would instead emit the GitHub "[rule]" format under
@@ -311,7 +310,6 @@ class Runner:
             proc = subprocess.run(
                 FORMATTER_CMD[formatter],
                 cwd=self.wd,
-                env=CLEAN_ENV,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -336,7 +334,6 @@ class Runner:
         subprocess.run(
             ["ryl", "--fix", "-c", str(cfg), "work.yaml"],
             cwd=self.wd,
-            env=CLEAN_ENV,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -349,7 +346,6 @@ class Runner:
         proc = subprocess.run(
             ["ryl", "--format", "parsable", "-c", str(cfg), "work.yaml"],
             cwd=self.wd,
-            env=CLEAN_ENV,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -402,9 +398,11 @@ def _settle(
     state, history = f0, [f0]
     for _ in range(MAX_ITERS):
         fixed = run.ryl_fix(state, cfg)
-        if (
-            fixed == state
-        ):  # ryl leaves this formatter fixed point alone -> joint fixed point
+        # ryl accepts this formatter output unchanged -> joint fixed point. `state` is itself
+        # formatter output, so for an idempotent formatter (the three here are) format(state)
+        # == state too; a non-idempotent formatter could still drift, but that is a formatter
+        # bug outside this harness's scope.
+        if fixed == state:
             return "converged", state
         nxt = run.format(formatter, fixed)
         if nxt is None:
