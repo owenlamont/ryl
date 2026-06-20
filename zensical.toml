@@ -26,6 +26,7 @@ nav = [
     { "Inline directives" = "directives.md" },
     { "Per-line ignores" = "per-line-ignores.md" },
     { "YAML in Markdown" = "markdown.md" },
+    { "Using ryl with a formatter" = "using-with-formatters.md" },
   ]},
   { "Output formats" = "output-formats.md" },
   { "Editor integration" = "editor-integration.md" },
@@ -85,6 +86,18 @@ link = "https://pypi.org/project/ryl/"
 [[project.extra.social]]
 icon = "fontawesome/brands/rust"
 link = "https://crates.io/crates/ryl"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/npm"
+link = "https://www.npmjs.com/package/@owenlamont/ryl"
+
+[[project.extra.social]]
+icon = "simple/condaforge"
+link = "https://anaconda.org/conda-forge/ryl"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/windows"
+link = "https://winstall.app/apps/owenlamont.ryl"
 
 [project.markdown_extensions.abbr]
 [project.markdown_extensions.admonition]
