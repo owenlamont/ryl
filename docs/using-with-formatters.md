@@ -47,8 +47,10 @@ settled file passes `ryl` with no findings.
 ## google/yamlfmt
 
 yamlfmt strips the `---` document-start marker, uses a single space before inline
-comments, does not pad flow collections, indents with two spaces, and emits LF line
-endings. It does not canonicalize truthy values. Its settings are documented in the
+comments, does not pad flow collections, indents with two spaces, and writes the
+platform's native line endings (CRLF on Windows; see
+[Line endings across operating systems](#line-endings-across-operating-systems)). It does
+not canonicalize truthy values. Its settings are documented in the
 [yamlfmt config-file reference](https://github.com/google/yamlfmt/blob/main/docs/config-file.md).
 
 ```toml
@@ -93,13 +95,10 @@ Notes:
   in its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
   two markers must agree. yamlfmt strips the `...` document-end marker, so leave ryl's
   `document-end` rule off.
-- yamlfmt's default
-  [`line_ending`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
-  is OS-dependent (`crlf` on Windows, `lf` otherwise), so on Windows the `new-lines = unix`
-  above would loop. Pin `line_ending: lf` in your `.yamlfmt` config to keep output LF on
-  every platform (matching `new-lines = unix`).
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
   and ryl cannot rewrite them.
+- On Windows, pin yamlfmt's `line_ending: lf` so `new-lines = unix` holds (see
+  [Line endings across operating systems](#line-endings-across-operating-systems)).
 
 ## Prettier
 
@@ -165,9 +164,12 @@ Notes:
 
 yamlfix is the most ryl-aligned of the three. It adds `---`, uses two spaces before
 inline comments (the same as ryl's default), does not pad flow collections, indents with
-two spaces, emits LF, and canonicalizes truthy values (`yes` becomes `true`), so the
-`truthy` rule stays clean. It removes the `...` document-end marker. Its settings are
-documented in the [yamlfix configuration docs](https://lyz-code.github.io/yamlfix/).
+two spaces, and canonicalizes truthy values (`yes` becomes `true`), so the `truthy` rule
+stays clean. It removes the `...` document-end marker. Like yamlfmt it writes the
+platform's native line endings (CRLF on Windows; see
+[Line endings across operating systems](#line-endings-across-operating-systems)). Its
+settings are documented in the
+[yamlfix configuration docs](https://lyz-code.github.io/yamlfix/).
 
 ```toml
 # .ryl.toml, tuned for yamlfix
@@ -224,16 +226,36 @@ formatter (the recipes above already do):
 | `braces` inner spaces | `0` | `1` | `0` |
 | `brackets` inner spaces | `0` | `0` | `0` |
 | `comments` `min-spaces-from-content` | `1` | `1` | `2` |
-| `quoted-strings` `quote-type` | any | not `single` | use `only-when-needed` |
-| `new-lines` `type` | `unix` † | `unix` | `unix` |
+| `quoted-strings` | `required = "only-when-needed"` | `required = "only-when-needed"`, never `quote-type = "single"` | `required = "only-when-needed"` |
+| `new-lines` `type` | `unix` † | `unix` | `unix` † |
 
-† yamlfmt's default `line_ending` is `crlf` on Windows; set yamlfmt's `line_ending: lf`
-so `new-lines = unix` holds cross-platform.
+† yamlfmt and yamlfix emit the platform's native line endings (CRLF on Windows); see
+[Line endings across operating systems](#line-endings-across-operating-systems).
 
 Two of these point in opposite directions across formatters, which is why there is no
 single config that suits all three at once: flow-mapping padding (`braces`, 1 for
 Prettier but 0 for the others) and inline-comment spacing (`comments`, 1 for yamlfmt and
 Prettier but 2 for yamlfix). Pick the config for the formatter you actually use.
+
+## Line endings across operating systems
+
+Every recipe above sets `new-lines = unix`, which expects LF. Prettier always writes LF,
+but **yamlfmt and yamlfix write the platform's native line endings, so on Windows they
+emit CRLF** and fight `new-lines = unix`: ryl rewrites the file to LF, the formatter
+rewrites it back to CRLF. Fixes:
+
+- **yamlfmt** has a line-ending option: set
+  [`line_ending: lf`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
+  in `.yamlfmt` and `new-lines = unix` holds on every OS.
+- **yamlfix** has no line-ending option, so either set ryl `new-lines = "platform"` (it
+  then accepts the local convention and never fights yamlfix) or drop the `new-lines`
+  rule, and normalize the committed form at the git layer with a `.gitattributes` entry
+  such as `*.yaml text eol=lf`.
+- **Prettier** writes LF on every OS (its `endOfLine` defaults to `lf`), so no change is
+  needed.
+
+On Linux and macOS all three already emit LF, so `new-lines = unix` is conflict-free
+there as written.
 
 ## Rules the formatter output already satisfies
 
