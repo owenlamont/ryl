@@ -97,7 +97,7 @@ ryl is a CLI tool for linting yaml files
 Task-scoped procedures live as on-demand skills in `.agents/skills/` (the shared
 project-scope skills dir most non-Claude agents auto-load); load the matching one when
 its task comes up rather than carrying it in this always-on file. Each is a
-self-contained `SKILL.md`; the `coverage`, `codex-review-watch`, and `retrospective`
+self-contained `SKILL.md`; the `coverage`, `codex-review`, and `retrospective`
 skills also carry a `uv`-runnable helper script.
 
 - **`adding-a-rule`** (`.agents/skills/adding-a-rule/SKILL.md`) — the multi-site
@@ -109,8 +109,9 @@ skills also carry a `uv`-runnable helper script.
   the CI gate, the `coverage-missing.py` workflow, and coverage-friendly Rust idioms.
 - **`release`** (`.agents/skills/release/SKILL.md`) — the lockstep version bump,
   tag/push gate, and post-release SchemaStore + publishing flow.
-- **`codex-review-watch`** (`.agents/skills/codex-review-watch/SKILL.md`) — trigger and
-  monitor a Codex CI review on a PR and classify the verdict.
+- **`codex-review`** (`.agents/skills/codex-review/SKILL.md`) — drive a Codex CI review
+  on a PR end to end: trigger, monitor and classify the verdict, and handle the resulting
+  comments (thumbs-up/down, resolve, reply).
 - **`filing-issues`** (`.agents/skills/filing-issues/SKILL.md`) — filing/editing issues
   and PRs for ryl or another repo: the cross-repo `#NNN` footgun, the draft-locally gate,
   the never-on-an-assumption rule, and verified Sources.
@@ -166,8 +167,8 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - Codex reviews need an explicit `@codex review` comment (auto-review is unreliable
   even on PR open, so re-post it after each push you want reviewed). The polling
   mechanics — the transient 👀 ack, the three verdict channels, the REST-not-GraphQL
-  bot-login gotcha — are encoded in the `codex-review-watch` dev skill
-  (`.agents/skills/codex-review-watch/`); run its `watch.py` rather than re-deriving the
+  bot-login gotcha — are encoded in the `codex-review` dev skill
+  (`.agents/skills/codex-review/`); run its `watch.py` rather than re-deriving the
   poll.
 - Codex's adversarial review escalates indefinitely on file I/O (TOCTOU, partial/
   interrupted writes, cross-file non-atomicity). Converge on real bugs, document the
@@ -197,7 +198,7 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   background-task notifications or the Monitor tool: launch it with `run_in_background`
   and act on the completion event. Don't hand-roll `for i in $(seq …); sleep` poll loops
   — they burn turns, and a stalled or broken job dead-polls to its timeout instead of
-  surfacing the failure (see the `codex-review-watch` skill for the Codex-specific poll).
+  surfacing the failure (see the `codex-review` skill for the Codex-specific poll).
 
 ## Automated Tests
 
