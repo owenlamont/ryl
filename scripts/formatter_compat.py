@@ -60,7 +60,9 @@ YAMLFIX_VERSION = "1.19.1"
 # prettier.bat) that `pixi exec` cannot spawn directly -- the same PATHEXT/shim limitation
 # that makes a bare `npx` fail under subprocess. Routing every tool through `cmd /c` (always
 # present on Windows) resolves .exe/.bat/.cmd uniformly; POSIX has no shim and no cmd, so it
-# runs the tool directly.
+# runs the tool directly. The cmd /c branch is correct only while every run-arg is free of
+# spaces and cmd metacharacters (true for the fixed args below; revisit before passing a
+# path or user value through it).
 _WINDOWS = os.name == "nt"
 
 
@@ -272,9 +274,11 @@ EXPECTED_VALUE_CHANGE: set[tuple[str, str]] = {("yamlfix", "truthy.yaml")}
 
 MAX_ITERS = 6
 CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
-# CLEAN_ENV strips GITHUB_*, so ryl uses its standard console format, which ends each
-# diagnostic line with the bare rule id in parens, e.g. "(new-lines)". (The GitHub format
-# renders "[new-lines]" mid-line and would not match -- hence stripping GITHUB_*.)
+# ryl_lint forces `--format parsable`, whose line ends with the bare rule id in parens,
+# e.g. "...too many spaces after colon (colons)". That format is deterministic and ANSI-free
+# regardless of env; auto-detect would instead emit the GitHub "[rule]" format under
+# GITHUB_*, or colored output ending in an ESC reset under FORCE_COLOR, either of which this
+# trailing-parens regex would silently miss (making a complaint look clean).
 _RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 
 
@@ -312,6 +316,15 @@ class Runner:
                 text=True,
                 encoding="utf-8",
             )
+            if proc.returncode != 0:
+                # Surface WHY: a pixi fetch/spawn failure (e.g. conda-forge index lag) looks
+                # identical to a real formatter rejection otherwise, and is then cached None.
+                reason = ((proc.stderr or proc.stdout).strip() or "(no output)")[:300]
+                typer.secho(
+                    f"  {formatter} exited {proc.returncode}: {reason}",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
             self._fmt_cache[key] = (
                 p.read_bytes().decode() if proc.returncode == 0 else None
             )
@@ -334,7 +347,7 @@ class Runner:
         p = self._work()
         p.write_bytes(content.encode())
         proc = subprocess.run(
-            ["ryl", "-c", str(cfg), "work.yaml"],
+            ["ryl", "--format", "parsable", "-c", str(cfg), "work.yaml"],
             cwd=self.wd,
             env=CLEAN_ENV,
             capture_output=True,
@@ -364,8 +377,12 @@ def _values_equal(a: object, b: object) -> bool:
 
 
 def value_preserved(before: str, after: str) -> bool | None:
-    """True/False if the YAML 1.2 resolved values match; None if py-yaml12 cannot parse
-    one of them (e.g. an unknown `!tag`), so the check is skipped rather than failed.
+    """True/False if the YAML 1.2 resolved values match; None (skip) if py-yaml12 cannot
+    parse EITHER side. Looks-wrong-but-isn't: py-yaml12 is an incomplete oracle that raises
+    on constructs it does not support (an unknown `!tag`, or some shapes a formatter emits
+    from one, e.g. yamlfmt's refs.yaml output), so a parse failure means "cannot verify",
+    not corruption. Returning False on an unparsable *output* would false-flag valid
+    formatter output. Genuinely invalid output is still caught by the ryl_lint syntax check.
     """
     try:
         return _values_equal(parse_yaml(before), parse_yaml(after))
@@ -392,7 +409,7 @@ def _settle(
         nxt = run.format(formatter, fixed)
         if nxt is None:
             return "fmt-error", None
-        if nxt == state or nxt in history:  # formatter reverts ryl's fix -> they fight
+        if nxt in history:  # formatter reproduced an earlier state -> ryl and it fight
             return "loop", state
         history.append(nxt)
         state = nxt
@@ -466,9 +483,17 @@ def verify() -> None:
     if failures:
         typer.secho(f"\n{failures} FAILURE(S)", fg=typer.colors.RED)
         raise typer.Exit(1)
-    suffix = f" ({skipped} check(s) skipped, see SKIP lines above)" if skipped else ""
+    if skipped:
+        # A skip means a formatter never processed that file (a real incompatibility or an
+        # infra/fetch failure), so the recipe was NOT verified; never report it green.
+        typer.secho(
+            f"\n{skipped} check(s) SKIPPED -- recipe NOT fully verified "
+            "(see the formatter errors above)",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
     typer.secho(
-        f"\nVERIFIED CLEAN (loop-free, complaint-free, value-preserving){suffix}",
+        "\nVERIFIED CLEAN (loop-free, complaint-free, value-preserving)",
         fg=typer.colors.GREEN,
     )
 
