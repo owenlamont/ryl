@@ -42,13 +42,16 @@ jobs:
         with:
           tool: cargo-audit
 
-      # Needed by the prek `lychee` hook (offline link check) in the step below.
+      # Needed by the prek `lychee` hook (link check) in the step below.
       - name: Install lychee
         uses: ./.github/actions/install-lychee
 
       - name: Run prek hooks (lint and static checks)
         env:
           SKIP: no-commit-to-branch
+          # lychee's external link checks (and zizmor's online supply-chain audits)
+          # call the GitHub API; the token avoids anonymous rate limits.
+          GITHUB_TOKEN: ${{ github.token }}
         run: prek run --all-files
 
       - name: Check the minimal build (LSP feature compiled out)

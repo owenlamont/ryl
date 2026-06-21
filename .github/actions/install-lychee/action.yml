@@ -1,8 +1,8 @@
 name: Install lychee
 description: >-
   Install a pinned, checksum-verified lychee binary onto PATH (Linux x86_64 runners).
-  Single bump point for the link checker used by both ci.yml and link-check.yml; lychee
-  is not in taiki-e/install-action, so we fetch the upstream release binary directly.
+  Single bump point for the link checker used by ci.yml; lychee is not in
+  taiki-e/install-action, so we fetch the upstream release binary directly.
 
 runs:
   using: composite

@@ -159,10 +159,11 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and `lychee` should
   be installed as global tools (if they don't appear to be installed raise that with the
   user). `cargo-audit` backs the `cargo audit --deny warnings` prek hook; install it with
-  `cargo install cargo-audit --locked`. `lychee` backs the offline `lychee` prek hook (and
-  the scheduled `link-check` workflow); install it with `pixi global install lychee`. CI
-  installs it from a pinned, SHA256-verified release binary via
-  `.github/actions/install-lychee` (bump the version + SHA there together when updating).
+  `cargo install cargo-audit --locked`. `lychee` backs the `lychee` prek hook (an online
+  link check of docs anchors, relative links, and external URLs, run locally and in CI);
+  install it with `pixi global install lychee`. CI installs it from a pinned,
+  SHA256-verified release binary via `.github/actions/install-lychee` (bump the version
+  and SHA there together when updating).
 - `gh` will be available in most, but not all environments to inspect GitHub.
 - For PR feedback, use `gh pr view <n> --json comments,reviews` for summary threads and
   `gh api repos/<owner>/<repo>/pulls/<n>/comments` for inline review details (avoid
