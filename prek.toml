@@ -116,6 +116,20 @@ hooks = [
     entry = "uv run scripts/gen_llms_txt.py --check",
     files = '^(zensical\.toml|docs/.*\.md|docs/llms(-full)?\.txt|scripts/gen_llms_txt\.py)$',
     pass_filenames = false
+  },
+  {
+    # Link check: validates internal heading anchors, relative links, and external URLs
+    # across the docs. External checks need the network, so this hook hits the network on
+    # every run; lychee.toml's retries/accept-codes smooth over transient blips. Needs
+    # `lychee` on PATH (see AGENTS.md global tools). The glob reaches lychee literally
+    # (prek execs argv, no shell) and lychee expands it, so it works the same on
+    # PowerShell and Bash.
+    id = "lychee",
+    name = "lychee (link check)",
+    language = "system",
+    entry = "lychee --include-fragments --no-progress docs README.md AGENTS.md .agents/skills/*/SKILL.md",
+    always_run = true,
+    pass_filenames = false
   }
 ]
 
