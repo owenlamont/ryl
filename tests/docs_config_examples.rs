@@ -1,8 +1,12 @@
 //! Every ryl-config example in the docs' Markdown sources must be config the loader
-//! actually accepts. The loader is the source of truth (the JSON schema is generated
-//! from it), so blocks are validated through `YamlLintConfig`, not the schema. Only
-//! the `.md` sources are scanned: `docs/llms*.txt` are generated from them and held
-//! in lockstep by a separate drift guard, so validating the sources covers them too.
+//! actually accepts. Validation goes through ryl's *finalized* config path
+//! (`discover_config`, the same one the CLI uses), not the JSON schema (which is
+//! generated from the loader) and not a parse-only load: finalizing is what rejects
+//! misspelled rule names, while parsing rejects misspelled rule options and bad
+//! values, so both classes of typo in a docs example are caught. The "no rules
+//! enabled" gate lives above `discover_config`, so `[fix]`/`[files]`-only fragments
+//! still validate. Only the `.md` sources are scanned: `docs/llms*.txt` are generated
+//! from them and held in lockstep by a separate drift guard, so the sources cover them.
 //!
 //! Not every fenced block is ryl config — docs also carry rule-input YAML, other
 //! tools' TOML, and so on — and a block need not even parse, so each is *classified
@@ -20,16 +24,15 @@
 //! unavoidable limit of any such heuristic: a broken block with no recognisable ryl
 //! header is indistinguishable from another tool's TOML and is treated as non-config.
 //!
-//! Neither loader applies the lint-time "no rules enabled" gate, so `[fix]`/
-//! `[files]`-only fragments validate fine. A `<!-- ryl-config-check: skip -->`
-//! comment on the line before a fence overrides detection for an intentional
-//! counter-example (e.g. the YAML-1.1 config in `yaml-version.md` whose prose says
-//! it "will fail to parse in ryl").
+//! A `<!-- ryl-config-check: skip -->` comment on the line before a fence overrides
+//! detection for an intentional counter-example (e.g. the YAML-1.1 config in
+//! `yaml-version.md` whose prose says it "will fail to parse in ryl").
 
-use ryl::config::YamlLintConfig;
+use ryl::config::{Overrides, discover_config};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tempfile::tempdir;
 
 const SKIP_MARKER: &str = "<!-- ryl-config-check: skip -->";
 
@@ -185,14 +188,30 @@ fn classify(
     }
 }
 
-/// Validate a classified block against the matching loader.
+/// Validate a classified block through ryl's finalized config path: write it to a
+/// temp config file (named so the `pyproject.toml` form is recognised) and run the
+/// `discover_config` `-c` path the CLI uses, which parses *and* finalizes (so
+/// misspelled rule names are caught) without the "no rules enabled" gate (so
+/// fragments pass). `-c` bypasses project/env/user-global discovery, so no `HOME`
+/// isolation is needed.
 fn validate(kind: Kind, content: &str) -> Result<(), String> {
-    match kind {
-        Kind::Toml => YamlLintConfig::from_toml_str(content).map(drop),
-        Kind::Pyproject => YamlLintConfig::from_pyproject_str(content).map(drop),
-        Kind::Yaml => YamlLintConfig::from_yaml_str(content).map(drop),
-        Kind::NotConfig => Ok(()),
-    }
+    let name = match kind {
+        Kind::Toml => "config.toml",
+        Kind::Pyproject => "pyproject.toml",
+        Kind::Yaml => "config.yaml",
+        Kind::NotConfig => return Ok(()),
+    };
+    let dir = tempdir().expect("create temp dir for config validation");
+    let cfg = dir.path().join(name);
+    fs::write(&cfg, content).expect("write temp config file");
+    discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(cfg),
+            config_data: None,
+        },
+    )
+    .map(drop)
 }
 
 fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -323,10 +342,13 @@ fn classify_routes_each_block_kind() {
     );
 }
 
-/// Validation reports the loader's verdict for each config form.
+/// The finalized loader accepts valid config (including rule-less fragments) and
+/// rejects every class of typo a docs example might carry: bad values, misspelled
+/// rule options (caught at parse), and misspelled rule names (caught at finalize),
+/// in both the standalone and `pyproject.toml` forms.
 #[test]
 fn validate_reports_loader_verdict() {
-    let ok_cases = [
+    let accepted = [
         (Kind::Toml, "[rules.commas]\nlevel = \"error\"\n"),
         (
             Kind::Pyproject,
@@ -334,23 +356,30 @@ fn validate_reports_loader_verdict() {
         ),
         (Kind::Yaml, "rules:\n  commas: enable\n"),
         (Kind::NotConfig, "anything goes here"),
+        // A fragment that enables no rules still validates (no "no rules" gate here).
+        (Kind::Toml, "[fix]\nfixable = [\"ALL\"]\n"),
     ];
-    for (kind, content) in ok_cases {
+    for (kind, content) in accepted {
         assert!(
             validate(kind, content).is_ok(),
-            "{kind:?} should be accepted"
+            "{kind:?} should be accepted: {content:?}",
         );
     }
 
-    let err_cases = [
+    let rejected = [
         (Kind::Toml, "[rules.commas]\nlevel = \"bogus\"\n"),
-        (Kind::Pyproject, "[tool.ryl.rules.commas]\nlevel = 7\n"),
-        (Kind::Yaml, "rules:\n  commas:\n    bogus: yes\n"),
+        (Kind::Toml, "[rules.tariling-spaces]\nlevel = \"error\"\n"),
+        (Kind::Toml, "[rules.commas]\nunknown-option = 0\n"),
+        (
+            Kind::Pyproject,
+            "[tool.ryl.rules.tariling-spaces]\nlevel = \"error\"\n",
+        ),
+        (Kind::Yaml, "rules:\n  not-a-real-rule: enable\n"),
     ];
-    for (kind, content) in err_cases {
+    for (kind, content) in rejected {
         assert!(
             validate(kind, content).is_err(),
-            "{kind:?} should be rejected"
+            "{kind:?} should be rejected: {content:?}",
         );
     }
 }
@@ -372,20 +401,6 @@ fn malformed_toml_config_example_is_caught() {
     assert!(
         validate(kind, &block.content).is_err(),
         "the loader must reject the malformed example",
-    );
-}
-
-/// A `pyproject.toml` that configures other tools but carries no `[tool.ryl]`
-/// table is not ryl config: `from_pyproject_str` reports it rather than linting
-/// nothing. (Classification never routes such a block to the pyproject loader,
-/// so this pins the public-API contract directly.)
-#[test]
-fn from_pyproject_str_reports_absent_tool_ryl() {
-    let err = YamlLintConfig::from_pyproject_str("[tool.black]\nline-length = 88\n")
-        .expect_err("a pyproject without [tool.ryl] should be rejected");
-    assert!(
-        err.contains("[tool.ryl]"),
-        "the error should name the missing table: {err}"
     );
 }
 
