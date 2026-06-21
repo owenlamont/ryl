@@ -36,6 +36,14 @@ These go out under the maintainer's name, so they are higher-stakes:
 4. **Include verified, clickable Sources** (a "Sources" section: spec quote /
    play.yaml.com event stream / upstream issue links) on the *first* pass — not bare
    prose mentions — to avoid a verify-then-re-push cycle on an already-published issue.
+5. **For a code PR, profile the repo and its maintainer(s) before investing.** The onus
+   is on us to research what that project is likely to accept — study its recently merged
+   PRs *and* its closed-unmerged ones to read the maintainer's preferences: scope and size
+   they entertain, review bar, test expectations, and house style (doc-comment density,
+   naming, idiom). Then shape the PR to fit, mirroring the surrounding code rather than
+   importing ryl's own (often stricter/terser) conventions — ryl doc comments read as too
+   verbose in a repo with a leaner norm. A PR pitched to the maintainer's demonstrated
+   preferences merges; one in ryl's house style gets review churn.
 
 Keep it succinct: concrete ask, runnable repro, then authoritative evidence.
 

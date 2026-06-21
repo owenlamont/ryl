@@ -27,7 +27,15 @@ description: >-
     major bump, or a patch that touches performance-relevant paths. Skip it for a
     docs/packaging/bugfix patch with no perf delta, leaving the committed
     `img/benchmark-5x5-5runs.svg` in place (a patch-digit-stale version label on the chart
-    is acceptable). To refresh: build the release binary and point the script at it with
+    is acceptable). Do this **in the version-bump PR, before squash-merge** — not as a
+    post-merge afterthought (a forgotten refresh has forced a separate follow-up PR, and
+    main is never pushed to directly). The chart carries both the `ryl <ver>` and
+    `yamllint <ver>` labels. The script's `yamllint` PEP723 dep is unpinned, but uv reuses
+    a cached resolution, so a plain `uv run` can time against a stale yamllint; pass `-U`
+    (`uv run -U scripts/...`, which forces a fresh resolution) to pick up the newest
+    release, then confirm the chart's `yamllint <ver>` label equals the current PyPI latest
+    (`curl -s https://pypi.org/pypi/yamllint/json`). To refresh: build the release binary
+    and point the script at it with
     `--ryl-bin` (the label is read from that binary's `--version`, so it always matches
     what was timed; without `--ryl-bin` the script benchmarks whatever `ryl` is on
     `PATH`): `cargo build --release && uv run scripts/benchmark_perf_vs_yamllint.py
@@ -81,3 +89,9 @@ description: >-
   nested-portable config and `Microsoft.VCRedist.2015+` dependencies, swapping only
   version, URLs, and SHA256. Re-running a published version would attempt a duplicate
   winget PR (no existence guard, unlike the crates/PyPI/NPM steps).
+- Social posts are optional — skip them for a routine correctness/packaging release; draft
+  them only for a notable feature. When drafting, write the `.txt` files one directory up
+  from the ryl clone (where drafts live) but run any post-length/status check from **inside
+  the repo** (a tool run from the drafts dir fails with `not a git repo`). Respect the
+  per-platform limits: BlueSky 300 chars, Mastodon 500, ASCII only. See the social-post
+  drafting convention for the full per-platform link rules.

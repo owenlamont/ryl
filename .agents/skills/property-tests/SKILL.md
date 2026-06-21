@@ -63,9 +63,9 @@ targets ryl's fragile byte↔char offset arithmetic rather than semantic correct
 fast complement to the slow `yamllint_compat_*` differential suite).
 `property_check/strategy.rs` generates documents biased to trigger every rule (truthy
 words, octal/float scalars, duplicate/unordered keys, flow spacing, anchors, long lines,
-odd indentation, trailing spaces) interleaved with multibyte chars, raw NEL/LS/PS, and
-mixed LF/CRLF/bare-CR (a bare `\r` is a YAML 1.2 line break everywhere, so the oracle
-`line_char_lengths` is CR-aware too). `harness.rs` holds the
+odd indentation, trailing spaces, `%YAML` version directives) interleaved with multibyte
+chars, raw NEL/LS/PS, and mixed LF/CRLF/bare-CR (a bare `\r` is a YAML 1.2 line break
+everywhere, so the oracle `line_char_lengths` is CR-aware too). `harness.rs` holds the
 trigger-all config and the per-rule dispatch, which calls each `check()` directly (not
 `lint_str`, which drops rule spans on a parse error) so spans are bounds-checked even on
 input that fails to parse.
