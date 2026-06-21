@@ -150,6 +150,7 @@ proptest! {
 fn safe_fix_properties_hold_for_known_dirty_input() {
     let plain = |name: &str| Node::Scalar(Scalar::Plain(name.to_string()));
     let dirty_flow_seq = Document {
+        version_directive: None,
         entries: vec![BlockEntry {
             key: "items".to_string(),
             value: Node::FlowSeq(

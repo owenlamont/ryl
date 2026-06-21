@@ -795,3 +795,88 @@ fn fix_escaping_exception_does_not_shield_single_quotes() {
     let result = quoted_strings::fix("foo: 'bar'\n", &cfg);
     assert_eq!(result.as_deref(), Some("foo: \"bar\"\n"));
 }
+
+fn only_when_needed() -> Config {
+    build_config("rules:\n  quoted-strings:\n    required: only-when-needed\n")
+}
+
+#[test]
+fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
+    let cfg = only_when_needed();
+    // Each resolves to a non-string under YAML 1.1 but a string under 1.2 core, so
+    // dropping the quotes would change the value for a consumer honouring the directive.
+    for value in [
+        "no",
+        "Yes",
+        "y",
+        "N",
+        "0b101",
+        "1_000",
+        "1:30",
+        "2002-12-14",
+    ] {
+        let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
+        assert!(
+            quoted_strings::check(&input, &cfg).is_empty(),
+            "'{value}' must not be flagged redundant under explicit %YAML 1.1"
+        );
+        assert!(
+            quoted_strings::fix(&input, &cfg).is_none(),
+            "--fix must not strip '{value}' under explicit %YAML 1.1"
+        );
+    }
+}
+
+#[test]
+fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
+    let cfg = only_when_needed();
+    let input = "%YAML 1.1\n---\nkey: 'hello'\n";
+    assert_eq!(quoted_strings::check(input, &cfg).len(), 1);
+    assert_eq!(
+        quoted_strings::fix(input, &cfg).as_deref(),
+        Some("%YAML 1.1\n---\nkey: hello\n"),
+    );
+}
+
+#[test]
+fn required_true_does_not_quote_a_yaml_1_1_boolean_under_explicit_1_1() {
+    // `required: true` quotes string scalars, but under `%YAML 1.1` a plain `no` is the
+    // boolean false, not a string, so quoting it would change the value.
+    let cfg = build_config("rules:\n  quoted-strings:\n    required: true\n");
+    let input = "%YAML 1.1\n---\nflag: no\n";
+    assert!(quoted_strings::check(input, &cfg).is_empty());
+    assert_eq!(quoted_strings::fix(input, &cfg), None);
+}
+
+#[test]
+fn required_true_quotes_a_yaml_1_1_word_without_a_directive() {
+    let cfg = build_config("rules:\n  quoted-strings:\n    required: true\n");
+    assert_eq!(quoted_strings::check("flag: no\n", &cfg).len(), 1);
+    assert_eq!(
+        quoted_strings::fix("flag: no\n", &cfg).as_deref(),
+        Some("flag: 'no'\n"),
+    );
+}
+
+#[test]
+fn strips_yaml_1_1_words_without_a_directive() {
+    let cfg = only_when_needed();
+    // Absent a directive ryl resolves under the 1.2 core schema, where `no` is a string,
+    // so the quotes are genuinely redundant.
+    assert_eq!(quoted_strings::check("key: 'no'\n", &cfg).len(), 1);
+    assert_eq!(
+        quoted_strings::fix("key: 'no'\n", &cfg).as_deref(),
+        Some("key: no\n"),
+    );
+}
+
+#[test]
+fn strips_yaml_1_1_words_under_explicit_yaml_1_2() {
+    let cfg = only_when_needed();
+    let input = "%YAML 1.2\n---\nkey: 'no'\n";
+    assert_eq!(quoted_strings::check(input, &cfg).len(), 1);
+    assert_eq!(
+        quoted_strings::fix(input, &cfg).as_deref(),
+        Some("%YAML 1.2\n---\nkey: no\n"),
+    );
+}

@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::split_lines_preserve_endings;
-use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
+use crate::rules::support::span_utils::marker_byte_offset;
+use crate::rules::support::yaml_version::DocumentVersions;
 
 pub const ID: &str = "truthy";
 
@@ -107,26 +107,26 @@ struct TruthyState<'cfg> {
     key_depth: usize,
     current_version: (u32, u32),
     bad_truthy: Option<HashSet<String>>,
-    directives: Vec<(BytePos, (u32, u32))>,
-    directive_index: usize,
+    versions: DocumentVersions,
 }
 
 impl<'cfg> TruthyState<'cfg> {
-    const fn new(config: &'cfg Config, directives: Vec<(BytePos, (u32, u32))>) -> Self {
+    const fn new(config: &'cfg Config, versions: DocumentVersions) -> Self {
         Self {
             config,
             containers: Vec::new(),
             key_depth: 0,
             current_version: (1, 1),
             bad_truthy: None,
-            directives,
-            directive_index: 0,
+            versions,
         }
     }
 
     fn document_start(&mut self, span: Span) {
-        self.current_version =
-            self.version_for_document(marker_byte_offset(span.start));
+        self.current_version = self
+            .versions
+            .next_document(marker_byte_offset(span.start))
+            .unwrap_or((1, 1));
         self.bad_truthy = None;
         self.key_depth = 0;
         self.containers.clear();
@@ -135,17 +135,6 @@ impl<'cfg> TruthyState<'cfg> {
     fn document_end(&mut self) {
         self.key_depth = 0;
         self.containers.clear();
-    }
-
-    fn version_for_document(&mut self, doc_start: BytePos) -> (u32, u32) {
-        let mut version = None;
-        while self.directive_index < self.directives.len()
-            && self.directives[self.directive_index].0 < doc_start
-        {
-            version = Some(self.directives[self.directive_index].1);
-            self.directive_index += 1;
-        }
-        version.unwrap_or((1, 1))
     }
 
     fn begin_node(&mut self) -> bool {
@@ -203,7 +192,9 @@ impl<'cfg> TruthyState<'cfg> {
 
     fn is_bad_truthy(&mut self, value: &str) -> bool {
         if self.bad_truthy.is_none() {
-            let base = if self.current_version == (1, 2) {
+            // A higher minor (`%YAML 1.3`) is processed as 1.2, so anything at 1.2 or
+            // above uses the 1.2 set; 1.0/1.1 and the directive-less default use 1.1.
+            let base = if self.current_version >= (1, 2) {
                 &TRUTHY_VALUES_YAML_1_2[..]
             } else {
                 &TRUTHY_VALUES_YAML_1_1[..]
@@ -269,9 +260,9 @@ struct TruthyReceiver<'cfg> {
 
 #[allow(clippy::missing_const_for_fn)]
 impl<'cfg> TruthyReceiver<'cfg> {
-    fn new(cfg: &'cfg Config, directives: Vec<(BytePos, (u32, u32))>) -> Self {
+    fn new(cfg: &'cfg Config, versions: DocumentVersions) -> Self {
         Self {
-            state: TruthyState::new(cfg, directives),
+            state: TruthyState::new(cfg, versions),
             diagnostics: Vec::new(),
         }
     }
@@ -283,7 +274,7 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
             Event::StreamStart => {
                 self.state.current_version = (1, 1);
                 self.state.bad_truthy = None;
-                self.state.directive_index = 0;
+                self.state.versions.reset();
             }
             Event::DocumentStart(_) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
@@ -310,36 +301,9 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let directives = collect_yaml_directives(buffer);
+    let versions = DocumentVersions::parse(buffer);
     let mut parser = Parser::new_from_str(buffer);
-    let mut receiver = TruthyReceiver::new(cfg, directives);
+    let mut receiver = TruthyReceiver::new(cfg, versions);
     let _ = parser.load(&mut receiver, true);
     receiver.diagnostics
-}
-
-fn collect_yaml_directives(buffer: &str) -> Vec<(BytePos, (u32, u32))> {
-    let mut directives = Vec::new();
-    let mut offset = 0;
-    for (_, line, ending) in split_lines_preserve_endings(buffer) {
-        if let Some(version) = parse_yaml_directive(line) {
-            let leading = line.len() - line.trim_start().len();
-            directives.push((BytePos::new(offset + leading), version));
-        }
-        offset += line.len() + ending.len();
-    }
-    directives
-}
-
-fn parse_yaml_directive(line: &str) -> Option<(u32, u32)> {
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with("%YAML") {
-        return None;
-    }
-    let mut parts = trimmed.split_whitespace();
-    let _ = parts.next();
-    let version = parts.next()?;
-    let (major_raw, minor_raw) = version.split_once('.')?;
-    let major = major_raw.parse().ok()?;
-    let minor = minor_raw.parse().ok()?;
-    Some((major, minor))
 }

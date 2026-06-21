@@ -45,11 +45,31 @@ fn arb_quoted_payload() -> impl Strategy<Value = String> {
     .prop_map(|chars| chars.into_iter().collect())
 }
 
+// Scalars YAML 1.1 resolves to a non-string but YAML 1.2 reads as a string, so quoting
+// them is redundant under 1.2 but load-bearing under an explicit `%YAML 1.1`. Generating
+// them in quoted form lets the directive prelude exercise the keep-quotes-under-1.1 path.
+fn arb_yaml_1_1_ambiguous() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just("no".to_string()),
+        Just("yes".to_string()),
+        Just("on".to_string()),
+        Just("off".to_string()),
+        Just("y".to_string()),
+        Just("0b101".to_string()),
+        Just("1:30".to_string()),
+        Just("0o17".to_string()),
+        Just("2002-12-14".to_string()),
+    ]
+}
+
 fn arb_scalar() -> impl Strategy<Value = Scalar> {
     prop_oneof![
-        arb_plain_value().prop_map(Scalar::Plain),
-        arb_quoted_payload().prop_map(Scalar::SingleQuoted),
-        arb_quoted_payload().prop_map(Scalar::DoubleQuoted),
+        4 => arb_plain_value().prop_map(Scalar::Plain),
+        4 => arb_quoted_payload().prop_map(Scalar::SingleQuoted),
+        4 => arb_quoted_payload().prop_map(Scalar::DoubleQuoted),
+        1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::Plain),
+        1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::SingleQuoted),
+        1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::DoubleQuoted),
     ]
 }
 
@@ -191,6 +211,11 @@ fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
 
 pub fn arb_document() -> impl Strategy<Value = Document> {
     (
+        prop_oneof![
+            3 => Just(None),
+            1 => Just(Some((1, 1))),
+            1 => Just(Some((1, 2))),
+        ],
         prop::collection::vec(arb_block_entry(), 1..=4),
         prop_oneof![
             Just(NewlineStyle::Lf),
@@ -199,9 +224,12 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
         ],
         any::<bool>(),
     )
-        .prop_map(|(entries, newline, has_final_newline)| Document {
-            entries,
-            newline,
-            has_final_newline,
+        .prop_map(|(version_directive, entries, newline, has_final_newline)| {
+            Document {
+                version_directive,
+                entries,
+                newline,
+                has_final_newline,
+            }
         })
 }

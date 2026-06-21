@@ -70,9 +70,10 @@ ryl .
 
 ## YAML version compatibility
 
-ryl targets **YAML 1.2** strictly: it parses with
+ryl targets **YAML 1.2** by default: it parses with
 [granit-parser](https://github.com/bourumir-wyngs/granit-parser) (a
-`saphyr-parser` fork) and resolves scalars per the YAML 1.2 core schema.
+`saphyr-parser` fork) and resolves a directive-less document per the YAML 1.2
+core schema, while honouring an explicit `%YAML` version directive.
 yamllint defaults to YAML 1.1 semantics via PyYAML, so a handful of edge
 cases &mdash;
 notably bareword booleans like `yes` / `no` / `on` / `off` and

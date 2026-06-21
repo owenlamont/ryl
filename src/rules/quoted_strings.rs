@@ -13,6 +13,9 @@ use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
+use crate::rules::support::yaml_version::{
+    DocumentVersions, Version, keeps_quotes_under_yaml_1_1,
+};
 use crate::yaml_dom::{Scalar, is_core_schema};
 
 pub const ID: &str = "quoted-strings";
@@ -202,7 +205,7 @@ struct QuotedStringsReceiver<'cfg> {
 }
 
 impl<'cfg> QuotedStringsReceiver<'cfg> {
-    const fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
+    fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
         Self {
             state: QuotedStringsState::new(cfg, buffer),
             diagnostics: Vec::new(),
@@ -214,7 +217,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentStart(_) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -243,25 +246,33 @@ struct QuotedStringsState<'cfg> {
     buffer: &'cfg str,
     walker: Walker<(), bool>,
     consistent_quote_style: Option<QuoteStyle>,
+    versions: DocumentVersions,
+    current_version: Option<Version>,
 }
 
 impl<'cfg> QuotedStringsState<'cfg> {
-    const fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
+    fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
         Self {
             config,
             buffer,
             walker: Walker::new(),
             consistent_quote_style: None,
+            versions: DocumentVersions::parse(buffer),
+            current_version: None,
         }
     }
 
     fn reset_stream(&mut self) {
         self.walker.reset();
         self.consistent_quote_style = None;
+        self.versions.reset();
+        self.current_version = None;
     }
 
-    fn document_start(&mut self) {
+    fn document_start(&mut self, span: Span) {
         self.walker.reset();
+        self.current_version =
+            self.versions.next_document(marker_byte_offset(span.start));
     }
 
     fn document_end(&mut self) {
@@ -294,7 +305,8 @@ impl<'cfg> QuotedStringsState<'cfg> {
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let resolves_to_string = value_resolves_to_string(value);
+        let resolves_to_string =
+            resolves_to_string_for_version(self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
@@ -471,6 +483,13 @@ fn build_violation(span: Span, message: String) -> Violation {
         column: span.start.col() + 1,
         message,
     }
+}
+
+/// Whether the scalar resolves to a string under the document's effective version. A
+/// value YAML 1.1 reads as a non-string (under an explicit `%YAML 1.1`) is not a string,
+/// so a plain one is left alone and a quoted one keeps its load-bearing quotes.
+fn resolves_to_string_for_version(version: Option<Version>, value: &str) -> bool {
+    value_resolves_to_string(value) && !keeps_quotes_under_yaml_1_1(version, value)
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
@@ -783,7 +802,7 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentStart(_) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -835,7 +854,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentStart(_) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -864,14 +883,16 @@ struct FixState<'cfg> {
     walker: Walker<(), bool>,
     seeded_consistent_quote_style: Option<QuoteStyle>,
     consistent_quote_style: Option<QuoteStyle>,
+    versions: DocumentVersions,
+    current_version: Option<Version>,
 }
 
 impl<'cfg> FixState<'cfg> {
-    const fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
+    fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
         Self::with_consistent_quote_style(config, buffer, None)
     }
 
-    const fn with_consistent_quote_style(
+    fn with_consistent_quote_style(
         config: &'cfg Config,
         buffer: &'cfg str,
         consistent_quote_style: Option<QuoteStyle>,
@@ -882,16 +903,22 @@ impl<'cfg> FixState<'cfg> {
             walker: Walker::new(),
             seeded_consistent_quote_style: consistent_quote_style,
             consistent_quote_style,
+            versions: DocumentVersions::parse(buffer),
+            current_version: None,
         }
     }
 
     fn reset_stream(&mut self) {
         self.walker.reset();
         self.consistent_quote_style = self.seeded_consistent_quote_style;
+        self.versions.reset();
+        self.current_version = None;
     }
 
-    fn document_start(&mut self) {
+    fn document_start(&mut self, span: Span) {
         self.walker.reset();
+        self.current_version =
+            self.versions.next_document(marker_byte_offset(span.start));
     }
 
     fn document_end(&mut self) {
@@ -927,7 +954,8 @@ impl<'cfg> FixState<'cfg> {
     ) -> Option<Replacement> {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let resolves_to_string = value_resolves_to_string(value);
+        let resolves_to_string =
+            resolves_to_string_for_version(self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
@@ -949,7 +977,8 @@ impl<'cfg> FixState<'cfg> {
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let resolves_to_string = value_resolves_to_string(value);
+        let resolves_to_string =
+            resolves_to_string_for_version(self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);

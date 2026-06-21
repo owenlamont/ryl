@@ -245,6 +245,30 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### `%YAML` version-directive handling
+
+ryl honours the `%YAML` directive (YAML 1.2.2 §6.8.1) per document: a
+directive-less document and `%YAML 1.2` resolve under the 1.2 core schema, an
+explicit `%YAML 1.1` resolves under 1.1, a higher major version (`%YAML 2.0`)
+is rejected, and a higher minor version (`%YAML 1.3`) is processed as 1.2 with
+a warning. yamllint (via PyYAML) resolves implicit types under 1.1 regardless of
+the directive, so the two disagree:
+
+| Input | ryl | yamllint |
+| :--- | :--- | :--- |
+| `'no'` with no directive, `quoted-strings: only-when-needed` | redundant (1.2 string) | kept (1.1 boolean) |
+| `'no'` under `%YAML 1.1`, same rule | kept (1.1 boolean) | kept |
+| `'y'` under `%YAML 1.1`, same rule | kept (`y` is a 1.1 boolean) | redundant (PyYAML omits `y`) |
+| `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
+| `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
+
+**Why ryl differs:** the spec is the authority. It assigns a directive-less
+document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
+rejecting a higher major version &mdash; and the 1.1 boolean set in the spec
+includes single `y`/`n`, which PyYAML's resolver omits. Resolving under the
+declared version also keeps `--fix` sound: it never strips the quotes from a
+scalar whose value would change under the document's own `%YAML 1.1`.
+
 ### Per-line ignores
 
 ryl adds a [`per-line-ignores`](../per-line-ignores.md) config table with no

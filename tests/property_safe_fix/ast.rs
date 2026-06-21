@@ -87,6 +87,7 @@ pub enum NewlineStyle {
 
 #[derive(Debug, Clone)]
 pub struct Document {
+    pub version_directive: Option<(u32, u32)>,
     pub entries: Vec<BlockEntry>,
     pub newline: NewlineStyle,
     pub has_final_newline: bool,
@@ -256,6 +257,10 @@ impl Document {
             NewlineStyle::Crlf => "\r\n",
             NewlineStyle::Cr => "\r",
         };
+        if let Some((major, minor)) = self.version_directive {
+            buffer.push_str(&format!("%YAML {major}.{minor}{line_terminator}---"));
+            buffer.push_str(line_terminator);
+        }
         for (index, entry) in self.entries.iter().enumerate() {
             if index > 0 {
                 buffer.push_str(line_terminator);
