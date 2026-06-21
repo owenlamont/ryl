@@ -176,7 +176,11 @@ impl Loader {
         // untyped — mirroring the scalar path, which yields `BadValue` for a core
         // tag that does not match the value.
         let node = match tag {
-            Some(tag) if core_schema_suffix(&tag) == Some(default_suffix) => node,
+            Some(tag)
+                if core_schema_suffix(&tag).as_deref() == Some(default_suffix) =>
+            {
+                node
+            }
             Some(tag) => YamlOwned::Tagged(tag, Box::new(node)),
             None => node,
         };
