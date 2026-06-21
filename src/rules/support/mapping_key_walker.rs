@@ -73,11 +73,9 @@ impl<T, M> Walker<T, M> {
         }
     }
 
-    /// Advance past a node that occupies a key/value slot but needs no
-    /// inspection (an `Alias`). A mapping alternates key, value, key, …; an
-    /// alias is a full node, so skipping the `begin_node`/`finish_node` pair
-    /// desyncs that alternation and misclassifies every following key and value
-    /// in the mapping.
+    /// Advance past a node that occupies a key/value slot but needs no inspection
+    /// (an `Alias`). The `begin_node`/`finish_node` pair is required: skipping it
+    /// desyncs the mapping's key/value alternation and misclassifies later entries.
     pub(crate) fn skip_node(&mut self) {
         let context = self.begin_node();
         self.finish_node(context);

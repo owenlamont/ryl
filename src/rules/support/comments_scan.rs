@@ -1,16 +1,15 @@
 use granit_parser::{Event, Parser, Placement, Span};
 
-/// A source comment located by [`collect_comments`]. `text` is granit's raw payload
-/// (everything after the leading `#`, excluding the line break); `span` covers the
-/// whole comment including the `#`; `placement` is `Right` for trailing comments.
+/// `text` is granit's raw payload (after the `#`, excluding the break); `span` covers
+/// the whole comment including the `#`; `placement` is `Right` for trailing comments.
 pub(crate) struct CommentInfo {
     pub(crate) span: Span,
     pub(crate) text: String,
     pub(crate) placement: Placement,
 }
 
-/// Collect every comment in `buffer`, recovering past parse errors so comments are
-/// still reported for documents that fail to parse cleanly.
+/// Recovers past parse errors so comments are still reported for documents that fail
+/// to parse cleanly.
 pub(crate) fn collect_comments(buffer: &str) -> Vec<CommentInfo> {
     let mut parser = Parser::new_from_str(buffer);
     let mut comments = Vec::new();

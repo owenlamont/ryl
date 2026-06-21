@@ -43,7 +43,7 @@ fn flags_bare_literal_and_folded_clip_headers() {
         "message text and bare rule id expected: {output}"
     );
     // Exactly the three clip headers fire; the explicit `|-`/`>+` headers on lines
-    // 8 and 10 are not flagged. A count is robust across output formats — a
+    // 8 and 10 are not flagged. A count is robust across output formats: a
     // negative `line:` substring check would collide with the GitHub format's
     // `col=10` rendering of the line-1/line-6 diagnostics.
     assert_eq!(
@@ -67,7 +67,7 @@ fn flags_indentation_only_header() {
 
 #[test]
 fn ignores_pipe_inside_quoted_scalar() {
-    // The scanner — not a text scan — decides what is a block header, so a `|`
+    // The scanner (not a text scan) decides what is a block header, so a `|`
     // inside a quoted scalar is never treated as one.
     let (code, output) =
         lint_with_toml_config("a: \"pipe | not a header\"\nb: 1\n", ENABLE);
@@ -114,9 +114,9 @@ fn does_not_treat_header_like_first_content_as_the_header() {
 #[test]
 fn treats_bare_cr_as_a_line_break() {
     // A bare `\r` between header and content is a YAML 1.2 line break, so this is
-    // a normal one-line header — handled identically to the `\n` form (1:10), like
+    // a normal one-line header, handled identically to the `\n` form (1:10), like
     // every other granit-based rule. (Classic-Mac `\r`-only files are otherwise
-    // unsupported; the byte-scanning rules count `\n` only — see unicode-line-breaks.)
+    // unsupported; the byte-scanning rules count `\n` only; see unicode-line-breaks.)
     let (code, output) = lint_with_toml_config("literal: |\r  one\n", ENABLE);
     assert_eq!(code, 1, "bare-CR-separated header is flagged: {output}");
     assert!(
@@ -128,7 +128,7 @@ fn treats_bare_cr_as_a_line_break() {
 #[test]
 fn counts_bare_cr_when_numbering_the_header_line() {
     // Two leading bare `\r`s are two line breaks, so the header `z: |` is on line 3
-    // (not line 1) — the CR-aware count matches granit and ryl's other token rules.
+    // (not line 1): the CR-aware count matches granit and ryl's other token rules.
     let (code, output) = lint_with_toml_config("x: 1\ry: 2\rz: |\n  body\n", ENABLE);
     assert_eq!(
         code, 1,
@@ -143,7 +143,7 @@ fn counts_bare_cr_when_numbering_the_header_line() {
 #[test]
 fn flags_crlf_header() {
     // CRLF endings: `\r\n` is one break, so the header is line 1 and the body
-    // line 2 — identical to the LF form (marker at col 6).
+    // line 2, identical to the LF form (marker at col 6).
     let (code, output) = lint_with_toml_config("key: |\r\n  hi\r\n", ENABLE);
     assert_eq!(code, 1, "CRLF header is flagged: {output}");
     assert!(

@@ -1,8 +1,8 @@
-//! No configuration found is a loud error (#248).
+//! No configuration found is a loud error.
 //!
 //! ryl has no default-on rules, so a run that resolves no configuration at all
 //! enables nothing and must exit 2 with a message that names the `extends: default`
-//! escape hatch — rather than silently linting with a preset (yamllint's behaviour)
+//! escape hatch, rather than silently linting with a preset (yamllint's behaviour)
 //! or silently passing. This is distinct from the "configuration enables no rules"
 //! error, which fires when a config *is* present but turns everything off.
 
@@ -54,7 +54,7 @@ fn no_config_found_via_stdin_is_rejected() {
         .spawn()
         .expect("spawn");
     // ryl rejects the missing config before reading stdin, so the child may have
-    // already exited (closing the pipe) by the time we write — a broken pipe here is
+    // already exited (closing the pipe) by the time we write: a broken pipe here is
     // expected, not a failure; only the exit code and stderr matter.
     let _ = child
         .stdin
@@ -78,7 +78,7 @@ fn no_config_found_via_stdin_is_rejected() {
 fn mixed_run_reports_no_config_for_the_unconfigured_file() {
     // One file resolves a config that enables a rule; another resolves no config at
     // all. The run can't lint the unconfigured file, and the error must reflect THAT
-    // file ("no configuration found") rather than the other file's config — the
+    // file ("no configuration found") rather than the other file's config: the
     // message is chosen per offending file, not per run.
     let configured = tempdir().unwrap();
     std::fs::write(

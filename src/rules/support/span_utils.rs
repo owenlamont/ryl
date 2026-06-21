@@ -4,14 +4,13 @@ use granit_parser::Marker;
 
 use crate::rules::support::line_syntax::line_contents;
 
-/// A byte offset into a UTF-8 buffer. Valid for `&str` slicing and
-/// `String::replace_range`. Construct one only through the helpers here so a
-/// character index can never be silently used as a byte offset (issue #232).
+/// A byte offset into a UTF-8 buffer, valid for `&str` slicing. Distinct type from
+/// [`CharPos`] so a character index can never be silently used as a byte offset.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct BytePos(usize);
 
-/// A character index, as reported by granit spans via `Marker::index`. Used to
-/// navigate a `char_indices` array; never used to address bytes directly.
+/// A character index, as reported by granit spans via `Marker::index`; never used to
+/// address bytes directly.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct CharPos(usize);
 
@@ -53,10 +52,9 @@ pub fn byte_slice(buffer: &str, range: Range<BytePos>) -> &str {
     &buffer[range.start.0..range.end.0]
 }
 
-/// Advance `cursor` past scalar ranges ending at or before char index `idx`,
-/// then return the scalar range containing `idx`, if any. The flow-rule
-/// scanners call this to skip scalar interiors (where punctuation must be
-/// ignored); `cursor` persists across calls for a single left-to-right scan.
+/// The scalar range containing char index `idx`, if any, advancing `cursor` past
+/// ranges ending at or before it. Flow-rule scanners use this to skip scalar
+/// interiors; `cursor` persists across calls for one left-to-right scan.
 #[must_use]
 pub fn containing_scalar_range<'a>(
     ranges: &'a [Range<CharPos>],
@@ -76,12 +74,10 @@ pub fn containing_scalar_range<'a>(
 
 /// Clamp a 1-based `(line, column)` onto a real position within `buffer`.
 ///
-/// granit reports an implicit empty scalar (the node after a tag or anchor that
-/// has no written value) at a *virtual* position — the column the value would
-/// occupy, on the line after its property. When such a node ends the document
-/// that position can be past end-of-line or on the empty segment a trailing
-/// newline leaves behind. Rules that surface these nodes (`tags`,
-/// `empty-values`) clamp here so a diagnostic never points outside the document.
+/// granit reports an implicit empty scalar (a node after a tag/anchor with no written
+/// value) at a virtual position that, when such a node ends the document, can fall
+/// past end-of-line. `tags`/`empty-values` clamp here so a diagnostic never points
+/// outside the document.
 #[must_use]
 pub fn clamp_position(buffer: &str, line: usize, column: usize) -> (usize, usize) {
     // `line_contents` yields only real lines (no trailing-break phantom), so its

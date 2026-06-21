@@ -835,7 +835,7 @@ fn empty_project_toml_is_rejected_as_empty() {
 
 #[test]
 fn empty_tool_ryl_in_pyproject_is_rejected_as_empty() {
-    // A present-but-empty `[tool.ryl]` enables no rules, so it is an error — distinct
+    // A present-but-empty `[tool.ryl]` enables no rules, so it is an error, distinct
     // from an *absent* `[tool.ryl]` (covered below), which lets discovery keep looking.
     let err = parse_toml_config_str("[tool.ryl]\n", true)
         .expect_err("an empty [tool.ryl] table configures nothing and must error");
@@ -1055,7 +1055,7 @@ fn every_rule_round_trips_through_toml_serialization() {
     // `insert_serialized` line with no compile-time cross-check, so a new rule
     // whose line is forgotten is silently dropped from normalized output. Enable
     // every rule and assert each survives the round trip, so that omission fails
-    // a test instead of shipping (#277 item 5).
+    // a test instead of shipping.
     let body: String = std::iter::once("[rules]\n".to_string())
         .chain(
             ryl::rules::ALL_RULE_IDS

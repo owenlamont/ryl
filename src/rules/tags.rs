@@ -1,30 +1,19 @@
-//! `tags` rule &mdash; flags unsafe and non-portable YAML tags (issue #251).
+//! `tags` rule: flags unsafe and non-portable YAML tags. Three independent,
+//! off-by-default concerns share one tag-inspection pass:
 //!
-//! Three independent, off-by-default concerns share one tag-inspection pass over
-//! the parser's resolved `Scalar`/`SequenceStart`/`MappingStart` tags:
+//! * `forbid-unsafe-tags`: construction tags whose suffix begins with a known
+//!   namespace (`python/`, `ruby/`, `perl/`, `php/`, `java/`, `java.`, `javax.`); the
+//!   curated list is best-effort, not exhaustive.
+//! * `forbid-removed-types`: the YAML 1.1 types removed in 1.2 (`!!omap`, `!!pairs`,
+//!   `!!set`, `!!timestamp`, `!!binary`).
+//! * `allowed-tags`: when non-empty, any other local / non-core tag is flagged.
 //!
-//! * `forbid-unsafe-tags` &mdash; language-specific construction tags whose
-//!   suffix begins with a known construction namespace (`python/`, `ruby/`,
-//!   `perl/`, `php/`, `java/`, `java.`, `javax.`); the curated list is
-//!   best-effort, not exhaustive. These drive arbitrary-object construction in
-//!   some loaders; `PyYAML`'s docs warn `yaml.load` "is as powerful as
-//!   `pickle.load`" and recommend `safe_load`, and Ruby's Psych and `SnakeYAML`
-//!   expose the same pattern via `!ruby/object:` and `!!`-prefixed class tags.
-//! * `forbid-removed-types` &mdash; the YAML 1.1 types removed in 1.2 (`!!omap`,
-//!   `!!pairs`, `!!set`, `!!timestamp`, `!!binary`; YAML 1.2.2 changes page).
-//!   ryl targets YAML 1.2, so these are non-portable.
-//! * `allowed-tags` &mdash; when non-empty, any other local / non-core tag
-//!   (`!env`, `!include`, …) is flagged. Local tags "may even have different
-//!   semantics in different documents" (YAML 1.2.2 spec, tags), so an allowlist
-//!   lets a team permit only the handles it actually uses.
+//! Detection normalises tag spelling, so shorthand (`!!omap`), local (`!ruby/object:`),
+//! verbatim (`!<tag:yaml.org,2002:omap>`), and `%TAG`-split forms map to one identity
+//! and cannot be used to evade a check. No safe `--fix`: rewriting or dropping a tag
+//! changes the node's resolved type (see AGENTS.md "Rules Without A Safe `--fix`").
 //!
-//! Detection normalises tag spelling, so shorthand (`!!omap`), local
-//! (`!ruby/object:`), verbatim (`!<tag:yaml.org,2002:omap>`), and `%TAG`-split
-//! forms map to the same identity and cannot be used to evade a check.
-//!
-//! Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; `PyYAML` docs; The
-//! YAML Company. There is no safe `--fix`: rewriting or dropping a tag changes
-//! the node's resolved type (see AGENTS.md "Rules Without A Safe `--fix`").
+//! Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; `PyYAML` docs.
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver, Tag};
 
@@ -78,10 +67,9 @@ impl Config {
     }
 
     fn diagnose(&self, tag: &Tag) -> Option<String> {
-        // The non-specific "!" tag forces local resolution and carries no
-        // safety or portability signal. A `%TAG` directive can resolve a
-        // non-empty handle onto it while leaving the suffix as "!", so key the
-        // exemption on the suffix rather than the handle representation.
+        // The non-specific "!" tag carries no safety/portability signal. A `%TAG`
+        // directive can resolve a non-empty handle onto it while leaving the suffix
+        // "!", so key the exemption on the suffix, not the handle.
         if tag.suffix == "!" {
             return None;
         }
@@ -157,11 +145,11 @@ fn is_unsafe_suffix(suffix: &str) -> bool {
         .any(|prefix| suffix.starts_with(prefix))
 }
 
-/// The construction namespace this tag could match, or `None` when its handle
-/// is a custom `%TAG` prefix (whose suffix is a local name in an unrelated
-/// namespace, so it must not be namespace-matched). Only core-schema (`!!`) and
-/// local (`!`/verbatim) tags carry a construction namespace in their suffix, so
-/// `!!python/…`, `!python/…`, and `!<!python/…>` all reduce to `python/…`.
+/// The construction namespace this tag could match, or `None` for a custom `%TAG`
+/// prefix (whose suffix is an unrelated-namespace local name, so it must not be
+/// namespace-matched). Only core-schema (`!!`) and local (`!`/verbatim) tags carry a
+/// namespace in their suffix, so `!!python/...`, `!python/...`, `!<!python/...>` all
+/// reduce to `python/...`.
 fn unsafe_namespace<'a>(tag: &'a Tag, core: Option<&'a str>) -> Option<&'a str> {
     if let Some(core) = core {
         Some(core)

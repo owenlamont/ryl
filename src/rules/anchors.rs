@@ -1,32 +1,21 @@
-//! Reports problems with YAML anchors and aliases — aliases referencing an
-//! undeclared anchor, duplicated anchor names, unused anchors, and (ryl-only, via
-//! the TOML `forbid-ambiguous-anchor-alias-names` option) a name with a `:` welded
-//! into it (`&foo:`, `*foo:`, `&foo:bar`, or a colon-leading `&:`/`&:foo`).
+//! `anchors` rule: flags undeclared aliases, duplicated anchors, unused anchors, and
+//! (ryl-only, TOML `forbid-ambiguous-anchor-alias-names`) a name with a welded `:`
+//! (`&foo:`, `*foo:`, `&foo:bar`, `&:`/`&:foo`); a separating space (`*foo : bar`) is
+//! never flagged.
 //!
-//! Per YAML 1.2.2 §6.9.2 / §3.2.2.2 an anchor name is `ns-anchor-char`, which
-//! excludes only the flow indicators `,[]{}` — so `:` is a *legal* name character
-//! and loaders disagree about it: ryl's `granit` parser, the reference parser
-//! (<https://play.yaml.com>), and `ruamel.yaml` read `&foo:` as the name `foo:`,
-//! while PyYAML/libyaml stop at the `:` (and reject a bare `&foo:` anchor). The
-//! same bytes therefore mean different things (or fail to parse) across loaders,
-//! which the yamllint maintainer and `perlpunk`/`ingydotnet` agreed should be
-//! discouraged in adrienverge/yamllint#780. A single space (`*foo : bar`) removes
-//! the ambiguity, so that form is never flagged.
+//! `:` is a legal anchor-name char (YAML 1.2.2 §6.9.2 excludes only `,[]{}`), so the
+//! scanned name includes it (`&foo:bar` -> `foo:bar`) and the ambiguity check is a
+//! plain `name.contains(':')`; the other checks compare full names, making `&foo:bar`
+//! and `&foo:baz` distinct. yamllint narrows names at `:` (`PyYAML`'s non-conformant
+//! behaviour); divergence catalogued in
+//! `docs/getting-started/migrating-from-yamllint.md`.
 //!
-//! Detection reads granit's scanner tokens (`TokenType::Anchor`/`Alias`), so the
-//! real lexer — not a hand-rolled char scan — decides what is an anchor/alias: a
-//! literal `&`/`*` inside a plain scalar (`rock&roll`), a block scalar, a glob
-//! (`dist/x-*.tgz`), or after a tag (`!tag &x`) is handled correctly. The scanner
-//! is resolution-independent, so an undefined or forward alias is still tokenised
-//! (the parser would instead error on it), which is what `forbid-undeclared-aliases`
-//! needs.
+//! Detection reads granit's scanner tokens (`TokenType::Anchor`/`Alias`), so a literal
+//! `&`/`*` in a plain/block scalar, a glob, or after a tag is not an anchor/alias. The
+//! scanner is resolution-independent, so an undefined or forward alias is still
+//! tokenised (the parser would error on it), as `forbid-undeclared-aliases` needs.
 //!
-//! `:` is part of the scanned name (e.g. `&foo:bar` resolves to `foo:bar`), so the
-//! ambiguity check is a plain `name.contains(':')`, and the undeclared/duplicated/
-//! unused checks compare these full spec names too — `&foo:bar` and `&foo:baz` are
-//! distinct anchors. This is spec-correct and diverges from yamllint, which narrows
-//! names at `:` (`PyYAML`'s non-conformant behaviour); the divergence is catalogued
-//! in `docs/getting-started/migrating-from-yamllint.md`.
+//! Sources: YAML 1.2.2 §6.9.2, §7.1; adrienverge/yamllint#780.
 
 use std::collections::HashMap;
 
@@ -168,7 +157,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     violations
 }
 
-/// A welded-colon violation for an anchor/alias whose scanned name contains `:`.
 fn ambiguous_violation(
     cfg: Config,
     name: &str,
@@ -183,11 +171,9 @@ fn ambiguous_violation(
     })
 }
 
-/// Emit `forbid-unused-anchors` diagnostics for the just-finished document. Only
-/// the last declaration of each name carries the live binding (matching yamllint's
-/// name-keyed model and how `mark_alias` records use): earlier same-name records
-/// are shadowed re-declarations, reported by `forbid-duplicated-anchors` instead,
-/// so a name is reported unused at most once and never when an alias used it.
+/// Only the last declaration of each name carries the live binding (yamllint's
+/// name-keyed model, matching `mark_alias`); earlier same-name records are shadowed
+/// re-declarations, so a name is reported unused at most once and never when used.
 fn finish_doc(doc: &DocState, cfg: Config, violations: &mut Vec<Violation>) {
     if cfg.forbid_unused_anchors {
         for (index, anchor) in doc.anchors.iter().enumerate() {

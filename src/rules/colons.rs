@@ -1,12 +1,10 @@
 //! `colons` rule: limit spaces around `:` (and explicit `?`) in mappings.
 //!
-//! Alias-key special case: a YAML anchor/alias name may legally contain `:` (only the
-//! flow indicators `,[]{}` are excluded — YAML 1.2.2 §6.9.2 "Node Anchors", §7.1 "Alias
-//! Nodes"), so `*foo:` is the alias to an anchor named `foo:`. Using an alias as a
-//! mapping key therefore *requires* one separating space — `*foo : bar` — which must not
-//! be reported. We take alias extents from the parser (`collect_alias_ends`) rather than
-//! guessing from raw text, so the exemption fires exactly when an alias node ends one
-//! space before the colon — matching yamllint's `colons.py` `AliasToken` rule (see
+//! Alias-key exemption: `:` is a legal anchor-name char (YAML 1.2.2 §6.9.2), so `*foo:`
+//! aliases an anchor named `foo:`, and using it as a key *requires* one separating space
+//! (`*foo : bar`), which must not be reported. Alias extents come from the parser
+//! (`collect_alias_ends`), so the exemption fires exactly when an alias node ends one
+//! space before the colon, matching yamllint's `colons.py` `AliasToken` rule (see
 //! adrienverge/yamllint#226).
 use std::collections::HashSet;
 
@@ -145,8 +143,7 @@ fn evaluate_colon(
     line_starts: &[CharPos],
     alias_ends: &HashSet<usize>,
 ) {
-    // An alias used as a mapping key needs exactly one separating space (`*foo : bar`);
-    // skip both checks when an alias node ends one char before this colon.
+    // Alias-key exemption (see module header): skip when an alias ends one char before.
     if colon_idx
         .checked_sub(1)
         .is_some_and(|prev| alias_ends.contains(&prev))

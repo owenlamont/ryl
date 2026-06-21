@@ -33,7 +33,7 @@ use tempfile::{TempDir, tempdir};
 const TRAILING: &str = "[rules]\ntrailing-spaces = \"enable\"\n";
 
 /// A method ryl does not (and will not) handle, so requesting it always yields a
-/// `MethodNotFound` error — used to probe that the server is still responsive.
+/// `MethodNotFound` error, used to probe that the server is still responsive.
 const UNHANDLED_METHOD: &str = "ryl/internalUnhandledProbe";
 
 fn uri(text: &str) -> Uri {
@@ -58,7 +58,7 @@ fn project(config: &str) -> TempDir {
     dir
 }
 
-/// Assert none of the drained notifications is a diagnostics push — the invariant a
+/// Assert none of the drained notifications is a diagnostics push: the invariant a
 /// pull-capable client relies on: it gets diagnostics only via pull, never an extra
 /// push that a client merging the two channels (VS Code) would double-count.
 fn assert_no_diagnostics_push(notifications: &[Notification]) {
@@ -275,7 +275,7 @@ impl Client {
     /// Drain messages up to and including the response to `id`, returning every
     /// notification seen on the way. Because the server's loop is single-threaded and
     /// in-order, any push triggered by an earlier notification arrives before this
-    /// response — so a test can assert a pull-capable client got *no* `publishDiagnostics`.
+    /// response, so a test can assert a pull-capable client got *no* `publishDiagnostics`.
     fn notifications_until_response(
         &self,
         id: &RequestId,
@@ -294,7 +294,7 @@ impl Client {
 
     /// Drain messages up to and including the response to `id`, returning every message
     /// (server-to-client requests *and* notifications) seen on the way. Lets a test assert
-    /// the server sent a particular request — e.g. `workspace/diagnostic/refresh` — while
+    /// the server sent a particular request (e.g. `workspace/diagnostic/refresh`) while
     /// confirming no diagnostics push escaped.
     fn messages_until_response(&self, id: &RequestId) -> (Vec<Message>, Response) {
         let mut messages = Vec::new();
@@ -703,7 +703,7 @@ fn did_close_clears_diagnostics() {
     );
 }
 
-// Regression for #323: when the client advertises the pull model, the server must not
+// When the client advertises the pull model, the server must not
 // *also* push `publishDiagnostics`. A client that keeps the push and pull channels in
 // separate collections (VS Code via `vscode-languageclient`) would otherwise list every
 // diagnostic twice. Every other test launches a push-only client, so they pin that the
@@ -1355,7 +1355,7 @@ fn file_matching_two_source_kinds_is_reported() {
     );
 }
 
-// --- #317 nice-to-haves: capabilities, watching, config, actions, hover, sync, rename,
+// --- Capabilities, watching, config, actions, hover, sync, rename,
 //     and pull diagnostics. ---
 
 #[test]

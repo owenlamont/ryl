@@ -1,22 +1,22 @@
 //! Property-based tests for `apply_safe_fixes`.
 //!
 //! Submodules:
-//!  * `config` — the named-config matrix that the suite runs each invariant
+//!  * `config`: the named-config matrix that the suite runs each invariant
 //!    against, plus shared parse/lint helpers.
-//!  * `ast` — the synthetic YAML AST (`Document`, `Node`, `Scalar`, …) used
+//!  * `ast`: the synthetic YAML AST (`Document`, `Node`, `Scalar`, …) used
 //!    by the generator, together with rendering.
-//!  * `strategy` — proptest strategies that build random `Document` values.
+//!  * `strategy`: proptest strategies that build random `Document` values.
 //!
 //! These invariants assert that `apply_safe_fixes` is *sound*, not *complete*:
 //! a safe fix must never change a document's meaning, but it may leave some
 //! reported violations unfixed (e.g. an occurrence in a context the fixer must
 //! not rewrite). This file holds four `proptest!` soundness invariants
 //! (idempotence, parse preservation, the leading-`# ryl disable` no-op, and that
-//! any reported progress — a drop in diagnostic count — corresponds to a real
+//! any reported progress, a drop in diagnostic count, corresponds to a real
 //! change to the file) plus deterministic regressions that pin known-dirty inputs
-//! and production-bug patterns (issues #184, #206, BOM preservation) — including
-//! effectiveness (`safe_fix_rule_diagnostics` clears on concrete inputs the fixer
-//! fully cleans).
+//! and production-bug patterns (escape sequences, YAML metachars, BOM
+//! preservation), including effectiveness (`safe_fix_rule_diagnostics` clears on
+//! concrete inputs the fixer fully cleans).
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -119,7 +119,7 @@ proptest! {
     /// Soundness of progress reporting: `ryl --fix` reports "N fixed" as the drop
     /// in diagnostic count (problems before minus after), so any reported fix must
     /// correspond to a real change to the file. If fixing reduces the safe-fix
-    /// diagnostic count, the output must differ from the input — a no-op that
+    /// diagnostic count, the output must differ from the input; a no-op that
     /// reports progress would be a bug.
     #[test]
     fn safe_fix_reporting_progress_implies_mutation(document in arb_document()) {

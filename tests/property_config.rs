@@ -1,18 +1,17 @@
-//! Property tests for **configuration parsing** robustness (issue #246).
+//! Property tests for **configuration parsing** robustness.
 //!
-//! The audit that motivated these turned up two config-path defects a property
-//! test would have caught: a panic on an empty config (`docs[0]`) and an
-//! out-of-memory on a billion-laughs config. This suite generates randomized
-//! configs — mixing valid settings with hostile ones (invalid regexes, ill-typed
-//! and out-of-range scalars, bogus locales) — renders them to both YAML and TOML,
-//! and asserts the oracle-free invariant that the whole pipeline **errors or
-//! succeeds but never panics**:
+//! Two config-path defects a property test guards against: a panic on an empty
+//! config (`docs[0]`) and an out-of-memory on a billion-laughs config. This suite
+//! generates randomized configs, mixing valid settings with hostile ones (invalid
+//! regexes, ill-typed and out-of-range scalars, bogus locales), renders them to
+//! both YAML and TOML, and asserts the oracle-free invariant that the whole
+//! pipeline **errors or succeeds but never panics**:
 //!
 //! - YAML configs are parsed with [`YamlLintConfig::from_yaml_str`] and, when they
 //!   parse, used to lint sample documents. Config validation rejects hostile option
 //!   values (invalid regexes, wrong types) before a rule's `resolve()` runs, so the
 //!   `.expect()` calls in `key-ordering`/`quoted-strings` `resolve()` are not
-//!   reachable from a config that parses — the value here is the guard against a
+//!   reachable from a config that parses; the value here is the guard against a
 //!   future *validation gap*: were one introduced, a generated config would carry a
 //!   bad value into `resolve()` and panic the property.
 //! - TOML configs are pushed through `parse -> validate -> normalize`, the

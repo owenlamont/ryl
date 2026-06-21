@@ -4,7 +4,7 @@ use proptest::prelude::*;
 pub enum Newline {
     Lf,
     Crlf,
-    /// A bare `\r` — a YAML 1.2 line break the generator may emit freely; the
+    /// A bare `\r`: a YAML 1.2 line break the generator may emit freely; the
     /// harness oracle counts it as a break.
     Cr,
 }
@@ -47,7 +47,7 @@ pub enum Line {
     Blank {
         spaces: u8,
     },
-    /// An indented raw line with no key/colon structure &mdash; used to build the
+    /// An indented raw line with no key/colon structure, used to build the
     /// header and content lines of a block scalar (e.g. a standalone `  |` header
     /// on its own line, or an indented content line).
     Raw {
@@ -224,7 +224,7 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
 
 // Tag tokens spanning shorthand, local, verbatim, and non-specific forms. They
 // are synthesized onto values so the no-panic / in-bounds-span invariants run
-// over tagged nodes — exercising `tags::check`, tag-token positions, and
+// over tagged nodes, exercising `tags::check`, tag-token positions, and
 // author-facing spellings across positions, multibyte chars, and LF/CRLF. This
 // suite only asserts those invariants; tag-handling correctness lives in the
 // deterministic CLI tests.
@@ -344,8 +344,8 @@ fn merge_entry(indent: u8, key: &str, value: String) -> Line {
 /// A coherent merge structure the flat line generator never assembles by chance:
 /// two anchored flow-mapping bases sharing the key `dup`, then a host that merges
 /// them (optionally also defining `dup` explicitly). Exercises `key-duplicates`
-/// merge expansion and value-aware collision detection — both merge-vs-merge and
-/// explicit-vs-merge shadowing — under the canonical config in `collect_spans`.
+/// merge expansion and value-aware collision detection (both merge-vs-merge and
+/// explicit-vs-merge shadowing) under the canonical config in `collect_spans`.
 fn arb_merge_block() -> impl Strategy<Value = Vec<Line>> {
     (
         arb_bare_value(),
@@ -375,7 +375,7 @@ fn arb_merge_block() -> impl Strategy<Value = Vec<Line>> {
 
 /// A coherent block sequence-of-mappings the flat line generator never assembles by
 /// chance: a parent key introducing a block sequence whose entries span the layouts
-/// `hyphens: dash-on-own-line` must classify — dash+first-key on one line (the flagged
+/// `hyphens: dash-on-own-line` must classify: dash+first-key on one line (the flagged
 /// shape), dash-alone with the body indented below, an anchor/tag or comment on the
 /// dash line (keys still below, accepted), a nested sequence whose inner mapping opens
 /// on the inner dash line, and a flow/scalar value (never flagged). Drives the
@@ -472,7 +472,7 @@ fn arb_block_scalar_header() -> impl Strategy<Value = String> {
 
 /// A coherent block scalar the flat line generator never assembles: a key
 /// introducing a literal/folded block plus an indented content line. The header
-/// sits on the key's line, on its own line below the key, or above a blank gap —
+/// sits on the key's line, on its own line below the key, or above a blank gap:
 /// the layouts where the header is *not* the content line, which is exactly what
 /// `block-scalar-chomping`'s header recovery must handle.
 fn arb_block_scalar_block() -> impl Strategy<Value = Vec<Line>> {

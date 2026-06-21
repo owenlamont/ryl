@@ -156,7 +156,7 @@ fn unknown_core_schema_tag_is_bad_value() {
 
 // granit scans a verbatim `!<…>` tag to an *empty* handle with the full URI in
 // the suffix, so a core tag must be recognised by suffix rather than handle to
-// resolve like its `!!` shorthand. Verified vs PyYAML + ruamel.yaml (issue #277).
+// resolve like its `!!` shorthand. Verified vs PyYAML + ruamel.yaml.
 #[test]
 fn resolves_verbatim_core_schema_int_tag_like_shorthand() {
     let doc = parse_single("v: !<tag:yaml.org,2002:int> 0xB\n");
@@ -214,9 +214,9 @@ fn matching_core_collection_tag_unwraps() {
 
 // A core tag that does NOT match the node kind (`!!seq` on a mapping) or an unknown
 // core suffix (`!!custom`) is not the implicit tag, so it is preserved as `Tagged`
-// (→ rejected by config validation) rather than silently discarded — matching the
+// (→ rejected by config validation) rather than silently discarded, matching the
 // scalar path's `BadValue` and the local-tag path, in both shorthand and verbatim
-// spellings (issue #277 review).
+// spellings.
 #[test]
 fn mismatched_or_unknown_core_collection_tag_stays_tagged() {
     for src in [

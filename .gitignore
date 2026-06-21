@@ -31,6 +31,10 @@ test_repos/
 # Coverage files
 lcov.info
 
+# Python bytecode (uv-run scripts and dev-skill helpers)
+__pycache__/
+*.pyc
+
 # Benchmark artifacts
 manual_outputs/benchmarks/
 

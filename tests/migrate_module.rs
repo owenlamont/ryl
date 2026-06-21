@@ -713,7 +713,7 @@ fn apply_entries_cleanup_skips_symlinked_source() {
 #[test]
 fn apply_entries_target_without_parent_does_not_panic() {
     // A parentless target (never produced by the planner) skips dir creation and falls
-    // through to the write, which fails gracefully — proving the path cannot panic.
+    // through to the write, which fails gracefully, proving the path cannot panic.
     let entries = vec![MigrationEntry {
         source: PathBuf::from("x"),
         target: PathBuf::from(""),

@@ -13,6 +13,8 @@ from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 from typing import Annotated, Any
 
@@ -26,6 +28,9 @@ class FileMetrics:
     root: str
     bytes: int
     lines: int
+    code: int
+    doc: int
+    comment: int
 
 
 app = typer.Typer(add_completion=False)
@@ -72,10 +77,62 @@ def count_lines(data: bytes) -> int:
     return data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
 
 
+def collect_comment_lines(
+    base_dir: Path, roots: list[str]
+) -> dict[str, tuple[int, int, int]]:
+    """Per-file `(code, doc, comment)` line counts from tokei.
+
+    Doc comments (`///`/`//!`) are filed by tokei under an embedded-Markdown blob,
+    while plain `//` and `#` stay under the language's own `comments`; Python
+    docstrings are code to tokei (ruff governs their format), so they are not counted.
+
+    Returns:
+        A map from POSIX path (relative to `base_dir`) to `(code, doc, comment)`
+        lines, empty when tokei is unavailable.
+    """
+    if shutil.which("tokei") is None:
+        return {}
+    result = subprocess.run(
+        ["tokei", *roots, "--output", "json"],
+        cwd=base_dir,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    report = json.loads(result.stdout)
+    metrics: dict[str, tuple[int, int, int]] = {}
+    for language, summary in report.items():
+        if language == "Total":
+            continue
+        for entry in summary["reports"]:
+            stats = entry["stats"]
+            markdown = stats.get("blobs", {}).get("Markdown", {})
+            doc = markdown.get("comments", 0) + markdown.get("code", 0)
+            name = entry["name"].replace("\\", "/").removeprefix("./")
+            metrics[name] = (stats["code"], doc, stats["comments"])
+    return metrics
+
+
+def require_tokei() -> None:
+    """Exit with guidance when tokei is needed but absent.
+
+    Raises:
+        SystemExit: When tokei is not on `PATH`.
+    """
+    if shutil.which("tokei") is None:
+        raise SystemExit(
+            "tokei is required for comment metrics; install it (e.g. "
+            "`pixi global install tokei`)"
+        )
+
+
 def collect_metrics(
-    base_dir: Path, root: Path, extensions: set[str]
+    base_dir: Path,
+    root: Path,
+    extensions: set[str],
+    comment_lines: dict[str, tuple[int, int, int]],
 ) -> list[FileMetrics]:
-    """Collect byte and line counts for files under a root.
+    """Collect byte, line, and comment counts for files under a root.
 
     Returns:
         Per-file metrics for the requested root.
@@ -83,12 +140,17 @@ def collect_metrics(
     metrics: list[FileMetrics] = []
     for path in iter_files(root, extensions):
         data = path.read_bytes()
+        rel = path.relative_to(base_dir).as_posix()
+        code, doc, comment = comment_lines.get(rel, (0, 0, 0))
         metrics.append(
             FileMetrics(
-                path=path.relative_to(base_dir).as_posix(),
+                path=rel,
                 root=root.name,
                 bytes=len(data),
                 lines=count_lines(data),
+                code=code,
+                doc=doc,
+                comment=comment,
             )
         )
     return metrics
@@ -105,6 +167,7 @@ def collect_metrics_by_root(
     Raises:
         SystemExit: If any requested root is missing or not a directory.
     """
+    comment_lines = collect_comment_lines(base_dir, roots)
     metrics_by_root: dict[str, list[FileMetrics]] = {}
     for raw_root in roots:
         root = base_dir / raw_root
@@ -112,7 +175,9 @@ def collect_metrics_by_root(
             raise SystemExit(f"root does not exist: {raw_root}")
         if not root.is_dir():
             raise SystemExit(f"root is not a directory: {raw_root}")
-        metrics_by_root[raw_root] = collect_metrics(base_dir, root, extensions)
+        metrics_by_root[raw_root] = collect_metrics(
+            base_dir, root, extensions, comment_lines
+        )
     return metrics_by_root
 
 
@@ -123,6 +188,24 @@ def format_kib(size_bytes: int) -> str:
         The size rendered in KiB with one decimal place.
     """
     return f"{size_bytes / 1024:.1f}"
+
+
+def comment_ratio(comment: int, doc: int, code: int) -> float:
+    """Comment-to-code line ratio (doc + plain comments over code).
+
+    Returns:
+        The ratio, or 0.0 when there is no code.
+    """
+    return (comment + doc) / code if code else 0.0
+
+
+def format_ratio(comment: int, doc: int, code: int) -> str:
+    """Format a comment-to-code ratio as a percentage.
+
+    Returns:
+        The ratio rendered as a percentage with one decimal place.
+    """
+    return f"{comment_ratio(comment, doc, code) * 100:.1f}%"
 
 
 def format_delta(value: int) -> str:
@@ -159,13 +242,15 @@ def build_report(metrics_by_root: dict[str, list[FileMetrics]]) -> dict[str, Any
                 "files": len(metrics),
                 "bytes": sum(metric.bytes for metric in metrics),
                 "lines": sum(metric.lines for metric in metrics),
+                "code": sum(metric.code for metric in metrics),
+                "doc": sum(metric.doc for metric in metrics),
+                "comment": sum(metric.comment for metric in metrics),
             }
         )
 
     totals = {
-        "files": sum(entry["files"] for entry in per_root),
-        "bytes": sum(entry["bytes"] for entry in per_root),
-        "lines": sum(entry["lines"] for entry in per_root),
+        key: sum(entry[key] for entry in per_root)
+        for key in ("files", "bytes", "lines", "code", "doc", "comment")
     }
     largest_files = sorted(
         (asdict(metric) for metric in all_metrics),
@@ -183,21 +268,19 @@ def build_diff_report(
     Returns:
         Aggregate and per-file deltas between two reports.
     """
+    empty_root = {"files": 0, "lines": 0, "bytes": 0, "code": 0, "doc": 0, "comment": 0}
+    empty_file = {"lines": 0, "bytes": 0, "code": 0, "doc": 0, "comment": 0}
+    count_keys = ("files", "lines", "bytes", "code", "doc", "comment")
     current_roots = {entry["root"]: entry for entry in current_report["roots"]}
     baseline_roots = {entry["root"]: entry for entry in baseline_report["roots"]}
     all_roots = sorted(set(current_roots) | set(baseline_roots))
 
     root_deltas = []
     for root in all_roots:
-        current = current_roots.get(root, {"files": 0, "lines": 0, "bytes": 0})
-        baseline = baseline_roots.get(root, {"files": 0, "lines": 0, "bytes": 0})
+        current = current_roots.get(root, empty_root)
+        baseline = baseline_roots.get(root, empty_root)
         root_deltas.append(
-            {
-                "root": root,
-                "files": current["files"] - baseline["files"],
-                "lines": current["lines"] - baseline["lines"],
-                "bytes": current["bytes"] - baseline["bytes"],
-            }
+            {"root": root, **{key: current[key] - baseline[key] for key in count_keys}}
         )
 
     current_files = {entry["path"]: entry for entry in current_report["largest_files"]}
@@ -206,23 +289,15 @@ def build_diff_report(
     }
     file_deltas = []
     for path in sorted(set(current_files) | set(baseline_files)):
-        current = current_files.get(
-            path, {"root": path.split("/", 1)[0], "lines": 0, "bytes": 0}
-        )
+        current = current_files.get(path, {"root": path.split("/", 1)[0], **empty_file})
         baseline = baseline_files.get(
-            path, {"root": path.split("/", 1)[0], "lines": 0, "bytes": 0}
+            path, {"root": path.split("/", 1)[0], **empty_file}
         )
-        lines_delta = current["lines"] - baseline["lines"]
-        bytes_delta = current["bytes"] - baseline["bytes"]
-        if lines_delta == 0 and bytes_delta == 0:
+        deltas = {key: current[key] - baseline[key] for key in count_keys[1:]}
+        if all(value == 0 for value in deltas.values()):
             continue
         file_deltas.append(
-            {
-                "path": path,
-                "root": current.get("root", baseline.get("root")),
-                "lines": lines_delta,
-                "bytes": bytes_delta,
-            }
+            {"path": path, "root": current.get("root", baseline.get("root")), **deltas}
         )
 
     file_deltas.sort(key=lambda entry: (-abs(entry["bytes"]), entry["path"]))
@@ -230,12 +305,8 @@ def build_diff_report(
     return {
         "roots": root_deltas,
         "totals": {
-            "files": current_report["totals"]["files"]
-            - baseline_report["totals"]["files"],
-            "lines": current_report["totals"]["lines"]
-            - baseline_report["totals"]["lines"],
-            "bytes": current_report["totals"]["bytes"]
-            - baseline_report["totals"]["bytes"],
+            key: current_report["totals"][key] - baseline_report["totals"][key]
+            for key in count_keys
         },
         "files": file_deltas,
     }
@@ -294,6 +365,8 @@ def print_text(report: dict[str, Any], top_n: int) -> None:
         f"{format_kib(totals['bytes']):>8}"
     )
 
+    print_comments(report)
+
     if top_n <= 0:
         return
 
@@ -307,6 +380,30 @@ def print_text(report: dict[str, Any], top_n: int) -> None:
             f"{metric['bytes']:>10} "
             f"{format_kib(metric['bytes']):>8}"
         )
+
+
+def print_comments(report: dict[str, Any]) -> None:
+    """Print the per-root code/comment breakdown when tokei data is present."""
+    totals = report["totals"]
+    if totals["code"] == 0 and totals["doc"] == 0 and totals["comment"] == 0:
+        return
+    print()
+    print("Comments       Code        Doc    Comment   Cmt%")
+    for root in report["roots"]:
+        print(
+            f"{root['root']:<12} "
+            f"{root['code']:>8} "
+            f"{root['doc']:>8} "
+            f"{root['comment']:>8} "
+            f"{format_ratio(root['comment'], root['doc'], root['code']):>6}"
+        )
+    print(
+        f"{'TOTAL':<12} "
+        f"{totals['code']:>8} "
+        f"{totals['doc']:>8} "
+        f"{totals['comment']:>8} "
+        f"{format_ratio(totals['comment'], totals['doc'], totals['code']):>6}"
+    )
 
 
 def print_diff_text(diff_report: dict[str, Any], git_ref: str, top_n: int) -> None:
@@ -331,6 +428,8 @@ def print_diff_text(diff_report: dict[str, Any], git_ref: str, top_n: int) -> No
         f"{format_delta_kib(totals['bytes']):>8}"
     )
 
+    print_comments_diff(diff_report)
+
     if top_n <= 0:
         return
 
@@ -350,6 +449,44 @@ def print_diff_text(diff_report: dict[str, Any], git_ref: str, top_n: int) -> No
             f"{format_delta(metric['lines']):>10} "
             f"{format_delta(metric['bytes']):>10} "
             f"{format_delta_kib(metric['bytes']):>8}"
+        )
+
+
+def print_comments_diff(diff_report: dict[str, Any]) -> None:
+    """Print per-root code/comment-line deltas when tokei data is present."""
+    totals = diff_report["totals"]
+    if totals["code"] == 0 and totals["doc"] == 0 and totals["comment"] == 0:
+        return
+    print()
+    print("Comments Δ     Code        Doc    Comment")
+    for root in diff_report["roots"]:
+        print(
+            f"{root['root']:<12} "
+            f"{format_delta(root['code']):>8} "
+            f"{format_delta(root['doc']):>8} "
+            f"{format_delta(root['comment']):>8}"
+        )
+    print(
+        f"{'TOTAL':<12} "
+        f"{format_delta(totals['code']):>8} "
+        f"{format_delta(totals['doc']):>8} "
+        f"{format_delta(totals['comment']):>8}"
+    )
+
+
+def enforce_comment_ratio(report: dict[str, Any], max_ratio: float) -> None:
+    """Fail when the aggregate comment-to-code ratio exceeds `max_ratio`.
+
+    Raises:
+        SystemExit: When the ratio over all scanned roots exceeds the limit.
+    """
+    totals = report["totals"]
+    ratio = comment_ratio(totals["comment"], totals["doc"], totals["code"])
+    if ratio > max_ratio:
+        raise SystemExit(
+            f"comment ratio {ratio * 100:.1f}% exceeds the {max_ratio * 100:.1f}% "
+            f"limit ({totals['comment'] + totals['doc']} comment lines over "
+            f"{totals['code']} code lines)"
         )
 
 
@@ -373,6 +510,14 @@ def main(
             "--compare-to", help="Git branch, tag, or commit SHA to compare against."
         ),
     ] = None,
+    max_comment_ratio: Annotated[
+        float | None,
+        typer.Option(
+            "--max-comment-ratio",
+            help="Exit non-zero if comment lines exceed this fraction of code lines "
+            "(e.g. 0.12). Requires tokei.",
+        ),
+    ] = None,
     as_json: Annotated[
         bool,
         typer.Option("--json", help="Print the report as JSON instead of plain text."),
@@ -383,6 +528,8 @@ def main(
     Returns:
         Zero on success.
     """
+    if max_comment_ratio is not None:
+        require_tokei()
     current_dir = Path.cwd()
     selected_roots = resolve_roots(roots)
     extensions = normalize_extensions(ext or [])
@@ -395,6 +542,8 @@ def main(
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
             print_text(report, top)
+        if max_comment_ratio is not None:
+            enforce_comment_ratio(report, max_comment_ratio)
         return 0
 
     repo = find_repo(current_dir)
@@ -416,6 +565,8 @@ def main(
         print_text(report, top)
         print()
         print_diff_text(diff_report, compare_to, top)
+    if max_comment_ratio is not None:
+        enforce_comment_ratio(report, max_comment_ratio)
     return 0
 
 

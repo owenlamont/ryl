@@ -1,10 +1,7 @@
-//! Anchor/alias rename for `ryl server`. Renaming an anchor (`&name`) or alias
-//! (`*name`) rewrites every occurrence of that name *within the same YAML document*
-//! (anchors are document-scoped: a name reused across a `---`/`...` boundary is a
-//! distinct anchor, matching how `rules::anchors` defines anchor identity). Detection
-//! reuses granit's scanner tokens, so a literal `&`/`*` inside a scalar is never mistaken
-//! for an anchor. Pure functions of the document text; the server wraps the returned
-//! edits into a workspace edit.
+//! Anchor/alias rename. Rewrites every occurrence of the name *within the same YAML
+//! document*: a name reused across a `---`/`...` boundary is a distinct anchor (matching
+//! `rules::anchors`). Detection reuses granit's scanner tokens, so a literal `&`/`*`
+//! inside a scalar is never mistaken for an anchor.
 
 use granit_parser::{Scanner, StrInput, TokenType};
 use lsp_types::{Position, PrepareRenameResponse, Range, TextEdit};
@@ -14,17 +11,15 @@ use crate::rules::support::line_syntax::line_contents;
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
 
-/// One anchor/alias occurrence: its scanned name, the 0-based char index where the name
-/// begins, and the document it belongs to (incremented on each `---`/`...` boundary so
-/// cross-document names stay distinct).
 struct Occurrence {
     name: String,
+    /// 0-based char index where the name begins (one char past the `&`/`*` sigil).
     name_start: usize,
     name_len: usize,
+    /// Incremented on each `---`/`...` boundary so cross-document names stay distinct.
     document: usize,
 }
 
-/// Scan `text` for every anchor/alias occurrence.
 fn occurrences(text: &str) -> Vec<Occurrence> {
     let mut occurrences = Vec::new();
     let mut document = 0usize;
@@ -37,8 +32,7 @@ fn occurrences(text: &str) -> Vec<Occurrence> {
             TokenType::Anchor(name) | TokenType::Alias(name) => name.to_string(),
             _ => continue,
         };
-        // granit's Anchor/Alias span starts at the `&`/`*` sigil, so the name begins one
-        // char in (verified: the span never starts on the name itself).
+        // granit's Anchor/Alias span starts at the `&`/`*` sigil (verified), hence `+ 1`.
         occurrences.push(Occurrence {
             name_len: name.chars().count(),
             name_start: token.0.start.index() + 1,
@@ -49,8 +43,7 @@ fn occurrences(text: &str) -> Vec<Occurrence> {
     occurrences
 }
 
-/// The LSP range covering an occurrence's name. Anchor/alias names never span a line
-/// break, so start and end share a line.
+/// The LSP range covering an occurrence's name (single line: names never span a break).
 fn name_range(
     occurrence: &Occurrence,
     line_starts: &[CharPos],
@@ -65,7 +58,6 @@ fn name_range(
     }
 }
 
-/// Resolve the anchor/alias occurrence whose name covers `position`, if any.
 fn occurrence_at<'a>(
     occurrences: &'a [Occurrence],
     line_starts: &[CharPos],
@@ -78,8 +70,7 @@ fn occurrence_at<'a>(
         .find(|occ| range_contains(name_range(occ, line_starts, lines, enc), position))
 }
 
-/// For `textDocument/prepareRename`: the name range + placeholder when `position` is on
-/// an anchor/alias, else `None` (the editor then reports the location is not renameable).
+/// The name range + placeholder when `position` is on an anchor/alias, else `None`.
 #[must_use]
 pub fn prepare_rename(
     text: &str,
@@ -97,15 +88,13 @@ pub fn prepare_rename(
     })
 }
 
-/// For `textDocument/rename`: the edits renaming the anchor/alias at `position` to
-/// `new_name` across its document. `Ok(None)` when `position` is not on an anchor/alias;
-/// `Err` when `new_name` is not a legal anchor name (the server returns it as a request
-/// error, per the LSP spec).
+/// The edits renaming the anchor/alias at `position` to `new_name` across its document.
+/// `Ok(None)` when `position` is not on an anchor/alias.
 ///
 /// # Errors
-/// Returns an error message when `new_name` is empty or contains a control character,
-/// whitespace, or a YAML flow indicator (`,[]{}`), which `ns-anchor-char` forbids (a `:`
-/// is spec-legal and allowed), or when it collides with another anchor in the document.
+/// When `new_name` is empty or contains a control character, whitespace, or a YAML flow
+/// indicator (`,[]{}`), which `ns-anchor-char` forbids (a `:` is spec-legal and allowed),
+/// or when it collides with another anchor in the document.
 pub fn rename_edits(
     text: &str,
     position: Position,
@@ -121,9 +110,8 @@ pub fn rename_edits(
         return Ok(None);
     };
     validate_name(new_name)?;
-    // Renaming onto a name already used by a *different* anchor/alias in this document
-    // would silently rebind aliases (an alias resolves to the nearest preceding anchor of
-    // its name), so reject the collision rather than change the document's meaning.
+    // Renaming onto a name already in this document would silently rebind aliases (each
+    // resolves to the nearest preceding anchor of its name), changing the document's meaning.
     if new_name != target.name
         && occurrences
             .iter()
@@ -147,12 +135,10 @@ pub fn rename_edits(
     Ok(Some(edits))
 }
 
-/// Reject an anchor name that is not a valid `ns-anchor-char*` (YAML 1.2.2 §6.9.2):
-/// `ns-anchor-char` is a non-space printable character excluding the flow indicators
-/// `,[]{}`. So reject control characters (LSP/JSON can carry escaped ones like NUL that
-/// would make the document non-printable), whitespace, and the flow indicators. A `:` is
-/// left allowed — it is spec-legal (granit/the reference parser read `&foo:bar` as the
-/// name `foo:bar`), though the `anchors` rule may then flag it as ambiguous.
+/// Reject a name that is not a valid `ns-anchor-char*` (YAML 1.2.2 §6.9.2: a non-space
+/// printable char excluding the flow indicators `,[]{}`). `:` is left allowed: it is
+/// spec-legal (granit/the reference parser read `&foo:bar` as `foo:bar`), though
+/// `anchors` may then flag it as ambiguous.
 fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("anchor name must not be empty".to_string());

@@ -234,7 +234,7 @@ fn fix_resets_comment_block_at_directive_comment() {
 #[test]
 fn allow_any_open_indent_accepts_comment_at_open_block_level() {
     // The comment aligns with the open `items:` mapping level (0), not the following
-    // sequence content (2): flagged by default, accepted with the option (#259).
+    // sequence content (2): flagged by default, accepted with the option.
     let input = "items:\n  - one\n# boundary\n  - two\n";
     assert_eq!(run(input), vec![Violation { line: 3, column: 1 }]);
     assert!(run_open(input).is_empty(), "open level should be accepted");
@@ -266,8 +266,7 @@ fn allow_any_open_indent_only_accepts_still_open_levels() {
 fn allow_any_open_indent_accepts_compact_mapping_level() {
     // A list-of-mappings: `- key:` opens a mapping at col 4 (after `- `), which is never
     // a line's leading indent, so the open-level stack must record it from the compact
-    // entry. Default flags the comment; the option accepts it (regression for the Codex
-    // P2 finding on PR #289).
+    // entry. Default flags the comment; the option accepts it.
     let input = "items:\n  - key:\n      nested: x\n    # boundary\n  - next\n";
     assert_eq!(run(input), vec![Violation { line: 4, column: 5 }]);
     assert!(
@@ -302,7 +301,7 @@ fn allow_any_open_indent_rejects_scalar_sequence_entry_column() {
 fn allow_any_open_indent_rejects_multiline_scalar_continuation_column() {
     // `key: text` then `  continuation` folds into one plain scalar; col 2 is the
     // scalar's continuation, NOT an open block. The option must not accept a comment
-    // there (adversarial-Codex finding #289 — only the parser can tell this apart).
+    // there (only the parser can tell this apart).
     let input = "key: text\n  continuation\n# boundary\n  # stray\nnext: x\n";
     assert_eq!(run_open(input), vec![Violation { line: 4, column: 3 }]);
 }
@@ -332,7 +331,7 @@ fn allow_any_open_indent_ignores_flow_collection_columns() {
 fn allow_any_open_indent_ignores_implicit_flow_mapping_columns() {
     // The implicit mappings inside `[a: 1, b: 2]` start at a key (no `{`) but are flow
     // children, so their columns are not open levels: a comment aligned to one (col 8,
-    // where `a` sits) is still flagged (adversarial-Codex finding #289).
+    // where `a` sits) is still flagged.
     let input = "items: [a: 1, b: 2]\n        # x\nnext: 3\n";
     assert_eq!(run_open(input), vec![Violation { line: 2, column: 9 }]);
 }
@@ -341,7 +340,7 @@ fn allow_any_open_indent_ignores_implicit_flow_mapping_columns() {
 fn allow_any_open_indent_rejects_url_scalar_entry_column() {
     // A `:` only indicates a mapping when followed by space/EOL, so `- http://example`
     // is a scalar (not a `http:` mapping). Its column must NOT be an open level, else
-    // the option wrongly accepts a stray comment there (adversarial-Codex finding #289).
+    // the option wrongly accepts a stray comment there.
     let input = "items:\n  - http://example\n    # stray\n  - next\n";
     assert_eq!(run_open(input), vec![Violation { line: 3, column: 5 }]);
 }
@@ -349,8 +348,7 @@ fn allow_any_open_indent_rejects_url_scalar_entry_column() {
 #[test]
 fn allow_any_open_indent_accepts_single_quoted_backslash_key() {
     // `\` is literal in a single-quoted scalar, so `'a\'` closes and `'a\': value` is a
-    // mapping opening at col 4. The classifier must not treat `\'` as an escaped quote
-    // (adversarial-Codex finding #289).
+    // mapping opening at col 4. The classifier must not treat `\'` as an escaped quote.
     let input = "items:\n  - 'a\\': value\n    # boundary\n  - next\n";
     assert_eq!(run(input), vec![Violation { line: 3, column: 5 }]);
     assert!(
@@ -362,7 +360,7 @@ fn allow_any_open_indent_accepts_single_quoted_backslash_key() {
 #[test]
 fn allow_any_open_indent_accepts_compact_explicit_key() {
     // An explicit-key entry `- ? key` opens a mapping at col 4 just like `- key:`, so a
-    // comment aligned there is accepted (adversarial-Codex finding #289).
+    // comment aligned there is accepted.
     let input = "items:\n  - ? key\n    # boundary\n  - next\n";
     assert_eq!(run(input), vec![Violation { line: 3, column: 5 }]);
     assert!(

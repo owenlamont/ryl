@@ -42,26 +42,17 @@ use same_file::Handle;
 
 const STDIN_LABEL: &str = "<stdin>";
 
-// Formatted output is built in an owned `Vec<u8>`, whose `io::Write` never errors, so the
-// per-diagnostic writes are `expect`s rather than `?`s that would leave dead error arms.
-// Only the final write to the destination (file/stdout/stderr) is fallible.
+// Writes into an owned `Vec<u8>` cannot fail, so they `expect` rather than leave dead `?`
+// error arms; only the final write to the destination is fallible.
 const OUTPUT_INFALLIBLE: &str =
     "writing diagnostics to an in-memory buffer cannot fail";
 
-// A resolved config that enables no rules would lint nothing while exiting 0 — a
-// silent no-op that almost always means a misconfiguration. The lint commands fail
-// loudly on it (config resolution itself does not, so `--migrate-configs` can still
-// convert a rule-less config, and `--list-files` still answers its file query). ryl
-// is deliberately stricter than yamllint here, which accepts a rule-less config.
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
      least one rule, or use 'extends: default' for the standard rule set";
 
 const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
      config that enables rules, or use 'extends: default' for the standard rule set";
 
-/// Pick the error for a config that would lint nothing: distinguish "no
-/// configuration was found anywhere" from "a configuration was provided/discovered
-/// but enables no rules". Both name `extends: default` as the escape hatch.
 fn no_rules_error(config_found: bool) -> String {
     if config_found {
         NO_RULES_ENABLED_ERROR.to_string()
@@ -123,26 +114,15 @@ fn build_global_cfg(
     }
 }
 
-/// The TOML `[output]` table governing the run, or `None` if no config declares one.
-/// Read from the global config when one was provided (`-c`/`-d`/env), otherwise from the
-/// project config discovered for the inputs (so `ryl .` picks up the project's
-/// `.ryl.toml [output]`). This is a run-level setting, read once rather than per file; a
-/// CLI `--format` overrides whatever it returns.
-///
-/// `[output]` is a single, run-level artifact set, so it is sourced from one config. For a
-/// single root (the usual case) that is unambiguous, and inputs that are subdirectories of
-/// one project share that project's config. A run spanning *separate* projects with their
-/// own differing `[output]` tables takes the first project config discovered along the
-/// inputs (deterministic for a given argument list, but argument-order sensitive); pass
-/// `-c`/`-d` to make the output config explicit when that matters.
+/// The run-level TOML `[output]` table: from the global config when one was provided
+/// (`-c`/`-d`/env), else from the inputs-anchored project config (so `ryl .` picks up the
+/// project's `.ryl.toml [output]`). A run spanning separate projects takes the first project
+/// config discovered along the inputs (argument-order sensitive); pass `-c`/`-d` to fix it.
 ///
 /// # Errors
 ///
-/// Propagates a config discovery/parse/validation error from the inputs-anchored project
-/// config. With lintable files present this is the same config the per-file path also
-/// reports on; the value here is the empty-input case, where no per-file discovery runs,
-/// so a malformed run config (e.g. an invalid `[output]`) is surfaced rather than silently
-/// ignored — and a CI step relying on a configured report is not left without one.
+/// Propagates a config discovery/parse/validation error. The empty-input case has no per-file
+/// discovery, so a malformed `[output]` is surfaced here rather than silently ignored.
 fn run_output_config(
     global_cfg: Option<&ConfigContext>,
     inputs: &[PathBuf],
@@ -204,8 +184,8 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         );
     }
     // Per-trigger "nothing migrated" feedback, reported independently so a combined run
-    // still surfaces an empty trigger even when the other produced entries. The single
-    // user-global entry (if any) is identified by its source path; the rest are project.
+    // surfaces an empty trigger even when the other produced entries. The user-global entry
+    // (if any) is identified by its source path; the rest are project.
     let user_source = user_config.as_ref().map(|user| user.source.as_path());
     if let Some(root) = &project_root {
         let project_migrated = result
@@ -254,16 +234,15 @@ enum CliFormat {
     name = "ryl",
     version,
     about = "Fast YAML linter written in Rust",
-    // Shared `--migrate-*` sub-flags require at least one migration trigger; either
-    // `--migrate-configs` (project tree) or `--migrate-user-config` (user-global) works.
+    // The `--migrate-*` sub-flags require at least one migration trigger.
     group(clap::ArgGroup::new("migrate_mode")
         .args(["migrate_configs", "migrate_user_config"])
         .multiple(true))
 )]
-// `ryl server` (the LSP) is the only subcommand; bare `ryl <paths>` still lints, so the
-// lint args and the subcommand are mutually exclusive.
+// `server` is the only subcommand; bare `ryl <paths>` still lints, so lint args and the
+// subcommand are mutually exclusive.
 #[cfg_attr(feature = "lsp", command(args_conflicts_with_subcommands = true))]
-// CLI flags are independent user-facing toggles, not state better modeled as an enum.
+// These are independent toggles, not state better modeled as an enum.
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
     /// One or more paths: files and/or directories, or `-` to read from stdin
@@ -299,10 +278,9 @@ struct Cli {
     )]
     output_file: Vec<PathBuf>,
 
-    // These print-and-exit meta-actions ignore every other input/flag; mark them
-    // `exclusive` so combining them with a lint/fix/format request is a usage error
-    // rather than a silent no-op. `--migrate-configs` is deliberately not exclusive
-    // (it combines with its `requires`-bound `--migrate-*` sub-flags and a root path).
+    // These print-and-exit meta-actions are `exclusive` so combining them with a lint/fix
+    // request is a usage error. `--migrate-configs` is not exclusive: it combines with its
+    // `requires`-bound `--migrate-*` sub-flags and a root path.
     /// Print the JSON Schema for ryl TOML config and exit
     #[arg(
         long = "print-toml-config-schema",
@@ -347,10 +325,8 @@ struct Cli {
     command: Option<Commands>,
 }
 
-/// Subcommands. None (bare `ryl <paths>`) lints, preserving the historical flat CLI.
-/// As with any subcommand-based CLI (cargo, ruff), the bare token `server` resolves to
-/// this subcommand rather than a path of that name; lint such a path as `ryl ./server`
-/// or `ryl server/` (only the exact bare `server` collides, and it matches no yaml glob).
+/// Subcommands; none (bare `ryl <paths>`) lints. The bare token `server` resolves to this
+/// subcommand, so lint a path of that name as `ryl ./server` or `ryl server/`.
 #[cfg(feature = "lsp")]
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
@@ -455,8 +431,7 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    /// Streaming formats emit one line per diagnostic as files are visited; the
-    /// whole-document formats (junit/gitlab) buffer every diagnostic and serialize once.
+    /// Streaming formats emit per diagnostic; junit/gitlab buffer all and serialize once.
     const fn is_streaming(self) -> bool {
         matches!(
             self,
@@ -465,7 +440,6 @@ impl OutputFormat {
     }
 }
 
-/// Where one output is written.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Destination {
     Stdout,
@@ -473,15 +447,11 @@ enum Destination {
     File(PathBuf),
 }
 
-/// One resolved output: a format and where it goes. The unit both the CLI
-/// (`--format` + paired `--output-file`) and the TOML `[output]` table resolve to.
 struct OutputTarget {
     format: OutputFormat,
     destination: Destination,
 }
 
-/// A format's destination when none is given: console formats go to stderr (unchanged),
-/// the whole-document report formats to stdout so they can be piped/redirected.
 fn default_destination(format: OutputFormat) -> Destination {
     if format.is_streaming() {
         Destination::Stderr
@@ -490,15 +460,14 @@ fn default_destination(format: OutputFormat) -> Destination {
     }
 }
 
-/// Resolve the `--format`/`--output-file` occurrences into output targets, pairing each
-/// `--output-file` with the most recent `--format` (RuboCop/Biome style). `-` means stdout.
-/// Returns an empty vec when no `--format` was given (the caller then falls back to config
-/// `[output]` or the default). Relies on clap arg indices to recover CLI order.
+/// Resolve `--format`/`--output-file` into targets, pairing each `--output-file` with the
+/// most recent `--format` (`-` means stdout), recovering CLI order via clap arg indices.
+/// Empty when no `--format` was given, so the caller falls back to config `[output]`.
 ///
 /// # Errors
 ///
-/// Returns a usage error for an `--output-file` with no preceding `--format`, or a second
-/// `--output-file` bound to the same `--format`.
+/// Usage error for an `--output-file` with no preceding `--format`, or a second one bound to
+/// the same `--format`.
 fn resolve_cli_targets(
     matches: &ArgMatches,
     cli: &Cli,
@@ -521,7 +490,6 @@ fn resolve_cli_targets(
     }
     occurrences.sort_by_key(|(index, _)| *index);
 
-    // Build (format, explicit destination?) pairs in CLI order; fill defaults at the end.
     let mut pending: Vec<(OutputFormat, Option<Destination>)> = Vec::new();
     for (_, occurrence) in occurrences {
         match occurrence {
@@ -554,10 +522,8 @@ fn resolve_cli_targets(
         .collect())
 }
 
-/// The output targets for a run, in precedence order CLI > config > default: the CLI
-/// `--format`/`--output-file` pairs when any `--format` was given, otherwise the TOML
-/// `[output]` table from the run's config when it declares any target, otherwise the
-/// single default target (the auto-detected console format on its default stream).
+/// The run's output targets, precedence CLI > config > default: the CLI `--format` pairs,
+/// else the config `[output]` table, else the default auto-console target.
 ///
 /// # Errors
 ///
@@ -583,10 +549,9 @@ fn resolve_targets(
     }])
 }
 
-/// Resolve a TOML `[output]` table into targets, one per declared format, in
-/// `OutputTable::entries` order (deterministic output and stream-conflict reporting). Each
-/// entry's name maps to its `CliFormat` (the table field names are exactly the `--format`
-/// value names), so `auto` is env-resolved like the CLI's `--format auto`.
+/// One target per declared format, in `OutputTable::entries` order (deterministic). Table
+/// field names are exactly the `--format` value names (so the `from_str` cannot fail), and
+/// `auto` is env-resolved like `--format auto`.
 fn config_targets_from_table(table: &OutputTable) -> Vec<OutputTarget> {
     table
         .entries()
@@ -600,8 +565,6 @@ fn config_targets_from_table(table: &OutputTable) -> Vec<OutputTarget> {
         .collect()
 }
 
-/// One config output entry to a target: `path` absent uses the format's default stream,
-/// `"-"` is stdout, anything else is a file path.
 fn config_target(choice: CliFormat, destination: &OutputDestination) -> OutputTarget {
     let format = detect_output_format(choice);
     let destination = match destination.path.as_deref() {
@@ -635,22 +598,21 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
     }
 }
 
-/// An opened output destination. A file is opened with create+write but **not** truncate,
-/// so its current contents survive until [`OutputSink::commit`] truncates and rewrites it —
-/// a later target failing to open then cannot destroy an *existing* artifact (a freshly
-/// created one may be left empty if a later target aborts the run; see [`open_destination`]).
+/// An opened output destination. A file is opened create+write but **not** truncate, so its
+/// contents survive until [`OutputSink::commit`] truncates and rewrites it: a later target
+/// failing to open then cannot destroy an existing artifact (a freshly created one may be
+/// left empty if a later target aborts; see [`open_destination`]).
 enum OutputSink {
-    /// stdout or stderr (a console stream; written and flushed as-is).
+    /// stdout or stderr, written and flushed as-is.
     Stream(Box<dyn Write>),
     /// A `--output-file` target, truncated then written at commit time.
     File(File),
 }
 
 impl OutputSink {
-    /// Write `bytes` as this sink's complete contents: a stream is written then flushed; a
-    /// file is truncated (clearing any prior artifact) then written from the start and
-    /// flushed. The single fallible step of the output pipeline (rendering is infallible,
-    /// see [`OUTPUT_INFALLIBLE`]); the write/flush are chained into one coverable error.
+    /// Write `bytes` as this sink's complete contents (a file is truncated first, clearing
+    /// any prior artifact). The only fallible output step (rendering is infallible, see
+    /// [`OUTPUT_INFALLIBLE`]); write and flush are chained into one coverable error.
     fn commit(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         match self {
             Self::Stream(writer) => {
@@ -664,15 +626,11 @@ impl OutputSink {
     }
 }
 
-/// Open one destination for writing: stdout, stderr, or a file. A file is opened with
-/// create+write but **not** truncate, so an unopenable `--output-file` fails fast (before
-/// `--fix` mutates anything) yet an existing destination's contents survive until
-/// [`OutputSink::commit`] truncates and rewrites it — a later target failing to open then
-/// cannot destroy an existing artifact. (A *freshly*-created destination is left in place,
-/// possibly empty, if a later target/collision aborts the run: cleaning it up by path would
-/// race a concurrent writer at that path, so the empty artifact is left for the failed run
-/// — gate CI artifact use on the exit code.) Console diagnostics are the only thing routed
-/// here; notices, `--fix` summaries, and skip messages always stay on stderr.
+/// Open one destination for writing. A file is opened create+write but **not** truncate, so
+/// an unopenable `--output-file` fails fast (before `--fix` mutates anything) yet an existing
+/// destination survives until [`OutputSink::commit`] rewrites it. A freshly-created
+/// destination may be left empty if a later target/collision aborts the run (cleaning it by
+/// path would race a concurrent writer); gate CI artifact use on the exit code.
 ///
 /// # Errors
 ///
@@ -700,11 +658,10 @@ fn open_destination(destination: &Destination) -> Result<OutputSink, String> {
     }
 }
 
-/// Open every target's destination up front (so an unopenable `--output-file` fails before
-/// `--fix` mutates any source), then reject two outputs that resolve to the same file. The
-/// collision check runs after opening, so each destination exists and `same_file::Handle`
-/// resolves it through an existing symlink/hard link / aliased parent. Returns the sinks in
-/// target order.
+/// Open every destination up front (so an unopenable `--output-file` fails before `--fix`
+/// mutates any source), then reject two outputs resolving to the same file. The collision
+/// check runs after opening so `same_file::Handle` can resolve symlink/hard link/aliased
+/// parents.
 ///
 /// # Errors
 ///
@@ -719,8 +676,8 @@ fn open_targets(targets: &[OutputTarget]) -> Result<Vec<OutputSink>, String> {
     Ok(sinks)
 }
 
-/// Render `records` for each target and write the bytes to that target's (already-opened)
-/// sink. Report entries are built once and shared across any report targets.
+/// Render `records` for each target and write to its sink. Report entries are built once and
+/// shared across any report targets.
 ///
 /// # Errors
 ///
@@ -743,9 +700,8 @@ fn write_targets(
     Ok(())
 }
 
-/// Open every target's destination, then render and write `records` to each. The combined
-/// open+write step for paths without a `--fix` ordering constraint (the empty-input and
-/// stdin cases); the `--fix` path opens early via [`open_targets`] instead.
+/// Open then render and write `records` to each target. For paths with no `--fix` ordering
+/// constraint (empty-input and stdin); the `--fix` path opens early via [`open_targets`].
 ///
 /// # Errors
 ///
@@ -758,9 +714,8 @@ fn emit_targets(
     write_targets(targets, &mut sinks, records)
 }
 
-/// Render `records` to bytes in `format`. The streaming formats append per-file blocks;
-/// the report formats serialize the pre-built `entries` (always `Some` when a report
-/// target is present, see [`write_targets`]).
+/// Render `records` to bytes in `format`. The report arms serialize the pre-built `entries`,
+/// always `Some` when a report target is present (see [`write_targets`]).
 fn render_target(
     format: OutputFormat,
     records: &[FileRecord],
@@ -776,15 +731,13 @@ fn render_target(
     }
 }
 
-// Report entries are built whenever any target uses a report format, so the Junit/Gitlab
-// arms of `render_target` only ever see `Some`; the `expect` documents that invariant
-// rather than leaving an uncovered `None` arm.
+// A report target means entries are built, so the junit/gitlab arms only see `Some`; the
+// `expect` pins that invariant rather than leaving an uncovered `None` arm.
 const REPORT_ENTRIES_BUILT: &str =
     "report entries are built when a report target is present";
 
-/// Append every record's per-file block to an owned buffer using `append`, skipping clean
-/// files (no error, no kept diagnostics) — the streaming formats print nothing for those.
-/// A processing-error record contributes its (already-sanitized) message line.
+/// Append each record's per-file block via `append`, skipping clean files; a processing-error
+/// record contributes its (already-sanitized) message line.
 fn render_streaming(
     records: &[FileRecord],
     append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
@@ -801,8 +754,7 @@ fn render_streaming(
 }
 
 /// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
-/// relative display path. Clean files become passing `JUnit` testcases / are omitted by
-/// `GitLab`; the report emitters decide.
+/// relative display path; the report emitters decide how to render a clean file.
 fn build_entries(records: &[FileRecord], project_root: &Path) -> Vec<ReportEntry> {
     records
         .iter()
@@ -814,7 +766,6 @@ fn build_entries(records: &[FileRecord], project_root: &Path) -> Vec<ReportEntry
         .collect()
 }
 
-/// The `--output-file` paths among `targets` (a stdout/stderr destination has none).
 fn output_file_paths(targets: &[OutputTarget]) -> impl Iterator<Item = &Path> {
     targets
         .iter()
@@ -824,26 +775,24 @@ fn output_file_paths(targets: &[OutputTarget]) -> impl Iterator<Item = &Path> {
         })
 }
 
-/// File-independent guards on the resolved targets: `--diff` cannot pair with a report
-/// format, and at most one target may write to each console stream (two would interleave).
-/// The same-file collision guard needs the files opened (so symlinked parents resolve), so
-/// it lives in [`open_targets`] rather than here.
+/// File-independent target guards: `--diff` cannot pair with a report format, and at most one
+/// target per console stream. The same-file collision guard needs the files opened (so
+/// symlinked parents resolve), so it lives in [`open_targets`] instead.
 ///
 /// # Errors
 ///
 /// Returns a usage error for any of the conflicts above.
 fn validate_targets(targets: &[OutputTarget], diff: bool) -> Result<(), String> {
     if diff {
-        // `--diff` emits only its own unified diff and ignores output formatting, so no
-        // target is ever rendered on the diff path: the stream-uniqueness and file-collision
-        // checks do not apply, and the sole conflict is an explicit report format.
+        // `--diff` renders no target (it emits only its own diff), so stream-uniqueness and
+        // file-collision do not apply: the sole conflict is an explicit report format.
         return reject_diff_report_conflict(targets);
     }
     reject_duplicate_streams(targets)
 }
 
-/// `--diff` with a whole-document report format is a usage error: the report would never be
-/// produced (the diff path emits only its patch), so the combination signals confusion.
+/// `--diff` with a report format is a usage error: the diff path emits only its patch, so the
+/// report would never be produced.
 fn reject_diff_report_conflict(targets: &[OutputTarget]) -> Result<(), String> {
     if targets.iter().any(|target| !target.format.is_streaming()) {
         return Err(
@@ -854,8 +803,7 @@ fn reject_diff_report_conflict(targets: &[OutputTarget]) -> Result<(), String> {
     Ok(())
 }
 
-/// At most one target may write to stdout (`-`) and one to stderr; two whole-document
-/// reports interleaved on one stream produce an unparsable artifact.
+/// At most one target per stream; two reports interleaved on one stream are unparsable.
 fn reject_duplicate_streams(targets: &[OutputTarget]) -> Result<(), String> {
     let (mut stdout, mut stderr) = (false, false);
     for target in targets {
@@ -882,10 +830,9 @@ fn reject_duplicate_streams(targets: &[OutputTarget]) -> Result<(), String> {
     Ok(())
 }
 
-/// A path's identity for collision checks: its lexical absolute form (which also covers a
-/// not-yet-created destination) plus, for a path that already exists, its underlying file
-/// identity via `same_file::Handle`. The shared comparison behind both the output-output
-/// and the output-input collision guards.
+/// A path's identity for collision checks: its lexical absolute form (covering a
+/// not-yet-created destination) plus, when it exists, its file identity via
+/// `same_file::Handle`. Shared by the output-output and output-input collision guards.
 struct PathIdentity<'a> {
     display: &'a Path,
     abs: PathBuf,
@@ -901,20 +848,18 @@ impl<'a> PathIdentity<'a> {
         }
     }
 
-    /// Whether `self` and `other` resolve to the same file: lexically equal, or — when
-    /// `self` exists — the same underlying file (so a symlink or hard link is caught).
+    /// Whether `self` and `other` are lexically equal or (when `self` exists) the same
+    /// underlying file, so a symlink or hard link is caught.
     fn same_file(&self, other: &PathIdentity) -> bool {
         self.abs == other.abs || (self.handle.is_some() && self.handle == other.handle)
     }
 }
 
-/// No two `--output-file` targets may resolve to the same file: the second's write would
-/// clobber the first's report. Called from [`open_targets`] *after* the destinations are
-/// opened, so each exists and `same_file::Handle` resolves it through an existing
-/// symlink/hard link or an aliased parent directory (a lexical comparison alone would miss
-/// two distinct paths pointing at one file). A destination whose existing file is not
-/// readable (mode without read permission) cannot be identity-checked and is matched only
-/// lexically — an adversarial, non-real-world case for a report path.
+/// No two `--output-file` targets may resolve to the same file (the second would clobber the
+/// first). Called from [`open_targets`] after opening, so `same_file::Handle` resolves a
+/// shared symlink/hard link/aliased parent that a lexical comparison alone would miss. An
+/// existing file without read permission cannot be identity-checked and is matched lexically
+/// only: an adversarial, non-real-world case.
 fn reject_colliding_output_files(targets: &[OutputTarget]) -> Result<(), String> {
     let outputs: Vec<PathIdentity> =
         output_file_paths(targets).map(PathIdentity::of).collect();
@@ -932,16 +877,14 @@ fn reject_colliding_output_files(targets: &[OutputTarget]) -> Result<(), String>
     Ok(())
 }
 
-/// Refuse any `--output-file` target whose path matches a linted input, so a report can
-/// never truncate the source it just linted (or, with `--fix`, the freshly-fixed file).
-/// Uses the same lexical + file-identity match as [`reject_colliding_output_files`], so an
-/// `-o` that is a symlink *or* a hard link onto an input is caught. The output identities
-/// are computed once and reused across all inputs.
+/// Refuse an `--output-file` matching a linted input, so a report can never truncate the
+/// source it just linted (or, with `--fix`, the freshly-fixed file). Uses the same lexical +
+/// file-identity match as [`reject_colliding_output_files`], catching a symlink or hard link
+/// onto an input.
 ///
 /// # Errors
 ///
-/// Returns a usage error when an output path resolves to one of the `inputs` (for stdin,
-/// the single `--stdin-filename`/label entry).
+/// Returns a usage error when an output path resolves to one of the `inputs`.
 fn reject_input_collisions<'a>(
     targets: &[OutputTarget],
     inputs: impl Iterator<Item = &'a Path>,
@@ -965,12 +908,11 @@ fn reject_input_collisions<'a>(
     Ok(())
 }
 
-/// The project root that report paths are made relative to: `CI_PROJECT_DIR` when set
-/// (matching ruff's GitLab integration), otherwise `.` (which `lexical_abspath` resolves
-/// to the working directory). Computed once per run, not per file.
+/// The project root report paths are made relative to: `CI_PROJECT_DIR` when set (matching
+/// ruff), otherwise `.`.
 fn report_project_root() -> PathBuf {
-    // An empty `CI_PROJECT_DIR` (set but blank, e.g. a misconfigured CI) is treated as
-    // unset: an empty path would panic `lexical_abspath`, and `.` resolves to the cwd.
+    // A blank `CI_PROJECT_DIR` is treated as unset: an empty path would panic
+    // `lexical_abspath`, and `.` resolves to the cwd.
     std::env::var_os("CI_PROJECT_DIR")
         .filter(|dir| !dir.is_empty())
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
@@ -999,10 +941,9 @@ fn supports_color() -> bool {
 }
 
 fn main() -> ExitCode {
-    // `get_matches` parses (handling `--help`/`--version`/usage errors by exiting) and
-    // keeps the `ArgMatches` so `resolve_cli_targets` can recover the CLI order of the
-    // repeatable `--format`/`--output-file` pairs via `indices_of`; `from_arg_matches`
-    // then builds the typed `Cli` from those same matches (infallible here).
+    // Keep the `ArgMatches` so `resolve_cli_targets` can recover the CLI order of the
+    // repeatable `--format`/`--output-file` pairs via `indices_of`; `from_arg_matches` then
+    // builds the typed `Cli` from the same matches.
     let matches = Cli::command().get_matches();
     let cli =
         Cli::from_arg_matches(&matches).expect("Cli parses from its own ArgMatches");
@@ -1010,9 +951,8 @@ fn main() -> ExitCode {
     match run_cli(&cli, &matches) {
         Ok(code) => code,
         Err(err) => {
-            // Usage/config errors embed user-controlled paths and config values;
-            // sanitize so a crafted filename or value cannot inject control
-            // sequences or a CI workflow command.
+            // Sanitize: errors embed user-controlled paths/values that could otherwise
+            // inject control sequences or a CI workflow command.
             eprintln!("{}", sanitize_control(&err));
             ExitCode::from(2)
         }
@@ -1025,8 +965,7 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Ok(ryl::lsp::run());
     }
 
-    // A pure meta-action that ignores every other input/flag, like the
-    // schema-print flags below; clap_complete derives the script from `Cli`.
+    // A meta-action that ignores every other input/flag, like the schema-print flags below.
     if let Some(shell) = cli.generate_completions {
         clap_complete::generate(
             shell,
@@ -1051,10 +990,8 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return run_migration(cli);
     }
 
-    // Output targets are resolved on the lint path (the meta-actions above ignore
-    // formatting), inside `run_lint`/`run_stdin_lint` where the run's config — and thus a
-    // TOML `[output]` fallback — is known. `matches` carries the CLI arg indices needed to
-    // order-pair `--format` with `--output-file`.
+    // Output targets are resolved inside `run_lint`/`run_stdin_lint`, where the run's config
+    // (and thus a TOML `[output]` fallback) is known; `matches` carries the arg indices.
     run_lint(cli, matches)
 }
 
@@ -1089,7 +1026,6 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         );
     }
 
-    // Build a global config if -d/-c provided or env var set; else None for per-file discovery.
     let mut global_cfg = build_global_cfg(&cli.inputs, cli)?;
     if cli.lint.markdown
         && let Some(ctx) = global_cfg.as_mut()
@@ -1104,12 +1040,8 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     }
     let inputs = &cli.inputs;
 
-    // Determine files to parse from mixed inputs.
-    // - Directories: recursively gather only .yml/.yaml
-    // - Files: include as-is (even if extension isn't yaml)
     let (candidates, explicit_files) = gather_inputs(inputs);
 
-    // Filter directory candidates via ignores, respecting global vs per-file behavior.
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
     let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)> = Vec::new();
@@ -1130,14 +1062,9 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    // Resolve output targets now that the run's config is known: a TOML `[output]` table
-    // is read from the global config (`-c`/`-d`/env) or the project config governing the
-    // inputs, so `ryl .` honors a project's `.ryl.toml [output]`. A CLI `--format`
-    // overrides it. (`list_files`/`migrate` above are exempt, like the no-rules check.)
-    // `--diff` previews fixes and has its own unified-diff output; it ignores output
-    // formatting, so a config `[output]` report target must not block it. Only an
-    // explicit CLI `--format junit|gitlab` conflicts with `--diff` (caught by
-    // `validate_targets` via the CLI-derived targets, which are read regardless).
+    // `--diff` has its own unified-diff output, so skip config `[output]`: a config report
+    // target must not block it. An explicit CLI `--format junit|gitlab` still conflicts via
+    // the CLI-derived targets `validate_targets` reads regardless.
     let output_config = if cli.lint.fix.diff {
         None
     } else {
@@ -1147,13 +1074,11 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     validate_targets(&targets, cli.lint.fix.diff)?;
     let targets = &targets;
 
-    // Refuse an --output-file that resolves to a linted input: writing the report there
-    // would truncate the source we just linted (and, with --fix, the freshly-fixed file).
     reject_input_collisions(targets, files.iter().map(|(path, ..)| path.as_path()))?;
 
     if files.is_empty() {
-        // A clean or fully-ignored project still gets a valid empty report per target, so
-        // CI artifact ingestion sees `[]` / `<testsuites .../>` rather than a missing file.
+        // Still emit a valid empty report per target, so CI artifact ingestion sees
+        // `[]` / `<testsuites .../>` rather than a missing file.
         emit_targets(targets, &[])?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -1169,9 +1094,8 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     lint_and_exit(&files, cli, targets)
 }
 
-/// Open every output destination (before `--fix` mutates anything, so an unopenable
-/// `--output-file` fails fast), apply fixes if requested, lint, render each target's
-/// format, write it, print the `--fix` summary, and map the tally to an exit code.
+/// Open destinations before `--fix` mutates anything (so an unopenable `--output-file` fails
+/// fast), then fix/lint/write and map the tally to an exit code.
 ///
 /// # Errors
 ///
@@ -1207,8 +1131,8 @@ fn lint_and_exit(
     Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
 }
 
-/// Run the initial lint, apply safe fixes in place, and report any files skipped
-/// because they do not parse. Returns the pre-fix problem count for the fix summary.
+/// Apply safe fixes in place and report any files skipped (they do not parse), returning the
+/// pre-fix problem count for the summary.
 ///
 /// # Errors
 ///
@@ -1236,9 +1160,8 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
     }
 }
 
-/// Stderr notice for a file `--fix`/`--diff` left untouched (it does not parse, is a
-/// symlink, or is non-UTF-8): `<path>:L:C skipped by <action>: <message>`. Both path and
-/// message are user-controlled, so both are sanitized; `action` is the literal flag name.
+/// Stderr notice for a file `--fix`/`--diff` left untouched. Path and message are
+/// user-controlled, so both are sanitized; `action` is the literal flag name.
 fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
     eprintln!(
         "{}:{}:{} skipped by {action}: {}",
@@ -1252,9 +1175,7 @@ fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
 fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files, config_found) = resolve_stdin_ctx(cli)?;
 
-    // The stdin config's `[output]` defines the run targets (a CLI `--format` overrides).
-    // As in `run_lint`, `--diff` ignores config `[output]` so a config report can't block
-    // it; an explicit CLI `--format junit|gitlab` still conflicts via the CLI targets.
+    // As in `run_lint`, `--diff` skips config `[output]` so a config report can't block it.
     let config_output = if cli.lint.fix.diff {
         None
     } else {
@@ -1264,8 +1185,6 @@ fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     validate_targets(&targets, cli.lint.fix.diff)?;
     let targets = &targets;
 
-    // The stdin content is labelled by `--stdin-filename`; refuse writing the report to
-    // that same path so it cannot truncate the file the label names.
     reject_input_collisions(targets, std::iter::once(path.as_path()))?;
 
     let Some(kind) = resolve_stdin_kind(cli, &cfg, &path, &base_dir, apply_yaml_files)?
@@ -1302,9 +1221,8 @@ fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
 }
 
 /// Resolve the source kind for stdin, or `None` to skip an ignored `--stdin-filename`.
-/// `--markdown` forces Markdown; otherwise, with `--stdin-filename` the kind comes
-/// from `[files]` globs (a named file matching no kind is an error, like an
-/// explicitly-passed file), and without one the input is linted as YAML.
+/// `--markdown` forces Markdown; with `--stdin-filename` the kind comes from `[files]` globs
+/// (no match is an error); without one the input is YAML.
 fn resolve_stdin_kind(
     cli: &Cli,
     cfg: &YamlLintConfig,
@@ -1323,8 +1241,7 @@ fn resolve_stdin_kind(
     }
     match cfg.source_kind(path, base_dir)? {
         Some(kind) => Ok(Some(kind)),
-        // A named stdin file that matches no kind is an error, the same as an
-        // explicitly-passed file (see `gather_lint_files`).
+        // No-kind match is an error, like an explicitly-passed file (see `gather_lint_files`).
         None => Err(format!(
             "{}: no source kind matches; add a matching glob under \
              [files].yaml or [files].markdown",
@@ -1334,8 +1251,7 @@ fn resolve_stdin_kind(
 }
 
 /// Read and decode stdin. The bool is whether the bytes were plain UTF-8 (no BOM, no
-/// transcode), i.e. whether a textual `--diff` of the decoded content would apply back
-/// to the original bytes; `read_and_lint_stdin` ignores it.
+/// transcode), i.e. whether a textual `--diff` would apply back to the original bytes.
 fn read_stdin_decoded(path: &Path) -> Result<(String, bool), String> {
     let mut buf = Vec::new();
     std::io::stdin()
@@ -1371,8 +1287,8 @@ fn run_stdin_diff(
     if plain_utf8 {
         stats.record(path, diff_outcome(&content, cfg, path, base_dir, kind));
     } else {
-        // Same reason as the file path: the decoded-UTF-8 diff would not apply to the
-        // BOM'd/transcoded source, so skip rather than emit a patch that won't apply.
+        // The decoded-UTF-8 diff would not apply to the BOM'd/transcoded source, so skip
+        // rather than emit a patch that won't apply (same as the file path).
         stats
             .skipped
             .push((path.to_path_buf(), ryl::fix::non_utf8_diff_skip()));
@@ -1380,16 +1296,14 @@ fn run_stdin_diff(
     Ok(emit_diff(&stats))
 }
 
-/// Write per-file unified diffs to stdout and parse-skip notices to stderr, returning
-/// the `--diff` exit code: `1` if any file would change, else `0`. Mirrors
-/// `ruff check --diff` — only the diff drives the exit code; remaining (unfixable)
-/// diagnostics are neither printed nor counted here.
+/// Write per-file unified diffs to stdout and parse-skip notices to stderr, returning the
+/// `--diff` exit code: `1` if any file would change, else `0`. Only the diff drives the exit
+/// code; remaining unfixable diagnostics are neither printed nor counted.
 fn emit_diff(stats: &DiffStats) -> ExitCode {
     for (path, problem) in &stats.skipped {
         eprint_skip_notice(path, problem, "--diff");
     }
-    // Each diff already carries the trailing newline similar emits, so concatenating
-    // and printing once keeps stdout a clean sequence of `--- / +++ / @@` blocks.
+    // Each diff already carries its trailing newline, so concatenate and print once.
     let mut rendered = String::new();
     for diff in &stats.diffs {
         rendered.push_str(diff);
@@ -1456,20 +1370,16 @@ fn gather_lint_files(
     emitted_notices: &mut HashSet<String>,
     files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)>,
 ) -> Result<Option<bool>, String> {
-    // `config_found` of the first selected file that enables no rules, so a run that
-    // would lint nothing reports the right message *for that file* — "no config
-    // found" vs "config enables no rules" — even when other files did find a config.
-    // `None` means every selected file enables at least one rule.
+    // `config_found` of the first selected file that enables no rules, so a no-rules run
+    // reports the right message for that file ("no config found" vs "config enables no
+    // rules"). `None` means every selected file enables at least one rule.
     let mut ruleless_config_found = None;
-    // De-duplicate selected files across the walk and explicit args; without this a
-    // file listed twice is linted twice (and `--diff` would emit a duplicate patch
-    // block that fails to apply on the second copy). Unlike yamllint, which keeps
-    // duplicates.
+    // De-duplicate across the walk and explicit args, so a file listed twice is linted once
+    // (and `--diff` does not emit a duplicate patch block that fails to apply).
     let mut seen: HashSet<PathBuf> = HashSet::new();
-    // Directory candidates first (a file matching no source kind is silently skipped),
-    // then explicit args (a no-kind file is a hard error, since the user named it);
-    // `explicit` selects which. `seen` spans both, so a file reached via the walk and
-    // also named on the command line is linted exactly once, in walk order.
+    // Directory candidates first (a no-kind file is silently skipped), then explicit args (a
+    // no-kind file is a hard error, since the user named it); `explicit` selects which.
+    // `seen` spans both, so a file reached both ways is linted once, in walk order.
     let tagged = candidates
         .iter()
         .map(|path| (path, false))
@@ -1508,21 +1418,18 @@ fn gather_lint_files(
     Ok(ruleless_config_found)
 }
 
-/// One linted file's filtered outcome, format-agnostic: a borrowed source path plus
-/// either its kept diagnostics or a single processing-error message (mutually exclusive,
-/// a clean file has neither). Each output target renders the same records its own way
-/// ([`render_target`]), so the filter+tally pass below runs exactly once regardless of how
-/// many targets a run has.
+/// One linted file's format-agnostic outcome: kept diagnostics or a processing-error message
+/// (mutually exclusive; a clean file has neither). Every target renders the same records, so
+/// the filter+tally pass runs once.
 struct FileRecord<'a> {
     path: &'a Path,
     kept: Vec<LintProblem>,
     error: Option<String>,
 }
 
-/// Filter and tally every lint result into format-agnostic [`FileRecord`]s in file order.
-/// The returned [`LintSummary`] (and thus the exit code) is independent of which formats
-/// the records are later rendered to. `no_warnings` drops warning-level diagnostics before
-/// they are kept or counted, exactly as the streaming path used to.
+/// Filter and tally every lint result into [`FileRecord`]s in file order. The returned
+/// [`LintSummary`] (and exit code) is independent of which formats render the records.
+/// `no_warnings` drops warning-level diagnostics before they are kept or counted.
 fn collect_records<'a>(
     files: &'a [(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
@@ -1535,10 +1442,9 @@ fn collect_records<'a>(
         let (path, ..) = &files[idx];
         match outcome {
             Err(message) => {
-                // Error messages embed user-controlled paths/values; sanitize so a
-                // crafted filename cannot inject terminal escapes or (via a newline)
-                // a GitHub workflow command. `sanitize_control` is safe for every
-                // format because it neutralises the newline that injection needs.
+                // Sanitize: a crafted filename could otherwise inject terminal escapes or
+                // (via a newline) a GitHub workflow command. Safe for every format because it
+                // neutralises the newline injection needs.
                 let message = sanitize_control(&message).into_owned();
                 summary.has_error = true;
                 summary.problem_count += 1;
@@ -1600,12 +1506,11 @@ fn pluralize(singular: &str, count: usize) -> &str {
     if count == 1 { singular } else { "problems" }
 }
 
-// The streaming formats append a per-file block to the in-memory output buffer. Each is
-// only reached with a non-empty `problems` slice (the caller skips clean files), and each
-// write is infallible (see `OUTPUT_INFALLIBLE`).
+// The streaming `append_*` fns are only reached with a non-empty `problems` slice (the
+// caller skips clean files), and every write is infallible (see `OUTPUT_INFALLIBLE`).
 
-/// Shared shape of the standard/colored formats: a file `header` line, one `format_line`
-/// per diagnostic, then a trailing blank line.
+/// Shared shape of the standard/colored formats: a `header` line, one `format_line` per
+/// diagnostic, then a trailing blank line.
 fn append_grouped(
     out: &mut Vec<u8>,
     header: &str,
@@ -1689,8 +1594,7 @@ fn format_colored(problem: &LintProblem) -> String {
     line
 }
 
-/// `escaped_file` is the `file=` property value, escaped once per file by the
-/// caller (it is identical for every diagnostic in the same file).
+/// `escaped_file` is the `file=` property value, escaped once per file by the caller.
 fn format_github(problem: &LintProblem, escaped_file: &str) -> String {
     let mut line = format!(
         "::{} file={escaped_file},line={},col={}::{}:{} ",
@@ -1709,8 +1613,7 @@ fn format_github(problem: &LintProblem, escaped_file: &str) -> String {
     line
 }
 
-/// `sanitized_path` is sanitized once per file by the caller (identical for every
-/// diagnostic in the file).
+/// `sanitized_path` is sanitized once per file by the caller.
 fn format_parsable(problem: &LintProblem, sanitized_path: &str) -> String {
     let mut line = format!(
         "{sanitized_path}:{}:{}: [{}] {}",

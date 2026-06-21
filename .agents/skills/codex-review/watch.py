@@ -351,10 +351,8 @@ def main(
             return True
         return False
 
-    # First review on a freshly-opened PR: Codex usually AUTO-starts a review, acked by
-    # a transient eyes reaction on the PR body (no '@codex review' comment). Detect that
-    # before posting so we don't double-trigger it; only fall back to posting if no
-    # auto-start fires within --auto-wait.
+    # Detect the auto-started review before posting so we don't double-trigger it; only fall
+    # back to posting if no auto-start fires within --auto-wait.
     if first_review:
         # Zero the body-thumbs baseline like every other channel: a fresh PR carries no
         # prior Codex output, so any bot thumbs-up on the body IS the auto-review's clean

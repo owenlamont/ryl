@@ -64,8 +64,8 @@ fn fix_never_mutates_unparsable_yaml() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
     // Two root-level flow sequences are not a valid YAML stream. The file also
-    // carries CRLF, trailing spaces and no final newline — each individually
-    // fixable — but `--fix` must leave a non-parsing file byte-for-byte intact.
+    // carries CRLF, trailing spaces and no final newline (each individually
+    // fixable) but `--fix` must leave a non-parsing file byte-for-byte intact.
     let original = "[1,2 ,3]   \r\n[4,5 ,6]";
     fs::write(&file, original).unwrap();
     fs::write(
@@ -90,7 +90,7 @@ fn fix_never_mutates_unparsable_yaml() {
 #[test]
 fn fix_skips_and_reports_unparsable_file_with_undefined_alias() {
     // An undefined alias is not a syntax error in lint (the `anchors` rule reports
-    // it, matching yamllint), but granit cannot resolve it — so the strict `--fix`
+    // it, matching yamllint), but granit cannot resolve it, so the strict `--fix`
     // gate refuses to mutate the file and prints why, rather than silently skipping
     // it or rewriting an invalid document. The CRLF endings are NOT normalized.
     let dir = tempdir().unwrap();

@@ -1,7 +1,6 @@
-// Vendored from saphyr v0.0.6 (`saphyr/src/loader.rs`).
-// Specialized to a single concrete node type (`YamlOwned`) and retargeted at
-// granit-parser's event stream. The original is dual-licensed MIT OR
-// Apache-2.0; ryl ships under MIT.
+// Vendored from saphyr v0.0.6 (`saphyr/src/loader.rs`), specialized to `YamlOwned`
+// and retargeted at granit-parser's event stream. Saphyr is MIT OR Apache-2.0; ryl
+// ships under MIT.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -14,14 +13,7 @@ use super::{core_schema_suffix, is_core_schema};
 use crate::yaml_dom::scalar::Scalar;
 use crate::yaml_dom::yaml_owned::{MappingOwned, YamlOwned};
 
-/// Upper bound on the number of nodes an alias may materialise across a whole
-/// document. granit emits one O(1) `Event::Alias` per alias and never expands;
-/// this loader is what resolves an alias by cloning the referenced subtree, so
-/// nested anchors (`a: &a [..]`, `b: &b [*a, *a, ..]`, …) would otherwise blow up
-/// exponentially — the classic "billion laughs" denial of service. Real configs
-/// (the only input that reaches this loader) expand to at most a few hundred
-/// nodes, so this ceiling is enormous headroom while still bounding a malicious
-/// payload to a fixed, fast-to-reject cost.
+/// Cap on alias-expanded nodes, bounding a billion-laughs payload.
 const MAX_EXPANDED_NODES: usize = 1_000_000;
 
 /// # Errors
@@ -52,8 +44,8 @@ struct Frame {
     container: Container,
     anchor_id: usize,
     tag: Option<Tag>,
-    /// Node count of the children attached so far; the container's own size is
-    /// this plus one (computed in [`Loader::close_frame`]).
+    /// Child node count so far; the container's own size is this plus one
+    /// ([`Loader::close_frame`]).
     size: usize,
 }
 
@@ -63,13 +55,13 @@ struct Loader {
     stack: Vec<Frame>,
     root: Option<YamlOwned>,
     anchor_map: BTreeMap<usize, YamlOwned>,
-    /// Materialised node count of each anchor's value, so an alias can be costed
-    /// in O(1) without walking the (possibly huge) cloned subtree.
+    /// Node count of each anchor's value, so an alias costs O(1) without walking the
+    /// (possibly huge) cloned subtree.
     anchor_sizes: BTreeMap<usize, usize>,
-    /// Running total of nodes produced by alias expansion. Source-built nodes are
-    /// bounded by the input length and are not counted; only clones can multiply.
+    /// Running total of alias-expanded nodes. Source-built nodes are bounded by the
+    /// input length and not counted; only clones can multiply.
     expanded: usize,
-    /// Set to the first location where [`MAX_EXPANDED_NODES`] was exceeded.
+    /// First location where [`MAX_EXPANDED_NODES`] was exceeded.
     overflow: Option<Marker>,
 }
 
@@ -133,9 +125,8 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
                 self.attach(node, 1);
             }
             Event::Alias(id) => {
-                // granit normally rejects unresolved aliases during the scan,
-                // but a linter must never panic on malformed input, so fall
-                // back to `BadValue` rather than relying on that ordering.
+                // granit rejects unresolved aliases during the scan, but a linter must
+                // not panic on malformed input, so fall back to `BadValue`.
                 let size = self.anchor_sizes.get(&id).copied().unwrap_or(1);
                 if self.expanded.saturating_add(size) > MAX_EXPANDED_NODES {
                     self.overflow.get_or_insert(span.start);
@@ -163,18 +154,15 @@ impl Loader {
             size,
         } = frame;
         let self_size = size + 1;
-        // `default_suffix` is the core-schema tag this collection resolves to
-        // implicitly, so an explicit tag equal to it is redundant and dropped.
+        // `default_suffix` is the core tag this collection resolves to implicitly, so
+        // an explicit tag equal to it is redundant and dropped.
         let (node, default_suffix) = match container {
             Container::Sequence(seq) => (YamlOwned::Sequence(seq), "seq"),
             Container::Mapping(map, _) => (YamlOwned::Mapping(map), "map"),
         };
-        // Drop only the collection's own default core tag (`!!map` on a mapping,
-        // `!!seq` on a sequence). A mismatched core tag (`!!seq` on a mapping), an
-        // unknown core suffix (`!!custom`), or a local tag is preserved as `Tagged`
-        // so config validation rejects it instead of silently treating the node as
-        // untyped — mirroring the scalar path, which yields `BadValue` for a core
-        // tag that does not match the value.
+        // Drop only the matching default core tag; a mismatched core tag (`!!seq` on a
+        // mapping), unknown core suffix (`!!custom`), or local tag is kept as `Tagged`
+        // so config validation rejects it rather than treating the node as untyped.
         let node = match tag {
             Some(tag)
                 if core_schema_suffix(&tag).as_deref() == Some(default_suffix) =>

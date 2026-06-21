@@ -1,30 +1,17 @@
-//! `merge-keys` rule &mdash; flags the `<<` merge key (issue #256).
+//! `merge-keys` rule (off by default): flags the `<<` merge key, removed in YAML 1.2.
 //!
-//! The merge key is a YAML 1.1 type (yaml.org/type/merge.html): `<<: *base`
-//! splices the keys of the mapping `*base` resolves to into the current mapping.
-//! YAML 1.2 removed it &mdash; "The merge `<<` and value `=` special mapping keys
-//! have been removed" (YAML 1.2.2 changes page) &mdash; and ryl resolves scalars
-//! under the YAML 1.2 core schema, where `<<` is an ordinary string key. Whether a
-//! `<<` key performs a merge therefore depends entirely on the parsing library, so
-//! it is a portability trap; this off-by-default rule lets portability-sensitive
-//! repositories forbid it.
+//! Flagged only when YAML would merge on it: an untagged plain `<<`, or any scalar
+//! tagged `!!merge` regardless of text. A quoted `"<<"` is a plain string key that
+//! never merges (verified against `PyYAML` and ruamel.yaml), so it is not flagged. Shared
+//! [`crate::rules::support::merge_key::is_merge_directive`], also used by
+//! `key-duplicates`.
 //!
-//! A key is flagged only when YAML would actually merge on it: an untagged plain
-//! `<<`, or ANY scalar explicitly tagged `!!merge` regardless of its text
-//! (`!!merge foo` merges just like `<<`). This is the shared
-//! [`crate::rules::support::merge_key::is_merge_directive`] definition, also used
-//! by `key-duplicates`. A quoted `"<<"` is a plain string key that never merges
-//! (verified against `PyYAML` and ruamel.yaml) and is the portable way to use the
-//! literal text, so it is not flagged.
+//! Detection covers a scalar key node (every merge key in practice); a merge tag on a
+//! non-scalar key (`!!merge {k: 1}: *base`) is not detected, since the key arrives as a
+//! mapping/sequence event. No safe `--fix`: removing a merge requires inlining the
+//! merged mapping's resolved values (see AGENTS.md "Rules Without A Safe `--fix`").
 //!
-//! Detection covers merge keys whose key node is a *scalar* (every merge key in
-//! practice). A merge tag on a non-scalar key — the pathological
-//! `!!merge {k: 1}: *base` — is not detected, since the key arrives as a
-//! mapping/sequence event rather than a scalar.
-//!
-//! Sources: YAML 1.2.2 changes page; YAML merge type (yaml.org/type/merge.html).
-//! There is no safe `--fix`: removing a merge requires inlining the merged
-//! mapping's resolved values (see AGENTS.md "Rules Without A Safe `--fix`").
+//! Sources: YAML 1.2.2 changes page; yaml.org/type/merge.html.
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 

@@ -1,11 +1,8 @@
-//! `document-end` rule.
+//! `document-end` rule: require (or forbid) the `...` end marker.
 //!
-//! Safety scope for `--fix`: only the `present: true` (default) case is
-//! rewritten, and only for single-document buffers. Multi-document inputs
-//! (those containing further `---`/`...` markers after the first line) are
-//! left alone because correct placement requires per-document end byte
-//! offsets the rule does not record. The `present: false` case — removing
-//! existing `...` markers — is never auto-fixed.
+//! `--fix` rewrites only `present: true` on a single-document buffer: multi-document
+//! inputs need per-document end offsets the rule does not record, and removing `...`
+//! (`present: false`) can collide with document boundaries, so neither is fixed.
 use std::cmp;
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};

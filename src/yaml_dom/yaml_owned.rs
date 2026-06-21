@@ -1,7 +1,6 @@
-// Vendored from saphyr v0.0.6 (`saphyr/src/yaml_owned.rs` + the `YamlOwned`
-// halves of `saphyr/src/macros.rs`). Trimmed to the inspector methods ryl
-// actually uses and re-targeted at indexmap::IndexMap. The original is
-// dual-licensed MIT OR Apache-2.0; ryl ships under MIT.
+// Vendored from saphyr v0.0.6 (`saphyr/src/yaml_owned.rs` + the `YamlOwned` halves of
+// `saphyr/src/macros.rs`), trimmed to the inspector methods ryl uses. Saphyr is MIT
+// OR Apache-2.0; ryl ships under MIT.
 
 use granit_parser::Tag;
 use hashlink::LinkedHashMap;
@@ -10,10 +9,8 @@ use crate::yaml_dom::loader::load_owned_documents;
 use crate::yaml_dom::scalar::ScalarOwned;
 
 pub type SequenceOwned = Vec<YamlOwned>;
-// `LinkedHashMap` keeps saphyr's insertion-order-sensitive `PartialEq`/`Hash`
-// so the derived `Hash` below stays consistent with equality when a mapping is
-// used as a complex key, and the parse-preservation property test keeps its
-// original structural semantics.
+// `LinkedHashMap` keeps saphyr's insertion-order-sensitive `PartialEq`/`Hash`, so the
+// derived `Hash` stays consistent with equality when a mapping is a complex key.
 pub type MappingOwned = LinkedHashMap<YamlOwned, YamlOwned>;
 
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
@@ -26,8 +23,6 @@ pub enum YamlOwned {
 }
 
 impl YamlOwned {
-    /// Parse `source` into a sequence of documents.
-    ///
     /// # Errors
     /// Returns [`granit_parser::ScanError`] when the parser rejects the input.
     pub fn load_from_str(source: &str) -> Result<Vec<Self>, granit_parser::ScanError> {

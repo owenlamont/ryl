@@ -14,8 +14,8 @@ include = [
   "/LICENSE",
   "/README.md",
   "/clippy.toml",
-  # pyproject.toml is required in the maturin-built PyPI sdist so pip can
-  # discover the PEP 517 build backend when installing from source.
+  # Required in the maturin-built sdist so pip can discover the PEP 517 build
+  # backend when installing from source.
   "/pyproject.toml",
   "/rust-toolchain.toml",
   "/rustfmt.toml",
@@ -31,10 +31,9 @@ path = "src/main.rs"
 
 [features]
 default = ["lsp"]
-# The `ryl server` language server. Default-on so release binaries ship it; build
-# with `--no-default-features` to drop the LSP and its dependencies for a minimal
-# linter-only binary. lsp-server exposes crossbeam-channel Sender/Receiver on its
-# Connection, so we depend on crossbeam-channel directly to receive messages.
+# The `ryl server` language server; build `--no-default-features` for a minimal
+# linter-only binary. crossbeam-channel is a direct dep because lsp-server exposes
+# its Sender/Receiver on the Connection.
 lsp = ["dep:lsp-server", "dep:lsp-types", "dep:crossbeam-channel"]
 
 [dependencies]
@@ -64,16 +63,15 @@ lsp-types = { version = "0.97.0", optional = true }
 crossbeam-channel = { version = "0.5", optional = true }
 
 [dev-dependencies]
-# Independent unified-diff applier for the `--diff` round-trip property test: a
-# different implementation than the `similar` crate that produces the diff, so the
-# round-trip validates the output is standard-compliant (what hk relies on).
+# A different diff implementation than `similar` (which produces the diff), so the
+# `--diff` round-trip property test validates the output is standard-compliant.
 diffy = { version = "0.5.0", default-features = false }
 jsonschema = "0.46.2"
 proptest = "1.11.0"
 semver = "1"
 tempfile = "3"
-# Drive the language server from integration tests (the `lsp`-feature tests build
-# and inspect real LSP messages); these mirror the optional runtime deps.
+# Non-optional for the `lsp`-feature integration tests; keep versions matching the
+# optional runtime deps above.
 lsp-server = "0.7.9"
 lsp-types = "0.97.0"
 serde_json = "1.0.149"

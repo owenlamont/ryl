@@ -4,9 +4,9 @@
 //! diff instead of writing it. The invariants here pin that the preview is both
 //! **faithful** and **applicable**, across the safe-fix config matrix:
 //!
-//!  * *faithful* — a diff is emitted exactly when `--fix` would change the file, and
+//!  * *faithful*: a diff is emitted exactly when `--fix` would change the file, and
 //!    a plain YAML file is never both diffed and skipped;
-//!  * *applicable* — the emitted diff, applied by an **independent** implementation
+//!  * *applicable*: the emitted diff, applied by an **independent** implementation
 //!    (`diffy`, not the `similar` crate that produced it), reproduces the fix output
 //!    byte-for-byte. This is the contract a runner like hk relies on when it applies
 //!    the diff itself rather than re-invoking ryl, and it stresses the unified-diff
@@ -198,7 +198,7 @@ proptest! {
 #[test]
 fn known_dirty_yaml_diff_round_trips() {
     // commas (space before `,`) and trailing-spaces both fire, so the "diff present"
-    // branch is exercised on a concrete input — the random property cannot pass
+    // branch is exercised on a concrete input; the random property cannot pass
     // vacuously if the generator drifts.
     let input = "items: [a ,b]  \n";
     assert!(
@@ -211,8 +211,8 @@ fn known_dirty_yaml_diff_round_trips() {
 #[test]
 fn crlf_without_final_newline_diff_round_trips() {
     // CRLF + space-before-comma + no final newline: new-lines (enabled in the matrix)
-    // rewrites CRLF->LF across the whole file, so the diff is a multi-line transform
-    // — the case most likely to expose a malformed/inapplicable unified diff.
+    // rewrites CRLF->LF across the whole file, so the diff is a multi-line transform,
+    // the case most likely to expose a malformed/inapplicable unified diff.
     let input = "a: [1 ,2]\r\nb: [3 ,4]";
     assert!(
         yaml_produces_a_diff(input),
@@ -280,7 +280,7 @@ fn crlf_preserving_config_diff_round_trips_via_diffy() {
 #[test]
 fn bare_cr_as_content_diff_round_trips_via_diffy() {
     // A bare `\r` (not CRLF) mid-content is diffed as line *content* (the `\n`-only
-    // renderer), so the emitted hunk lines stay `\n`-terminated and apply cleanly —
+    // renderer), so the emitted hunk lines stay `\n`-terminated and apply cleanly,
     // the contract `git apply -p0` relies on. trailing-spaces is CR-aware, so it
     // strips the run before the `\r` and before the `\n`; the file ends in `\n`, so
     // it is not the residual trailing-`\r` skip case.

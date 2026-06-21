@@ -6,7 +6,7 @@ use tempfile::tempdir;
 #[test]
 fn unknown_rule_name_is_rejected() {
     // ryl does not support custom/unrecognised rules (matching yamllint): an unknown
-    // rule name — including a typo of a real one — is a config error, not a silent
+    // rule name (including a typo of a real one) is a config error, not a silent
     // no-op. Covers both the YAML and TOML config paths.
     let err = discover_config(
         &[],

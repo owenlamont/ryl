@@ -2,8 +2,8 @@
 //! configurations and render them to YAML and TOML.
 //!
 //! Option values are drawn from curated pools that deliberately mix the valid with
-//! the hostile — invalid regexes (`(`, `(a+)+$`), out-of-range and wrong-typed
-//! scalars, bogus locales — so the parse -> validate -> rule-`resolve()` pipeline is
+//! the hostile (invalid regexes (`(`, `(a+)+$`), out-of-range and wrong-typed
+//! scalars, bogus locales) so the parse -> validate -> rule-`resolve()` pipeline is
 //! exercised with inputs that must produce an error or a clean config, never a
 //! panic. The regex-bearing rules (`key-ordering`, `quoted-strings`) are generated
 //! with their real option keys so generation reaches the `.expect()` calls in their

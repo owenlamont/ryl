@@ -344,9 +344,8 @@ fn directory_scan_overlap_is_a_hard_error() {
     assert!(err.contains("matches both"), "{err}");
 }
 
-// Embedded-markdown regression tests for the rules added in #252-#256: each must
-// fire inside a fenced block with positions remapped to the host markdown file
-// (#277 item 6). ryl-only options go through TOML config.
+// Each ryl-only rule must fire inside a fenced block with positions remapped to
+// the host markdown file. ryl-only options go through TOML config.
 
 #[test]
 fn merge_keys_fires_in_fenced_block() {

@@ -3,7 +3,7 @@
 # dependencies = ["typer", "py-yaml12"]
 # ///
 """Verify ryl's documented per-formatter recipes still coexist cleanly with the latest
-formatters (docs/using-with-formatters.md, issue #186).
+formatters (docs/using-with-formatters.md).
 
 For each recipe (yamlfmt / Prettier / yamlfix) over a small corpus, it runs the joint
 workflow `formatter -> ryl --fix -> formatter ...` to a fixed point and asserts three
@@ -57,25 +57,24 @@ YAMLFIX_VERSION = "1.19.1"
 
 
 # On Windows, conda installs a node-based tool as a `.bat` launcher (e.g. prettier ->
-# prettier.bat) that `pixi exec` cannot spawn directly -- the same PATHEXT/shim limitation
-# that makes a bare `npx` fail under subprocess. Routing every tool through `cmd /c` (always
-# present on Windows) resolves .exe/.bat/.cmd uniformly; POSIX has no shim and no cmd, so it
-# runs the tool directly. The cmd /c branch is correct only while every run-arg is free of
-# spaces and cmd metacharacters (true for the fixed args below; revisit before passing a
-# path or user value through it).
+# prettier.bat) that `pixi exec` cannot spawn directly (the PATHEXT/shim limitation that
+# also makes a bare `npx` fail under subprocess); routing through `cmd /c` resolves
+# .exe/.bat/.cmd uniformly. POSIX has no shim and runs the tool directly. The cmd /c branch
+# is correct only while every run-arg is free of spaces and cmd metacharacters (true for the
+# fixed args below; revisit before passing a path or user value through it).
 _WINDOWS = os.name == "nt"
 
 
 def _pixi_exec(tool: str, version: str, *run_args: str) -> list[str]:
-    # An ephemeral, version-pinned `pixi exec`. Each formatter publishes the pinned version
-    # on conda-forge for linux-64/osx-arm64/win-64, so a single runner covers them all.
+    # Each formatter publishes the pinned version on conda-forge for
+    # linux-64/osx-arm64/win-64, so a single ephemeral `pixi exec` covers every platform.
     prefix = ["pixi", "exec", "--spec", f"{tool}={version}"]
     return [*prefix, "cmd", "/c", *run_args] if _WINDOWS else [*prefix, *run_args]
 
 
-# Version-pinned formatter invocations (operate in-place on work.yaml). yamlfmt defaults to
-# the platform-native line ending (CRLF on Windows), which fights ryl `new-lines = unix` in
-# an endless loop, so pin it to LF -- the docs recipe documents the matching `.yamlfmt`.
+# Version-pinned formatter invocations (operate in-place on work.yaml). yamlfmt's default
+# platform-native line ending (CRLF on Windows) fights ryl `new-lines = unix` in an endless
+# loop, so pin it to LF (the docs recipe documents the matching `.yamlfmt`).
 FORMATTER_CMD = {
     "yamlfmt": _pixi_exec(
         "yamlfmt",
@@ -199,8 +198,8 @@ max = 120
 """,
 }
 
-# Small fixtures, one construct apiece. Keep them representative of the constructs the
-# rules and formatters touch (markers, flow, quotes, truthy incl. quoted/flow edges, ...).
+# One construct apiece, covering what the rules and formatters touch (markers, flow,
+# quotes, truthy incl. quoted/flow edges, ...).
 CORPUS: dict[str, str] = {
     "blanks.yaml": "first: 1\n\n\n\nsecond: 2\n\n\nthird: 3\n",
     "comments.yaml": (
@@ -266,18 +265,18 @@ EXPECTED_RESIDUAL: dict[tuple[str, str], set[str]] = {
     ("yamlfix", "truthy.yaml"): {"truthy"}
 }
 
-# Value changes that are the formatter's intended behaviour, not a corruption. yamlfix
-# rewrites UNQUOTED truthy words to booleans (a YAML 1.1 normalisation); the user opted
-# into that by choosing yamlfix. A change anywhere NOT listed here (e.g. a quoted string
-# flipping type) is treated as data corruption and fails. Populated from a real run.
+# Value changes that are the formatter's intended behaviour, not corruption: yamlfix
+# rewrites UNQUOTED truthy words to booleans (a YAML 1.1 normalisation the user opted into
+# by choosing yamlfix). A change NOT listed here (e.g. a quoted string flipping type) fails
+# as corruption.
 EXPECTED_VALUE_CHANGE: set[tuple[str, str]] = {("yamlfix", "truthy.yaml")}
 
 MAX_ITERS = 6
-# ryl_lint forces `--format parsable`, whose line ends with the bare rule id in parens,
-# e.g. "...too many spaces after colon (colons)". That format is deterministic and ANSI-free
-# regardless of env; auto-detect would instead emit the GitHub "[rule]" format under
-# GITHUB_*, or colored output ending in an ESC reset under FORCE_COLOR, either of which this
-# trailing-parens regex would silently miss (making a complaint look clean).
+# ryl_lint forces `--format parsable` (line ends with the bare rule id in parens, e.g.
+# "...too many spaces after colon (colons)") because it is deterministic and ANSI-free
+# regardless of env. Auto-detect would emit the GitHub "[rule]" format under GITHUB_* or an
+# ESC-reset-terminated colored line under FORCE_COLOR, either of which this trailing-parens
+# regex silently misses, making a complaint look clean.
 _RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 
 
@@ -315,8 +314,8 @@ class Runner:
                 encoding="utf-8",
             )
             if proc.returncode != 0:
-                # Surface WHY: a pixi fetch/spawn failure (e.g. conda-forge index lag) looks
-                # identical to a real formatter rejection otherwise, and is then cached None.
+                # A pixi fetch/spawn failure (e.g. conda-forge index lag) is otherwise
+                # indistinguishable from a real formatter rejection, and both cache None.
                 reason = ((proc.stderr or proc.stdout).strip() or "(no output)")[:300]
                 typer.secho(
                     f"  {formatter} exited {proc.returncode}: {reason}",
@@ -398,16 +397,16 @@ def _settle(
     state, history = f0, [f0]
     for _ in range(MAX_ITERS):
         fixed = run.ryl_fix(state, cfg)
-        # ryl accepts this formatter output unchanged -> joint fixed point. `state` is itself
-        # formatter output, so for an idempotent formatter (the three here are) format(state)
-        # == state too; a non-idempotent formatter could still drift, but that is a formatter
-        # bug outside this harness's scope.
+        # ryl accepting formatter output unchanged is a joint fixed point: `state` is itself
+        # formatter output, so an idempotent formatter (all three here are) leaves it alone
+        # too. A non-idempotent formatter could still drift, but that is a formatter bug
+        # outside this harness's scope.
         if fixed == state:
             return "converged", state
         nxt = run.format(formatter, fixed)
         if nxt is None:
             return "fmt-error", None
-        if nxt in history:  # formatter reproduced an earlier state -> ryl and it fight
+        if nxt in history:  # formatter reproduced an earlier state: ryl and it fight
             return "loop", state
         history.append(nxt)
         state = nxt

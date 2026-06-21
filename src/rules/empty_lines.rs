@@ -1,13 +1,8 @@
-//! `empty-lines` rule.
+//! `empty-lines` rule: limit consecutive blank lines (`max`/`max-start`/`max-end`).
 //!
-//! Safety scope for `--fix`: blank-line runs that fall inside any multi-line
-//! scalar (literal/folded block scalar, multi-line single- or double-quoted
-//! scalar, or multi-line plain scalar) are left untouched because blank
-//! lines inside such scalars contribute to the parsed value. The protected
-//! line set is computed via `granit_parser`, so the rule bails (returns
-//! `None`) when the buffer cannot be parsed. Runs outside those contexts
-//! (and the leading/trailing run governed by `max-start`/`max-end`) are
-//! trimmed to the configured maxima.
+//! `--fix` leaves blank runs inside any multi-line scalar untouched (they contribute
+//! to the parsed value); the protected line set comes from `granit_parser`, so the fix
+//! bails (returns `None`) on an unparsable buffer.
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;

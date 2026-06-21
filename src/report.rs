@@ -1,22 +1,9 @@
 //! Whole-document report formats: `JUnit` XML and `GitLab` code quality JSON.
 //!
-//! Unlike the streaming console formats (standard/colored/github/parsable), these emit a
-//! single root document (one `<testsuites>` / one JSON array), so the caller buffers every
-//! file's diagnostics into [`ReportEntry`]s and renders once into an owned `Vec<u8>` it
-//! then writes to its chosen destination (file, stdout, stderr).
-//!
-//! Sources (`JUnit` has no single official standard, so we follow the most authoritative
-//! published schema; `GitLab` documents a subset of the Code Climate engine spec):
-//! - `JUnit`: <https://github.com/jenkinsci/xunit-plugin/blob/master/src/main/resources/org/jenkinsci/plugins/xunit/types/model/xsd/junit-10.xsd>
-//!   (the Jenkins xUnit plugin's `junit-10.xsd`), readable companion
-//!   <https://llg.cubic.org/docs/junit/>; shape modelled on ruff's emitter.
-//! - `GitLab`: <https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-format>,
-//!   a documented subset of the Code Climate engine spec
-//!   <https://github.com/codeclimate/platform/blob/master/spec/analyzers/SPEC.md>.
-//!
-//! All user text is sanitized before serialization — `JUnit` via `xml_sanitize` (control
-//! chars plus the U+FFFE/U+FFFF noncharacters XML forbids), `GitLab` via
-//! [`sanitize_control`] — then quick-xml / `serde_json` apply structural escaping.
+//! All user text is sanitized before serialization so it cannot break out of the
+//! structure: `JUnit` via `xml_sanitize` (control chars plus the U+FFFE/U+FFFF
+//! noncharacters XML forbids), `GitLab` via [`sanitize_control`], then quick-xml /
+//! `serde_json` apply structural escaping.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -31,13 +18,13 @@ use sha2::{Digest, Sha256};
 use crate::cli_support::sanitize_control;
 use crate::lint::{LintProblem, Severity};
 
-// The emitters build into an owned `Vec<u8>`, whose `io::Write` never fails, so each
-// write is an `expect` rather than a `?` that would leave a dead, uncovered error arm.
+// Writes target an owned `Vec<u8>` whose `io::Write` never fails, so each write is an
+// `expect` rather than a `?` that would leave a dead, uncovered error arm.
 const INFALLIBLE: &str = "writing report output to an in-memory buffer cannot fail";
 
-/// One linted file's contribution to a report. `error` (a failed read/parse, from the
-/// `Err` arm of a lint result) and `problems` are mutually exclusive; a clean file has
-/// both empty, which `JUnit` renders as a passing test and `GitLab` omits entirely.
+/// One linted file's contribution to a report. `error` (a failed read/parse) and
+/// `problems` are mutually exclusive; a clean file has both empty, which `JUnit` renders
+/// as a passing test and `GitLab` omits entirely.
 #[derive(Debug)]
 pub struct ReportEntry {
     /// Display path, already relativized to the project root and forward-slashed.
@@ -52,7 +39,7 @@ pub struct ReportEntry {
 ///
 /// # Panics
 ///
-/// Does not panic in practice: every write targets an in-memory buffer, which cannot fail.
+/// Does not panic in practice: every write targets an in-memory buffer.
 #[must_use]
 pub fn render_junit(entries: &[ReportEntry]) -> Vec<u8> {
     let (mut tests, mut failures, mut errors) = (0usize, 0usize, 0usize);
@@ -85,7 +72,7 @@ pub fn render_junit(entries: &[ReportEntry]) -> Vec<u8> {
 }
 
 /// `JUnit` `(tests, failures, errors)` for one file: a processing error is one errored case,
-/// a clean file is one passing case, otherwise one failing case per diagnostic.
+/// a clean file one passing case, otherwise one failing case per diagnostic.
 fn suite_counts(entry: &ReportEntry) -> (usize, usize, usize) {
     if entry.error.is_some() {
         (1, 0, 1)
@@ -123,9 +110,8 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
         case.push_attribute(("classname", path.as_ref()));
         writer.write_event(Event::Empty(case)).expect(INFALLIBLE);
     } else {
-        // Name each testcase `rule:line:col`, disambiguating a repeat (same rule at the
-        // same position) with a `#n` suffix so no two testcases in a suite share a name,
-        // which some JUnit consumers merge.
+        // A `#n` suffix disambiguates a repeated `rule:line:col`: some JUnit consumers
+        // merge testcases that share a name.
         let mut seen: HashMap<String, u32> = HashMap::new();
         for problem in &entry.problems {
             let rule = problem.rule.unwrap_or("syntax");
@@ -158,9 +144,8 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
 
 /// Like [`sanitize_control`], but also escapes the U+FFFE/U+FFFF noncharacters that XML
 /// 1.0 forbids even as numeric references, so a crafted scalar cannot make the `JUnit`
-/// document unparsable. JSON has no such restriction, so `GitLab` output keeps plain
-/// [`sanitize_control`]. (Control characters are the only other XML-invalid scalars a Rust
-/// `char` can hold — surrogates are unrepresentable — so this covers the whole gap.)
+/// document unparsable. Control chars are the only other XML-invalid scalars a Rust
+/// `char` can hold (surrogates are unrepresentable), so this covers the whole gap.
 fn xml_sanitize(text: &str) -> Cow<'_, str> {
     fn forbidden(c: char) -> bool {
         c.is_control() || c == '\u{fffe}' || c == '\u{ffff}'
@@ -180,8 +165,6 @@ fn xml_sanitize(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// Write a `<testcase>` wrapping a single `<failure>` or `<error>` child carrying the
-/// message (attribute), type (rule id or `error`), and a body line.
 fn write_case_with_child<W: Write>(
     writer: &mut Writer<W>,
     case_name: &str,
@@ -237,8 +220,7 @@ struct GitlabLines {
 ///
 /// # Panics
 ///
-/// Does not panic in practice: serialization targets an in-memory buffer, which cannot
-/// fail for these always-serializable structs.
+/// Does not panic in practice: serialization targets an in-memory buffer.
 #[must_use]
 pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
     let mut issues: Vec<GitlabIssue> = Vec::new();
@@ -291,10 +273,9 @@ fn make_issue(
     seen: &mut HashSet<String>,
 ) -> GitlabIssue {
     // GitLab requires fingerprints unique within a report, so two findings sharing the same
-    // (path, rule, message) are disambiguated by an encounter-order salt. This is the same
-    // trade-off ruff makes: identity is stable under line shifts (the common edit) but a
-    // duplicate added/removed/reordered ahead of another reassigns its salt. There is no
-    // scheme stable under both line shifts and duplicate reordering from these inputs alone.
+    // (path, rule, message) are disambiguated by an encounter-order salt: identity is then
+    // stable under line shifts but a duplicate reordered ahead of another reassigns its salt
+    // (no scheme is stable under both line shifts and duplicate reordering from these inputs).
     let mut salt = 0u64;
     let mut hash = fingerprint(path, check_name, message, salt);
     while !seen.insert(hash.clone()) {
@@ -313,12 +294,10 @@ fn make_issue(
     }
 }
 
-/// SHA-256 hex of the diagnostic's identity. Identity is `(path, rule, message)` and
-/// deliberately excludes the line/column: GitLab uses the fingerprint to track an issue
-/// across report versions, so an edit elsewhere that shifts the diagnostic's line must not
-/// make it look new (matching ruff). A stable digest (not `DefaultHasher`, whose output is
-/// not stable across Rust versions) keeps it constant across toolchains; `salt`
-/// disambiguates two findings that share the same `(path, rule, message)`.
+/// SHA-256 hex of the diagnostic's identity `(path, rule, message)`. Excludes line/column
+/// so an edit that shifts the diagnostic does not reset GitLab's cross-version tracking. A
+/// stable digest (not `DefaultHasher`, whose output varies across Rust versions) keeps it
+/// constant across toolchains; `salt` disambiguates a shared identity.
 fn fingerprint(path: &str, check_name: &str, message: &str, salt: u64) -> String {
     let mut hasher = Sha256::new();
     hasher.update(salt.to_le_bytes());

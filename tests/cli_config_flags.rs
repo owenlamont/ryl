@@ -71,7 +71,7 @@ fn config_enabling_no_rules_is_rejected_loudly() {
         );
     }
 
-    // `--list-files` is exempt — it answers a file query, it does not lint.
+    // `--list-files` is exempt: it answers a file query, it does not lint.
     let (code, _out, err) = run(Command::new(exe)
         .arg("--list-files")
         .arg("-d")

@@ -101,8 +101,8 @@ pub struct OutputTable {
 
 impl OutputTable {
     /// Every format entry as `(format-name, destination?)`, in a fixed order. The single
-    /// authoritative enumeration of the table's fields: validation iterates it, and the
-    /// CLI resolves each name to a target, so neither hand-maintains a parallel list.
+    /// authoritative enumeration of the table's fields, so validation and the CLI don't
+    /// hand-maintain a parallel list.
     #[must_use]
     pub fn entries(&self) -> [(&'static str, Option<&OutputDestination>); 7] {
         [
@@ -846,16 +846,14 @@ pub enum TruthyAllowedValue {
     OffLower,
 }
 
-/// Build the JSON Schema for `ryl` TOML configuration.
-///
 /// # Panics
 /// Panics if schemars stops emitting an object schema root for `TomlConfig`.
 #[must_use]
 pub fn schema() -> Schema {
     let mut schema = schema_for!(TomlConfig);
-    // The CLI rejects unrecognised top-level keys (`validate_toml_config`), but schemars
-    // cannot emit `additionalProperties: false` on the root because the flattened `extra`
-    // catch-all is skipped; set it here so editors flag the same typos the CLI does.
+    // schemars can't emit `additionalProperties: false` on the root (the flattened `extra`
+    // catch-all is skipped), so set it here so editors flag the same top-level typos the
+    // CLI's `validate_toml_config` rejects.
     schema
         .as_object_mut()
         .expect("schema root should be an object")
@@ -863,8 +861,6 @@ pub fn schema() -> Schema {
     schema
 }
 
-/// Build the JSON Schema for yamllint-compatible YAML configuration.
-///
 /// # Panics
 /// Panics if schemars stops emitting an object schema root for `YamlConfig`.
 #[must_use]
@@ -886,14 +882,13 @@ pub fn yaml_schema() -> Schema {
     schema
 }
 
-/// Remove the ryl-only rule properties (and any `$defs` they leave
-/// unreferenced) from the generated YAML schema, so it advertises only the
-/// yamllint-compatible rule surface. The rules themselves are still rejected at
-/// parse time; see `crate::rules::RYL_ONLY_RULE_IDS`.
+/// Remove the ryl-only rule properties (and any `$defs` they leave unreferenced) from the
+/// generated YAML schema, so it advertises only the yamllint-compatible rule surface. The
+/// rules are still rejected at parse time; see `crate::rules::RYL_ONLY_RULE_IDS`.
 fn prune_ryl_only_rules(root: &mut serde_json::Map<String, Value>) {
-    // Only the rules-table definition carries rule-id-named properties, so
-    // dropping the ryl-only ids from every definition's `properties` targets it
-    // without depending on schemars' generated definition name.
+    // Only the rules-table definition carries rule-id-named properties, so dropping the
+    // ryl-only ids from every definition's `properties` targets it without depending on
+    // schemars' generated definition name.
     let defs = root
         .get_mut("$defs")
         .and_then(Value::as_object_mut)
@@ -963,10 +958,8 @@ fn collect_defs_refs(
     }
 }
 
-/// Deserialize TOML configuration text into the typed schema model.
-///
-/// When `pyproject` is true, this extracts `[tool.ryl]` and returns `Ok(None)`
-/// when the section is absent.
+/// Deserialize TOML config text into the typed schema model. When `pyproject` is true,
+/// extracts `[tool.ryl]` and returns `Ok(None)` when the section is absent.
 ///
 /// # Errors
 /// Returns an error if the TOML cannot be parsed into the typed config model.
@@ -974,13 +967,11 @@ pub fn parse_toml_config_str(
     input: &str,
     pyproject: bool,
 ) -> Result<Option<TomlConfig>, String> {
-    // A config that defines nothing enables no rules; since rules must be explicitly
-    // enabled, an empty config configures the linter to do nothing, so reject it. This
-    // covers an empty standalone `.ryl.toml` and an empty `[tool.ryl]` table — the
-    // latter is a present-but-empty config (an error), distinct from an *absent*
-    // `[tool.ryl]` ("ryl is not configured in this file"), which `toml_document_is_empty`
-    // reports as non-empty so discovery keeps looking. Checking the raw document keeps
-    // this correct as `TomlConfig` gains fields.
+    // Rules must be explicitly enabled, so an empty config (which enables none) is
+    // rejected. An empty `[tool.ryl]` table is a present-but-empty config (an error),
+    // distinct from an *absent* `[tool.ryl]`, which `toml_document_is_empty` reports as
+    // non-empty so discovery keeps looking. Checking the raw document stays correct as
+    // `TomlConfig` gains fields.
     if toml_document_is_empty(input, pyproject) {
         return Err("invalid config: configuration is empty".to_string());
     }
@@ -996,10 +987,9 @@ pub fn parse_toml_config_str(
         .map_err(|err| format!("failed to parse config data: {err}"))
 }
 
-/// Whether the relevant TOML configuration table has no entries: the whole
-/// document for a standalone config, or the `[tool.ryl]` subtable for
-/// `pyproject.toml`. A document that fails to parse is not treated as empty so the
-/// real parse error surfaces below; an absent `[tool.ryl]` is likewise not empty.
+/// Whether the relevant TOML table has no entries: the whole document for a standalone
+/// config, or the `[tool.ryl]` subtable for `pyproject.toml`. A document that fails to
+/// parse is not empty (so the real parse error surfaces); an absent `[tool.ryl]` likewise.
 fn toml_document_is_empty(input: &str, pyproject: bool) -> bool {
     let Ok(table) = input.parse::<toml::Table>() else {
         return false;
@@ -1016,11 +1006,9 @@ fn toml_document_is_empty(input: &str, pyproject: bool) -> bool {
     config.is_some_and(toml::map::Map::is_empty)
 }
 
-/// Validate semantic constraints for a typed TOML config model.
-///
 /// # Errors
-/// Returns an error if the typed TOML config violates semantic rules that are
-/// not fully captured by deserialization alone.
+/// Returns an error if the typed TOML config violates semantic rules not captured by
+/// deserialization alone.
 pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
     if config.extra.contains_key("extends") {
         return Err(
@@ -1037,9 +1025,9 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         );
     }
 
-    // Top-level unknown keys cannot use `deny_unknown_fields` (serde forbids it
-    // alongside the flattened `extra`), so the same strictness the nested tables
-    // get is enforced manually here. `extends`/`yaml-files` are handled above.
+    // Top-level keys can't use `deny_unknown_fields` (serde forbids it alongside the
+    // flattened `extra`), so the strictness the nested tables get is enforced manually
+    // here. `extends`/`yaml-files` are handled above.
     if !config.extra.is_empty() {
         let keys = config
             .extra
@@ -1067,9 +1055,8 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
     )
 }
 
-/// Reject an empty `path` in an `[output.<format>]` table. An empty path can neither be a
-/// file (`File::create("")` fails) nor mean stdout (`"-"`), and the CLI's lexical path
-/// normalization rejects empty paths, so it is a config error rather than a silent no-op.
+/// Reject an empty `path` in an `[output.<format>]` table: it is neither a file
+/// (`File::create("")` fails) nor stdout (`"-"`), so it is a config error, not a no-op.
 fn validate_output_table(output: &OutputTable) -> Result<(), String> {
     for (name, destination) in output.entries() {
         if let Some(destination) = destination
@@ -1084,11 +1071,9 @@ fn validate_output_table(output: &OutputTable) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate semantic constraints for a typed YAML config model.
-///
 /// # Errors
-/// Returns an error if the typed YAML config violates semantic rules that are
-/// not fully captured by deserialization alone.
+/// Returns an error if the typed YAML config violates semantic rules not captured by
+/// deserialization alone.
 pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     validate_common_config(
         config.ignore.as_ref(),
@@ -1131,8 +1116,6 @@ pub struct NormalizedConfig {
     pub yaml_file_patterns: Option<Vec<String>>,
     pub markdown_file_patterns: Option<Vec<String>>,
     pub markdown: Option<NormalizedMarkdown>,
-    /// Output targets, passed through unchanged (no transformation needed; the CLI
-    /// resolves each format/path into a destination at render time).
     pub output: Option<OutputTable>,
     pub locale: Option<String>,
     pub fix: Option<NormalizedFixConfig>,
@@ -1145,8 +1128,8 @@ pub struct NormalizedMarkdown {
     pub fenced_blocks: Option<bool>,
 }
 
-/// Post-parse form of one `per-line-ignores` entry. `rules` holds rule ids, or the
-/// single literal `"ALL"`; the regex/glob are compiled later in `config.rs`.
+/// Post-parse form of one `per-line-ignores` entry. `rules` holds rule ids or the literal
+/// `"ALL"`; the regex/glob are compiled later in `config.rs`.
 #[derive(Debug, Clone, Default)]
 pub struct NormalizedPerLineIgnore {
     pub regex: Option<String>,
@@ -1319,8 +1302,6 @@ pub(crate) fn yaml_rule_filter_patterns(
     Some((ignore, ignore_from_files))
 }
 
-/// Serialize the generated schema to a JSON value.
-///
 /// # Panics
 /// Panics if serializing the generated schema unexpectedly fails.
 #[must_use]
@@ -1328,17 +1309,13 @@ pub fn schema_value() -> Value {
     serialized_schema_value(schema())
 }
 
-#[must_use]
-/// Serialize the generated YAML schema to a JSON value.
-///
 /// # Panics
 /// Panics if serializing the generated schema unexpectedly fails.
+#[must_use]
 pub fn yaml_schema_value() -> Value {
     serialized_schema_value(yaml_schema())
 }
 
-/// Serialize the generated schema to a pretty-printed JSON string.
-///
 /// # Panics
 /// Panics if serializing the generated schema unexpectedly fails.
 #[must_use]
@@ -1346,11 +1323,9 @@ pub fn schema_string_pretty() -> String {
     serialized_schema_string_pretty(&schema())
 }
 
-#[must_use]
-/// Serialize the generated YAML schema to a pretty-printed JSON string.
-///
 /// # Panics
 /// Panics if serializing the generated schema unexpectedly fails.
+#[must_use]
 pub fn yaml_schema_string_pretty() -> String {
     serialized_schema_string_pretty(&yaml_schema())
 }

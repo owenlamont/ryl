@@ -1,12 +1,9 @@
-//! Extract embeddable YAML regions from markdown so the YAML linter can run on
-//! them and map diagnostics back to the original document.
+//! Extract embeddable YAML regions from markdown so the YAML linter can run on them and
+//! map diagnostics back to the original document.
 //!
-//! Two region kinds are recognised: leading YAML front matter (`---` … `---`/`...`)
-//! and fenced code blocks tagged `yaml`/`yml`. Front matter is found with a small
-//! line scan; fenced blocks are located with `pulldown-cmark`, whose offset
-//! iterator yields each block's byte span and language tag. Only the `yaml`/`yml`
-//! info string (including the `{.yaml}` attribute form) is matched; tags such as
-//! `yaml+jinja` are intentionally ignored.
+//! Two region kinds are recognised: leading YAML front matter (`---` ... `---`/`...`) and
+//! fenced code blocks tagged `yaml`/`yml` (the `{.yaml}` attribute form too). A tag such
+//! as `yaml+jinja` is intentionally ignored.
 
 mod lint;
 
@@ -19,11 +16,9 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use crate::lint::{LintProblem, Severity};
 
 /// Whether the markdown contains a bare `\r` (a CR not part of CRLF) anywhere.
-/// `pulldown-cmark` does not implement `CommonMark` §2.1's bare-`\r` line ending, so it
-/// can't find fences in a `\r` host; and a region-content `\r` (which it preserves)
-/// can't be placed by the `\n`-based host remap (`line_offset`/`stripped_indents`).
-/// So the lint/fix/diff paths skip such a file; revisit once `pulldown-cmark` honours
-/// bare `\r` and the remap is CR-aware.
+/// `pulldown-cmark` does not honour `CommonMark`'s bare-`\r` line ending, so it can't find
+/// fences in a `\r` host, and the `\n`-based host remap can't place a region-content `\r`.
+/// The lint/fix/diff paths skip such a file.
 #[must_use]
 pub(crate) fn markdown_has_unsupported_cr(markdown: &str) -> bool {
     let bytes = markdown.as_bytes();
@@ -33,8 +28,8 @@ pub(crate) fn markdown_has_unsupported_cr(markdown: &str) -> bool {
         .any(|(idx, &byte)| byte == b'\r' && bytes.get(idx + 1) != Some(&b'\n'))
 }
 
-/// The diagnostic a bare-`\r` markdown file gets (see [`markdown_has_unsupported_cr`]):
-/// reported as a lint error and surfaced as the `--fix`/`--diff` skip reason.
+/// The diagnostic for a bare-`\r` markdown file (see [`markdown_has_unsupported_cr`]),
+/// reported as a lint error and as the `--fix`/`--diff` skip reason.
 #[must_use]
 pub(crate) fn unsupported_cr_skip() -> LintProblem {
     LintProblem {
@@ -66,16 +61,15 @@ pub enum RegionKind {
 #[derive(Debug, Clone)]
 pub struct EmbeddedRegion {
     pub kind: RegionKind,
-    /// Number of newlines before the region's first content line. Region line 1
-    /// maps to host line `line_offset + 1`.
+    /// Newlines before the region's first content line: region line 1 maps to host line
+    /// `line_offset + 1`.
     pub line_offset: usize,
-    /// Common leading indent (in characters) stripped from the region. Added back
-    /// to every diagnostic column. Always 0 for front matter.
+    /// Common leading indent (chars) stripped from the region, added back to every
+    /// diagnostic column. Always 0 for front matter.
     pub col_offset: usize,
     pub content: String,
-    /// Byte span of the region's raw content in the source markdown. Used by
-    /// `--fix` write-back to splice fixed YAML back, and by the per-line column
-    /// remap to recover each line's actually-stripped indent.
+    /// Byte span of the region's raw content in the source markdown. `--fix` write-back
+    /// splices over it, and the per-line column remap recovers each line's stripped indent.
     pub raw_span: Range<usize>,
 }
 
@@ -84,9 +78,9 @@ pub fn extract_regions(
     markdown: &str,
     sources: MarkdownSources,
 ) -> Vec<EmbeddedRegion> {
-    // Locate the front matter regardless of whether it is linted, so a fence nested
-    // in its scalar is filtered out even when `front-matter = false` (otherwise that
-    // disabled source would still be linted/fixed via the nested fence).
+    // Locate the front matter even when it is not linted, so a fence nested in its scalar
+    // is still filtered out below (otherwise a `front-matter = false` source would leak
+    // back in via that nested fence).
     let front_matter = front_matter_region(markdown);
     let front_end = front_matter.as_ref().map(|region| region.raw_span.end);
 
@@ -99,16 +93,11 @@ pub fn extract_regions(
     if sources.fenced_blocks {
         collect_fenced_blocks(markdown, &mut regions);
     }
-    // A ```yaml fence that opens inside the front-matter scalar is malformed: its
-    // content is partly that scalar's string value, not a standalone document, yet
-    // CommonMark still parses it (possibly extending past the `---`/`...` terminator).
-    // Front matter is at the top, and a real body fence's content always begins
-    // *strictly after* the terminator line, so keep a fence only when its content
-    // starts past the front matter end. Content before the end is a fence inside the
-    // scalar; content exactly at the end means the opening fence was the last
-    // front-matter line (the terminator is its first content line) — both are dropped
-    // so their content is neither double-linted nor, under --fix, spliced over the
-    // front matter's span.
+    // A fence opening inside the front-matter scalar is malformed (its content is part of
+    // that scalar's value), yet CommonMark still parses it. A real body fence's content
+    // always begins strictly after the terminator line, so keep a fence only when its
+    // content starts past the front matter end; otherwise its content would be
+    // double-linted or, under --fix, spliced over the front matter's span.
     if let Some(front_end) = front_end {
         regions.retain(|region| {
             region.kind == RegionKind::FrontMatter || region.raw_span.start > front_end
@@ -151,9 +140,8 @@ fn is_front_matter_close(line: &str) -> bool {
 }
 
 fn collect_fenced_blocks(markdown: &str, regions: &mut Vec<EmbeddedRegion>) {
-    // Byte offsets of every newline, ascending. A block's line offset is then a
-    // binary search rather than an O(offset) rescan from the document start, which
-    // would be quadratic over a document with many fenced blocks.
+    // Byte offsets of every newline, ascending, so a block's line offset is a binary
+    // search rather than an O(offset) rescan that would be quadratic over many blocks.
     let newlines: Vec<usize> =
         markdown.match_indices('\n').map(|(idx, _)| idx).collect();
     let mut active: Option<FenceAccumulator> = None;
@@ -199,9 +187,8 @@ struct FenceAccumulator {
     first_byte: Option<usize>,
 }
 
-/// Byte offset of the start of the line containing `content_start`. The block's
-/// content always sits on a line after its opening fence, so a preceding newline
-/// is guaranteed.
+/// Byte offset of the start of the line containing `content_start`. Block content always
+/// sits on a line after its opening fence, so a preceding newline is guaranteed.
 fn line_start_of(markdown: &str, content_start: usize) -> usize {
     markdown[..content_start]
         .rfind('\n')
@@ -209,12 +196,11 @@ fn line_start_of(markdown: &str, content_start: usize) -> usize {
         + 1
 }
 
-/// Byte offset where the fenced block's raw content ends (the start of the closing
-/// fence line, or end of input for a block left open at EOF). Found by walking the
-/// same number of source lines the dedented content spans.
+/// Byte offset where the fenced block's raw content ends: the start of the closing fence
+/// line, or end of input for a block left open at EOF.
 fn fenced_content_end(markdown: &str, start: usize, content: &str) -> usize {
-    // Content without a trailing newline only happens for a block left open at EOF,
-    // whose content runs to the end of input.
+    // A missing trailing newline means a block left open at EOF, whose content runs to
+    // the end of input.
     if !content.ends_with('\n') {
         return markdown.len();
     }

@@ -134,11 +134,9 @@ pub(crate) fn yaml_owned_to_toml_value(
     Err("cannot convert this YAML node to TOML".to_string())
 }
 
-/// Normalize a typed TOML config into a shared post-parse representation.
-///
 /// # Panics
-/// Panics if serializing already-validated typed TOML rules unexpectedly stops
-/// producing a TOML table.
+/// Panics if serializing already-validated typed TOML rules unexpectedly stops producing
+/// a TOML table.
 pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     NormalizedConfig {
         ignore_patterns: config
@@ -289,8 +287,6 @@ fn rules_table_to_value<
     toml::Value::Table(table)
 }
 
-/// Convert a typed TOML config model into a TOML value tree.
-///
 /// # Panics
 /// Panics if serializing the typed config into TOML unexpectedly fails.
 #[must_use]

@@ -23,7 +23,7 @@ fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
 #[test]
 fn flags_nel_ls_ps_across_contexts_with_char_based_columns() {
     // LS in a double-quoted scalar (1), NEL in a plain scalar (2), PS in a
-    // comment (3), and LS after a multibyte key (4) — proving the rule fires
+    // comment (3), and LS after a multibyte key (4): proving the rule fires
     // anywhere and that columns count characters, not bytes (col 8 past `café`).
     let (code, output) = lint_with_toml_config(
         "key: \"a\u{2028}b\"\nplain: x\u{85}y\n# c\u{2029}d\ncafé: \"\u{2028}\"\n",
@@ -61,7 +61,7 @@ fn flags_nel_ls_ps_across_contexts_with_char_based_columns() {
 #[test]
 fn flags_chars_adjacent_to_cr_and_crlf_breaks() {
     // The rule must keep NEL/LS/PS on the line they sit on while still advancing the
-    // counter across `\r\n` and bare `\r` — the chars are not YAML 1.2 breaks but the
+    // counter across `\r\n` and bare `\r`: the chars are not YAML 1.2 breaks but the
     // CRs are. All-comment lines keep the doc valid YAML so the rule spans survive.
     // LS before a CRLF (1:4), then NEL before a bare CR (2:4); the final `\n` line is
     // clean.

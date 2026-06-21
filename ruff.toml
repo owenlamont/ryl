@@ -61,10 +61,8 @@ preview = true
 
 [lint.per-file-ignores]
 "tests/**" = ["D102", "D103", "S101"]
-"tests/uv_secure/package_info/test_dependency_file_parser.py" = ["E501"]
-# Embedded dev-skill helper scripts (.agents/skills/**) are self-contained CLI
-# tooling that shells out to cargo/gh, so relax the subprocess-security rules and
-# the Google-docstring conventions that suit library code rather than scripts.
+# Self-contained CLI tooling that shells out to cargo/gh: relax the subprocess-security
+# rules and library-style docstring conventions that do not suit scripts.
 ".agents/skills/**/*.py" = ["D103", "D205", "DOC201", "DOC501", "E501", "S404", "S603", "S607"]
 "scripts/benchmark_perf_vs_yamllint.py" = [
     "B008",
@@ -75,9 +73,8 @@ preview = true
     "S404",
     "S603",
 ]
-# Manual, opt-in compatibility harness: shells out to ryl and the ephemeral formatter
-# runners, and embeds long YAML fixtures/recipes verbatim, so relax the subprocess
-# security checks, the line-length cap, and the library-style docstring conventions.
+# Shells out to ryl and ephemeral formatter runners and embeds long YAML fixtures
+# verbatim: relax the subprocess checks, line-length cap, and docstring conventions.
 "scripts/formatter_compat.py" = [
     "D102",
     "D205",
@@ -88,18 +85,18 @@ preview = true
     "S603",
     "S607",
 ]
+# Shells out to `tokei` for the comment-to-code metrics: relax the subprocess checks.
+"scripts/source_size.py" = ["S404", "S603", "S607"]
 
-# Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
 unfixable = [
-    "B905", # Enforce strict argument on zip - but don't autofix as strict=False
+    "B905", # require zip strict=, but never autofix it to strict=False
 ]
 
 [lint.flake8-pytest-style]
 mark-parentheses = false
 
 [lint.flake8-tidy-imports]
-# Disallow all relative imports.
 ban-relative-imports = "all"
 
 [lint.flake8-tidy-imports.banned-api]

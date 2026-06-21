@@ -164,7 +164,7 @@ fn shim_env_var_tilde_without_home_keeps_literal_path() {
 fn shim_env_var_rejects_toml_target_pointing_at_native_config() {
     // YAMLLINT_CONFIG_FILE is yamllint's env var (YAML configs only). A `.toml` target
     // used to load as a ryl-native config; it must now error and steer the user to
-    // -c / project discovery instead of silently loading TOML (#332).
+    // -c / project discovery instead of silently loading TOML.
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
         .add_file("/proj/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")

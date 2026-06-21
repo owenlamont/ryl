@@ -4,11 +4,11 @@
 //! against a live server (an in-process `Connection::memory()` pair) and checks the
 //! invariants a real editor relies on:
 //!
-//! - **liveness** — every request gets a response and the session always shuts down
+//! - **liveness**: every request gets a response and the session always shuts down
 //!   cleanly (a hang or panic fails the case rather than wedging the editor);
-//! - **version echoing** — `publishDiagnostics` carries the document's version;
-//! - **clear-on-close** — closing a document publishes empty diagnostics;
-//! - **state faithfulness** — published diagnostics always equal a fresh lint of the
+//! - **version echoing**: `publishDiagnostics` carries the document's version;
+//! - **clear-on-close**: closing a document publishes empty diagnostics;
+//! - **state faithfulness**: published diagnostics always equal a fresh lint of the
 //!   document's *current* text (no stale state across edits).
 //!
 //! It uses a small, focused driver rather than the example-test client in
@@ -189,7 +189,7 @@ impl Driver {
 
     /// Drain messages up to the response to `id`, returning every notification seen on
     /// the way plus that response. The loop is single-threaded and in-order, so any push
-    /// an earlier op triggered arrives before this response — letting the pull-client
+    /// an earlier op triggered arrives before this response, letting the pull-client
     /// test assert no `publishDiagnostics` escaped while still inspecting the pull result.
     fn notifications_until_response(
         &self,
@@ -310,7 +310,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// The document-lifecycle ops — the only ones that publish diagnostics — for the
+/// The document-lifecycle ops (the only ones that publish diagnostics) for the
 /// capability-respecting property. Separate from [`Op`] so that test replays just the
 /// channel-relevant ops (request ops never push, so they would only dilute the property).
 #[derive(Debug, Clone)]
@@ -552,11 +552,11 @@ proptest! {
         driver.shutdown();
     }
 
-    /// #323 regression, generalized over the advertised capability. A mock client either
+    /// Generalized over the advertised capability. A mock client either
     /// advertises pull support or not, then replays a random didOpen/didChange/didClose
-    /// sequence. The server must use the channel the client asked for — pull-capable ⟹ no
+    /// sequence. The server must use the channel the client asked for: pull-capable ⟹ no
     /// `publishDiagnostics` push ever (diagnostics arrive only when pulled); push-only ⟹ a
-    /// push per op — and on whichever channel the diagnostics must be a faithful, complete
+    /// push per op; and on whichever channel the diagnostics must be a faithful, complete
     /// lint of the document's current state. Together these pin that an editor merging the
     /// two channels (VS Code) can neither double-count nor see the channels disagree, for
     /// either kind of client. Also pins liveness (clean shutdown). `pull` is the only
@@ -572,7 +572,7 @@ proptest! {
         let mut driver = if pull { Driver::start_pull() } else { Driver::start() };
         let mut version = 0;
         // Mirror the server's open-buffer store so the expected diagnostics are a fresh
-        // lint of the current buffer (or empty once the doc is closed — the server then
+        // lint of the current buffer (or empty once the doc is closed: the server then
         // reads the absent on-disk file). A range-less change is a full replace, so the
         // buffer becomes `text` whether or not the doc was already open.
         let mut open_text: HashMap<u8, String> = HashMap::new();
