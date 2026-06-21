@@ -284,6 +284,17 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   `pyproject.toml`/`uv.lock` — use the uv group commands. Build: `uv run --group docs
   zensical build --clean`; preview: `uv run --group docs zensical serve`. To bump, edit
   the pin, run `uv lock`, and rebuild to confirm it renders.
+- Config examples in the `docs/` Markdown sources are validated through ryl's finalized
+  config path (the `discover_config` `-c` path the CLI uses) by
+  `tests/docs_config_examples.rs`, so misspelled rule names and options are caught, not
+  just bad values (`docs/llms*.txt` are generated from those sources and drift-guarded,
+  so they are covered transitively). A block is recognised as ryl config structurally
+  from its content (a `toml` block with a `[tool.ryl]` table or a table named in the
+  TOML config schema; a `yaml` block with a top-level key in the YAML config schema), so
+  other tools' TOML and rule-input YAML are skipped, and a malformed config example is
+  caught. Put `<!-- ryl-config-check: skip -->` on the line before a fence to exempt an
+  intentional counter-example (e.g. the YAML-1.1 config in `yaml-version.md` shown as
+  failing).
 
 ## CLI Behavior
 
