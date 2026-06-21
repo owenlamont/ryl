@@ -57,7 +57,8 @@ jobs:
         with:
           run-install: false
           global-environments: tokei=14.0.0
-          activate-environment: true
+      - name: Put pixi global tools on PATH
+        run: echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
 
       - name: Run prek hooks (lint and static checks)
         env:
