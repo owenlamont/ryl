@@ -156,10 +156,13 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, and `cargo-audit` should be
-  installed as global tools (if they don't appear to be installed raise that with the
+- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and `lychee` should
+  be installed as global tools (if they don't appear to be installed raise that with the
   user). `cargo-audit` backs the `cargo audit --deny warnings` prek hook; install it with
-  `cargo install cargo-audit --locked`.
+  `cargo install cargo-audit --locked`. `lychee` backs the offline `lychee` prek hook (and
+  the scheduled `link-check` workflow); install it with `pixi global install lychee`. CI
+  installs it from a pinned, SHA256-verified release binary via
+  `.github/actions/install-lychee` (bump the version + SHA there together when updating).
 - `gh` will be available in most, but not all environments to inspect GitHub.
 - For PR feedback, use `gh pr view <n> --json comments,reviews` for summary threads and
   `gh api repos/<owner>/<repo>/pulls/<n>/comments` for inline review details (avoid

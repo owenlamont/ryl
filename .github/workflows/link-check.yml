@@ -1,0 +1,34 @@
+name: Link Check
+
+# Weekly online link check: validates external URLs across the docs (the offline,
+# internal-anchor check already runs on every PR via the prek `lychee` hook in ci.yml).
+# Fails the run on broken links; no issue is opened, so check the run on failure.
+on:
+  schedule:
+    - cron: '30 8 * * 1'  # Monday 18:00 UTC+9:30
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+
+      - name: Install lychee
+        uses: ./.github/actions/install-lychee
+
+      # No `--offline`/`--include-fragments`: check that every external URL resolves,
+      # using the retries/accept-codes/excludes from lychee.toml. GITHUB_TOKEN lifts the
+      # anonymous GitHub rate limit that would otherwise flake the many github.com links.
+      - name: Check links
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: lychee --no-progress docs README.md AGENTS.md .agents/skills/*/SKILL.md

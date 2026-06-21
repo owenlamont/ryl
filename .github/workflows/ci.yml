@@ -42,6 +42,10 @@ jobs:
         with:
           tool: cargo-audit
 
+      # Needed by the prek `lychee` hook (offline link check) in the step below.
+      - name: Install lychee
+        uses: ./.github/actions/install-lychee
+
       - name: Run prek hooks (lint and static checks)
         env:
           SKIP: no-commit-to-branch

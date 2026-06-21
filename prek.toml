@@ -116,6 +116,19 @@ hooks = [
     entry = "uv run scripts/gen_llms_txt.py --check",
     files = '^(zensical\.toml|docs/.*\.md|docs/llms(-full)?\.txt|scripts/gen_llms_txt\.py)$',
     pass_filenames = false
+  },
+  {
+    # Offline link check: validates internal heading anchors and relative links across the
+    # docs with no network (deterministic). External URLs are checked by the scheduled
+    # link-check workflow, not here. Needs `lychee` on PATH (see AGENTS.md global tools).
+    # The glob reaches lychee literally (prek execs argv, no shell) and lychee expands it,
+    # so it works the same on PowerShell and Bash.
+    id = "lychee",
+    name = "lychee (offline link check)",
+    language = "system",
+    entry = "lychee --offline --include-fragments --no-progress docs README.md AGENTS.md .agents/skills/*/SKILL.md",
+    always_run = true,
+    pass_filenames = false
   }
 ]
 
