@@ -61,7 +61,6 @@ preview = true
 
 [lint.per-file-ignores]
 "tests/**" = ["D102", "D103", "S101"]
-"tests/uv_secure/package_info/test_dependency_file_parser.py" = ["E501"]
 # Self-contained CLI tooling that shells out to cargo/gh: relax the subprocess-security
 # rules and library-style docstring conventions that do not suit scripts.
 ".agents/skills/**/*.py" = ["D103", "D205", "DOC201", "DOC501", "E501", "S404", "S603", "S607"]
