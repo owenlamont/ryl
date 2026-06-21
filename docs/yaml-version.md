@@ -57,6 +57,7 @@ ryl parses `.yamllint` / `.yamllint.yaml` / `.yamllint.yml` configs with
 the same strict YAML 1.2 parser. A yamllint configuration that uses 1.1
 booleans like:
 
+<!-- ryl-config-check: skip -->
 ```yaml
 rules:
   truthy:

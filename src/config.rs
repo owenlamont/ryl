@@ -555,6 +555,20 @@ impl YamlLintConfig {
             .map(|config| config.expect("standalone TOML config is never absent"))
     }
 
+    /// Build a config from a `pyproject.toml`-shaped TOML string, validating only the
+    /// embedded `[tool.ryl]` table (the counterpart to [`Self::from_toml_str`] for the
+    /// `pyproject.toml` form). Like `from_toml_str` it skips discovery/finalization, so
+    /// it is a pure parse-and-validate of the embedded config.
+    ///
+    /// # Errors
+    /// Returns an error when the TOML cannot be parsed, the embedded config is invalid,
+    /// or the document carries no `[tool.ryl]` settings (an empty or absent table).
+    pub fn from_pyproject_str(s: &str) -> Result<Self, String> {
+        Self::from_toml_str_with_env(s, None, None, true)?.ok_or_else(|| {
+            "pyproject configuration has no [tool.ryl] settings".to_string()
+        })
+    }
+
     fn extend_from_entry(
         &mut self,
         entry: &str,
