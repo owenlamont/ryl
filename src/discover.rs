@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-// Only the LSP's workspace pull needs the cancellable walk; keep it (and its atomics
-// import) out of a `--no-default-features` build so it is not flagged as dead code.
+// Only the LSP's workspace pull needs this; gate it out of `--no-default-features` so
+// it is not flagged dead.
 #[cfg(feature = "lsp")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -13,9 +13,8 @@ pub fn is_yaml_path(path: &Path) -> bool {
     })
 }
 
-/// The shared directory walker: honours git ignore/exclude, includes hidden files, and
-/// does not follow symlinks. Used by both the plain and cancellable YAML gatherers so the
-/// traversal rules cannot drift between them.
+/// Shared walker (git ignore/exclude, includes hidden files, no symlink follow) so the
+/// plain and cancellable gatherers cannot drift apart.
 fn yaml_walker(dir: &Path) -> Walk {
     WalkBuilder::new(dir)
         .hidden(false)
@@ -39,9 +38,8 @@ pub fn gather_yaml_from_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Like [`gather_yaml_from_dir`] but abandons the walk and returns `None` as soon as
-/// `cancel` is set (checked once per entry), so a cancelled `workspace/diagnostic` stops
-/// enumerating a (possibly huge or slow) tree instead of finishing the whole walk.
+/// Like [`gather_yaml_from_dir`] but returns `None` as soon as `cancel` is set (checked
+/// once per entry), so a cancelled `workspace/diagnostic` stops enumerating a huge tree.
 #[cfg(feature = "lsp")]
 pub(crate) fn gather_yaml_from_dir_cancellable(
     dir: &Path,

@@ -1,26 +1,19 @@
 //! `hyphens`: at most `max-spaces-after` spaces after a block-sequence `-` (default
-//! 1). Mirrors yamllint's `hyphens`.
+//! 1). Mirrors yamllint's `hyphens`. The ryl-only, TOML-only `dash-on-own-line` option
+//! (default off) additionally flags a block-mapping entry whose first key shares the
+//! dash's line (`- name: web`); the body-below form, a dash line with only node
+//! properties (`- &a !tag`), or a comment is accepted.
 //!
-//! Sources: yamllint `hyphens`; YAML 1.2.2 block-sequence grammar; the
-//! `dash-on-own-line` option originates in adrienverge/yamllint#527 (spec-style
-//! "sequence of mappings" layout), which the maintainer welcomed but yamllint has not
-//! implemented.
+//! `dash-on-own-line` is parser-derived, not a char scan: granit's scanner emits
+//! `BlockEntry` then, for a block-mapping entry, `BlockMappingStart`; both on the same
+//! line means the mapping opened on the dash line. Any other value token is a
+//! non-mapping entry, and a block mapping that is a *mapping* value (no preceding
+//! `BlockEntry`) is never reported.
 //!
-//! The ryl-only, TOML-only `dash-on-own-line` option (default off) additionally
-//! requires a block-sequence entry's `-` to sit on its own line when the entry is a
-//! block mapping, so a mapping body is indented *below* the dash rather than starting
-//! on it. It flags only an entry whose first mapping key shares the dash's line
-//! (`- name: web`); the body-below form (`-` then `  name: web`) is accepted, as is a
-//! dash line carrying only node properties (`- &a !tag` with keys below) or a comment.
-//! The signal is parser-derived, not a char scan: granit's scanner emits `BlockEntry`
-//! then, for a block-mapping entry, `BlockMappingStart`; when both land on the same
-//! line the mapping opened on the dash line. Non-mapping entries (scalars, aliases,
-//! nested sequences, flow values) emit a different value token and a block mapping that
-//! is a *mapping* value (no preceding `BlockEntry`) is never reported.
+//! No safe `--fix`: collapsing the spaces or breaking the dash onto its own line
+//! re-indents the entry's body, which can change the parsed structure.
 //!
-//! No safe `--fix`: collapsing the spaces shifts the indent of any nested block that
-//! follows (`max-spaces-after`), and breaking the dash onto its own line re-indents the
-//! mapping body (`dash-on-own-line`) — both can change the parsed structure.
+//! Sources: YAML 1.2.2 block-sequence grammar; adrienverge/yamllint#527.
 
 use granit_parser::{Scanner, StrInput, TokenType};
 
@@ -159,15 +152,9 @@ fn collect_max_spaces(buffer: &str, max_spaces_after: i64) -> Vec<Violation> {
     violations
 }
 
-/// Flag every block-sequence entry whose block mapping opens on the dash's line.
-///
-/// granit's scanner emits `BlockEntry` (the `-`), optional node properties
-/// (`Anchor`/`Tag`/`Comment`), then the entry's value token. A `BlockMappingStart` on
-/// the same line as its `BlockEntry` means the mapping began on the dash line; any
-/// other value token (scalar, alias, nested `BlockSequenceStart`, flow `*Start`) is a
-/// non-mapping entry and clears the pending dash. Positions go through ryl's CR-aware
-/// `line_and_column` so a bare `\r` keeps the reported span in bounds. The scanner is a
-/// lexer, so unparsable input simply yields the tokens it can — no panic.
+/// Flag every block-sequence entry whose block mapping opens on the dash's line (see
+/// module header for the token mechanics). The scanner is a lexer, so unparsable input
+/// just yields the tokens it can, no panic.
 fn collect_dash_on_own_line(buffer: &str) -> Vec<Violation> {
     let char_indices: Vec<(usize, char)> = buffer.char_indices().collect();
     let line_starts = build_line_starts(&char_indices);

@@ -188,7 +188,7 @@ fn fix_leaves_suppressed_lines_byte_identical() {
 fn fix_still_applies_when_a_per_line_entry_matches_no_current_line() {
     // The entry targets a fixable rule but its regex matches nothing in the input, so
     // reconciliation is engaged (a fixer could create a matching line) yet reverts
-    // nothing — the trailing spaces are still fixed. Exercises the per-line `guarded`
+    // nothing: the trailing spaces are still fixed. Exercises the per-line `guarded`
     // path where no original line matched.
     let dir = tempdir().unwrap();
     let config = dir.path().join(".ryl.toml");

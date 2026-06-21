@@ -11,7 +11,7 @@ use std::process::Command;
 /// discovery climbs from each input through its ancestors up to `HOME`, so a test whose
 /// inputs live under the system temp dir would otherwise walk into that shared dir, where
 /// a stray `ryl.toml`/`.yamllint`/etc. (left by another test, a concurrent process, or a
-/// manual smoke run) gets discovered and silently overrides the test's own setup — and
+/// manual smoke run) gets discovered and silently overrides the test's own setup, and
 /// TOML candidates outrank a tempdir's `.yamllint`, so an adjacent YAML config is not
 /// enough to shield it. Setting `HOME` to `home` stops the walk there. Any test that
 /// exercises discovery (does NOT pass `-c`/`-d`, and has no adjacent TOML config in its

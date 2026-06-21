@@ -1,42 +1,31 @@
-//! `key-duplicates` rule &mdash; reports duplicate mapping keys (issue #252).
+//! `key-duplicates` rule: reports duplicate mapping keys.
 //!
-//! Default behaviour mirrors yamllint: keys are compared by their literal text,
-//! and a duplicate `<<` merge key is silent unless `forbid-duplicated-merge-keys`
-//! is set (matching yamllint, which keys this on the resolved scalar value, so a
-//! quoted `"<<"` is treated the same as a plain `<<`).
+//! Default behaviour mirrors yamllint: keys compared by literal text, and a duplicate
+//! `<<` merge key is silent unless `forbid-duplicated-merge-keys` is set (keyed on the
+//! resolved value, so a quoted `"<<"` counts the same as plain `<<`).
 //!
-//! Two ryl-only, off-by-default, TOML-only knobs add *semantic* duplicate
-//! detection grounded in the YAML 1.2.2 spec, which requires mapping keys to be
-//! unique and defines key equality via each tag's canonical form (YAML 1.2.2
-//! spec, §3.2.1.3 Node Comparison; adrienverge/yamllint#175 tracks the same gap
-//! upstream):
+//! Two ryl-only, off-by-default, TOML-only knobs add semantic duplicate detection:
 //!
-//! * `check-canonical` &mdash; resolve plain scalars under the YAML 1.2 core
-//!   schema before comparison, so `0xB`/`011`/`11` (all integer 11) or
-//!   `Null`/`~` collide while a quoted `"11"` (a string) stays distinct from the
-//!   integer `11`. A key carrying a local / non-core tag falls back to literal
-//!   text comparison, since its resolved type is application-defined.
-//! * `forbid-merge-key-shadowing` &mdash; additionally reports a key set both by
-//!   a merge and explicitly when the two values differ.
+//! * `check-canonical`: resolve plain scalars under the YAML 1.2 core schema before
+//!   comparison, so `0xB`/`011`/`11` (all integer 11) or `Null`/`~` collide while a
+//!   quoted `"11"` stays distinct. A non-core-tagged key falls back to literal text
+//!   (its resolved type is application-defined).
+//! * `forbid-merge-key-shadowing`: additionally reports a key set both by a merge and
+//!   explicitly when the two values differ.
 //!
-//! Either knob enables value-aware **merge-collision** detection: a `<<` that
-//! merges mappings assigning *different values* to one key is reported at the
-//! `<<` line (unless an explicit key in the host overrides it), because YAML
-//! silently keeps the first. Merge collisions are value-aware on purpose: a key
-//! contributed twice with the *same* value (the same anchor merged twice, or two
-//! anchors that agree) is not a collision &mdash; matching yamllint, which
-//! accepts such documents. Only explicit-vs-explicit duplicates stay value-blind
-//! (yamllint parity).
+//! Either knob enables value-aware **merge-collision** detection: a `<<` merging
+//! mappings that assign *different values* to one key is reported at the `<<` line
+//! (unless an explicit host key overrides it), because YAML silently keeps the first.
+//! A key contributed twice with the *same* value is not a collision (yamllint parity).
+//! Explicit-vs-explicit duplicates stay value-blind (yamllint parity).
 //!
-//! Each node's value identity ([`Vid`]) is a deterministic 64-bit hash folded
-//! over its children (a mapping's hash is order-independent; a non-core tag is
-//! folded in; an alias resolves to the anchored node's hash). Hashing &mdash;
-//! rather than materialising an alias-expanded value tree &mdash; plus merging
-//! each anchor into a host at most once keeps the work linear in the source, so
-//! the lint path never reintroduces the alias-expansion blow-up bounded out of
-//! the YAML config loader (issue #246). Identities are built only when a merge
-//! knob is on; the default path compares key text alone. There is no safe
-//! `--fix` (see AGENTS.md "Rules Without A Safe `--fix`").
+//! Each node's value identity ([`Vid`]) is a deterministic 64-bit hash folded over its
+//! children. Hashing (not materialising an alias-expanded tree) plus merging each
+//! anchor into a host at most once keeps work linear in the source, so the lint path
+//! never reintroduces the alias-expansion blow-up bounded out of the config loader.
+//! No safe `--fix` (see AGENTS.md "Rules Without A Safe `--fix`").
+//!
+//! Sources: YAML 1.2.2 §3.2.1.3; adrienverge/yamllint#175.
 
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
@@ -101,9 +90,9 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     violations
 }
 
-/// A mapping key's identity for duplicate comparison: its canonical scalar
-/// value when `check-canonical` resolves it, otherwise its literal text (the
-/// yamllint default, also used as the fallback for non-core-tagged keys).
+/// A mapping key's identity for duplicate comparison: its resolved canonical value
+/// under `check-canonical`, otherwise its literal text (the yamllint default, also the
+/// fallback for non-core-tagged keys).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum KeyId {
     Resolved(ScalarOwned),
@@ -125,22 +114,18 @@ fn key_id(
     KeyId::Raw(value.to_owned())
 }
 
-/// A node's value identity: a deterministic hash folded over the node, used to
-/// decide whether a merge would silently change a key's value. An alias resolves
-/// to the anchored node's `Vid`, so a hash &mdash; not a cloned subtree &mdash;
-/// propagates, keeping alias resolution linear. Nested `<<` inside a value is
-/// hashed structurally (not re-resolved), which only over-distinguishes deeply
-/// nested merges.
+/// A node's value identity, used to decide whether a merge would silently change a
+/// key's value. An alias resolves to the anchored node's `Vid` (a hash, not a cloned
+/// subtree, keeping resolution linear). Nested `<<` is hashed structurally, which only
+/// over-distinguishes deeply nested merges.
 type Vid = u64;
 
 const UNKNOWN_VID: Vid = 0;
 
-/// Upper bound on merged key contributions materialised per lint run (per
-/// `check` call; an embedded-Markdown region is its own run). Resolving merges
-/// materialises one entry per merged key, so a wide anchor referenced many times
-/// (`<<: [*base, *base, ...]` across many hosts) would otherwise grow
-/// super-linearly; past this cap the merge analysis degrades to no-op rather
-/// than exhaust memory (mirrors the YAML loader's alias-expansion bound, #246).
+/// Upper bound on merged key contributions materialised per lint run. A wide anchor
+/// referenced many times (`<<: [*base, *base, ...]` across hosts) would otherwise grow
+/// super-linearly; past this cap the merge analysis degrades to no-op rather than
+/// exhaust memory (mirrors the loader's alias-expansion bound).
 const MAX_MERGE_CONTRIBUTIONS: usize = 1_000_000;
 
 fn hash_of(value: &impl Hash) -> Vid {
@@ -149,14 +134,14 @@ fn hash_of(value: &impl Hash) -> Vid {
     hasher.finish()
 }
 
-/// A tag's contribution to a node's `Vid`: a local tag (`!foo`) or a non-default
-/// core tag (`!!set`, `!!omap`) distinguishes the value from an untagged node;
-/// the Core Schema default tags (which an untagged node resolves to) do not.
+/// A tag's contribution to a node's `Vid`: a local tag (`!foo`) or non-default core
+/// tag (`!!set`, `!!omap`) distinguishes from an untagged node; the Core Schema default
+/// tags (which an untagged node resolves to) do not.
 fn tag_vid(tag: Option<&Cow<'_, Tag>>) -> Vid {
     match tag.map(Cow::as_ref) {
-        // `is_yaml_core_schema` matches a Core Schema tag in any spelling
-        // (verbatim, `%TAG` mid-split), so every default tag stays
-        // non-distinguishing; `merge`, removed 1.1 types, and local tags do not.
+        // `is_yaml_core_schema` matches a Core Schema tag in any spelling, so every
+        // default tag stays non-distinguishing; `merge`, removed 1.1 types, and local
+        // tags do not.
         Some(tag) if !tag.is_yaml_core_schema() => hash_of(tag),
         _ => UNKNOWN_VID,
     }
@@ -224,10 +209,9 @@ impl MapData {
         }
     }
 
-    /// This mapping's resolved key set for when it is itself merged elsewhere:
-    /// merged keys (first source wins, per YAML merge precedence) overridden by
-    /// explicit keys. Carrying merged keys through here is what makes a
-    /// transitively-merged base (`&b` built via its own `<<`) propagate.
+    /// This mapping's resolved key set for when it is itself merged elsewhere: merged
+    /// keys (first source wins) overridden by explicit keys. Carrying merged keys here
+    /// is what propagates a transitively-merged base (`&b` built via its own `<<`).
     fn effective_contributions(&self) -> Vec<Contribution> {
         let mut out: Vec<Contribution> = Vec::new();
         let mut index: HashMap<&KeyId, usize> = HashMap::new();
@@ -249,9 +233,8 @@ impl MapData {
         out
     }
 
-    /// Order-independent so two mappings that differ only in key order share an
-    /// identity (YAML mapping key order is insignificant); a non-core tag still
-    /// distinguishes.
+    /// Order-independent so two mappings differing only in key order share an identity
+    /// (YAML key order is insignificant); a non-core tag still distinguishes.
     fn vid(&self) -> Vid {
         let mut entries: Vec<Vid> = self
             .vid_children
@@ -395,7 +378,7 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
 
     // Inline merge mappings and the sequence flush move content that is already
     // bounded by the source (or already charged during accumulation), so only
-    // the alias path above charges the budget — charging here would double-count
+    // the alias path above charges the budget; charging here would double-count
     // a sequence's contributions.
     fn merge_into_host(&mut self, contributions: Vec<Contribution>, pos: Pos) {
         let host = self
@@ -486,12 +469,10 @@ impl<'cfg> KeyDuplicatesState<'cfg> {
             .expect("a mapping is open when MappingEnd fires");
         let anchor_id = map.anchor_id;
         let role = map.role;
-        // Only the merge-derived keys can amplify: a nested anchored merge
-        // re-materialises them at each level. Explicit keys are bounded by the
-        // source, so they are not charged (a huge but ordinary anchored document
-        // must not degrade). Charging the merge size here (beyond the alias clone)
-        // bounds the re-materialisation and trips `degraded`, which suppresses the
-        // now-unreliable merge reports.
+        // Only merge-derived keys can amplify (a nested anchored merge re-materialises
+        // them at each level); explicit keys are source-bounded, so they are not charged
+        // (a huge but ordinary anchored document must not degrade). Charging the merge
+        // size trips `degraded`, suppressing the now-unreliable merge reports.
         let size = map.merges.len();
         detect(map, *self.config, reliable, diagnostics);
         if !expand {
@@ -666,9 +647,9 @@ fn violation(pos: Pos, text: &str, location: &str) -> Violation {
     }
 }
 
-/// Report the duplicates of one mapping: explicit-vs-explicit keys (value-blind,
-/// yamllint parity) and, when a merge knob is on, merge-involved collisions that
-/// would silently change a key's value.
+/// Report one mapping's duplicates: explicit-vs-explicit (value-blind, yamllint parity)
+/// and, when a merge knob is on, merge-involved collisions that would silently change a
+/// key's value.
 fn detect(
     map: &MapData,
     cfg: Config,

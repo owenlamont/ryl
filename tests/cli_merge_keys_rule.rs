@@ -25,7 +25,7 @@ const ENABLE: &str = "[rules]\nmerge-keys = \"enable\"\n";
 #[test]
 fn flags_merge_key_for_alias_inline_and_sequence_values() {
     // A plain `<<` merges whether its value is an alias, an inline mapping, or a
-    // sequence of either — the key itself is flagged in every case.
+    // sequence of either; the key itself is flagged in every case.
     let (code, output) = lint_with_toml_config(
         "base: &b {x: 1}\nalias:\n  <<: *b\ninline:\n  <<: {y: 2}\nseq:\n  <<: [*b]\n",
         ENABLE,
@@ -110,7 +110,7 @@ fn flags_merge_tag_split_by_a_tag_directive() {
     // (YAML 1.2.2 §6.8.2.2), so a directive may split the merge URI anywhere. The
     // play.yaml.com reference parser resolves `%TAG !m! tag:yaml.org,2002:m` +
     // `!m!erge` to the same `tag:yaml.org,2002:merge` as `!!merge`, and
-    // PyYAML/ruamel merge it — so merge-keys must flag it. Guards against matching
+    // PyYAML/ruamel merge it, so merge-keys must flag it. Guards against matching
     // only the canonical handle split (which `core_schema_suffix` reports).
     let (code, output) = lint_with_toml_config(
         "%TAG !m! tag:yaml.org,2002:m\n---\nbase: &b {x: 1}\n!m!erge foo: *b\n",

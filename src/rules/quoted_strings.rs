@@ -1,4 +1,4 @@
-//! `quoted-strings`: enforce a scalar quoting policy — quote type (single/double/any),
+//! `quoted-strings`: enforce a scalar quoting policy: quote type (single/double/any),
 //! when quotes are required versus redundant, and extra allow/require patterns. Mirrors
 //! yamllint's `quoted-strings`. Safe `--fix` adds or normalises quoting only where the
 //! rewrite provably preserves the scalar's value.
@@ -568,7 +568,6 @@ fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -
     inner_quoted_content(buffer, scalar_start, scalar_end).contains('\\')
 }
 
-/// The text between a quoted scalar's surrounding quote bytes.
 fn inner_quoted_content(buffer: &str, start: BytePos, end: BytePos) -> &str {
     let slice_start = start.get().saturating_add(1).min(buffer.len());
     let slice_end = end.get().saturating_sub(1).max(slice_start);

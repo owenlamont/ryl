@@ -1,8 +1,8 @@
 #![cfg(feature = "lsp")]
 //! Tier-1 property tests for the language server's pure bridges: the
 //! position/URI encoder and the lint/fix-to-LSP analysis layer. They reuse the
-//! engine's YAML document generator and pound on the genuinely-new code — the
-//! UTF-8/16/32 column math and `file:` URI parsing — over random, multibyte input.
+//! engine's YAML document generator and pound on the genuinely-new code: the
+//! UTF-8/16/32 column math and `file:` URI parsing, over random, multibyte input.
 //!
 //! Invariants pinned here:
 //! - `problem_range` is bounded, ordered across encodings (bytes >= UTF-16 units

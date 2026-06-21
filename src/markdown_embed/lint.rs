@@ -8,12 +8,9 @@ use crate::config::YamlLintConfig;
 use crate::fix::suppressed_rules;
 use crate::lint::{LintProblem, lint_str};
 
-/// Lint every embedded YAML region in `markdown` and return diagnostics whose
-/// line/column point into the original markdown document.
-///
-/// Each region is linted as an independent YAML document. File-shape rules that
-/// only make sense for a standalone file are suppressed per region kind (see
-/// [`suppressed_rules`]).
+/// Lint every embedded YAML region in `markdown` and return diagnostics whose line/column
+/// point into the original markdown document. Each region is linted as an independent
+/// document; file-shape rules are suppressed per region kind (see [`suppressed_rules`]).
 #[must_use]
 pub fn lint_markdown_str(
     markdown: &str,
@@ -54,11 +51,10 @@ pub fn lint_markdown_str(
     problems
 }
 
-/// For each embedded region that does not parse, the parse error mapped to the host
-/// document's coordinates. `--fix` uses this to tell the user which regions it
-/// refused to rewrite — the strict fix gate skips a region that does not parse, and
-/// (unlike a true syntax error, which [`lint_markdown_str`] already surfaces) an
-/// undefined alias is otherwise silent.
+/// For each embedded region that does not parse, the parse error mapped to host
+/// coordinates, so `--fix` can report which regions its strict gate refused to rewrite.
+/// Unlike a true syntax error (which [`lint_markdown_str`] already surfaces), an undefined
+/// alias is otherwise silent.
 #[must_use]
 pub fn markdown_parse_skips(markdown: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
     if super::markdown_has_unsupported_cr(markdown) {
@@ -87,12 +83,10 @@ pub fn markdown_parse_skips(markdown: &str, cfg: &YamlLintConfig) -> Vec<LintPro
     skips
 }
 
-/// Per content line, the number of characters the `CommonMark` parser stripped from
-/// its start — `chars(raw line) - chars(content line)` — which covers leading
-/// space/tab indentation, blockquote markers, and CRLF normalisation alike. Added
-/// back to each diagnostic column so positions point into the host document, and
-/// correct for ragged blocks (a line dedented less than the fence yields a smaller
-/// value). Front matter content equals its raw span, so every entry is 0.
+/// Per content line, the chars `CommonMark` stripped from its start (`chars(raw) -
+/// chars(content)`: indent, blockquote markers, CRLF normalisation alike), added back to
+/// each diagnostic column so positions point into the host document. Per-line, so a ragged
+/// block (a line dedented less than the fence) stays correct. Always 0 for front matter.
 fn stripped_indents(markdown: &str, region: &EmbeddedRegion) -> Vec<usize> {
     markdown[region.raw_span.clone()]
         .split('\n')

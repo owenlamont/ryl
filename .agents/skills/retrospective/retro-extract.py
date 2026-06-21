@@ -14,7 +14,7 @@
 The brute-force retrospective (one classifier agent per raw multi-MB transcript) is
 expensive and noisy. This script does the *measurable* work with no LLM: it streams each
 JSONL transcript once and emits a compact per-session digest of only the candidate
-friction — hard counts plus the few lines worth classifying — so a small number of
+friction (hard counts plus the few lines worth classifying) so a small number of
 classifier agents can run over the digests instead of the raw transcripts (~10-20x
 cheaper).
 
@@ -24,9 +24,9 @@ Signals (all derived from the transcript, no model needed):
 - **wall-clock waits**: every event is ISO-timestamped, so the gap between a ``tool_use``
   and its ``tool_result`` is the tool's real duration. A long wait that ends in an
   error/cancellation is the worst friction (a long block on a broken tool) and is
-  reported first — a signal pure text classification cannot see.
+  reported first: a signal pure text classification cannot see.
 - retry clusters: the same Bash command re-issued back-to-back, with no intervening
-  tool or human turn (a blind retry — trial-and-error, not normal edit-then-rerun).
+  tool or human turn (a blind retry: trial-and-error, not normal edit-then-rerun).
 - user corrections: human turns carrying redirection markers ("no", "actually", "wrong",
   "instead", "revert", ...).
 
@@ -73,8 +73,8 @@ CORRECTION_MARKERS: Final = (
 # Default wall-clock gap (seconds) at or above which a tool_use->result wait is flagged.
 DEFAULT_WAIT_THRESHOLD: Final = 120.0
 
-# Tools whose wait is the human responding, not the tool running. Their gaps measure
-# how long you were away — not friction — so they are excluded from the wait analysis.
+# Tools whose wait is the human responding, not the tool running. Their gaps measure how
+# long you were away (not friction), so they are excluded from the wait analysis.
 INTERACTIVE_TOOLS: Final = frozenset({"AskUserQuestion", "ExitPlanMode"})
 
 # Manifest this tool writes under --out-dir listing the digests it produced, so a later
@@ -321,8 +321,8 @@ def label_for(path: Path, project_dir: Path) -> str:
     """Build a collision-free session label from ``path`` relative to ``project_dir``.
 
     Returns:
-        The forward-slashed relative path — a bare filename for a top-level session, or
-        ``<session>/subagents/...`` for a nested one — unique across the tree.
+        The forward-slashed relative path (a bare filename for a top-level session, or
+        ``<session>/subagents/...`` for a nested one), unique across the tree.
     """
     return path.relative_to(project_dir).as_posix()
 
@@ -334,12 +334,12 @@ def select_transcripts(
 
     Top-level ``*.jsonl`` are the user-facing sessions. Nested transcripts (under
     ``<session>/subagents/`` and ``<session>/workflows/``) are autonomous sub-agent and
-    workflow runs, included only with ``include_nested`` — their churn would otherwise
-    dominate the user-friction signal (a hung sub-agent already shows as an ``Agent``
+    workflow runs, included only with ``include_nested`` (their churn would otherwise
+    dominate the user-friction signal; a hung sub-agent already shows as an ``Agent``
     wait in its parent).
 
     Returns:
-        ``(files, skipped_nested)`` — the selected files (optionally only those modified
+        ``(files, skipped_nested)``: the selected files (optionally only those modified
         on/after ``since``, oldest-modified first) and the count of nested transcripts
         skipped when ``include_nested`` is false (0 otherwise), so the omission is
         reported rather than silent.
@@ -379,7 +379,7 @@ def summary_lines(digests: list[SessionDigest]) -> list[str]:
 
     Returns:
         The summary as a list of lines (totals, then the longest waits, with the
-        error-ending waits — the most frustrating — called out first).
+        error-ending waits, the most frustrating, called out first).
     """
     waits = [{**wait, "session": d.session} for d in digests for wait in d.long_waits]
     broken = [wait for wait in waits if wait["ended_in_error"]]
@@ -491,7 +491,7 @@ def main(
                     continue
                 candidate = (out_dir / relative).resolve()
                 # Unlink only this tool's digest files that stay under out_dir, so a
-                # tampered/foreign manifest can't delete an unrelated file — neither a
+                # tampered/foreign manifest can't delete an unrelated file: neither a
                 # non-digest path (e.g. Cargo.toml) nor one escaping via absolute/`..`.
                 if candidate.is_relative_to(resolved_root):
                     candidate.unlink(missing_ok=True)

@@ -1,6 +1,5 @@
-//! YAML DOM vendored from saphyr 0.0.6, retargeted at granit-parser and
-//! trimmed to the subset ryl actually uses. See module headers for upstream
-//! provenance.
+//! YAML DOM vendored from saphyr 0.0.6, retargeted at granit-parser and trimmed to
+//! the subset ryl uses. Per-module headers carry the upstream provenance.
 
 mod loader;
 mod scalar;

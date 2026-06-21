@@ -8,8 +8,8 @@
 //! still validate. Only the `.md` sources are scanned: `docs/llms*.txt` are generated
 //! from them and held in lockstep by a separate drift guard, so the sources cover them.
 //!
-//! Not every fenced block is ryl config — docs also carry rule-input YAML, other
-//! tools' TOML, and so on — and a block need not even parse, so each is *classified
+//! Not every fenced block is ryl config (docs also carry rule-input YAML, other
+//! tools' TOML, and so on) and a block need not even parse, so each is *classified
 //! from its content* by structural markers keyed to ryl's config schema:
 //!   - a `toml` block is ryl config when it declares a `[tool.ryl]` table (the
 //!     `pyproject.toml` form) or a table whose top-level name is in the TOML config
@@ -20,7 +20,7 @@
 //!
 //! Detection is deliberately structural rather than a parse, so a *malformed* config
 //! example (which would not parse) is still recognised by its headers and routed to
-//! the loader, which reports the error — rather than being silently skipped. The
+//! the loader, which reports the error, rather than being silently skipped. The
 //! unavoidable limit of any such heuristic: a broken block with no recognisable ryl
 //! header is indistinguishable from another tool's TOML and is treated as non-config.
 //!
@@ -55,7 +55,7 @@ struct Block {
 }
 
 /// Top-level property names of a config schema produced by
-/// [`ryl::config_schema`] — the source of truth for which tables/keys mark a
+/// [`ryl::config_schema`]: the source of truth for which tables/keys mark a
 /// block as ryl config.
 fn schema_top_level_keys(schema: serde_json::Value) -> BTreeSet<String> {
     schema["properties"]

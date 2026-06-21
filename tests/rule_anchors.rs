@@ -106,7 +106,7 @@ fn reports_unused_anchor() {
 #[test]
 fn alias_glued_to_colon_is_distinct_from_the_plain_anchor() {
     // Per the YAML spec / reference parser, `*x:` in `{*x: 2}` is the alias name
-    // `x:` (the colon is a legal name char), distinct from anchor `x` — so the
+    // `x:` (the colon is a legal name char), distinct from anchor `x`, so the
     // alias is undeclared and the anchor unused. ryl follows the spec here; the
     // unambiguous, spec-valid alias-key form is `*x : 2`. (yamllint narrows to `x`.)
     let cfg = Config::new_for_tests(true, false, true);

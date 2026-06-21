@@ -1,8 +1,5 @@
 msrv = "1.96.0"
-# lsp-types (essential for the `ryl server` language server, behind the default-on
-# `lsp` feature) depends on bitflags 1.x, while pulldown-cmark uses bitflags 2.x.
-# No published lsp-types avoids bitflags 1.x, so this 1-vs-2 duplicate is intrinsic to
-# any Rust LSP and only present when the `lsp` feature is enabled (a
-# `--no-default-features` build has none). Whitelisting only `bitflags` keeps
-# clippy::cargo's multiple_crate_versions active for every other dependency.
+# lsp-types pins bitflags 1.x and pulldown-cmark uses 2.x; no published lsp-types avoids
+# 1.x, so this duplicate is unavoidable under the `lsp` feature. Whitelisting only
+# `bitflags` keeps multiple_crate_versions active for every other dependency.
 allowed-duplicate-crates = ["bitflags"]

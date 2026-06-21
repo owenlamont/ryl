@@ -92,11 +92,9 @@ impl DecodedFile {
         self.content
     }
 
-    /// True when the file is UTF-8 without a BOM, i.e. the UTF-8 bytes of
-    /// [`content`](Self::content) equal the original on-disk bytes. Only then can a
-    /// textual unified diff of the decoded content be applied back to the file; any
-    /// BOM or non-UTF-8 encoding is transcoded on decode, so `--diff` skips it (a
-    /// `git apply`/hk consumer could not apply the patch to the original bytes).
+    /// True when the file is UTF-8 without a BOM, i.e. the decoded content's bytes
+    /// equal the on-disk bytes. Only then can a textual diff apply back to the file;
+    /// any BOM or non-UTF-8 encoding is transcoded on decode, so `--diff` skips it.
     #[must_use]
     pub(crate) fn is_plain_utf8(&self) -> bool {
         self.encoding == FileEncoding::Utf8
@@ -390,15 +388,15 @@ fn decode_bytes_with_encoding(bytes: &[u8]) -> Result<(String, FileEncoding), St
 /// Decode raw bytes using yamllint-compatible encoding detection.
 ///
 /// # Errors
-/// Returns an error string describing why decoding failed.
+/// Returns an error string when decoding fails.
 pub fn decode_bytes(bytes: &[u8]) -> Result<String, String> {
     decode_bytes_with_encoding(bytes).map(|(content, _)| content)
 }
 
-/// Decode bytes using an explicit encoding override, bypassing environment lookups.
+/// Decode bytes with an explicit override, bypassing the environment lookup.
 ///
 /// # Errors
-/// Returns an error string when the override label is unsupported or decoding fails.
+/// Returns an error string when the label is unsupported or decoding fails.
 pub fn decode_bytes_with_override(
     bytes: &[u8],
     override_label: Option<&str>,
@@ -407,7 +405,7 @@ pub fn decode_bytes_with_override(
     decode_with_kind(bytes, encoding)
 }
 
-/// Read a file from disk and decode it using yamllint-compatible detection.
+/// Read and decode a file using yamllint-compatible detection.
 ///
 /// # Errors
 /// Returns an error string when the file cannot be read or decoded.
@@ -415,7 +413,7 @@ pub fn read_file(path: &Path) -> Result<String, String> {
     read_file_lossless(path).map(DecodedFile::into_content)
 }
 
-/// Read a file from disk and retain its detected encoding for write-back.
+/// Read a file, retaining its detected encoding for write-back.
 ///
 /// # Errors
 /// Returns an error string when the file cannot be read or decoded.

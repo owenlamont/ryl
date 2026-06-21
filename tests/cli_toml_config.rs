@@ -110,7 +110,7 @@ fn discovered_empty_toml_config_is_rejected() {
 fn discovered_pyproject_with_empty_tool_ryl_is_rejected() {
     // A present-but-empty `[tool.ryl]` enables no rules; ryl rejects it rather than
     // silently handing back the default rule set (rules must be explicitly enabled).
-    // An *absent* `[tool.ryl]` is different — discovery keeps looking.
+    // An *absent* `[tool.ryl]` is different: discovery keeps looking.
     let td = tempdir().unwrap();
     let root = td.path();
     fs::write(root.join("pyproject.toml"), "[tool.ryl]\n").unwrap();

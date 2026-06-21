@@ -27,8 +27,8 @@ pub mod trailing_spaces;
 pub mod truthy;
 pub mod unicode_line_breaks;
 
-/// Every rule id, used by the directive engine to expand a bare `disable`/`enable`
-/// (no `rule:` token) to "all rules". Extend this when adding a rule.
+/// Every rule id; the directive engine expands a bare `disable`/`enable` to this.
+/// Extend when adding a rule.
 pub const ALL_RULE_IDS: [&str; 27] = [
     anchors::ID,
     block_scalar_chomping::ID,
@@ -59,11 +59,9 @@ pub const ALL_RULE_IDS: [&str; 27] = [
     unicode_line_breaks::ID,
 ];
 
-/// Rules that are ryl-only (no yamllint equivalent) and therefore configurable
-/// only via TOML. They are rejected in yamllint-compatible YAML config and kept
-/// out of the YAML schema so the YAML `rules` namespace stays reserved for
-/// yamllint's own definitions (see `AGENTS.md`). Extend this when adding a rule
-/// that yamllint does not have.
+/// Rules with no yamllint equivalent, so configurable only via TOML: the YAML config
+/// rejects them and the YAML schema prunes them, reserving the YAML `rules` namespace
+/// for yamllint's own definitions. Extend when adding a rule yamllint does not have.
 pub const RYL_ONLY_RULE_IDS: [&str; 4] = [
     block_scalar_chomping::ID,
     merge_keys::ID,

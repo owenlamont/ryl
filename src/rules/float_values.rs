@@ -1,4 +1,4 @@
-//! `float-values`: constrain float scalar spelling — require a numeral before the
+//! `float-values`: constrain float scalar spelling: require a numeral before the
 //! decimal point, and optionally forbid scientific notation, `.nan`, and `.inf`
 //! (resolved under the YAML 1.2 core schema). Mirrors yamllint's `float-values`. No
 //! safe `--fix`: rewrites such as `.5` to `0.5` or expanding `1e3` to `1000` change the

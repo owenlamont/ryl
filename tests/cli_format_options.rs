@@ -174,7 +174,7 @@ fn human_formats_escape_control_characters_in_messages() {
     let cfg = dir.path().join("config.yml");
     fs::write(&cfg, "rules:\n  key-duplicates: enable\n").unwrap();
     let file = dir.path().join("esc.yaml");
-    // A duplicate key carrying a raw ESC (YAML \x1b) — echoed into the message; the
+    // A duplicate key carrying a raw ESC (YAML \x1b) echoed into the message; the
     // parsable format has no ANSI of its own, so any ESC in the output is the payload.
     fs::write(&file, "\"\\x1b[2Jx\": 1\n\"\\x1b[2Jx\": 2\n").unwrap();
 
@@ -458,7 +458,7 @@ fn auto_format_respects_no_color_env() {
     );
 }
 
-// --- JUnit / GitLab report formats (issue #285) ---
+// --- JUnit / GitLab report formats ---
 
 /// A file missing its trailing newline trips `new-line-at-end-of-file`, giving every
 /// report format at least one diagnostic to render.
@@ -1026,7 +1026,7 @@ fn ignored_stdin_report_open_failure_is_usage_error() {
     );
 }
 
-// --- Multiple output targets (issue #285): repeatable --format, each paired to an
+// --- Multiple output targets: repeatable --format, each paired to an
 // --output-file, so console diagnostics and report artifacts can be produced together. ---
 
 #[test]
@@ -1444,7 +1444,7 @@ fn gitlab_path_uses_dotdot_for_files_outside_the_project_root() {
     );
 }
 
-// --- TOML [output] config (issue #285): a project's config can define output targets;
+// --- TOML [output] config: a project's config can define output targets;
 // a CLI --format overrides them wholesale (CLI > config > default). ---
 
 /// Write a TOML config enabling new-line-at-end-of-file (so `dirty_yaml` trips) plus the
@@ -1617,7 +1617,7 @@ fn config_output_empty_path_is_error() {
 
 #[test]
 fn diff_ignores_config_output_report_format() {
-    // Regression: a project `[output.gitlab]` must not turn `--diff` into a usage error.
+    // A project `[output.gitlab]` must not turn `--diff` into a usage error.
     // `--diff` previews fixes with its own output and ignores output formatting, so a
     // config-declared report target is irrelevant to it (only an explicit CLI
     // `--format junit|gitlab` conflicts with `--diff`).

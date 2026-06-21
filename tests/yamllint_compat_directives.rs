@@ -25,7 +25,7 @@ const CONFIG: &str = "rules:\n  \
     key-duplicates: enable\n  \
     comments: enable\n";
 
-/// `(name, bytes)` — written verbatim so CRLF survives.
+/// `(name, bytes)`, written verbatim so CRLF survives.
 const CASES: &[(&str, &str)] = &[
     (
         "inline.yaml",

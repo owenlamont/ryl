@@ -28,7 +28,7 @@ fn colored_diagnostics_match_yamllint_across_formats() {
     fs::write(&warning_cfg, "rules:\n  commas:\n    level: warning\n").unwrap();
 
     // ryl errors on no config (it has no default-on rules), so give both tools the
-    // default preset explicitly via `extends: default` — yamllint's own no-config
+    // default preset explicitly via `extends: default`; yamllint's own no-config
     // fallback is literally `extends: default`, so the comparison stays valid.
     let default_cfg = dir.path().join("layout-default.yml");
     fs::write(&default_cfg, "extends: default\n").unwrap();

@@ -1,14 +1,10 @@
-//! `document-start` rule.
+//! `document-start` rule: require (or forbid) the `---` start marker.
 //!
-//! Safety scope for `--fix`: only the `present: true` (default) case is
-//! rewritten, and only for single-document buffers that contain no
-//! `---`/`...` markers and do not begin with a `%YAML`/`%TAG` directive
-//! line. Multi-document streams are skipped because a later doc's missing
-//! `---` cannot be repaired by inserting at the start of the buffer
-//! (inserting there would create an extra empty leading document). The
-//! `present: false` case — removing existing `---` markers — is never
-//! auto-fixed because removal can collide with multi-document boundaries
-//! the rule does not track.
+//! `--fix` rewrites only `present: true` on a single-document buffer with no
+//! `---`/`...` markers and no leading `%YAML`/`%TAG` directive: inserting `---` at the
+//! buffer start cannot repair a later document's missing marker (it would create an
+//! extra empty leading document), and removing `---` (`present: false`) can collide
+//! with document boundaries, so neither is fixed.
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;

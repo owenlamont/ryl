@@ -40,9 +40,8 @@ OUTPUT_FULL: Final = DOCS / "llms-full.txt"
 # Block prefixes that end the lead paragraph (heading, fence, list, quote, table).
 BLOCK_PREFIXES: Final = ("#", "```", "-", "*", ">", "|")
 
-# Markdown links: `[text](url)` and reference style `[text][ref]`. Both are unusable in
-# the served /llms.txt descriptions (relative/reference targets do not resolve), so they
-# keep only the link text.
+# Relative/reference link targets do not resolve in the served /llms.txt descriptions,
+# so both `[text](url)` and `[text][ref]` are reduced to their link text.
 LINK: Final = re.compile(r"\[([^\]]+)\]\([^)]*\)|\[([^\]]+)\]\[[^\]]*\]")
 
 # Inline link `[text](target)`, for rewriting relative .md targets in the full feed.
@@ -102,7 +101,6 @@ def first_paragraph(markdown: str) -> str:
         if not seen_h1:
             seen_h1 = stripped.startswith("# ")
             continue
-        # A blank line, a block marker, or an HTML closing tag ends the lead paragraph.
         if not stripped or stripped.startswith((*BLOCK_PREFIXES, "</")):
             if collected:
                 break

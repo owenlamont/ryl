@@ -195,7 +195,7 @@ fn dash_on_own_line_and_max_spaces_sort_in_document_order() {
     );
 }
 
-// Char-aligned columns on a multibyte dash line (issue #232): the key column counts
+// Char-aligned columns on a multibyte dash line: the key column counts
 // characters, not bytes.
 #[test]
 fn dash_on_own_line_reports_char_columns_on_multibyte_line() {

@@ -36,13 +36,18 @@ ryl is a CLI tool for linting yaml files
 - Keep code as succinct as practical: every line has a maintenance and read-time cost,
   so prefer good naming over comments, and remember every new conditional adds a testing
   burden. The best refactors remove lines while keeping functionality.
-- Comment the *why*, not the *what*: capture non-obvious invariants, spec rationale,
-  verified-behaviour notes ("verified against ruamel/PyYAML"), deliberate
-  trade-offs/workarounds, and version-pin reasons (link the issue) &mdash; plus
-  "looks-wrong-but-isn't" reasoning that stops a later reader "fixing" subtle logic. This
-  codebase is maintained across many AI sessions, so that durable *why*-context is
-  usually worth its tokens; lean toward including it. Don't narrate self-evident
-  *what* — good names carry that.
+- Comments earn their place; default to deleting one rather than keeping it. Code is the
+  primary documentation: reach for a clearer name, type, or signature before a comment,
+  and remember a self-documenting signature often needs no doc comment at all
+  (`missing_docs` is not enforced). A doc comment states *what* only to the extent the
+  signature cannot, and tersely; it never restates what the code already conveys. A *why*
+  comment is warranted only where the justification is not locally apparent: an
+  unavoidable code smell (often third-party-imposed), a constraint at a distance, a
+  non-obvious invariant, or "looks-wrong-but-isn't" logic that stops a later reader
+  "fixing" it (a "verified against ruamel/PyYAML" note counts when it justifies such
+  logic). Background, motivation, and history do not qualify, even for a rule's own
+  rationale. Where clippy mandates a doc section (`# Errors`/`# Panics`), satisfy it
+  minimally. No issue/PR references and no historical narration in comments.
 - Leverage the provided linters and formatters to fix code, configuration, and
   documentation often - it's much cheaper to have the linters and formatters auto fix
   issues than correcting them yourself. Only correct what the linters and formatters
@@ -145,9 +150,11 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   dev skill for the full workflow.
 - After lint, tests, and coverage are green, review code size changes with
   `uv run scripts/source_size.py --compare-to <branch-or-ref>` (typically the branch
-  point or `HEAD`). If the size increase looks large relative to the added
-  functionality, look for opportunities to make the implementation DRYer, reuse shared
-  helpers, or simplify it before committing.
+  point or `HEAD`); it reports bytes/lines plus a per-root code/doc/comment line split
+  (via `tokei`; Python docstrings count as code, not comments). If the increase looks
+  large relative to the added functionality, make the implementation DRYer, reuse shared
+  helpers, or simplify it before committing. The `comment-ratio` prek hook (also run in
+  CI) gates `src` at `--max-comment-ratio 0.10`, so comments cannot outgrow code.
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -156,14 +163,18 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and `lychee` should
-  be installed as global tools (if they don't appear to be installed raise that with the
-  user). `cargo-audit` backs the `cargo audit --deny warnings` prek hook; install it with
-  `cargo install cargo-audit --locked`. `lychee` backs the `lychee` prek hook (an online
-  link check of docs anchors, relative links, and external URLs, run locally and in CI);
-  install it with `pixi global install lychee`. CI installs it from a pinned,
-  SHA256-verified release binary via `.github/actions/install-lychee` (bump the version
-  and SHA there together when updating).
+- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, `lychee`, and
+  `tokei` should be installed as global tools (if they don't appear to be installed,
+  raise that with the user). `cargo-audit` backs the `cargo audit --deny warnings`
+  prek hook; install it with `cargo install cargo-audit --locked`. `lychee` backs the
+  `lychee` prek hook (an online link check of docs anchors, relative links, and
+  external URLs, run locally and in CI); install it with `pixi global install lychee`.
+  CI installs it from a pinned, SHA256-verified release binary via
+  `.github/actions/install-lychee` (bump the version and SHA there together when
+  updating). `tokei` backs the `comment-ratio` prek hook (the `scripts/source_size.py`
+  comment-to-code gate); install it with `pixi global install tokei`. CI installs a
+  pinned tokei via `prefix-dev/setup-pixi` in `ci.yml` (bump the version there when
+  updating).
 - `gh` will be available in most, but not all environments to inspect GitHub.
 - For PR feedback, use `gh pr view <n> --json comments,reviews` for summary threads and
   `gh api repos/<owner>/<repo>/pulls/<n>/comments` for inline review details (avoid
@@ -206,13 +217,12 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## Automated Tests
 
-- Convey a test's purpose with meaningful function and variable names, and convey
-  what each check verifies with assertion messages. Comments in tests follow the same
-  *why*-not-*what* bar as the rest of the codebase (see Coding Standards): a one-line
-  note on the invariant a test pins, why an input is crafted a certain way (e.g. the
-  `café` char-vs-byte column rationale), a regression's issue link, or a `//!` header
-  describing a property suite's invariants and reuse is welcome where it adds durable
-  context &mdash; just don't restate what a self-evident assertion already says.
+- Convey a test's purpose with meaningful function and variable names and assertion
+  messages. Test comments follow the same bar as the rest of the codebase (see Coding
+  Standards): keep one only for why an input is crafted a certain way (e.g. the `café`
+  char-vs-byte column rationale), a non-obvious invariant a test pins, or a `//!` suite
+  header describing reusable invariants. Never restate what a self-evident assertion
+  already says, and no issue references.
 - Every line of code has a maintenance cost, so don't add tests that don't meaningfully
   increase code coverage. Aim for full branch coverage but also minimise the tests code
   lines to src code lines ratio.

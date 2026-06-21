@@ -1,38 +1,19 @@
-//! `block-scalar-chomping` rule &mdash; requires an explicit chomping indicator
-//! on every block scalar header (issue #257).
+//! `block-scalar-chomping` rule: requires an explicit chomping indicator (`-` or `+`)
+//! on every `|`/`>` block scalar header. An indentation indicator alone (`|2`) is
+//! still flagged. No safe `--fix`: YAML has no explicit clip indicator, so a bare
+//! `|`/`>` cannot be annotated without changing its chomping (see AGENTS.md "Rules
+//! Without A Safe `--fix`").
 //!
-//! A block scalar header (`|` literal or `>` folded) may carry a *chomping
-//! indicator* that fixes how the scalar's trailing line breaks are handled
-//! (YAML 1.2.2 §8.1.1.2): `-` (strip) removes every trailing break, `+` (keep)
-//! retains them all, and a bare `|`/`>` defaults to *clip* &mdash; keep exactly
-//! one final break. The clip default is implicit and easy to forget, so a stray
-//! or missing trailing newline silently changes the value a consumer reads. This
-//! off-by-default rule makes the author state the intent with `-` or `+`.
+//! Detection enumerates block scalars from granit's scanner tokens
+//! (`ScalarStyle::Literal`/`Folded`), so a `|`/`>` in a quoted scalar, comment, or
+//! block content is never mistaken for a header. granit reports a non-empty token at
+//! its first *content* line (not the header), with only blank lines between, so the
+//! header is the nearest marker-bearing line *strictly above*. Empty/blank-only
+//! scalars are the exception: granit places their token on the header at
+//! end-of-stream but on the following node otherwise, so a token whose start column
+//! is the marker uses its own line.
 //!
-//! An *indentation* indicator alone (`|2`) is still flagged: it is not a chomping
-//! indicator, so the chomping is still the implicit clip default. YAML has no
-//! explicit clip indicator (only `-` and `+` exist), so a bare `|`/`>` cannot be
-//! annotated without changing its chomping &mdash; there is therefore no safe
-//! `--fix` (see AGENTS.md "Rules Without A Safe `--fix`").
-//!
-//! Detection enumerates genuine block scalars from granit's scanner tokens
-//! (`ScalarStyle::Literal`/`Folded`), so a `|`/`>` inside a quoted scalar, a
-//! comment, or a literal block's own content is never mistaken for a header.
-//! granit reports a non-empty block scalar's token starting at its first *content*
-//! line (the header column is not exposed), and only blank lines ever sit between
-//! a header and its first content, so the header is recovered as the nearest line
-//! *strictly above* the content that ends in a `|`/`>` marker. The source is split
-//! via the shared `support::line_syntax::line_contents` on granit's YAML 1.2 break
-//! set (`\r\n`, `\r`, `\n`) so the token's line number indexes that table directly;
-//! a bare `\r` is a line break here, as it is for every other rule.
-//!
-//! Empty / blank-only block scalars need one extra case: granit places their token
-//! on the header at end-of-stream but on the following node otherwise. A token
-//! whose start column is the marker therefore uses its own line; every other
-//! token searches strictly above its start line, just like a non-empty scalar.
-//!
-//! Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
-//! <https://www.yaml.info/learn/quote#chomp> (resolved-value examples).
+//! Sources: YAML 1.2.2 §8.1.1.2; <https://www.yaml.info/learn/quote#chomp>.
 
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
@@ -69,9 +50,8 @@ pub fn check(buffer: &str) -> Vec<Violation> {
             token.0.start.col(),
             value.chars().all(|ch| matches!(ch, '\n' | '\r')),
         );
-        // `marker_idx` is the byte offset of the single-byte `|`/`>` (a char
-        // boundary), and the reported column counts characters, not bytes, so a
-        // multibyte key shifts the column correctly (issue #232).
+        // `marker_idx` is the byte offset of the single-byte `|`/`>`; the column counts
+        // characters not bytes, so a multibyte key shifts it correctly.
         let indicators = &header_text[marker_idx + 1..];
         if indicators.bytes().any(|b| matches!(b, b'-' | b'+')) {
             continue;
@@ -85,14 +65,9 @@ pub fn check(buffer: &str) -> Vec<Violation> {
     violations
 }
 
-/// Locate the header of the block scalar whose token starts at `token_line` and
-/// `token_column` (1-based line and 0-based character column, as granit reports
-/// them).
-/// Non-empty tokens start on their first content line, while an empty token at
-/// end-of-stream starts on its own marker; empty tokens before another node start
-/// on that following node. Checking for the exact marker position first
-/// distinguishes the end-of-stream case, then the nearest marker-bearing line
-/// strictly above is the header in every other case.
+/// `token_line` is 1-based, `token_column` a 0-based character column, as granit
+/// reports them. The marker check distinguishes the empty-at-end-of-stream case (token
+/// on its own header); every other token takes the nearest marker-bearing line above.
 fn header_marker<'a>(
     lines: &[&'a str],
     token_line: usize,

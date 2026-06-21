@@ -34,8 +34,8 @@ fn canonical_treats_numeric_spellings_of_one_integer_as_duplicate() {
 #[test]
 fn canonical_resolves_verbatim_core_int_tag() {
     // A verbatim `!<tag:yaml.org,2002:int>` resolves to the same integer as the
-    // shorthand, so `0xB` (int 11) collides with `11` even in long-form. Pre-#277
-    // the handle-only `is_yaml_core_schema` left the verbatim key as raw text.
+    // shorthand, so `0xB` (int 11) collides with `11` even in long-form. The
+    // handle-only `is_yaml_core_schema` would leave the verbatim key as raw text.
     let (code, output) = run_toml(
         "check-canonical = true\n",
         "? !<tag:yaml.org,2002:int> 0xB\n: a\n11: b\n",
@@ -652,7 +652,7 @@ fn forbid_duplicated_merge_keys_composes_with_canonical() {
 #[test]
 fn default_config_allows_quoted_merge_key_duplicates() {
     // yamllint keys the merge-key exemption on the resolved scalar value, so a
-    // quoted "<<" is treated like a plain << — duplicates stay silent under the
+    // quoted "<<" is treated like a plain <<, so duplicates stay silent under the
     // default (option-free) config.
     let dir = tempdir().unwrap();
     let file = dir.path().join("in.yaml");

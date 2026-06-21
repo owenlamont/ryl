@@ -12,8 +12,8 @@ fn invalid_project_config_in_dir_causes_exit_2() {
     fs::create_dir(root.join(".yamllint")).unwrap();
     fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
 
-    // `ryl(root)` bounds discovery at the tempdir so the invalid `.yamllint` here — not a
-    // stray config in the shared temp root — is what gets discovered.
+    // `ryl(root)` bounds discovery at the tempdir so the invalid `.yamllint` here (not a
+    // stray config in the shared temp root) is what gets discovered.
     let (code, _out, err) = run(ryl(root).arg("--list-files").arg(root));
     assert_eq!(code, 2, "expected exit 2: {err}");
     assert!(err.contains("failed to read"));

@@ -102,11 +102,10 @@ def generate_report_json(root: Path) -> dict:
         check=False,
     )
     if summary.returncode != 0:
-        # Surface the failing tests in one shot rather than forcing a manual re-run:
-        # nextest's FAIL/panic lines are in the captured stream (only `--summary-only`'s
-        # coverage table is suppressed, not the test output). Show which tests failed
-        # (highlights) AND the output tail — the tail carries the panic/assertion context
-        # that the highlight lines alone omit, so the failure is diagnosable here.
+        # `--summary-only` suppresses the coverage table, not nextest's FAIL/panic output, so
+        # the captured stream still diagnoses the failure here without a manual re-run. The
+        # highlights name the failing tests; the tail carries the panic/assertion context the
+        # highlight lines omit.
         lines = (summary.stdout or "").splitlines()
         highlights = [
             line

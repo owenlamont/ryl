@@ -1,16 +1,12 @@
 //! `trailing-spaces`: report and strip trailing whitespace from lines.
 //!
-//! Safety scope for the `--fix` rewrite: lines that fall inside a
-//! literal/folded block scalar or a multi-line double-quoted scalar are
-//! left untouched. Block scalars preserve trailing whitespace as part of
-//! their literal value, and multi-line double-quoted scalars treat a
-//! backslash followed by trailing whitespace and a newline differently
-//! from `\<newline>` alone (the latter is a line-continuation escape
-//! that drops the implicit folded space). Trailing whitespace inside
-//! multi-line single-quoted and multi-line plain scalars folds away at
-//! parse time, so those lines remain fixable. The protected line set is
-//! computed via `granit_parser`, so the rule bails (returns `None`) when
-//! the buffer cannot be parsed.
+//! `--fix` leaves lines inside a literal/folded block scalar or a multi-line
+//! double-quoted scalar untouched: block scalars preserve trailing whitespace as
+//! literal value, and a double-quoted backslash + trailing whitespace + newline differs
+//! from `\<newline>` alone (a line-continuation escape that drops the folded space).
+//! Multi-line single-quoted and plain scalars fold trailing whitespace away, so they
+//! stay fixable. The protected line set comes from `granit_parser`, so the fix bails
+//! (returns `None`) on an unparsable buffer.
 use granit_parser::ScalarStyle;
 
 use crate::rules::support::line_syntax::{

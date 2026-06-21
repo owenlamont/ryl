@@ -37,7 +37,7 @@ fn colons_reports_spacing_errors() {
 
 #[test]
 fn colons_allows_required_space_for_alias_mapping_key() {
-    // Regression for #254: `*foo : bar` needs the space (without it `:` joins the alias
+    // `*foo : bar` needs the space (without it `:` joins the alias
     // name), so it must not be flagged; an extra space still is.
     let dir = tempdir().unwrap();
     let config = dir.path().join("config.yaml");

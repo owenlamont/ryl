@@ -21,32 +21,19 @@ use crate::{conf, decoder};
 
 pub use crate::config_schema::RuleLevel;
 
-/// Maximum depth of `extends` resolution. A cyclic `extends` (a config that
-/// extends itself, directly or via a chain) would otherwise recurse until the
-/// stack overflows; real chains are only a level or two deep, so this bounds the
-/// recursion far above any legitimate use and turns a cycle into a clean error.
+/// Bounds `extends` recursion: a cyclic `extends` would otherwise overflow the stack.
 const MAX_EXTENDS_DEPTH: usize = 32;
 
-/// How a file should be linted, as resolved from the `[files]` globs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
-    /// The whole file is one YAML document.
     Yaml,
-    /// A markdown file whose embedded YAML (front matter, fenced blocks) is linted.
     Markdown,
 }
 
-/// Abstraction over environment/filesystem to enable full test coverage.
-/// Minimal environment abstraction used by tests to cover file system and env-var behavior.
 pub trait Env {
-    /// Current working directory.
     fn current_dir(&self) -> PathBuf;
-    /// Platform configuration directory (e.g., XDG config dir).
     fn config_dir(&self) -> Option<PathBuf>;
-    /// Home directory for tilde expansion.
     fn home_dir(&self) -> Option<PathBuf>;
-    /// Read file contents.
-    ///
     /// # Errors
     /// Returns an error string when the file cannot be read.
     fn read_to_string(&self, p: &Path) -> Result<String, String>;
@@ -62,7 +49,6 @@ impl Env for SystemEnv {
         PathBuf::from(".")
     }
     fn config_dir(&self) -> Option<PathBuf> {
-        // Check XDG_CONFIG_HOME first (for cross-platform compatibility)
         env::var("XDG_CONFIG_HOME")
             .ok()
             .map(PathBuf::from)
@@ -106,9 +92,8 @@ impl Env for ClosureEnv<'_> {
     }
 
     fn config_dir(&self) -> Option<PathBuf> {
-        // Resolve config_dir purely from the injected XDG_CONFIG_HOME so this injection env
-        // stays hermetic and never reads the real config dir; an un-injected value yields
-        // None (production uses SystemEnv, which adds the platform-native fallback).
+        // Resolve purely from the injected XDG_CONFIG_HOME so this test env stays hermetic
+        // and never reads the real config dir (SystemEnv adds the platform-native fallback).
         (self.get)("XDG_CONFIG_HOME").map(PathBuf::from)
     }
 
@@ -132,7 +117,6 @@ impl Env for ClosureEnv<'_> {
     }
 }
 
-/// Minimal configuration model compatible with yamllint discovery precedence.
 #[derive(Debug, Clone)]
 pub struct YamlLintConfig {
     ignore_patterns: Vec<String>,
@@ -141,8 +125,8 @@ pub struct YamlLintConfig {
     ignore_matcher: Option<Gitignore>,
     per_file_ignores: BTreeMap<String, Vec<String>>,
     per_file_ignore_matchers: Vec<PerFileIgnore>,
-    /// Resolved `per-line-ignores` spec, kept (alongside the compiled matchers) so the
-    /// runtime config can serialize back to TOML for `--migrate-configs`.
+    /// Kept alongside the compiled matchers so the config can serialize back to TOML for
+    /// `--migrate-configs`.
     per_line_ignores: Vec<NormalizedPerLineIgnore>,
     per_line_ignore_matchers: Vec<PerLineIgnoreMatcher>,
     rule_names: Vec<String>,
@@ -151,14 +135,12 @@ pub struct YamlLintConfig {
     yaml_matcher: Option<Gitignore>,
     markdown_file_patterns: Vec<String>,
     markdown_matcher: Option<Gitignore>,
-    /// Set when the `--markdown` flag injected the default markdown globs; lets
-    /// markdown win over yaml for an overlapping file instead of hard-erroring, so
-    /// the flag can't break a run whose yaml globs happen to match `.md`.
+    /// Set when `--markdown` injected the default globs; lets markdown win over yaml for an
+    /// overlapping file instead of hard-erroring, so the flag can't break a run whose yaml
+    /// globs happen to match `.md`.
     markdown_from_flag: bool,
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
-    /// Output targets from a TOML `[output]` table (ryl-only). Run-level: read once from
-    /// the config governing the invocation, then resolved into destinations by the CLI.
     output: Option<OutputTable>,
     locale: Option<String>,
     fix: FixConfig,
@@ -224,7 +206,6 @@ impl PerFileIgnore {
 }
 
 /// Split a leading `!` negation marker off a glob pattern, returning `(negated, rest)`.
-/// Shared by the per-file and per-line ignore matchers so both honour `!` identically.
 fn split_negation(pattern: &str) -> (bool, &str) {
     pattern
         .strip_prefix('!')
@@ -232,8 +213,7 @@ fn split_negation(pattern: &str) -> (bool, &str) {
 }
 
 /// Whether `path` matches either glob: its basename against `basename`, or its
-/// (base-dir-resolved) absolute form against `absolute`. Shared by the per-file and
-/// per-line ignore matchers so both interpret a path glob identically.
+/// (base-dir-resolved) absolute form against `absolute`.
 fn glob_path_matches(
     basename: &GlobMatcher,
     absolute: &GlobMatcher,
@@ -267,9 +247,8 @@ fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
 }
 
 /// The rules a `per-line-ignores` entry suppresses, resolved to `&'static str` ids;
-/// `None` means every rule (the `ALL` selector). This mirrors
-/// `directives::insert_rules`'s `None`-means-all convention, so the directives builder
-/// expands `ALL` in one place rather than here.
+/// `None` means every rule (the `ALL` selector), matching `directives::insert_rules`'s
+/// `None`-means-all convention so the directives builder expands `ALL` in one place.
 fn resolve_per_line_rules(rules: &[String]) -> Option<Vec<&'static str>> {
     if rules.iter().any(|rule| rule == "ALL") {
         return None;
@@ -288,24 +267,20 @@ fn resolve_per_line_rules(rules: &[String]) -> Option<Vec<&'static str>> {
     )
 }
 
-/// Compiled `per-line-ignores` entry: an optional path glob (the basename + absolute
-/// matcher pair, as per-file-ignores), an optional line regex, and the rules to
-/// suppress (`None` = all). No path glob applies to every file; line matching happens
-/// in the directives builder. At least one of path/regex is guaranteed by validation.
+/// Compiled `per-line-ignores` entry: an optional path glob (basename + absolute matcher
+/// pair), an optional line regex, and the rules to suppress (`None` = all). No path glob
+/// applies to every file. At least one of path/regex is guaranteed by validation.
 #[derive(Debug, Clone)]
 struct PerLineIgnoreMatcher {
     path_glob: Option<(GlobMatcher, GlobMatcher)>,
-    /// Whether the path glob was `!`-negated (matches files *not* matching it), as
-    /// per-file-ignores. Only meaningful when `path_glob` is `Some`.
+    /// Whether the path glob was `!`-negated. Only meaningful when `path_glob` is `Some`.
     path_negated: bool,
     regex: Option<Regex>,
     rules: Option<Vec<&'static str>>,
 }
 
 impl PerLineIgnoreMatcher {
-    /// Build a compiled matcher. Infallible: config validation
-    /// (`validate_per_line_ignores`) has already proven every regex/glob compiles, so
-    /// the only failure path is unreachable and is documented with `expect`.
+    /// Infallible: `validate_per_line_ignores` already proved every regex/glob compiles.
     fn new(entry: &NormalizedPerLineIgnore, base_dir: &Path) -> Self {
         let (path_negated, path_glob) = match entry.path.as_deref() {
             Some(raw) => {
@@ -334,7 +309,6 @@ impl PerLineIgnoreMatcher {
         }
     }
 
-    /// Whether this entry applies to `path` (true when it has no path constraint).
     fn path_matches(&self, path: &Path, base_dir: &Path) -> bool {
         self.path_glob.as_ref().is_none_or(|(basename, absolute)| {
             glob_path_matches(basename, absolute, path, base_dir) != self.path_negated
@@ -536,20 +510,16 @@ impl YamlLintConfig {
         Self::from_yaml_str_with_env(s, None, None)
     }
 
-    /// Build a config from standalone TOML configuration text, without filesystem
-    /// access (like [`Self::from_yaml_str`]). Parsing is separated from discovery: this
-    /// does not run [`Self::finalize`], so path-based matchers (`per-file-ignores`,
-    /// `per-line-ignores`, per-rule `ignore`) are not built here &mdash; the lint-ready
-    /// config comes from `discover_config`, which owns I/O and finalization.
+    /// Parse standalone TOML config text without filesystem access (like
+    /// [`Self::from_yaml_str`]). Does not run [`Self::finalize`], so path-based matchers
+    /// are not built here; the lint-ready config comes from `discover_config`.
     ///
     /// # Errors
-    /// Returns an error when the TOML is empty or cannot be parsed into a valid
-    /// config.
+    /// Returns an error when the TOML is empty or cannot be parsed into a valid config.
     ///
     /// # Panics
-    /// Cannot panic in practice: the `None` result is reserved for an absent
-    /// `[tool.ryl]` table in `pyproject.toml`, which standalone parsing
-    /// (`pyproject = false`) never produces &mdash; an empty config is an error.
+    /// Cannot panic in practice: the `None` result is reserved for an absent `[tool.ryl]`
+    /// table, which standalone parsing (`pyproject = false`) never produces.
     pub fn from_toml_str(s: &str) -> Result<Self, String> {
         Self::from_toml_str_with_env(s, None, None, false)
             .map(|config| config.expect("standalone TOML config is never absent"))
@@ -608,19 +578,17 @@ impl YamlLintConfig {
     }
 
     /// Drop `ignore-from-file` so the serialized config emits the patterns `finalize`
-    /// already resolved into `ignore`. User-global migration calls this so the converted
-    /// config is self-contained and keeps working after it moves to ryl's config directory
-    /// (the original relative path would otherwise dangle). Call only after `finalize`.
+    /// already resolved into `ignore`. User-global migration needs this so the converted
+    /// config stays self-contained after it moves to ryl's config dir (the original
+    /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
         self.ignore_from_files.clear();
     }
 
     /// Whether any rule sets a *relative* rule-level `ignore-from-file`. User-global
     /// migration refuses these: the rule config is serialized verbatim, so a relative path
-    /// cannot be relocated to ryl's config directory without rewriting it (the top-level
-    /// case is inlined instead). An absolute rule-level path is left as-is — moving the
-    /// config cannot invalidate it. Call only after `finalize`, which populates rule
-    /// filters.
+    /// cannot be relocated to ryl's config dir without rewriting it (an absolute path is
+    /// left as-is). Call only after `finalize`, which populates rule filters.
     #[must_use]
     pub fn has_relative_rule_level_ignore_from_file(&self) -> bool {
         self.rules
@@ -635,9 +603,9 @@ impl YamlLintConfig {
         &self.rule_names
     }
 
-    /// Whether the configuration enables at least one rule (one with a severity
-    /// level). A configuration that enables none would lint nothing; the lint CLI
-    /// rejects that, though config resolution itself (e.g. for migration) does not.
+    /// Whether the config enables at least one rule (one with a severity level). A config
+    /// that enables none would lint nothing; the lint CLI rejects that, config resolution
+    /// (e.g. for migration) does not.
     #[must_use]
     pub fn enables_any_rule(&self) -> bool {
         self.rules.values().any(|rule| rule.level().is_some())
@@ -688,8 +656,7 @@ impl YamlLintConfig {
             build_glob_matcher(base_dir, &self.markdown_file_patterns);
     }
 
-    /// Returns true when `path` should be ignored according to config patterns.
-    /// Matching is performed on the path relative to `base_dir`.
+    /// Matches `path` relative to `base_dir`.
     #[must_use]
     pub fn is_file_ignored(&self, path: &Path, base_dir: &Path) -> bool {
         self.ignore_matcher
@@ -697,11 +664,9 @@ impl YamlLintConfig {
             .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
     }
 
-    /// Disable filename-based rule ignores so every enabled rule runs.
-    ///
-    /// Use when linting content that has no real path (e.g. stdin without
-    /// `--stdin-filename`), so per-file-ignores and per-rule `ignore` patterns
-    /// cannot accidentally match the synthetic label.
+    /// Disable filename-based rule ignores so every enabled rule runs. Use when linting
+    /// content with no real path (e.g. stdin without `--stdin-filename`), so the ignore
+    /// patterns cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
         self.per_file_ignore_matchers.clear();
         // A per-line entry with a path constraint can't match a synthetic label, so
@@ -727,9 +692,8 @@ impl YamlLintConfig {
                 .any(|entry| entry.rules.iter().any(|candidate| candidate == rule))
     }
 
-    /// The `per-line-ignores` entries applying to `path` (path glob matches, or none),
-    /// as virtual-disable-line applies for the directives builder. Empty when none are
-    /// configured, so directive-less linting pays nothing.
+    /// The `per-line-ignores` entries applying to `path`, as virtual-disable-line applies
+    /// for the directives builder.
     #[must_use]
     pub(crate) fn per_line_applies(
         &self,
@@ -757,8 +721,8 @@ impl YamlLintConfig {
         crate::discover::is_yaml_path(path)
     }
 
-    /// Returns true when `path` is a markdown file to scan for embedded YAML.
-    /// Always false when markdown linting is disabled (no `[files].markdown`).
+    /// Whether `path` is a markdown file to scan for embedded YAML. Always false when
+    /// markdown linting is disabled (no `[files].markdown`).
     #[must_use]
     pub fn is_markdown_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         let Some(matcher) = &self.markdown_matcher else {
@@ -773,9 +737,8 @@ impl YamlLintConfig {
             .is_ignore()
     }
 
-    /// Resolve which source kind `path` should be linted as, per the `[files]`
-    /// globs. Returns `Ok(None)` when no kind matches, and `Err` when a file
-    /// matches more than one kind (an unresolvable configuration).
+    /// Resolve which source kind `path` should be linted as, per the `[files]` globs.
+    /// `Ok(None)` when no kind matches.
     ///
     /// # Errors
     /// Returns `Err` if `path` matches both the `yaml` and `markdown` globs.
@@ -802,10 +765,8 @@ impl YamlLintConfig {
         }
     }
 
-    /// Enable markdown linting with default globs (`*.md`, `*.markdown`, `*.mdx`,
-    /// `*.qmd`, `*.Rmd`) when none are configured. Backs the `--markdown` CLI flag
-    /// so embedded YAML can be linted without editing config. A no-op when
-    /// `[files].markdown` already lists globs.
+    /// Enable markdown linting with default globs when none are configured. Backs the
+    /// `--markdown` flag. A no-op when `[files].markdown` already lists globs.
     pub fn enable_default_markdown(&mut self, base_dir: &Path) {
         if self.markdown_file_patterns.is_empty() {
             self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
@@ -828,8 +789,8 @@ impl YamlLintConfig {
         self.lint_markdown_fenced_blocks
     }
 
-    /// The TOML `[output]` table, if the config declared one (ryl-only). The CLI resolves
-    /// it into output destinations; a CLI `--format` overrides it wholesale.
+    /// The TOML `[output]` table, if the config declared one. The CLI resolves it into
+    /// destinations; a CLI `--format` overrides it wholesale.
     #[must_use]
     pub fn output(&self) -> Option<&OutputTable> {
         self.output.as_ref()
@@ -859,9 +820,9 @@ impl YamlLintConfig {
         }
         let docs = YamlOwned::load_from_str(s)
             .map_err(|e| format!("failed to parse config data: {e}"))?;
-        // An empty document stream (empty/whitespace/comment-only config) yields no
-        // docs; treat it as a non-mapping so it reports "invalid config: not a
-        // mapping" (matching yamllint) instead of panicking on `docs[0]`.
+        // An empty document stream yields no docs; treat it as a non-mapping so it reports
+        // "invalid config: not a mapping" (matching yamllint) instead of panicking on
+        // `docs[0]`.
         Self::from_doc_with_env(
             docs.first().unwrap_or(&YamlOwned::BadValue),
             envx,
@@ -909,10 +870,8 @@ impl YamlLintConfig {
     }
 
     fn merge_from(&mut self, mut other: Self) {
-        // Merge ignore patterns (append, then dedup later during matcher build)
         self.ignore_patterns.append(&mut other.ignore_patterns);
         self.ignore_from_files.append(&mut other.ignore_from_files);
-        // Merge rules deeply and accumulate names
         for (name, rule) in other.rules {
             self.merge_rule(&name, &rule.value);
         }
@@ -955,7 +914,7 @@ impl YamlLintConfig {
         }
 
         // A child config's `[output]` replaces an `extends:` base's wholesale (last wins);
-        // omitting it preserves the base, mirroring the other top-level tables here.
+        // omitting it preserves the base, like the other top-level tables here.
         if normalized.output.is_some() {
             self.output = normalized.output;
         }
@@ -993,11 +952,9 @@ impl YamlLintConfig {
     }
 
     fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
-        // Reject unknown/misspelled rule names (matching yamllint's "no such rule").
-        // ryl does not support custom/unrecognised rules: an unknown rule is never
-        // dispatched by `lint_str`, so without this a typo lints nothing and a config
-        // whose only entries are unknown would also slip past the "no rules enabled"
-        // guard.
+        // Reject unknown rule names (matching yamllint's "no such rule"): an unknown rule
+        // is never dispatched by `lint_str`, so without this a typo lints nothing and a
+        // config whose only entries are unknown slips past the "no rules enabled" guard.
         if let Some(unknown) = self
             .rule_names
             .iter()
@@ -1361,18 +1318,15 @@ fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
     }
 }
 
-/// Result of configuration discovery.
 #[derive(Debug, Clone)]
 pub struct ConfigContext {
     pub config: YamlLintConfig,
     pub base_dir: PathBuf,
     pub source: Option<PathBuf>,
     pub notices: Vec<String>,
-    /// Whether an actual configuration source was used (inline data, a config file,
-    /// a discovered project/user-global config, or an env-var config). `false` only
-    /// when nothing was found and resolution fell back to an empty config, which lets
-    /// the lint CLI distinguish "no configuration found" from "a configuration that
-    /// enables no rules".
+    /// `false` only when nothing was found and resolution fell back to an empty config,
+    /// which lets the lint CLI distinguish "no configuration found" from "a configuration
+    /// that enables no rules".
     pub config_found: bool,
 }
 
@@ -1414,14 +1368,12 @@ pub fn discover_config(
 /// Returns an error when a configuration file cannot be read or parsed.
 ///
 /// # Panics
-/// Panics only if a built-in preset referenced via `extends:` cannot be parsed,
-/// which indicates a programming error.
+/// Panics only if a built-in preset referenced via `extends:` cannot be parsed.
 pub fn discover_config_with(
     inputs: &[PathBuf],
     overrides: &Overrides,
     envx: &dyn Env,
 ) -> Result<ConfigContext, String> {
-    // Global config resolution: inline > file > project > env var > user-global.
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
         let cfg =
@@ -1476,12 +1428,8 @@ pub fn discover_config_with_env(
 }
 
 /// Discover the config for a single file path, ignoring env/global overrides.
-/// Precedence: nearest project config up-tree (TOML-first, YAML fallback),
-/// then user-global, then an empty config (no rules enabled).
-///
-/// # Errors
-/// Returns an error when a config file cannot be read or parsed.
-/// Discover the effective config for a single file.
+/// Precedence: nearest project config up-tree (TOML-first, YAML fallback), then
+/// user-global, then an empty config (no rules enabled).
 ///
 /// # Errors
 /// Returns an error when a config file cannot be read or parsed.
@@ -1535,19 +1483,14 @@ pub fn discover_per_file_with(
     )
 }
 
-// Testable core helpers below.
 /// Project root for a config at `p`: normally its parent directory, but a `.config/`
 /// discovery candidate (`.config/.ryl.toml` or `.config/ryl.toml`) anchors at that
-/// directory's parent. `.config/` is a config container by convention (XDG/dot-config),
-/// never a content root, so `.config/ryl.toml` is a true drop-in for a root `ryl.toml` —
-/// path-based `[files]`/`ignore` globs and relative `ignore-from-file` paths resolve
-/// against the project root, not `.config/`. Applies to discovered and explicit (`-c`,
-/// `YAMLLINT_CONFIG_FILE`) configs alike so the same file behaves identically however it
-/// is reached. Gated on the candidate *filenames* (not just "any TOML in `.config/`") so
-/// discovery and explicit modes agree for exactly the names discovery recognizes: an
-/// arbitrarily-named TOML or a yamllint-compat YAML config explicitly pointed at inside a
-/// `.config/` folder keeps its parent-directory base, like any other explicit path. An
-/// empty grandparent (a relative `.config/<file>` in the cwd) resolves to the cwd.
+/// directory's parent, since `.config/` is a config container by convention, never a
+/// content root: path-based `[files]`/`ignore` globs and relative `ignore-from-file`
+/// paths then resolve against the project root, not `.config/`. Gated on the candidate
+/// *filenames* (not "any TOML in `.config/`") so an arbitrarily-named or explicitly
+/// pointed-at config inside `.config/` keeps its parent-directory base. An empty
+/// grandparent (a relative `.config/<file>` in the cwd) resolves to the cwd.
 fn config_base_dir(envx: &dyn Env, p: &Path) -> PathBuf {
     let base = p
         .parent()
@@ -1596,10 +1539,9 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
         return Ok(None);
     };
     let path = expand_user_path(envx, &raw);
-    // YAMLLINT_CONFIG_FILE is yamllint's env var, so it accepts only yamllint YAML configs;
-    // a `.toml` target used to load as a ryl-native config (#332). Rejecting by extension
-    // (the loader's sole YAML-vs-TOML signal) fires before the existence check, since the
-    // value alone flags the misuse: `-c`/project discovery are the route for ryl TOML.
+    // YAMLLINT_CONFIG_FILE is yamllint's env var, so it accepts only yamllint YAML configs.
+    // Reject a `.toml` target (by extension, the loader's sole YAML-vs-TOML signal) before
+    // the existence check: `-c`/project discovery are the route for ryl TOML.
     if is_toml_path(&path) {
         return Err(format!(
             "YAMLLINT_CONFIG_FILE points at a TOML file ({}); it accepts only yamllint YAML \
@@ -1613,10 +1555,8 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
     ctx_from_config_path_core(envx, &path, false, Vec::new()).map(Some)
 }
 
-// no separate try_env_config_with; discover_config_with_env uses ClosureEnv + discover_config_with
-
-/// User-global config fallback. ryl checks its own branded location first, then the
-/// yamllint-compatible path so migrators keep working.
+/// Checks ryl's own location first, then the yamllint-compatible path so migrators keep
+/// working.
 fn try_user_global_core(
     envx: &dyn Env,
     base_dir: &Path,
@@ -1627,16 +1567,16 @@ fn try_user_global_core(
     try_yamllint_user_global_core(envx, base_dir)
 }
 
-/// Directory holding ryl's own user-global config, following the ruff/Biome convention
-/// via `config_dir` (`$XDG_CONFIG_HOME` else the platform-native dir), so on macOS it
-/// resolves under `~/Library/Application Support/ryl`, unlike the yamllint path.
+/// Directory holding ryl's own user-global config, via `config_dir` (`$XDG_CONFIG_HOME`
+/// else the platform-native dir), so on macOS it resolves under
+/// `~/Library/Application Support/ryl`, unlike the yamllint path.
 fn ryl_user_global_dir(envx: &dyn Env) -> Option<PathBuf> {
     envx.config_dir().map(|base| base.join("ryl"))
 }
 
-/// yamllint's user-global config path, matching yamllint exactly across platforms:
-/// `$XDG_CONFIG_HOME/yamllint/config` if set, else `~/.config/yamllint/config` —
-/// deliberately NOT the platform-native config dir (verified against yamllint/cli.py).
+/// yamllint's user-global config path: `$XDG_CONFIG_HOME/yamllint/config` if set, else
+/// `~/.config/yamllint/config`, deliberately NOT the platform-native config dir (verified
+/// against yamllint/cli.py).
 fn yamllint_user_global_path(envx: &dyn Env) -> Option<PathBuf> {
     envx.env_var("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -1644,9 +1584,8 @@ fn yamllint_user_global_path(envx: &dyn Env) -> Option<PathBuf> {
         .map(|base| base.join("yamllint").join("config"))
 }
 
-/// Resolve the `(yamllint source, ryl target)` paths for migrating a yamllint user-global
-/// config to ryl's own location. `None` when no config directory or home can be
-/// determined. The target is `ryl.toml` (non-hidden, in the dedicated `ryl/` dir).
+/// The `(yamllint source, ryl target)` paths for migrating a yamllint user-global config
+/// to ryl's location. `None` when no config dir or home can be determined.
 #[must_use]
 pub fn user_config_migration_paths(envx: &dyn Env) -> Option<(PathBuf, PathBuf)> {
     let source = yamllint_user_global_path(envx)?;
@@ -1654,8 +1593,7 @@ pub fn user_config_migration_paths(envx: &dyn Env) -> Option<(PathBuf, PathBuf)>
     Some((source, target))
 }
 
-/// ryl-native user-global config: `<config-dir>/ryl/{.ryl.toml,ryl.toml}`, TOML only per
-/// the YAML-mirrors-yamllint / TOML-for-ryl-only split.
+/// ryl-native user-global config: `<config-dir>/ryl/{.ryl.toml,ryl.toml}`, TOML only.
 fn try_ryl_user_global_core(
     envx: &dyn Env,
     base_dir: &Path,
@@ -1685,8 +1623,7 @@ fn try_ryl_user_global_core(
     Ok(None)
 }
 
-/// yamllint-compatible user-global config (`<base>/yamllint/config`, YAML), kept for
-/// users migrating from yamllint.
+/// yamllint-compatible user-global config (`<base>/yamllint/config`, YAML).
 fn try_yamllint_user_global_core(
     envx: &dyn Env,
     base_dir: &Path,
@@ -1713,15 +1650,10 @@ fn try_yamllint_user_global_core(
 }
 
 // Project-level TOML config candidates, highest precedence first, checked at every
-// ancestor up to HOME. The `.config/` entries are the repo-local config-dir variants
-// (RuboCop/rumdl convention): a `.config/` directory keeps config out of the project
-// root, and we accept both the hidden (`.ryl.toml`) and plain (`ryl.toml`) names there
-// since a user relocating an existing dotfile into `.config/` keeps the dot. `/` is a
-// portable separator
-// (Windows accepts it too), but `candidate_path` splits and re-joins so the resolved
-// path uses the native separator and displays cleanly. The `.config/` variants are not
-// mirrored in the legacy YAML fallback (`YAML_PROJECT_CONFIG_CANDIDATES`): `.config/`
-// holds ryl-native TOML only, never the yamllint-compatible YAML configs.
+// ancestor up to HOME. The `.config/` entries accept both hidden and plain names so a
+// relocated dotfile keeps its dot. The literal `/` is split and re-joined by
+// `candidate_path` so the resolved path uses the native separator. Not mirrored in
+// `YAML_PROJECT_CONFIG_CANDIDATES`: `.config/` holds ryl-native TOML only.
 const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 5] = [
     ".ryl.toml",
     "ryl.toml",
@@ -1731,7 +1663,6 @@ const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 5] = [
 ];
 const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
     [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
-// ryl-native user-global candidates (TOML only); checked inside `<config-dir>/ryl/`.
 const RYL_USER_GLOBAL_CONFIG_CANDIDATES: [&str; 2] = [".ryl.toml", "ryl.toml"];
 
 #[derive(Debug, Clone)]
@@ -1783,9 +1714,8 @@ fn is_toml_path(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "toml")
 }
 
-/// Join a `/`-separated candidate (e.g. `.config/ryl.toml`) onto `dir` component by
-/// component so the result uses the platform-native separator rather than embedding a
-/// literal `/` that would render mixed-separator paths on Windows.
+/// Join a `/`-separated candidate onto `dir` component by component so the result uses
+/// the platform-native separator instead of a literal `/` (mixed separators on Windows).
 fn candidate_path(dir: &Path, name: &str) -> PathBuf {
     name.split('/')
         .fold(dir.to_path_buf(), |path, part| path.join(part))

@@ -1,7 +1,5 @@
-//! Bridges an in-memory document to ryl's existing lint and fix engine and maps
-//! the results into LSP types. No linting or fixing logic lives here: it reuses
-//! `lint_str` / `lint_markdown_str` for diagnostics and `apply_safe_fixes` /
-//! `fix_markdown_str` for the whole-file fix, exactly as the CLI does.
+//! Maps the lint/fix engine results into LSP types. No lint/fix logic lives here: it
+//! reuses `lint_str` / `lint_markdown_str` and `apply_safe_fixes` / `fix_markdown_str`.
 
 use std::path::Path;
 
@@ -40,8 +38,6 @@ fn to_diagnostic(
     }
 }
 
-/// Lint `text` (already resolved to `kind`) and convert each problem to an LSP
-/// diagnostic under the negotiated `enc`.
 #[must_use]
 pub fn diagnostics(
     text: &str,
@@ -62,10 +58,9 @@ pub fn diagnostics(
         .collect()
 }
 
-/// The whole-document edit that applies every safe fix, or `None` when the
-/// content already conforms or cannot be fixed (the fix engine returns the input
-/// unchanged for an unparsable file; markdown with an unsupported bare CR yields
-/// `None`). Backs both `source.fixAll.ryl` and `textDocument/formatting`.
+/// The whole-document edit applying every safe fix, or `None` when nothing changes
+/// (the fix engine returns the input unchanged for an unparsable file; markdown with
+/// an unsupported bare CR yields `None`).
 #[must_use]
 pub fn fix_all_edit(
     text: &str,
@@ -82,10 +77,9 @@ pub fn fix_all_edit(
     (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
 }
 
-/// The whole-document edit applying only `rule`'s safe fix — every other safe fixer is
-/// skipped — or `None` when nothing changes, `rule` has no safe fix, or `kind` is not
-/// plain YAML (the markdown fix path has no per-rule variant). Backs the per-rule
-/// `source.fixAll.ryl.<rule>` code action.
+/// The whole-document edit applying only `rule`'s safe fix, or `None` when nothing
+/// changes, `rule` has no safe fix, or `kind` is not plain YAML (the markdown fix path
+/// has no per-rule variant).
 #[must_use]
 pub fn fix_rule_edit(
     text: &str,

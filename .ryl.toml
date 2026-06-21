@@ -6,8 +6,8 @@ yaml = [
 ]
 markdown = ["*.md", "*.markdown", "*.mdx", "*.qmd", "*.Rmd"]
 
-# Lint YAML front matter in Markdown but not fenced ```yaml blocks: docs/rules/*.md
-# deliberately embed invalid YAML to demonstrate each rule.
+# docs/rules/*.md deliberately embed invalid YAML in fenced blocks to demonstrate
+# each rule, so scan front matter only.
 [markdown]
 fenced-blocks = false
 

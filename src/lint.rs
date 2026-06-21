@@ -80,13 +80,11 @@ pub fn lint_markdown_file(
     ))
 }
 
-/// Run one rule under the standard gate — skip a disabled rule or a
-/// per-rule-ignored file — and append a [`LintProblem`] per reported violation in
-/// the rule's own report order. This replaces the hand-written `collect_*` helper
-/// each rule used to need. The arms cover the shapes rules actually have: a
-/// resolved `&Config` or none, a `Vec` or `Option` of violations, and a
-/// per-violation message or a fixed module `MESSAGE`. `$m` is the rule module; its
-/// `ID` / `check` / `Config` / `MESSAGE` are reached through it.
+/// Run one rule under the standard gate (skip a disabled rule or a per-rule-ignored file)
+/// and append a [`LintProblem`] per violation in the rule's own report order. The arms
+/// cover the shapes rules have: a resolved `&Config` or none, a `Vec` or `Option` of
+/// violations, and a per-violation message or a fixed module `MESSAGE`. `$m` is the rule
+/// module; its `ID` / `check` / `Config` / `MESSAGE` are reached through it.
 macro_rules! lint_rule {
     // config, `Vec<Violation>`, per-violation message (the common rule shape)
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident) => {
@@ -167,8 +165,8 @@ macro_rules! lint_rule {
             });
         }
     };
-    // config by value + platform newline, `Option<Violation>`, per-violation
-    // message (new-lines: the platform default is injected for testability)
+    // config by value + platform newline, `Option<Violation>`, per-violation message
+    // (the platform default is injected for testability)
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, platform) => {
         if let Some(level) = $cfg.rule_level($m::ID)
             && !$cfg.is_rule_ignored($m::ID, $path, $base)
@@ -186,13 +184,11 @@ macro_rules! lint_rule {
     };
 }
 
-// `lint_str`'s rule dispatch is split into three ordered batches purely to keep
-// each function within clippy's cognitive-complexity threshold (one flat 26-rule
-// table trips it). The batch boundaries are pragmatic, not a strict taxonomy; what
-// matters is that they run in this order — layout, then value, then block —
-// because that concatenation IS ryl's reported diagnostic order (there is no later
-// per-file sort) and must match yamllint's. The `yamllint_compat_*` suite guards
-// it, so keep the overall sequence stable when editing.
+// The rule dispatch is split into three batches to keep each function within clippy's
+// cognitive-complexity threshold. The boundaries are pragmatic, but the order (layout,
+// then value, then block) IS ryl's reported diagnostic order (there is no later per-file
+// sort) and must match yamllint's, so keep the sequence stable. The `yamllint_compat_*`
+// suite guards it.
 
 /// Document-shape and layout / punctuation rules (first dispatch batch).
 fn collect_layout_diagnostics(
@@ -365,37 +361,34 @@ fn syntax_problem(err: &granit_parser::ScanError) -> LintProblem {
     }
 }
 
-/// Any granit parse error as a diagnostic, or `None` if `content` parses. Stricter
-/// than [`syntax_diagnostic`]: it does *not* suppress the undefined-alias error.
-/// The `--fix` gate uses this so it refuses to mutate any file granit cannot fully
-/// parse — and always reports why — rather than the lint view that tolerates
-/// undefined aliases.
+/// Any granit parse error as a diagnostic, or `None` if `content` parses. Stricter than
+/// [`syntax_diagnostic`]: it does *not* suppress the undefined-alias error. The `--fix`
+/// gate uses this to refuse to mutate any file granit cannot fully parse, rather than the
+/// lint view that tolerates undefined aliases.
 pub(crate) fn parse_error(content: &str) -> Option<LintProblem> {
     scan(content).err().as_ref().map(syntax_problem)
 }
 
-/// The syntax error ryl reports for `content` during linting, or `None` if it
-/// lints cleanly. Deliberately suppresses granit's undefined-alias error (ryl
-/// reports that via the `anchors` rule, matching yamllint), so lint stays
-/// yamllint-compatible.
+/// The syntax error ryl reports for `content` during linting, or `None` if it lints
+/// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
+/// rule, matching yamllint).
 fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     match scan(content) {
         Ok(()) => None,
         Err(err) if err.info() == "while parsing node, found unknown anchor" => {
-            // The parser stops at the tolerated undefined alias, which would mask a
-            // later lexical error (e.g. an empty anchor name). The scanner tokenises
-            // undefined aliases without erroring, so it surfaces that real syntax
-            // error; a clean scan means the only problem is the alias (lint reports
-            // it via the `anchors` rule, matching yamllint).
+            // The parser halts at the tolerated undefined alias, masking any later lexical
+            // error (e.g. an empty anchor name). The scanner tokenises undefined aliases
+            // without erroring, so it surfaces that real error; a clean scan means the
+            // alias is the only problem (reported via the `anchors` rule).
             scanner_error(content).map(|err| syntax_problem(&err))
         }
         Err(err) => Some(syntax_problem(&err)),
     }
 }
 
-/// The first lexical scan error in `content`, or `None`. Used by
-/// [`syntax_diagnostic`] to find a malformed-token error the parser cannot reach
-/// because it halts on an earlier (tolerated) undefined alias.
+/// The first lexical scan error in `content`, or `None`. [`syntax_diagnostic`] uses it to
+/// find a malformed-token error the parser cannot reach, having halted on an earlier
+/// (tolerated) undefined alias.
 fn scanner_error(content: &str) -> Option<granit_parser::ScanError> {
     let mut scanner =
         granit_parser::Scanner::new(granit_parser::StrInput::new(content));

@@ -49,6 +49,16 @@ jobs:
       - name: Install lychee
         uses: ./.github/actions/install-lychee
 
+      # Needed by the prek `comment-ratio` hook (source_size.py gate). tokei has no
+      # prebuilt release binary and is not in taiki-e/install-action, so install the
+      # same conda-forge build run locally via pixi; bump the pin alongside AGENTS.md.
+      - name: Install tokei
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
+        with:
+          run-install: false
+          global-environments: tokei=14.0.0
+          activate-environment: true
+
       - name: Run prek hooks (lint and static checks)
         env:
           SKIP: no-commit-to-branch

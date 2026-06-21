@@ -350,9 +350,8 @@ fn fix_consistent_ignores_escaped_exception_when_seeding_style() {
 #[test]
 fn skips_verbatim_core_str_tag_like_shorthand() {
     // An explicit core `!!str` tag (any spelling, verbatim included) declares the
-    // type, so `required: true` must not demand quotes around it. Pre-#277 the
-    // verbatim spelling was not recognised as core and was flagged. Only the
-    // untagged plain scalar should remain.
+    // type, so `required: true` must not demand quotes around it. Only the untagged
+    // plain scalar should remain.
     let dir = tempdir().unwrap();
     let file = dir.path().join("data.yaml");
     fs::write(

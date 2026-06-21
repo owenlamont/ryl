@@ -77,7 +77,7 @@ pub fn apply_migration_entries(
 ) -> Result<(), String> {
     // Preflight rename-backup collisions before writing any target, so a collision never
     // leaves migrated targets behind (a retry would then skip them as already migrated).
-    // Symlinked sources are excluded because cleanup never renames them.
+    // Symlinked sources are excluded: cleanup never renames them.
     if let SourceCleanup::RenameSuffix(suffix) = cleanup {
         for source in entries
             .iter()
@@ -99,9 +99,8 @@ pub fn apply_migration_entries(
     }
 
     let apply_cleanup = |source: &Path| -> Result<(), String> {
-        // Never delete or rename through a symlink: acting on the link's target would
-        // orphan the real file, so a symlinked source is preserved untouched (mirrors
-        // the --fix/--diff symlink refusal).
+        // Never delete or rename through a symlink: acting on the target would orphan the
+        // real file, so a symlinked source is preserved (mirrors the --fix/--diff refusal).
         if is_symlink(source) {
             return Ok(());
         }
@@ -131,10 +130,9 @@ pub fn apply_migration_entries(
     };
 
     for entry in entries {
-        // The user-global target dir (e.g. ~/.config/ryl/) may not exist yet; project
-        // targets land beside an existing config so this is a no-op there. A target with
-        // no parent component (never produced by the planner) simply skips dir creation
-        // and lets the write below report any failure — so this can never panic.
+        // The user-global target dir (e.g. ~/.config/ryl/) may not exist yet. A target with
+        // no parent (never produced by the planner) skips this and lets the write below
+        // report any failure, so this can never panic.
         if let Some(parent) = entry.target.parent() {
             fs::create_dir_all(parent).map_err(|err| {
                 format!(
@@ -143,9 +141,9 @@ pub fn apply_migration_entries(
                 )
             })?;
         }
-        // `create_new` refuses (atomically, without following a symlink) to overwrite a
-        // target that already exists, a backstop for a target that appears between planning
-        // and writing so a stale plan can never clobber an existing config or symlink.
+        // `create_new` atomically refuses (without following a symlink) to overwrite an
+        // existing target, so a target appearing between planning and writing can never be
+        // clobbered by a stale plan.
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -226,12 +224,9 @@ fn rename_destination(source: &Path, suffix: &str) -> PathBuf {
 }
 
 /// An existing ryl-native TOML config *file* in `target`'s directory that a migration into
-/// `target` would overwrite or be shadowed by. Covers the root names (`.ryl.toml` outranks
-/// `ryl.toml` in discovery, so either is a collision) and the repo-local `.config/`
-/// candidates (`.config/.ryl.toml`/`.config/ryl.toml`): migrating writes `<dir>/.ryl.toml`,
-/// which outranks an existing `.config/` config and would silently shadow it, so that is a
-/// collision too. A non-file (e.g. a directory) is not treated as a collision so the write
-/// path still reports it.
+/// `target` would overwrite or be shadowed by: the root names (`.ryl.toml`/`ryl.toml`) and
+/// the `.config/` candidates, which a written `<dir>/.ryl.toml` would silently outrank. A
+/// non-file (e.g. a directory) is not a collision, leaving the write path to report it.
 fn existing_ryl_native_config(target: &Path) -> Option<PathBuf> {
     target
         .parent()
@@ -247,18 +242,14 @@ fn existing_ryl_native_config(target: &Path) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-/// Convert one YAML config at `source` into a TOML `MigrationEntry` written to `target`,
-/// flagging a migrated config that ends up enabling no rules. Shared by project and
-/// user-global migration. Skips (with a warning) rather than migrating when the source or
-/// target is a symlink, or when a ryl-native config already exists at the target, so a
-/// migration never follows a symlink, clobbers an existing config, or is silently shadowed.
-/// Returns `true` when an entry was added, `false` when the migration was skipped — callers
-/// use this to avoid cleaning up sources for a directory that was not migrated.
+/// Convert one YAML config at `source` into a TOML `MigrationEntry` written to `target`.
+/// Skips (with a warning) when the source or target is a symlink, or a ryl-native config
+/// already exists at the target. Returns `true` when an entry was added, `false` when
+/// skipped, so callers avoid cleaning up sources for a directory that was not migrated.
 ///
-/// `user_global` marks the user-global config, whose target moves to a different directory
-/// (`<config-dir>/ryl/`): a top-level `ignore-from-file` is inlined so the relative path
-/// does not dangle, and a rule-level `ignore-from-file` (which cannot be relocated without
-/// rewriting the rule config) is refused.
+/// `user_global` marks the user-global config, whose target moves to `<config-dir>/ryl/`,
+/// so a relative top-level `ignore-from-file` is inlined to keep it from dangling and a
+/// relative rule-level one (not relocatable without rewriting the rule config) is refused.
 fn build_entry(
     source: &Path,
     target: PathBuf,
@@ -304,8 +295,6 @@ fn build_entry(
             ));
             return Ok(false);
         }
-        // The target moves to <config-dir>/ryl/, so a relative top-level ignore-from-file
-        // would dangle; inline its already-resolved patterns to keep the config working.
         ctx.config.inline_resolved_ignore_from_file();
     }
     if !ctx.config.enables_any_rule() {
@@ -348,9 +337,8 @@ fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), St
             .first()
             .cloned()
             .expect("at least one config path should exist per grouped directory");
-        // Only enqueue lower-precedence siblings for cleanup once the primary actually
-        // migrated; otherwise a skipped directory (collision/symlink) would still delete
-        // or rename its siblings with --delete-old/--rename-old.
+        // Enqueue lower-precedence siblings for cleanup only once the primary migrated,
+        // else a skipped directory would still delete/rename them with --delete-old/--rename-old.
         if build_entry(&primary, dir.join(".ryl.toml"), plan, false)? {
             for ignored in paths.iter().skip(1) {
                 plan.cleanup_only_sources.push(ignored.clone());

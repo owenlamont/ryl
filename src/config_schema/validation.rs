@@ -7,9 +7,8 @@ use super::{
     TomlQuotedStringsOptions,
 };
 
-/// Validate `per-line-ignores` entries: each needs at least one of `regex`/`path`
-/// and a non-empty `rules` list, and each `regex`/`path` must be a valid pattern. Rule
-/// names are already type-checked by deserialization. Validating the patterns here
+/// Validate `per-line-ignores` entries: each needs at least one of `regex`/`path`, a
+/// non-empty `rules` list, and valid `regex`/`path` patterns. Validating the patterns here
 /// (the single fallible step) lets the runtime matcher build infallibly.
 ///
 /// # Errors

@@ -73,7 +73,7 @@ fn negotiate_defaults_to_utf16_without_client_preference() {
 
 #[test]
 fn problem_range_counts_code_units_across_an_astral_char() {
-    // "a: 😀 " — the trailing space is the 5th code point (ryl reports col 5).
+    // "a: 😀 ": the trailing space is the 5th code point (ryl reports col 5).
     // U+1F600 is one code point but two UTF-16 units and four UTF-8 bytes, so a
     // correct conversion gives a different column per encoding (a naive char count
     // would wrongly give 4 for all three).

@@ -13,11 +13,10 @@ pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
     collector.into_sorted()
 }
 
-/// `CharPos` just past each alias token (`*name`), taken from the scanner so it is
-/// independent of anchor resolution — an undefined or forward alias is still an alias
-/// token (whereas the parser errors on it). `colons` uses these to exempt the required
-/// space before an alias mapping key (`*foo : bar`) instead of guessing alias extents
-/// from raw characters.
+/// `CharPos` just past each alias token (`*name`), from the scanner so it is
+/// independent of anchor resolution: an undefined or forward alias is still a token
+/// (the parser would error on it). `colons` uses these to exempt the required space
+/// before an alias mapping key (`*foo : bar`).
 pub(crate) fn collect_alias_ends(buffer: &str) -> Vec<CharPos> {
     Scanner::new(StrInput::new(buffer))
         .filter(|token| matches!(token.1, TokenType::Alias(_)))
@@ -43,10 +42,9 @@ pub(crate) fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
     idx
 }
 
-/// `CharPos` (not byte offset) at which each line begins, so columns derived
-/// from them are 1-indexed character counts that match yamllint on multibyte
-/// lines (issue #232). Takes the caller's existing `char_indices()` slice so
-/// the buffer is not decoded a second time.
+/// `CharPos` (not byte offset) at which each line begins, so derived columns are
+/// 1-indexed character counts that match yamllint on multibyte lines. Reuses the
+/// caller's `char_indices()` slice rather than decoding again.
 pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
     let mut starts = vec![CharPos::new(0)];
     let mut idx = 0usize;
@@ -72,9 +70,8 @@ pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
     starts
 }
 
-/// Resolve a `CharPos` into a 1-indexed `(line, column)` pair. Taking a
-/// `CharPos` (rather than a raw `usize`) makes passing a byte offset a compile
-/// error, so the column always counts characters rather than bytes (issue #232).
+/// A `CharPos` as a 1-indexed `(line, column)`. The `CharPos` parameter (not a raw
+/// `usize`) makes passing a byte offset a compile error, so the column counts chars.
 pub(crate) fn line_and_column(
     line_starts: &[CharPos],
     char_idx: CharPos,

@@ -95,7 +95,7 @@ fn flags_extra_space_before_alias_key_colon() {
 #[test]
 fn still_flags_spaces_after_alias_key_colon() {
     // The exemption covers only the required space *before* the colon; spacing after it
-    // is still checked (a latent false negative before the #254 fix).
+    // is still checked.
     let cfg = Config::new_for_tests(0, 1);
     let points = violation_points("- anchor: &a key\n- *a:  42\n", cfg);
     assert_eq!(
@@ -107,7 +107,7 @@ fn still_flags_spaces_after_alias_key_colon() {
 #[test]
 fn flags_plain_scalar_key_containing_alias_marker() {
     // `foo *bar` is a plain scalar key, not an alias node, so the space before `:` is
-    // still flagged — the exemption only applies where the parser resolved an alias.
+    // still flagged: the exemption only applies where the parser resolved an alias.
     let cfg = Config::new_for_tests(0, 1);
     let points = violation_points("foo *bar : baz\n", cfg);
     assert_eq!(
@@ -132,7 +132,7 @@ fn allows_document_initial_colon_with_null_key() {
 fn exempts_required_space_for_undefined_alias_key() {
     // The exemption reads scanner tokens, so it fires for an alias key even when the
     // anchor is undefined or forward-referenced (the parser errors, but the token is
-    // still an alias) — matching yamllint, which exempts regardless of resolution.
+    // still an alias), matching yamllint, which exempts regardless of resolution.
     let cfg = Config::new_for_tests(0, 1);
     let points = violation_points("*missing : 42\n", cfg);
     assert!(

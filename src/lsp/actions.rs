@@ -1,10 +1,7 @@
-//! Builds the code actions `ryl server` offers for a document: the whole-file
-//! `source.fixAll.ryl`, a per-rule `source.fixAll.ryl.<rule>` for each safe-fixable
-//! rule with a diagnostic, and `quickfix` actions that insert a `# ryl disable-line`
-//! (per rule/line) or a first-line `# ryl disable-file`. All edits are pure functions of
-//! the document text and the request context; the actual fixing reuses
-//! [`analysis::fix_all_edit`] / [`analysis::fix_rule_edit`], and the disable inserts
-//! mirror the directive grammar in [`crate::directives`].
+//! The code actions `ryl server` offers: the whole-file `source.fixAll.ryl`, a per-rule
+//! `source.fixAll.ryl.<rule>` for each safe-fixable rule with a diagnostic, and `quickfix`
+//! actions inserting a `# ryl disable-line` (per rule/line) or a first-line
+//! `# ryl disable-file` (mirroring [`crate::directives`]).
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -26,11 +23,8 @@ use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, protected_scalar_lines,
 };
 
-/// The whole-file safe-fix code-action kind, also usable for `editor.codeActionsOnSave`.
 const FIX_ALL_KIND: &str = "source.fixAll.ryl";
 
-/// Everything `build` needs about the document under action, so each call site stays
-/// short. Borrowed from the server's open-document state and resolved config.
 pub struct Input<'a> {
     pub uri: &'a Uri,
     pub text: &'a str,
@@ -43,9 +37,8 @@ pub struct Input<'a> {
     pub supports_document_changes: bool,
 }
 
-/// Build every code action that applies to `input`, filtered by the request's
-/// `context.only`. Returns `None` when nothing applies (no fix and no disableable
-/// diagnostic), so the server replies with a null result rather than an empty list.
+/// Every code action applying to `input`, filtered by the request's `context.only`.
+/// `None` (not an empty list) when nothing applies.
 #[must_use]
 pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionResponse> {
     let mut actions = Vec::new();
@@ -90,20 +83,17 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
         }
     }
 
-    // Disable actions insert `#` directives by document line. That is only sound for a
-    // plain YAML document: in Markdown the diagnostic's line is a host-file line whose
-    // embedded YAML carries a prefix (fence indent, `> `, …), so a raw insert would land
-    // in the wrong place or as fenced content. Markdown documents get fix-all only.
+    // Disable actions insert `#` directives by document line: sound only for plain YAML.
+    // In Markdown the line is a host-file line whose embedded YAML carries a prefix (fence
+    // indent, `> `, ...), so a raw insert would land wrong or as fenced content.
     if matches!(input.kind, SourceKind::Yaml)
         && admits(context.only.as_deref(), CodeActionKind::QUICKFIX.as_str())
     {
-        // A line spanned by a *multi-line* scalar (block `|`/`>` or a quoted/plain scalar
-        // continued across lines) is scalar content, not comment context: a disable-line
-        // insert there would land inside the still-open scalar and corrupt the value
-        // instead of acting as a directive. Skip those lines (the set is 1-based granit
-        // line numbers). When the document does NOT parse (e.g. an undefined alias) we
-        // cannot tell which lines are scalar content, so no disable-line is offered at all;
-        // disable-file (a line-0 prepend) is always safe.
+        // A line inside a multi-line scalar is content, not comment context: a disable-line
+        // insert there would corrupt the value, not act as a directive. Skip those lines
+        // (1-based granit line numbers). When the document does NOT parse we cannot tell
+        // which lines are scalar content, so no disable-line is offered; disable-file (a
+        // line-0 prepend) is always safe.
         let scalar_lines = protected_scalar_lines(input.text, |_, span| {
             span.start.line() != span.end.line()
         });
@@ -116,7 +106,6 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
                 }
             }
         }
-        // A whole-file disable is only useful when ryl itself flagged the file.
         if has_ryl_diagnostic(&context.diagnostics) {
             actions.push(disable_file_action(input));
         }
@@ -125,10 +114,9 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
     (!actions.is_empty()).then_some(actions)
 }
 
-/// Whether the client's `context.only` filter admits an action of `kind`: no filter
-/// means yes, otherwise a requested kind must equal `kind` or be an ancestor of it (so a
-/// `source` / `source.fixAll` request matches `source.fixAll.ryl`, the way
-/// `editor.codeActionsOnSave` issues them).
+/// Whether `context.only` admits an action of `kind`: no filter means yes, else a
+/// requested kind must equal `kind` or be an ancestor (so a `source` / `source.fixAll`
+/// request matches `source.fixAll.ryl`, as `editor.codeActionsOnSave` issues them).
 fn admits(only: Option<&[CodeActionKind]>, kind: &str) -> bool {
     match only {
         None => true,
@@ -139,10 +127,9 @@ fn admits(only: Option<&[CodeActionKind]>, kind: &str) -> bool {
     }
 }
 
-/// The ryl rule id a diagnostic carries in its `code`, if any. Only ryl's own
-/// diagnostics are considered (a document may also carry diagnostics from a coexisting
-/// server such as yaml-language-server), and only a known rule id is accepted — so a
-/// foreign or crafted code (e.g. one containing a newline) can never form a directive.
+/// The ryl rule id a diagnostic carries in its `code`, if any. Only ryl-sourced
+/// diagnostics with a *known* rule id are accepted, so a foreign or crafted code (e.g.
+/// one containing a newline) can never form a directive.
 fn diagnostic_rule(diagnostic: &Diagnostic) -> Option<&'static str> {
     if diagnostic.source.as_deref() != Some("ryl") {
         return None;
@@ -154,16 +141,14 @@ fn diagnostic_rule(diagnostic: &Diagnostic) -> Option<&'static str> {
     ALL_RULE_IDS.into_iter().find(|id| *id == code)
 }
 
-/// Whether the document has at least one ryl-sourced diagnostic (so the whole-file
-/// disable is offered for ryl's findings, not a coexisting server's).
 fn has_ryl_diagnostic(diagnostics: &[Diagnostic]) -> bool {
     diagnostics
         .iter()
         .any(|diagnostic| diagnostic.source.as_deref() == Some("ryl"))
 }
 
-/// Safe-fixable rules with at least one diagnostic, in fix-application order (stable and
-/// independent of diagnostic order) so the offered actions are deterministic.
+/// Safe-fixable rules with at least one diagnostic, in fix-application order (independent
+/// of diagnostic order) so the offered actions are deterministic.
 fn fixable_rules_present(diagnostics: &[Diagnostic]) -> Vec<&'static str> {
     let present: HashSet<&str> =
         diagnostics.iter().filter_map(diagnostic_rule).collect();
@@ -174,8 +159,7 @@ fn fixable_rules_present(diagnostics: &[Diagnostic]) -> Vec<&'static str> {
         .collect()
 }
 
-/// Distinct `(rule, 0-based line)` pairs to offer a `disable-line` for, in diagnostic
-/// order.
+/// Distinct `(rule, 0-based line)` pairs to offer a `disable-line` for, in diagnostic order.
 fn disable_targets(diagnostics: &[Diagnostic]) -> Vec<(String, u32)> {
     let mut seen = HashSet::new();
     let mut targets = Vec::new();
@@ -191,11 +175,10 @@ fn disable_targets(diagnostics: &[Diagnostic]) -> Vec<(String, u32)> {
 }
 
 /// A `disable-line` quickfix: insert `# ryl disable-line rule:<rule>` on its own line
-/// above `line`, indented like `line` so the comment does not itself trip
-/// `comments-indentation`. A standalone `disable-line` applies to the *next* line (see
-/// [`crate::directives`]), which is the diagnostic's line after the insertion shifts it
-/// down. `None` when `line` is past the document or inside a multi-line scalar (where a
-/// `#` insert would be scalar content, not a directive).
+/// above `line`, indented like `line` so it does not itself trip `comments-indentation`.
+/// A standalone `disable-line` applies to the *next* line (the diagnostic's line, once the
+/// insert shifts it down). `None` when `line` is past the document or inside a multi-line
+/// scalar (where a `#` insert would be scalar content, not a directive).
 fn disable_line_action(
     input: &Input,
     rule: &str,
@@ -224,8 +207,8 @@ fn disable_line_action(
     ))
 }
 
-/// A `disable-file` quickfix: prepend a first-line `# ryl disable-file`, which skips the
-/// whole file (all rules) for linting and `--fix` (see [`crate::directives`]).
+/// A `disable-file` quickfix: prepend a first-line `# ryl disable-file` (see
+/// [`crate::directives`]).
 fn disable_file_action(input: &Input) -> CodeActionOrCommand {
     let insert = format!("# ryl disable-file{}", buffer_newline(input.text));
     let edit = TextEdit::new(at_line_start(0), insert);
@@ -237,7 +220,6 @@ fn disable_file_action(input: &Input) -> CodeActionOrCommand {
     )
 }
 
-/// A zero-width range at the start of `line`, for an insert-a-line edit.
 fn at_line_start(line: u32) -> Range {
     Range {
         start: Position::new(line, 0),
@@ -245,7 +227,6 @@ fn at_line_start(line: u32) -> Range {
     }
 }
 
-/// Wrap a single whole-or-partial `TextEdit` as a titled code action of `kind`.
 fn entry(
     title: String,
     kind: &str,
@@ -265,12 +246,10 @@ fn entry(
     })
 }
 
-/// Build a single-file workspace edit from one or more `edits`. A client advertising
-/// `documentChanges` support gets a versioned `TextDocumentEdit` (so it can discard the
-/// edit if the buffer moved past `version` before the edit is applied); otherwise it gets
-/// the unversioned `changes` map. Shared by the code actions here and by rename. `Uri`
-/// has benign interior mutability (a fluent-uri parse cache) that never affects its
-/// hash/equality, hence the lint allow.
+/// A single-file workspace edit. A client advertising `documentChanges` gets a versioned
+/// `TextDocumentEdit` (so it can discard the edit if the buffer moved past `version`),
+/// else the unversioned `changes` map. `Uri` has benign interior mutability (a fluent-uri
+/// parse cache) that never affects its hash/equality, hence the lint allow.
 #[allow(clippy::mutable_key_type)]
 pub(crate) fn workspace_edit(
     uri: Uri,

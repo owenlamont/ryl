@@ -1,15 +1,15 @@
 //! `comments-indentation`: a comment must be indented like the content that follows
 //! it (else like the content it trails). Mirrors yamllint's `comments-indentation`.
-//! Safe `--fix` re-indents the comment — comments carry no YAML structure, so moving
+//! Safe `--fix` re-indents the comment; comments carry no YAML structure, so moving
 //! one cannot change the parse.
 //!
-//! The ryl-only, TOML-only `allow-any-open-indent` option (default off; origin
-//! adrienverge/yamllint#141) additionally accepts a comment whose indent matches any
-//! still-open enclosing block level, not just the following content — e.g. a comment
-//! at the parent mapping's indent marking where a nested block ends. The open levels
-//! are derived from granit's parsed block structure (`compute_open_indents`), not a
+//! The ryl-only, TOML-only `allow-any-open-indent` option (default off) additionally
+//! accepts a comment whose indent matches any still-open enclosing block level. The
+//! levels come from granit's parsed block structure (`compute_open_indents`), not a
 //! line scan, so multiline scalars, URLs, and flow collections never create a false
 //! level; on a parse error the option degrades to the base next/reference rule.
+//!
+//! Sources: adrienverge/yamllint#141.
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
@@ -40,7 +40,6 @@ impl Config {
         }
     }
 
-    /// Construct a config for tests, bypassing YAML/TOML resolution.
     #[must_use]
     pub const fn new_for_tests(allow_any_open_indent: bool) -> Self {
         Self {
@@ -166,9 +165,6 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     changed.then_some(output)
 }
 
-/// A standalone comment lines up when it matches the content below (`next_indent`),
-/// the active reference indent, or — under `allow-any-open-indent` — any still-open
-/// enclosing block level.
 fn comment_is_aligned(
     indent: usize,
     reference_indent: usize,
@@ -180,7 +176,7 @@ fn comment_is_aligned(
         || open_indents.contains(&indent)
 }
 
-/// Classify every line once for both `check` and `fix`: its indent and kind.
+/// Classify every line once, shared by `check` and `fix`.
 fn build_lines(buffer: &str) -> Vec<LineInfo> {
     let mut block_tracker = BlockScalarTracker::default();
     let mut lines: Vec<LineInfo> = Vec::new();
@@ -201,14 +197,9 @@ fn build_lines(buffer: &str) -> Vec<LineInfo> {
     lines
 }
 
-/// For each line (1-based line `L` → `result[L - 1]`), the columns of the block
-/// collections that enclose it — the levels `allow-any-open-indent` accepts a comment
-/// against. Derived from granit's parsed structure: each block mapping/sequence
-/// contributes its start column to every line of its span. Because the levels come
-/// from real nodes, a multiline scalar's continuation lines, a URL's `:`, and flow
-/// `{}`/`[]` collections never appear as a level. On a parse error every set is empty,
-/// so the option degrades to the base next/reference rule (the input is a syntax error
-/// regardless).
+/// For each line (1-based `L` -> `result[L - 1]`), the start columns of the block
+/// collections enclosing it: the levels `allow-any-open-indent` accepts a comment
+/// against. On a parse error every set is empty, degrading to the base rule.
 fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
     struct Collector<'b> {
         buffer: &'b str,
@@ -222,8 +213,8 @@ fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
             match event {
                 Event::MappingStart(..) | Event::SequenceStart(..) => {
                     // A collection carries a block indentation level only when it is
-                    // itself block (starts at a key/`-`, not `{`/`[`) AND is not nested
-                    // inside a flow collection -- flow children such as the implicit
+                    // itself block (starts at a key/`-`, not `{`/`[`) and is not nested
+                    // inside a flow collection: flow children such as the implicit
                     // mappings in `[a: 1, b: 2]` start at a key but have no block level.
                     let byte = marker_byte_offset(span.start).get();
                     let parent_is_flow =
@@ -260,7 +251,7 @@ fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
     let mut result = vec![Vec::new(); line_count];
     for (col, start, end) in collector.intervals {
         // Slice directly to the interval's lines (`take().skip()` would re-walk from 0
-        // each time, making this O(sum of end lines) — quadratic for deep nesting).
+        // each time, making this O(sum of end lines), quadratic for deep nesting).
         let hi = end.min(line_count);
         let lo = (start - 1).min(hi);
         for entry in &mut result[lo..hi] {

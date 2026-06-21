@@ -6,14 +6,10 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{ConfigContext, YamlLintConfig, discover_per_file};
 
-/// Replace control characters — which a crafted key, value, anchor name, or
-/// filename can carry into a diagnostic, warning, or path — with a visible `\u{..}`
-/// escape, so they cannot inject terminal escape sequences or (via a newline) a
-/// GitHub Actions workflow command, and cannot split a single-line message.
-/// Printable text (including multibyte Unicode) is untouched, and the common
-/// control-free case borrows without allocating. Shared by the CLI output layer and
-/// the `--fix` symlink warning so every user-controlled string is sanitized the same
-/// way.
+/// Replace control characters with a visible `\u{..}` escape, so a crafted key, anchor,
+/// or filename cannot inject terminal escape sequences or, via a newline, a GitHub
+/// Actions workflow command, nor split a single-line message. Printable text (incl.
+/// multibyte Unicode) is untouched and the control-free case borrows without allocating.
 #[must_use]
 pub fn sanitize_control(text: &str) -> Cow<'_, str> {
     if !text.contains(char::is_control) {
@@ -31,18 +27,14 @@ pub fn sanitize_control(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// Absolute, lexically-normalized form of `path`: `std::path::absolute` makes it
-/// absolute and drops `.`, then `..` components are collapsed (`a/../b` -> `b`). Purely
-/// lexical — symlinks are **not** resolved, so a symlink stays distinct from its target
-/// (matching ruff, and preserving ryl's `--fix`/`--diff` symlink skip). Used both as the
-/// input de-dup identity (`gather_lint_files`) and as the basis for a `git apply -p0`-able
-/// `--diff` header path.
+/// Absolute, lexically-normalized form of `path` (`a/../b` -> `b`). Purely lexical:
+/// symlinks are **not** resolved, so a symlink stays distinct from its target (matching
+/// ruff, preserving the `--fix`/`--diff` symlink skip).
 ///
 /// # Panics
 ///
-/// Panics if `path` is empty (`std::path::absolute` rejects it). Callers pass
-/// source-kind-matched file paths or the stdin label, all non-empty, so this does not
-/// arise in practice.
+/// Panics if `path` is empty (`std::path::absolute` rejects it); callers pass non-empty
+/// file paths or the stdin label.
 #[must_use]
 pub fn lexical_abspath(path: &Path) -> PathBuf {
     let absolute =
@@ -50,8 +42,7 @@ pub fn lexical_abspath(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in absolute.components() {
         if component == std::path::Component::ParentDir {
-            // `absolute` rooted the path, so `pop` removes the previous component or is
-            // a harmless no-op at the root (`/..` == `/`).
+            // `absolute` rooted the path, so `pop` is a no-op at the root (`/..` == `/`).
             out.pop();
         } else {
             out.push(component.as_os_str());
@@ -60,14 +51,11 @@ pub fn lexical_abspath(path: &Path) -> PathBuf {
     out
 }
 
-// User-controlled text (a quoted key, an anchor name, a filename) reaches GitHub
-// Actions workflow-command output, where a raw newline would start a new
-// `::command::` — a command-injection vector in CI. Encode it the way GitHub's
-// `@actions/core` does (data escapes `%`/CR/LF; a `property` such as `file=` also
-// escapes `:`/`,`), and additionally render any other control character as a
-// literal `\u{..}` — never a `%XX`, which the runner would decode back into the raw
-// control char and let it drive ANSI sequences in the log viewer. The result never
-// contains a control character, so it cannot inject or split a workflow-command line.
+// In GitHub Actions workflow-command output a raw newline would start a new
+// `::command::`: a CI injection vector. Escape as `@actions/core` does (data escapes
+// `%`/CR/LF; a `property` like `file=` also escapes `:`/`,`), but render any other
+// control char as a literal `\u{..}`, never a `%XX` the runner would decode back into a
+// raw control char that could drive ANSI sequences, so the result holds no control char.
 #[must_use]
 pub fn github_escape(value: &str, property: bool) -> String {
     let mut out = String::with_capacity(value.len());
@@ -88,13 +76,9 @@ pub fn github_escape(value: &str, property: bool) -> String {
     out
 }
 
-/// The display path for a report (`location.path` in GitLab, `name`/`classname` in JUnit):
-/// `display` made relative to `project_root` with forward slashes and no `./` prefix, as
-/// GitLab requires. The caller relativizes against the project root (`CI_PROJECT_DIR` or
-/// the working directory, like ruff), so a `--stdin-filename` or a path under the repo
-/// stays relative even when the config lives elsewhere. A path outside the project root
-/// is expressed with `..` segments (like ruff's `pathdiff`) rather than kept absolute.
-/// Control characters are stripped so a crafted filename cannot inject into the report.
+/// `display` made relative to `project_root`, forward-slashed, no `./` prefix (GitLab's
+/// requirement), `..` segments for a path outside the root. Control chars are stripped
+/// so a crafted filename cannot inject.
 #[must_use]
 pub fn report_display_path(display: &Path, project_root: &Path) -> String {
     let absolute = lexical_abspath(display);
@@ -104,12 +88,9 @@ pub fn report_display_path(display: &Path, project_root: &Path) -> String {
     sanitize_control(&text).into_owned()
 }
 
-/// `target` expressed relative to `base`, with `..` segments for the part of `base` that
-/// `target` does not share. Both are absolute and lexically normalized (no `.`/`..`
-/// components), so this is a pure component walk: drop the common prefix, emit one `..`
-/// per remaining `base` component, then append the rest of `target`. On a shared root this
-/// yields a clean relative path; two different Windows drive prefixes share nothing and
-/// fall back to a best-effort `..`-prefixed path (no relative path exists across drives).
+/// `target` relative to `base` (both absolute, lexically normalized), with `..` for the
+/// unshared part of `base`. Two different Windows drive prefixes share nothing and fall
+/// back to a `..`-prefixed path, since no cross-drive relative path exists.
 fn relativize(target: &Path, base: &Path) -> PathBuf {
     let mut target_parts = target.components().peekable();
     let mut base_parts = base.components().peekable();
@@ -125,22 +106,18 @@ fn relativize(target: &Path, base: &Path) -> PathBuf {
     relative
 }
 
-/// Resolve the configuration context for a given file path, optionally using a cached
-/// global configuration.
-///
-/// This mirrors the logic used by the CLI when filtering candidate files.
+/// Resolve the configuration context for `path`, reusing `global_cfg` when present.
 ///
 /// # Errors
-/// Returns an error when configuration discovery fails for the provided path.
+/// Returns an error when configuration discovery fails for `path`.
 pub fn resolve_ctx<S: BuildHasher>(
     path: &Path,
     global_cfg: Option<&ConfigContext>,
     markdown: bool,
     cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig, bool), S>,
 ) -> Result<(PathBuf, YamlLintConfig, Vec<String>, bool), String> {
-    // The global config is markdown-enabled once by the caller, so per-file clones
-    // here inherit the built matcher; only freshly-discovered configs need enabling
-    // (done before caching, so the matcher is built once per directory).
+    // The global config is markdown-enabled once by the caller; only a freshly-discovered
+    // config needs enabling, done before caching so the matcher is built once per directory.
     if let Some(gc) = global_cfg {
         return Ok((
             gc.base_dir.clone(),

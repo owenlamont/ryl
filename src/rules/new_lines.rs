@@ -1,10 +1,10 @@
-//! `new-lines`: enforce one line-ending style across the file — Unix (LF), DOS
+//! `new-lines`: enforce one line-ending style across the file: Unix (LF), DOS
 //! (CRLF), or the platform default. Mirrors yamllint's `new-lines`. Safe `--fix`
 //! rewrites the endings to the configured style.
 //!
 //! A bare `\r` is a YAML 1.2 line break: as the file's first break it is never a
 //! configurable style (`unix`/`dos`/`platform`), so it is reported wrong and `--fix`
-//! rewrites it — a deliberate divergence from yamllint (its `type` has no `mac`).
+//! rewrites it, a deliberate divergence from yamllint (its `type` has no `mac`).
 
 use std::borrow::Cow;
 

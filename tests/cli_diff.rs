@@ -4,7 +4,7 @@
 //! `1` iff some file would change and `0` otherwise, and remaining *unfixable*
 //! findings are neither printed nor counted (a file that only trips an unfixable rule
 //! produces no diff and exits `0`, unlike a plain lint run). Files that cannot be
-//! parsed — or, on Unix, symlinks — are skipped with a stderr notice and do not
+//! parsed (or, on Unix, symlinks) are skipped with a stderr notice and do not
 //! affect the exit code.
 
 use std::fs;
@@ -280,7 +280,7 @@ fn diff_rewrites_yaml_embedded_in_markdown_at_host_level() {
 #[test]
 fn diff_reports_a_file_that_cannot_be_decoded() {
     // A read/decode failure (here invalid UTF-8) must surface as a usage error, not a
-    // panic or a silent skip — exercises the error propagation out of the file walk.
+    // panic or a silent skip; exercises the error propagation out of the file walk.
     let dir = tempdir().unwrap();
     let file = dir.path().join("bad.yaml");
     fs::write(&file, [0xff, 0xff, 0xfe]).unwrap();
@@ -366,10 +366,10 @@ fn diff_across_multiple_files_orders_diffs_and_coexists_with_skips() {
 
 #[test]
 fn diff_markdown_skip_reports_original_line_not_post_fix() {
-    // Regression: `--diff` never writes, so a skipped region's notice must use the
+    // `--diff` never writes, so a skipped region's notice must use the
     // ORIGINAL line. Block 1's blank lines collapse (empty-lines), shifting block 2 up
     // by two lines in the fixed output; the skip notice for block 2's undefined alias
-    // must still point at its original line (10) — as a plain lint does — not the
+    // must still point at its original line (10), as a plain lint does, not the
     // post-fix line (8).
     let dir = tempdir().unwrap();
     let file = dir.path().join("doc.md");
@@ -433,7 +433,7 @@ fn diff_header_relativizes_absolute_path_under_cwd() {
 #[test]
 fn diff_deduplicates_inputs_listed_under_multiple_spellings() {
     // A file reached by several spellings (the directory walk, here twice, plus an
-    // explicit arg) must be diffed once — a duplicate patch block would fail to apply
+    // explicit arg) must be diffed once: a duplicate patch block would fail to apply
     // on the second copy. Exercises both the candidate-loop and explicit-loop dedup
     // paths and that `./dirty.yaml` (walk) and `dirty.yaml` (explicit) normalize to
     // one identity. Run from the temp dir so the inputs are relative.

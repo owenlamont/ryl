@@ -1,27 +1,9 @@
-//! `unicode-line-breaks` rule &mdash; flags raw NEL / LS / PS characters in the
-//! source (issue #253).
+//! `unicode-line-breaks` rule: flags raw NEL (U+0085), LINE SEPARATOR (U+2028) and
+//! PARAGRAPH SEPARATOR (U+2029), suggesting the double-quoted escape `\N`/`\L`/`\P`.
+//! No safe `--fix`: that escape is only valid inside a double-quoted scalar (see
+//! AGENTS.md "Rules Without A Safe `--fix`").
 //!
-//! YAML 1.1 treated a broad Unicode set as line breaks, including NEL (U+0085),
-//! LINE SEPARATOR (U+2028) and PARAGRAPH SEPARATOR (U+2029). YAML 1.2 narrowed
-//! line breaks to just LF and CR, and the 1.2.2 changes page records that these
-//! three "are no longer considered line-break characters." ryl targets YAML 1.2,
-//! so a raw occurrence is a portability trap: a 1.1 parser splits the line where a
-//! 1.2 parser keeps the character as ordinary scalar content, silently changing
-//! the parsed structure. The characters are also invisible in most editors, so a
-//! stray one (pasted from a word processor, PDF or web page) is hard to spot.
-//!
-//! The rule scans the decoded source and reports every raw occurrence regardless
-//! of context. The three characters each have a dedicated YAML escape (§5.7) that
-//! includes them intentionally and visibly inside a double-quoted scalar, so the
-//! diagnostic suggests that escape (`\N` / `\L` / `\P`).
-//!
-//! There is no safe `--fix`: the escape is only valid inside a double-quoted
-//! scalar, so rewriting a plain/single-quoted scalar, comment or block scalar
-//! would require changing the quoting style or guessing intent (see AGENTS.md
-//! "Rules Without A Safe `--fix`").
-//!
-//! Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
-//! (line-break characters), §5.7 (escaped characters).
+//! Sources: YAML 1.2.2 §5.4 (line breaks), §5.7 (escapes).
 
 use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
@@ -34,10 +16,8 @@ pub struct Violation {
     pub message: String,
 }
 
-/// Report every raw NEL / LS / PS character with a 1-based line/column. The flagged
-/// chars are not YAML 1.2 breaks, so they stay inside a line's content — splitting on
-/// the shared CR-aware break set (`\n`, `\r\n`, bare `\r`) gives the line, and the
-/// char offset within that content gives the (character-, not byte-) column.
+/// NEL/LS/PS are not YAML 1.2 breaks, so they stay inside line content; the column
+/// counts characters, not bytes.
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
     split_lines_preserve_endings(buffer)

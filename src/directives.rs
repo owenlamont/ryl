@@ -1,13 +1,11 @@
 //! Inline rule-disable comment directives.
 //!
 //! Mirrors yamllint's `# yamllint disable` / `enable` / `disable-line` /
-//! `disable-file` directives (`yamllint/linter.py`) and adds a preferred `# ryl …`
-//! spelling kept in lockstep with the grammar. The lint engine
-//! ([`crate::lint::lint_str`]) filters every rule's diagnostics through
-//! [`Directives::is_disabled`], and `--fix` ([`crate::fix`]) keeps disabled lines
-//! untouched via [`Directives::reconcile`], so behaviour is uniform across all rules.
-//! A first-line [`disables_file`] directive skips the whole buffer (a file, or an
-//! embedded Markdown region) for both linting and `--fix`.
+//! `disable-file` directives (`yamllint/linter.py`), with a preferred `# ryl ...`
+//! spelling kept in lockstep with the grammar. [`crate::lint::lint_str`] filters every
+//! diagnostic through [`Directives::is_disabled`], and `--fix` keeps disabled lines
+//! untouched via [`Directives::reconcile`]. A first-line [`disables_file`] directive
+//! skips the whole buffer (a file or an embedded Markdown region).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -21,9 +19,8 @@ use crate::rules::support::line_syntax::{
     line_contents, split_lines_inclusive, split_lines_preserve_endings,
 };
 
-// The patterns match granit's comment payload, which is the text after the leading
-// `#` (excluding the line break); the space the patterns start with is the one
-// between `#` and the keyword. This keeps exact parity with yamllint's `^# …` regexes.
+// The patterns match granit's comment payload (text after the leading `#`); the leading
+// space is the one between `#` and the keyword, keeping parity with yamllint's `^# ...`.
 static DISABLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^ (?:yamllint|ryl) disable(?: rule:\S+)*\s*$").unwrap()
 });
@@ -35,15 +32,14 @@ static DISABLE_LINE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RULE_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"rule:(\S+)").unwrap());
-// `disable-file` is matched on the raw first line (including `#`) and is more lenient
-// than the other directives, exactly mirroring yamllint's `^#\s*yamllint disable-file`.
+// Matched on the raw first line (including `#`), more lenient than the other directives,
+// mirroring yamllint's `^#\s*yamllint disable-file`.
 static DISABLE_FILE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^#\s*(?:yamllint|ryl) disable-file\s*$").unwrap());
 
-/// Whether the buffer's first line is a `disable-file` directive. The buffer is then
-/// skipped entirely &mdash; no diagnostics (not even syntax errors) and no `--fix`
-/// rewrites &mdash; matching yamllint (`yamllint/linter.py`). For embedded Markdown
-/// the buffer is one region, so this disables the region that opens with it.
+/// Whether the buffer's first line is a `disable-file` directive, which skips the whole
+/// buffer (no diagnostics, not even syntax errors, no `--fix`), matching yamllint. For
+/// embedded Markdown the buffer is one region, so this disables the region opening with it.
 #[must_use]
 pub fn disables_file(buffer: &str) -> bool {
     // First line on the YAML 1.2 break set, so a bare-`\r`-terminated directive is seen.
@@ -88,40 +84,36 @@ fn parse_comment(text: &str) -> Option<Parsed> {
     Some(Parsed { action, rules })
 }
 
-/// Resolve a `rule:` token to the canonical rule id. Unknown ids resolve to nothing,
-/// matching yamllint's `if id in all_rules` guard (they are inert either way).
+/// Resolve a `rule:` token to the canonical rule id; an unknown id resolves to nothing
+/// (inert either way), matching yamllint's `if id in all_rules` guard.
 fn resolve_rule(token: &str) -> Option<&'static str> {
     ALL_RULE_IDS.into_iter().find(|&id| id == token)
 }
 
-/// Directive state for one buffer: block `disable`/`enable` snapshots plus the set of
 /// A resolved `per-line-ignores` entry to layer onto a buffer's directives: suppress
-/// `rules` on every line whose content matches `regex` (all lines if `regex` is None).
-/// `rules` follows [`insert_rules`]' convention &mdash; `None` means every rule (the
-/// `ALL` selector). `config` builds these per file (after path-glob filtering); the
-/// regex matches the line content excluding its break, so the user's `$` anchors to
-/// the line.
+/// `rules` on every line whose content matches `regex` (all lines if `regex` is `None`).
+/// `rules` follows [`insert_rules`]' convention (`None` means every rule). The regex
+/// matches line content excluding its break, so the user's `$` anchors to the line.
 pub struct PerLineRuleApply<'a> {
     pub regex: Option<&'a Regex>,
     pub rules: Option<&'a [&'static str]>,
 }
 
-/// rules each line disables via `disable-line`.
+/// Resolved disable state for one buffer.
 #[derive(Default)]
 pub struct Directives {
     /// `(line, rules disabled from that line onward)`, in ascending line order.
     block_snapshots: Vec<(usize, HashSet<&'static str>)>,
     line_disabled: HashMap<usize, HashSet<&'static str>>,
     /// Rules disabled on *every* line, from a `per-line-ignores` entry with a matching
-    /// `path` but no `regex`. Recorded once here (not materialized per line) so a
-    /// file-wide suppression on a large file costs O(rules), not O(lines × rules).
+    /// `path` but no `regex`. Recorded once here (not per line) so a file-wide suppression
+    /// costs O(rules), not O(lines x rules).
     file_wide: HashSet<&'static str>,
 }
 
 impl Directives {
-    /// Parse all directives in `buffer`. Buffers with no directive keyword skip the
-    /// comment scan entirely and return an empty set, so directive-less files pay no
-    /// parsing cost.
+    /// Parse all directives in `buffer`. A buffer with no directive keyword skips the
+    /// comment scan and returns an empty set, so directive-less files pay no parsing cost.
     #[must_use]
     pub fn parse(buffer: &str) -> Self {
         if !buffer.contains("yamllint ") && !buffer.contains("ryl ") {
@@ -167,13 +159,12 @@ impl Directives {
         directives
     }
 
-    /// Parse inline directives, then layer config-driven `per-line-ignores` on top — a
-    /// virtual `disable-line`, so lint filtering ([`Self::is_disabled`]) and `--fix`
-    /// reconcile ([`Self::reconcile`]) treat config and inline suppression identically.
-    /// A `regex` entry suppresses its rules only on matching lines (line numbers come
-    /// from [`line_contents`], which splits on the same YAML 1.2 break set as granit, so
-    /// a match on line *n* lands on a diagnostic at line *n*). A no-`regex` entry is
-    /// file-wide and recorded once in `file_wide` rather than per line.
+    /// Parse inline directives, then layer config `per-line-ignores` on top as a virtual
+    /// `disable-line`, so lint filtering and `--fix` reconcile treat config and inline
+    /// suppression identically. A `regex` entry suppresses its rules only on matching
+    /// lines, numbered via [`line_contents`] (same YAML 1.2 break set as granit, so a
+    /// match on line *n* lands on a diagnostic at line *n*); a no-`regex` entry is
+    /// file-wide, recorded once in `file_wide`.
     #[must_use]
     pub fn parse_with_per_line(
         buffer: &str,
@@ -191,7 +182,6 @@ impl Directives {
                 has_regex_entry = true;
             }
         }
-        // Only scan lines when a regex entry needs per-line matching.
         if has_regex_entry {
             for (index, content) in line_contents(buffer).into_iter().enumerate() {
                 for entry in per_line {
@@ -207,8 +197,7 @@ impl Directives {
         directives
     }
 
-    /// Whether `rule` is disabled on `line` (1-based) by a block or `disable-line`
-    /// directive.
+    /// Whether `rule` is disabled on `line` (1-based).
     #[must_use]
     pub fn is_disabled(&self, rule: &str, line: usize) -> bool {
         self.file_wide.contains(rule)
@@ -235,15 +224,14 @@ impl Directives {
                 .any(|(_, set)| set.contains(rule))
     }
 
-    /// Rebuild `after` so that any line `rule`'s fixer changed while disabled keeps its
-    /// `before` text, reconciling per disabled line.
+    /// Rebuild `after` so a line `rule`'s fixer changed while disabled keeps its `before`
+    /// text.
     ///
-    /// Precondition: each fixer is **pure replace** (line count unchanged) **xor**
-    /// **pure insert/delete** (count changed) within a single pass — never a mix that
-    /// both inserts and deletes lines. Every current safe-fix rule satisfies this. The
-    /// equal-length path assumes positional replacement, so a hypothetical fixer that
-    /// reordered lines while keeping the count equal could misalign; introduce a real
-    /// line diff here before adding such a fixer.
+    /// Precondition: each fixer is **pure replace** (line count unchanged) **xor** **pure
+    /// insert/delete** (count changed) in a single pass, never a mix. Every current
+    /// safe-fix rule satisfies this. The equal-length path assumes positional replacement,
+    /// so a fixer that reordered lines while keeping the count equal would misalign:
+    /// introduce a real line diff here before adding one.
     #[must_use]
     pub fn reconcile(&self, rule: &str, before: &str, after: &str) -> String {
         let before_lines: Vec<&str> = split_lines_inclusive(before).collect();

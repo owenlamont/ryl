@@ -15,11 +15,10 @@ use crate::rules::{
 
 const RULE_FIX_MAX_ITERATIONS: usize = 8;
 
-/// File-shape rules suppressed inside embedded markdown regions: a region is not a
-/// standalone file, so "missing document start/end" and the file-newline checks do
-/// not apply, and `--fix` must never inject `---`/`...` or a trailing newline into a
-/// fragment. Shared by the check path ([`lint_markdown_str`]) and the fix path so
-/// the two cannot drift.
+/// File-shape rules suppressed inside embedded markdown regions: a region is not a standalone
+/// file, so document-start/end and file-newline checks do not apply and `--fix` must never
+/// inject `---`/`...` or a trailing newline. Shared by the check and fix paths so they cannot
+/// drift.
 const SUPPRESSED: [&str; 4] = [
     document_start::ID,
     document_end::ID,
@@ -27,7 +26,6 @@ const SUPPRESSED: [&str; 4] = [
     new_lines::ID,
 ];
 
-/// Rules suppressed inside any embedded region.
 #[must_use]
 pub fn suppressed_rules() -> &'static [&'static str] {
     &SUPPRESSED
@@ -93,10 +91,9 @@ const EMPTY_LINES_FIX: RuleFix = RuleFix {
     safety: FixSafety::Safe,
 };
 
-/// Every rule with a safe `--fix`, in application order. Referencing each rule's `ID`
-/// keeps the spellings in sync with the `ctx.apply` sequence in
-/// [`apply_safe_fixes_filtered`]; extend both together when adding a safe fixer. The LSP
-/// drives per-rule "Fix all `<rule>`" actions off this list (skipping every other id).
+/// Every rule with a safe `--fix`, in application order; extend together with the `ctx.apply`
+/// sequence in [`apply_safe_fixes_filtered`] when adding a safe fixer. The LSP drives per-rule
+/// "Fix all `<rule>`" actions off this list.
 pub const SAFE_FIX_RULE_IDS: [&str; 12] = [
     new_lines::ID,
     comments::ID,
@@ -115,36 +112,29 @@ pub const SAFE_FIX_RULE_IDS: [&str; 12] = [
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,
-    /// Files left untouched because they do not parse, with the parse error so the
-    /// caller can tell the user why `--fix` refused them.
+    /// Files left untouched because they do not parse, with the parse error so the caller can
+    /// say why `--fix` refused them.
     pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
 }
 
-/// The result of fixing a single file in place. A file may both have changed and
-/// carry skips: a Markdown file can fix some embedded regions while skipping others
-/// that do not parse. For a plain YAML file `skipped` holds at most one entry (the
-/// whole file's parse error).
+/// One file's in-place fix result. A file may both change and carry skips: a Markdown file
+/// can fix some embedded regions while skipping others that do not parse. For a plain YAML
+/// file `skipped` holds at most one entry (the whole-file parse error).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FixOutcome {
     pub changed: bool,
     pub skipped: Vec<crate::lint::LintProblem>,
 }
 
-/// `--fix` rewrites a path in place, and `std::fs::write` follows symlinks, so a
-/// symlinked input would let an untrusted tree redirect the write to a file outside
-/// it (e.g. `innocent.yaml -> ~/.bashrc`). Skip a symlinked input with a warning —
-/// consistent with the directory walker's `follow_links(false)`, which is the path
-/// by which untrusted trees are scanned. Linting (read-only) through symlinks is
-/// unaffected. `--diff` skips symlinks too (`flag` distinguishes the message): it is
-/// a preview of `--fix`, so it must report the same skip rather than diffing a file
-/// `--fix` would never touch.
+/// `--fix` rewrites in place and `std::fs::write` follows symlinks, so a symlinked input
+/// would let an untrusted tree redirect the write outside it (e.g. `innocent.yaml ->
+/// ~/.bashrc`). Skip it with a warning, consistent with the walker's `follow_links(false)`;
+/// read-only linting through symlinks is unaffected. `--diff` skips too (`flag` distinguishes
+/// the message), since it previews `--fix`.
 ///
-/// This checks only the final path component (`symlink_metadata` resolves parent
-/// components), and the check is not atomic with the later write. It is therefore
-/// best-effort, not a hard sandbox: an explicitly-named path through a symlinked
-/// parent directory, or an attacker who swaps the file for a symlink between this
-/// check and the write (TOCTOU), is not covered. A complete defense would need
-/// `openat`/`O_NOFOLLOW`, which is not portable here.
+/// Best-effort, not a hard sandbox: it checks only the final component (parents are resolved)
+/// and is not atomic with the write, so a symlinked parent or a TOCTOU swap is not covered. A
+/// complete defense needs `openat`/`O_NOFOLLOW`, which is not portable here.
 fn refuse_symlink(path: &Path, flag: &str) -> bool {
     if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
         eprintln!(
@@ -156,7 +146,7 @@ fn refuse_symlink(path: &Path, flag: &str) -> bool {
     false
 }
 
-/// Apply all currently supported safe fixes to `path` in place.
+/// Apply every safe fix to `path` in place.
 ///
 /// # Errors
 ///
@@ -188,7 +178,7 @@ pub fn apply_safe_fixes_in_place(
     })
 }
 
-/// Apply all currently supported safe fixes to each discovered file in place.
+/// Apply every safe fix to each file in place.
 ///
 /// # Errors
 ///
@@ -214,10 +204,9 @@ pub fn apply_safe_fixes_to_files(
     Ok(stats)
 }
 
-/// A single file's `--diff` result: the unified diff (`None` when the safe fixes
-/// would change nothing) plus any parse-skips — a plain YAML file contributes at most
-/// one (its whole-file parse error); a Markdown file one per region that does not
-/// parse — reported like [`FixStats::skipped`].
+/// One file's `--diff` result: the unified diff (`None` when nothing would change) plus any
+/// parse-skips: a plain YAML file contributes at most one (its whole-file parse error), a
+/// Markdown file one per region that does not parse.
 #[derive(Debug, Default)]
 pub struct DiffOutcome {
     pub diff: Option<String>,
@@ -234,9 +223,8 @@ pub struct DiffStats {
 }
 
 impl DiffStats {
-    /// Fold one file's outcome into the aggregate: record its diff (if any) and tag
-    /// each parse-skip with the file path. Shared by the file-walk and stdin paths so
-    /// the diff-vs-skip routing lives in one place.
+    /// Fold one file's outcome into the aggregate, tagging each parse-skip with the file path.
+    /// Shared by the file-walk and stdin paths.
     pub fn record(&mut self, path: &Path, outcome: DiffOutcome) {
         if let Some(diff) = outcome.diff {
             self.diffs.push(diff);
@@ -247,16 +235,13 @@ impl DiffStats {
     }
 }
 
-/// Render a unified diff from `original` and `fixed`, or `None` when they are
-/// identical. The format follows `ruff check --diff`: 3 lines of context (also
-/// `similar`'s default, pinned here so a crate upgrade can't silently change it) and a
-/// plain `--- path` / `+++ path` header (no git `a/`/`b/` prefixes). The header path is
-/// `lexical_abspath`-normalized (so `./f`/`sub/../f` become a clean `f`) and relativized
-/// to CWD — like ruff, an absolute path under CWD becomes relative, an out-of-tree one
-/// stays absolute — so the patch applies with `git apply -p0` / hk rather than failing
-/// on a `.`/`..`/absolute header. The path is sanitized so a crafted filename can't
-/// inject terminal escapes or forge a hunk header; the diff *body* is emitted verbatim
-/// so a consumer can re-apply the content unchanged (like `git diff`, the raw bytes).
+/// Render a unified diff from `original` and `fixed`, or `None` when identical. Follows
+/// `ruff check --diff`: 3 lines of context (pinned, since it is also `similar`'s default a
+/// crate upgrade could silently change) and a plain `--- path`/`+++ path` header (no git
+/// `a/`/`b/`). The header path is `lexical_abspath`-normalized and relativized to CWD (like
+/// ruff) so it applies with `git apply -p0` rather than failing on a `.`/`..`/absolute header,
+/// and sanitized so a crafted filename can't inject escapes or forge a hunk header. The diff
+/// *body* is emitted verbatim so a consumer can re-apply it unchanged.
 fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
     if original == fixed {
         return None;
@@ -266,16 +251,13 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
     let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
     let label = crate::cli_support::sanitize_control(&display.display().to_string())
         .into_owned();
-    // git/patch headers use forward slashes; on Windows the path uses `\`, so normalize
-    // it (Unix leaves `\` alone — there it is a valid filename character, not a
-    // separator).
+    // git/patch headers use forward slashes; normalize the Windows `\` (Unix leaves `\`
+    // alone, where it is a filename character, not a separator).
     #[cfg(windows)]
     let label = label.replace('\\', "/");
-    // Split on `\n` only (not `similar`'s CR-aware `from_lines`) so a bare `\r` is
-    // diff *content*: a unified diff is `\n`-terminated, and `git apply` matches an
-    // embedded `\r` byte-for-byte. Identical to `from_lines` on LF/CRLF input. A side
-    // that *ends* in a bare `\r` can't be rendered (`similar`'s `ends_with_newline`
-    // counts a trailing `\r`); `diff_outcome` skips that before reaching here.
+    // Split on `\n` only (not `similar`'s CR-aware `from_lines`) so a bare `\r` is diff
+    // *content* `git apply` matches byte-for-byte. Identical to `from_lines` on LF/CRLF; a
+    // side ending in a bare `\r` is unrenderable and `diff_outcome` skips it before here.
     let original_lines: Vec<&str> = original.split_inclusive('\n').collect();
     let fixed_lines: Vec<&str> = fixed.split_inclusive('\n').collect();
     Some(
@@ -289,12 +271,10 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
     )
 }
 
-/// Compute the `--diff` outcome for in-memory `content` (shared by the file and stdin
-/// paths). Mirrors the in-place fixers' gating: an unparsable plain YAML file yields
-/// no diff and one skip so the CLI can tell the user why; a Markdown file diffs at the
-/// host level via [`fix_markdown_str`] and reports each region that does not parse. A
-/// path (or `--stdin-filename` label) that can't be written in a diff header is skipped
-/// here, so the file and stdin paths share the guard.
+/// The `--diff` outcome for in-memory `content`, shared by the file and stdin paths. Mirrors
+/// the in-place fixers' gating: an unparsable plain YAML file yields no diff and one skip; a
+/// Markdown file diffs at the host level via [`fix_markdown_str`], reporting each region that
+/// does not parse. A path unrepresentable in a diff header is skipped here.
 #[must_use]
 pub fn diff_outcome(
     content: &str,
@@ -333,14 +313,12 @@ pub fn diff_outcome(
             }
         }
         SourceKind::Markdown => {
-            // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str`
-            // returns `None`, `markdown_parse_skips` reports it), so the content
-            // reaching `render_unified_diff` here never carries a bare `\r`.
+            // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
+            // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
             let fixed = fix_markdown_str(content, path, cfg, base_dir);
-            // Skips are reported against the *original* content, not `fixed`: unlike
-            // the in-place path (which writes `fixed`, so its skip line numbers must
-            // match the post-fix file), `--diff` never writes, so the file on disk
-            // stays `content` and a skip notice must point at the original line.
+            // Report skips against the *original* content: `--diff` never writes, so the file
+            // stays `content` and a skip notice must point at the original line (the in-place
+            // path uses `fixed` because it writes it).
             let skipped = crate::markdown_embed::markdown_parse_skips(content, cfg);
             let diff =
                 fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
@@ -349,16 +327,13 @@ pub fn diff_outcome(
     }
 }
 
-/// Whether either side ends in a bare `\r`. The diff renderer handles a mid-line or
-/// mixed `\r` as content, but `similar`'s `ends_with_newline` counts a *trailing*
-/// `\r` as a terminator and emits a hunk line no patch tool accepts — so `--diff`
-/// skips that case (use `--fix`).
+/// Whether either side ends in a bare `\r`. `similar`'s `ends_with_newline` counts a trailing
+/// `\r` as a terminator and emits a hunk line no patch tool accepts (a mid-line `\r` is fine),
+/// so `--diff` skips that case (use `--fix`).
 fn ends_in_bare_cr(original: &str, fixed: &str) -> bool {
     original.ends_with('\r') || fixed.ends_with('\r')
 }
 
-/// The `--diff` skip a trailing-bare-`\r` change gets: `similar` cannot render an
-/// applicable hunk line for content that ends in a bare carriage return.
 #[must_use]
 fn bare_cr_diff_skip() -> crate::lint::LintProblem {
     diff_skip(
@@ -366,8 +341,7 @@ fn bare_cr_diff_skip() -> crate::lint::LintProblem {
     )
 }
 
-/// A `--diff` skip notice (`<path>:1:1 skipped by --diff: <message>`) for an input that
-/// cannot produce an applicable diff.
+/// A 1:1 skip problem for an input that cannot produce an applicable `--diff`.
 #[must_use]
 fn diff_skip(message: &str) -> crate::lint::LintProblem {
     crate::lint::LintProblem {
@@ -379,29 +353,25 @@ fn diff_skip(message: &str) -> crate::lint::LintProblem {
     }
 }
 
-/// The skip a non-UTF-8 (or BOM) input gets under `--diff`: a textual unified diff of the
-/// decoded content cannot be applied back to the BOM'd/transcoded on-disk bytes, and a
-/// text diff cannot round-trip the original encoding the way `--fix`'s re-encode does.
-/// Shared by the file path and the stdin path (`main::run_stdin_diff`).
+/// The `--diff` skip for a non-UTF-8 (or BOM) input: a textual diff of the decoded content
+/// cannot apply back to the BOM'd/transcoded bytes the way `--fix`'s re-encode does. Shared by
+/// the file and stdin paths.
 #[must_use]
 pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
     diff_skip("non-UTF-8 or BOM content has no applicable text diff; use --fix")
 }
 
-/// Whether the path can't be faithfully written in a unified-diff header — it is not
-/// valid UTF-8, or it contains a control character. Either way the header would name a
-/// different path than the on-disk file (non-UTF-8 bytes become `�`; a raw control char
-/// corrupts the `---`/`+++` line or is sanitized away), so no consumer could apply the
-/// patch. `--diff` skips these, like the non-UTF-8-*content* case.
+/// Whether the path can't be faithfully written in a diff header (not valid UTF-8, or holding
+/// a control char). Either way the header would name a different path than the on-disk file,
+/// so no consumer could apply the patch; `--diff` skips these.
 fn path_unrepresentable_in_diff(path: &Path) -> bool {
     let name = path.as_os_str();
     name.to_str().is_none() || name.to_string_lossy().contains(char::is_control)
 }
 
-/// Compute unified diffs for the safe fixes of each file, reading from disk. Never
-/// writes; a symlinked input is skipped with a warning (parity with `--fix`). Other
-/// un-diffable inputs (non-UTF-8/BOM content, an unparsable file, or a name that can't
-/// appear in a header) are skipped with a notice via [`diff_outcome`].
+/// Unified diffs for each file's safe fixes, reading from disk and never writing. A symlinked
+/// input is skipped with a warning (parity with `--fix`); other un-diffable inputs (non-UTF-8/
+/// BOM content, unparsable, or an unrepresentable name) are skipped via [`diff_outcome`].
 ///
 /// # Errors
 ///
@@ -429,8 +399,7 @@ pub fn diff_safe_fixes_for_files(
 ///
 /// # Errors
 ///
-/// Returns an error if the file cannot be read or the rewritten contents cannot be
-/// written.
+/// Returns an error if the file cannot be read or the rewritten contents cannot be written.
 pub fn apply_markdown_safe_fixes_in_place(
     path: &Path,
     cfg: &YamlLintConfig,
@@ -441,12 +410,9 @@ pub fn apply_markdown_safe_fixes_in_place(
     }
     let decoded = decoder::read_file_lossless(path)?;
     let fixed = fix_markdown_str(decoded.content(), path, cfg, base_dir);
-    // Regions that do not parse are skipped by the per-region gate in
-    // `fix_markdown_str`; collect their parse errors (mapped to host coordinates) so
-    // the CLI reports them, like a plain YAML file's whole-file skip. Read them from
-    // the *fixed* bytes (what gets written) so the reported line stays correct even
-    // when an earlier region's fix changed the line count; a skipped region is left
-    // untouched, so it still appears there at its post-fix position.
+    // Collect parse errors for regions the per-region gate in `fix_markdown_str` skipped, so
+    // the CLI reports them. Read from the *fixed* bytes (what gets written) so the reported
+    // line stays correct after an earlier region's fix shifts the line count.
     let skipped = crate::markdown_embed::markdown_parse_skips(
         fixed.as_deref().unwrap_or_else(|| decoded.content()),
         cfg,
@@ -461,17 +427,12 @@ pub fn apply_markdown_safe_fixes_in_place(
     Ok(FixOutcome { changed, skipped })
 }
 
-/// Apply safe fixes to each embedded YAML region of `markdown` and splice the
-/// results back in, returning the rewritten document (or `None` if nothing
-/// changed).
-///
-/// File-shape rules are excluded per [`suppressed_rules`]. Each line regains the
-/// prefix the parser stripped (leading spaces, a blockquote `> `, or a tab), and a
-/// region is only rewritten when re-applying that prefix reproduces the original raw
-/// bytes exactly (the reconstruct-and-verify guard); a region whose lines do not
-/// share one prefix (ragged indentation) is left untouched (still reported in check
-/// mode). Regions are spliced back-to-front so earlier edits do not shift later
-/// offsets.
+/// Apply safe fixes to each embedded YAML region of `markdown` and splice the results back
+/// in, or `None` if nothing changed. File-shape rules are excluded per [`suppressed_rules`].
+/// Each line regains the prefix the parser stripped (spaces, a blockquote `> `, or a tab), and
+/// a region is rewritten only when re-applying that prefix reproduces the original raw bytes
+/// exactly (the reconstruct-and-verify guard), so a ragged region is left untouched. Regions
+/// are spliced back-to-front so earlier edits do not shift later offsets.
 #[must_use]
 pub fn fix_markdown_str(
     markdown: &str,
@@ -507,12 +468,10 @@ pub fn fix_markdown_str(
         }
         let raw = &markdown[region.raw_span.clone()];
         let newline = buffer_newline(raw);
-        // The prefix the parser stripped from each content line — spaces for an
-        // indented fence, `> ` for a blockquoted one, a tab, etc. `raw` starts at the
-        // first content line and `col_offset` (its stripped char count) never spans a
-        // newline, so the first `col_offset` chars of `raw` are exactly that prefix.
-        // The guard below re-checks it reproduces every line, so a non-uniform
-        // (ragged) prefix still fails and is skipped.
+        // `raw` starts at the first content line and `col_offset` (its stripped char count)
+        // never spans a newline, so the first `col_offset` chars of `raw` are exactly the
+        // prefix the parser stripped. The guard below re-checks it against every line, so a
+        // ragged prefix still fails and is skipped.
         let prefix: String = raw.chars().take(region.col_offset).collect();
         if reindent(&region.content, &prefix, newline) != raw {
             continue;
@@ -523,10 +482,9 @@ pub fn fix_markdown_str(
     changed.then_some(out)
 }
 
-/// Re-encode dedented region content into its host: each non-empty line regains the
-/// region's leading `prefix` and lines are joined with `newline`. Empty lines stay
-/// empty (matching how the parser dedents blank lines), and the trailing newline is
-/// preserved.
+/// Re-encode dedented region content into its host: each non-empty line regains `prefix` and
+/// lines are joined with `newline`. Empty lines stay empty (matching how the parser dedents
+/// blanks); the trailing newline is preserved.
 fn reindent(content: &str, prefix: &str, newline: &str) -> String {
     let mut out = String::with_capacity(content.len());
     for piece in content.replace("\r\n", "\n").split_inclusive('\n') {
@@ -554,8 +512,8 @@ pub fn apply_safe_fixes(
     apply_safe_fixes_filtered(input, cfg, path, base_dir, &[])
 }
 
-/// Apply safe fixes, skipping any rule whose id is in `skip`. Used by the markdown
-/// write-back path to exclude the file-shape rules (see [`suppressed_rules`]).
+/// Apply safe fixes, skipping any rule whose id is in `skip` (the markdown write-back path
+/// passes [`suppressed_rules`]).
 #[must_use]
 pub fn apply_safe_fixes_filtered(
     input: &str,
@@ -564,11 +522,9 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
-    // Never mutate a file that does not fully parse. `parse_error` is stricter than
-    // lint's `syntax_diagnostic` — it does not tolerate undefined aliases — so a
-    // file with any granit error (including an alias that masks a later syntax
-    // error) is left byte-for-byte unchanged. The CLI surfaces the reason via
-    // `apply_safe_fixes_in_place`'s `Skipped` outcome.
+    // Never mutate a file that does not fully parse. `parse_error` is stricter than lint's
+    // `syntax_diagnostic` (it does not tolerate undefined aliases), so any granit error leaves
+    // the file byte-for-byte unchanged.
     if crate::directives::disables_file(input)
         || crate::lint::parse_error(input).is_some()
     {
@@ -627,21 +583,18 @@ pub fn apply_safe_fixes_filtered(
     content
 }
 
-/// Shared arguments for a sequence of rule fixes, bundled so each per-rule call
-/// site stays short. `apply` is generic over the fix closure — a method can be,
-/// where a capturing closure cannot — so there is no dynamic dispatch.
+/// Shared arguments for a sequence of rule fixes. `apply` is a method so it can be generic
+/// over the fix closure (a capturing closure cannot), avoiding dynamic dispatch.
 struct FixContext<'a> {
     cfg: &'a YamlLintConfig,
     path: &'a Path,
     base_dir: &'a Path,
     skip: &'a [&'a str],
-    /// Parsed once from the original input (inline directives plus the `per_line`
-    /// virtual disable-lines). `disables_any` is stable across fixes (no fixer adds or
-    /// removes a directive comment), so the per-rule guard can be read from here
-    /// without re-parsing for every rule.
+    /// Parsed once from the original input. `disables_any` is stable across fixes (no fixer
+    /// adds or removes a directive comment), so the per-rule guard reads it without re-parsing.
     directives: Directives,
-    /// Config `per-line-ignores` applying to this file; re-applied on each guarded
-    /// re-parse since a structural fixer can shift which line a regex matches.
+    /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
+    /// structural fixer can shift which line a regex matches.
     per_line: Vec<PerLineRuleApply<'a>>,
 }
 
@@ -658,23 +611,16 @@ impl FixContext<'_> {
             return content;
         }
 
-        // Run the rule's fix to a fixed point. A single pass is not enough for
-        // rules like quoted-strings where one fix exposes a follow-up diagnostic
-        // (e.g. converting double quotes to single quotes leaves a now-redundant
-        // pair that must be removed); without convergence here, the CLI's single
-        // --fix invocation would leave the output non-idempotent. Well-behaved
-        // fix functions signal completion by returning None, so the loop exits
-        // after at most one extra no-op call per rule.
+        // Run the fix to a fixed point: one pass is not enough where a fix exposes a follow-up
+        // diagnostic (e.g. quoted-strings double-to-single leaves a now-redundant pair to
+        // remove), which would leave the single `--fix` non-idempotent. A well-behaved fixer
+        // returns None at completion, so the loop exits after at most one extra no-op call.
         //
-        // When a directive disables this rule on some line, reconcile each pass so the
-        // fixer's edits to those lines are reverted; directives are re-parsed after a
-        // change because structural fixers shift line numbers (and the comments with
-        // them). The guard is read from the once-parsed `self.directives`; only a
-        // guarded rule pays for the per-pass re-parse.
-        // Reconcile when an inline directive disables this rule, OR when any per-line
-        // entry targets it: a content regex can newly match a line a *fixer* produces
-        // (unlike an inline comment, which a fixer can't create), so the per-pass
-        // re-parse must run even if no original line matched yet.
+        // A guarded rule reconciles each pass so the fixer's edits to disabled lines are
+        // reverted, re-parsing after a change since structural fixers shift line numbers.
+        // Guard on an inline directive disabling this rule OR any per-line entry targeting it:
+        // a content regex can newly match a line a fixer *produces*, so re-parse even if no
+        // original line matched.
         let guarded = self.directives.disables_any(rule.rule)
             || self
                 .per_line

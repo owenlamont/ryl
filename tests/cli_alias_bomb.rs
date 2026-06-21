@@ -75,7 +75,7 @@ fn linting_alias_bomb_file_does_not_expand_aliases() {
 #[test]
 fn merging_a_wide_base_into_many_hosts_stays_bounded() {
     // Many distinct anchored hosts each merging a wide base would grow
-    // contributions as hosts×keys (issue #252 review); the per-file budget caps
+    // contributions as hosts×keys; the per-file budget caps
     // the materialisation so this stays bounded instead of exhausting memory.
     let dir = tempdir().unwrap();
     let target = dir.path().join("hk.yaml");
@@ -105,7 +105,7 @@ fn merging_a_wide_base_into_many_hosts_stays_bounded() {
 fn deeply_nested_anchored_merges_stay_bounded() {
     // Nested anchored inline merge wrappers (`<<: &w1 {<<: &w2 {... <<: *base}}`)
     // each re-materialise the base's keys; without charging that per-level
-    // materialisation this is quadratic in depth×keys (issue #252 review).
+    // materialisation this is quadratic in depth×keys.
     let dir = tempdir().unwrap();
     let target = dir.path().join("nest.yaml");
     let mut doc = String::from("base: &base\n");
@@ -134,7 +134,7 @@ fn deeply_nested_anchored_merges_stay_bounded() {
 #[test]
 fn merging_a_wide_anchor_many_times_stays_bounded() {
     // `<<: [*base, *base, ...]` with a wide base must not materialise
-    // keys×aliases contributions (issue #252 review): each anchor merges into a
+    // keys×aliases contributions: each anchor merges into a
     // host at most once. A blow-up would make this quadratic in keys×aliases.
     let dir = tempdir().unwrap();
     let target = dir.path().join("wide.yaml");
@@ -160,7 +160,7 @@ fn merging_a_wide_anchor_many_times_stays_bounded() {
 fn linting_alias_bomb_with_check_canonical_stays_bounded() {
     // `key-duplicates: check-canonical` resolves alias values to compare merged
     // keys; it must fold each node to a bounded hash rather than materialise the
-    // 9^10 alias expansion (issue #252 review). A blow-up would hang/OOM here.
+    // 9^10 alias expansion. A blow-up would hang/OOM here.
     let dir = tempdir().unwrap();
     let target = dir.path().join("bomb.yaml");
     fs::write(&target, alias_bomb()).unwrap();

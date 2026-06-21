@@ -1,4 +1,4 @@
-//! Property tests for `fix_markdown_str` — the `--fix` write-back into YAML embedded
+//! Property tests for `fix_markdown_str`: the `--fix` write-back into YAML embedded
 //! in markdown. The YAML generator is reused from the safe-fix suite via `#[path]`
 //! (`ast`/`strategy`/`config`) and wrapped into a markdown host (`wrap`); the
 //! invariants (`verify_host_preserved`/`verify_regions`/`run_invariants`) are

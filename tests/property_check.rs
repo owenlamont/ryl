@@ -152,8 +152,8 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
 /// Guards the hand-maintained `rules::ALL_RULE_IDS` (which a bare `# ryl disable`
 /// expands to) against drift: it must list exactly the rules `RULE_TRIGGERS` does, and
 /// every `RULE_TRIGGERS` entry is proven to actually fire by the test below. A rule
-/// added to one list but not the other &mdash; e.g. a new rule omitted from
-/// `ALL_RULE_IDS`, which would silently make bare `# ryl disable` skip it &mdash; fails
+/// added to one list but not the other (e.g. a new rule omitted from
+/// `ALL_RULE_IDS`, which would silently make bare `# ryl disable` skip it) fails
 /// here.
 #[test]
 fn rule_triggers_cover_exactly_all_rule_ids() {
@@ -184,8 +184,8 @@ fn each_rule_triggers_and_reports_in_bounds_spans() {
 #[test]
 fn open_indent_config_relaxes_a_generated_shape() {
     // Mirrors the merge guard below: a comment at an open block level the default
-    // flags — a shape `arb_document` emits from entries/seq-items/comments at varied
-    // indents — must be *accepted* by the harness's open-indent config but flagged by
+    // flags (a shape `arb_document` emits from entries/seq-items/comments at varied
+    // indents) must be *accepted* by the harness's open-indent config but flagged by
     // the default, so the second `collect_spans` dispatch (and the monotonicity
     // property) is not exercised vacuously.
     use ryl::rules::comments_indentation::{Config, check};
@@ -246,9 +246,8 @@ fn multibyte_flow_punctuation_spans_stay_in_bounds() {
     ];
     for input in inputs {
         let spans = collect_spans(input, trigger_all_config());
-        check_spans_in_bounds(input, &spans).unwrap_or_else(|message| {
-            panic!("multibyte regression (issue #232): {message}")
-        });
+        check_spans_in_bounds(input, &spans)
+            .unwrap_or_else(|message| panic!("multibyte regression: {message}"));
     }
 }
 
