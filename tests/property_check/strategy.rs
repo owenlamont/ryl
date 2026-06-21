@@ -42,6 +42,9 @@ pub enum Line {
         text: String,
     },
     TagDirective,
+    VersionDirective {
+        minor: u8,
+    },
     DocumentStart,
     DocumentEnd,
     Blank {
@@ -116,6 +119,9 @@ impl Line {
                 out.push_str(text);
             }
             Self::TagDirective => out.push_str("%TAG !e! tag:example.com,2000:"),
+            Self::VersionDirective { minor } => {
+                out.push_str(&format!("%YAML 1.{minor}"));
+            }
             Self::DocumentStart => out.push_str("---"),
             Self::DocumentEnd => out.push_str("..."),
             Self::Blank { spaces } => push_spaces(out, *spaces),
@@ -321,6 +327,7 @@ fn arb_line() -> impl Strategy<Value = Line> {
         2 => arb_comment(),
         1 => Just(Line::DocumentStart),
         1 => Just(Line::DocumentEnd),
+        1 => (1u8..=3).prop_map(|minor| Line::VersionDirective { minor }),
         2 => (0u8..=3).prop_map(|spaces| Line::Blank { spaces }),
     ]
 }

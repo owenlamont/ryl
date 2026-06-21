@@ -91,9 +91,9 @@ unfixable = ["quoted-strings"]
 
 ## YAML 1.2 caveat with `required = "only-when-needed"`
 
-ryl applies YAML 1.2 implicit-type resolution when deciding whether a
-quoted scalar is redundantly quoted. Under YAML 1.2 the barewords `yes`,
-`no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
+A document with no version directive is resolved per YAML 1.2 when deciding
+whether a quoted scalar is redundantly quoted. Under YAML 1.2 the barewords
+`yes`, `no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
 plain strings, whereas YAML 1.1 treats them as booleans. (`true`, `True`,
 `TRUE`, `false`, `False`, and `FALSE` are booleans under both versions, so
 they are unaffected.) yamllint uses YAML 1.1 semantics, where the longer
@@ -104,7 +104,12 @@ The practical consequence is that `"yes"` (with `required:
 redundantly quoted but accepted by yamllint. To match yamllint's
 behaviour, set `required = true` so all string scalars are quoted
 regardless of type, or rely on the [`truthy`](truthy.md) rule to flag
-ambiguous barewords and keep `quoted-strings` off. See
+ambiguous barewords and keep `quoted-strings` off.
+
+A document that declares `%YAML 1.1` is resolved as YAML 1.1, so ryl keeps
+the quotes on these barewords (and on 1.1 integers, sexagesimals, and
+timestamps) and `--fix` leaves them in place &mdash; stripping them would
+change the value for a 1.1 consumer. See
 [YAML version compatibility](../yaml-version.md) for more context.
 
 ## Related rules

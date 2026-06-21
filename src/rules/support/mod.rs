@@ -5,3 +5,4 @@ pub(crate) mod mapping_key_walker;
 pub(crate) mod merge_key;
 pub(crate) mod punctuation;
 pub(crate) mod span_utils;
+pub(crate) mod yaml_version;

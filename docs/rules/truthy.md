@@ -53,6 +53,13 @@ enabled: yes
 visible: no
 ```
 
+## YAML version directive
+
+The rule honours an explicit [`%YAML` directive](../yaml-version.md): under
+`%YAML 1.2` the barewords resolve to plain strings, so only `true`/`false`
+spellings are flagged; under `%YAML 1.1` (or no directive) the full 1.1
+truthy word list is flagged.
+
 ## Automatic fixing
 
 This rule does not auto-fix; replacing a bareword changes the value's
