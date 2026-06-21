@@ -47,7 +47,7 @@ use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver, Tag}
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
-use crate::yaml_dom::{Scalar, ScalarOwned, core_schema_suffix, is_core_schema};
+use crate::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
 
 pub const ID: &str = "key-duplicates";
 
@@ -149,26 +149,15 @@ fn hash_of(value: &impl Hash) -> Vid {
     hasher.finish()
 }
 
-/// The core schema's default tags (those an untagged node resolves to) don't
-/// distinguish a value; any other tag does.
-const DEFAULT_TAG_SUFFIXES: [&str; 7] =
-    ["map", "seq", "str", "int", "float", "bool", "null"];
-
 /// A tag's contribution to a node's `Vid`: a local tag (`!foo`) or a non-default
 /// core tag (`!!set`, `!!omap`) distinguishes the value from an untagged node;
-/// the implicit default tags do not.
+/// the Core Schema default tags (which an untagged node resolves to) do not.
 fn tag_vid(tag: Option<&Cow<'_, Tag>>) -> Vid {
     match tag.map(Cow::as_ref) {
-        // `core_schema_suffix`, not granit's handle-only check, so a verbatim core
-        // default tag is recognised as non-distinguishing too (#277).
-        Some(tag)
-            if !matches!(
-                core_schema_suffix(tag),
-                Some(suffix) if DEFAULT_TAG_SUFFIXES.contains(&suffix)
-            ) =>
-        {
-            hash_of(tag)
-        }
+        // `is_yaml_core_schema` matches a Core Schema tag in any spelling
+        // (verbatim, `%TAG` mid-split), so every default tag stays
+        // non-distinguishing; `merge`, removed 1.1 types, and local tags do not.
+        Some(tag) if !tag.is_yaml_core_schema() => hash_of(tag),
         _ => UNKNOWN_VID,
     }
 }

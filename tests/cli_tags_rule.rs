@@ -151,6 +151,32 @@ fn verbatim_and_javax_tag_spellings_are_normalised_and_detected() {
 }
 
 #[test]
+fn tag_directive_mid_split_uri_is_normalised_and_detected() {
+    // A `%TAG` directive can cut the resolved URI mid-token (handle
+    // `tag:yaml.org,2002:o` + suffix `map` resolves to `omap`); the type must
+    // still be recognised so a split spelling cannot evade a safety check.
+    let (code, output) = lint_with_toml_config(
+        "%TAG !o! tag:yaml.org,2002:o\n---\nx: !o!map [1]\n",
+        "[rules.tags]\nforbid-removed-types = true\n",
+    );
+    assert_eq!(code, 1, "mid-split removed type should fail: {output}");
+    assert!(
+        output.contains("forbidden removed YAML 1.1 type \"!!omap\""),
+        "mid-split core tag should normalise to !!omap: {output}"
+    );
+
+    let (code, output) = lint_with_toml_config(
+        "%TAG !p! tag:yaml.org,2002:p\n---\nx: !p!ython/object:os.system [1]\n",
+        "[rules.tags]\nforbid-unsafe-tags = true\n",
+    );
+    assert_eq!(code, 1, "mid-split unsafe tag should fail: {output}");
+    assert!(
+        output.contains("forbidden unsafe tag \"!!python/object:os.system\""),
+        "mid-split unsafe tag should normalise and be flagged: {output}"
+    );
+}
+
+#[test]
 fn custom_tag_directive_handle_is_not_namespace_matched() {
     let (code, output) = lint_with_toml_config(
         "%TAG !e! tag:example.com,2000:\n---\nx: !e!python/object value\n",

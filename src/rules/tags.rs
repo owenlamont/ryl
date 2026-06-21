@@ -19,8 +19,8 @@
 //!   lets a team permit only the handles it actually uses.
 //!
 //! Detection normalises tag spelling, so shorthand (`!!omap`), local
-//! (`!ruby/object:`), and verbatim (`!<tag:yaml.org,2002:omap>`) forms map to
-//! the same identity and cannot be used to evade a check.
+//! (`!ruby/object:`), verbatim (`!<tag:yaml.org,2002:omap>`), and `%TAG`-split
+//! forms map to the same identity and cannot be used to evade a check.
 //!
 //! Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; `PyYAML` docs; The
 //! YAML Company. There is no safe `--fix`: rewriting or dropping a tag changes
@@ -87,12 +87,14 @@ impl Config {
         }
         let core = core_schema_suffix(tag);
         if self.forbid_unsafe_tags
-            && unsafe_namespace(tag, core).is_some_and(is_unsafe_suffix)
+            && unsafe_namespace(tag, core.as_deref()).is_some_and(is_unsafe_suffix)
         {
             return Some(format!("forbidden unsafe tag \"{}\"", shorthand(tag)));
         }
         if self.forbid_removed_types
-            && core.is_some_and(|suffix| REMOVED_TYPE_SUFFIXES.contains(&suffix))
+            && core
+                .as_deref()
+                .is_some_and(|suffix| REMOVED_TYPE_SUFFIXES.contains(&suffix))
         {
             return Some(format!(
                 "forbidden removed YAML 1.1 type \"{}\"",

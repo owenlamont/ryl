@@ -55,7 +55,7 @@ impl<'input> Scalar<'input> {
         // before the non-plain-is-a-string fallback. Matching on the core-schema
         // *suffix* (not the handle) means a verbatim `!<tag:yaml.org,2002:int>`
         // resolves identically to the `!!int` shorthand (issue #277).
-        match tag.map(Cow::as_ref).and_then(core_schema_suffix) {
+        match tag.map(Cow::as_ref).and_then(core_schema_suffix).as_deref() {
             Some("bool") => parse_core_schema_bool(&v).map(Self::Boolean),
             Some("int") => parse_core_schema_int(&v).map(Self::Integer),
             Some("float") => parse_core_schema_fp(&v)
