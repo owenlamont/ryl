@@ -73,10 +73,7 @@ description: >-
     not a real failure: a failed build/upload job gates and *skips* the
     publish/finalize jobs, so nothing publishes and the tag stays intact. Re-run the
     failed jobs with `gh run rerun <run-id> --failed` (also re-runs the skipped
-    downstream publish jobs); repeat if a different step flakes next time. A partial
-    durable fix for the most frequent culprit: pre-install `cross` from a prebuilt
-    binary (`taiki-e/install-action@cross`) so the flaky `cargo install cross` step
-    never runs.
+    downstream publish jobs); repeat if a different step flakes next time.
 - After a successful release, `.github/workflows/sync-schemastore.yml` projects
   `ryl.toml.schema.json` into SchemaStore's draft-07 format, updates the user's
   SchemaStore fork, and prints a manual upstream PR handoff for
