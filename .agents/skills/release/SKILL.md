@@ -65,6 +65,15 @@ description: >-
   - `.github/workflows/release.yml` validates that the pushed tag version
     matches `Cargo.toml`, `pyproject.toml`, and `package.json` versions
     before release jobs run.
+  - **Transient network/download flakes recur (~every 2nd-3rd release), in no fixed
+    step.** Release runs have many download-heavy steps (macOS/Linux build jobs, the
+    cross-compile `cargo install cross`, crates.io fetches); one intermittently dies
+    on a network/SSL blip (e.g. `curl ... OpenSSL SSL_read: unexpected eof`, exit
+    101) — sometimes a macOS build, sometimes the aarch64-linux cross install. It is
+    not a real failure: a failed build/upload job gates and *skips* the
+    publish/finalize jobs, so nothing publishes and the tag stays intact. Re-run the
+    failed jobs with `gh run rerun <run-id> --failed` (also re-runs the skipped
+    downstream publish jobs); repeat if a different step flakes next time.
 - After a successful release, `.github/workflows/sync-schemastore.yml` projects
   `ryl.toml.schema.json` into SchemaStore's draft-07 format, updates the user's
   SchemaStore fork, and prints a manual upstream PR handoff for

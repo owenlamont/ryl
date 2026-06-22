@@ -50,19 +50,31 @@ it is the key datum for the PR reply):
 
 ```powershell
 $u = "https://github.com/owenlamont/ryl/releases/download/vX.Y.Z/ryl-x86_64-pc-windows-msvc.zip"
-try { Invoke-WebRequest $u -OutFile "$env:TEMP\ryl-check.zip" -ErrorAction Stop; "OK" }
-catch { "BLOCKED: $($_.Exception.Message)" }   # a block/quarantine == reproduced
-Start-MpScan -ScanType CustomScan -ScanPath "$env:TEMP\ryl-check.zip"
-Get-MpThreatDetection | Sort-Object InitialDetectionTime -Descending |
-  Select-Object -First 3 InitialDetectionTime, Resources
+$zip = "$env:TEMP\ryl-check.zip"
+Invoke-WebRequest $u -OutFile $zip
+# Invoke-WebRequest does NOT set mark-of-the-web, so the heuristic that flags *downloaded*
+# zips never fires on an IWR file. Tag it Internet-zone (3) with the real source to mimic a
+# browser/winget download — without this the repro tests an unmarked file and proves nothing:
+Set-Content -Path $zip -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=$u"
+Start-MpScan -ScanType CustomScan -ScanPath $zip   # file-at-rest scan; weaker than on-access
+# THIS run only — Get-MpThreatDetection is cumulative, so a stale hit from a prior version
+# reads as a current-version flag unless filtered by date:
+Get-MpThreatDetection | Where-Object { $_.InitialDetectionTime -ge (Get-Date).Date } |
+  Sort-Object InitialDetectionTime -Descending | Select-Object InitialDetectionTime, Resources
 (Get-MpComputerStatus).AntivirusSignatureVersion
 ```
 
+A clean `Start-MpScan` is reassuring but not conclusive: the `!ml`/`!cl` verdict is a
+cloud/ML call on the real-time on-access/download path, which a file-at-rest custom scan
+may not exercise — VirusTotal's Microsoft engine is the stronger corroboration.
+
 Cross-check **VirusTotal** — its Microsoft engine is the best proxy for the validator.
-Look up by hash first (`https://www.virustotal.com/gui/file/<sha256-lowercase>`);
-upload if absent. Check **all four** artifacts: both zips **and** the unzipped `.exe`s.
-The bare exe usually scans clean; only the MOTW download trips it. (VT's GUI is
-shadow-DOM heavy, so reading a verdict via DOM scraping needs shadow-root traversal.)
+Look up by hash first (`https://www.virustotal.com/gui/file/<sha256-lowercase>`); upload
+if absent (anonymous, no login wall; upload + scan ~30s each). Check **all four** artifacts:
+both zips **and** the unzipped `.exe`s — the bare exe usually scans clean; only the MOTW
+download trips it. VT's GUI is shadow-DOM heavy: walk shadow roots, read the `Microsoft`
+engine row, and rebuild the `n/NN` ratio from its DOM ancestors (no `positives`/`total`
+attribute); let the "analysing" state clear before reading the final ratio.
 
 ## Decide
 
