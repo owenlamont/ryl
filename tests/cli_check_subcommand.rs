@@ -1,5 +1,5 @@
-//! `ryl check <paths>` must be byte-for-byte equivalent to the bare `ryl <paths>` lint form
-//! (#369): same diagnostics, exit codes, `--fix`/`--diff`/`--list-files`/stdin behaviour, and
+//! `ryl check <paths>` must be byte-for-byte equivalent to the bare `ryl <paths>` lint form:
+//! same diagnostics, exit codes, `--fix`/`--diff`/`--list-files`/stdin behaviour, and
 //! `--format`/`--output-file` handling. The bare form keeps working with no deprecation warning
 //! this slice. Parity tests run the same args both ways and assert identical output.
 
