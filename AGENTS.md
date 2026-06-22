@@ -114,6 +114,10 @@ skills also carry a `uv`-runnable helper script.
   the CI gate, the `coverage-missing.py` workflow, and coverage-friendly Rust idioms.
 - **`release`** (`.agents/skills/release/SKILL.md`) — the lockstep version bump,
   tag/push gate, and post-release SchemaStore + publishing flow.
+- **`winget-defender-fp`** (`.agents/skills/winget-defender-fp/SKILL.md`) — triage a
+  winget-pkgs PR blocked by a Microsoft Defender false positive
+  (`Validation-Defender-Error`): the transient-vs-reproducible decision, local
+  Defender + VirusTotal reproduction, and the WDSI false-positive submission.
 - **`codex-review`** (`.agents/skills/codex-review/SKILL.md`) — drive a Codex CI review
   on a PR end to end: trigger, monitor and classify the verdict, and handle the resulting
   comments (thumbs-up/down, resolve, reply).

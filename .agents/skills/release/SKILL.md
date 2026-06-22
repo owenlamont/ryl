@@ -88,7 +88,9 @@ description: >-
   winget-pkgs from the one-time `wingetcreate new` bootstrap; `update` preserves the
   nested-portable config and `Microsoft.VCRedist.2015+` dependencies, swapping only
   version, URLs, and SHA256. Re-running a published version would attempt a duplicate
-  winget PR (no existence guard, unlike the crates/PyPI/NPM steps).
+  winget PR (no existence guard, unlike the crates/PyPI/NPM steps). If that winget PR is
+  blocked by a Microsoft Defender false positive (`Validation-Defender-Error` / "Installer
+  failed security check"), see the `winget-defender-fp` skill.
 - Social posts are optional — skip them for a routine correctness/packaging release; draft
   them only for a notable feature. When drafting, write the `.txt` files one directory up
   from the ryl clone (where drafts live) but run any post-length/status check from **inside
