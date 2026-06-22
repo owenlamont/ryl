@@ -116,17 +116,6 @@ hooks = [
     pass_filenames = false
   },
   {
-    # Online link check; needs `lychee` on PATH (see AGENTS.md global tools). The glob
-    # reaches lychee literally (prek execs argv, no shell) and lychee expands it, so it
-    # works the same on PowerShell and Bash.
-    id = "lychee",
-    name = "lychee (link check)",
-    language = "system",
-    entry = "lychee --include-fragments --no-progress docs README.md AGENTS.md .agents/skills/*/SKILL.md",
-    always_run = true,
-    pass_filenames = false
-  },
-  {
     # Comment-to-code ratio gate; needs `tokei` + `uv` on PATH (see AGENTS.md global
     # tools). Scoped to src .rs so it runs only when Rust source changes, but reads the
     # whole src tree (`pass_filenames = false`).
@@ -135,6 +124,30 @@ hooks = [
     language = "system",
     entry = "uv run scripts/source_size.py src --max-comment-ratio 0.10 --top 0",
     files = '^src/.*\.rs$',
+    pass_filenames = false
+  }
+]
+
+[[repos]]
+repo = "https://github.com/owenlamont/lychee-pre-commit"
+rev = "v0.24.2"
+hooks = [
+  {
+    # Online link check via the lychee-pre-commit mirror: a language: python hook that
+    # installs the prebuilt lychee-bin wheel, so no `lychee` on PATH is needed and it runs
+    # the same on Windows, macOS, and Linux. `entry` is fixed to `lychee` by the hook, so
+    # the args below replace its default `--no-progress`. The glob reaches lychee literally
+    # (prek execs argv, no shell) and lychee expands it.
+    id = "lychee",
+    args = [
+      "--include-fragments",
+      "--no-progress",
+      "docs",
+      "README.md",
+      "AGENTS.md",
+      ".agents/skills/*/SKILL.md"
+    ],
+    always_run = true,
     pass_filenames = false
   }
 ]

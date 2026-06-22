@@ -163,15 +163,15 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, `lychee`, and
+- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and
   `tokei` should be installed as global tools (if they don't appear to be installed,
   raise that with the user). `cargo-audit` backs the `cargo audit --deny warnings`
-  prek hook; install it with `cargo install cargo-audit --locked`. `lychee` backs the
-  `lychee` prek hook (an online link check of docs anchors, relative links, and
-  external URLs, run locally and in CI); install it with `pixi global install lychee`.
-  CI installs it from a pinned, SHA256-verified release binary via
-  `.github/actions/install-lychee` (bump the version and SHA there together when
-  updating). `tokei` backs the `comment-ratio` prek hook (the `scripts/source_size.py`
+  prek hook; install it with `cargo install cargo-audit --locked`. The `lychee` prek
+  hook (an online link check of docs anchors, relative links, and external URLs, run
+  locally and in CI) comes from the `owenlamont/lychee-pre-commit` mirror — a
+  `language: python` hook that installs the prebuilt `lychee-bin` wheel — so no separate
+  `lychee` install is needed on any platform; bump it via the hook `rev` in `prek.toml`.
+  `tokei` backs the `comment-ratio` prek hook (the `scripts/source_size.py`
   comment-to-code gate); install it with `pixi global install tokei`. CI installs a
   pinned tokei via `prefix-dev/setup-pixi` in `ci.yml` (bump the version there when
   updating).
