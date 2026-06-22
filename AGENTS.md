@@ -316,6 +316,13 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## CLI Behavior
 
+- `ryl check <inputs>` (the lint subcommand, #369) and bare `ryl <inputs>` lint
+  identically: `LintArgs` (`clap::Args`) is flattened both at the top level and under
+  `Commands::Check`, and the dispatch routes `check` through the subcommand's own
+  `ArgMatches` so the repeatable `--format`/`--output-file` `indices_of` recovery reads
+  the right scope. `check` is the recommended form; bare is being phased out
+  (warn-then-remove, later siblings of the #238 lint/format split). Meta-actions
+  (`--migrate-*`, `--print-*-config-schema`, `--generate-completions`) stay top-level.
 - Accepts one or more inputs: files, directories, or `-` to read from stdin.
 - Directories: recursively scanned, honoring git ignore and git exclude; does not
   follow symlinks. Each file's source kind is resolved from the `[files]` globs
