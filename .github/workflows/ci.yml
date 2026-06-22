@@ -45,10 +45,6 @@ jobs:
         with:
           tool: cargo-audit
 
-      # Needed by the prek `lychee` hook (link check) in the step below.
-      - name: Install lychee
-        uses: ./.github/actions/install-lychee
-
       # Needed by the prek `comment-ratio` hook (source_size.py gate). tokei has no
       # prebuilt release binary and is not in taiki-e/install-action, so install the
       # same conda-forge build run locally via pixi; bump the pin alongside AGENTS.md.
