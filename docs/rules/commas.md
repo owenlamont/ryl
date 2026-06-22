@@ -41,7 +41,7 @@ list: [10, 20, 30, {x: 1, y: 2}]
 list: [10, 20 ,30,   {x: 1,   y: 2}]
 ```
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
 ```yaml
 list: [10, 20, 30, {x: 1, y: 2}]
@@ -49,7 +49,7 @@ list: [10, 20, 30, {x: 1, y: 2}]
 
 ## Automatic fixing
 
-`ryl --fix` normalises whitespace around commas to satisfy the configured
+`ryl check --fix` normalises whitespace around commas to satisfy the configured
 limits. Disable with:
 
 ```toml

@@ -87,10 +87,10 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     (candidates, explicit_files)
 }
 
-fn cli_overrides(cli: &Cli) -> Overrides {
+fn cli_overrides(args: &LintArgs) -> Overrides {
     Overrides {
-        config_file: cli.config_file.clone(),
-        config_data: cli.config_data.as_ref().map(|raw| {
+        config_file: args.config_file.clone(),
+        config_data: args.config_data.as_ref().map(|raw| {
             if !raw.is_empty() && !raw.contains(':') {
                 format!("extends: {raw}")
             } else {
@@ -102,13 +102,13 @@ fn cli_overrides(cli: &Cli) -> Overrides {
 
 fn build_global_cfg(
     inputs: &[PathBuf],
-    cli: &Cli,
+    args: &LintArgs,
 ) -> Result<Option<ConfigContext>, String> {
-    if cli.config_data.is_some()
-        || cli.config_file.is_some()
+    if args.config_data.is_some()
+        || args.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
     {
-        discover_config(inputs, &cli_overrides(cli)).map(Some)
+        discover_config(inputs, &cli_overrides(args)).map(Some)
     } else {
         Ok(None)
     }
@@ -126,12 +126,12 @@ fn build_global_cfg(
 fn run_output_config(
     global_cfg: Option<&ConfigContext>,
     inputs: &[PathBuf],
-    cli: &Cli,
+    args: &LintArgs,
 ) -> Result<Option<OutputTable>, String> {
     if let Some(ctx) = global_cfg {
         return Ok(ctx.config.output().cloned());
     }
-    Ok(discover_config(inputs, &cli_overrides(cli))?
+    Ok(discover_config(inputs, &cli_overrides(args))?
         .config
         .output()
         .cloned())
@@ -239,44 +239,14 @@ enum CliFormat {
         .args(["migrate_configs", "migrate_user_config"])
         .multiple(true))
 )]
-// `server` is the only subcommand; bare `ryl <paths>` still lints, so lint args and the
-// subcommand are mutually exclusive.
-#[cfg_attr(feature = "lsp", command(args_conflicts_with_subcommands = true))]
+// `check` and (with `lsp`) `server` are subcommands; bare `ryl <paths>` still lints via the
+// flattened top-level lint args, so those are mutually exclusive with any subcommand.
+#[command(args_conflicts_with_subcommands = true)]
 // These are independent toggles, not state better modeled as an enum.
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
-    /// One or more paths: files and/or directories, or `-` to read from stdin
-    #[arg(value_name = "PATH_OR_FILE")]
-    inputs: Vec<PathBuf>,
-
-    /// Filename used for diagnostics, config discovery, and yaml-files matching when reading stdin
-    #[arg(long = "stdin-filename", value_name = "FILE")]
-    stdin_filename: Option<PathBuf>,
-
-    /// Path to configuration file (YAML or TOML)
-    #[arg(short = 'c', long = "config-file", value_name = "FILE")]
-    config_file: Option<PathBuf>,
-
-    /// Inline configuration data (yaml)
-    #[arg(short = 'd', long = "config-data", value_name = "YAML")]
-    config_data: Option<String>,
-
-    /// Output format (auto, standard, colored, github, parsable, junit, gitlab). Repeatable:
-    /// each `--format` may be followed by an `--output-file` to send that format to a file,
-    /// so console and report artifacts can be produced together.
-    #[arg(short = 'f', long = "format", value_enum)]
-    format: Vec<CliFormat>,
-
-    /// Destination for the preceding `--format` (a path, or `-` for stdout). Repeatable;
-    /// each binds to the most recent `--format`. Default stream otherwise: stderr for the
-    /// console formats, stdout for junit/gitlab.
-    #[arg(
-        short = 'o',
-        long = "output-file",
-        value_name = "FILE",
-        conflicts_with = "diff"
-    )]
-    output_file: Vec<PathBuf>,
+    #[command(flatten)]
+    lint_args: LintArgs,
 
     // These print-and-exit meta-actions are `exclusive` so combining them with a lint/fix
     // request is a usage error. `--migrate-configs` is not exclusive: it combines with its
@@ -315,23 +285,62 @@ struct Cli {
     generate_completions: Option<clap_complete::Shell>,
 
     #[command(flatten)]
-    lint: LintFlags,
-
-    #[command(flatten)]
     migrate: MigrateFlags,
 
-    #[cfg(feature = "lsp")]
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
-/// Subcommands; none (bare `ryl <paths>`) lints. The bare token `server` resolves to this
-/// subcommand, so lint a path of that name as `ryl ./server` or `ryl server/`.
-#[cfg(feature = "lsp")]
+/// Subcommands; none (bare `ryl <paths>`) lints, like `check`. The bare token `check`/`server`
+/// resolves to the subcommand, so lint a path of that name as `ryl ./check` or `ryl check/`.
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
+    /// Lint YAML inputs (the explicit form of bare `ryl <paths>`)
+    Check(LintArgs),
     /// Run the language server (LSP) over stdio for editor integration
+    #[cfg(feature = "lsp")]
     Server,
+}
+
+/// The lint pass arguments, flattened both at the top level (bare `ryl <paths>`) and under
+/// `ryl check`, so the two forms are byte-for-byte equivalent.
+#[derive(clap::Args, Debug, Default)]
+struct LintArgs {
+    /// One or more paths: files and/or directories, or `-` to read from stdin
+    #[arg(value_name = "PATH_OR_FILE")]
+    inputs: Vec<PathBuf>,
+
+    /// Filename used for diagnostics, config discovery, and yaml-files matching when reading stdin
+    #[arg(long = "stdin-filename", value_name = "FILE")]
+    stdin_filename: Option<PathBuf>,
+
+    /// Path to configuration file (YAML or TOML)
+    #[arg(short = 'c', long = "config-file", value_name = "FILE")]
+    config_file: Option<PathBuf>,
+
+    /// Inline configuration data (yaml)
+    #[arg(short = 'd', long = "config-data", value_name = "YAML")]
+    config_data: Option<String>,
+
+    /// Output format (auto, standard, colored, github, parsable, junit, gitlab). Repeatable:
+    /// each `--format` may be followed by an `--output-file` to send that format to a file,
+    /// so console and report artifacts can be produced together.
+    #[arg(short = 'f', long = "format", value_enum)]
+    format: Vec<CliFormat>,
+
+    /// Destination for the preceding `--format` (a path, or `-` for stdout). Repeatable;
+    /// each binds to the most recent `--format`. Default stream otherwise: stderr for the
+    /// console formats, stdout for junit/gitlab.
+    #[arg(
+        short = 'o',
+        long = "output-file",
+        value_name = "FILE",
+        conflicts_with = "diff"
+    )]
+    output_file: Vec<PathBuf>,
+
+    #[command(flatten)]
+    lint: LintFlags,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -470,7 +479,7 @@ fn default_destination(format: OutputFormat) -> Destination {
 /// the same `--format`.
 fn resolve_cli_targets(
     matches: &ArgMatches,
-    cli: &Cli,
+    args: &LintArgs,
 ) -> Result<Vec<OutputTarget>, String> {
     enum Occurrence {
         Format(OutputFormat),
@@ -478,13 +487,13 @@ fn resolve_cli_targets(
     }
     let mut occurrences: Vec<(usize, Occurrence)> = Vec::new();
     if let Some(indices) = matches.indices_of("format") {
-        for (index, format) in indices.zip(&cli.format) {
+        for (index, format) in indices.zip(&args.format) {
             occurrences
                 .push((index, Occurrence::Format(detect_output_format(*format))));
         }
     }
     if let Some(indices) = matches.indices_of("output_file") {
-        for (index, path) in indices.zip(&cli.output_file) {
+        for (index, path) in indices.zip(&args.output_file) {
             occurrences.push((index, Occurrence::Output(path.clone())));
         }
     }
@@ -530,10 +539,10 @@ fn resolve_cli_targets(
 /// Propagates a `--format`/`--output-file` pairing error from [`resolve_cli_targets`].
 fn resolve_targets(
     matches: &ArgMatches,
-    cli: &Cli,
+    args: &LintArgs,
     config_output: Option<&OutputTable>,
 ) -> Result<Vec<OutputTarget>, String> {
-    let cli_targets = resolve_cli_targets(matches, cli)?;
+    let cli_targets = resolve_cli_targets(matches, args)?;
     if !cli_targets.is_empty() {
         return Ok(cli_targets);
     }
@@ -960,9 +969,18 @@ fn main() -> ExitCode {
 }
 
 fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
-    #[cfg(feature = "lsp")]
-    if matches!(cli.command, Some(Commands::Server)) {
-        return Ok(ryl::lsp::run());
+    match &cli.command {
+        #[cfg(feature = "lsp")]
+        Some(Commands::Server) => return Ok(ryl::lsp::run()),
+        // `ryl check`: lint via the subcommand's own args/matches (the `--format`/`--output-file`
+        // indices `resolve_cli_targets` reads live in this nested `ArgMatches`, not the root's).
+        Some(Commands::Check(args)) => {
+            let sub = matches
+                .subcommand_matches("check")
+                .expect("check subcommand matches present");
+            return run_lint(args, sub);
+        }
+        None => {}
     }
 
     // A meta-action that ignores every other input/flag, like the schema-print flags below.
@@ -992,42 +1010,42 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
 
     // Output targets are resolved inside `run_lint`/`run_stdin_lint`, where the run's config
     // (and thus a TOML `[output]` fallback) is known; `matches` carries the arg indices.
-    run_lint(cli, matches)
+    run_lint(&cli.lint_args, matches)
 }
 
-fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
+fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     let stdin_input = Path::new("-");
-    let has_stdin = cli.inputs.iter().any(|p| p.as_path() == stdin_input);
+    let has_stdin = args.inputs.iter().any(|p| p.as_path() == stdin_input);
     if has_stdin {
-        if cli.inputs.len() > 1 {
+        if args.inputs.len() > 1 {
             return Err(
                 "error: `-` (stdin) cannot be combined with other inputs".to_string()
             );
         }
-        if cli.lint.fix.fix {
+        if args.lint.fix.fix {
             return Err(
                 "error: `--fix` is not supported when reading from stdin".to_string()
             );
         }
-        return run_stdin_lint(cli, matches);
+        return run_stdin_lint(args, matches);
     }
 
-    if cli.stdin_filename.is_some() {
+    if args.stdin_filename.is_some() {
         return Err(
             "error: `--stdin-filename` only applies when reading from stdin (`-`)"
                 .to_string(),
         );
     }
 
-    if cli.inputs.is_empty() {
+    if args.inputs.is_empty() {
         return Err(
             "error: expected one or more paths (files and/or directories), or `-` for stdin"
                 .to_string(),
         );
     }
 
-    let mut global_cfg = build_global_cfg(&cli.inputs, cli)?;
-    if cli.lint.markdown
+    let mut global_cfg = build_global_cfg(&args.inputs, args)?;
+    if args.lint.markdown
         && let Some(ctx) = global_cfg.as_mut()
     {
         // Enable markdown once here so per-file clones inherit the built matcher.
@@ -1038,7 +1056,7 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
             eprintln!("{}", sanitize_control(notice));
         }
     }
-    let inputs = &cli.inputs;
+    let inputs = &args.inputs;
 
     let (candidates, explicit_files) = gather_inputs(inputs);
 
@@ -1049,13 +1067,13 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         &candidates,
         &explicit_files,
         global_cfg.as_ref(),
-        cli.lint.markdown,
+        args.lint.markdown,
         &mut cache,
         &mut emitted_notices,
         &mut files,
     )?;
 
-    if cli.lint.compatibility.list_files {
+    if args.lint.compatibility.list_files {
         for (path, ..) in &files {
             println!("{}", sanitize_control(&path.display().to_string()));
         }
@@ -1065,13 +1083,13 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     // `--diff` has its own unified-diff output, so skip config `[output]`: a config report
     // target must not block it. An explicit CLI `--format junit|gitlab` still conflicts via
     // the CLI-derived targets `validate_targets` reads regardless.
-    let output_config = if cli.lint.fix.diff {
+    let output_config = if args.lint.fix.diff {
         None
     } else {
-        run_output_config(global_cfg.as_ref(), &cli.inputs, cli)?
+        run_output_config(global_cfg.as_ref(), &args.inputs, args)?
     };
-    let targets = resolve_targets(matches, cli, output_config.as_ref())?;
-    validate_targets(&targets, cli.lint.fix.diff)?;
+    let targets = resolve_targets(matches, args, output_config.as_ref())?;
+    validate_targets(&targets, args.lint.fix.diff)?;
     let targets = &targets;
 
     reject_input_collisions(targets, files.iter().map(|(path, ..)| path.as_path()))?;
@@ -1087,11 +1105,11 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Err(no_rules_error(config_found));
     }
 
-    if cli.lint.fix.diff {
+    if args.lint.fix.diff {
         return Ok(emit_diff(&diff_safe_fixes_for_files(&files)?));
     }
 
-    lint_and_exit(&files, cli, targets)
+    lint_and_exit(&files, args, targets)
 }
 
 /// Open destinations before `--fix` mutates anything (so an unopenable `--output-file` fails
@@ -1102,23 +1120,23 @@ fn run_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
 /// Returns an error if a file cannot be read/written or an output destination fails.
 fn lint_and_exit(
     files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
-    cli: &Cli,
+    args: &LintArgs,
     targets: &[OutputTarget],
 ) -> Result<ExitCode, String> {
     let mut sinks = open_targets(targets)?;
 
-    let initial_problem_count = if cli.lint.fix.fix {
-        apply_fixes_reporting_skips(files, cli.lint.compatibility.no_warnings)?
+    let initial_problem_count = if args.lint.fix.fix {
+        apply_fixes_reporting_skips(files, args.lint.compatibility.no_warnings)?
     } else {
         0
     };
 
     let results = lint_files(files);
     let (summary, records) =
-        collect_records(files, results, cli.lint.compatibility.no_warnings);
+        collect_records(files, results, args.lint.compatibility.no_warnings);
     write_targets(targets, &mut sinks, &records)?;
 
-    if cli.lint.fix.fix && initial_problem_count > 0 {
+    if args.lint.fix.fix && initial_problem_count > 0 {
         eprintln!(
             "Found {} {} ({} fixed, {} remaining).",
             initial_problem_count,
@@ -1128,7 +1146,7 @@ fn lint_and_exit(
         );
     }
 
-    Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
+    Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
 }
 
 /// Apply safe fixes in place and report any files skipped (they do not parse), returning the
@@ -1172,22 +1190,24 @@ fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
     );
 }
 
-fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
-    let (path, base_dir, cfg, apply_yaml_files, config_found) = resolve_stdin_ctx(cli)?;
+fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
+    let (path, base_dir, cfg, apply_yaml_files, config_found) =
+        resolve_stdin_ctx(args)?;
 
     // As in `run_lint`, `--diff` skips config `[output]` so a config report can't block it.
-    let config_output = if cli.lint.fix.diff {
+    let config_output = if args.lint.fix.diff {
         None
     } else {
         cfg.output()
     };
-    let targets = resolve_targets(matches, cli, config_output)?;
-    validate_targets(&targets, cli.lint.fix.diff)?;
+    let targets = resolve_targets(matches, args, config_output)?;
+    validate_targets(&targets, args.lint.fix.diff)?;
     let targets = &targets;
 
     reject_input_collisions(targets, std::iter::once(path.as_path()))?;
 
-    let Some(kind) = resolve_stdin_kind(cli, &cfg, &path, &base_dir, apply_yaml_files)?
+    let Some(kind) =
+        resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?
     else {
         // An ignored stdin filename is an empty input set: still emit a valid empty
         // report per target so CI artifact ingestion does not see a missing file.
@@ -1195,7 +1215,7 @@ fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     };
 
-    if cli.lint.compatibility.list_files {
+    if args.lint.compatibility.list_files {
         println!("{}", sanitize_control(&path.display().to_string()));
         return Ok(ExitCode::SUCCESS);
     }
@@ -1204,7 +1224,7 @@ fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Err(no_rules_error(config_found));
     }
 
-    if cli.lint.fix.diff {
+    if args.lint.fix.diff {
         return run_stdin_diff(&path, &base_dir, &cfg, kind);
     }
 
@@ -1215,16 +1235,16 @@ fn run_stdin_lint(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
 
     let mut sinks = open_targets(targets)?;
     let (summary, records) =
-        collect_records(&files, results, cli.lint.compatibility.no_warnings);
+        collect_records(&files, results, args.lint.compatibility.no_warnings);
     write_targets(targets, &mut sinks, &records)?;
-    Ok(summary_to_exit(&summary, cli.lint.compatibility.strict))
+    Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
 }
 
 /// Resolve the source kind for stdin, or `None` to skip an ignored `--stdin-filename`.
 /// `--markdown` forces Markdown; with `--stdin-filename` the kind comes from `[files]` globs
 /// (no match is an error); without one the input is YAML.
 fn resolve_stdin_kind(
-    cli: &Cli,
+    args: &LintArgs,
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
@@ -1233,7 +1253,7 @@ fn resolve_stdin_kind(
     if apply_yaml_files && cfg.is_file_ignored(path, base_dir) {
         return Ok(None);
     }
-    if cli.lint.markdown {
+    if args.lint.markdown {
         return Ok(Some(SourceKind::Markdown));
     }
     if !apply_yaml_files {
@@ -1317,9 +1337,9 @@ fn emit_diff(stats: &DiffStats) -> ExitCode {
 }
 
 fn resolve_stdin_ctx(
-    cli: &Cli,
+    args: &LintArgs,
 ) -> Result<(PathBuf, PathBuf, YamlLintConfig, bool, bool), String> {
-    let (path, apply_yaml_files) = match cli.stdin_filename.clone() {
+    let (path, apply_yaml_files) = match args.stdin_filename.clone() {
         Some(name) => (name, true),
         None => (PathBuf::from(STDIN_LABEL), false),
     };
@@ -1328,12 +1348,12 @@ fn resolve_stdin_ctx(
     } else {
         PathBuf::from(".")
     };
-    let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(cli))?;
+    let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
     for notice in &ctx.notices {
         eprintln!("{}", sanitize_control(notice.as_str()));
     }
     let mut cfg = ctx.config;
-    if cli.lint.markdown {
+    if args.lint.markdown {
         cfg.enable_default_markdown(&ctx.base_dir);
     }
     if !apply_yaml_files {

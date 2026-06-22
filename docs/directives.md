@@ -100,7 +100,7 @@ Syntax errors are always reported; no directive can suppress them.
 ## Interaction with `--fix`
 
 `--fix` honours directives too: a fixer never rewrites a line whose rule is
-disabled. Running `ryl --fix` over the block above leaves `a:   1` and `b:   2`
+disabled. Running `ryl check --fix` over the block above leaves `a:   1` and `b:   2`
 untouched while still fixing `c:   3`.
 
 ## Embedded Markdown

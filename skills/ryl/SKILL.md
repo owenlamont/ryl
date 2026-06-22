@@ -27,7 +27,7 @@ fully-ignored input set still exits `0`). This is stricter than yamllint. Always
 a config first:
 
 ```bash
-ryl -d 'extends: default' .          # quick: yamllint's standard rule set
+ryl check -d 'extends: default' .          # quick: yamllint's standard rule set
 ```
 
 Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
@@ -43,8 +43,8 @@ new-line-at-end-of-file = "enable"
 ## Run and branch on exit codes
 
 ```bash
-ryl <path|file ...>     # files and/or directories; `ryl .` recurses, honouring .gitignore
-ryl --list-files .      # preview which files would be linted, then exit
+ryl check <path|file ...>    # files and/or directories; `ryl check .` recurses, honouring .gitignore
+ryl check --list-files .      # preview which files would be linted, then exit
 ```
 
 Exit codes from a plain lint run (`--fix`/`--diff` differ, see below):
@@ -73,7 +73,7 @@ Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only er
 produced together:
 
 ```bash
-ryl --format github --format gitlab -o code-quality.json .
+ryl check --format github --format gitlab -o code-quality.json .
 ```
 
 ## Configuration: YAML vs TOML

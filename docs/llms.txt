@@ -6,7 +6,7 @@
 
 - [Installation](https://ryl-docs.pages.dev/getting-started/installation/): ryl ships as a single binary. Pick the install method that matches your toolchain.
 - [Shell completions](https://ryl-docs.pages.dev/getting-started/shell-completions/): ryl can generate tab-completion scripts for its flags. `ryl --generate-completions <SHELL>` prints the script for one shell to stdout, where `<SHELL>` is one of `bash`, `zsh`, `fish`, `powershell`, or `elvish`:
-- [Quick Start](https://ryl-docs.pages.dev/getting-started/quickstart/): Point ryl at a file or directory:
+- [Quick Start](https://ryl-docs.pages.dev/getting-started/quickstart/): ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated `ryl format` formatter is coming). `ryl check <paths>` is the recommended form and is used throughout these docs. Bare `ryl <paths>` still lints identically today, but it is being phased out — a future release will warn on it and a later one will remove it, so adopt `ryl check` now.
 - [Using ryl with AI agents](https://ryl-docs.pages.dev/using-ryl-with-ai-agents/): ryl is built for programmatic use (stable exit codes, machine-readable output, `--fix`/`--diff`, stdin), so AI coding agents can drive it directly. This page points to the agent-facing resources; the rest of these docs (start with Quick start) cover the CLI itself.
 - [Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/): ryl is designed as a drop-in replacement for yamllint's existing rule set. If you are coming from yamllint you have two paths:
 

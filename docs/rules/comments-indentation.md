@@ -61,7 +61,7 @@ options:
     - more stuff
 ```
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
 ```yaml
 parent:
@@ -71,7 +71,7 @@ parent:
 
 ## Automatic fixing
 
-`ryl --fix` reindents standalone comment lines to match the line that
+`ryl check --fix` reindents standalone comment lines to match the line that
 follows them. Disable with:
 
 ```toml

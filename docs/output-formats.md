@@ -65,7 +65,7 @@ file.
 
 ### Configuring outputs in TOML
 
-The same outputs can be set once in a project's TOML config under `[output]`, so `ryl .`
+The same outputs can be set once in a project's TOML config under `[output]`, so `ryl check .`
 in CI produces the artifacts without repeating the flags. Each format is a sub-table; an
 absent `path` uses that format's default stream, `path = "-"` is stdout, and any other
 value is a file:
@@ -80,7 +80,7 @@ path = "gl-code-quality-report.json"
 
 `[output]` is ryl-only and TOML-only (it is rejected in a YAML config). It is read once
 from the configuration governing the run: the `-c`/`-d` config, or the project config
-discovered for the inputs (so a project's `.ryl.toml` applies to `ryl .`). A CLI
+discovered for the inputs (so a project's `.ryl.toml` applies to `ryl check .`). A CLI
 `--format` overrides the entire `[output]` table, so the command line always wins over the
 config. The same unambiguous-output rules above apply to a config that declares several
 targets.

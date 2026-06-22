@@ -23,7 +23,7 @@ it. The skill is the canonical, tightened agent reference; this page only links 
 If a repo has an `AGENTS.md` (or `CLAUDE.md`), a one-line nudge helps agents reach for
 ryl and avoid its main gotcha:
 
-> Lint YAML with `ryl`. It has no default-on rules, so make sure a config (`ryl.toml`
+> Lint YAML with `ryl check`. It has no default-on rules, so make sure a config (`ryl.toml`
 > or a yamllint-style `.yamllint`) enables rules first, or it exits `2`.
 
 ## Feeding the docs to an LLM

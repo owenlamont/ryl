@@ -30,7 +30,7 @@ icon: lucide/braces
     ---
 
     Apply safe automatic fixes for spacing, line endings, quoting, and more
-    with `ryl --fix`.
+    with `ryl check --fix`.
 
     [:octicons-arrow-right-24: Configuration](config-presets.md)
 
@@ -64,8 +64,8 @@ pixi global install ryl
 winget install owenlamont.ryl
 
 # Lint a file or directory
-ryl path/to/file.yaml
-ryl .
+ryl check path/to/file.yaml
+ryl check .
 ```
 
 ## YAML version compatibility

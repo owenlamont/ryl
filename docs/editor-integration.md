@@ -27,7 +27,7 @@ hover only explains ryl's own diagnostics.
 The fix-all action and formatting both apply ryl's whole-file safe fixes; ryl has no
 per-occurrence "fix just this one" action, because its fix engine operates per file (the
 per-rule fix-all is the finest grain available, and applies only to YAML, not Markdown). A
-document that does not parse is never modified (the same guarantee as `ryl --fix`).
+document that does not parse is never modified (the same guarantee as `ryl check --fix`).
 
 ## Running it
 
@@ -56,8 +56,8 @@ documents:
 | Setting | Effect |
 | --- | --- |
 | `enable` (bool, default `true`) | `false` turns ryl off: no diagnostics, no actions |
-| `configPath` (string) | Use this config file instead of discovering one (like `ryl -c`) |
-| `configData` (string) | Inline YAML config text, highest precedence (like `ryl -d`) |
+| `configPath` (string) | Use this config file instead of discovering one (like `ryl check -c`) |
+| `configData` (string) | Inline YAML config text, highest precedence (like `ryl check -d`) |
 
 These are the same precedence as the CLI: `configData` > `configPath` > the discovered
 project/user config.

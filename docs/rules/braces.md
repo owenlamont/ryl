@@ -55,7 +55,7 @@ object: {key1: 4, key2: 8}
 
 ## Automatic fixing
 
-`ryl --fix` adjusts whitespace inside braces to satisfy the configured
+`ryl check --fix` adjusts whitespace inside braces to satisfy the configured
 `min-spaces-inside` / `max-spaces-inside` bounds. The `forbid` constraint
 is not auto-fixed because converting flow to block style requires
 re-flowing the surrounding document.
