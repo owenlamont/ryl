@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# Retry transient crates.io fetches across the cargo build/publish steps so a
+# network blip does not fail the release run.
+env:
+  CARGO_NET_RETRY: "10"
+
 jobs:
   version-check:
     runs-on: ubuntu-latest
@@ -127,7 +132,18 @@ jobs:
         target: [x86_64, aarch64, armv7, i686, ppc64le, s390x]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      # QEMU-emulated manylinux builds flake transiently; retry once before failing.
       - name: Build manylinux wheels
+        id: build
+        continue-on-error: true
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: auto
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Build manylinux wheels (retry)
+        if: steps.build.outcome == 'failure'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
         with:
           target: ${{ matrix.target }}
@@ -161,10 +177,17 @@ jobs:
       - name: Install wheel and run CLI
         run: |-
           set -euxo pipefail
-          uv python install ${{ matrix.python }}
-          uv venv -p ${{ matrix.python }} .venv
-          uv pip install -p .venv --no-index --find-links dist ryl
-          uv run -p .venv ryl --version
+          for attempt in 1 2 3; do
+            if uv python install ${{ matrix.python }} \
+              && uv venv --clear -p ${{ matrix.python }} .venv \
+              && uv pip install -p .venv --no-index --find-links dist ryl \
+              && uv run -p .venv ryl --version; then
+              exit 0
+            fi
+            echo "Smoke attempt ${attempt} failed; retrying" >&2
+            if [ "${attempt}" -lt 3 ]; then sleep 10; fi
+          done
+          exit 1
 
   musllinux:
     needs: [version-check]
@@ -174,7 +197,18 @@ jobs:
         target: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      # QEMU-emulated musllinux builds flake transiently; retry once before failing.
       - name: Build musllinux wheels
+        id: build
+        continue-on-error: true
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: musllinux_1_2
+          sccache: ${{ github.event_name != 'release' }}
+      - name: Build musllinux wheels (retry)
+        if: steps.build.outcome == 'failure'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
         with:
           target: ${{ matrix.target }}
@@ -204,8 +238,15 @@ jobs:
       - name: Install wheel and run CLI in Alpine
         run: |-
           set -euxo pipefail
-          docker run --rm -v "$PWD/dist":/dist python:${{ matrix.python_image }} \
-            sh -euxc "python --version; python -m pip install --no-index --find-links /dist ryl; ryl --version"
+          for attempt in 1 2 3; do
+            if docker run --rm -v "$PWD/dist":/dist python:${{ matrix.python_image }} \
+              sh -euxc "python --version; python -m pip install --no-index --find-links /dist ryl; ryl --version"; then
+              exit 0
+            fi
+            echo "Smoke attempt ${attempt} failed; retrying" >&2
+            if [ "${attempt}" -lt 3 ]; then sleep 10; fi
+          done
+          exit 1
 
   windows:
     needs: [version-check]
@@ -249,10 +290,17 @@ jobs:
         shell: bash
         run: |-
           set -euxo pipefail
-          uv python install ${{ matrix.python }}
-          uv venv -p ${{ matrix.python }} .venv
-          uv pip install -p .venv --no-index --find-links dist ryl
-          uv run -p .venv ryl --version
+          for attempt in 1 2 3; do
+            if uv python install ${{ matrix.python }} \
+              && uv venv --clear -p ${{ matrix.python }} .venv \
+              && uv pip install -p .venv --no-index --find-links dist ryl \
+              && uv run -p .venv ryl --version; then
+              exit 0
+            fi
+            echo "Smoke attempt ${attempt} failed; retrying" >&2
+            if [ "${attempt}" -lt 3 ]; then sleep 10; fi
+          done
+          exit 1
 
   macos:
     needs: [version-check]
@@ -298,10 +346,17 @@ jobs:
       - name: Install wheel and run CLI
         run: |-
           set -euxo pipefail
-          uv python install ${{ matrix.python }}
-          uv venv -p ${{ matrix.python }} .venv
-          uv pip install -p .venv --no-index --find-links dist ryl
-          uv run -p .venv ryl --version
+          for attempt in 1 2 3; do
+            if uv python install ${{ matrix.python }} \
+              && uv venv --clear -p ${{ matrix.python }} .venv \
+              && uv pip install -p .venv --no-index --find-links dist ryl \
+              && uv run -p .venv ryl --version; then
+              exit 0
+            fi
+            echo "Smoke attempt ${attempt} failed; retrying" >&2
+            if [ "${attempt}" -lt 3 ]; then sleep 10; fi
+          done
+          exit 1
 
   sdist:
     needs: [version-check]
@@ -362,6 +417,13 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      # Pre-install a prebuilt cross so upload-rust-binary-action reuses it instead of
+      # running `cargo install cross`, whose crates.io fetch is a transient-failure point.
+      - name: Install cross
+        if: startsWith(matrix.runner, 'ubuntu')
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912
+        with:
+          tool: cross
       - name: Build binaries for ${{ matrix.target }}
         uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6
         with:
