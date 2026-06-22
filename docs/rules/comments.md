@@ -46,7 +46,7 @@ key: value  # inline comment with two spaces of padding
 key: value # only one space before inline comment
 ```
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
 ```yaml
 # missing space after the hash
@@ -55,7 +55,7 @@ key: value  # only one space before inline comment
 
 ## Automatic fixing
 
-`ryl --fix` inserts the missing space after `#` and pads inline comments
+`ryl check --fix` inserts the missing space after `#` and pads inline comments
 to the configured `min-spaces-from-content`. Disable with:
 
 ```toml

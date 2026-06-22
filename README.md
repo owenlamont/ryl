@@ -29,12 +29,17 @@ ryl enables no rules by default, so it needs a configuration that turns rules on
 for a project, drop a `.ryl.toml` at the root (see
 [Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
 
+`ryl check` is the lint subcommand (a `ryl format` formatter is coming) and the
+recommended form. Bare `ryl <paths>` still lints identically today but is being
+phased out (a future release will deprecate it, then a later one will remove it), so
+prefer `ryl check`.
+
 ```bash
 # Using uv (Python)
-uvx ryl -d 'extends: default' .
+uvx ryl check -d 'extends: default' .
 
 # Using npx (Node.js)
-npx @owenlamont/ryl -d 'extends: default' .
+npx @owenlamont/ryl check -d 'extends: default' .
 ```
 
 For `prek` / `pre-commit` integration, see

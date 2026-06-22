@@ -48,7 +48,7 @@ this: is the only document
 this: is the only document
 ```
 
-### :wrench: After `ryl --fix` (with `present: true`)
+### :wrench: After `ryl check --fix` (with `present: true`)
 
 ```yaml
 ---
@@ -58,7 +58,7 @@ this: is the only document
 
 ## Automatic fixing
 
-`ryl --fix` appends a `...` end marker when `present: true` and the
+`ryl check --fix` appends a `...` end marker when `present: true` and the
 document does not already have one. The fix is **partial** by design:
 it only runs when the buffer is a single document. A buffer is treated
 as single-document when, after skipping leading blank lines, comments,

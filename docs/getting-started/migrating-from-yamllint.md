@@ -11,6 +11,13 @@ If you are coming from yamllint you have two paths:
   [`[fix]` table](#optional-configure-auto-fixes) controlling auto-fix
   selection.
 
+On the command line the mapping is mechanical: replace `yamllint` with `ryl
+check`, keeping every flag and path the same. `ryl check` accepts the same lint
+flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
+`yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
+Bare `ryl <paths>` also lints today but is being phased out in favour of `ryl
+check`.
+
 ## Automatic migration
 
 ryl ships with a built-in converter. From the root of your project:
@@ -88,7 +95,7 @@ since its rule config cannot be relocated safely. Project migration keeps a
 relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
 directory.
 
-After migration, run `ryl .` to confirm diagnostics match what yamllint
+After migration, run `ryl check .` to confirm diagnostics match what yamllint
 produced.
 
 ## What is preserved
@@ -197,9 +204,9 @@ option flags welded colons so you can forbid the construct outright.
 ### De-duplicated inputs
 
 When a single run names the same file more than once &mdash; listed twice, or reached
-by both a directory argument and an explicit path (`ryl . file.yaml`) &mdash; ryl
+by both a directory argument and an explicit path (`ryl check . file.yaml`) &mdash; ryl
 processes it **once**. yamllint handles each occurrence, so it would report that
-file's diagnostics (or, under `ryl --diff`, emit its patch) twice.
+file's diagnostics (or, under `ryl check --diff`, emit its patch) twice.
 
 **Why ryl differs:** duplicate output is never useful, and it is actively harmful for
 `--diff`, whose output is meant to be applied as a patch &mdash; a repeated patch
@@ -230,9 +237,9 @@ faithfully anyway (and whose `new-lines` `type` has no `mac` value). ryl follows
 specification and its [reference parser](https://play.yaml.com), which rank above
 yamllint as the authority.
 
-Two editing-path caveats on such files. First, `ryl --diff` skips a file whose
+Two editing-path caveats on such files. First, `ryl check --diff` skips a file whose
 content *ends* in a bare `\r` (a unified diff is `\n`-terminated by format, so that
-one case has no applicable patch &mdash; use `ryl --fix`, which rewrites bytes
+one case has no applicable patch &mdash; use `ryl check --fix`, which rewrites bytes
 directly); a bare `\r` elsewhere is diffed as line content and applies via
 `git apply`. Second, **Markdown embedding** requires a Markdown file with no bare `\r` anywhere:
 the fenced-block and front-matter parser
@@ -441,7 +448,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
 
 ## Optional: configure auto-fixes
 
-TOML configurations can declare which rules are eligible for `ryl --fix`:
+TOML configurations can declare which rules are eligible for `ryl check --fix`:
 
 ```toml
 [fix]

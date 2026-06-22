@@ -54,7 +54,7 @@ object: [1, 2, abc]
 
 ## Automatic fixing
 
-`ryl --fix` adjusts whitespace inside brackets to satisfy the configured
+`ryl check --fix` adjusts whitespace inside brackets to satisfy the configured
 bounds. The `forbid` constraint is not auto-fixed because converting flow
 sequences to block style requires re-flowing the document.
 

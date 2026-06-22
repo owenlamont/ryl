@@ -12,7 +12,7 @@ top.
 
 When two tools both rewrite files they can disagree. A setting in one can undo a fix from
 the other, and running them in a loop (for example in a pre-commit hook) makes them fight:
-the formatter changes a byte, `ryl --fix` changes it back, the formatter changes it again.
+the formatter changes a byte, `ryl check --fix` changes it back, the formatter changes it again.
 This page lists the ryl settings that matter for each formatter and gives a verified,
 conflict-free starting config for each.
 
@@ -34,8 +34,8 @@ There are exactly two ways the two tools can disagree:
   loop, but ryl warns on every run until you align the setting or turn the rule off.
 
 Everything below is about steering clear of both. The configs were checked by running
-`formatter` then `ryl --fix` repeatedly until the file settled, and confirming the
-settled file passes `ryl` with no findings. They were verified against the latest release
+`formatter` then `ryl check --fix` repeatedly until the file settled, and confirming the
+settled file passes `ryl check` with no findings. They were verified against the latest release
 of each formatter as of 2026-06-20: **yamlfmt 0.21.0**, **Prettier 3.8.4**, and
 **yamlfix 1.19.1**.
 
@@ -54,10 +54,10 @@ actually cause a loop or a standing complaint.
 
 !!! note "Check mode vs fix mode"
 
-    A few alignments rely on `ryl --fix` applying a one-time fix that the formatter then
+    A few alignments rely on `ryl check --fix` applying a one-time fix that the formatter then
     keeps (for example ryl adding `---` where the formatter preserves it). If you run ryl
-    in lint-only mode (`ryl` with no `--fix`, common in CI) rather than fix mode, prefer
-    the settings marked as needing no fix below, or run `ryl --fix` once before the check.
+    in lint-only mode (`ryl check` with no `--fix`, common in CI) rather than fix mode, prefer
+    the settings marked as needing no fix below, or run `ryl check --fix` once before the check.
 
 ## google/yamlfmt
 
@@ -170,7 +170,7 @@ Notes:
 - `document-start` is left off here. Prettier never adds or removes `---`, and ryl's
   document-start fix can add markers but not strip them, so `present = false` would
   permanently flag any file that already has a `---`. To enforce consistent markers
-  instead, set `present = true` and run `ryl --fix` (ryl adds `---`, Prettier keeps it).
+  instead, set `present = true` and run `ryl check --fix` (ryl adds `---`, Prettier keeps it).
 - The flow-padding split is the key alignment: `braces` must allow one inner space, while
   `brackets` must allow none. Prettier pads a non-empty mapping (`{ a: 1 }`) but keeps an
   empty one tight (`{}`), so the recipe also sets `min-spaces-inside-empty = 0` /
@@ -190,7 +190,7 @@ inline comments (the same as ryl's default), does not pad flow collections, inde
 two spaces, and canonicalizes block-style truthy values (`yes` becomes `true`), so the
 `truthy` rule stays clean for ordinary mappings and sequences (with one caveat noted
 below). It removes the `...` document-end marker. On Windows it writes CRLF only on files
-it actually rewrites and leaves unchanged files alone, so with `ryl --fix` it settles back
+it actually rewrites and leaves unchanged files alone, so with `ryl check --fix` it settles back
 to LF rather than fighting it (see
 [Line endings across operating systems](#line-endings-across-operating-systems)). Its
 settings are documented in the
@@ -263,7 +263,7 @@ formatter (the recipes above already do):
 | `new-lines` `type` | `unix` † | `unix` | `unix` † |
 
 † On Windows, yamlfmt forces CRLF on every write (pin its `line_ending: lf`), while
-yamlfix emits CRLF only on files it rewrites and settles back to LF under `ryl --fix`; see
+yamlfix emits CRLF only on files it rewrites and settles back to LF under `ryl check --fix`; see
 [Line endings across operating systems](#line-endings-across-operating-systems).
 
 Two of these point in opposite directions across formatters, which is why there is no
@@ -282,9 +282,9 @@ the three formatters behave differently:
   [`line_ending: lf`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
   in `.yamlfmt` and the recipe's `type = "unix"` holds on every OS.
 - **yamlfix** writes CRLF only on files it actually rewrites (it reads line endings
-  agnostically and skips unchanged files), so once `ryl --fix` normalizes a file to LF
+  agnostically and skips unchanged files), so once `ryl check --fix` normalizes a file to LF
   yamlfix leaves it alone. The two converge to LF on Windows with no loop, so
-  `type = "unix"` needs no change; just keep `ryl --fix` running after yamlfix. As
+  `type = "unix"` needs no change; just keep `ryl check --fix` running after yamlfix. As
   belt-and-braces you can also pin the committed form with a `.gitattributes` entry such
   as `*.yaml text eol=lf`.
 - **Prettier** writes LF on every OS (its `endOfLine` defaults to `lf`), so no change is

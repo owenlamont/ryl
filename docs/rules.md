@@ -108,7 +108,7 @@ To switch rules off for part of a file with `# ryl disable` /
 The `--fix` flag applies safe fixes for rules marked with :wrench: above:
 
 ```bash
-ryl --fix .
+ryl check --fix .
 ```
 
 Control which rules apply fixes with a `[fix]` table:

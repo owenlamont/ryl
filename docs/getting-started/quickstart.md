@@ -1,15 +1,23 @@
 # Quick start
 
+## The `ryl check` subcommand
+
+ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated
+`ryl format` formatter is coming). `ryl check <paths>` is the recommended form and
+is used throughout these docs. Bare `ryl <paths>` still lints identically today, but
+it is being phased out — a future release will warn on it and a later one will remove
+it, so adopt `ryl check` now.
+
 ## Run a lint
 
 Point ryl at a file or directory:
 
 ```bash
 # Lint a single file
-ryl path/to/file.yaml
+ryl check path/to/file.yaml
 
 # Lint a project (recursively scans .yml/.yaml, honouring .gitignore)
-ryl .
+ryl check .
 ```
 
 ryl does not enable any rules by default, so these commands report `no
@@ -17,7 +25,7 @@ configuration found` (exit `2`) until a configuration enables at least one rule.
 To lint with yamllint's standard rule set straight away, pass it inline:
 
 ```bash
-ryl -d 'extends: default' .
+ryl check -d 'extends: default' .
 ```
 
 or drop a config in your project (see [Configure for your
@@ -29,11 +37,11 @@ Pass `-` as the input to read YAML from standard input &mdash; useful for
 editor integrations where the buffer is not yet on disk:
 
 ```bash
-cat file.yaml | ryl -
+cat file.yaml | ryl check -
 
 # Provide a filename so diagnostics, config discovery, and
 # yaml-files / per-file-ignores match the right path:
-cat file.yaml | ryl - --stdin-filename path/to/file.yaml
+cat file.yaml | ryl check - --stdin-filename path/to/file.yaml
 ```
 
 Without `--stdin-filename`, diagnostics are labelled `<stdin>`, config
@@ -70,7 +78,7 @@ is found and silently accepts a rule-less config. Give ryl a config containing
 ryl can automatically fix a subset of rules:
 
 ```bash
-ryl --fix .
+ryl check --fix .
 ```
 
 See the [Rules reference](../rules.md) for which rules are fixable.
@@ -88,7 +96,7 @@ prints a unified diff (3 lines of context) of what would change to
 stdout &mdash; modelled on `ruff check --diff`:
 
 ```bash
-ryl --diff .
+ryl check --diff .
 ```
 
 This is handy for CI previews, PR review, and parallel-safe runners such

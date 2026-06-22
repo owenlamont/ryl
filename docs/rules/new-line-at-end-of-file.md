@@ -38,13 +38,13 @@ key: value
 A file whose final byte is not a newline character. (Trailing *blank* lines
 are not this rule's concern; see [`empty-lines`](empty-lines.md).)
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
 ryl appends a single newline when the file does not already end with one.
 
 ## Automatic fixing
 
-`ryl --fix` appends a trailing newline when one is missing. Disable with:
+`ryl check --fix` appends a trailing newline when one is missing. Disable with:
 
 ```toml
 [fix]

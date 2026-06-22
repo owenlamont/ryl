@@ -45,7 +45,7 @@ title: example
 title: example
 ```
 
-### :wrench: After `ryl --fix` (with `present: true`)
+### :wrench: After `ryl check --fix` (with `present: true`)
 
 ```yaml
 ---
@@ -54,7 +54,7 @@ title: example
 
 ## Automatic fixing
 
-`ryl --fix` prepends a `---` start marker when `present: true` and the
+`ryl check --fix` prepends a `---` start marker when `present: true` and the
 document does not already have one. The fix is **partial** by design:
 it only runs when
 

@@ -43,7 +43,7 @@ name: "plain"   # redundantly quoted: a plain string needs no quotes
 version: '1.0'  # needs quoting, but single-quoted where double is required
 ```
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
 ```yaml
 name: plain
@@ -76,7 +76,7 @@ check-keys = false
 
 ## Automatic fixing
 
-`ryl --fix` rewrites string scalars to use the configured `quote-type` and
+`ryl check --fix` rewrites string scalars to use the configured `quote-type` and
 adds or removes quotes to satisfy `required`. The fix is conservative: it
 only changes scalars where the corrected form parses to the same value as
 the original.

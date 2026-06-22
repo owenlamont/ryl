@@ -38,9 +38,9 @@ A file whose every line ends with `\n`.
 
 A file whose lines end with `\r\n`.
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
-`ryl --fix` rewrites the file so every line ends with the configured
+`ryl check --fix` rewrites the file so every line ends with the configured
 character sequence.
 
 ## Bare carriage returns
@@ -48,7 +48,7 @@ character sequence.
 A bare `\r` (a carriage return not part of `\r\n`) is a YAML 1.2 line break, so
 ryl treats it as a line ending here too. It is never one of the configurable
 styles (`unix`/`dos`/`platform`), so when the file's first line break is a bare
-`\r` the rule reports it as wrong and `ryl --fix` rewrites it to the configured
+`\r` the rule reports it as wrong and `ryl check --fix` rewrites it to the configured
 ending. This is a deliberate divergence from yamllint, whose line layer cannot
 see a bare `\r` and whose `type` has no `mac` value; on supported LF/CRLF files
 the behaviour is identical. See
@@ -56,7 +56,7 @@ the behaviour is identical. See
 
 ## Automatic fixing
 
-`ryl --fix` rewrites all line endings to match `type`. Disable with:
+`ryl check --fix` rewrites all line endings to match `type`. Disable with:
 
 ```toml
 [fix]

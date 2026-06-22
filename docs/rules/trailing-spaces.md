@@ -41,7 +41,7 @@ key: value···
 
 (Where `···` represents trailing whitespace characters.)
 
-### :wrench: After `ryl --fix`
+### :wrench: After `ryl check --fix`
 
 ```yaml
 ---
@@ -50,7 +50,7 @@ key: value
 
 ## Automatic fixing
 
-`ryl --fix` strips trailing spaces and tabs from each line. The fix is
+`ryl check --fix` strips trailing spaces and tabs from each line. The fix is
 **partial** by design: lines inside literal/folded block scalars
 (`|`/`>`) and inside multi-line double-quoted scalars are left untouched,
 because in those contexts trailing whitespace can be part of the parsed

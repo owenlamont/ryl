@@ -71,9 +71,9 @@ Or, for a one-off run without editing config, pass `--markdown`, which enables t
 `markdown` kind with those default globs:
 
 ```sh
-ryl --markdown docs/        # scan a tree for *.md/*.markdown/*.qmd/*.Rmd/*.mdx
-ryl --markdown report.qmd   # a single Quarto document
-cat SKILL.md | ryl --markdown -   # from stdin (e.g. an editor / pre-commit)
+ryl check --markdown docs/        # scan a tree for *.md/*.markdown/*.qmd/*.Rmd/*.mdx
+ryl check --markdown report.qmd   # a single Quarto document
+cat SKILL.md | ryl check --markdown -   # from stdin (e.g. an editor / pre-commit)
 ```
 
 This lints the YAML front matter and fenced `yaml`/`yml` blocks in Quarto (`.qmd`),
@@ -84,7 +84,7 @@ extracted.
 
 In practice Quarto and RMarkdown keep their YAML almost entirely in **front matter**
 (their code chunks are ` ```{r} `/` ```{python} `, not ` ```yaml `), so linting them
-mostly exercises the front-matter path. For example, `ryl --markdown report.qmd`
+mostly exercises the front-matter path. For example, `ryl check --markdown report.qmd`
 checks the leading block of:
 
 ````qmd
@@ -100,7 +100,7 @@ format:
 
 and reports the extra space after `toc:` at its real line and column inside the
 `.qmd` file. The same applies to **agent skill files**: a `SKILL.md` is YAML front
-matter (`name`, `description`) plus prose, so `ryl --markdown SKILL.md` (or a
+matter (`name`, `description`) plus prose, so `ryl check --markdown SKILL.md` (or a
 `markdown = ["**/SKILL.md"]` glob) lints that block.
 
 ## How rules apply
@@ -141,7 +141,7 @@ build:
 ```
 ````
 
-With `colons` enabled, `ryl docs.md` reports the extra space after `title:` on
+With `colons` enabled, `ryl check docs.md` reports the extra space after `title:` on
 line 2 and any spacing problems inside the fenced block on its actual line —
 columns include the block's indentation.
 
@@ -178,7 +178,7 @@ also be turned on for a single run from the command line:
   globs for an overlapping file (so the flag never aborts a run whose `yaml` globs
   happen to match a Markdown extension). When linting stdin, `--markdown` forces the
   input to be treated as Markdown regardless of `--stdin-filename`.
-- Reading from stdin otherwise honours the source kind: `ryl - --stdin-filename
+- Reading from stdin otherwise honours the source kind: `ryl check - --stdin-filename
   doc.md` lints the piped bytes as Markdown when `doc.md` matches the `markdown`
   globs (front matter and fenced blocks are extracted exactly as for a file on
   disk). Without `--stdin-filename` and without `--markdown`, stdin is linted as
@@ -190,7 +190,7 @@ also be turned on for a single run from the command line:
 `ryl` is published as a pre-commit hook at
 [ryl-pre-commit](https://github.com/owenlamont/ryl-pre-commit). The default `ryl`
 hook only sees YAML files. To also lint YAML embedded in Markdown, add the
-dedicated `ryl-markdown` hook — it runs `ryl --markdown`, so it needs **no**
+dedicated `ryl-markdown` hook — it runs `ryl check --markdown`, so it needs **no**
 `[files]` config:
 
 ```yaml
