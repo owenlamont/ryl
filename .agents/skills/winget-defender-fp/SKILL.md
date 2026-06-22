@@ -69,9 +69,10 @@ shadow-DOM heavy, so reading a verdict via DOM scraping needs shadow-root traver
 - **Both VT (Microsoft = Undetected) and local Defender clean** → the verdict has aged out
   / is environment-specific. **Do not file a WDSI submission** (Microsoft would likely
   reject it as "not detected"). Reply to `Needs-Author-Feedback` with the evidence —
-  the Defender **signature build** tested, VT links, "Microsoft: Undetected" — and
-  request a re-run (`@wingetbot run`, or ask the assigned moderator; the bot also
-  auto-retries ~every 18h).
+  the Defender **signature build** tested, VT links, "Microsoft: Undetected" — and ask
+  the assigned/active moderator to re-run validation (`@wingetbot run` is
+  moderator-triggered — an author/maintainer comment does not reliably start a run; the
+  bot also auto-retries ~every 18h).
   *(0.20.0 / `microsoft/winget-pkgs#391230`.)*
 - **Still reproducibly flagged** (local Defender and/or VT's Microsoft engine) → file a
   WDSI false-positive submission, then wait for propagation + re-run.
