@@ -11,7 +11,7 @@
 //! mapping/sequence event. No safe `--fix`: removing a merge requires inlining the
 //! merged mapping's resolved values (see AGENTS.md "Rules Without A Safe `--fix`").
 //!
-//! Sources: YAML 1.2.2 changes page; yaml.org/type/merge.html.
+//! Sources: YAML 1.2.2 changes page; YAML merge type.
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
