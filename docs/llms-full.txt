@@ -2525,7 +2525,7 @@ default**.
 
 A block scalar header may end with a chomping indicator that fixes how the
 scalar's *trailing* line breaks are handled (YAML 1.2.2
-[§8.1.1.2](https://yaml.org/spec/1.2.2/#8112-block-chomping-indicator)):
+[§8.1.1.2](https://spec.yaml.io/main/spec/1.2.2/#8112-block-chomping-indicator)):
 
 - `-` &mdash; **strip**: remove every trailing line break.
 - `+` &mdash; **keep**: keep every trailing line break.
