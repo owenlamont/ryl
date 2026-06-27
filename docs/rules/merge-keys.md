@@ -22,7 +22,7 @@ its text (`!!merge foo:` merges in the same loaders that honour `<<`). It is
 
 ## Why this matters
 
-The merge key is a YAML **1.1** type (`yaml.org/type/merge.html`). YAML **1.2**
+The merge key is a YAML **1.1** type. YAML **1.2**
 removed it: "The merge `<<` and value `=` special mapping keys have been removed"
 (YAML 1.2.2 changes page). ryl resolves scalars under the YAML 1.2 core schema,
 where `<<` is an ordinary string key with no special meaning.
@@ -38,7 +38,7 @@ never merges in any parser (verified against PyYAML and ruamel.yaml), so it is n
 a portability hazard. Note that quoting is therefore not a way to *keep* a merge —
 it removes the merge behaviour entirely.
 
-Sources: YAML 1.2.2 changes page; YAML merge type (`yaml.org/type/merge.html`).
+Sources: YAML 1.2.2 changes page; YAML merge type.
 
 ## Configuration
 
