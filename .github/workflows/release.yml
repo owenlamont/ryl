@@ -421,7 +421,7 @@ jobs:
       # running `cargo install cross`, whose crates.io fetch is a transient-failure point.
       - name: Install cross
         if: startsWith(matrix.runner, 'ubuntu')
-        uses: taiki-e/install-action@b8cecb83565409bcc297b2df6e77f030b2a468d5
+        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d
         with:
           tool: cross
       - name: Build binaries for ${{ matrix.target }}
@@ -474,7 +474,7 @@ jobs:
           merge-multiple: true
           path: release-assets
       - name: Generate release asset attestation
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
         with:
           subject-path: 'release-assets/*'
       # Publish one authoritative SHA256SUMS covering every per-target archive so
@@ -659,7 +659,7 @@ jobs:
           echo "Unexpected PyPI response (${http_status}) for ${PACKAGE_NAME} ${PACKAGE_VERSION}." >&2
           exit 1
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
         with:
           subject-path: 'dist/*'
       - name: Publish to PyPI (Trusted Publishing)
