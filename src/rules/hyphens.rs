@@ -161,21 +161,20 @@ fn collect_dash_on_own_line(buffer: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
     let mut dash_line: Option<usize> = None;
 
-    for token in Scanner::new(StrInput::new(buffer)) {
-        match token.1 {
+    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
+        let (span, token_type) = token.into_parts();
+        match token_type {
             TokenType::BlockEntry => {
                 let (line, _) =
-                    line_and_column(&line_starts, CharPos::new(token.0.start.index()));
+                    line_and_column(&line_starts, CharPos::new(span.start.index()));
                 dash_line = Some(line);
             }
             // Node properties decorate the entry's value without ending the dash.
             TokenType::Anchor(_) | TokenType::Tag(..) | TokenType::Comment(_) => {}
             TokenType::BlockMappingStart => {
                 if let Some(dash) = dash_line.take() {
-                    let (line, column) = line_and_column(
-                        &line_starts,
-                        CharPos::new(token.0.start.index()),
-                    );
+                    let (line, column) =
+                        line_and_column(&line_starts, CharPos::new(span.start.index()));
                     if line == dash {
                         violations.push(Violation {
                             line,

@@ -47,11 +47,6 @@ pub fn marker_byte_offset(marker: Marker) -> BytePos {
     )
 }
 
-#[must_use]
-pub fn byte_slice(buffer: &str, range: Range<BytePos>) -> &str {
-    &buffer[range.start.0..range.end.0]
-}
-
 /// The scalar range containing char index `idx`, if any, advancing `cursor` past
 /// ranges ending at or before it. Flow-rule scanners use this to skip scalar
 /// interiors; `cursor` persists across calls for one left-to-right scan.

@@ -9,22 +9,30 @@ use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{buffer_newline, line_contents};
-use crate::rules::support::span_utils::{byte_slice, marker_byte_offset};
+use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
 pub const FORBIDDEN_MESSAGE: &str = "found forbidden document end \"...\"";
 
-#[must_use]
-pub fn classify_document_end_marker_bytes(bytes: &[u8]) -> Option<&'static str> {
-    let trimmed = trim_ascii(bytes);
-    if trimmed == b"..." {
-        Some("...")
-    } else if trimmed == b"---" {
-        Some("---")
-    } else {
-        None
-    }
+/// The line of the next document's `---` when one opens at `offset`. granit points a
+/// zero-width document end either at the marker or at the break before it, so the skip
+/// is also what makes `line` the marker's rather than the point's. An explicit `...`
+/// always arrives spanned, so only `---` reaches here. Content must be separated from
+/// the marker (YAML 1.2.2 rule 203), so `--- foo` opens a document but `---foo` is a
+/// plain scalar.
+fn next_document_marker_line(
+    source: &str,
+    offset: BytePos,
+    line: usize,
+) -> Option<usize> {
+    let rest = source.get(offset.get()..).unwrap_or_default();
+    let marker = rest.trim_start_matches([' ', '\t', '\r', '\n']);
+    let opens_document = marker.strip_prefix("---").is_some_and(|tail| {
+        tail.is_empty() || tail.starts_with([' ', '\t', '\r', '\n'])
+    });
+    let skipped = rest.len() - marker.len();
+    opens_document.then(|| line + rest[..skipped].matches('\n').count())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,7 +69,11 @@ pub struct Violation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Marker {
     ExplicitEnd,
-    DocumentStart,
+    /// Carries the marker's own line, which is not the event's where granit points the
+    /// zero-width end at the break before the marker.
+    DocumentStart {
+        line: usize,
+    },
     Other,
 }
 
@@ -152,10 +164,10 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
             Marker::ExplicitEnd => {
                 self.pending_stream_end_violation = false;
             }
-            Marker::DocumentStart => {
+            Marker::DocumentStart { line } => {
                 self.pending_stream_end_violation = false;
                 self.violations.push(Violation {
-                    line: span.start.line(),
+                    line,
                     column: 1,
                     message: MISSING_MESSAGE.to_string(),
                 });
@@ -183,18 +195,13 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
 
     fn marker(&self, span: Span) -> Marker {
         let start = marker_byte_offset(span.start);
-        let end = marker_byte_offset(span.end);
-        let slice = if start < end {
-            byte_slice(self.source, start..end).as_bytes()
-        } else {
-            &[]
-        };
-
-        match classify_document_end_marker_bytes(slice) {
-            Some("...") => Marker::ExplicitEnd,
-            Some("---") => Marker::DocumentStart,
-            _ => Marker::Other,
+        // granit spans the explicit `...` and nothing else, reporting an implicit end
+        // as a zero-width point that carries no marker text to inspect.
+        if start < marker_byte_offset(span.end) {
+            return Marker::ExplicitEnd;
         }
+        next_document_marker_line(self.source, start, span.start.line())
+            .map_or(Marker::Other, |line| Marker::DocumentStart { line })
     }
 }
 
@@ -206,18 +213,4 @@ impl SpannedEventReceiver<'_> for DocumentEndReceiver<'_, '_> {
             _ => {}
         }
     }
-}
-
-fn trim_ascii(bytes: &[u8]) -> &[u8] {
-    let mut start = 0usize;
-    let mut end = bytes.len();
-
-    while start < end && bytes[start].is_ascii_whitespace() {
-        start += 1;
-    }
-    while start < end && bytes[end - 1].is_ascii_whitespace() {
-        end -= 1;
-    }
-
-    &bytes[start..end]
 }

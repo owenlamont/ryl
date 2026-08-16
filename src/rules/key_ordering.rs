@@ -150,7 +150,7 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(),
+            Event::DocumentStart(..) => self.state.document_start(),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
@@ -160,7 +160,7 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
                     .handle_scalar(value.as_ref(), span, &mut self.violations);
             }
             Event::Alias(_) => self.state.skip_node(),
-            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
+            _ => {}
         }
     }
 }

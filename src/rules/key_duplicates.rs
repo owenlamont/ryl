@@ -283,7 +283,7 @@ impl<'cfg> KeyDuplicatesReceiver<'cfg> {
 impl SpannedEventReceiver<'_> for KeyDuplicatesReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
-            Event::StreamStart | Event::DocumentStart(_) | Event::DocumentEnd => {
+            Event::StreamStart | Event::DocumentStart(..) | Event::DocumentEnd => {
                 self.state.reset();
             }
             Event::SequenceStart(_, anchor_id, ref tag) => {
@@ -304,7 +304,7 @@ impl SpannedEventReceiver<'_> for KeyDuplicatesReceiver<'_> {
                 );
             }
             Event::Alias(anchor_id) => self.state.handle_alias(anchor_id),
-            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
+            _ => {}
         }
     }
 }

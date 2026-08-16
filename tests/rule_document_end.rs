@@ -1,7 +1,4 @@
-use ryl::rules::document_end::{
-    self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAGE,
-    classify_document_end_marker_bytes,
-};
+use ryl::rules::document_end::{self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAGE};
 
 #[test]
 fn detects_end_marker_after_multibyte_comment() {
@@ -114,16 +111,4 @@ fn marker_with_inline_comment_is_allowed() {
         hits.is_empty(),
         "marker followed by comment should satisfy requirement: {hits:?}"
     );
-}
-
-#[test]
-fn classify_marker_bytes_trims_whitespace() {
-    assert_eq!(classify_document_end_marker_bytes(b"  ...   "), Some("..."));
-    assert_eq!(classify_document_end_marker_bytes(b"\t---\r"), Some("---"));
-}
-
-#[test]
-fn classify_marker_bytes_rejects_comments_and_empty() {
-    assert!(classify_document_end_marker_bytes(b"... # done").is_none());
-    assert!(classify_document_end_marker_bytes(b"").is_none());
 }
