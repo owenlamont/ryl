@@ -5,7 +5,7 @@
 
 use std::sync::LazyLock;
 
-use granit_parser::{Scanner, StrInput, Token, TokenType};
+use granit_parser::{Scanner, StrInput, TokenType};
 use regex::Regex;
 
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
@@ -29,7 +29,8 @@ fn collect_directives(buffer: &str) -> Vec<Directive> {
     // The scanner reports a `%YAML` only where it is a real directive (not block-scalar
     // or plain-scalar text that happens to start with `%YAML`); it stops at the first
     // lexical error, after which no further directive can be reached anyway.
-    while let Ok(Some(Token(span, token_type))) = scanner.next_token() {
+    while let Some(Ok(token)) = scanner.next() {
+        let (span, token_type) = token.into_parts();
         if let TokenType::VersionDirective(major, minor) = token_type {
             directives.push(Directive {
                 offset: marker_byte_offset(span.start),

@@ -106,9 +106,9 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let mut doc = DocState::new();
     let mut violations = Vec::new();
 
-    for token in Scanner::new(StrInput::new(buffer)) {
-        let span = token.0;
-        match token.1 {
+    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
+        let (span, token_type) = token.into_parts();
+        match token_type {
             TokenType::DocumentStart | TokenType::DocumentEnd => {
                 finish_doc(&doc, *cfg, &mut violations);
                 doc = DocState::new();

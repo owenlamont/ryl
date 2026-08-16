@@ -231,7 +231,7 @@ impl SpannedEventReceiver<'_> for EmptyValuesReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart
-            | Event::DocumentStart(_)
+            | Event::DocumentStart(..)
             | Event::StreamEnd
             | Event::DocumentEnd => {
                 self.reset();
@@ -254,17 +254,7 @@ impl SpannedEventReceiver<'_> for EmptyValuesReceiver<'_> {
             Event::Alias(_) => {
                 self.begin_node();
             }
-            Event::Comment(_, _) | Event::Nothing => {}
+            _ => {}
         }
     }
-}
-
-#[allow(dead_code)]
-pub fn coverage_touch_nothing_branch() {
-    use granit_parser::{Marker, Span};
-
-    let cfg_struct = crate::config::YamlLintConfig::default();
-    let config = Config::resolve(&cfg_struct);
-    let mut receiver = EmptyValuesReceiver::new(&config);
-    receiver.on_event(Event::Nothing, Span::empty(Marker::default()));
 }

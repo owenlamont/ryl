@@ -46,7 +46,7 @@ struct MergeKeysReceiver {
 impl SpannedEventReceiver<'_> for MergeKeysReceiver {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
-            Event::StreamStart | Event::DocumentStart(_) | Event::DocumentEnd => {
+            Event::StreamStart | Event::DocumentStart(..) | Event::DocumentEnd => {
                 self.walker.reset();
             }
             Event::MappingStart(..) => self.walker.enter_mapping((), ()),
@@ -66,7 +66,7 @@ impl SpannedEventReceiver<'_> for MergeKeysReceiver {
                 self.walker.finish_node(context);
             }
             Event::Alias(_) => self.walker.skip_node(),
-            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
+            _ => {}
         }
     }
 }

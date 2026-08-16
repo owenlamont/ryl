@@ -202,15 +202,7 @@ impl SpannedEventReceiver<'_> for InlineMappingDetector<'_> {
             }
             Event::Scalar(_, _, _, _) if self.mappings.is_empty() => {}
             Event::Scalar(_, _, _, _) => self.handle_scalar_event(span),
-            Event::SequenceStart(_, _, _)
-            | Event::SequenceEnd
-            | Event::StreamStart
-            | Event::StreamEnd
-            | Event::DocumentStart(_)
-            | Event::DocumentEnd
-            | Event::Alias(_)
-            | Event::Comment(_, _)
-            | Event::Nothing => {}
+            _ => {}
         }
     }
 }

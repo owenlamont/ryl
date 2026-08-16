@@ -217,7 +217,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(span),
+            Event::DocumentStart(..) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -236,7 +236,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
                 );
             }
             Event::Alias(_) => self.state.skip_node(),
-            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
+            _ => {}
         }
     }
 }
@@ -802,7 +802,7 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(span),
+            Event::DocumentStart(..) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -820,7 +820,7 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
                 );
             }
             Event::Alias(_) => self.state.skip_node(),
-            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
+            _ => {}
         }
     }
 }
@@ -854,7 +854,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_) => self.state.document_start(span),
+            Event::DocumentStart(..) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -872,7 +872,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
                 }
             }
             Event::Alias(_) => self.state.skip_node(),
-            Event::Comment(_, _) | Event::StreamEnd | Event::Nothing => {}
+            _ => {}
         }
     }
 }

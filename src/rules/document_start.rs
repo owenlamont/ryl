@@ -113,7 +113,7 @@ impl<'cfg> DocumentStartReceiver<'cfg> {
 
 impl SpannedEventReceiver<'_> for DocumentStartReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
-        if let Event::DocumentStart(explicit) = event {
+        if let Event::DocumentStart(explicit, _) = event {
             if self.config.requires_marker() {
                 if !explicit {
                     self.violations.push(Violation {

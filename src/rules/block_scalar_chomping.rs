@@ -36,8 +36,9 @@ pub fn check(buffer: &str) -> Vec<Violation> {
     let lines = line_contents(buffer);
     let mut violations = Vec::new();
 
-    for token in Scanner::new(StrInput::new(buffer)) {
-        let TokenType::Scalar(style, value) = token.1 else {
+    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
+        let (span, token_type) = token.into_parts();
+        let TokenType::Scalar(style, value) = token_type else {
             continue;
         };
         if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
@@ -46,8 +47,8 @@ pub fn check(buffer: &str) -> Vec<Violation> {
 
         let (header_line, header_text, marker_idx) = header_marker(
             &lines,
-            token.0.start.line(),
-            token.0.start.col(),
+            span.start.line(),
+            span.start.col(),
             value.chars().all(|ch| matches!(ch, '\n' | '\r')),
         );
         // `marker_idx` is the byte offset of the single-byte `|`/`>`; the column counts

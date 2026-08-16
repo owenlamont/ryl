@@ -23,8 +23,9 @@ struct Occurrence {
 fn occurrences(text: &str) -> Vec<Occurrence> {
     let mut occurrences = Vec::new();
     let mut document = 0usize;
-    for token in Scanner::new(StrInput::new(text)) {
-        let name = match token.1 {
+    for token in Scanner::new(StrInput::new(text)).map_while(Result::ok) {
+        let (span, token_type) = token.into_parts();
+        let name = match token_type {
             TokenType::DocumentStart | TokenType::DocumentEnd => {
                 document += 1;
                 continue;
@@ -35,7 +36,7 @@ fn occurrences(text: &str) -> Vec<Occurrence> {
         // granit's Anchor/Alias span starts at the `&`/`*` sigil (verified), hence `+ 1`.
         occurrences.push(Occurrence {
             name_len: name.chars().count(),
-            name_start: token.0.start.index() + 1,
+            name_start: span.start.index() + 1,
             name,
             document,
         });

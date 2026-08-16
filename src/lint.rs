@@ -428,13 +428,6 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
 /// find a malformed-token error the parser cannot reach, having halted on an earlier
 /// (tolerated) undefined alias.
 fn scanner_error(content: &str) -> Option<granit_parser::ScanError> {
-    let mut scanner =
-        granit_parser::Scanner::new(granit_parser::StrInput::new(content));
-    loop {
-        match scanner.next_token() {
-            Ok(Some(_)) => {}
-            Ok(None) => return None,
-            Err(err) => return Some(err),
-        }
-    }
+    granit_parser::Scanner::new(granit_parser::StrInput::new(content))
+        .find_map(Result::err)
 }

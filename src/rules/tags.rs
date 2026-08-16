@@ -70,7 +70,7 @@ impl Config {
         // The non-specific "!" tag carries no safety/portability signal. A `%TAG`
         // directive can resolve a non-empty handle onto it while leaving the suffix
         // "!", so key the exemption on the suffix, not the handle.
-        if tag.suffix == "!" {
+        if tag.suffix() == "!" {
             return None;
         }
         let core = core_schema_suffix(tag);
@@ -153,8 +153,8 @@ fn is_unsafe_suffix(suffix: &str) -> bool {
 fn unsafe_namespace<'a>(tag: &'a Tag, core: Option<&'a str>) -> Option<&'a str> {
     if let Some(core) = core {
         Some(core)
-    } else if tag.handle == "!" || tag.handle.is_empty() {
-        Some(tag.suffix.strip_prefix('!').unwrap_or(&tag.suffix))
+    } else if tag.handle() == "!" || tag.handle().is_empty() {
+        Some(tag.suffix().strip_prefix('!').unwrap_or(tag.suffix()))
     } else {
         None
     }

@@ -68,11 +68,6 @@ struct Loader {
 impl<'input> SpannedEventReceiver<'input> for Loader {
     fn on_event(&mut self, ev: Event<'input>, span: Span) {
         match ev {
-            Event::DocumentStart(_)
-            | Event::Nothing
-            | Event::StreamStart
-            | Event::StreamEnd
-            | Event::Comment(_, _) => {}
             Event::DocumentEnd => {
                 let node = self.root.take().unwrap_or(YamlOwned::BadValue);
                 self.docs.push(node);
@@ -141,6 +136,7 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
                     self.attach(node, size);
                 }
             }
+            _ => {}
         }
     }
 }

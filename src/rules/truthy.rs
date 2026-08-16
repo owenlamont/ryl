@@ -276,7 +276,7 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
                 self.state.bad_truthy = None;
                 self.state.versions.reset();
             }
-            Event::DocumentStart(_) => self.state.document_start(span),
+            Event::DocumentStart(..) => self.state.document_start(span),
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
@@ -291,10 +291,7 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
                     &mut self.diagnostics,
                 );
             }
-            Event::Comment(_, _)
-            | Event::Alias(_)
-            | Event::StreamEnd
-            | Event::Nothing => {}
+            _ => {}
         }
     }
 }

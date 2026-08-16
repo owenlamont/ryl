@@ -19,8 +19,9 @@ pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
 /// before an alias mapping key (`*foo : bar`).
 pub(crate) fn collect_alias_ends(buffer: &str) -> Vec<CharPos> {
     Scanner::new(StrInput::new(buffer))
-        .filter(|token| matches!(token.1, TokenType::Alias(_)))
-        .map(|token| CharPos::new(token.0.end.index()))
+        .map_while(Result::ok)
+        .filter(|token| matches!(token.token_type(), TokenType::Alias(_)))
+        .map(|token| CharPos::new(token.span().end.index()))
         .collect()
 }
 

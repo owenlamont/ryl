@@ -22,8 +22,8 @@ pub(crate) fn is_merge_directive(
         // anywhere (YAML 1.2.2 6.8.2.2), so `!m!erge`, verbatim
         // `!<tag:yaml.org,2002:merge>`, and `!!merge` must all resolve alike.
         Some(tag) => MERGE_TAG
-            .strip_prefix(tag.handle.as_str())
-            .is_some_and(|suffix| suffix == tag.suffix.as_str()),
+            .strip_prefix(tag.handle())
+            .is_some_and(|suffix| suffix == tag.suffix()),
         None => value == "<<" && matches!(style, ScalarStyle::Plain),
     }
 }
