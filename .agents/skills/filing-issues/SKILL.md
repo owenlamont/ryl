@@ -41,10 +41,19 @@ These go out under the maintainer's name, so they are higher-stakes:
 4. **Ship a one-command reproduction**, pinned to the dependency's **latest** version
    (so the report can't be for a bug already fixed upstream), printing
    observed-vs-expected. No repro, no report.
-5. **Include verified, clickable Sources** (a "Sources" section: spec quote /
+5. **Claiming a regression means the repro must bracket it.** Run the *same* script
+   against the last good version and the bad one, and make its exit code carry the
+   result: `0` on the earlier version, non-zero on the reported one. Proving the
+   boundary with prose while only ever running the broken version is not enough — the
+   maintainer's first move is to flip the pin, so that path has to work. Watch for API
+   introduced *by* the offending change: a diagnostic touching it dies with an
+   `AttributeError` on the older version and reports a misleading exit code, so guard it
+   (`getattr(obj, "attr", None)`) and let the script stay quiet there. A pandera repro
+   shipped with exactly that fault and had to be corrected after filing.
+6. **Include verified, clickable Sources** (a "Sources" section: spec quote /
    play.yaml.com event stream / upstream issue links) on the *first* pass — not bare
    prose mentions — to avoid a verify-then-re-push cycle on an already-published issue.
-6. **For a code PR, profile the repo and its maintainer(s) before investing.** The onus
+7. **For a code PR, profile the repo and its maintainer(s) before investing.** The onus
    is on us to research what that project is likely to accept — study its recently merged
    PRs *and* its closed-unmerged ones to read the maintainer's preferences: scope and size
    they entertain, review bar, test expectations, and house style (doc-comment density,
