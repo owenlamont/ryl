@@ -5,16 +5,20 @@
 
 use std::sync::LazyLock;
 
-use granit_parser::{Scanner, StrInput, TokenType};
+use granit_parser::{Scanner, StrInput, TokenType, YamlVersion};
 use regex::Regex;
-
-use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 pub type Version = (u32, u32);
 
+/// The `%YAML` version granit reports on `Event::DocumentStart`, which already resolves
+/// the directive to its document, so rules take it from the event rather than rescanning.
+#[must_use]
+pub const fn event_version(version: YamlVersion) -> Version {
+    (version.major, version.minor)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Directive {
-    pub offset: BytePos,
     pub line: usize,
     pub column: usize,
     pub version: Version,
@@ -33,7 +37,6 @@ fn collect_directives(buffer: &str) -> Vec<Directive> {
         let (span, token_type) = token.into_parts();
         if let TokenType::VersionDirective(major, minor) = token_type {
             directives.push(Directive {
-                offset: marker_byte_offset(span.start),
                 line: span.start.line(),
                 column: span.start.col() + 1,
                 version: (major, minor),
@@ -41,38 +44,6 @@ fn collect_directives(buffer: &str) -> Vec<Directive> {
         }
     }
     directives
-}
-
-/// The directive version in effect for each document, consumed in document order.
-#[derive(Debug)]
-pub struct DocumentVersions {
-    directives: Vec<Directive>,
-    index: usize,
-}
-
-impl DocumentVersions {
-    #[must_use]
-    pub fn parse(buffer: &str) -> Self {
-        Self {
-            directives: collect_directives(buffer),
-            index: 0,
-        }
-    }
-
-    pub const fn reset(&mut self) {
-        self.index = 0;
-    }
-
-    pub fn next_document(&mut self, doc_start: BytePos) -> Option<Version> {
-        let mut version = None;
-        while self.index < self.directives.len()
-            && self.directives[self.index].offset.get() < doc_start.get()
-        {
-            version = Some(self.directives[self.index].version);
-            self.index += 1;
-        }
-        version
-    }
 }
 
 /// Whether a scalar's quotes must be kept under the document's resolved version: only

@@ -14,7 +14,7 @@ use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
 use crate::rules::support::yaml_version::{
-    DocumentVersions, Version, keeps_quotes_under_yaml_1_1,
+    Version, event_version, keeps_quotes_under_yaml_1_1,
 };
 use crate::yaml_dom::{Scalar, is_core_schema};
 
@@ -217,7 +217,9 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(..) => self.state.document_start(span),
+            Event::DocumentStart(_, version) => {
+                self.state.document_start(version.map(event_version));
+            }
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -246,7 +248,6 @@ struct QuotedStringsState<'cfg> {
     buffer: &'cfg str,
     walker: Walker<(), bool>,
     consistent_quote_style: Option<QuoteStyle>,
-    versions: DocumentVersions,
     current_version: Option<Version>,
 }
 
@@ -257,7 +258,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
             buffer,
             walker: Walker::new(),
             consistent_quote_style: None,
-            versions: DocumentVersions::parse(buffer),
             current_version: None,
         }
     }
@@ -265,14 +265,12 @@ impl<'cfg> QuotedStringsState<'cfg> {
     fn reset_stream(&mut self) {
         self.walker.reset();
         self.consistent_quote_style = None;
-        self.versions.reset();
         self.current_version = None;
     }
 
-    fn document_start(&mut self, span: Span) {
+    fn document_start(&mut self, version: Option<Version>) {
         self.walker.reset();
-        self.current_version =
-            self.versions.next_document(marker_byte_offset(span.start));
+        self.current_version = version;
     }
 
     fn document_end(&mut self) {
@@ -802,7 +800,9 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(..) => self.state.document_start(span),
+            Event::DocumentStart(_, version) => {
+                self.state.document_start(version.map(event_version));
+            }
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -854,7 +854,9 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(..) => self.state.document_start(span),
+            Event::DocumentStart(_, version) => {
+                self.state.document_start(version.map(event_version));
+            }
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
                 self.state.enter_sequence(style == StructureStyle::Flow);
@@ -883,7 +885,6 @@ struct FixState<'cfg> {
     walker: Walker<(), bool>,
     seeded_consistent_quote_style: Option<QuoteStyle>,
     consistent_quote_style: Option<QuoteStyle>,
-    versions: DocumentVersions,
     current_version: Option<Version>,
 }
 
@@ -903,7 +904,6 @@ impl<'cfg> FixState<'cfg> {
             walker: Walker::new(),
             seeded_consistent_quote_style: consistent_quote_style,
             consistent_quote_style,
-            versions: DocumentVersions::parse(buffer),
             current_version: None,
         }
     }
@@ -911,14 +911,12 @@ impl<'cfg> FixState<'cfg> {
     fn reset_stream(&mut self) {
         self.walker.reset();
         self.consistent_quote_style = self.seeded_consistent_quote_style;
-        self.versions.reset();
         self.current_version = None;
     }
 
-    fn document_start(&mut self, span: Span) {
+    fn document_start(&mut self, version: Option<Version>) {
         self.walker.reset();
-        self.current_version =
-            self.versions.next_document(marker_byte_offset(span.start));
+        self.current_version = version;
     }
 
     fn document_end(&mut self) {
