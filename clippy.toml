@@ -1,5 +1,8 @@
-msrv = "1.96.0"
+msrv = "1.97.1"
 # lsp-types pins bitflags 1.x and pulldown-cmark uses 2.x; no published lsp-types avoids
-# 1.x, so this duplicate is unavoidable under the `lsp` feature. Whitelisting only
-# `bitflags` keeps multiple_crate_versions active for every other dependency.
-allowed-duplicate-crates = ["bitflags"]
+# 1.x, so this duplicate is unavoidable under the `lsp` feature. synstructure 0.13 pins
+# syn 2.x and reaches the graph only through the `jsonschema` dev-dependency
+# (jsonschema -> reqwest -> url -> idna -> icu_* -> zerovec -> yoke-derive), while the
+# build graph is on syn 3.x. Whitelisting only these two keeps multiple_crate_versions
+# active for every other dependency.
+allowed-duplicate-crates = ["bitflags", "syn"]
