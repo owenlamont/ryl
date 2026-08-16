@@ -968,8 +968,8 @@ jobs:
         # published alongside the release asset); the weekly update.yml workflow
         # opens a PR with that bump when a newer winget-create release ships.
         env:
-          WINGETCREATE_VERSION: v1.12.8.0
-          WINGETCREATE_SHA256: 8BD738851B524885410112678E3771B341C5C716DE60FBBECB88AB0A363ED85D
+          WINGETCREATE_VERSION: v1.12.13.0
+          WINGETCREATE_SHA256: 24042BD37915805615E6CF969AC57C6439124C3FE85823327F5F3FB24BD9FFEA
         run: |-
           $ErrorActionPreference = 'Stop'
           $url = "https://github.com/microsoft/winget-create/releases/download/${env:WINGETCREATE_VERSION}/wingetcreate.exe"
