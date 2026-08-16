@@ -8,8 +8,7 @@ use std::collections::HashSet;
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::span_utils::marker_byte_offset;
-use crate::rules::support::yaml_version::DocumentVersions;
+use crate::rules::support::yaml_version::{Version, event_version};
 
 pub const ID: &str = "truthy";
 
@@ -105,28 +104,23 @@ struct TruthyState<'cfg> {
     config: &'cfg Config,
     containers: Vec<ContainerState>,
     key_depth: usize,
-    current_version: (u32, u32),
+    current_version: Version,
     bad_truthy: Option<HashSet<String>>,
-    versions: DocumentVersions,
 }
 
 impl<'cfg> TruthyState<'cfg> {
-    const fn new(config: &'cfg Config, versions: DocumentVersions) -> Self {
+    const fn new(config: &'cfg Config) -> Self {
         Self {
             config,
             containers: Vec::new(),
             key_depth: 0,
             current_version: (1, 1),
             bad_truthy: None,
-            versions,
         }
     }
 
-    fn document_start(&mut self, span: Span) {
-        self.current_version = self
-            .versions
-            .next_document(marker_byte_offset(span.start))
-            .unwrap_or((1, 1));
+    fn document_start(&mut self, version: Option<Version>) {
+        self.current_version = version.unwrap_or((1, 1));
         self.bad_truthy = None;
         self.key_depth = 0;
         self.containers.clear();
@@ -260,9 +254,9 @@ struct TruthyReceiver<'cfg> {
 
 #[allow(clippy::missing_const_for_fn)]
 impl<'cfg> TruthyReceiver<'cfg> {
-    fn new(cfg: &'cfg Config, versions: DocumentVersions) -> Self {
+    fn new(cfg: &'cfg Config) -> Self {
         Self {
-            state: TruthyState::new(cfg, versions),
+            state: TruthyState::new(cfg),
             diagnostics: Vec::new(),
         }
     }
@@ -274,9 +268,10 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
             Event::StreamStart => {
                 self.state.current_version = (1, 1);
                 self.state.bad_truthy = None;
-                self.state.versions.reset();
             }
-            Event::DocumentStart(..) => self.state.document_start(span),
+            Event::DocumentStart(_, version) => {
+                self.state.document_start(version.map(event_version));
+            }
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
@@ -298,9 +293,8 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let versions = DocumentVersions::parse(buffer);
     let mut parser = Parser::new_from_str(buffer);
-    let mut receiver = TruthyReceiver::new(cfg, versions);
+    let mut receiver = TruthyReceiver::new(cfg);
     let _ = parser.load(&mut receiver, true);
     receiver.diagnostics
 }
