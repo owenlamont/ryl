@@ -90,6 +90,9 @@ jobs:
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
+          # The wingetcreate step edits release.yml, and GitHub rejects an App push
+          # touching .github/workflows/ without this.
+          permission-workflows: write
 
       - name: Create PR with updated deps and linters
         if: steps.check_diff.outputs.changed == 'true'
