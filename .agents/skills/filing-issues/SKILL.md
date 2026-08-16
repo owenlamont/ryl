@@ -22,21 +22,29 @@ description: >-
 
 These go out under the maintainer's name, so they are higher-stakes:
 
-1. **Draft locally first** for proof-read; do not open it directly. Ask where drafts
+1. **Check the project's issue templates first** — list
+   `.github/ISSUE_TEMPLATE/` (`gh api repos/<owner>/<repo>/contents/.github/ISSUE_TEMPLATE
+   --jq '.[].name'`) and draft against the matching one's headings, rather than inventing
+   a structure that has to be reshaped by hand at filing time. Its checkboxes are also a
+   checklist of what the maintainers expect verified: working through pandera's
+   "not already reported" box turned up a closely-related open issue that belonged in the
+   report. Tick a box only once the claim is actually true, and leave it unticked (saying
+   so) otherwise.
+2. **Draft locally first** for proof-read; do not open it directly. Ask where drafts
    live (do not hardcode a contributor's local path); the convention is a
    `<repo>-<topic>` Markdown file one directory up from the ryl clone.
-2. **Never report on an assumption.** Verify every behavioural claim by *running the
+3. **Never report on an assumption.** Verify every behavioural claim by *running the
    actual target* at the version in use — never inferred from its lineage, a sibling
    tool, its docs, the spec, or memory. (A granit issue was filed on an unverified
    assumption and had to be fully retracted.) Treat memory notes about third-party
    behaviour as hypotheses to re-verify.
-3. **Ship a one-command reproduction**, pinned to the dependency's **latest** version
+4. **Ship a one-command reproduction**, pinned to the dependency's **latest** version
    (so the report can't be for a bug already fixed upstream), printing
    observed-vs-expected. No repro, no report.
-4. **Include verified, clickable Sources** (a "Sources" section: spec quote /
+5. **Include verified, clickable Sources** (a "Sources" section: spec quote /
    play.yaml.com event stream / upstream issue links) on the *first* pass — not bare
    prose mentions — to avoid a verify-then-re-push cycle on an already-published issue.
-5. **For a code PR, profile the repo and its maintainer(s) before investing.** The onus
+6. **For a code PR, profile the repo and its maintainer(s) before investing.** The onus
    is on us to research what that project is likely to accept — study its recently merged
    PRs *and* its closed-unmerged ones to read the maintainer's preferences: scope and size
    they entertain, review bar, test expectations, and house style (doc-comment density,
