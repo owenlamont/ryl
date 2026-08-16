@@ -35,7 +35,7 @@ def fetch_json(url: str) -> object:
     parsed = urlparse(url)
     if parsed.scheme != "https":
         raise SystemExit(f"unsupported URL scheme for snapshot fetch: {url}")
-    with urlopen(url) as response:  # noqa: S310 - scheme is restricted to https above
+    with urlopen(url) as response:  # ruff: ignore[suspicious-url-open-usage] - scheme is restricted to https above
         return json.load(response)
 
 
