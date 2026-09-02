@@ -814,10 +814,16 @@ fn workspace_scan_returns_none_when_cancelled() {
 #[test]
 fn workspace_response_is_ok_or_cancelled() {
     let ok = workspace_response(RequestId::from(1), Some(Vec::new()));
-    assert!(ok.error.is_none(), "a completed scan is an ok response");
+    assert!(
+        ok.response_result.is_ok(),
+        "a completed scan is an ok response"
+    );
     let cancelled = workspace_response(RequestId::from(2), None);
     assert_eq!(
-        cancelled.error.expect("a cancelled scan is an error").code,
+        cancelled
+            .response_result
+            .expect_err("a cancelled scan is an error")
+            .code,
         ErrorCode::RequestCanceled as i32,
         "cancellation maps to the RequestCancelled code"
     );

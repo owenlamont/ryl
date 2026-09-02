@@ -74,7 +74,7 @@ fn assert_no_diagnostics_push(notifications: &[Notification]) {
 /// caches result ids, so the report is always full).
 fn pull_items(response: Response) -> Vec<Diagnostic> {
     let report: DocumentDiagnosticReport =
-        serde_json::from_value(response.result.expect("diagnostic result"))
+        serde_json::from_value(response.response_result.expect("diagnostic result"))
             .expect("DocumentDiagnosticReport");
     let DocumentDiagnosticReport::Full(report) = report else {
         panic!("expected a full report");
@@ -188,8 +188,10 @@ impl Client {
         let id = this.request("initialize", params);
         let response = this.response(&id);
         this.notify("initialized", serde_json::json!({}));
-        let init = serde_json::from_value(response.result.expect("initialize result"))
-            .expect("InitializeResult");
+        let init = serde_json::from_value(
+            response.response_result.expect("initialize result"),
+        )
+        .expect("InitializeResult");
         (this, init)
     }
 
@@ -395,7 +397,7 @@ impl Client {
         let response = self.response(&id);
         // lsp-server's `initialize_finish` blocks until the client confirms.
         self.notify("initialized", serde_json::json!({}));
-        serde_json::from_value(response.result.expect("initialize result"))
+        serde_json::from_value(response.response_result.expect("initialize result"))
             .expect("InitializeResult")
     }
 
@@ -458,7 +460,7 @@ impl Client {
         };
         let id = self.request("textDocument/codeAction", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("code action result"))
+        serde_json::from_value(response.response_result.expect("code action result"))
             .expect("response")
     }
 
@@ -470,7 +472,7 @@ impl Client {
         };
         let id = self.request("textDocument/formatting", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("formatting result"))
+        serde_json::from_value(response.response_result.expect("formatting result"))
             .expect("response")
     }
 
@@ -492,7 +494,7 @@ impl Client {
         };
         let id = self.request("textDocument/codeAction", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("code action result"))
+        serde_json::from_value(response.response_result.expect("code action result"))
             .expect("response")
     }
 
@@ -503,7 +505,7 @@ impl Client {
         });
         let id = self.request("textDocument/hover", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("hover result"))
+        serde_json::from_value(response.response_result.expect("hover result"))
             .expect("Option<Hover>")
     }
 
@@ -519,7 +521,7 @@ impl Client {
         });
         let id = self.request("textDocument/prepareRename", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("prepareRename result"))
+        serde_json::from_value(response.response_result.expect("prepareRename result"))
             .expect("Option<PrepareRenameResponse>")
     }
 
@@ -544,7 +546,7 @@ impl Client {
         let params = json!({ "textDocument": { "uri": uri } });
         let id = self.request("textDocument/diagnostic", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("diagnostic result"))
+        serde_json::from_value(response.response_result.expect("diagnostic result"))
             .expect("DocumentDiagnosticReport")
     }
 
@@ -552,8 +554,12 @@ impl Client {
         let params = json!({ "previousResultIds": [] });
         let id = self.request("workspace/diagnostic", params);
         let response = self.response(&id);
-        serde_json::from_value(response.result.expect("workspace diagnostic result"))
-            .expect("WorkspaceDiagnosticReport")
+        serde_json::from_value(
+            response
+                .response_result
+                .expect("workspace diagnostic result"),
+        )
+        .expect("WorkspaceDiagnosticReport")
     }
 
     /// Send an incremental (ranged) change replacing `range` with `text`.
@@ -588,7 +594,7 @@ impl Client {
         let id = self.request(UNHANDLED_METHOD, Value::Null);
         let response = self.response(&id);
         assert!(
-            response.error.is_some(),
+            response.response_result.is_err(),
             "unknown request yields an error response"
         );
     }
@@ -596,7 +602,7 @@ impl Client {
     fn shutdown(&mut self) {
         let id = self.request("shutdown", Value::Null);
         let response = self.response(&id);
-        assert!(response.error.is_none(), "shutdown succeeds");
+        assert!(response.response_result.is_ok(), "shutdown succeeds");
         self.notify("exit", Value::Null);
     }
 }
@@ -763,7 +769,10 @@ fn pull_capable_client_receives_no_clear_on_close() {
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (notifications, response) = client.notifications_until_response(&id);
     assert_no_diagnostics_push(&notifications);
-    assert!(response.error.is_some(), "the probe is still answered");
+    assert!(
+        response.response_result.is_err(),
+        "the probe is still answered"
+    );
 }
 
 // A pull client's diagnostics are gated off, so after a config change it must be told to
@@ -779,7 +788,10 @@ fn pull_client_is_asked_to_refresh_after_config_change() {
     // Flush with a probe; any refresh request / stray push arrives before its response.
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (messages, response) = client.messages_until_response(&id);
-    assert!(response.error.is_some(), "the probe is still answered");
+    assert!(
+        response.response_result.is_err(),
+        "the probe is still answered"
+    );
     let refreshes = messages
         .iter()
         .filter(|message| {
@@ -811,7 +823,10 @@ fn repeated_config_changes_send_distinct_refresh_request_ids() {
     client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (messages, response) = client.messages_until_response(&id);
-    assert!(response.error.is_some(), "the probe is still answered");
+    assert!(
+        response.response_result.is_err(),
+        "the probe is still answered"
+    );
     let refresh_ids: Vec<_> = messages
         .iter()
         .filter_map(|message| match message {
@@ -842,7 +857,10 @@ fn pull_client_without_refresh_support_gets_no_refresh() {
     client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (messages, response) = client.messages_until_response(&id);
-    assert!(response.error.is_some(), "the probe is still answered");
+    assert!(
+        response.response_result.is_err(),
+        "the probe is still answered"
+    );
     assert!(
         messages.iter().all(|message| {
             !matches!(message, Message::Request(request)
@@ -1095,7 +1113,7 @@ fn unknown_request_is_method_not_found() {
     let (mut client, _init) = Client::launch(None, None);
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let response = client.response(&id);
-    let error = response.error.expect("unknown method errors");
+    let error = response.response_result.expect_err("unknown method errors");
     assert_eq!(error.code, lsp_server::ErrorCode::MethodNotFound as i32);
 }
 
@@ -1109,12 +1127,10 @@ fn malformed_request_params_yield_a_null_result() {
         Value::String("not params".to_string()),
     );
     let response = client.response(&id);
-    assert_eq!(
-        response.result,
-        Some(Value::Null),
+    assert!(
+        matches!(response.response_result, Ok(Value::Null)),
         "bad params -> null result"
     );
-    assert!(response.error.is_none());
 }
 
 #[test]
@@ -1195,7 +1211,7 @@ fn serve_rejects_malformed_initialize_params() {
     };
     assert_eq!(response.id, id);
     assert!(
-        response.error.is_some(),
+        response.response_result.is_err(),
         "malformed initialize is rejected with an error"
     );
     drop(client);
@@ -1637,9 +1653,10 @@ fn rename_rewrites_an_anchor_and_its_aliases() {
     };
     assert_eq!(placeholder, "anchor");
     let response = client.rename(&doc, 0, 6, "renamed");
-    let edit: WorkspaceEdit =
-        serde_json::from_value(response.result.expect("rename produces an edit"))
-            .expect("workspace edit");
+    let edit: WorkspaceEdit = serde_json::from_value(
+        response.response_result.expect("rename produces an edit"),
+    )
+    .expect("workspace edit");
     let Some(DocumentChanges::Edits(edits)) = edit.document_changes else {
         panic!("expected versioned document changes");
     };
@@ -1658,7 +1675,10 @@ fn rename_rejects_an_illegal_name() {
     client.did_open(doc.clone(), "a: &anchor 1\n");
     let _ = client.diagnostics();
     let response = client.rename(&doc, 0, 6, "bad name");
-    assert!(response.error.is_some(), "a name with a space is rejected");
+    assert!(
+        response.response_result.is_err(),
+        "a name with a space is rejected"
+    );
 }
 
 #[test]
@@ -1669,8 +1689,10 @@ fn rename_off_an_anchor_is_null() {
     client.did_open(doc.clone(), "a: 1\n");
     let _ = client.diagnostics();
     let response = client.rename(&doc, 0, 0, "x");
-    assert_eq!(response.result, Some(Value::Null), "nothing to rename here");
-    assert!(response.error.is_none());
+    assert!(
+        matches!(response.response_result, Ok(Value::Null)),
+        "nothing to rename here"
+    );
 }
 
 #[test]
@@ -1905,9 +1927,9 @@ fn workspace_diagnostic_can_be_cancelled() {
     // Cancel by id. Depending on the race the worker answers with the report or a
     // RequestCancelled error, but the request is always answered (the loop never hangs).
     client.notify("$/cancelRequest", json!({ "id": client.next_id }));
-    let response = client.response(&id);
-    assert!(
-        response.result.is_some() || response.error.is_some(),
+    assert_eq!(
+        client.response(&id).id,
+        id,
         "a cancelled workspace pull is always answered"
     );
 }
@@ -2062,9 +2084,8 @@ fn malformed_rename_params_yield_a_null_result() {
     let (mut client, _init) = Client::launch(None, None);
     let id = client.request("textDocument/rename", Value::String("bad".to_string()));
     let response = client.response(&id);
-    assert_eq!(
-        response.result,
-        Some(Value::Null),
+    assert!(
+        matches!(response.response_result, Ok(Value::Null)),
         "bad rename params -> null"
     );
 }
@@ -2074,9 +2095,8 @@ fn rename_on_an_unopened_document_is_null() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
     let response = client.rename(&file_uri(dir.path(), "never.yaml"), 0, 0, "x");
-    assert_eq!(
-        response.result,
-        Some(Value::Null),
+    assert!(
+        matches!(response.response_result, Ok(Value::Null)),
         "an unopened document yields no rename edit"
     );
 }
@@ -2091,9 +2111,8 @@ fn rename_on_a_markdown_document_is_null() {
     client.did_open(doc.clone(), "```yaml\na: &anchor 1\n```\n");
     let _ = client.diagnostics();
     let response = client.rename(&doc, 1, 6, "renamed");
-    assert_eq!(
-        response.result,
-        Some(Value::Null),
+    assert!(
+        matches!(response.response_result, Ok(Value::Null)),
         "rename targets YAML documents, not markdown hosts"
     );
 }

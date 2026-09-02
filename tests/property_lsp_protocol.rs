@@ -454,7 +454,7 @@ proptest! {
                     let Message::Response(response) = driver.await_response(&id) else {
                         unreachable!("await_response returns a response");
                     };
-                    prop_assert!(response.error.is_none(), "code action never errors");
+                    prop_assert!(response.response_result.is_ok(), "code action never errors");
                 }
                 Op::Formatting(index) => {
                     let id = driver
@@ -462,7 +462,7 @@ proptest! {
                     let Message::Response(response) = driver.await_response(&id) else {
                         unreachable!("await_response returns a response");
                     };
-                    prop_assert!(response.error.is_none(), "formatting never errors");
+                    prop_assert!(response.response_result.is_ok(), "formatting never errors");
                 }
                 Op::Hover(index) => {
                     let params = json!({
@@ -473,7 +473,7 @@ proptest! {
                     let Message::Response(response) = driver.await_response(&id) else {
                         unreachable!("await_response returns a response");
                     };
-                    prop_assert!(response.error.is_none(), "hover never errors");
+                    prop_assert!(response.response_result.is_ok(), "hover never errors");
                 }
                 Op::Diagnostic(index) => {
                     let params =
@@ -482,7 +482,7 @@ proptest! {
                     let Message::Response(response) = driver.await_response(&id) else {
                         unreachable!("await_response returns a response");
                     };
-                    prop_assert!(response.error.is_none(), "pull diagnostic never errors");
+                    prop_assert!(response.response_result.is_ok(), "pull diagnostic never errors");
                 }
             }
         }
@@ -617,7 +617,7 @@ proptest! {
                     "a pull-capable client must never receive a publishDiagnostics push"
                 );
                 let report: DocumentDiagnosticReport =
-                    serde_json::from_value(response.result.expect("pull result"))
+                    serde_json::from_value(response.response_result.expect("pull result"))
                         .expect("DocumentDiagnosticReport");
                 let DocumentDiagnosticReport::Full(report) = report else {
                     unreachable!("ryl never caches result ids, so every report is full");
