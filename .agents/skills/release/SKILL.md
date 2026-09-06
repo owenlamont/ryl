@@ -85,6 +85,10 @@ description: >-
     `permission-workflows: write` (added in PR #265) and that the GitHub App installation
     actually grants Workflows: Read and write. The fork's `master` state is *not*
     involved (the branch never derives from it).
+- After a successful release, `release.yml`'s `notify-ryl-vscode` job dispatches a
+  `ryl_release` event to `owenlamont/ryl-vscode`, whose `bump-ryl` workflow opens a PR
+  moving its bundled-binary pin to this release. That repo also polls weekly, so a
+  failed dispatch delays the bump rather than losing it; nothing here needs re-running.
 - Publishing uses Trusted Publishing on all registries (crates.io via GitHub OIDC, PyPI
   via `pypa/gh-action-pypi-publish`, NPM via `actions/setup-node` OIDC). GitHub release
   creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a
