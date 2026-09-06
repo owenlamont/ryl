@@ -124,12 +124,12 @@ fn arb_entries() -> impl Strategy<Value = Vec<ReportEntry>> {
     proptest::collection::vec(arb_entry(), 0..6)
 }
 
-/// The value of `element`'s `key` attribute, decoded lossily, if present.
-fn read_attr(element: &quick_xml::events::BytesStart, key: &[u8]) -> Option<String> {
-    element.attributes().flatten().find_map(|attr| {
-        (attr.key.as_ref() == key)
-            .then(|| String::from_utf8_lossy(attr.value.as_ref()).into_owned())
-    })
+/// The raw (still XML-escaped) value of `element`'s `key` attribute, if present.
+fn read_attr(element: &quick_xml::events::BytesStart, key: &str) -> Option<String> {
+    element
+        .attributes()
+        .flatten()
+        .find_map(|attr| (attr.key.as_ref() == key).then(|| attr.value.into_owned()))
 }
 
 proptest! {
@@ -199,25 +199,25 @@ proptest! {
                 Ok(Event::Eof) => break,
                 Ok(Event::Start(element) | Event::Empty(element)) => {
                     match element.name().as_ref() {
-                        b"testsuites" => {
-                            root_tests = read_attr(&element, b"tests")
+                        "testsuites" => {
+                            root_tests = read_attr(&element, "tests")
                                 .and_then(|value| value.parse::<usize>().ok());
-                            root_failures = read_attr(&element, b"failures")
+                            root_failures = read_attr(&element, "failures")
                                 .and_then(|value| value.parse::<usize>().ok());
-                            root_errors = read_attr(&element, b"errors")
+                            root_errors = read_attr(&element, "errors")
                                 .and_then(|value| value.parse::<usize>().ok());
                         }
-                        b"testsuite" => suite_names.clear(),
-                        b"testcase" => {
+                        "testsuite" => suite_names.clear(),
+                        "testcase" => {
                             testcases += 1;
-                            let name = read_attr(&element, b"name").unwrap_or_default();
+                            let name = read_attr(&element, "name").unwrap_or_default();
                             prop_assert!(
                                 suite_names.insert(name.clone()),
                                 "duplicate testcase name {name} within a suite"
                             );
                         }
-                        b"failure" => failures += 1,
-                        b"error" => errors += 1,
+                        "failure" => failures += 1,
+                        "error" => errors += 1,
                         _ => {}
                     }
                 }
