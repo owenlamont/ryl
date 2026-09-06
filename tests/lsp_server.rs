@@ -2349,6 +2349,43 @@ fn cancelling_a_streaming_scan_stops_it_between_batches() {
 }
 
 #[test]
+fn a_streaming_pull_clears_a_deleted_file_through_the_stream() {
+    let dir = project(TRAILING);
+    let path = dir.path().join("bad.yaml");
+    std::fs::write(&path, "a: 1 \n").expect("write");
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let first = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": [], "partialResultToken": "ryl-pull" }),
+    );
+    let (batches, _) = partial_results(&client, &first, "ryl-pull");
+    let previous = previous_result_ids(&WorkspaceDiagnosticReport {
+        items: batches.concat(),
+    });
+
+    // A clearing report is produced after the last batch of the walk, so it is the final
+    // flush rather than a batched one that carries it.
+    std::fs::remove_file(&path).expect("delete");
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": previous, "partialResultToken": "ryl-pull" }),
+    );
+    let (batches, response) = partial_results(&client, &id, "ryl-pull");
+    assert!(
+        matches!(
+            batches.concat().as_slice(),
+            [WorkspaceDocumentDiagnosticReport::Full(full)]
+                if full.full_document_diagnostic_report.items.is_empty()
+        ),
+        "the deleted file is cleared through the stream, got {batches:?}"
+    );
+    assert!(
+        response.response_result.is_ok(),
+        "having streamed, the pull is answered rather than held open"
+    );
+}
+
+#[test]
 fn a_streaming_pull_with_nothing_to_say_is_still_held_open() {
     let dir = project(TRAILING);
     std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write");

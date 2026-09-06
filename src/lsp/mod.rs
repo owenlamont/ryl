@@ -978,7 +978,7 @@ impl Server {
         }
         result
             .scan
-            .filter(|outcome| outcome.streamed || !outcome.says_nothing())
+            .filter(|outcome| !outcome.says_nothing())
             .map(|outcome| outcome.items)
     }
 
