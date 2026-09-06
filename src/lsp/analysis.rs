@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, TextEdit};
+use sha2::{Digest, Sha256};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::fix::{
@@ -100,4 +101,19 @@ pub fn fix_rule_edit(
         .collect();
     let fixed = apply_safe_fixes_filtered(text, cfg, path, base_dir, &skip);
     (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
+}
+
+/// A fingerprint of `items`, returned as a `resultId` and sent back on the next pull so an
+/// unchanged file is answered `Unchanged`. `None` for a clean file, which the client then
+/// stops tracking.
+#[must_use]
+pub fn result_id(items: &[Diagnostic]) -> Option<String> {
+    if items.is_empty() {
+        return None;
+    }
+    // `Debug` over serialisation: derived, so it renders every field, and infallible.
+    let rendered = format!("{items:?}");
+    Some(crate::report::hex_digest(&Sha256::digest(
+        rendered.as_bytes(),
+    )))
 }

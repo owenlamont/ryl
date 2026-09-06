@@ -516,13 +516,32 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   pull, not twice — clients like VS Code merge the two channels); pull diagnostics
   (`textDocument/diagnostic` +
   `workspace/diagnostic`, the latter over a per-entry-cancellable
-  `discover::gather_yaml_from_dir_cancellable` walk of every root, deduped, full report
-  each call, no result-id caching; it runs on a background worker thread — so the message
-  loop stays responsive — lints files in parallel via `rayon`, and is cancellable via
-  `$/cancelRequest`/shutdown through an `AtomicBool` the worker checks (the walk per
-  entry; only an in-progress single-file read is uninterrupted). A new pull
-  supersedes/cancels any in-flight one (bounding workers); `serve` joins outstanding
-  workers before returning); `source.fixAll.ryl` + per-rule
+  `discover::gather_yaml_from_dir_cancellable` walk of every root, deduped; it runs on a
+  background worker thread — so the message loop stays responsive — lints files in
+  parallel via `rayon`, and is cancellable via `$/cancelRequest`/shutdown through an
+  `AtomicBool` the worker checks (the walk per entry, the lint per `SCAN_BATCH` batch, so
+  only an in-flight batch is uninterruptible). A new pull supersedes/cancels any in-flight
+  one (bounding workers); `serve` joins outstanding workers before returning). Each report
+  carries a `result_id` (`analysis::result_id`, SHA-256 of the serialized diagnostics;
+  `None` for a clean file, which is then omitted), so a matching `previousResultIds` entry
+  answers `Unchanged`, and
+  a previously-reported path the walk no longer covers is cleared with an empty, id-less
+  report. **`workspace/diagnostic` is long-polled** (#408, after ty): the VS Code client
+  re-pulls a fixed 2 s after every response with no knob, so an all-`Unchanged` report (an
+  empty one included) is *not* answered — `finish_scan` parks it in `Server::pull` and
+  `wake` re-scans on the next didOpen/didChange/didClose/watched-file/config notification.
+  A worker cannot see session state, so scans return over `scan_tx`/`scan_rx` into a
+  `crossbeam_channel::select!` in `run_loop`, and `Server::revision` (bumped by those
+  notifications) stops a scan that raced a change from suspending on a stale report. A
+  parked pull is answered on `$/cancelRequest`, when a new pull supersedes it, and at
+  shutdown. The watcher registration covers `**/*.{yaml,yml}` as well as config names so
+  an out-of-editor change can wake it; `is_config_uri` keeps a source change from being
+  taken for a config one. A `partialResultToken` switches `ReportSink` from bulk to
+  streaming: the scan lints in `SCAN_BATCH` batches (also the cancellation granularity)
+  and `Full` reports go out as `$/progress` batches — the first at once, then per
+  `STREAM_INTERVAL` — while `Unchanged` ones are held for the response, so nothing is
+  sent twice. `ScanOutcome::streamed` then forces an answer: having streamed, the
+  request can no longer be held open); `source.fixAll.ryl` + per-rule
   `source.fixAll.ryl.<rule>` (via `fix::SAFE_FIX_RULE_IDS`, YAML only) + `quickfix`
   disable-rule inserts (`# ryl disable-line` / first-line `# ryl disable-file`; the
   disable-line is suppressed for a diagnostic inside a block scalar, where a `#` would be

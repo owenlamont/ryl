@@ -15,14 +15,14 @@ hover only explains ryl's own diagnostics.
 | Capability | LSP feature | Behaviour |
 | --- | --- | --- |
 | Diagnostics (push) | `textDocument/publishDiagnostics` | Every enabled rule, re-linted on open and on each change. Sent only to a client that does *not* advertise the pull model (see below) |
-| Diagnostics (pull) | `textDocument/diagnostic`, `workspace/diagnostic` | On-demand diagnostics for one document or every `*.yaml`/`*.yml` under the workspace root |
+| Diagnostics (pull) | `textDocument/diagnostic`, `workspace/diagnostic` | On-demand diagnostics for one document or every `*.yaml`/`*.yml` under the workspace root; result ids and long polling keep an idle workspace free |
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
 | Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
 | Formatting | `textDocument/formatting` | Same as "fix all": formatting *is* applying safe fixes |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
-| Config watching | `workspace/didChangeWatchedFiles` | When a ryl/yamllint config file changes on disk, re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh` |
+| File watching | `workspace/didChangeWatchedFiles` | Watches ryl/yamllint config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
 The fix-all action and formatting both apply ryl's whole-file safe fixes; ryl has no
 per-occurrence "fix just this one" action, because its fix engine operates per file (the
@@ -119,12 +119,13 @@ issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode)
 - **Position encoding** is negotiated at startup (UTF-8, UTF-16, or UTF-32); ryl supports
   all three and defaults to UTF-16 when the client states no preference, so columns line up
   correctly even for multi-byte and astral-plane characters.
-- **Config watching** re-lints open documents when a ryl/yamllint config file changes on
-  disk, for clients that support dynamic `didChangeWatchedFiles` registration. It watches
-  the standard config filenames anywhere in the workspace plus an explicit `configPath`;
-  files pulled in via a config's `extends:` are not individually watched, so re-open a
-  document to refresh after editing those. A client without the capability simply picks up
-  a config change on the next edit or re-open.
+- **File watching** covers both the standard config filenames anywhere in the workspace
+  (plus an explicit `configPath`) and `*.yaml`/`*.yml` sources, for clients that support
+  dynamic `didChangeWatchedFiles` registration. A config change re-lints open documents;
+  a source change out of the editor (a `git checkout`, another editor) resumes a
+  long-polling workspace pull. Files pulled in via a config's `extends:` are not
+  individually watched, so re-open a document to refresh after editing those. A client
+  without the capability simply picks up a change on the next edit or re-open.
 - **Document sync is incremental** — the editor sends only the edited range — but ryl
   re-lints the whole reconstructed document each time (it is fast enough that this is
   invisible).
@@ -149,10 +150,25 @@ issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode)
   (git-ignored files excluded); Markdown and files matched only by custom `[files]` globs
   are diagnosed when opened or pulled individually. The scan runs on a background thread
   (so editing, hover, and other requests stay responsive while it works) and lints files
-  in parallel across CPU cores. A new pull supersedes any in-flight one, and a
-  `$/cancelRequest` (and shutdown) stops it promptly: the directory walk is cancelled
-  per entry and the lint pass is fast, so only an in-progress single-file read is not
-  interrupted.
+  in parallel across CPU cores, in batches. A new pull supersedes any in-flight one, and a
+  `$/cancelRequest` (and shutdown) stops it promptly: the directory walk is cancelled per
+  entry and the lint pass per batch, so only an in-flight batch is not interrupted.
+- **A workspace pull streams its results** when the client offers a `partialResultToken`
+  (VS Code does): changed files go out as `$/progress` batches while the scan is still
+  running — the first batch immediately, then at most one every 50 ms — so a large repo
+  fills the Problems panel progressively instead of in one jump at the end. Files that are
+  still `unchanged` are not streamed (they would tell the client nothing sooner) and come
+  back in the response, which is otherwise empty: a streamed report is never repeated.
+- **Workspace pulls are long-polled, so an idle workspace costs nothing.** Every report
+  carries a `resultId` fingerprinting that file's diagnostics; a later pull that sends the
+  same id back is answered `unchanged`. When *every* file would be `unchanged` (a clean
+  workspace included) the server does not answer at all — it holds the request open, as the
+  LSP suggests for a workspace request that "can be long running", and responds only once an
+  edit, a watched-file change, or a config change makes something differ. This matters
+  because `vscode-languageclient` re-issues `workspace/diagnostic` a fixed two seconds after
+  every response with no client-side knob, so answering an idle pull just books another full
+  repo walk and lint two seconds later. A held request is still answered on
+  `$/cancelRequest` and at shutdown, so the client never waits on it forever.
 - **Disable-rule actions are offered for YAML documents only** — in Markdown the
   diagnostic's line is a host-file line whose embedded YAML carries a prefix, so a raw
   comment insert would be unreliable; Markdown documents get the fix-all action (which is

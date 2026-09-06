@@ -1,7 +1,8 @@
 //! The `ryl server` language server: a synchronous protocol adapter over ryl's lint/fix
 //! engine, built on `lsp-server` + `lsp-types`. Malformed client input (a bad
-//! `initialize`, an unknown request) is handled gracefully rather than panicking; the only
-//! `expect` is on serialising ryl's own capabilities, which cannot fail.
+//! `initialize`, an unknown request) is handled gracefully rather than panicking; the two
+//! `expect`s are on serialising ryl's own capabilities and on a channel whose sender the
+//! receiving loop owns, neither of which can fail.
 
 pub mod actions;
 pub mod analysis;
@@ -10,12 +11,15 @@ pub mod hover;
 pub mod rename;
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
+use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use rayon::prelude::*;
 
 use lsp_server::{
@@ -25,18 +29,21 @@ use lsp_types::{
     CancelParams, CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
     Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DiagnosticSeverity,
     DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentFormattingParams, FileSystemWatcher, FullDocumentDiagnosticReport,
-    GlobPattern, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, MessageType, NumberOrString, OneOf, Position,
-    PrepareRenameResponse, PublishDiagnosticsParams, Range, Registration,
-    RegistrationParams, RelatedFullDocumentDiagnosticReport, RenameOptions,
-    RenameParams, ServerCapabilities, ServerInfo, ShowMessageParams,
+    DidChangeWatchedFilesParams, DidChangeWatchedFilesRegistrationOptions,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentFormattingParams, FileSystemWatcher,
+    FullDocumentDiagnosticReport, GlobPattern, Hover, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, MessageType,
+    NumberOrString, OneOf, Position, PrepareRenameResponse, PreviousResultId,
+    ProgressToken, PublishDiagnosticsParams, Range, Registration, RegistrationParams,
+    RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport,
+    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, ShowMessageParams,
     TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Uri, WorkDoneProgressOptions, WorkspaceDiagnosticReport,
-    WorkspaceDocumentDiagnosticReport, WorkspaceEdit,
-    WorkspaceFullDocumentDiagnosticReport,
+    TextEdit, UnchangedDocumentDiagnosticReport, Uri, WorkDoneProgressOptions,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    WorkspaceDiagnosticReportPartialResult, WorkspaceDocumentDiagnosticReport,
+    WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport,
+    WorkspaceUnchangedDocumentDiagnosticReport,
 };
 
 use crate::config::{ConfigContext, Overrides, SourceKind, discover_config};
@@ -136,6 +143,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         register_config_watchers(connection, settings.config_file.as_deref());
     }
 
+    let (scan_tx, scan_rx) = unbounded();
     let server = Server {
         encoding,
         roots: workspace_roots(&params),
@@ -153,6 +161,10 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         documents: HashMap::new(),
         reported_errors: HashSet::new(),
         workers: Vec::new(),
+        pull: None,
+        revision: 0,
+        scan_tx,
+        scan_rx,
     };
     server.message_loop(connection)
 }
@@ -245,20 +257,37 @@ fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Ask the client to watch ryl's config files so an out-of-editor edit re-lints open
-/// documents. Fire-and-forget (the response is ignored).
+/// The config file names ryl discovers: watched so an out-of-editor edit re-lints, and
+/// reused by [`Server::is_config_uri`] to tell a config change from a source one.
+const WATCHED_CONFIG_NAMES: [&str; 6] = [
+    "ryl.toml",
+    ".ryl.toml",
+    "pyproject.toml",
+    ".yamllint",
+    ".yamllint.yaml",
+    ".yamllint.yml",
+];
+
+/// Ask the client to watch ryl's config files and YAML sources, so an out-of-editor edit
+/// re-lints open documents and wakes a long-polling pull. Fire-and-forget.
 ///
 /// Known limitation: files pulled in via a config's `extends:`, and a `configPath` changed
 /// after startup, are not (re-)watched; re-open a document to refresh after editing those.
 fn register_config_watchers(connection: &Connection, config_file: Option<&Path>) {
-    let mut watchers = vec![FileSystemWatcher {
-        glob_pattern: GlobPattern::String(
-            "**/{ryl.toml,.ryl.toml,pyproject.toml,.yamllint,.yamllint.yaml,\
-             .yamllint.yml}"
-                .to_string(),
-        ),
-        kind: None,
-    }];
+    let mut watchers = vec![
+        FileSystemWatcher {
+            glob_pattern: GlobPattern::String(format!(
+                "**/{{{}}}",
+                WATCHED_CONFIG_NAMES.join(",")
+            )),
+            kind: None,
+        },
+        // Else a pull suspended for long polling never learns of a `git checkout`.
+        FileSystemWatcher {
+            glob_pattern: GlobPattern::String("**/*.{yaml,yml}".to_string()),
+            kind: None,
+        },
+    ];
     // An explicit config path may live outside the roots or use a non-standard name, which
     // the `**/` glob above would miss, so watch it directly.
     if let Some(path) = config_file.and_then(Path::to_str) {
@@ -382,16 +411,39 @@ struct Server {
     /// Config errors already surfaced via `window/showMessage`, so a broken config is
     /// reported once rather than on every file/keystroke.
     reported_errors: HashSet<String>,
-    /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk never
-    /// blocks the message loop. Each carries a cancellation flag the loop flips on
-    /// `$/cancelRequest` or at shutdown.
+    /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk
+    /// never blocks the message loop.
     workers: Vec<Worker>,
+    /// The client's outstanding `workspace/diagnostic` pull; at most one, since the client
+    /// sends the next only once this is answered.
+    pull: Option<Pull>,
+    /// Bumped by every notification that can change a lint, marking older scans stale.
+    revision: u64,
+    /// Scans report back here rather than answering, so the hold-or-respond decision is
+    /// made where the session state lives.
+    scan_tx: Sender<ScanResult>,
+    scan_rx: Receiver<ScanResult>,
 }
 
 struct Worker {
-    id: RequestId,
     cancel: Arc<AtomicBool>,
     handle: JoinHandle<()>,
+}
+
+/// A `workspace/diagnostic` request, being scanned or held open (LSP long polling).
+struct Pull {
+    id: RequestId,
+    /// Replayed on every retry: the client's knowledge cannot move on while unanswered.
+    previous: Vec<PreviousResultId>,
+    /// Present when the client offered to receive results as they are produced.
+    token: Option<ProgressToken>,
+}
+
+struct ScanResult {
+    id: RequestId,
+    revision: u64,
+    /// `None` when the scan was cancelled.
+    scan: Option<ScanOutcome>,
 }
 
 /// Open-document text/version snapshot, keyed by path, handed to a worker so it can prefer
@@ -401,6 +453,8 @@ pub type OpenText = HashMap<PathBuf, (String, i32)>;
 impl Server {
     fn message_loop(mut self, connection: &Connection) -> SessionOutcome {
         let outcome = self.run_loop(connection);
+        // Else a suspended pull is never answered, hanging a client that waits on it.
+        self.cancel_pull(connection);
         // Cancel and join in-flight scans so no thread outlives the session (each checks its
         // flag between files, so this returns promptly).
         for worker in self.workers.drain(..) {
@@ -410,30 +464,44 @@ impl Server {
         outcome
     }
 
+    /// Wait on the client and on finished scans at once, so a report is decided on the
+    /// thread that owns the session state.
     fn run_loop(&mut self, connection: &Connection) -> SessionOutcome {
-        for message in &connection.receiver {
-            match message {
-                Message::Request(request) => {
-                    // `Ok(true)` is a clean shutdown; an `Err` means the client vanished
-                    // mid-handshake. Either way the session is over: end gracefully.
-                    if connection.handle_shutdown(&request).unwrap_or(true) {
+        let scans = self.scan_rx.clone();
+        loop {
+            select! {
+                recv(connection.receiver) -> message => {
+                    // Connection dropped without a shutdown/exit: a normal end.
+                    let Ok(message) = message else {
                         return SessionOutcome::Clean;
+                    };
+                    match message {
+                        Message::Request(request) => {
+                            // `Ok(true)` is a clean shutdown; an `Err` means the client
+                            // vanished mid-handshake. Either way the session is over.
+                            if connection.handle_shutdown(&request).unwrap_or(true) {
+                                return SessionOutcome::Clean;
+                            }
+                            self.handle_request(connection, request);
+                        }
+                        Message::Notification(notification) => {
+                            // A bare `exit` (spec-allowed without a prior `shutdown`) is an
+                            // abnormal exit; the normal sequence is consumed above.
+                            if notification.method == "exit" {
+                                return SessionOutcome::Abnormal;
+                            }
+                            self.handle_notification(connection, notification);
+                        }
+                        Message::Response(_) => {}
                     }
-                    self.handle_request(connection, request);
                 }
-                Message::Notification(notification) => {
-                    // A bare `exit` (spec-allowed without a prior `shutdown`) is an abnormal
-                    // exit; the normal sequence is consumed by `handle_shutdown` above.
-                    if notification.method == "exit" {
-                        return SessionOutcome::Abnormal;
-                    }
-                    self.handle_notification(connection, notification);
+                recv(scans) -> result => {
+                    // `scan_tx` is a field of `self`, so it outlives this loop.
+                    let result = result.expect("the scan channel outlives the loop");
+                    self.finish_scan(connection, result);
                 }
-                Message::Response(_) => {}
             }
         }
-        // The client dropped the connection without a shutdown/exit: a normal end.
-        SessionOutcome::Clean
     }
 
     fn handle_request(&mut self, connection: &Connection, request: Request) {
@@ -465,7 +533,9 @@ impl Server {
                     .map(|params| self.document_diagnostic(&params));
                 respond(connection, id, result);
             }
-            "workspace/diagnostic" => self.spawn_workspace_diagnostic(connection, id),
+            "workspace/diagnostic" => {
+                self.start_workspace_diagnostic(connection, id, &params);
+            }
             other => {
                 send(
                     connection,
@@ -495,11 +565,13 @@ impl Server {
                         document.version,
                         document.text,
                     );
+                    self.wake(connection);
                 }
             }
             "textDocument/didChange" => {
                 if let Some(params) = parse::<DidChangeTextDocumentParams>(&params) {
                     self.apply_changes(connection, params);
+                    self.wake(connection);
                 }
             }
             "textDocument/didClose" => {
@@ -507,23 +579,38 @@ impl Server {
                     let uri = params.text_document.uri;
                     self.documents.remove(uri.as_str());
                     self.push(connection, uri, None, Vec::new());
+                    self.wake(connection);
                 }
             }
-            "workspace/didChangeWatchedFiles" => self.handle_config_change(connection),
+            "workspace/didChangeWatchedFiles" => {
+                // Params ryl cannot read say nothing about what changed, so assume the worst.
+                let config_changed = parse::<DidChangeWatchedFilesParams>(&params)
+                    .is_none_or(|watched| {
+                        watched
+                            .changes
+                            .iter()
+                            .any(|event| self.is_config_uri(event.uri.as_str()))
+                    });
+                if config_changed {
+                    self.handle_config_change(connection);
+                }
+                self.wake(connection);
+            }
             "workspace/didChangeConfiguration" => {
                 if let Some(params) = parse::<DidChangeConfigurationParams>(&params) {
                     self.settings = Settings::from_options(Some(&params.settings));
                     self.handle_config_change(connection);
+                    self.wake(connection);
                 }
             }
             "$/cancelRequest" => {
-                if let Some(params) = parse::<CancelParams>(&params) {
-                    let target = request_id(params.id);
-                    for worker in &self.workers {
-                        if worker.id == target {
-                            worker.cancel.store(true, Ordering::Relaxed);
-                        }
-                    }
+                if let Some(params) = parse::<CancelParams>(&params)
+                    && self
+                        .pull
+                        .as_ref()
+                        .is_some_and(|pull| pull.id == request_id(params.id))
+                {
+                    self.cancel_pull(connection);
                 }
             }
             _ => {}
@@ -769,13 +856,27 @@ impl Server {
             self.diagnostics_for(uri, &text)
                 .unwrap_or_else(|error| vec![config_error_diagnostic(&error)])
         });
-        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-            related_documents: None,
-            full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                result_id: None,
-                items,
-            },
-        })
+        let result_id = analysis::result_id(&items);
+        match &result_id {
+            Some(id) if params.previous_result_id.as_ref() == Some(id) => {
+                DocumentDiagnosticReport::Unchanged(
+                    RelatedUnchangedDocumentDiagnosticReport {
+                        related_documents: None,
+                        unchanged_document_diagnostic_report:
+                            UnchangedDocumentDiagnosticReport {
+                                result_id: id.clone(),
+                            },
+                    },
+                )
+            }
+            _ => DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id,
+                    items,
+                },
+            }),
+        }
     }
 
     /// Snapshot open documents by path, so a worker can prefer unsaved buffer content over
@@ -790,30 +891,138 @@ impl Server {
             .collect()
     }
 
-    /// Start a `workspace/diagnostic` scan on a background thread so the repo walk + parallel
-    /// lint never blocks the message loop. The worker answers the request over the connection.
-    fn spawn_workspace_diagnostic(&mut self, connection: &Connection, id: RequestId) {
-        // Supersede any in-flight scan (it answers RequestCancelled) so rapid pulls (e.g. on
-        // every save) do not accumulate concurrent walks, keeping the worker count bounded.
-        // Then drop the handles of any already finished.
-        for worker in &self.workers {
-            worker.cancel.store(true, Ordering::Relaxed);
+    /// Begin a `workspace/diagnostic` pull, closing one still outstanding (a client that
+    /// did not wait) with an empty report: it was told nothing, and this supersedes it.
+    fn start_workspace_diagnostic(
+        &mut self,
+        connection: &Connection,
+        id: RequestId,
+        params: &serde_json::Value,
+    ) {
+        if let Some(superseded) = self.pull.take() {
+            self.cancel_workers();
+            let empty = WorkspaceDiagnosticReport { items: Vec::new() };
+            respond(connection, superseded.id, empty);
         }
+        let params = parse::<WorkspaceDiagnosticParams>(params);
+        let token = params.as_ref().and_then(|params| {
+            params.partial_result_params.partial_result_token.clone()
+        });
+        let previous = params
+            .map(|params| params.previous_result_ids)
+            .unwrap_or_default();
+        let by_path = previous_by_path(&previous);
+        self.pull = Some(Pull {
+            id: id.clone(),
+            previous,
+            token: token.clone(),
+        });
+        self.spawn_scan(connection, id, by_path, token);
+    }
+
+    fn spawn_scan(
+        &mut self,
+        connection: &Connection,
+        id: RequestId,
+        previous: PreviousIds,
+        token: Option<ProgressToken>,
+    ) {
+        // A superseded scan's result is dropped as stale by `finish_scan`.
+        self.cancel_workers();
         self.workers.retain(|worker| !worker.handle.is_finished());
         let cancel = Arc::new(AtomicBool::new(false));
-        let token = Arc::clone(&cancel);
-        let sender = connection.sender.clone();
+        let flag = Arc::clone(&cancel);
+        let sink = ReportSink::new(connection.sender.clone(), token);
+        let results = self.scan_tx.clone();
         let roots = self.roots.clone();
         let settings = self.settings.clone();
         let encoding = self.encoding;
         let open = self.open_snapshot();
-        let response_id = id.clone();
+        let revision = self.revision;
         let handle = thread::spawn(move || {
-            let scan = workspace_scan(&roots, &open, &settings, encoding, &token);
-            let _ =
-                sender.send(Message::Response(workspace_response(response_id, scan)));
+            let scan = workspace_scan(
+                &roots, &open, &settings, encoding, &previous, &flag, sink,
+            );
+            let _ = results.send(ScanResult { id, revision, scan });
         });
-        self.workers.push(Worker { id, cancel, handle });
+        self.workers.push(Worker { cancel, handle });
+    }
+
+    fn finish_scan(&mut self, connection: &Connection, result: ScanResult) {
+        let Some(pull) = self.pull.take() else {
+            return;
+        };
+        match self.scan_answer(&pull, result) {
+            Some(items) => {
+                respond(connection, pull.id, WorkspaceDiagnosticReport { items });
+            }
+            None => self.pull = Some(pull),
+        }
+    }
+
+    /// The report to answer `pull` with, or `None` to leave it outstanding. A cancelled or
+    /// overtaken scan says nothing, and neither does an all-`Unchanged` report (an empty one
+    /// included) — answering that would only invite the client's fixed 2 s re-pull, so it is
+    /// held open and resumed by [`Self::wake`], the LSP's own suggestion for a request that
+    /// "can be long running and is not bound to a specific workspace or document state".
+    fn scan_answer(
+        &self,
+        pull: &Pull,
+        result: ScanResult,
+    ) -> Option<Vec<WorkspaceDocumentDiagnosticReport>> {
+        if pull.id != result.id || result.revision != self.revision {
+            return None;
+        }
+        result
+            .scan
+            .filter(|outcome| !outcome.says_nothing())
+            .map(|outcome| outcome.items)
+    }
+
+    /// Note that something a lint depends on changed, and rescan for a pull being held
+    /// open so the client hears about it now rather than on its own cadence.
+    fn wake(&mut self, connection: &Connection) {
+        self.revision += 1;
+        if let Some(pull) = &self.pull {
+            let id = pull.id.clone();
+            let previous = previous_by_path(&pull.previous);
+            let token = pull.token.clone();
+            self.spawn_scan(connection, id, previous, token);
+        }
+    }
+
+    /// Answer the outstanding pull `RequestCancelled` and stop its scan; unanswered would
+    /// hang a client that drains its outstanding requests before exiting.
+    fn cancel_pull(&mut self, connection: &Connection) {
+        let Some(pull) = self.pull.take() else {
+            return;
+        };
+        self.cancel_workers();
+        send(
+            connection,
+            Message::Response(Response::new_err(
+                pull.id,
+                ErrorCode::RequestCanceled as i32,
+                "workspace diagnostic cancelled".to_string(),
+            )),
+        );
+    }
+
+    fn cancel_workers(&self) {
+        for worker in &self.workers {
+            worker.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn is_config_uri(&self, uri: &str) -> bool {
+        let Some(path) = uri_to_path(uri) else {
+            return false;
+        };
+        self.settings.config_file.as_ref() == Some(&path)
+            || path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| WATCHED_CONFIG_NAMES.contains(&name))
     }
 
     fn document_text(&self, uri: &str) -> Option<String> {
@@ -938,6 +1147,23 @@ fn resolve_for_path(
     }))
 }
 
+/// The result ids the client already holds, keyed by path (see [`previous_by_path`]).
+pub type PreviousIds = HashMap<PathBuf, (Uri, String)>;
+
+/// Index the client's result ids by path: the URI it echoes back need not be
+/// byte-identical to ryl's (percent-encoding and drive-letter case vary), but the path it
+/// decodes to is. The URI is kept to address a file the walk has lost.
+#[must_use]
+pub fn previous_by_path(previous: &[PreviousResultId]) -> PreviousIds {
+    previous
+        .iter()
+        .filter_map(|entry| {
+            uri_to_path(entry.uri.as_str())
+                .map(|path| (path, (entry.uri.clone(), entry.value.clone())))
+        })
+        .collect()
+}
+
 /// Lint one workspace file for a pull report, preferring the open buffer's text. `None`
 /// skips a non-linted/ignored/unreadable file; a config failure becomes an error report,
 /// not a silent omit (a pull client would read absence as clean).
@@ -946,16 +1172,15 @@ fn file_report(
     settings: &Settings,
     encoding: PositionEncoding,
     open: &OpenText,
+    previous: &PreviousIds,
 ) -> Option<WorkspaceDocumentDiagnosticReport> {
+    let previous_id = previous.get(path).map(|(_, id)| id.as_str());
     let target = match resolve_for_path(path.to_path_buf(), true, true, settings) {
         Ok(Some(target)) => target,
         Ok(None) => return None,
         Err(error) => {
-            return Some(workspace_report(
-                path_to_uri(path),
-                None,
-                vec![config_error_diagnostic(&error)],
-            ));
+            let items = vec![config_error_diagnostic(&error)];
+            return file_pull_report(path, None, items, previous_id);
         }
     };
     let (text, version) = match open.get(path) {
@@ -970,25 +1195,164 @@ fn file_report(
         target.kind,
         encoding,
     );
-    Some(workspace_report(path_to_uri(path), version, items))
+    file_pull_report(path, version, items, previous_id)
+}
+
+/// One file's entry in a workspace pull. `None` for an untracked clean file: nothing to
+/// say about it, which is what lets an idle pull suspend.
+fn file_pull_report(
+    path: &Path,
+    version: Option<i64>,
+    items: Vec<Diagnostic>,
+    previous_id: Option<&str>,
+) -> Option<WorkspaceDocumentDiagnosticReport> {
+    let uri = path_to_uri(path);
+    match analysis::result_id(&items) {
+        Some(id) if previous_id == Some(id.as_str()) => {
+            Some(WorkspaceDocumentDiagnosticReport::Unchanged(
+                WorkspaceUnchangedDocumentDiagnosticReport {
+                    uri,
+                    version,
+                    unchanged_document_diagnostic_report:
+                        UnchangedDocumentDiagnosticReport { result_id: id },
+                },
+            ))
+        }
+        None if previous_id.is_none() => None,
+        result_id => Some(workspace_report(uri, version, result_id, items)),
+    }
+}
+
+/// Files linted between two cancellation checks, and the granularity at which a streaming
+/// scan hands results to the client; the per-batch [`rayon`] join costs nothing beside it.
+const SCAN_BATCH: usize = 64;
+
+/// At most one `$/progress` batch this often, so findings repaint steadily.
+const STREAM_INTERVAL: Duration = Duration::from_millis(50);
+
+/// What a completed scan has to say; `streamed` commits the request to being answered.
+pub struct ScanOutcome {
+    pub items: Vec<WorkspaceDocumentDiagnosticReport>,
+    pub streamed: bool,
+}
+
+impl ScanOutcome {
+    /// Whether the report leaves the client exactly where it was, so the pull can be held.
+    #[must_use]
+    pub fn says_nothing(&self) -> bool {
+        !self.streamed
+            && self.items.iter().all(|item| {
+                matches!(item, WorkspaceDocumentDiagnosticReport::Unchanged(_))
+            })
+    }
+}
+
+/// Where a scan's reports go: held for the response, or — given a partial-result token —
+/// streamed as `$/progress` batches as they are produced, leaving only the `Unchanged`
+/// remainder to answer with, as a streamed report must not be repeated.
+pub struct ReportSink {
+    stream: Option<Stream>,
+    held: Vec<WorkspaceDocumentDiagnosticReport>,
+    streamed: bool,
+}
+
+struct Stream {
+    client: Sender<Message>,
+    token: ProgressToken,
+    /// `None` until the first batch, which goes out at once so something paints early.
+    last_flush: Option<Instant>,
+    pending: Vec<WorkspaceDocumentDiagnosticReport>,
+}
+
+impl ReportSink {
+    #[must_use]
+    pub fn bulk() -> Self {
+        Self {
+            stream: None,
+            held: Vec::new(),
+            streamed: false,
+        }
+    }
+
+    fn new(client: Sender<Message>, token: Option<ProgressToken>) -> Self {
+        Self {
+            stream: token.map(|token| Stream {
+                client,
+                token,
+                last_flush: None,
+                pending: Vec::new(),
+            }),
+            held: Vec::new(),
+            streamed: false,
+        }
+    }
+
+    fn push(&mut self, report: WorkspaceDocumentDiagnosticReport) {
+        match (&mut self.stream, &report) {
+            (Some(stream), WorkspaceDocumentDiagnosticReport::Full(_)) => {
+                stream.pending.push(report);
+            }
+            _ => self.held.push(report),
+        }
+    }
+
+    fn flush_batch(&mut self) {
+        if let Some(stream) = &mut self.stream
+            && !stream.pending.is_empty()
+            && stream
+                .last_flush
+                .is_none_or(|at| at.elapsed() >= STREAM_INTERVAL)
+        {
+            stream.send();
+            self.streamed = true;
+        }
+    }
+
+    fn finish(mut self) -> ScanOutcome {
+        if let Some(stream) = &mut self.stream
+            && !stream.pending.is_empty()
+        {
+            stream.send();
+            self.streamed = true;
+        }
+        ScanOutcome {
+            items: self.held,
+            streamed: self.streamed,
+        }
+    }
+}
+
+impl Stream {
+    /// A `$/progress` carrying the batch. The spec asks for a `WorkspaceDiagnosticReport`
+    /// first and partial results after, but the two share a wire shape, so one form serves.
+    fn send(&mut self) {
+        let partial = WorkspaceDiagnosticReportPartialResult {
+            items: std::mem::take(&mut self.pending),
+        };
+        let params = serde_json::json!({ "token": self.token, "value": partial });
+        let _ = self.client.send(Message::Notification(Notification::new(
+            "$/progress".to_string(),
+            params,
+        )));
+        self.last_flush = Some(Instant::now());
+    }
 }
 
 /// The `workspace/diagnostic` scan: enumerate `*.yaml`/`*.yml` under each root (git-ignore
-/// honoured), de-duplicate across roots, then lint them in parallel ([`rayon`]). `None` when
-/// `cancel` is set, so the worker answers with `RequestCancelled`. `pub` for unit testing.
+/// honoured), de-duplicate across roots, then lint them in [`rayon`]-parallel batches routed
+/// through `sink`. `None` when `cancel` is set, answering the pull `RequestCancelled`.
 pub fn workspace_scan(
     roots: &[PathBuf],
     open: &OpenText,
     settings: &Settings,
     encoding: PositionEncoding,
+    previous: &PreviousIds,
     cancel: &AtomicBool,
-) -> Option<Vec<WorkspaceDocumentDiagnosticReport>> {
+    mut sink: ReportSink,
+) -> Option<ScanOutcome> {
     let mut files = Vec::new();
     let mut seen = HashSet::new();
     for root in roots {
-        // The walk is per-entry cancellable (`?` propagates cancellation); the lint pass
-        // below is not separately interrupted. The residual mid-`read_file` window is per
-        // ryl's threat model (realistic payloads, not a degraded-fs racer).
         for path in gather_yaml_from_dir_cancellable(root, cancel)? {
             // De-duplicate so a file reachable from two (e.g. nested) roots is linted once.
             if seen.insert(path.clone()) {
@@ -996,29 +1360,33 @@ pub fn workspace_scan(
             }
         }
     }
-    Some(
-        files
+    let mut covered: HashSet<&PathBuf> = HashSet::new();
+    for batch in files.chunks(SCAN_BATCH) {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        let reports: Vec<(&PathBuf, WorkspaceDocumentDiagnosticReport)> = batch
             .par_iter()
-            .filter_map(|path| file_report(path, settings, encoding, open))
-            .collect(),
-    )
-}
-
-/// The `workspace/diagnostic` response: the report, or a `RequestCancelled` error when the
-/// scan was cancelled. `pub` for unit testing.
-#[must_use]
-pub fn workspace_response(
-    id: RequestId,
-    scan: Option<Vec<WorkspaceDocumentDiagnosticReport>>,
-) -> Response {
-    match scan {
-        Some(items) => Response::new_ok(id, WorkspaceDiagnosticReport { items }),
-        None => Response::new_err(
-            id,
-            ErrorCode::RequestCanceled as i32,
-            "workspace diagnostic cancelled".to_string(),
-        ),
+            .filter_map(|path| {
+                file_report(path, settings, encoding, open, previous)
+                    .map(|report| (path, report))
+            })
+            .collect();
+        for (path, report) in reports {
+            covered.insert(path);
+            sink.push(report);
+        }
+        sink.flush_batch();
     }
+    // A tracked path the walk no longer reports was deleted, renamed or newly ignored.
+    for (uri, _) in previous
+        .iter()
+        .filter(|(path, _)| !covered.contains(path))
+        .map(|(_, entry)| entry)
+    {
+        sink.push(workspace_report(uri.clone(), None, None, Vec::new()));
+    }
+    Some(sink.finish())
 }
 
 fn request_id(id: NumberOrString) -> RequestId {
@@ -1068,13 +1436,14 @@ fn config_error_diagnostic(error: &str) -> Diagnostic {
 fn workspace_report(
     uri: Uri,
     version: Option<i64>,
+    result_id: Option<String>,
     items: Vec<Diagnostic>,
 ) -> WorkspaceDocumentDiagnosticReport {
     WorkspaceDocumentDiagnosticReport::Full(WorkspaceFullDocumentDiagnosticReport {
         uri,
         version,
         full_document_diagnostic_report: FullDocumentDiagnosticReport {
-            result_id: None,
+            result_id,
             items,
         },
     })

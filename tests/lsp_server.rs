@@ -9,8 +9,11 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::str::FromStr;
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
-use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_server::{
+    Connection, ErrorCode, Message, Notification, Request, RequestId, Response,
+};
 use lsp_types::{
     ClientCapabilities, CodeActionContext, CodeActionKind, CodeActionOrCommand,
     CodeActionParams, CodeActionResponse, Diagnostic, DiagnosticClientCapabilities,
@@ -24,8 +27,8 @@ use lsp_types::{
     TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri,
     VersionedTextDocumentIdentifier, WorkDoneProgressParams,
     WorkspaceClientCapabilities, WorkspaceDiagnosticReport,
-    WorkspaceDocumentDiagnosticReport, WorkspaceEdit, WorkspaceEditClientCapabilities,
-    WorkspaceFolder,
+    WorkspaceDiagnosticReportPartialResult, WorkspaceDocumentDiagnosticReport,
+    WorkspaceEdit, WorkspaceEditClientCapabilities, WorkspaceFolder,
 };
 use serde_json::{Value, json};
 use tempfile::{TempDir, tempdir};
@@ -35,6 +38,35 @@ const TRAILING: &str = "[rules]\ntrailing-spaces = \"enable\"\n";
 /// A method ryl does not (and will not) handle, so requesting it always yields a
 /// `MethodNotFound` error, used to probe that the server is still responsive.
 const UNHANDLED_METHOD: &str = "ryl/internalUnhandledProbe";
+
+/// How long a suspended `workspace/diagnostic` must stay unanswered before a test accepts
+/// that the server is long-polling it rather than merely slow.
+const SUSPEND_GRACE: Duration = Duration::from_millis(500);
+
+/// The `didChangeWatchedFiles` payload a client sends when the project's config changed
+/// (`type: 2` is the spec's `Changed`).
+fn changed_config(dir: &Path) -> Value {
+    json!({ "changes": [{ "uri": file_uri(dir, ".ryl.toml"), "type": 2 }] })
+}
+
+/// What the client would send back as `previousResultIds` after `report`.
+fn previous_result_ids(report: &WorkspaceDiagnosticReport) -> Vec<Value> {
+    report
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            WorkspaceDocumentDiagnosticReport::Full(full) => full
+                .full_document_diagnostic_report
+                .result_id
+                .as_ref()
+                .map(|value| json!({ "uri": full.uri, "value": value })),
+            WorkspaceDocumentDiagnosticReport::Unchanged(unchanged) => Some(json!({
+                "uri": unchanged.uri,
+                "value": unchanged.unchanged_document_diagnostic_report.result_id,
+            })),
+        })
+        .collect()
+}
 
 fn uri(text: &str) -> Uri {
     Uri::from_str(text).expect("valid URI")
@@ -270,6 +302,23 @@ impl Client {
             match self.conn().receiver.recv().expect("recv") {
                 Message::Response(response) if &response.id == id => return response,
                 _ => {}
+            }
+        }
+    }
+
+    /// The response to `id` if one arrives within [`SUSPEND_GRACE`]. A `workspace/diagnostic`
+    /// pull with nothing to report is deliberately held open, so its absence can only be
+    /// asserted by waiting.
+    fn response_within(&self, id: &RequestId) -> Option<Response> {
+        let deadline = Instant::now() + SUSPEND_GRACE;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match self.conn().receiver.recv_timeout(remaining) {
+                Ok(Message::Response(response)) if &response.id == id => {
+                    return Some(response);
+                }
+                Ok(_) => {}
+                Err(_) => return None,
             }
         }
     }
@@ -578,6 +627,20 @@ impl Client {
     }
 
     /// Receive the next server-to-client request, skipping notifications/responses.
+    /// Block until the first `$/progress` carrying `token`, so a test can act on a scan
+    /// that is provably past its directory walk.
+    fn recv_progress(&self, token: &str) {
+        loop {
+            if let Message::Notification(note) =
+                self.conn().receiver.recv().expect("recv")
+                && note.method == "$/progress"
+                && note.params["token"] == token
+            {
+                return;
+            }
+        }
+    }
+
     fn recv_request(&self) -> Request {
         loop {
             if let Message::Request(request) =
@@ -784,7 +847,10 @@ fn pull_client_is_asked_to_refresh_after_config_change() {
     let (mut client, _init) = Client::launch_pull(Some(dir.path()), true);
     client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
     // Simulate the watched config file changing on disk.
-    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
     // Flush with a probe; any refresh request / stray push arrives before its response.
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (messages, response) = client.messages_until_response(&id);
@@ -819,8 +885,14 @@ fn repeated_config_changes_send_distinct_refresh_request_ids() {
     client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
     // Two changes before any response: their refresh requests are concurrently outstanding,
     // so reusing one id would break the client's response correlation (JSON-RPC).
-    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
-    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (messages, response) = client.messages_until_response(&id);
     assert!(
@@ -854,7 +926,10 @@ fn pull_client_without_refresh_support_gets_no_refresh() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
     client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
-    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
     let id = client.request(UNHANDLED_METHOD, Value::Null);
     let (messages, response) = client.messages_until_response(&id);
     assert!(
@@ -1450,7 +1525,10 @@ fn watched_file_change_relints_open_documents() {
     );
     // Swap in a config that enables trailing-spaces, then signal the watcher.
     std::fs::write(dir.path().join(".ryl.toml"), TRAILING).expect("rewrite config");
-    client.notify("workspace/didChangeWatchedFiles", json!({ "changes": [] }));
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
     assert_eq!(
         client.diagnostics().len(),
         1,
@@ -1934,6 +2012,71 @@ fn workspace_diagnostic_can_be_cancelled() {
     );
 }
 
+/// Enough files that the walk is still running when the next client message is handled,
+/// so a scan is reliably in flight for the cancel/supersede races below.
+fn slow_workspace() -> TempDir {
+    let dir = project(TRAILING);
+    for index in 0..2000 {
+        std::fs::write(dir.path().join(format!("f{index}.yaml")), "a: 1 \n")
+            .expect("write");
+    }
+    dir
+}
+
+#[test]
+fn cancelling_an_in_flight_scan_discards_its_report() {
+    let dir = slow_workspace();
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    client.notify("$/cancelRequest", json!({ "id": client.next_id }));
+    assert_eq!(
+        client
+            .response(&id)
+            .response_result
+            .expect_err("a cancelled pull is an error response")
+            .code,
+        ErrorCode::RequestCanceled as i32,
+        "the cancel answers the pull; the scan's own report arrives afterwards with \
+         nothing left to answer and is dropped"
+    );
+    // Stay connected while the cancelled scan's report reaches the loop: dropping the
+    // client first would end the session before it is seen (and dropped).
+    thread::sleep(Duration::from_millis(200));
+    client.assert_alive();
+}
+
+#[test]
+fn a_new_pull_supersedes_an_in_flight_scan() {
+    let dir = slow_workspace();
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let first =
+        client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    // No wait: the second pull lands while the first is still walking, so the first's
+    // report reaches the loop belonging to a pull that has moved on.
+    let second =
+        client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    let superseded: WorkspaceDiagnosticReport = serde_json::from_value(
+        client
+            .response(&first)
+            .response_result
+            .expect("the superseded pull is answered"),
+    )
+    .expect("WorkspaceDiagnosticReport");
+    assert!(
+        superseded.items.is_empty(),
+        "a superseded pull is closed with an empty report"
+    );
+    assert!(
+        !serde_json::from_value::<WorkspaceDiagnosticReport>(
+            client.response(&second).response_result.expect("report"),
+        )
+        .expect("WorkspaceDiagnosticReport")
+        .items
+        .is_empty(),
+        "the replacement pull still reports the flagged files"
+    );
+}
+
 #[test]
 fn cancel_request_for_unknown_or_malformed_id_is_ignored() {
     let dir = project(TRAILING);
@@ -1951,7 +2094,9 @@ fn cancel_request_for_unknown_or_malformed_id_is_ignored() {
 #[test]
 fn workspace_diagnostic_reaps_finished_workers() {
     let dir = project(TRAILING);
-    std::fs::write(dir.path().join("a.yaml"), "a: 1\n").expect("write");
+    // A flagged file, so each pull has something to report and is answered rather than
+    // held open for long polling.
+    std::fs::write(dir.path().join("a.yaml"), "a: 1 \n").expect("write");
     let (mut client, _init) =
         Client::launch_with(None, Some(dir.path()), true, None, false, None);
     // Two sequential pulls: the second's spawn reaps the first's finished worker.
@@ -1961,11 +2106,340 @@ fn workspace_diagnostic_reaps_finished_workers() {
 }
 
 #[test]
-fn workspace_diagnostic_without_a_root_is_empty() {
+fn workspace_diagnostic_without_a_root_is_held_open() {
     let (mut client, _init) = Client::launch(None, None);
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
     assert!(
-        client.workspace_diagnostic().items.is_empty(),
-        "without a workspace root there is nothing to scan"
+        client.response_within(&id).is_none(),
+        "without a root there is nothing to say, so the pull is held open rather than \
+         answered into the client's fixed re-pull loop"
+    );
+    client.assert_alive();
+}
+
+#[test]
+fn a_malformed_watched_files_payload_still_relints() {
+    let dir = project("[rules]\nkey-duplicates = \"enable\"\n");
+    let (client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, true, None);
+    assert_eq!(
+        client.recv_request().method,
+        "client/registerCapability",
+        "the watcher is registered first"
+    );
+    client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
+    assert!(
+        client.diagnostics().is_empty(),
+        "clean under the initial config"
+    );
+    std::fs::write(dir.path().join(".ryl.toml"), TRAILING).expect("rewrite config");
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!("not the params shape"),
+    );
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "an unreadable payload is still treated as a config change"
+    );
+}
+
+#[test]
+fn an_unchanged_workspace_pull_is_held_open_until_a_change() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write");
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let previous = previous_result_ids(&client.workspace_diagnostic());
+    assert_eq!(previous.len(), 1, "the flagged file carries a result id");
+
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": previous }),
+    );
+    assert!(
+        client.response_within(&id).is_none(),
+        "every report would be Unchanged, so the pull is held open"
+    );
+
+    client.did_open(file_uri(dir.path(), "bad.yaml"), "a: 1  \nb: 2 \n");
+    let report: WorkspaceDiagnosticReport = serde_json::from_value(
+        client
+            .response(&id)
+            .response_result
+            .expect("the held pull is answered once the buffer changes"),
+    )
+    .expect("WorkspaceDiagnosticReport");
+    assert!(
+        matches!(
+            report.items.as_slice(),
+            [WorkspaceDocumentDiagnosticReport::Full(full)]
+                if !full.full_document_diagnostic_report.items.is_empty()
+        ),
+        "the resumed pull carries the new diagnostics, got {:?}",
+        report.items
+    );
+}
+
+#[test]
+fn a_watched_yaml_change_wakes_a_suspended_pull() {
+    let dir = project(TRAILING);
+    let path = dir.path().join("bad.yaml");
+    std::fs::write(&path, "a: 1 \n").expect("write");
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let previous = previous_result_ids(&client.workspace_diagnostic());
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": previous }),
+    );
+    assert!(
+        client.response_within(&id).is_none(),
+        "held open while idle"
+    );
+
+    // An edit from outside the editor, which only the source-file watcher reports.
+    std::fs::write(&path, "a: 1\n").expect("fixed");
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({ "changes": [
+            { "uri": uri("untitled:scratch"), "type": 2 },
+            { "uri": file_uri(dir.path(), "bad.yaml"), "type": 2 },
+        ] }),
+    );
+    assert!(
+        client.response(&id).response_result.is_ok(),
+        "an out-of-editor YAML change resumes the pull"
+    );
+}
+
+#[test]
+fn a_suspended_pull_is_answered_on_cancel_and_on_shutdown() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let cancelled =
+        client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    assert!(client.response_within(&cancelled).is_none(), "held open");
+    client.notify("$/cancelRequest", json!({ "id": client.next_id }));
+    assert_eq!(
+        client
+            .response(&cancelled)
+            .response_result
+            .expect_err("a cancelled pull is an error response")
+            .code,
+        ErrorCode::RequestCanceled as i32,
+        "cancelling a held pull answers it rather than leaving the client waiting"
+    );
+
+    let outstanding =
+        client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    assert!(client.response_within(&outstanding).is_none(), "held open");
+    client.shutdown();
+    assert_eq!(
+        client.response(&outstanding).id,
+        outstanding,
+        "shutdown answers a still-held pull instead of hanging the client"
+    );
+}
+
+#[test]
+fn a_new_workspace_pull_supersedes_a_held_one() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let first =
+        client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    assert!(client.response_within(&first).is_none(), "held open");
+    let second =
+        client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    let report: WorkspaceDiagnosticReport = serde_json::from_value(
+        client
+            .response(&first)
+            .response_result
+            .expect("the superseded pull is answered"),
+    )
+    .expect("WorkspaceDiagnosticReport");
+    assert!(
+        report.items.is_empty(),
+        "a superseded pull is closed with an empty report, having been told nothing"
+    );
+    assert!(
+        client.response_within(&second).is_none(),
+        "the replacement pull is itself held open"
+    );
+}
+
+/// The `$/progress` payloads carrying `token`, drained alongside the response to `id`.
+fn partial_results(
+    client: &Client,
+    id: &RequestId,
+    token: &str,
+) -> (Vec<Vec<WorkspaceDocumentDiagnosticReport>>, Response) {
+    let (messages, response) = client.messages_until_response(id);
+    let batches = messages
+        .iter()
+        .filter_map(|message| match message {
+            Message::Notification(note) if note.method == "$/progress" => {
+                (note.params["token"] == token).then(|| {
+                    serde_json::from_value::<WorkspaceDiagnosticReportPartialResult>(
+                        note.params["value"].clone(),
+                    )
+                    .expect("WorkspaceDiagnosticReportPartialResult")
+                    .items
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    (batches, response)
+}
+
+#[test]
+fn a_partial_result_token_streams_changed_reports_as_they_are_produced() {
+    let dir = slow_workspace();
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": [], "partialResultToken": "ryl-pull" }),
+    );
+    let (batches, response) = partial_results(&client, &id, "ryl-pull");
+    let streamed: usize = batches.iter().map(Vec::len).sum();
+    assert!(
+        batches.len() > 1,
+        "a workspace this size is delivered over several batches, not one: {}",
+        batches.len()
+    );
+    assert_eq!(
+        streamed, 2000,
+        "every flagged file is streamed exactly once"
+    );
+    assert!(
+        serde_json::from_value::<WorkspaceDiagnosticReport>(
+            response.response_result.expect("the pull is answered"),
+        )
+        .expect("WorkspaceDiagnosticReport")
+        .items
+        .is_empty(),
+        "a streamed report is not repeated in the response"
+    );
+}
+
+#[test]
+fn cancelling_a_streaming_scan_stops_it_between_batches() {
+    let dir = slow_workspace();
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": [], "partialResultToken": "ryl-pull" }),
+    );
+    // A streamed batch proves the walk is done and the lint is under way, so the cancel
+    // lands on the per-batch check rather than on the directory walk.
+    client.recv_progress("ryl-pull");
+    client.notify("$/cancelRequest", json!({ "id": client.next_id }));
+    assert_eq!(
+        client
+            .response(&id)
+            .response_result
+            .expect_err("a cancelled pull is an error response")
+            .code,
+        ErrorCode::RequestCanceled as i32,
+        "the pull is answered without linting the rest of the workspace"
+    );
+    client.assert_alive();
+}
+
+#[test]
+fn a_streaming_pull_clears_a_deleted_file_through_the_stream() {
+    let dir = project(TRAILING);
+    let path = dir.path().join("bad.yaml");
+    std::fs::write(&path, "a: 1 \n").expect("write");
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let first = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": [], "partialResultToken": "ryl-pull" }),
+    );
+    let (batches, _) = partial_results(&client, &first, "ryl-pull");
+    let previous = previous_result_ids(&WorkspaceDiagnosticReport {
+        items: batches.concat(),
+    });
+
+    // A clearing report is produced after the last batch of the walk, so it is the final
+    // flush rather than a batched one that carries it.
+    std::fs::remove_file(&path).expect("delete");
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": previous, "partialResultToken": "ryl-pull" }),
+    );
+    let (batches, response) = partial_results(&client, &id, "ryl-pull");
+    assert!(
+        matches!(
+            batches.concat().as_slice(),
+            [WorkspaceDocumentDiagnosticReport::Full(full)]
+                if full.full_document_diagnostic_report.items.is_empty()
+        ),
+        "the deleted file is cleared through the stream, got {batches:?}"
+    );
+    assert!(
+        response.response_result.is_ok(),
+        "having streamed, the pull is answered rather than held open"
+    );
+}
+
+#[test]
+fn a_streaming_pull_with_nothing_to_say_is_still_held_open() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write");
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let first = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": [], "partialResultToken": "ryl-pull" }),
+    );
+    let (batches, _) = partial_results(&client, &first, "ryl-pull");
+    let previous = previous_result_ids(&WorkspaceDiagnosticReport {
+        items: batches.concat(),
+    });
+    assert_eq!(
+        previous.len(),
+        1,
+        "the flagged file was streamed with an id"
+    );
+
+    let id = client.request(
+        "workspace/diagnostic",
+        json!({ "previousResultIds": previous, "partialResultToken": "ryl-pull" }),
+    );
+    assert!(
+        client.response_within(&id).is_none(),
+        "nothing changed, so nothing is streamed and the pull is held open as usual"
+    );
+    client.assert_alive();
+}
+
+#[test]
+fn document_diagnostic_reports_unchanged_for_a_matching_result_id() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
+    let uri = file_uri(dir.path(), "a.yaml");
+    client.did_open(uri.clone(), "a: 1 \n");
+    let DocumentDiagnosticReport::Full(full) = client.document_diagnostic(&uri) else {
+        panic!("a flagged document yields a full report");
+    };
+    let result_id = full
+        .full_document_diagnostic_report
+        .result_id
+        .expect("a flagged document carries a result id");
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({ "textDocument": { "uri": uri }, "previousResultId": result_id }),
+    );
+    let report: DocumentDiagnosticReport = serde_json::from_value(
+        client.response(&id).response_result.expect("diagnostic"),
+    )
+    .expect("DocumentDiagnosticReport");
+    assert!(
+        matches!(
+            report,
+            DocumentDiagnosticReport::Unchanged(unchanged)
+                if unchanged.unchanged_document_diagnostic_report.result_id == result_id
+        ),
+        "an unedited document is answered Unchanged rather than re-sending every item"
     );
 }
 
