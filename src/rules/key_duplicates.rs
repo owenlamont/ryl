@@ -238,8 +238,10 @@ impl MapData {
     fn vid(&self) -> Vid {
         let mut entries: Vec<Vid> = self
             .vid_children
-            .chunks_exact(2)
-            .map(|pair| hash_of(&(pair[0], pair[1])))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[key, value]| hash_of(&(key, value)))
             .collect();
         entries.sort_unstable();
         hash_of(&(2u8, self.node_tag, entries))
