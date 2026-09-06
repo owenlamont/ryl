@@ -54,6 +54,9 @@ ryl is a CLI tool for linting yaml files
   can't automatically fix.
 - Remember the linter/formatter prek won't scan any new modules until they are added to
   git so don't forget to git add any new modules you create before running prek.
+- Keep `Cargo.toml`'s `rust-version` in step with the channel in `rust-toolchain.toml`
+  whenever the toolchain is bumped. Nothing checks it: a stale, lower `rust-version` still
+  satisfies both clippy gates, so it fails silently.
 - Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
   so ensure current documentation and/or repo is consulted when working with third party
   dependencies.
