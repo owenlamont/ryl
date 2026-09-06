@@ -411,8 +411,8 @@ struct Server {
     /// Config errors already surfaced via `window/showMessage`, so a broken config is
     /// reported once rather than on every file/keystroke.
     reported_errors: HashSet<String>,
-    /// In-flight `workspace/diagnostic` scans, each on its own thread (so the repo walk
-    /// never blocks the message loop) with a flag the loop flips to cancel it.
+    /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk
+    /// never blocks the message loop.
     workers: Vec<Worker>,
     /// The client's outstanding `workspace/diagnostic` pull; at most one, since the client
     /// sends the next only once this is answered.
@@ -583,8 +583,7 @@ impl Server {
                 }
             }
             "workspace/didChangeWatchedFiles" => {
-                // Source files are watched too, so only a config-named change moved the
-                // config; unparsable params keep the conservative reading.
+                // Params ryl cannot read say nothing about what changed, so assume the worst.
                 let config_changed = parse::<DidChangeWatchedFilesParams>(&params)
                     .is_none_or(|watched| {
                         watched
@@ -921,7 +920,6 @@ impl Server {
         self.spawn_scan(connection, id, by_path, token);
     }
 
-    /// Scan for the outstanding pull on a background thread, reporting over `scan_tx`.
     fn spawn_scan(
         &mut self,
         connection: &Connection,
@@ -929,7 +927,7 @@ impl Server {
         previous: PreviousIds,
         token: Option<ProgressToken>,
     ) {
-        // Supersede any earlier scan (its result is dropped as stale), then reap the dead.
+        // A superseded scan's result is dropped as stale by `finish_scan`.
         self.cancel_workers();
         self.workers.retain(|worker| !worker.handle.is_finished());
         let cancel = Arc::new(AtomicBool::new(false));
@@ -950,7 +948,6 @@ impl Server {
         self.workers.push(Worker { cancel, handle });
     }
 
-    /// Answer the outstanding pull, or leave it open.
     fn finish_scan(&mut self, connection: &Connection, result: ScanResult) {
         let Some(pull) = self.pull.take() else {
             return;
@@ -1017,7 +1014,6 @@ impl Server {
         }
     }
 
-    /// Whether a watched-file event names a config ryl discovers, not a linted source.
     fn is_config_uri(&self, uri: &str) -> bool {
         let Some(path) = uri_to_path(uri) else {
             return false;
@@ -1202,10 +1198,8 @@ fn file_report(
     file_pull_report(path, version, items, previous_id)
 }
 
-/// One file's entry in a workspace pull: `Unchanged` while the client's result id matches,
-/// a full report when it does not, an empty one to clear a file the client still holds
-/// diagnostics for, and `None` for an untracked clean file — nothing to say, which is what
-/// lets an idle pull suspend.
+/// One file's entry in a workspace pull. `None` for an untracked clean file: nothing to
+/// say about it, which is what lets an idle pull suspend.
 fn file_pull_report(
     path: &Path,
     version: Option<i64>,
@@ -1239,7 +1233,6 @@ const STREAM_INTERVAL: Duration = Duration::from_millis(50);
 /// What a completed scan has to say; `streamed` commits the request to being answered.
 pub struct ScanOutcome {
     pub items: Vec<WorkspaceDocumentDiagnosticReport>,
-    /// Whether part of the report already went out as `$/progress` partial results.
     pub streamed: bool,
 }
 
@@ -1272,7 +1265,6 @@ struct Stream {
 }
 
 impl ReportSink {
-    /// Holds everything for the response, for a client that offered no token.
     #[must_use]
     pub fn bulk() -> Self {
         Self {
@@ -1295,7 +1287,6 @@ impl ReportSink {
         }
     }
 
-    /// Route one file's report; `Unchanged` is always held, streaming it says nothing.
     fn push(&mut self, report: WorkspaceDocumentDiagnosticReport) {
         match (&mut self.stream, &report) {
             (Some(stream), WorkspaceDocumentDiagnosticReport::Full(_)) => {
@@ -1305,7 +1296,6 @@ impl ReportSink {
         }
     }
 
-    /// Send what has accumulated, if enough time has passed since the last batch.
     fn flush_batch(&mut self) {
         if let Some(stream) = &mut self.stream
             && !stream.pending.is_empty()
@@ -1388,8 +1378,7 @@ pub fn workspace_scan(
         }
         sink.flush_batch();
     }
-    // A path the client holds an id for that the walk no longer reports was deleted,
-    // renamed, or newly ignored: an empty, id-less report clears it and stops the echo.
+    // A tracked path the walk no longer reports was deleted, renamed or newly ignored.
     for (uri, _) in previous
         .iter()
         .filter(|(path, _)| !covered.contains(path))

@@ -2133,8 +2133,6 @@ fn a_malformed_watched_files_payload_still_relints() {
         "clean under the initial config"
     );
     std::fs::write(dir.path().join(".ryl.toml"), TRAILING).expect("rewrite config");
-    // Params ryl cannot read say nothing about *what* changed, so the config is assumed
-    // to have: a needless re-lint beats leaving stale diagnostics on screen.
     client.notify(
         "workspace/didChangeWatchedFiles",
         json!("not the params shape"),
@@ -2198,8 +2196,7 @@ fn a_watched_yaml_change_wakes_a_suspended_pull() {
         "held open while idle"
     );
 
-    // An edit from outside the editor: without the source-file watcher a long-polling pull
-    // would never learn of it.
+    // An edit from outside the editor, which only the source-file watcher reports.
     std::fs::write(&path, "a: 1\n").expect("fixed");
     client.notify(
         "workspace/didChangeWatchedFiles",
