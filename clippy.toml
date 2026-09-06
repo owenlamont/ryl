@@ -1,4 +1,3 @@
-msrv = "1.97.1"
 # lsp-types pins bitflags 1.x and pulldown-cmark uses 2.x; no published lsp-types avoids
 # 1.x, so this duplicate is unavoidable under the `lsp` feature. synstructure 0.13 pins
 # syn 2.x and reaches the graph only through the `jsonschema` dev-dependency

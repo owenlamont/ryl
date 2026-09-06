@@ -293,10 +293,10 @@ fn decode_utf16(
         ));
     }
     let mut units: Vec<u16> = Vec::with_capacity(data.len() / 2);
-    for chunk in data.chunks_exact(2) {
+    for &chunk in data.as_chunks::<2>().0 {
         let value = match endian {
-            Endian::Big => u16::from_be_bytes([chunk[0], chunk[1]]),
-            Endian::Little => u16::from_le_bytes([chunk[0], chunk[1]]),
+            Endian::Big => u16::from_be_bytes(chunk),
+            Endian::Little => u16::from_le_bytes(chunk),
         };
         units.push(value);
     }
@@ -324,12 +324,10 @@ fn decode_utf32(
         ));
     }
     let mut out = String::with_capacity(data.len() / 4);
-    for chunk in data.chunks_exact(4) {
+    for &chunk in data.as_chunks::<4>().0 {
         let raw = match endian {
-            Endian::Big => u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
-            Endian::Little => {
-                u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
-            }
+            Endian::Big => u32::from_be_bytes(chunk),
+            Endian::Little => u32::from_le_bytes(chunk),
         };
         match char::from_u32(raw) {
             Some(ch) => out.push(ch),
