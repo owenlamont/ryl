@@ -7,10 +7,9 @@
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use lsp_server::{ErrorCode, RequestId};
 use lsp_types::{
     Diagnostic, NumberOrString, Position, PositionEncodingKind, PrepareRenameResponse,
-    Range,
+    PreviousResultId, Range, Uri, WorkspaceDocumentDiagnosticReport,
 };
 use tempfile::tempdir;
 
@@ -22,7 +21,9 @@ use ryl::lsp::encoding::{
 };
 use ryl::lsp::hover::hover;
 use ryl::lsp::rename::{prepare_rename, rename_edits};
-use ryl::lsp::{OpenText, Settings, workspace_response, workspace_scan};
+use ryl::lsp::{
+    OpenText, PreviousIds, ReportSink, Settings, previous_by_path, workspace_scan,
+};
 
 #[test]
 fn negotiate_prefers_clients_first_supported_kind() {
@@ -765,7 +766,7 @@ fn rename_edits_reject_a_name_that_collides_with_another_anchor() {
     );
 }
 
-// --- workspace_scan / workspace_response: the background pull's pure core ---
+// --- workspace_scan / previous_by_path: the background pull's pure core ---
 
 fn workspace_project() -> tempfile::TempDir {
     // An adjacent .ryl.toml shields config discovery from the walk (no HOME needed).
@@ -778,19 +779,123 @@ fn workspace_project() -> tempfile::TempDir {
     dir
 }
 
+fn scan(dir: &Path, previous: &PreviousIds) -> Vec<WorkspaceDocumentDiagnosticReport> {
+    workspace_scan(
+        &[dir.to_path_buf()],
+        &OpenText::new(),
+        &Settings::default(),
+        PositionEncoding::Utf16,
+        previous,
+        &AtomicBool::new(false),
+        ReportSink::bulk(),
+    )
+    .expect("an uncancelled scan returns reports")
+    .items
+}
+
+fn only_result_id(reports: &[WorkspaceDocumentDiagnosticReport]) -> (Uri, String) {
+    match reports {
+        [WorkspaceDocumentDiagnosticReport::Full(full)] => (
+            full.uri.clone(),
+            full.full_document_diagnostic_report
+                .result_id
+                .clone()
+                .expect("a flagged file carries a result id"),
+        ),
+        other => panic!("expected one full report, got {other:?}"),
+    }
+}
+
 #[test]
 fn workspace_scan_lints_each_root_file() {
     let dir = workspace_project();
     std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("yaml");
-    let reports = workspace_scan(
-        &[dir.path().to_path_buf()],
-        &OpenText::new(),
-        &Settings::default(),
-        PositionEncoding::Utf16,
-        &AtomicBool::new(false),
-    )
-    .expect("an uncancelled scan returns reports");
+    let reports = scan(dir.path(), &PreviousIds::new());
     assert!(!reports.is_empty(), "the flagged file is reported");
+}
+
+#[test]
+fn workspace_scan_omits_a_clean_untracked_file() {
+    let dir = workspace_project();
+    std::fs::write(dir.path().join("good.yaml"), "a: 1\n").expect("yaml");
+    assert!(
+        scan(dir.path(), &PreviousIds::new()).is_empty(),
+        "a clean file the client is not tracking has nothing to report, which is what \
+         lets an idle pull suspend"
+    );
+}
+
+#[test]
+fn workspace_scan_reports_unchanged_for_a_matching_result_id() {
+    let dir = workspace_project();
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("yaml");
+    let (uri, result_id) = only_result_id(&scan(dir.path(), &PreviousIds::new()));
+    let previous = previous_by_path(&[PreviousResultId {
+        uri,
+        value: result_id.clone(),
+    }]);
+    match scan(dir.path(), &previous).as_slice() {
+        [WorkspaceDocumentDiagnosticReport::Unchanged(unchanged)] => assert_eq!(
+            unchanged.unchanged_document_diagnostic_report.result_id, result_id,
+            "an unchanged file echoes the id the client already holds"
+        ),
+        other => panic!("expected one unchanged report, got {other:?}"),
+    }
+}
+
+#[test]
+fn workspace_scan_clears_a_tracked_file_that_became_clean() {
+    let dir = workspace_project();
+    let path = dir.path().join("bad.yaml");
+    std::fs::write(&path, "a: 1 \n").expect("yaml");
+    let (uri, result_id) = only_result_id(&scan(dir.path(), &PreviousIds::new()));
+    std::fs::write(&path, "a: 1\n").expect("fixed");
+    let previous = previous_by_path(&[PreviousResultId {
+        uri,
+        value: result_id,
+    }]);
+    match scan(dir.path(), &previous).as_slice() {
+        [WorkspaceDocumentDiagnosticReport::Full(full)] => {
+            assert!(
+                full.full_document_diagnostic_report.items.is_empty()
+                    && full.full_document_diagnostic_report.result_id.is_none(),
+                "a fixed file is cleared with an empty, untracked report"
+            );
+        }
+        other => panic!("expected one clearing report, got {other:?}"),
+    }
+}
+
+#[test]
+fn workspace_scan_clears_a_tracked_file_that_vanished() {
+    let dir = workspace_project();
+    let path = dir.path().join("bad.yaml");
+    std::fs::write(&path, "a: 1 \n").expect("yaml");
+    let (uri, result_id) = only_result_id(&scan(dir.path(), &PreviousIds::new()));
+    std::fs::remove_file(&path).expect("delete");
+    let previous = previous_by_path(&[PreviousResultId {
+        uri: uri.clone(),
+        value: result_id,
+    }]);
+    match scan(dir.path(), &previous).as_slice() {
+        [WorkspaceDocumentDiagnosticReport::Full(full)] => assert_eq!(
+            full.uri, uri,
+            "a deleted file the client still tracks is cleared by URI"
+        ),
+        other => panic!("expected one clearing report, got {other:?}"),
+    }
+}
+
+#[test]
+fn previous_by_path_skips_a_non_file_uri() {
+    assert!(
+        previous_by_path(&[PreviousResultId {
+            uri: "untitled:scratch".parse::<Uri>().expect("untitled URI"),
+            value: "id".to_string(),
+        }])
+        .is_empty(),
+        "an untitled buffer has no path to key a workspace result id on"
+    );
 }
 
 #[test]
@@ -804,27 +909,11 @@ fn workspace_scan_returns_none_when_cancelled() {
             &OpenText::new(),
             &Settings::default(),
             PositionEncoding::Utf16,
+            &PreviousIds::new(),
             &AtomicBool::new(true),
+            ReportSink::bulk(),
         )
         .is_none(),
         "a cancelled scan yields no report"
-    );
-}
-
-#[test]
-fn workspace_response_is_ok_or_cancelled() {
-    let ok = workspace_response(RequestId::from(1), Some(Vec::new()));
-    assert!(
-        ok.response_result.is_ok(),
-        "a completed scan is an ok response"
-    );
-    let cancelled = workspace_response(RequestId::from(2), None);
-    assert_eq!(
-        cancelled
-            .response_result
-            .expect_err("a cancelled scan is an error")
-            .code,
-        ErrorCode::RequestCanceled as i32,
-        "cancellation maps to the RequestCancelled code"
     );
 }

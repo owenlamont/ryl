@@ -306,7 +306,12 @@ fn fingerprint(path: &str, check_name: &str, message: &str, salt: u64) -> String
     hasher.update(check_name.as_bytes());
     hasher.update([0u8]);
     hasher.update(message.as_bytes());
-    let digest = hasher.finalize();
+    hex_digest(&hasher.finalize())
+}
+
+/// Lower-case hex of a digest, for the identifiers callers hand to other tools (GitLab's
+/// fingerprint, an LSP `resultId`).
+pub(crate) fn hex_digest(digest: &[u8]) -> String {
     let mut out = String::with_capacity(digest.len() * 2);
     for byte in digest {
         write!(out, "{byte:02x}").expect("writing to a String is infallible");
