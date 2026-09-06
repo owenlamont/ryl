@@ -1041,3 +1041,39 @@ jobs:
             -H "Authorization: Bearer ${APP_TOKEN}" \
             https://api.github.com/repos/owenlamont/ryl-pre-commit/dispatches \
             -d "{\"event_type\":\"pypi_release\",\"client_payload\":{\"version\":\"${version}\"}}"
+
+  notify-ryl-vscode:
+    name: Notify ryl-vscode
+    runs-on: ubuntu-latest
+    environment: automation
+    needs:
+      - finalize-github-release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+    permissions:
+      contents: read
+    steps:
+      - name: Generate token for cross-repository dispatch
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ secrets.AUTH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: owenlamont
+          repositories: ryl-vscode
+          permission-contents: write
+
+      # ryl-vscode's weekly schedule is the fallback, so a failure here only delays its bump.
+      - name: Dispatch ryl_release event to ryl-vscode
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |-
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          curl --fail -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${APP_TOKEN}" \
+            https://api.github.com/repos/owenlamont/ryl-vscode/dispatches \
+            -d "{\"event_type\":\"ryl_release\",\"client_payload\":{\"version\":\"${version}\"}}"
