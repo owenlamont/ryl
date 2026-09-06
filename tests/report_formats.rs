@@ -51,9 +51,9 @@ fn element_counts(xml: &str) -> HashMap<String, usize> {
             .expect("junit output is well-formed XML")
         {
             Event::Start(element) | Event::Empty(element) => {
-                let name =
-                    String::from_utf8_lossy(element.name().as_ref()).into_owned();
-                *counts.entry(name).or_insert(0) += 1;
+                *counts
+                    .entry(element.name().as_ref().to_owned())
+                    .or_insert(0) += 1;
             }
             Event::Eof => break,
             _ => {}
@@ -275,14 +275,12 @@ fn junit_disambiguates_testcases_at_an_identical_position() {
     loop {
         match reader.read_event().expect("well-formed XML") {
             Event::Start(element) | Event::Empty(element)
-                if element.name().as_ref() == b"testcase" =>
+                if element.name().as_ref() == "testcase" =>
             {
                 for attr in element.attributes() {
                     let attr = attr.expect("valid attribute");
-                    if attr.key.as_ref() == b"name" {
-                        names.push(
-                            String::from_utf8_lossy(attr.value.as_ref()).into_owned(),
-                        );
+                    if attr.key.as_ref() == "name" {
+                        names.push(attr.value.into_owned());
                     }
                 }
             }
@@ -312,17 +310,17 @@ fn junit_escapes_special_characters_in_messages() {
     let mut reader = Reader::from_str(&xml);
     let message = loop {
         match reader.read_event().expect("well-formed XML") {
-            Event::Start(element) if element.name().as_ref() == b"failure" => {
+            Event::Start(element) if element.name().as_ref() == "failure" => {
                 let attr = element
                     .attributes()
                     .find_map(|attr| {
                         let attr = attr.expect("valid attribute");
-                        (attr.key.as_ref() == b"message").then_some(attr)
+                        (attr.key.as_ref() == "message").then_some(attr)
                     })
                     .expect("failure has a message attribute");
-                let escaped =
-                    std::str::from_utf8(attr.value.as_ref()).expect("UTF-8 value");
-                break unescape(escaped).expect("attribute unescapes").into_owned();
+                break unescape(&attr.value)
+                    .expect("attribute unescapes")
+                    .into_owned();
             }
             Event::Eof => panic!("no failure element found"),
             _ => {}
