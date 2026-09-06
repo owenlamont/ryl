@@ -94,6 +94,11 @@ description: >-
   creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a
   draft until assets upload, with auto-generated notes; reruns skip publish steps for a
   version that already exists.
+- The `publish-winget` job syncs the winget-pkgs fork with upstream before submitting,
+  because `wingetcreate` cannot fast-forward it and `--submit` fails with "The forked
+  repository could not be synced with the upstream commits" once it falls behind. If that
+  error appears anyway, sync by hand
+  (`gh api repos/<owner>/winget-pkgs/merge-upstream -f branch=master`) and re-run the job.
 - After the release is un-drafted, the `publish-winget` job submits a winget-pkgs PR via
   `wingetcreate update owenlamont.ryl` (token: the classic `public_repo` `WINGET_PAT`
   secret in the `automation` environment). It requires the package to already exist in
