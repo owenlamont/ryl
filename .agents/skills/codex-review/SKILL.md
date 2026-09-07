@@ -135,6 +135,10 @@ list shows only genuinely open items. Codex reviews the **code**, not the thread
 **not** read replies), so replies are for the human record and re-reviewing means re-running
 this skill against new commits, never answering inline.
 
+Read the threads with `gh pr view <n> --json comments,reviews` (summary threads) and
+`gh api repos/<owner>/<repo>/pulls/<n>/comments` (inline review details); `gh pr view` has
+no `--review-comments` flag.
+
 Pick one of three dispositions per comment, then **resolve the thread**:
 
 - **Valid: action it.** Fix it in the code or docs, react **👍** on the comment (Codex

@@ -33,7 +33,7 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    and the `insert_serialized` line in `rules_table_to_value`. These four parallel lists
    have no compile-time cross-check; the `every_rule_round_trips_through_toml_serialization`
    guard test catches a forgotten serialization line. Regenerate the committed
-   `ryl.{toml,yaml}.schema.json` (see *Testing Tips* in `AGENTS.md`) and run `prek`.
+   `ryl.{toml,yaml}.schema.json` (see the `testing-traps` dev skill) and run `prek`.
 5. **Tests**: add the rule to `property_check`'s `collect_spans` + a `RULE_TRIGGERS`
    row; if it has a safe `--fix`, also `SAFE_FIX_RULES` and the safe-fix generator. Add
    a CLI test `tests/cli_<rule>_rule.rs` (use the shared `common::cli` harness) and an

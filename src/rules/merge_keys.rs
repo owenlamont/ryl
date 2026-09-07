@@ -9,7 +9,7 @@
 //! Detection covers a scalar key node (every merge key in practice); a merge tag on a
 //! non-scalar key (`!!merge {k: 1}: *base`) is not detected, since the key arrives as a
 //! mapping/sequence event. No safe `--fix`: removing a merge requires inlining the
-//! merged mapping's resolved values (see AGENTS.md "Rules Without A Safe `--fix`").
+//! merged mapping's resolved values (see the `property-tests` dev skill).
 //!
 //! Sources: YAML 1.2.2 changes page; YAML merge type.
 

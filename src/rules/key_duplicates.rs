@@ -23,7 +23,7 @@
 //! children. Hashing (not materialising an alias-expanded tree) plus merging each
 //! anchor into a host at most once keeps work linear in the source, so the lint path
 //! never reintroduces the alias-expansion blow-up bounded out of the config loader.
-//! No safe `--fix` (see AGENTS.md "Rules Without A Safe `--fix`").
+//! No safe `--fix` (see the `property-tests` dev skill).
 //!
 //! Sources: YAML 1.2.2 §3.2.1.3; adrienverge/yamllint#175.
 

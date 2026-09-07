@@ -11,7 +11,7 @@
 //! Detection normalises tag spelling, so shorthand (`!!omap`), local (`!ruby/object:`),
 //! verbatim (`!<tag:yaml.org,2002:omap>`), and `%TAG`-split forms map to one identity
 //! and cannot be used to evade a check. No safe `--fix`: rewriting or dropping a tag
-//! changes the node's resolved type (see AGENTS.md "Rules Without A Safe `--fix`").
+//! changes the node's resolved type (see the `property-tests` dev skill).
 //!
 //! Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; `PyYAML` docs.
 

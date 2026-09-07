@@ -1,8 +1,8 @@
 //! `block-scalar-chomping` rule: requires an explicit chomping indicator (`-` or `+`)
 //! on every `|`/`>` block scalar header. An indentation indicator alone (`|2`) is
 //! still flagged. No safe `--fix`: YAML has no explicit clip indicator, so a bare
-//! `|`/`>` cannot be annotated without changing its chomping (see AGENTS.md "Rules
-//! Without A Safe `--fix`").
+//! `|`/`>` cannot be annotated without changing its chomping (see the `property-tests` dev
+//! skill).
 //!
 //! Detection enumerates block scalars from granit's scanner tokens
 //! (`ScalarStyle::Literal`/`Folded`), so a `|`/`>` in a quoted scalar, comment, or
