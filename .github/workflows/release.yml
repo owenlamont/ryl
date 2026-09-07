@@ -1018,7 +1018,7 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
-    uses: ./.github/workflows/sync-schemastore.yml
+    uses: $/.github/workflows/sync-schemastore.yml
     with:
       source_ref: ${{ github.sha }}
     secrets:
