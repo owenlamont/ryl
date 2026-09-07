@@ -11,8 +11,7 @@ script: |-
 ```
 
 A bare `|`/`>`, or a header with only an indentation indicator such as `|2`, is
-flagged because its chomping is still the implicit default. The rule is **off by
-default**.
+flagged because its chomping is still the implicit default.
 
 ## Why this matters
 

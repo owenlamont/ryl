@@ -29,6 +29,44 @@ check-keys = true
 | `allowed-values` | `["true", "false"]` | Bareword values that are permitted. Everything else triggers the rule. |
 | `check-keys` | `true` | Also report truthy values used as mapping keys. |
 
+## GitHub Actions workflows
+
+A workflow's required `on:` key is a truthy bareword, so `truthy` reports it:
+
+```console
+$ ryl check .github/workflows/ci.yml
+.github/workflows/ci.yml
+  2:1       error    truthy value should be one of [false, true]  (truthy)
+```
+
+Quoting the key does not help. ryl resolves the YAML 1.2 core schema, where `on`
+is an ordinary string, so `'on':` then trips
+[`quoted-strings`](quoted-strings.md) under `required: only-when-needed`.
+yamllint accepts the quotes because PyYAML reads `on` as a YAML 1.1 boolean
+&mdash; see [YAML version compatibility](../yaml-version.md).
+
+Three ways to settle it, narrowest first:
+
+| Approach | Effect |
+| :--- | :--- |
+| [`per-file-ignores`](../file-ignores.md) on the workflow directory | `truthy` still runs everywhere else. Recommended |
+| `check-keys = false` | No key is checked, in any file |
+| `on` in `allowed-values` | Also permits `on` as a *value*, in any file |
+
+The recommended form scopes the exemption to the files that need it:
+
+```toml
+[rules.truthy]
+
+[per-file-ignores]
+".github/workflows/*" = ["truthy"]
+```
+
+Both alternatives are global, which is the trade-off to weigh: they are simpler
+to write, and they stop `truthy` catching an accidental `enabled: yes` in the
+same repo.
+
+
 ## Examples
 
 ### :white_check_mark: Allowed (defaults)
