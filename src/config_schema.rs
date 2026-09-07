@@ -1183,29 +1183,29 @@ fn parse_string_items(
     map(text)
 }
 
+/// TOML rejects an unknown key structurally, while the yamllint-compatible YAML path
+/// tolerates one, so every ryl-native top-level key has to be listed here to be caught.
+const TOML_ONLY_CONFIG_KEYS: [&str; 6] = [
+    "files",
+    "fix",
+    "markdown",
+    "output",
+    "per-file-ignores",
+    "per-line-ignores",
+];
+
 pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, String> {
     if doc.as_mapping().is_none() {
         return Err("invalid config: not a mapping".to_string());
     }
 
-    if doc.as_mapping_get("fix").is_some() {
-        return Err(
-            "invalid config: fix is only supported in TOML configuration".to_string(),
-        );
-    }
-
-    if doc.as_mapping_get("per-line-ignores").is_some() {
-        return Err(
-            "invalid config: per-line-ignores is only supported in TOML configuration"
-                .to_string(),
-        );
-    }
-
-    if doc.as_mapping_get("output").is_some() {
-        return Err(
-            "invalid config: output is only supported in TOML configuration"
-                .to_string(),
-        );
+    if let Some(key) = TOML_ONLY_CONFIG_KEYS
+        .into_iter()
+        .find(|key| doc.as_mapping_get(key).is_some())
+    {
+        return Err(format!(
+            "invalid config: {key} is only supported in TOML configuration"
+        ));
     }
 
     let typed = parse_typed_yaml_config(doc)?;

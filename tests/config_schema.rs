@@ -1108,3 +1108,38 @@ fn toml_schema_root_rejects_unknown_top_level_keys() {
         "a config using only known top-level keys should pass"
     );
 }
+
+#[test]
+fn yaml_config_rejects_every_toml_only_key() {
+    let cases = [
+        ("files", "files:\n  yaml: [\"*.yaml\"]\n"),
+        ("fix", "fix:\n  fixable: [comments]\n"),
+        ("markdown", "markdown:\n  fenced: true\n"),
+        ("output", "output:\n  format: parsable\n"),
+        (
+            "per-file-ignores",
+            "per-file-ignores:\n  \"*.yaml\": [comments]\n",
+        ),
+        (
+            "per-line-ignores",
+            "per-line-ignores:\n  - regex: \"a\"\n    rules: [comments]\n",
+        ),
+    ];
+
+    for (key, data) in cases {
+        let err = ryl::config::discover_config(
+            &[],
+            &ryl::config::Overrides {
+                config_file: None,
+                config_data: Some(data.to_string()),
+            },
+        )
+        .expect_err(&format!("yaml config should reject `{key}`"));
+
+        assert_eq!(
+            err,
+            format!("invalid config: {key} is only supported in TOML configuration"),
+            "`{key}` in a yamllint-style YAML config must name itself in the error"
+        );
+    }
+}
