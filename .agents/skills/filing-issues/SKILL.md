@@ -32,7 +32,8 @@ These go out under the maintainer's name, so they are higher-stakes:
    behaviour as hypotheses to re-verify.
 3. **Ship a one-command reproduction**, pinned to the dependency's **latest** version
    (so the report can't be for a bug already fixed upstream), printing
-   observed-vs-expected. No repro, no report.
+   observed-vs-expected. It lives in its own `<repo>-<topic>-repro/` directory outside
+   the ryl checkout (ask where drafts live). No repro, no report.
 4. **Include verified, clickable Sources** (a "Sources" section: spec quote /
    play.yaml.com event stream / upstream issue links) on the *first* pass — not bare
    prose mentions — to avoid a verify-then-re-push cycle on an already-published issue.

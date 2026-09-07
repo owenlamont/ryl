@@ -1,7 +1,5 @@
 # Coding Agent Instructions
 
-Guidance on how to navigate and modify this codebase.
-
 ## What This Tool Does
 
 ryl is a CLI tool for linting yaml files
@@ -9,9 +7,8 @@ ryl is a CLI tool for linting yaml files
 ## Project Structure
 
 - **/src/** – All application code lives here.
-- **/src/lsp/** – the `ryl server` language server (LSP), behind the default-on `lsp`
-  cargo feature; a thin protocol adapter (`lsp-server`+`lsp-types`) over the existing
-  engine. See [CLI Behavior](#cli-behavior).
+- **/src/lsp/** – the `ryl server` language server, behind the default-on `lsp` cargo
+  feature; a thin protocol adapter over the engine.
 - **/tests/** – Unit and integration tests.
 - **/docs/** – Source content for the Zensical documentation site.
 - **pyproject.toml** - Package configuration
@@ -26,64 +23,54 @@ ryl is a CLI tool for linting yaml files
 - Before implementing a new or changed rule — or any non-trivial feature — propose a
   short plan and agree the approach before writing code; don't jump straight to
   implementation.
-- Separate judgment calls from mechanical work. When a change turns on user-facing
-  behaviour or a spec/standard choice (what to flag, which YAML schema applies, a
+- Separate judgment calls from mechanical work. Where a change turns on user-facing
+  behaviour or a spec choice (what to flag, which YAML schema applies, a
   false-positive-vs-false-negative trade-off), lay out the options and let the maintainer
-  decide rather than picking silently. Carry out mechanical fixes and clear-cut review
-  feedback without asking.
-- If you notice anything inaccurate or stale in this `AGENTS.md` while working, fix it as
-  part of the change rather than leaving it for later.
+  decide. Carry out mechanical fixes and clear-cut review feedback without asking.
+- If you notice anything inaccurate or stale in this `AGENTS.md` or in a dev skill while
+  working, fix it as part of the change rather than leaving it for later.
 - Keep code as succinct as practical: every line has a maintenance and read-time cost,
-  so prefer good naming over comments, and remember every new conditional adds a testing
-  burden. The best refactors remove lines while keeping functionality.
-- Comments earn their place; default to deleting one rather than keeping it. Code is the
-  primary documentation: reach for a clearer name, type, or signature before a comment,
-  and remember a self-documenting signature often needs no doc comment at all
-  (`missing_docs` is not enforced). A doc comment states *what* only to the extent the
-  signature cannot, and tersely; it never restates what the code already conveys. A *why*
-  comment is warranted only where the justification is not locally apparent: an
-  unavoidable code smell (often third-party-imposed), a constraint at a distance, a
-  non-obvious invariant, or "looks-wrong-but-isn't" logic that stops a later reader
-  "fixing" it (a "verified against ruamel/PyYAML" note counts when it justifies such
-  logic). Background, motivation, and history do not qualify, even for a rule's own
-  rationale. Where clippy mandates a doc section (`# Errors`/`# Panics`), satisfy it
-  minimally. No issue/PR references and no historical narration in comments.
-- Leverage the provided linters and formatters to fix code, configuration, and
-  documentation often - it's much cheaper to have the linters and formatters auto fix
-  issues than correcting them yourself. Only correct what the linters and formatters
-  can't automatically fix.
-- Remember the linter/formatter prek won't scan any new modules until they are added to
-  git so don't forget to git add any new modules you create before running prek.
+  and every new conditional adds a testing burden. The best refactors remove lines while
+  keeping functionality.
+- Comments earn their place; default to deleting one. Code is the primary documentation:
+  reach for a clearer name, type, or signature first (`missing_docs` is not enforced, so
+  a self-documenting signature often needs no doc comment). A *why* comment is warranted
+  only where the justification is not locally apparent: an unavoidable code smell (often
+  third-party-imposed), a constraint at a distance, a non-obvious invariant, or
+  "looks-wrong-but-isn't" logic that stops a later reader "fixing" it (a "verified
+  against ruamel/PyYAML" note counts). Background, motivation, and history do not
+  qualify, even for a rule's own rationale. Satisfy a clippy-mandated doc section
+  (`# Errors`/`# Panics`) minimally. No issue/PR references, no historical narration.
+- Lean on the linters and formatters — auto-fixing is far cheaper than correcting by
+  hand, so only fix what they can't. prek won't scan a new module until it is `git
+  add`ed, so stage new files first.
 - Keep `Cargo.toml`'s `rust-version` in step with the channel in `rust-toolchain.toml`
   whenever the toolchain is bumped. Nothing checks it: a stale, lower `rust-version` still
   satisfies both clippy gates, so it fails silently.
-- Don't rely on your memory of libraries and APIs. All external dependencies evolve fast
-  so ensure current documentation and/or repo is consulted when working with third party
-  dependencies.
-- Verify behaviour against an authoritative source before asserting it (to the
-  maintainer as much as in code): prefer the ryl CLI, real `yamllint`, the play.yaml.com
-  reference parser, or a resolving loader over memory; and if an earlier claim turns out
-  wrong, correct the record explicitly.
-- When mirroring yamllint behaviour, spot-check tricky inputs with the ryl CLI so
-  our diagnostics and message text match (e.g., mixed newline styles or config keys of
+- Don't rely on your memory of libraries and APIs; consult current documentation or the
+  dependency's own repo.
+- Verify behaviour against an authoritative source before asserting it, to the maintainer
+  as much as in code: prefer the ryl CLI, real `yamllint`, the play.yaml.com reference
+  parser, or a resolving loader over memory, and correct an earlier claim explicitly once
+  it turns out wrong. When mirroring yamllint, spot-check tricky inputs with the ryl CLI
+  so diagnostics and message text match (e.g. mixed newline styles, or config keys of
   type int/bool/null/tagged scalar).
 - For how YAML *itself* parses (is an input valid, what events does it produce?), the
-  source of truth is the YAML Parser Playground <https://play.yaml.com/>: paste YAML and
-  read the **Reference Parser** pane (the test-suite event stream — `+STR/+DOC/+MAP/+SEQ`,
-  `=VAL`, `=ALI`, `&anchor`, tags, or a parse error). It can be driven by a base64 URL
-  hash (`https://play.yaml.com/#<base64>`) for scripted checks. Caveat: it reports the
-  *parse/event* layer, not *schema resolution* (`=VAL :011`, never "int vs string"); for
-  type-resolution (does `011` resolve to int 11, an empty scalar to null?) use a
-  resolving loader (`ruamel.yaml` 1.2 mode or PyYAML), since ryl targets the YAML 1.2
-  **core** schema.
-- When parsers disagree on an input (e.g. granit vs yamllint/PyYAML vs `ruamel.yaml`)
-  and a rule's behaviour turns on the disagreement, **decide against the YAML 1.2.2
-  specification grammar and the play.yaml.com reference parser — they rank above
-  yamllint as the authority.** yamllint (PyYAML) is a compatibility target, not ground
-  truth, and is sometimes non-conformant. Quote the relevant spec production and the
-  reference-parser event stream when deciding, prefer the spec-correct behaviour, and
-  record any deliberate yamllint divergence (with an example and the rationale) in the
-  "How ryl differs from yamllint" catalog in
+  source of truth is the **Reference Parser** pane of the YAML Parser Playground
+  <https://play.yaml.com/> — the test-suite event stream (`+STR/+DOC/+MAP/+SEQ`, `=VAL`,
+  `=ALI`, `&anchor`, tags, or a parse error), drivable as
+  `https://play.yaml.com/#<base64>` for scripted checks. It reports the *parse/event*
+  layer, not *schema resolution* (`=VAL :011`, never "int vs string"); for type
+  resolution (does `011` resolve to int 11, an empty scalar to null?) use a resolving
+  loader (`ruamel.yaml` 1.2 mode or PyYAML), since ryl targets the YAML 1.2 **core**
+  schema.
+- When parsers disagree (e.g. granit vs yamllint/PyYAML vs `ruamel.yaml`) and a rule's
+  behaviour turns on it, **decide against the YAML 1.2.2 specification grammar and the
+  play.yaml.com reference parser — they rank above yamllint as the authority.** yamllint
+  (PyYAML) is a compatibility target, not ground truth, and is sometimes non-conformant.
+  Quote the spec production and the reference-parser event stream when deciding, prefer
+  the spec-correct behaviour, and record any deliberate divergence (example + rationale)
+  in the "How ryl differs from yamllint" catalog in
   `docs/getting-started/migrating-from-yamllint.md`.
 - Keep YAML configuration aligned with what yamllint currently supports; put any
   ryl-only settings, experimental options, or ahead-of-upstream behaviour in TOML so
@@ -94,34 +81,47 @@ ryl is a CLI tool for linting yaml files
 
 ## Dev Skills
 
-Task-scoped procedures live as on-demand skills in `.agents/skills/` (the shared
-project-scope skills dir most non-Claude agents auto-load); load the matching one when
-its task comes up rather than carrying it in this always-on file. Each is a
-self-contained `SKILL.md`; the `coverage`, `codex-review`, and `retrospective`
-skills also carry a `uv`-runnable helper script.
+Task-scoped procedures and reference material live as on-demand skills in
+`.agents/skills/` (the shared project-scope skills dir most non-Claude agents auto-load);
+load the matching one when its task comes up rather than carrying it in this always-on
+file. Each is a self-contained `SKILL.md`; `coverage`, `codex-review`, and `retrospective`
+also carry a `uv`-runnable helper script.
 
-- **`adding-a-rule`** (`.agents/skills/adding-a-rule/SKILL.md`) — the multi-site
-  checklist for adding a new lint rule or changing an existing rule's wiring.
-- **`property-tests`** (`.agents/skills/property-tests/SKILL.md`) — extending the
-  safe-fix / rule-checker / markdown-fix / config property suites, the ~1000× pre-commit
-  run, and the rules that intentionally have no safe `--fix`.
-- **`coverage`** (`.agents/skills/coverage/SKILL.md`) — closing missed lines/regions for
-  the CI gate, the `coverage-missing.py` workflow, and coverage-friendly Rust idioms.
-- **`release`** (`.agents/skills/release/SKILL.md`) — the lockstep version bump,
-  tag/push gate, and post-release SchemaStore + publishing flow.
-- **`winget-defender-fp`** (`.agents/skills/winget-defender-fp/SKILL.md`) — triage a
-  winget-pkgs PR blocked by a Microsoft Defender false positive
-  (`Validation-Defender-Error`): the transient-vs-reproducible decision, local
-  Defender + VirusTotal reproduction, and the WDSI false-positive submission.
-- **`codex-review`** (`.agents/skills/codex-review/SKILL.md`) — drive a Codex CI review
-  on a PR end to end: trigger, monitor and classify the verdict, and handle the resulting
-  comments (thumbs-up/down, resolve, reply).
-- **`filing-issues`** (`.agents/skills/filing-issues/SKILL.md`) — filing/editing issues
-  and PRs for ryl or another repo: the cross-repo `#NNN` footgun, the draft-locally gate,
-  the never-on-an-assumption rule, and verified Sources.
-- **`retrospective`** (`.agents/skills/retrospective/SKILL.md`) — quantify development
-  friction across recent sessions with a deterministic transcript extractor
-  (`retro-extract.py`) feeding a small classifier-agent fan-out.
+Working on the codebase:
+
+- `.agents/skills/adding-a-rule/SKILL.md` — the multi-site rule checklist and the granit
+  event/span gotchas.
+- `.agents/skills/lint-pipeline/SKILL.md` — inputs, source kinds, stdin, directives,
+  Markdown embedding, `--fix`/`--diff`.
+- `.agents/skills/config-discovery/SKILL.md` — config precedence, the candidate walk, and
+  the explicit-opt-in exit-2 cases.
+- `.agents/skills/output-formats/SKILL.md` — `--format`/`--output-file` targets, the
+  `[output]` table, JUnit/GitLab reports.
+- `.agents/skills/lsp-server/SKILL.md` — `ryl server` diagnostics, code actions, and
+  position encoding.
+- `.agents/skills/payload-hardening/SKILL.md` — the invariants that contain a hostile
+  YAML payload.
+
+Verifying a change:
+
+- `.agents/skills/property-tests/SKILL.md` — the four property suites and the ~1000×
+  pre-commit run.
+- `.agents/skills/testing-traps/SKILL.md` — traps that make a test pass vacuously, plus
+  regenerating committed schemas and snapshots.
+- `.agents/skills/coverage/SKILL.md` — closing missed lines/regions for the CI gate.
+- `.agents/skills/codex-review/SKILL.md` — driving a Codex CI review and handling its
+  comments.
+
+Shipping and process:
+
+- `.agents/skills/release/SKILL.md` — the lockstep version bump, tag/push gate, and
+  publishing flow.
+- `.agents/skills/filing-issues/SKILL.md` — filing issues and PRs here and on other
+  people's repos.
+- `.agents/skills/winget-defender-fp/SKILL.md` — a winget-pkgs PR blocked by a Defender
+  false positive.
+- `.agents/skills/retrospective/SKILL.md` — quantifying development friction across
+  recent sessions.
 
 Claude Code does not auto-load `.agents/skills/`, so this list is the cross-tool
 fallback: any agent that reads `AGENTS.md` is pointed here, and even a skill-unaware
@@ -131,11 +131,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 ## Code Change Requirements
 
 - Whenever any files are edited ensure all prek linters pass (run:
-  `prek run --all-files`).
-- `prek` already runs the key tooling (e.g., trim/fix whitespace, `cargo fmt`,
-  `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, etc.), so skip
-  invoking those individually. Re-run `prek run --all-files` until the auto-fixes
-  stabilise and a full pass succeeds without modifying files before running coverage.
+  `prek run --all-files`). prek already runs the key tooling (trim/fix whitespace,
+  `cargo fmt`, `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, …), so
+  skip invoking those individually. Re-run until the auto-fixes stabilise and a full pass
+  succeeds without modifying files before running coverage.
 - When editing **feature-gated** code (e.g. anything `#[cfg(feature = "lsp")]`), reproduce
   CI's two clippy gates locally with `-D warnings` (prek's clippy does not, so it misses
   these): `cargo clippy --all-targets -- -D warnings` and `cargo clippy --all-targets
@@ -145,15 +144,13 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   silently passes.
 - Whenever source files are edited ensure the full test suite passes (run
   `uv run .agents/skills/coverage/coverage-missing.py` to regenerate coverage; it
-  reports uncovered ranges and confirms when coverage is complete). See the `coverage`
-  dev skill for the full workflow.
+  reports uncovered ranges and confirms when coverage is complete).
 - After lint, tests, and coverage are green, review code size changes with
-  `uv run scripts/source_size.py --compare-to <branch-or-ref>` (typically the branch
-  point or `HEAD`); it reports bytes/lines plus a per-root code/doc/comment line split
-  (via `tokei`; Python docstrings count as code, not comments). If the increase looks
-  large relative to the added functionality, make the implementation DRYer, reuse shared
-  helpers, or simplify it before committing. The `comment-ratio` prek hook (also run in
-  CI) gates `src` at `--max-comment-ratio 0.10`, so comments cannot outgrow code.
+  `uv run scripts/source_size.py --compare-to <branch-or-ref>` (the branch point or
+  `HEAD`); it reports bytes/lines plus a per-root code/doc/comment split via `tokei`. If
+  the increase looks large relative to the added functionality, make the implementation
+  DRYer or simplify it before committing. The `comment-ratio` prek hook (also run in CI)
+  gates `src` at `--max-comment-ratio 0.10`, so comments cannot outgrow code.
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
@@ -162,69 +159,31 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and
-  `tokei` should be installed as global tools (if they don't appear to be installed,
-  raise that with the user). `cargo-audit` backs the `cargo audit --deny warnings`
-  prek hook; install it with `cargo install cargo-audit --locked`. The `lychee` prek
-  hook (an online link check of docs anchors, relative links, and external URLs, run
-  locally and in CI) comes from the `owenlamont/lychee-pre-commit` mirror — a
-  `language: python` hook that installs the prebuilt `lychee-bin` wheel — so no separate
-  `lychee` install is needed on any platform; bump it via the hook `rev` in `prek.toml`.
-  `tokei` backs the `comment-ratio` prek hook (the `scripts/source_size.py`
-  comment-to-code gate); install it with `pixi global install tokei`. CI installs a
-  pinned tokei via `prefix-dev/setup-pixi` in `ci.yml` (bump the version there when
-  updating).
+- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and `tokei` are
+  expected on `PATH` as global tools; raise it with the user if one is missing.
+  `cargo-audit` backs the `cargo audit --deny warnings` hook
+  (`cargo install cargo-audit --locked`); `tokei` backs `comment-ratio`
+  (`pixi global install tokei`, pinned separately for CI in `ci.yml` — bump both
+  together). The `lychee` hook (an online link check of docs) installs itself from the
+  `owenlamont/lychee-pre-commit` mirror; bump its `rev` in `prek.toml`.
 - `gh` will be available in most, but not all environments to inspect GitHub.
-- For PR feedback, use `gh pr view <n> --json comments,reviews` for summary threads and
-  `gh api repos/<owner>/<repo>/pulls/<n>/comments` for inline review details (avoid
-  unsupported flags like `--review-comments`).
-- Codex reviews need an explicit `@codex review` comment (auto-review is unreliable
-  even on PR open, so re-post it after each push you want reviewed). The polling
-  mechanics — the transient 👀 ack, the three verdict channels, the REST-not-GraphQL
-  bot-login gotcha — are encoded in the `codex-review` dev skill
-  (`.agents/skills/codex-review/`); run its `watch.py` rather than re-deriving the
-  poll.
-- Codex's adversarial review escalates indefinitely on file I/O (TOCTOU, partial/
-  interrupted writes, cross-file non-atomicity). Converge on real bugs, document the
-  rest as known limitations, and ship; do not re-introduce atomic temp+rename via a
-  runtime `tempfile` dep (tried on #285, reverted: 0600-perms regression + `clippy::cargo
-  multiple_crate_versions`). ryl's threat model (#246) is realistic payloads, not a
-  concurrent fs racer.
-- When referencing another repository's issues/PRs in GitHub issues, PRs, or comments
-  (e.g. an upstream `yamllint` issue), always use the fully-qualified
-  `adrienverge/yamllint#123` form. A bare `#123` auto-links to *this* repo
-  (`owenlamont/ryl#123`) and silently points at the wrong issue. Use a bare `#123` only
-  for ryl's own issues/PRs.
-- Filing an issue/PR on **another** project's repo (`granit`, upstream `yamllint`, …):
-  don't open it directly — these go out under the maintainer's name. Build a
-  self-contained draft for proof-read first, and only file once approved. Two
-  non-negotiables: (1) **never report on an assumption** — verify every claim by
-  *running that project itself* at the version in use, never inferred from its lineage,
-  a sibling tool, docs, or the spec; (2) **ship a one-command reproduction** in its own
-  `<repo>-<topic>-repro/` directory outside the ryl repo (ask where drafts live), pinned
-  to the dependency's **latest** version, printing observed-vs-expected. No repro, no
-  report. Keep it succinct: concrete ask, runnable repro, then authoritative evidence
-  (spec quote / play.yaml.com event stream).
 - Linters/tests may write outside the workspace (e.g. `~/.cache/prek`); if sandboxed,
   request permission escalation for `prek`/`cargo test`/coverage. Allow ≥1-minute
   timeouts per invocation (more for larger runs/CI).
 - Wait on long-running work (tests, coverage, CI, a Codex review) via the harness's
-  background-task notifications or the Monitor tool: launch it with `run_in_background`
-  and act on the completion event. Don't hand-roll `for i in $(seq …); sleep` poll loops
-  — they burn turns, and a stalled or broken job dead-polls to its timeout instead of
-  surfacing the failure (see the `codex-review` skill for the Codex-specific poll).
+  background-task notifications or the Monitor tool: launch with `run_in_background` and
+  act on the completion event. A hand-rolled `for i in $(seq …); sleep` poll loop burns
+  turns and dead-polls a stalled job to its timeout instead of surfacing the failure.
 
 ## Automated Tests
 
-- Convey a test's purpose with meaningful function and variable names and assertion
-  messages. Test comments follow the same bar as the rest of the codebase (see Coding
-  Standards): keep one only for why an input is crafted a certain way (e.g. the `café`
-  char-vs-byte column rationale), a non-obvious invariant a test pins, or a `//!` suite
-  header describing reusable invariants. Never restate what a self-evident assertion
-  already says, and no issue references.
-- Every line of code has a maintenance cost, so don't add tests that don't meaningfully
-  increase code coverage. Aim for full branch coverage but also minimise the tests code
-  lines to src code lines ratio.
+- Convey a test's purpose through function and variable names and assertion messages.
+  Test comments meet the same bar as the rest of the codebase: keep one only for why an
+  input is crafted a certain way (e.g. the `café` char-vs-byte column rationale), a
+  non-obvious invariant a test pins, or a `//!` suite header describing reusable
+  invariants.
+- Aim for full branch coverage while minimising the test-to-src line ratio; a test that
+  doesn't meaningfully increase coverage is a maintenance cost with no return.
 - Do not add `#[cfg(test)]` test modules directly inside files under `src/`. Unit tests
   compiled alongside the library create duplicate LLVM coverage instantiations and break
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
@@ -233,62 +192,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   property-test generator(s) so the new/updated syntax is actually exercised, then do a
   one-off **~1000× thorough run** before committing (e.g.
   `PROPTEST_CASES=512000 cargo test --release --test property_check`, built `--release`
-  in the background). The `property-tests` dev skill
-  (`.agents/skills/property-tests/SKILL.md`) details each suite (safe-fix / rule-checker
-  / markdown-fix / config), exactly what each generator must be extended with, the
-  deterministic guard to add, and the rules that intentionally have no safe `--fix`.
-
-## Testing Tips
-
-- For Unicode-heavy fixtures, assert with multibyte characters (e.g. `"café"`/`"å"`) and
-  reuse `crate::rules::span_utils` rather than reinventing byte/char conversions, to
-  cover character-vs-byte offset logic.
-- Lean on meaningful function/variable names and assertion messages to make tests
-  self-documenting; add a comment only where it explains a non-obvious trade-off or
-  opaque mechanic that names cannot (the standard minimal-comment bar applies).
-- `#[cfg(test)]` modules inside `src/` is forbidden; add coverage through integration
-  tests in `tests/` so LLVM regions stay unique.
-- **Config-discovery isolation.** ryl's project-config discovery climbs from each input
-  through its ancestors up to `HOME`, so a test whose inputs live under the system temp
-  dir can walk into that shared dir and discover a stray `ryl.toml`/`.ryl.toml`/
-  `pyproject.toml`/`.yamllint*` left by another test, a concurrent process, or a manual
-  smoke run — silently overriding the test's setup (and a TOML candidate outranks a
-  tempdir's `.yamllint`, so an adjacent YAML config does not shield it). Any test that
-  exercises discovery (does **not** pass `-c`/`-d`, and has no adjacent TOML config in its
-  input's directory) must build its command via `common::cli::ryl(<its tempdir>)`, which
-  sets `HOME` to bound the walk at the tempdir. Tests that pass `-c`/`-d` bypass discovery
-  and need no isolation; tests that write an adjacent `.ryl.toml` are already shielded.
-  Correspondingly, manual/agent smoke runs must keep scratch configs in a dedicated
-  subdirectory and never drop a config-candidate-named file at the temp root.
-- CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment,
-  where `GITHUB_ACTIONS` makes ryl auto-select the GitHub output format
-  (`::error file=…,line=L,col=C::L:C [rule] message`) rather than the standard format
-  (`  L:C  level  message  (rule)`). Assert **format-agnostically**: match the bare
-  `line:col` (present verbatim in both formats) and the **bare rule id**
-  (`colons`, never `(colons)` — the GitHub format renders it `[colons]`). Do not
-  force `--format` to dodge this and do not assert a specific format's `(rule)`
-  parens or ANSI. The `cli_*_rule` tests follow this; only tests that exercise
-  formatting itself (`cli_format_options`, `yamllint_compat_*`) pin or scrub the
-  format via `--format`/`env_remove`.
-- The vendored SchemaStore yamllint snapshot lives at
-  `tests/fixtures/schemastore-yamllint.json`; refresh it with
-  `uv run scripts/update_yamllint_schemastore_snapshot.py` instead of fetching from
-  the network in normal tests.
-- The SchemaStore TOML projection comes from
-  `uv run scripts/print_ryl_schemastore_schema.py`; it targets only
-  `ryl.toml` / `.ryl.toml` because SchemaStore cannot attach directly to
-  `[tool.ryl]` inside `pyproject.toml`.
-- The committed `ryl.toml.schema.json` / `ryl.yaml.schema.json` are generated by
-  `ryl --print-toml-config-schema` / `--print-yaml-config-schema`. **Always run `prek`
-  after regenerating**: `--print` emits schemars *insertion* order, but the
-  `pretty-format-json` hook rewrites JSON with recursively *sorted* keys, so the
-  committed form is sorted (committing raw `--print` output causes the recurring "prek
-  reordered the schema" churn). Because the canonical form is sorted, regeneration only
-  changes lines when schema *content* changes — a structural change that doesn't alter
-  content yields a zero diff after sorting, so don't commit a reordered file (leave it at
-  `HEAD`). `tests/config_schema.rs` compares order-insensitively, but the files must
-  still be committed sorted to keep `prek` idempotent; when an options type is renamed,
-  update the `RuleEntryFor…`/`RuleOptionsFor…` names asserted there too.
+  in the background). See the `property-tests` dev skill.
+- Several traps make a test pass vacuously or fail only in CI — config discovery walking
+  out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
+  `testing-traps` dev skill before writing a test that drives the binary.
 
 ## Documentation Site
 
@@ -297,269 +204,18 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   `pyproject.toml`/`uv.lock` — use the uv group commands. Build: `uv run --group docs
   zensical build --clean`; preview: `uv run --group docs zensical serve`. To bump, edit
   the pin, run `uv lock`, and rebuild to confirm it renders.
-- Config examples in the `docs/` Markdown sources are validated through ryl's finalized
-  config path (the `discover_config` `-c` path the CLI uses) by
-  `tests/docs_config_examples.rs`, so misspelled rule names and options are caught, not
-  just bad values (`docs/llms*.txt` are generated from those sources and drift-guarded,
-  so they are covered transitively). A block is recognised as ryl config structurally
-  from its content (a `toml` block with a `[tool.ryl]` table or a table named in the
-  TOML config schema; a `yaml` block with a top-level key in the YAML config schema), so
-  other tools' TOML and rule-input YAML are skipped, and a malformed config example is
-  caught. Put `<!-- ryl-config-check: skip -->` on the line before a fence to exempt an
-  intentional counter-example (e.g. the YAML-1.1 config in `yaml-version.md` shown as
-  failing).
+- Config examples in `docs/` are validated through ryl's finalized config path by
+  `tests/docs_config_examples.rs`, so a misspelled rule or option fails the build; the
+  `testing-traps` skill has the recognition rules and the skip marker.
 
 ## CLI Behavior
 
-- `ryl check <inputs>` (the lint subcommand, #369) and bare `ryl <inputs>` lint
-  identically: `LintArgs` (`clap::Args`) is flattened both at the top level and under
-  `Commands::Check`, and the dispatch routes `check` through the subcommand's own
-  `ArgMatches` so the repeatable `--format`/`--output-file` `indices_of` recovery reads
-  the right scope. `check` is the recommended form; bare is being phased out
-  (warn-then-remove, later siblings of the #238 lint/format split). Meta-actions
-  (`--migrate-*`, `--print-*-config-schema`, `--generate-completions`) stay top-level.
-- Accepts one or more inputs: files, directories, or `-` to read from stdin.
-- Directories: recursively scanned, honoring git ignore and git exclude; does not
-  follow symlinks. Each file's source kind is resolved from the `[files]` globs
-  (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
-- Files named explicitly are linted as their resolved source kind; one that
-  matches no `[files]` kind is rejected with an error (rather than silently
-  treated as YAML).
-- Inputs are de-duplicated: a file reached by two spellings (`ryl . f.yaml`, `f.yaml`
-  twice, or `f.yaml sub/../f.yaml`) is processed once. `gather_lint_files` keys a `seen`
-  set on `main::canonical_input` (`std::path::absolute` + lexical `..` normalization —
-  purely lexical, no symlink resolution, so a symlink stays distinct from its target),
-  spanning lint/`--fix`/`--diff`/`--list-files`. Stricter than yamllint (which keeps
-  duplicates); for `--diff` a duplicate would emit a repeat patch block that fails to
-  apply on the second copy.
-- Source kinds (`config::SourceKind`): the `[files]` TOML table maps `yaml` and
-  `markdown` to glob lists (`yaml` defaults to `*.yaml`/`*.yml`/`.yamllint`). A
-  file matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
-  `[files].yaml`); it remains valid in the legacy YAML config.
-- Markdown embedding (off by default; enabled by `[files].markdown` globs, or per-run
-  via `--markdown` which injects default globs): ryl extracts front matter and fenced
-  `yaml`/`yml` blocks (each linted as its own document) and maps diagnostics back to the
-  Markdown file. The `[markdown]` `front-matter`/`fenced-blocks` booleans (default true)
-  select sources. Extractor in `src/markdown_embed/` (fenced blocks via `pulldown-cmark`,
-  front matter via a line scan); each `EmbeddedRegion` carries the `raw_span` and per-line
-  column remap. `document-start`/`document-end`/`new-line-at-end-of-file`/`new-lines` are
-  suppressed in regions via `fix::suppressed_rules(kind)`. `--fix` writes back
-  (`fix::fix_markdown_str`): re-applies each line's stripped prefix (spaces, `> `, or a
-  tab), preserves CRLF, and only rewrites a region when that reproduces the original
-  bytes exactly — a ragged region (no single shared prefix) is reported but left
-  untouched. See `docs/markdown.md`. A Markdown file with a bare `\r` (CR not in CRLF)
-  anywhere is skipped loudly (`markdown_has_unsupported_cr` guards `lint_markdown_str`/
-  `fix_markdown_str`/`markdown_parse_skips`: lint error + `--fix`/`--diff` notice):
-  `pulldown-cmark` can't find fences in a `\r` host and the `\n`-based remap can't place
-  a region `\r`. LF/CRLF embedded YAML is linted CR-aware.
-- `--fix` never mutates a file that does not fully parse:
-  `fix::apply_safe_fixes_filtered` gates the whole pipeline on `lint::parse_error`
-  (stricter than lint's `syntax_diagnostic` — it does *not* tolerate undefined
-  aliases), so *any* granit parse error ⇒ the input is returned byte-for-byte
-  unchanged and `apply_safe_fixes_in_place` returns `FixOutcome::Skipped(problem)`; the
-  CLI prints a `<path>:L:C skipped by --fix: <error>` notice. Lint behavior is
-  unchanged: an undefined alias is still not a lint syntax error (the `anchors` rule
-  reports it, matching yamllint); only `--fix` applies the stricter gate, through the
-  in-place and per-region Markdown paths.
-- `--diff` (#269) previews `--fix` without writing: prints a unified diff (3 lines of
-  context) per changed file to **stdout** and exits `1` iff any file would change,
-  mirroring `ruff check --diff`. `conflicts_with` `--fix`, ignores `--format`, supports
-  stdin. Diff-only: remaining *unfixable* findings are neither printed nor counted (a
-  file tripping only an unfixable rule exits `0`). Reuses the fix pipeline
-  (`fix::diff_safe_fixes_for_files` → `fix::diff_outcome`), inheriting the parse-error
-  gate and symlink skip (both → a `skipped by --diff` notice, no exit effect). A
-  non-UTF-8/BOM input is likewise skipped (`fix::non_utf8_diff_skip`; files via
-  `DecodedFile::is_plain_utf8`, stdin via decoded==raw bytes) — a text diff can't apply
-  back to transcoded bytes, so `--fix` (which re-encodes) is the path for those — as is
-  a filename with control characters (no representable header). Markdown diffs at
-  host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte); the
-  header path is sanitized and relativized to CWD (like ruff) so it applies via
-  `git apply -p0`. A bare `\r` is rendered as diff *content* (`render_unified_diff`
-  splits hunk lines on `\n` only), so a mid-line/mixed `\r` round-trips; content that
-  *ends* in a bare `\r` is skipped (`fix::ends_in_bare_cr` — `similar` can't render it;
-  use `--fix`).
-- Malicious-payload hardening (#246) — invariants to preserve: `--fix`/`--diff` never
-  write/read through a symlink (`fix::refuse_symlink`) and the write target is always
-  the input path, never derived from YAML content. The YAML config loader
-  (`yaml_dom::loader`; `lint_str` builds no DOM) bounds alias expansion at
-  `MAX_EXPANDED_NODES` and `extends` depth at `MAX_EXTENDS_DEPTH`, so billion-laughs and
-  cyclic-`extends` configs error instead of exhausting memory/stack. An empty
-  YAML/TOML config errors ("not a mapping" / "configuration is empty") rather than
-  silently linting nothing. Output is injection-safe: the GitHub format escapes user
-  text (`github_escape_data`/`_property`) so a crafted key/anchor/filename can't
-  inject a `::command::` (it is a line-oriented command protocol); the streaming
-  console formats run user text through `sanitize_control`. The `junit`/`gitlab`
-  report formats are structured data, not command protocols, so the analogous risk is
-  breaking out of an XML attribute / JSON string: `sanitize_control` first strips
-  control chars, then `quick-xml` (XML) and `serde_json` (JSON) apply structural
-  escaping, and fixed fields (`severity`, `check_name`, the testcase `name`) are
-  derived from the rule/level, not the message. `tests/property_report.rs` fuzzes this
-  (every output must stay well-formed XML / schema-valid JSON under hostile input).
-  granit caps nesting recursion (~256), and config regexes
-  (`key-ordering`/`quoted-strings`) are validated at parse time with the linear-time
-  `regex` crate (no ReDoS). Guards:
-  `tests/cli_alias_bomb.rs`, `cli_fix_symlink.rs`, `cli_config_data_error.rs`,
-  `cli_toml_config.rs`, `config_extends_inline.rs`, `cli_format_options.rs`,
-  `cli_markdown_embed.rs`, `property_config.rs`, `report_formats.rs`,
-  `property_report.rs`.
-- Stdin (`-`): bytes are read raw and decoded with the same BOM/encoding detection as
-  files; `-` can't be combined with other inputs or with `--fix`. `--stdin-filename
-  <PATH>` (ruff convention) sets the diagnostic label, anchors config discovery at the
-  path's parent, resolves the source kind from `[files]` (a `markdown` path → embedded
-  YAML), and runs `yaml-files`/per-file-ignore/per-rule `ignore` against it. Without it,
-  diagnostics are `<stdin>`, config is anchored at CWD, and all path-based filtering is
-  skipped so every enabled rule runs; `--markdown` forces Markdown.
-- Inline directives (`src/directives.rs`): `# ryl disable` / `enable` / `disable-line`
-  (and `# yamllint …` aliases) suppress rules for a block or line, mirroring yamllint's
-  grammar (`yamllint/linter.py`); a first-line `# ryl/yamllint disable-file`
-  (`directives::disables_file`) skips the whole file (no diagnostics, not even syntax
-  errors, no `--fix`). Handling is global: `lint_str` filters every diagnostic through
-  `Directives::is_disabled` before the syntax-error check, and `fix` reverts edits to
-  disabled lines via `Directives::reconcile`. Works region-locally in embedded Markdown.
-  Validate against yamllint with `tests/yamllint_compat_directives.rs`. User docs:
-  `docs/directives.md`.
-- Config discovery (`config::discover_config_with`, precedence high→low): `-d` (inline
-  YAML) > `-c` (file: TOML/YAML by extension) > project config > `YAMLLINT_CONFIG_FILE`
-  > user-global. `-d`/`-c`/a present `YAMLLINT_CONFIG_FILE` trigger run-wide resolution
-  (`main::build_global_cfg`); otherwise project + user-global discovery is per file via
-  `discover_per_file` (cached per dir), so a monorepo gets a config per subtree. Run-wide
-  resolution still applies the full precedence, so a project config found from the inputs
-  precedes the env config. Project candidates run every ancestor to `HOME`,
-  TOML-first (`TOML_PROJECT_CONFIG_CANDIDATES`: `.ryl.toml` > `ryl.toml` >
-  `.config/.ryl.toml` > `.config/ryl.toml` > `pyproject.toml [tool.ryl]`) across every
-  ancestor first, then `.yamllint*` in a separate full ancestor walk
-  (`find_first_yaml_candidate`), so any TOML config up-tree outranks even a nearer
-  `.yamllint`. `.config/` is
-  TOML-only and anchors path globs/`ignore-from-file` at its parent (`config_base_dir`,
-  #218). `YAMLLINT_CONFIG_FILE` is yamllint-only: a `.toml` target errors (exit 2) before
-  the existence check (`try_env_config_core`, #332); use `-c`/`-d`/project discovery for
-  ryl TOML. User-global: ryl-native `<config-dir>/ryl/.ryl.toml` or `ryl.toml`, then
-  yamllint `<config-dir>/yamllint/config`. Precedence diagram in
-  `docs/getting-started/quickstart.md`.
-- ryl never enables a rule that wasn't explicitly turned on (no "default-on" rules). Two
-  cases exit `2`, both stricter than yamllint: **no config found anywhere** (resolution
-  falls back to an *empty* config — `ConfigContext::config_found == false` — not the
-  `default` preset; reports `main::NO_CONFIG_ERROR`; yamllint lints with `extends:
-  default`), and **a resolved config that enables no rules** (`rules: {}`, empty
-  `[rules]`/`[tool.ryl]`, a `[files]`-only TOML config, or one disabling everything;
-  reports `main::NO_RULES_ENABLED_ERROR`; yamllint silently lints nothing). Both via
-  `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks the
-  message. The `default`/`relaxed`/`empty` presets stay available via `extends:` (YAML
-  only). `--migrate-configs` (warns instead) and `--list-files` are exempt.
-- Output formats (`--format`/`-f`): the streaming console formats `standard`/`colored`/
-  `github`/`parsable` default to **stderr**; the whole-document report formats `junit`
-  (JUnit XML via `quick-xml`) and `gitlab` (GitLab Code Quality JSON via `serde_json`)
-  default to **stdout**. `auto` never selects junit/gitlab. **Multiple outputs per run**
-  (RuboCop/Biome model): `--format` is repeatable and each `-o/--output-file` binds to
-  the most recent `--format` (`resolve_cli_targets` recovers CLI order via
-  `ArgMatches::indices_of`, so `main` uses `Cli::command().get_matches()` +
-  `from_arg_matches`); `-o -` is stdout, a path is a file, none is the format's default
-  stream. Console + a report file in one run is therefore supported (closes #285's
-  original ask), e.g. `--format auto --format gitlab -o gl.json`. An `[output]` **TOML
-  table** (ryl-only, TOML-only — `config_schema::OutputTable`/`OutputDestination`,
-  rejected in YAML config) configures the same per-format destinations
-  (`[output.gitlab] path=…`; absent `path` = default stream, `"-"` = stdout). Precedence
-  **CLI > config > default**: `resolve_targets` returns the CLI pairs if any `--format`
-  was given, else `config_targets_from_table` of the run config's `[output]`, else one
-  default auto-console target. The `[output]` is read run-level by `run_output_config`
-  (the `-c`/`-d`/env global config, else the inputs-anchored project config so `ryl .`
-  honors a project `.ryl.toml`; a malformed config is propagated — the empty-input case
-  has no per-file discovery to surface it, so an invalid `[output]` still errors). `--diff`
-  skips config `[output]` (it has its own unified-diff output), so only an explicit CLI
-  `--format junit|gitlab` conflicts with it. Pipeline: `collect_records` does the shared
-  filter+tally once into format-agnostic `FileRecord{path,kept,error}`; `write_targets`
-  renders each target via `render_target` (`render_streaming` + an `append_*` fn for
-  console formats; `render_junit`/`render_gitlab` over `build_entries` for reports, built
-  once and shared) and `commit`s to each `open_destination` (a file is opened create+write
-  **without** truncate, then truncated+written at commit, so an *existing* artifact survives
-  a later target failing to open; a *freshly*-created destination may be left empty on a
-  rejected run — cleaning it by path would race a concurrent writer, so it is left for the
-  failed run, gate CI artifact use on the exit code). `open_targets` opens all destinations
-  before `--fix` mutates (unopenable `-o` fails fast). Guards (each exit 2):
-  `resolve_cli_targets` rejects an unpaired `-o` and a second `-o` on one `--format`;
-  `validate_targets` rejects `--diff` with a report format and two outputs on one stream
-  (`reject_duplicate_streams`, ≤1 stdout / ≤1 stderr); `open_targets` then rejects two
-  outputs resolving to one file (`reject_colliding_output_files`, post-open so file
-  identity resolves symlink/hard-link/aliased-parent destinations — `PathIdentity` =
-  lexical + `same_file::Handle`; an unreadable existing destination matches lexically only,
-  an adversarial case); `reject_input_collisions` refuses an output that is also a linted
-  input or the `--stdin-filename` (same lexical + `same_file::Handle` match), so a report
-  can never truncate the source. `--output-file` `conflicts_with` `--diff` in clap. An
-  empty/all-ignored input set still emits a valid empty report per target (`emit_targets`
-  with empty records → `[]` / `<testsuites .../>`). `report::ReportEntry`
-  carries the report display path (relativized via `cli_support::report_display_path`
-  against the project root = `CI_PROJECT_DIR` or cwd, like ruff; forward-slashed, no `./`
-  prefix; a path outside the root gets `..` segments), the kept problems, and an optional
-  processing-error message. GitLab severity maps error->`major`, warning->`minor`, a
-  read/parse failure->`blocker`; its `fingerprint` is a stable SHA-256 (`sha2`) of
-  `(path, rule, message)` — deliberately NOT line/column, so an edit that shifts the line
-  keeps the issue tracked — salted to stay unique within a report (`DefaultHasher` would
-  not be stable across toolchains). A clean file is a passing JUnit testcase and is
-  omitted from GitLab. Output is validated against authoritative sources in tests: GitLab
-  against the vendored `tests/fixtures/gitlab-code-quality.schema.json` (via the
-  `jsonschema` dev-dep), JUnit by re-parsing with `quick-xml`. See
-  `docs/output-formats.md`.
-- Language server (`ryl server`, `src/lsp/`, behind the default-on `lsp` feature): a
-  synchronous `lsp-server`+`lsp-types` adapter over the engine. `serve(&Connection)`
-  runs the handshake + message loop; `run()` wires stdio and drops the connection
-  before `io_threads.join()` so the writer thread finishes. `mod.rs` is the protocol
-  loop/dispatch; the connection-free logic lives in submodules so it is unit/property
-  testable: `encoding` (position math + `uri_to_path`/`path_to_uri`), `analysis`
-  (lint/fix → LSP), `actions` (code-action builders), `hover`, `rename`. Capabilities:
-  push diagnostics (`publishDiagnostics`, gated on `Server::push_diagnostics` =
-  `!client_supports_pull_diagnostics` so a pull-capable client gets diagnostics once via
-  pull, not twice — clients like VS Code merge the two channels); pull diagnostics
-  (`textDocument/diagnostic` +
-  `workspace/diagnostic`, the latter over a per-entry-cancellable
-  `discover::gather_yaml_from_dir_cancellable` walk of every root, deduped; it runs on a
-  background worker thread — so the message loop stays responsive — lints files in
-  parallel via `rayon`, and is cancellable via `$/cancelRequest`/shutdown through an
-  `AtomicBool` the worker checks (the walk per entry, the lint per `SCAN_BATCH` batch, so
-  only an in-flight batch is uninterruptible). A new pull supersedes/cancels any in-flight
-  one (bounding workers); `serve` joins outstanding workers before returning). Each report
-  carries a `result_id` (`analysis::result_id`, SHA-256 of the serialized diagnostics;
-  `None` for a clean file, which is then omitted), so a matching `previousResultIds` entry
-  answers `Unchanged`, and
-  a previously-reported path the walk no longer covers is cleared with an empty, id-less
-  report. **`workspace/diagnostic` is long-polled** (#408, after ty): the VS Code client
-  re-pulls a fixed 2 s after every response with no knob, so an all-`Unchanged` report (an
-  empty one included) is *not* answered — `finish_scan` parks it in `Server::pull` and
-  `wake` re-scans on the next didOpen/didChange/didClose/watched-file/config notification.
-  A worker cannot see session state, so scans return over `scan_tx`/`scan_rx` into a
-  `crossbeam_channel::select!` in `run_loop`, and `Server::revision` (bumped by those
-  notifications) stops a scan that raced a change from suspending on a stale report. A
-  parked pull is answered on `$/cancelRequest`, when a new pull supersedes it, and at
-  shutdown. The watcher registration covers `**/*.{yaml,yml}` as well as config names so
-  an out-of-editor change can wake it; `is_config_uri` keeps a source change from being
-  taken for a config one. A `partialResultToken` switches `ReportSink` from bulk to
-  streaming: the scan lints in `SCAN_BATCH` batches (also the cancellation granularity)
-  and `Full` reports go out as `$/progress` batches — the first at once, then per
-  `STREAM_INTERVAL` — while `Unchanged` ones are held for the response, so nothing is
-  sent twice. `ScanOutcome::streamed` then forces an answer: having streamed, the
-  request can no longer be held open); `source.fixAll.ryl` + per-rule
-  `source.fixAll.ryl.<rule>` (via `fix::SAFE_FIX_RULE_IDS`, YAML only) + `quickfix`
-  disable-rule inserts (`# ryl disable-line` / first-line `# ryl disable-file`; the
-  disable-line is suppressed for a diagnostic inside a block scalar, where a `#` would be
-  content not a directive, via `protected_scalar_lines`); `textDocument/formatting`; hover
-  (rule + message + docs link for a covered diagnostic); anchor/alias `rename` +
-  `prepareRename` (granit scanner tokens, document-scoped, YAML only); and INCREMENTAL
-  sync (ranged edits applied via `encoding::offset_at`). The engine has no per-occurrence
-  fix; code actions honour `context.only`. Config is resolved per document via
-  `discover_config` (full CLI precedence incl. `YAMLLINT_CONFIG_FILE`), layering the
-  client's `Settings` (`initializationOptions` / `workspace/didChangeConfiguration`:
-  `configPath`/`configData`/`enable`, CLI-equivalent precedence). Config-file changes go
-  through `handle_config_change` via a dynamic `didChangeWatchedFiles` registration: a push
-  client gets a re-lint+re-push, a pull client (whose pushes are gated off) is asked to
-  re-pull via `workspace/diagnostic/refresh` when it advertised `refreshSupport`
-  (`client_supports_diagnostic_refresh`), else it re-pulls on its own cadence.
-  `workspace/configuration` pull is deferred. A rule-less/absent config or `enable:false`
-  lints nothing silently; a malformed one lints nothing but is surfaced once via
-  `window/showMessage` (no hard exit-2). **Position encoding is the one load-bearing
-  piece:** LSP columns are UTF-16 code units by default (NOT ryl's 1-based code-point
-  columns); `encoding::problem_range`/`offset_at` walk the line CR-aware via `line_syntax`
-  and the negotiated encoding (UTF-8/16/32), so multibyte/astral-plane columns need real
-  surrogate-pair fixtures (BMP `café`/`å` pass vacuously). `lsp-types` 0.97 forces a benign
-  `bitflags` 1-vs-2 duplicate, allowlisted in `clippy.toml`. The `lsp` feature must stay
-  compilable out: CI runs `cargo clippy --no-default-features` (the LSP tests are
-  `#![cfg(feature = "lsp")]`). See `docs/editor-integration.md`.
-- Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
+`ryl check <inputs>` (the lint subcommand) and bare `ryl <inputs>` lint identically;
+`check` is the recommended form and bare is being phased out. Inputs are files,
+directories, or `-` for stdin. Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage
+error). ryl never enables a rule that wasn't explicitly turned on, so a run with no
+config, or one enabling nothing, exits `2`.
+
+Each surface — inputs and `--fix`/`--diff`, config discovery, output formats, the
+language server — is documented in the matching dev skill above; user docs are in
+`/docs/`.

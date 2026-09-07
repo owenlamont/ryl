@@ -1,7 +1,7 @@
 //! `unicode-line-breaks` rule: flags raw NEL (U+0085), LINE SEPARATOR (U+2028) and
 //! PARAGRAPH SEPARATOR (U+2029), suggesting the double-quoted escape `\N`/`\L`/`\P`.
-//! No safe `--fix`: that escape is only valid inside a double-quoted scalar (see
-//! AGENTS.md "Rules Without A Safe `--fix`").
+//! No safe `--fix`: that escape is only valid inside a double-quoted scalar (see the
+//! `property-tests` dev skill).
 //!
 //! Sources: YAML 1.2.2 §5.4 (line breaks), §5.7 (escapes).
 
