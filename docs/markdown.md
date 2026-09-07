@@ -12,9 +12,9 @@ Each region is linted as its **own independent YAML document**, and every
 diagnostic's line and column point back into the original Markdown file.
 
 This is a ryl-only capability, so it is configured exclusively in **TOML**
-(`ryl.toml`, `.ryl.toml`, or `[tool.ryl]` in `pyproject.toml`). The YAML
-(`yamllint`-compatible) configuration uses the legacy `yaml-files` key and has no
-markdown support.
+(`ryl.toml`, `.ryl.toml`, or `[tool.ryl]` in `pyproject.toml`) and rejected in
+yamllint-compatible YAML config. The YAML (`yamllint`-compatible) configuration
+uses the legacy `yaml-files` key and has no markdown support.
 
 ## Source kinds and the `[files]` table
 
@@ -44,7 +44,8 @@ markdown = ["*.md", "docs/**/*.md"]           # opt-in: enables markdown linting
   no kind is simply skipped.
 
 > The legacy `yaml-files` key is **not** valid in TOML — use `[files].yaml`. It
-> remains valid in the yamllint-compatible YAML config.
+> remains valid in the yamllint-compatible YAML config, which conversely rejects
+> `[files]` itself.
 
 Markdown behaviour is tuned in a separate `[markdown]` table (both default `true`):
 

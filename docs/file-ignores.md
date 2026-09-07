@@ -95,8 +95,8 @@ present = true
 Each key is a path glob with the same semantics as `ignore`, including `!`
 negation. Each value is a list of rule IDs.
 
-`per-file-ignores` is **ryl-only** and configured in TOML only; yamllint has no
-equivalent. Unlike [`per-line-ignores`](per-line-ignores.md), it accepts rule IDs
+`per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
+equivalent); it is rejected in yamllint-compatible YAML config. Unlike [`per-line-ignores`](per-line-ignores.md), it accepts rule IDs
 only &mdash; there is no `"ALL"` shorthand for every rule. To skip a file
 outright, use `ignore`.
 
