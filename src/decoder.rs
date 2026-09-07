@@ -292,16 +292,11 @@ fn decode_utf16(
             format!("length {} is not even", data.len()),
         ));
     }
-    let mut units: Vec<u16> = Vec::with_capacity(data.len() / 2);
-    for &chunk in data.as_chunks::<2>().0 {
-        let value = match endian {
-            Endian::Big => u16::from_be_bytes(chunk),
-            Endian::Little => u16::from_le_bytes(chunk),
-        };
-        units.push(value);
+    match endian {
+        Endian::Big => String::from_utf16be(data),
+        Endian::Little => String::from_utf16le(data),
     }
-    String::from_utf16(&units)
-        .map_err(|err| decode_error("utf-16 data", err.to_string()))
+    .map_err(|err| decode_error("utf-16 data", err.to_string()))
 }
 
 fn decode_utf32(
