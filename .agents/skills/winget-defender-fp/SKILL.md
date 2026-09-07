@@ -108,8 +108,8 @@ requires a Microsoft account sign-in **and a CAPTCHA** (human steps; not automat
 
 ## Gotchas
 
-- Cross-repo refs: always `microsoft/winget-pkgs#NNN`; a bare `#NNN` links to ryl (see the
-  `filing-issues` skill).
+- Cross-repo refs: always `microsoft/winget-pkgs#NNN`; a bare `#NNN` links to ryl (the
+  `filing-upstream` skill covers this and the rest of filing on someone else's repo).
 - Never put a local home path or machine specifics in a public PR comment — use `$env:TEMP`
   or placeholders.
 - **Delegating to a headless/WSL agent:** launch it with `cwd` = the ryl repo (so it loads

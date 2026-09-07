@@ -114,8 +114,6 @@ Shipping and process:
 
 - `.agents/skills/release/SKILL.md` — the lockstep version bump, tag/push gate, and
   publishing flow.
-- `.agents/skills/filing-issues/SKILL.md` — filing issues and PRs here and on other
-  people's repos.
 - `.agents/skills/winget-defender-fp/SKILL.md` — a winget-pkgs PR blocked by a Defender
   false positive.
 
