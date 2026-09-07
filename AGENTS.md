@@ -84,8 +84,8 @@ ryl is a CLI tool for linting yaml files
 Task-scoped procedures and reference material live as on-demand skills in
 `.agents/skills/` (the shared project-scope skills dir most non-Claude agents auto-load);
 load the matching one when its task comes up rather than carrying it in this always-on
-file. Each is a self-contained `SKILL.md`; `coverage`, `codex-review`, and `retrospective`
-also carry a `uv`-runnable helper script.
+file. Each is a self-contained `SKILL.md`; `coverage` also carries a `uv`-runnable
+helper script.
 
 Working on the codebase:
 
@@ -109,8 +109,6 @@ Verifying a change:
 - `.agents/skills/testing-traps/SKILL.md` — traps that make a test pass vacuously, plus
   regenerating committed schemas and snapshots.
 - `.agents/skills/coverage/SKILL.md` — closing missed lines/regions for the CI gate.
-- `.agents/skills/codex-review/SKILL.md` — driving a Codex CI review and handling its
-  comments.
 
 Shipping and process:
 
@@ -120,8 +118,6 @@ Shipping and process:
   people's repos.
 - `.agents/skills/winget-defender-fp/SKILL.md` — a winget-pkgs PR blocked by a Defender
   false positive.
-- `.agents/skills/retrospective/SKILL.md` — quantifying development friction across
-  recent sessions.
 
 Claude Code does not auto-load `.agents/skills/`, so this list is the cross-tool
 fallback: any agent that reads `AGENTS.md` is pointed here, and even a skill-unaware
