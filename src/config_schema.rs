@@ -1185,8 +1185,7 @@ fn parse_string_items(
 
 /// TOML rejects an unknown key structurally, while the yamllint-compatible YAML path
 /// tolerates one, so every ryl-native top-level key has to be listed here to be caught.
-/// The second field names the YAML spelling where one exists, since "use TOML" would
-/// send that user to the wrong fix.
+/// `files` carries its YAML spelling because "use TOML" would be the wrong fix for it.
 const TOML_ONLY_CONFIG_KEYS: [(&str, Option<&str>); 6] = [
     ("files", Some("`yaml-files`")),
     ("fix", None),
