@@ -1112,7 +1112,6 @@ fn toml_schema_root_rejects_unknown_top_level_keys() {
 #[test]
 fn yaml_config_rejects_every_toml_only_key() {
     let cases = [
-        ("files", "files:\n  yaml: [\"*.yaml\"]\n"),
         ("fix", "fix:\n  fixable: [comments]\n"),
         ("markdown", "markdown:\n  fenced: true\n"),
         ("output", "output:\n  format: parsable\n"),
@@ -1142,4 +1141,24 @@ fn yaml_config_rejects_every_toml_only_key() {
             "`{key}` in a yamllint-style YAML config must name itself in the error"
         );
     }
+}
+
+#[test]
+fn yaml_config_rejecting_files_points_at_the_yaml_spelling() {
+    let err = ryl::config::discover_config(
+        &[],
+        &ryl::config::Overrides {
+            config_file: None,
+            config_data: Some("files:\n  yaml: [\"*.yaml\"]\n".to_string()),
+        },
+    )
+    .expect_err("yaml config should reject the TOML `files` table");
+
+    assert_eq!(
+        err,
+        "invalid config: `files` is not valid in yamllint-compatible YAML config; \
+         use `yaml-files` instead",
+        "`files` has a YAML spelling, so the error must name it rather than sending \
+         the reader to TOML"
+    );
 }

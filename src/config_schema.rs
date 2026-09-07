@@ -1185,13 +1185,15 @@ fn parse_string_items(
 
 /// TOML rejects an unknown key structurally, while the yamllint-compatible YAML path
 /// tolerates one, so every ryl-native top-level key has to be listed here to be caught.
-const TOML_ONLY_CONFIG_KEYS: [&str; 6] = [
-    "files",
-    "fix",
-    "markdown",
-    "output",
-    "per-file-ignores",
-    "per-line-ignores",
+/// The second field names the YAML spelling where one exists, since "use TOML" would
+/// send that user to the wrong fix.
+const TOML_ONLY_CONFIG_KEYS: [(&str, Option<&str>); 6] = [
+    ("files", Some("`yaml-files`")),
+    ("fix", None),
+    ("markdown", None),
+    ("output", None),
+    ("per-file-ignores", None),
+    ("per-line-ignores", None),
 ];
 
 pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, String> {
@@ -1199,12 +1201,18 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
         return Err("invalid config: not a mapping".to_string());
     }
 
-    if let Some(key) = TOML_ONLY_CONFIG_KEYS
+    if let Some((key, yaml_spelling)) = TOML_ONLY_CONFIG_KEYS
         .into_iter()
-        .find(|key| doc.as_mapping_get(key).is_some())
+        .find(|(key, _)| doc.as_mapping_get(key).is_some())
     {
-        return Err(format!(
-            "invalid config: {key} is only supported in TOML configuration"
+        return Err(yaml_spelling.map_or_else(
+            || format!("invalid config: {key} is only supported in TOML configuration"),
+            |spelling| {
+                format!(
+                    "invalid config: `{key}` is not valid in yamllint-compatible YAML \
+                     config; use {spelling} instead"
+                )
+            },
         ));
     }
 
