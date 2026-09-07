@@ -40,7 +40,7 @@ rules = ["line-length"]
 | Field | Required | Description |
 | :--- | :--- | :--- |
 | `regex` | one of `regex`/`path` | Regex matched against the whole physical source line (unanchored &mdash; add `^`/`$` yourself). |
-| `path` | one of `regex`/`path` | Glob matched against the file path (same glob semantics as [`per-file-ignores`](config-presets.md), including a leading `!` to negate &mdash; apply to files *not* matching). |
+| `path` | one of `regex`/`path` | Glob matched against the file path (same glob semantics as [`per-file-ignores`](file-ignores.md), including a leading `!` to negate &mdash; apply to files *not* matching). |
 | `rules` | yes | Rule IDs to suppress, or `["ALL"]` for every rule. |
 
 Present conditions are combined with logical **AND**: an entry with both `regex` and

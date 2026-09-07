@@ -25,6 +25,7 @@ nav = [
     { "Presets" = "config-presets.md" },
     { "Inline directives" = "directives.md" },
     { "Per-line ignores" = "per-line-ignores.md" },
+    { "File ignores" = "file-ignores.md" },
     { "YAML in Markdown" = "markdown.md" },
     { "Using ryl with a formatter" = "using-with-formatters.md" },
   ]},

@@ -12,7 +12,7 @@ line breaks but YAML 1.2 does not:
 | `U+2029` | paragraph separator | `\P` |
 
 The rule scans the decoded source text and flags every raw occurrence, wherever
-it appears — inside a scalar, a key, or a comment. It is **off by default**.
+it appears — inside a scalar, a key, or a comment.
 
 ## Why this matters
 

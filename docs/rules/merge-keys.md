@@ -17,8 +17,7 @@ prod:
 When enabled the rule flags every `<<` key, whether its value is an alias
 (`<<: *defaults`), an inline mapping (`<<: {a: 1}`), or a list of either
 (`<<: [*a, *b]`). A key explicitly tagged `!!merge` is also flagged regardless of
-its text (`!!merge foo:` merges in the same loaders that honour `<<`). It is
-**off by default**.
+its text (`!!merge foo:` merges in the same loaders that honour `<<`).
 
 ## Why this matters
 
