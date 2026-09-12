@@ -421,7 +421,7 @@ jobs:
       # running `cargo install cross`, whose crates.io fetch is a transient-failure point.
       - name: Install cross
         if: startsWith(matrix.runner, 'ubuntu')
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d
+        uses: taiki-e/install-action@5bf6ce016fd2e72eefc647cbca1e4213f65955b8
         with:
           tool: cross
       - name: Build binaries for ${{ matrix.target }}
