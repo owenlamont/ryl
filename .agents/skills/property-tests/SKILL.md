@@ -68,8 +68,9 @@ act on the same lines.
 
 When you add a new `FixSafety::Safe` rule, add it to `pipeline_rules` at its position
 in `apply_safe_fixes_filtered`; `probe_covers_every_safe_fix_rule` fails until you do,
-and the byte-for-byte assertion fails on a wrong position. Failing inputs persist to
-the committed `tests/proptest-regressions/property_fix_convergence.txt`; run with
+and the byte-for-byte assertion fails on a misordering that changes the output.
+Failing inputs persist to the committed
+`tests/proptest-regressions/property_fix_convergence.txt`; run with
 `cargo test --test property_fix_convergence`.
 
 ## Property Tests For Rule Checkers
