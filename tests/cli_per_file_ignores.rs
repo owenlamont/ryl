@@ -4,7 +4,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::run;
+use common::cli::{command_output, run, ryl};
 
 #[test]
 fn toml_per_file_ignores_combine_matching_patterns() {
@@ -138,5 +138,104 @@ fn toml_per_file_ignores_match_relative_cli_paths() {
     assert_eq!(
         code, 0,
         "relative per-file ignore should pass: stdout={stdout} stderr={stderr}"
+    );
+}
+
+const WORKFLOW_IGNORE_CONFIG: &str = "[rules]\ndocument-start = 'enable'\n\
+     [per-file-ignores]\n'.github/workflows/*' = ['document-start']\n";
+
+fn workflow_tree() -> tempfile::TempDir {
+    let dir = tempdir().unwrap();
+    let workflows = dir.path().join(".github/workflows");
+    fs::create_dir_all(&workflows).unwrap();
+    fs::write(workflows.join("action.yml"), "on: push\n").unwrap();
+    dir
+}
+
+#[test]
+fn toml_per_file_ignores_match_walked_and_dot_prefixed_paths() {
+    let dir = workflow_tree();
+    fs::write(dir.path().join(".ryl.toml"), WORKFLOW_IGNORE_CONFIG).unwrap();
+
+    for input in [
+        ".",
+        ".github",
+        ".github/workflows/action.yml",
+        "./.github/workflows/action.yml",
+    ] {
+        let (code, stdout, stderr) =
+            run(ryl(dir.path()).current_dir(dir.path()).arg(input));
+        assert_eq!(
+            code,
+            0,
+            "`ryl {input}` should honour the per-file ignore: {}",
+            command_output(&stdout, &stderr)
+        );
+    }
+}
+
+#[test]
+fn toml_per_file_ignores_anchor_at_a_nested_discovered_config() {
+    let dir = tempdir().unwrap();
+    let svc = dir.path().join("svc");
+    fs::create_dir_all(svc.join("workflows")).unwrap();
+    fs::write(svc.join("workflows/action.yml"), "on: push\n").unwrap();
+    fs::write(
+        svc.join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n\
+         [per-file-ignores]\n'workflows/*' = ['document-start']\n",
+    )
+    .unwrap();
+
+    for input in [".", "svc", "./svc/workflows/action.yml"] {
+        let (code, stdout, stderr) =
+            run(ryl(dir.path()).current_dir(dir.path()).arg(input));
+        assert_eq!(
+            code,
+            0,
+            "`ryl {input}` should honour svc/.ryl.toml's per-file ignore: {}",
+            command_output(&stdout, &stderr)
+        );
+    }
+}
+
+#[test]
+fn toml_per_file_ignores_anchor_at_the_config_dir_from_a_subdirectory() {
+    let dir = workflow_tree();
+    fs::write(dir.path().join(".ryl.toml"), WORKFLOW_IGNORE_CONFIG).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .current_dir(dir.path().join(".github"))
+        .arg("-c")
+        .arg("../.ryl.toml")
+        .arg("workflows/action.yml"));
+    assert_eq!(
+        code,
+        0,
+        "a cwd below the config dir should still match: {}",
+        command_output(&stdout, &stderr)
+    );
+}
+
+#[test]
+fn toml_per_file_ignores_match_a_path_outside_the_config_dir_as_given() {
+    // Like `ignore`, a file outside the config dir is matched by the path as given.
+    let dir = workflow_tree();
+    let conf = dir.path().join("conf");
+    fs::create_dir(&conf).unwrap();
+    fs::write(conf.join("ryl.toml"), WORKFLOW_IGNORE_CONFIG).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .current_dir(dir.path())
+        .arg("-c")
+        .arg("conf/ryl.toml")
+        .arg("./.github/workflows/action.yml"));
+    assert_eq!(
+        code,
+        0,
+        "an out-of-tree path should match as given: {}",
+        command_output(&stdout, &stderr)
     );
 }

@@ -4,6 +4,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
 use crate::yaml_dom::{ScalarOwned, YamlOwned};
 use globset::{Glob, GlobMatcher, escape as glob_escape};
@@ -212,8 +213,9 @@ fn split_negation(pattern: &str) -> (bool, &str) {
         .map_or((false, pattern), |rest| (true, rest))
 }
 
-/// Whether `path` matches either glob: its basename against `basename`, or its
-/// (base-dir-resolved) absolute form against `absolute`.
+/// Whether `path` matches either glob: its basename against `basename`, or its absolute
+/// form against `absolute`. A path outside `base_dir` is read as relative to it, like
+/// `ignore`'s gitignore matching.
 fn glob_path_matches(
     basename: &GlobMatcher,
     absolute: &GlobMatcher,
@@ -223,26 +225,37 @@ fn glob_path_matches(
     let filename_matches = path
         .file_name()
         .is_some_and(|file_name| basename.is_match(Path::new(file_name)));
-    let absolute_path = if path.is_absolute() {
-        Cow::Borrowed(path)
+    filename_matches || {
+        let anchor = glob_anchor(base_dir);
+        let resolved = lexical_abspath(path);
+        let absolute_path = if resolved.starts_with(&anchor) {
+            resolved
+        } else {
+            anchor.join(path).components().collect()
+        };
+        absolute.is_match(absolute_path)
+    }
+}
+
+/// The absolute directory relative globs are anchored at. `base_dir` is relative to the
+/// cwd, as walked and CLI paths are, and is empty for a config named without a directory.
+fn glob_anchor(base_dir: &Path) -> PathBuf {
+    if base_dir.as_os_str().is_empty() {
+        lexical_abspath(Path::new("."))
     } else {
-        Cow::Owned(base_dir.join(path))
-    };
-    filename_matches || absolute.is_match(absolute_path.as_ref())
+        lexical_abspath(base_dir)
+    }
 }
 
 fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
     if Path::new(pattern).is_absolute() {
         pattern.to_owned()
     } else {
-        let mut pattern_with_base = glob_escape(&base_dir.to_string_lossy());
-        if !pattern_with_base.is_empty()
-            && !pattern_with_base.ends_with(std::path::MAIN_SEPARATOR)
-        {
-            pattern_with_base.push(std::path::MAIN_SEPARATOR);
-        }
-        pattern_with_base.push_str(pattern);
-        pattern_with_base
+        let escaped_anchor = glob_escape(&glob_anchor(base_dir).to_string_lossy());
+        Path::new(&escaped_anchor)
+            .join(pattern)
+            .to_string_lossy()
+            .into_owned()
     }
 }
 
