@@ -205,7 +205,7 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 ## CLI Behavior
 
 `ryl check <inputs>` (the lint subcommand) and bare `ryl <inputs>` lint identically;
-`check` is the recommended form and bare is being phased out. Inputs are files,
+`check` is the recommended form; bare is deprecated and warns on stderr. Inputs are files,
 directories, or `-` for stdin. Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage
 error). ryl never enables a rule that wasn't explicitly turned on, so a run with no
 config, or one enabling nothing, exits `2`.

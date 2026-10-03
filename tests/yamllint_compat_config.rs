@@ -40,6 +40,7 @@ fn yamllint_and_ryl_honor_ignore_from_file() {
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
     let (_code, ryl_out, ryl_err) = run(Command::new(ryl)
+        .arg("check")
         .current_dir(root)
         .arg("--list-files")
         .arg("."));
@@ -76,6 +77,7 @@ fn project_config_precedence_over_env_matches_yamllint() {
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
     let (_code, ryl_out, ryl_err) = run(Command::new(ryl)
+        .arg("check")
         .current_dir(root)
         .env("YAMLLINT_CONFIG_FILE", env_cfg.display().to_string())
         .arg("--list-files")
@@ -114,6 +116,7 @@ fn ignore_can_reinclude_file_from_excluded_directory_matches_yamllint() {
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
     let (_code, ryl_out, ryl_err) = run(Command::new(ryl)
+        .arg("check")
         .current_dir(root)
         .arg("--list-files")
         .arg("."));
@@ -151,6 +154,7 @@ fn ignore_from_file_can_reinclude_file_from_excluded_directory_matches_yamllint(
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
     let (_code, ryl_out, ryl_err) = run(Command::new(ryl)
+        .arg("check")
         .current_dir(root)
         .arg("--list-files")
         .arg("."));

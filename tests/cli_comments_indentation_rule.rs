@@ -19,8 +19,11 @@ fn comments_indentation_reports_error() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
 
     assert_eq!(code, 1, "expected exit 1: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { &stdout } else { &stderr };
@@ -48,8 +51,11 @@ fn allow_any_open_indent_accepts_open_block_level_via_toml() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
 
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
     assert!(stdout.is_empty(), "expected no stdout: {stdout}");
@@ -63,6 +69,7 @@ fn allow_any_open_indent_rejected_in_yaml_config() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  comments-indentation:\n    allow-any-open-indent: true\n")
         .arg(&file));
@@ -91,8 +98,11 @@ fn comments_indentation_allows_aligned_comment() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
 
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
     assert!(stdout.is_empty(), "expected no stdout: {stdout}");

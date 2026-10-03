@@ -147,9 +147,9 @@ Source: https://ryl-docs.pages.dev/getting-started/quickstart/
 
 ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated
 `ryl format` formatter is coming). `ryl check <paths>` is the recommended form and
-is used throughout these docs. Bare `ryl <paths>` still lints identically today, but
-it is being phased out — a future release will warn on it and a later one will remove
-it, so adopt `ryl check` now.
+is used throughout these docs. Bare `ryl <paths>` still lints identically, but it is
+deprecated — it prints a warning to stderr (silenced by `--no-warnings`) and a later
+release will remove it, so adopt `ryl check` now.
 
 ## Run a lint
 
@@ -441,8 +441,8 @@ On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
 flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
-Bare `ryl <paths>` also lints today but is being phased out in favour of `ryl
-check`.
+Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
+prints a warning to stderr.
 
 ## Automatic migration
 
@@ -2104,7 +2104,7 @@ Each format has a default stream: the console formats (`standard`, `colored`, `g
 so a report can be redirected into an artifact file:
 
 ```console
-$ ryl --format gitlab . > gl-code-quality-report.json
+$ ryl check --format gitlab . > gl-code-quality-report.json
 ```
 
 ### Multiple outputs in one run
@@ -2115,10 +2115,10 @@ Biome model). `-o` takes a file path, or `-` for stdout:
 
 ```console
 # console diagnostics on stderr AND a GitLab report written to a file
-$ ryl --format auto --format gitlab -o gl-code-quality-report.json .
+$ ryl check --format auto --format gitlab -o gl-code-quality-report.json .
 
 # a JUnit file and a GitLab file together, with no console output
-$ ryl --format junit -o report.xml --format gitlab -o gl.json .
+$ ryl check --format junit -o report.xml --format gitlab -o gl.json .
 ```
 
 A `--format` with no `--output-file` uses its default stream, so the way to get your usual
@@ -2233,7 +2233,7 @@ Publish it with `artifacts:reports:codequality` pointing at the file you wrote w
 ```yaml
 lint:
   script:
-    - ryl --format gitlab -o gl-code-quality-report.json .
+    - ryl check --format gitlab -o gl-code-quality-report.json .
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
@@ -2282,7 +2282,7 @@ $ ryl server
 
 The server speaks LSP over stdin/stdout; you do not run it directly but point your editor's
 LSP client at the command. (`server` is a subcommand, so to lint a path literally named
-`server` use `ryl ./server` or `ryl server/`.) Configuration is discovered per document exactly as the CLI does
+`server` use `ryl check server`.) Configuration is discovered per document exactly as the CLI does
 it (a `.ryl.toml` / `ryl.toml` / `[tool.ryl]` in `pyproject.toml`, or a yamllint config,
 found by walking up from the file). As with the CLI, **ryl enables no rules by default**: a
 file with no discovered config that enables at least one rule produces no diagnostics.

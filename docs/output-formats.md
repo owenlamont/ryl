@@ -25,7 +25,7 @@ Each format has a default stream: the console formats (`standard`, `colored`, `g
 so a report can be redirected into an artifact file:
 
 ```console
-$ ryl --format gitlab . > gl-code-quality-report.json
+$ ryl check --format gitlab . > gl-code-quality-report.json
 ```
 
 ### Multiple outputs in one run
@@ -36,10 +36,10 @@ Biome model). `-o` takes a file path, or `-` for stdout:
 
 ```console
 # console diagnostics on stderr AND a GitLab report written to a file
-$ ryl --format auto --format gitlab -o gl-code-quality-report.json .
+$ ryl check --format auto --format gitlab -o gl-code-quality-report.json .
 
 # a JUnit file and a GitLab file together, with no console output
-$ ryl --format junit -o report.xml --format gitlab -o gl.json .
+$ ryl check --format junit -o report.xml --format gitlab -o gl.json .
 ```
 
 A `--format` with no `--output-file` uses its default stream, so the way to get your usual
@@ -154,7 +154,7 @@ Publish it with `artifacts:reports:codequality` pointing at the file you wrote w
 ```yaml
 lint:
   script:
-    - ryl --format gitlab -o gl-code-quality-report.json .
+    - ryl check --format gitlab -o gl-code-quality-report.json .
   artifacts:
     reports:
       codequality: gl-code-quality-report.json

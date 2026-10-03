@@ -13,8 +13,10 @@ fn list_files_outputs_expected_entries() {
 
     // Bound discovery at the tempdir so a stray config in the shared temp root cannot
     // change which files `--list-files` selects.
-    let (code, stdout, stderr) =
-        run(ryl(dir.path()).arg("--list-files").arg(dir.path()));
+    let (code, stdout, stderr) = run(ryl(dir.path())
+        .arg("check")
+        .arg("--list-files")
+        .arg(dir.path()));
     assert_eq!(code, 0, "list-files should succeed: stderr={stderr}");
     assert!(stderr.trim().is_empty(), "unexpected stderr: {stderr}");
     assert!(

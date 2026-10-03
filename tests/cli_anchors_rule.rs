@@ -14,6 +14,7 @@ fn anchors_reports_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  anchors: enable\n")
         .arg(&file));
@@ -42,8 +43,11 @@ fn warning_level_does_not_fail() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "warnings should not fail: stdout={stdout} stderr={stderr}"
@@ -68,8 +72,11 @@ fn duplicate_anchor_reports_error_when_enabled() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -89,6 +96,7 @@ fn malformed_anchor_after_undeclared_alias_reports_syntax_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  anchors: enable\n")
         .arg(&file));
@@ -118,8 +126,11 @@ fn unused_anchor_reports_error_when_enabled() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -141,8 +152,11 @@ fn rule_ignore_skips_file() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "ignored file should pass: stdout={stdout} stderr={stderr}"
@@ -164,8 +178,11 @@ fn ambiguous_anchor_alias_names_report_error_via_toml() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
     assert!(
@@ -189,6 +206,7 @@ fn ambiguous_anchor_alias_names_rejected_in_yaml_config() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  anchors:\n    forbid-ambiguous-anchor-alias-names: true\n")
         .arg(&file));
@@ -211,6 +229,7 @@ fn alias_value_with_only_indent_prefix_is_supported() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  anchors: enable\n")
         .arg(&file));

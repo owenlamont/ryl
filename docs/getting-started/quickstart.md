@@ -4,9 +4,9 @@
 
 ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated
 `ryl format` formatter is coming). `ryl check <paths>` is the recommended form and
-is used throughout these docs. Bare `ryl <paths>` still lints identically today, but
-it is being phased out — a future release will warn on it and a later one will remove
-it, so adopt `ryl check` now.
+is used throughout these docs. Bare `ryl <paths>` still lints identically, but it is
+deprecated — it prints a warning to stderr (silenced by `--no-warnings`) and a later
+release will remove it, so adopt `ryl check` now.
 
 ## Run a lint
 

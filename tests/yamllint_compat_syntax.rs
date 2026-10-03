@@ -126,7 +126,7 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
     for (label, envs, kind, use_standard_format) in scenarios {
         // Valid file should pass in both tools.
         let mut ryl_ok_cmd = Command::new(ryl);
-        ryl_ok_cmd.arg(&ok);
+        ryl_ok_cmd.arg("check").arg(&ok);
         let (ryl_ok, _, _) = run_with_env(ryl_ok_cmd, envs);
         assert_eq!(ryl_ok, 0, "ryl should succeed for valid yaml ({label})");
 
@@ -145,7 +145,7 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
 
         // Invalid file should fail; capture whichever stream has content.
         let mut ryl_bad_cmd = Command::new(ryl);
-        ryl_bad_cmd.arg(&bad);
+        ryl_bad_cmd.arg("check").arg(&bad);
         let (ryl_bad_code, ryl_bad_out, ryl_bad_err) = run_with_env(ryl_bad_cmd, envs);
         let mut yam_bad_cmd = Command::new("yamllint");
         if use_standard_format {
