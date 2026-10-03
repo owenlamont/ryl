@@ -7,8 +7,8 @@ use tempfile::tempdir;
 fn run_cmd(cmd: &mut Command) -> (i32, String, String) {
     let out = cmd.output().expect("failed to spawn process");
     let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let stdout = String::from_utf8_lossy_owned(out.stdout);
+    let stderr = String::from_utf8_lossy_owned(out.stderr);
     (code, stdout, stderr)
 }
 
