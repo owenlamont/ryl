@@ -4,6 +4,7 @@
 //! real `ryl server` binary over stdio so the `run()` / subcommand wiring is
 //! covered too.
 
+use std::assert_matches;
 use std::io::BufReader;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -1202,8 +1203,9 @@ fn malformed_request_params_yield_a_null_result() {
         Value::String("not params".to_string()),
     );
     let response = client.response(&id);
-    assert!(
-        matches!(response.response_result, Ok(Value::Null)),
+    assert_matches!(
+        response.response_result,
+        Ok(Value::Null),
         "bad params -> null result"
     );
 }
@@ -1459,13 +1461,11 @@ fn initialize_advertises_extended_capabilities() {
         caps.diagnostic_provider.is_some(),
         "advertises pull diagnostics"
     );
-    assert!(
-        matches!(
-            caps.text_document_sync,
-            Some(lsp_types::TextDocumentSyncCapability::Kind(
-                lsp_types::TextDocumentSyncKind::INCREMENTAL
-            ))
-        ),
+    assert_matches!(
+        caps.text_document_sync,
+        Some(lsp_types::TextDocumentSyncCapability::Kind(
+            lsp_types::TextDocumentSyncKind::INCREMENTAL
+        )),
         "negotiates incremental sync"
     );
 }
@@ -1767,8 +1767,9 @@ fn rename_off_an_anchor_is_null() {
     client.did_open(doc.clone(), "a: 1\n");
     let _ = client.diagnostics();
     let response = client.rename(&doc, 0, 0, "x");
-    assert!(
-        matches!(response.response_result, Ok(Value::Null)),
+    assert_matches!(
+        response.response_result,
+        Ok(Value::Null),
         "nothing to rename here"
     );
 }
@@ -2169,14 +2170,11 @@ fn an_unchanged_workspace_pull_is_held_open_until_a_change() {
             .expect("the held pull is answered once the buffer changes"),
     )
     .expect("WorkspaceDiagnosticReport");
-    assert!(
-        matches!(
-            report.items.as_slice(),
-            [WorkspaceDocumentDiagnosticReport::Full(full)]
-                if !full.full_document_diagnostic_report.items.is_empty()
-        ),
-        "the resumed pull carries the new diagnostics, got {:?}",
-        report.items
+    assert_matches!(
+        report.items.as_slice(),
+        [WorkspaceDocumentDiagnosticReport::Full(full)]
+            if !full.full_document_diagnostic_report.items.is_empty(),
+        "the resumed pull carries the new diagnostics"
     );
 }
 
@@ -2368,13 +2366,11 @@ fn a_streaming_pull_clears_a_deleted_file_through_the_stream() {
         json!({ "previousResultIds": previous, "partialResultToken": "ryl-pull" }),
     );
     let (batches, response) = partial_results(&client, &id, "ryl-pull");
-    assert!(
-        matches!(
-            batches.concat().as_slice(),
-            [WorkspaceDocumentDiagnosticReport::Full(full)]
-                if full.full_document_diagnostic_report.items.is_empty()
-        ),
-        "the deleted file is cleared through the stream, got {batches:?}"
+    assert_matches!(
+        batches.concat().as_slice(),
+        [WorkspaceDocumentDiagnosticReport::Full(full)]
+            if full.full_document_diagnostic_report.items.is_empty(),
+        "the deleted file is cleared through the stream"
     );
     assert!(
         response.response_result.is_ok(),
@@ -2433,12 +2429,10 @@ fn document_diagnostic_reports_unchanged_for_a_matching_result_id() {
         client.response(&id).response_result.expect("diagnostic"),
     )
     .expect("DocumentDiagnosticReport");
-    assert!(
-        matches!(
-            report,
-            DocumentDiagnosticReport::Unchanged(unchanged)
-                if unchanged.unchanged_document_diagnostic_report.result_id == result_id
-        ),
+    assert_matches!(
+        report,
+        DocumentDiagnosticReport::Unchanged(unchanged)
+            if unchanged.unchanged_document_diagnostic_report.result_id == result_id,
         "an unedited document is answered Unchanged rather than re-sending every item"
     );
 }
@@ -2558,8 +2552,9 @@ fn malformed_rename_params_yield_a_null_result() {
     let (mut client, _init) = Client::launch(None, None);
     let id = client.request("textDocument/rename", Value::String("bad".to_string()));
     let response = client.response(&id);
-    assert!(
-        matches!(response.response_result, Ok(Value::Null)),
+    assert_matches!(
+        response.response_result,
+        Ok(Value::Null),
         "bad rename params -> null"
     );
 }
@@ -2569,8 +2564,9 @@ fn rename_on_an_unopened_document_is_null() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
     let response = client.rename(&file_uri(dir.path(), "never.yaml"), 0, 0, "x");
-    assert!(
-        matches!(response.response_result, Ok(Value::Null)),
+    assert_matches!(
+        response.response_result,
+        Ok(Value::Null),
         "an unopened document yields no rename edit"
     );
 }
@@ -2585,8 +2581,9 @@ fn rename_on_a_markdown_document_is_null() {
     client.did_open(doc.clone(), "```yaml\na: &anchor 1\n```\n");
     let _ = client.diagnostics();
     let response = client.rename(&doc, 1, 6, "renamed");
-    assert!(
-        matches!(response.response_result, Ok(Value::Null)),
+    assert_matches!(
+        response.response_result,
+        Ok(Value::Null),
         "rename targets YAML documents, not markdown hosts"
     );
 }

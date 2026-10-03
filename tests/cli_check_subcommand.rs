@@ -47,8 +47,8 @@ fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
     }
     let out = child.wait_with_output().expect("wait");
     let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let stdout = String::from_utf8_lossy_owned(out.stdout);
+    let stderr = String::from_utf8_lossy_owned(out.stderr);
     (code, stdout, stderr)
 }
 
