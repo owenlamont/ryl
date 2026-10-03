@@ -13,7 +13,7 @@ use crate::rules::{
     trailing_spaces,
 };
 
-const RULE_FIX_MAX_ITERATIONS: usize = 8;
+pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
 
 /// File-shape rules suppressed inside embedded markdown regions: a region is not a standalone
 /// file, so document-start/end and file-newline checks do not apply and `--fix` must never
