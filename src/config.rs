@@ -710,10 +710,7 @@ impl YamlLintConfig {
     #[must_use]
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         if let Some(matcher) = &self.yaml_matcher {
-            let rel: Cow<'_, Path> = path.strip_prefix(base_dir).map_or_else(
-                |_| Cow::Owned(path.file_name().map(PathBuf::from).unwrap_or_default()),
-                Cow::Borrowed,
-            );
+            let rel = relative_to_base(path, base_dir);
             let matched =
                 matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
             return matched.is_ignore();
@@ -728,10 +725,7 @@ impl YamlLintConfig {
         let Some(matcher) = &self.markdown_matcher else {
             return false;
         };
-        let rel: Cow<'_, Path> = path.strip_prefix(base_dir).map_or_else(
-            |_| Cow::Owned(path.file_name().map(PathBuf::from).unwrap_or_default()),
-            Cow::Borrowed,
-        );
+        let rel = relative_to_base(path, base_dir);
         matcher
             .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
             .is_ignore()
@@ -1101,8 +1095,25 @@ fn build_per_file_ignores(
         .collect()
 }
 
+/// A cwd-relative base (`.`) meets an absolute LSP path via the cwd; a path outside the
+/// base falls back to its file name, as `ignore` panics on one not under its root.
+fn relative_to_base<'a>(path: &'a Path, base_dir: &Path) -> Cow<'a, Path> {
+    if let Ok(rel) = path.strip_prefix(base_dir) {
+        return Cow::Borrowed(rel);
+    }
+    let resolved = std::path::absolute(path)
+        .ok()
+        .zip(std::path::absolute(base_dir).ok())
+        .and_then(|(path, base)| path.strip_prefix(base).ok().map(Path::to_path_buf));
+    Cow::Owned(
+        resolved
+            .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
+    )
+}
+
 fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> bool {
-    let rel = path.strip_prefix(base_dir).unwrap_or(path);
+    let rel = relative_to_base(path, base_dir);
+    let rel = rel.as_ref();
     let direct = matcher.matched(rel, false);
     if direct.is_whitelist() {
         return false;

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use ryl::config::{Overrides, discover_config_with};
+use ryl::config::{Overrides, discover_config, discover_config_with};
 
 #[path = "common/mod.rs"]
 mod common;
@@ -79,5 +79,28 @@ fn child_ignore_from_file_replaces_parent_patterns() {
         !ctx.config
             .is_file_ignored(&base_dir.join("parent.yaml"), &base_dir),
         "parent ignores should be replaced by child ignore-from-file"
+    );
+}
+
+#[test]
+fn cwd_relative_base_anchors_ignore_for_absolute_paths() {
+    let ctx = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some("ignore: ['dir/ignore-*.yml']\nrules: {}\n".into()),
+        },
+    )
+    .expect("inline config should parse");
+    let cwd = std::env::current_dir().expect("cwd");
+    let ignored = |path: PathBuf| ctx.config.is_file_ignored(&path, &ctx.base_dir);
+    assert!(ignored(cwd.join("dir/ignore-me.yml")));
+    assert!(
+        !ignored(cwd.join("ignore-me.yml")),
+        "the glob is anchored at the cwd"
+    );
+    assert!(
+        !ignored(std::env::temp_dir().join("dir/ignore-me.yml")),
+        "a path outside the cwd matches on its file name alone"
     );
 }

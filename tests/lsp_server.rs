@@ -1553,6 +1553,28 @@ fn config_data_init_option_enables_linting() {
 }
 
 #[test]
+fn config_data_ignore_skips_a_document_outside_the_cwd() {
+    // configData anchors at the cwd, so this absolute path matches on its file name.
+    let root = tempdir().expect("tempdir");
+    let options = json!({
+        "configData": "ignore: '**/ignore-*.yml'\nrules:\n  trailing-spaces: enable\n",
+    });
+    let (client, _init) =
+        Client::launch_with(None, Some(root.path()), true, None, false, Some(options));
+    client.did_open(file_uri(root.path(), "ignore-me.yml"), "a: 1 \n");
+    assert!(
+        client.diagnostics().is_empty(),
+        "the ignored document is not linted"
+    );
+    client.did_open(file_uri(root.path(), "include-me.yml"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "the server survives to lint the next"
+    );
+}
+
+#[test]
 fn enable_false_turns_linting_off() {
     let dir = project(TRAILING);
     let options = json!({ "enable": false });
