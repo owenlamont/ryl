@@ -56,7 +56,7 @@ pixi global install ryl             # conda-forge
 winget install owenlamont.ryl       # winget (Windows)
 ```
 
-Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.98.1 or
+Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.99.0 or
 newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 
 ## Status and scope
