@@ -194,7 +194,7 @@ struct PathGlob {
 }
 
 impl PathGlob {
-    /// `base_dir` is relative to the cwd, as walked and CLI paths are.
+    /// `base_dir` resolves against the cwd, as walked and CLI paths do.
     fn new(pattern: &str, base_dir: &Path) -> Result<Self, globset::Error> {
         let (negated, pattern) = split_negation(pattern);
         let basename = Glob::new(pattern)?.compile_matcher();
