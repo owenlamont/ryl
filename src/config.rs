@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
@@ -199,7 +199,7 @@ impl PathGlob {
         let (negated, pattern) = split_negation(pattern);
         let basename = Glob::new(pattern)?.compile_matcher();
         let cwd = lexical_abspath(Path::new("."));
-        let anchor = lexical_abspath(&cwd.join(base_dir));
+        let anchor = normalize_lexically(&cwd.join(base_dir));
         let absolute = Glob::new(&absolute_glob_pattern(pattern, &anchor))
             .expect("an escaped anchor keeps a valid pattern valid")
             .compile_matcher();
@@ -219,11 +219,11 @@ impl PathGlob {
             .file_name()
             .is_some_and(|file_name| self.basename.is_match(Path::new(file_name)));
         let matched = filename_matches || {
-            let resolved = lexical_abspath(&self.cwd.join(path));
+            let resolved = normalize_lexically(&self.cwd.join(path));
             let absolute_path = if resolved.starts_with(&self.anchor) {
                 resolved
             } else {
-                lexical_abspath(&self.anchor.join(path))
+                normalize_lexically(&self.anchor.join(path))
             };
             self.absolute.is_match(absolute_path)
         };
@@ -238,16 +238,33 @@ fn split_negation(pattern: &str) -> (bool, &str) {
         .map_or((false, pattern), |rest| (true, rest))
 }
 
+/// Resolves an absolute path's `.` and `..` without touching the filesystem, so a glob
+/// pattern and the paths it matches normalize identically.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        if component == Component::ParentDir {
+            out.pop();
+        } else {
+            out.push(component);
+        }
+    }
+    out
+}
+
 fn absolute_glob_pattern(pattern: &str, anchor: &Path) -> String {
-    if Path::new(pattern).is_absolute() {
-        pattern.to_owned()
+    let anchored = if Path::new(pattern).is_absolute() {
+        PathBuf::from(pattern)
     } else {
         let escaped_anchor = glob_escape(&anchor.to_string_lossy());
-        Path::new(&escaped_anchor)
-            .join(pattern)
-            .to_string_lossy()
-            .into_owned()
-    }
+        PathBuf::from(format!(
+            "{escaped_anchor}{}{pattern}",
+            std::path::MAIN_SEPARATOR
+        ))
+    };
+    normalize_lexically(&anchored)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// The rules a `per-line-ignores` entry suppresses, resolved to `&'static str` ids;

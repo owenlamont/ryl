@@ -239,3 +239,25 @@ fn toml_per_file_ignores_match_a_path_outside_the_config_dir_as_given() {
         command_output(&stdout, &stderr)
     );
 }
+
+#[test]
+fn toml_per_file_ignores_normalize_dot_segments_in_patterns() {
+    let dir = workflow_tree();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ndocument-start = 'enable'\n\
+         [per-file-ignores]\n'./.github/../.github/workflows/*' = ['document-start']\n",
+    )
+    .unwrap();
+
+    for input in [".", ".github/workflows/action.yml"] {
+        let (code, stdout, stderr) =
+            run(ryl(dir.path()).current_dir(dir.path()).arg(input));
+        assert_eq!(
+            code,
+            0,
+            "`ryl {input}` should match a pattern with `.`/`..` segments: {}",
+            command_output(&stdout, &stderr)
+        );
+    }
+}
