@@ -2,7 +2,7 @@
 name = "ryl"
 version = "0.22.0"
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 description = "Fast YAML linter inspired by yamllint"
 readme = "README.md"
 license = "MIT"
