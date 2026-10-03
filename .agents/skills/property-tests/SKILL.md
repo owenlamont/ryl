@@ -2,8 +2,8 @@
 name: property-tests
 description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
-  editing any property-test suite (safe-fix / rule-checker / markdown-fix /
-  config). Covers what each generator must be extended with, the ~1000x
+  editing any property-test suite (safe-fix / fix-convergence / rule-checker /
+  markdown-fix / config). Covers what each generator must be extended with, the ~1000x
   pre-commit run, and which rules intentionally have no safe `--fix`.
 ---
 
@@ -13,8 +13,9 @@ When implementing a new rule or changing an existing one, extend the relevant
 property-test generator(s) so the new/updated syntax is actually exercised (each suite
 below lists exactly what to extend and the deterministic guard to add), then do a
 one-off **~1000× thorough run** before committing: e.g.
-`PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites'
-in-CI default is 512 cases — tuned for speed, not exhaustiveness). Build `--release`
+`PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites run
+proptest's default 256 cases in CI unless they pin `cases` themselves — tuned for
+speed, not exhaustiveness). Build `--release`
 and run it in the background; it routinely flushes rare interleavings the small count
 misses. Commit only once it is green, and keep any newly-persisted seeds in
 `tests/proptest-regressions/`.
@@ -35,7 +36,8 @@ property can't pass vacuously.
 When you add a new `FixSafety::Safe` rule:
 
 1. Add its rule id to `SAFE_FIX_RULES` and to `COMMON_SAFE_FIX_RULES_YAML` in
-   `tests/property_safe_fix.rs`. If the new rule introduces meaningful config
+   `tests/property_safe_fix/config.rs`, and its `fix` to `pipeline_rules` in
+   `tests/property_fix_convergence.rs`. If the new rule introduces meaningful config
    axes, add a variant to `QUOTED_STRINGS_VARIANTS` (or a peer constant for that
    rule) so the matrix exercises each regime; ryl-only options must go through
    the TOML slot rather than YAML.
@@ -51,6 +53,24 @@ When you add a new `FixSafety::Safe` rule:
 Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.txt`
 and replayed first on every run. That file is committed to git so the regression
 follows the codebase, not the developer's machine.
+
+## Property Tests For Fix Convergence
+
+`tests/property_fix_convergence.rs` asserts the `--fix` pipeline converges: each
+rule's `fix` reaches a fixed point within `RULE_FIX_MAX_ITERATIONS` (so the cap in
+`src/fix.rs` never silently truncates a fixer), and re-running `apply_safe_fixes`
+settles without revisiting an earlier state (two fixers undoing each other). It
+rebuilds the pipeline from each rule's public `fix` in `pipeline_rules` and asserts
+that probe matches `apply_safe_fixes` byte-for-byte. Its generator
+(`property_fix_convergence/stack.rs`) wraps `arb_document` entries in indented
+comments, whitespace-only blanks, trailing spaces and `---`/`...` markers so fixers
+act on the same lines.
+
+When you add a new `FixSafety::Safe` rule, add it to `pipeline_rules` at its position
+in `apply_safe_fixes_filtered`; `probe_covers_every_safe_fix_rule` fails until you do,
+and the byte-for-byte assertion fails on a wrong position. Failing inputs persist to
+the committed `tests/proptest-regressions/property_fix_convergence.txt`; run with
+`cargo test --test property_fix_convergence`.
 
 ## Property Tests For Rule Checkers
 

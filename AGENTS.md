@@ -104,7 +104,7 @@ Working on the codebase:
 
 Verifying a change:
 
-- `.agents/skills/property-tests/SKILL.md` — the four property suites and the ~1000×
+- `.agents/skills/property-tests/SKILL.md` — the property suites and the ~1000×
   pre-commit run.
 - `.agents/skills/testing-traps/SKILL.md` — traps that make a test pass vacuously, plus
   regenerating committed schemas and snapshots.
