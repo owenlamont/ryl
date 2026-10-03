@@ -187,7 +187,7 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
             .map_or((after, ""), |i| (&after[..i], &after[i..])),
         None => ("", rest),
     };
-    let decoded = String::from_utf8_lossy(&percent_decode(path)).into_owned();
+    let decoded = String::from_utf8_lossy_owned(percent_decode(path));
     if !authority.is_empty() && !authority.eq_ignore_ascii_case("localhost") {
         // file://host/share/... is a UNC path; `//host/share` is one on Windows and a
         // harmless leading-slash path elsewhere.

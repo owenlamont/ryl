@@ -1,3 +1,4 @@
+use std::assert_matches;
 use std::{fs, process::Command};
 
 use jsonschema::validator_for;
@@ -1042,11 +1043,7 @@ fn normalize_toml_config_preserves_quoted_strings_in_fixable() {
     let normalized = normalize_toml_config(&parsed);
     let fix = normalized.fix.expect("fix should normalize");
     assert_eq!(fix.fixable.len(), 1);
-    assert!(
-        matches!(fix.fixable[0], SelQuotedStrings),
-        "expected QuotedStrings, got {:?}",
-        fix.fixable[0]
-    );
+    assert_matches!(fix.fixable[0], SelQuotedStrings, "expected QuotedStrings");
 }
 
 #[test]
