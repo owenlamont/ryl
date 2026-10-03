@@ -11,10 +11,16 @@
 //! property cannot pass vacuously.
 
 #[path = "property_safe_fix/ast.rs"]
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared with the safe-fix suite, which uses every item"
+)]
 mod ast;
 #[path = "property_safe_fix/config.rs"]
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared with the safe-fix suite, which uses every item"
+)]
 mod config;
 #[path = "property_fix_convergence/stack.rs"]
 mod stack;
