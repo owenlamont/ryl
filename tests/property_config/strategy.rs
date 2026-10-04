@@ -51,10 +51,13 @@ pub struct PerLineModel {
 
 #[derive(Debug, Clone)]
 pub struct ConfigModel {
+    /// TOML-only `[rules] ALL` switch (`"enable"`/`"disable"`/a bogus value).
+    pub all: Option<&'static str>,
     pub rules: Vec<RuleCfg>,
     pub ignore: Option<Vec<&'static str>>,
     pub locale: Option<&'static str>,
     pub per_line_ignores: Vec<PerLineModel>,
+    pub per_file_ignores: Vec<(&'static str, Vec<&'static str>)>,
 }
 
 /// Regex strings spanning valid, invalid, and pathological-but-valid (the last to
@@ -68,7 +71,7 @@ const INTS: &[i64] = &[-1, 0, 1, 2, 80, 9999];
 const PER_LINE_PATHS: &[&str] = &["*.yaml", "vendor/**", "!src/**", "[", ""];
 /// Real rule ids plus the `ALL` selector; an empty draw exercises the empty-`rules`
 /// validation error. Names stay valid so generation reaches `validate_per_line_ignores`
-/// rather than bouncing off `PerLineRule` deserialization.
+/// rather than bouncing off `RuleSelector` deserialization.
 const PER_LINE_RULES: &[&str] = &["comments", "line-length", "trailing-spaces", "ALL"];
 
 /// What kind of value an option accepts; `arb` yields both well-typed and
@@ -193,16 +196,26 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
         )),
         prop::option::of(prop::sample::select(LOCALES)),
         prop::collection::vec(arb_per_line(), 0..3),
+        prop::option::of(prop::sample::select(&["enable", "disable", "bogus"][..])),
+        prop::collection::btree_map(
+            prop::sample::select(PER_LINE_PATHS),
+            prop::collection::vec(prop::sample::select(PER_LINE_RULES), 0..3),
+            0..3,
+        ),
     )
-        .prop_map(|(rules, ignore, locale, per_line_ignores)| ConfigModel {
-            // Drop duplicate rule ids: rendering the same id twice produces a
-            // duplicate `[rules.<id>]` table (a hard TOML error) or a duplicate YAML
-            // key, which would bounce a chunk of generated configs off the parser
-            // before they reach validation/normalisation/linting.
-            rules: dedup_rules(rules),
-            ignore: ignore.map(|patterns| patterns.into_iter().collect()),
-            locale,
-            per_line_ignores,
+        .prop_map(|(rules, ignore, locale, per_line_ignores, all, per_file)| {
+            ConfigModel {
+                all,
+                // Drop duplicate rule ids: rendering the same id twice produces a
+                // duplicate `[rules.<id>]` table (a hard TOML error) or a duplicate YAML
+                // key, which would bounce a chunk of generated configs off the parser
+                // before they reach validation/normalisation/linting.
+                rules: dedup_rules(rules),
+                ignore: ignore.map(|patterns| patterns.into_iter().collect()),
+                locale,
+                per_line_ignores,
+                per_file_ignores: per_file.into_iter().collect(),
+            }
         })
 }
 
@@ -279,6 +292,9 @@ pub fn render_toml(model: &ConfigModel) -> String {
     // Scalar toggles belong under the inline [rules] table; leveled rules each get
     // their own [rules.<id>] table emitted afterwards so TOML stays well-formed.
     out.push_str("[rules]\n");
+    if let Some(all) = model.all {
+        out.push_str(&format!("ALL = \"{all}\"\n"));
+    }
     for rule in &model.rules {
         match &rule.setting {
             Setting::Disable => out.push_str(&format!("{} = \"disable\"\n", rule.id)),
@@ -308,6 +324,13 @@ pub fn render_toml(model: &ConfigModel) -> String {
         let inner: Vec<String> =
             entry.rules.iter().map(|r| format!("\"{r}\"")).collect();
         out.push_str(&format!("rules = [{}]\n", inner.join(", ")));
+    }
+    if !model.per_file_ignores.is_empty() {
+        out.push_str("[per-file-ignores]\n");
+        for (path, rules) in &model.per_file_ignores {
+            let inner: Vec<String> = rules.iter().map(|r| format!("\"{r}\"")).collect();
+            out.push_str(&format!("\"{path}\" = [{}]\n", inner.join(", ")));
+        }
     }
     out
 }

@@ -695,7 +695,12 @@ impl YamlLintConfig {
                 .per_file_ignore_matchers
                 .iter()
                 .filter(|entry| entry.glob.matches(path))
-                .any(|entry| entry.rules.iter().any(|candidate| candidate == rule))
+                .any(|entry| {
+                    entry
+                        .rules
+                        .iter()
+                        .any(|candidate| candidate == rule || candidate == "ALL")
+                })
     }
 
     /// The `per-line-ignores` entries applying to `path`, as virtual-disable-line applies
@@ -772,6 +777,27 @@ impl YamlLintConfig {
             self.markdown_matcher =
                 build_glob_matcher(base_dir, &self.markdown_file_patterns);
             self.markdown_from_flag = true;
+        }
+    }
+
+    /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
+    pub fn restrict_rules(&mut self, selected: &[&str]) {
+        self.rules
+            .retain(|name, _| selected.contains(&name.as_str()));
+        self.rule_names
+            .retain(|name| selected.contains(&name.as_str()));
+        for rule in selected {
+            if self.rule_level(rule).is_none() {
+                self.rules.insert(
+                    (*rule).to_owned(),
+                    RuleConfig::new(YamlOwned::Value(ScalarOwned::String(
+                        "enable".into(),
+                    ))),
+                );
+                if !self.rule_names.iter().any(|name| name == rule) {
+                    self.rule_names.push((*rule).to_owned());
+                }
+            }
         }
     }
 

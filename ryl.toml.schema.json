@@ -1,12 +1,5 @@
 {
   "$defs": {
-    "AllRulesSelector": {
-      "description": "The `ALL` keyword accepted in a `per-line-ignores` `rules` list.",
-      "enum": [
-        "ALL"
-      ],
-      "type": "string"
-    },
     "FilesTable": {
       "additionalProperties": false,
       "description": "File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which\nfiles are linted as that kind. A file matching more than one kind is an error.",
@@ -273,7 +266,7 @@
         },
         "rules": {
           "items": {
-            "$ref": "#/$defs/PerLineRule"
+            "$ref": "#/$defs/RuleSelector"
           },
           "type": "array"
         }
@@ -282,17 +275,6 @@
         "rules"
       ],
       "type": "object"
-    },
-    "PerLineRule": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/AllRulesSelector"
-        },
-        {
-          "$ref": "#/$defs/RuleName"
-        }
-      ],
-      "description": "A `per-line-ignores` rule selector: a built-in rule name, or `ALL` to suppress\nevery rule on a matching line. Untagged so `\"ALL\"` and rule names share one list."
     },
     "QuoteType": {
       "enum": [
@@ -618,39 +600,6 @@
       "enum": [
         "error",
         "warning"
-      ],
-      "type": "string"
-    },
-    "RuleName": {
-      "description": "A built-in lint rule name.",
-      "enum": [
-        "anchors",
-        "block-scalar-chomping",
-        "braces",
-        "brackets",
-        "colons",
-        "commas",
-        "comments",
-        "comments-indentation",
-        "document-end",
-        "document-start",
-        "empty-lines",
-        "empty-values",
-        "float-values",
-        "hyphens",
-        "indentation",
-        "key-duplicates",
-        "key-ordering",
-        "line-length",
-        "merge-keys",
-        "new-line-at-end-of-file",
-        "new-lines",
-        "octal-values",
-        "quoted-strings",
-        "tags",
-        "trailing-spaces",
-        "truthy",
-        "unicode-line-breaks"
       ],
       "type": "string"
     },
@@ -1821,6 +1770,40 @@
       },
       "type": "object"
     },
+    "RuleSelector": {
+      "description": "A rule id, or `ALL` for every rule.",
+      "enum": [
+        "ALL",
+        "anchors",
+        "block-scalar-chomping",
+        "braces",
+        "brackets",
+        "colons",
+        "commas",
+        "comments",
+        "comments-indentation",
+        "document-end",
+        "document-start",
+        "empty-lines",
+        "empty-values",
+        "float-values",
+        "hyphens",
+        "indentation",
+        "key-duplicates",
+        "key-ordering",
+        "line-length",
+        "merge-keys",
+        "new-line-at-end-of-file",
+        "new-lines",
+        "octal-values",
+        "quoted-strings",
+        "tags",
+        "trailing-spaces",
+        "truthy",
+        "unicode-line-breaks"
+      ],
+      "type": "string"
+    },
     "RuleSwitch": {
       "description": "Shorthand rule enable/disable syntax.",
       "enum": [
@@ -1832,6 +1815,16 @@
     "RulesTable": {
       "description": "Built-in rule table for TOML config.",
       "properties": {
+        "ALL": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleSwitch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "anchors": {
           "anyOf": [
             {
@@ -2240,7 +2233,7 @@
     "per-file-ignores": {
       "additionalProperties": {
         "items": {
-          "$ref": "#/$defs/RuleName"
+          "$ref": "#/$defs/RuleSelector"
         },
         "type": "array"
       },

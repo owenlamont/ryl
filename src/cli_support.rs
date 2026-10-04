@@ -122,7 +122,7 @@ fn relativize(target: &Path, base: &Path) -> PathBuf {
 pub fn resolve_ctx(
     path: &Path,
     global_cfg: Option<&ResolvedConfig>,
-    markdown: bool,
+    flags: &CliConfigFlags,
     cache: &mut ConfigCache,
 ) -> Result<(PathBuf, Arc<YamlLintConfig>, Vec<String>, bool), String> {
     if let Some((base_dir, cfg, found)) = global_cfg {
@@ -139,14 +139,14 @@ pub fn resolve_ctx(
             if let Some(entry) = cache.by_config.get(&cfg_path) {
                 (entry.clone(), notices)
             } else {
-                let entry = resolved(load_project_config(&cfg_path)?, markdown);
+                let entry = resolved(load_project_config(&cfg_path)?, flags);
                 cache.by_config.insert(cfg_path, entry.clone());
                 (entry, notices)
             }
         }
         PerFileConfig::Fallback(ctx) => {
             let notices = ctx.notices.clone();
-            (resolved(*ctx, markdown), notices)
+            (resolved(*ctx, flags), notices)
         }
     };
     cache.by_dir.insert(start, entry.clone());
@@ -161,12 +161,28 @@ pub struct ConfigCache {
     by_config: HashMap<PathBuf, ResolvedConfig>,
 }
 
-// The global config is markdown-enabled once by the caller; a discovered one is enabled
-// here, before caching, so its matcher is built once.
-fn resolved(ctx: ConfigContext, markdown: bool) -> ResolvedConfig {
-    let mut cfg = ctx.config;
-    if markdown {
-        cfg.enable_default_markdown(&ctx.base_dir);
+/// The `--markdown` and `--enable` overrides, applied to every resolved config.
+#[derive(Debug, Default)]
+pub struct CliConfigFlags {
+    pub markdown: bool,
+    pub enable: Option<Vec<&'static str>>,
+}
+
+impl CliConfigFlags {
+    pub fn apply(&self, cfg: &mut YamlLintConfig, base_dir: &Path) {
+        if self.markdown {
+            cfg.enable_default_markdown(base_dir);
+        }
+        if let Some(rules) = &self.enable {
+            cfg.restrict_rules(rules);
+        }
     }
+}
+
+// The global config is adjusted once by the caller; a discovered one here, before
+// caching, so its matcher is built once.
+fn resolved(ctx: ConfigContext, flags: &CliConfigFlags) -> ResolvedConfig {
+    let mut cfg = ctx.config;
+    flags.apply(&mut cfg, &ctx.base_dir);
     (ctx.base_dir, Arc::new(cfg), ctx.config_found)
 }

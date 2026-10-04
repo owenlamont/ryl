@@ -17,7 +17,8 @@
 //! - TOML configs are pushed through `parse -> validate -> normalize`, the
 //!   TOML-specific surface. This includes generated `[[per-line-ignores]]` entries
 //!   (TOML-only), with hostile regex/glob/rules values to exercise
-//!   `validate_per_line_ignores`.
+//!   `validate_per_line_ignores`, plus `[rules] ALL` and `[per-file-ignores]`; a TOML
+//!   config that validates is then linted with like a YAML one.
 //!
 //! Deterministic siblings pin the empty-config, invalid-regex, billion-laughs, and
 //! valid-config cases so the random invariant cannot pass vacuously if the generator
@@ -61,6 +62,11 @@ fn parse_toml_without_panicking(toml_config: &str) {
         && validate_toml_config(&typed).is_ok()
     {
         let _ = normalize_toml_config(&typed);
+        if let Ok(cfg) = YamlLintConfig::from_toml_str(toml_config) {
+            for doc in SAMPLE_DOCS {
+                let _ = lint_str(doc, Path::new("in.yaml"), &cfg, Path::new("."));
+            }
+        }
     }
 }
 
@@ -141,6 +147,17 @@ fn per_line_ignores_config_is_handled_without_panicking() {
             validate_toml_config(&typed).is_err(),
             "invalid per-line-ignores entry must be rejected: {bad}"
         );
+    }
+}
+
+#[test]
+fn toml_all_switch_is_handled_without_panicking() {
+    for config in [
+        "[rules]\nALL = \"enable\"\n[per-file-ignores]\n\"*.yaml\" = [\"ALL\"]\n",
+        "[rules]\nALL = \"disable\"\ntruthy = \"enable\"\n",
+    ] {
+        assert!(YamlLintConfig::from_toml_str(config).is_ok(), "{config}");
+        parse_toml_without_panicking(config);
     }
 }
 

@@ -99,12 +99,22 @@ present = true
 ```
 
 Each key is a path glob with the same semantics as `ignore`, including `!`
-negation. Each value is a list of rule IDs.
+negation. Each value is a list of rule IDs, or `["ALL"]` to switch off every rule
+for the matching files:
+
+```toml
+[rules]
+truthy = "enable"
+
+[per-file-ignores]
+"**/pnpm-*.yaml" = ["ALL"]
+```
+
+A file under `["ALL"]` is still parsed, so a syntax error in it is still
+reported and the run exits `1`. To skip the file entirely, use `ignore`.
 
 `per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config. Unlike [`per-line-ignores`](per-line-ignores.md), it accepts rule IDs
-only &mdash; there is no `"ALL"` shorthand for every rule. To skip a file
-outright, use `ignore`.
+equivalent); it is rejected in yamllint-compatible YAML config.
 
 ## Per-rule `ignore`
 
@@ -129,6 +139,7 @@ Here `docs/**` is exempt from `line-length` but still checked by `colons`.
 | :--- | :--- |
 | Never see the file again | `ignore` |
 | Keep checking the file, minus one or two rules | `per-file-ignores` |
+| Check only that the file parses | `per-file-ignores` with `["ALL"]` |
 | Relax a single rule across a subtree | Per-rule `ignore` |
 | Suppress a rule on matching *lines* rather than files | [`per-line-ignores`](per-line-ignores.md) |
 

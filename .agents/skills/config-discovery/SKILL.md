@@ -50,3 +50,7 @@ cases exit `2`, both stricter than yamllint:
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
 the message. The `default`/`relaxed`/`empty` presets stay available via `extends:` (YAML
 only). `--migrate-configs` (warns instead) and `--list-files` are exempt.
+
+`--enable <RULES>` counts as explicitly turning rules on: `CliConfigFlags::apply` runs
+`YamlLintConfig::restrict_rules` on every resolved config (global, per-file before
+caching, stdin), including the empty no-config fallback, so neither exit fires.

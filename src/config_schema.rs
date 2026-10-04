@@ -34,7 +34,7 @@ pub struct TomlConfig {
     pub fix: Option<FixTable>,
     /// Per-file rule ignores.
     #[serde(rename = "per-file-ignores")]
-    pub per_file_ignores: Option<BTreeMap<String, Vec<RuleName>>>,
+    pub per_file_ignores: Option<BTreeMap<String, Vec<RuleSelector>>>,
     /// Per-line rule ignores: suppress rules on lines/files matching a pattern.
     #[serde(rename = "per-line-ignores")]
     pub per_line_ignores: Option<Vec<PerLineIgnore>>,
@@ -282,9 +282,11 @@ pub enum FixRuleName {
     TrailingSpaces,
 }
 
-/// A built-in lint rule name.
+/// A rule id, or `ALL` for every rule.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
-pub enum RuleName {
+pub enum RuleSelector {
+    #[serde(rename = "ALL")]
+    All,
     #[serde(rename = "anchors")]
     Anchors,
     #[serde(rename = "block-scalar-chomping")]
@@ -341,10 +343,11 @@ pub enum RuleName {
     UnicodeLineBreaks,
 }
 
-impl RuleName {
+impl RuleSelector {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::All => "ALL",
             Self::Anchors => "anchors",
             Self::BlockScalarChomping => "block-scalar-chomping",
             Self::Braces => "braces",
@@ -376,32 +379,6 @@ impl RuleName {
     }
 }
 
-/// A `per-line-ignores` rule selector: a built-in rule name, or `ALL` to suppress
-/// every rule on a matching line. Untagged so `"ALL"` and rule names share one list.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
-#[serde(untagged)]
-pub enum PerLineRule {
-    All(AllRulesSelector),
-    Named(RuleName),
-}
-
-/// The `ALL` keyword accepted in a `per-line-ignores` `rules` list.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
-pub enum AllRulesSelector {
-    #[serde(rename = "ALL")]
-    All,
-}
-
-impl PerLineRule {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::All(AllRulesSelector::All) => "ALL",
-            Self::Named(rule) => rule.as_str(),
-        }
-    }
-}
-
 /// A single `per-line-ignores` entry. Suppresses `rules` on source lines matching
 /// `regex` (the whole physical line, unanchored) within files matching `path` (a
 /// glob). All present fields must match (logical AND); at least one of `regex`/`path`
@@ -412,7 +389,7 @@ impl PerLineRule {
 pub struct PerLineIgnore {
     pub regex: Option<String>,
     pub path: Option<String>,
-    pub rules: Vec<PerLineRule>,
+    pub rules: Vec<RuleSelector>,
 }
 
 /// Built-in rule table for TOML config.
@@ -424,6 +401,8 @@ pub struct RulesTable<
     C = NoOptions,
     H = HyphensOptions,
 > {
+    #[serde(rename = "ALL")]
+    pub all: Option<RuleSwitch>,
     pub anchors: Option<RuleEntry<A>>,
     #[serde(rename = "block-scalar-chomping")]
     pub block_scalar_chomping: Option<RuleEntry<NoOptions>>,
@@ -897,7 +876,7 @@ fn prune_ryl_only_rules(root: &mut serde_json::Map<String, Value>) {
         if let Some(properties) =
             def.get_mut("properties").and_then(Value::as_object_mut)
         {
-            for rule in crate::rules::RYL_ONLY_RULE_IDS {
+            for rule in crate::rules::RYL_ONLY_RULE_IDS.into_iter().chain(["ALL"]) {
                 properties.remove(rule);
             }
         }
@@ -1213,6 +1192,16 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
                 )
             },
         ));
+    }
+
+    if doc
+        .as_mapping_get("rules")
+        .is_some_and(|rules| rules.as_mapping_get("ALL").is_some())
+    {
+        return Err(
+            "invalid config: rules.ALL is only supported in TOML configuration"
+                .to_string(),
+        );
     }
 
     let typed = parse_typed_yaml_config(doc)?;
