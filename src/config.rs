@@ -1468,6 +1468,31 @@ pub fn discover_per_file_with(
     path: &Path,
     envx: &dyn Env,
 ) -> Result<ConfigContext, String> {
+    match locate_per_file(path, envx)? {
+        PerFileConfig::Project { cfg_path, notices } => {
+            ctx_from_config_path_core(envx, &cfg_path, true, notices)
+        }
+        PerFileConfig::Fallback(ctx) => Ok(*ctx),
+    }
+}
+
+/// A located project config still to load, or the already-loaded fallback.
+pub(crate) enum PerFileConfig {
+    Project {
+        cfg_path: PathBuf,
+        notices: Vec<String>,
+    },
+    Fallback(Box<ConfigContext>),
+}
+
+pub(crate) fn load_project_config(cfg_path: &Path) -> Result<ConfigContext, String> {
+    ctx_from_config_path_core(&SystemEnv, cfg_path, true, Vec::new())
+}
+
+pub(crate) fn locate_per_file(
+    path: &Path,
+    envx: &dyn Env,
+) -> Result<PerFileConfig, String> {
     let start_dir = if path.is_dir() {
         path
     } else {
@@ -1475,27 +1500,25 @@ pub fn discover_per_file_with(
     };
 
     let discovered = find_project_config_core(envx, &[start_dir.to_path_buf()])?;
-    if let Some(discovered) = discovered {
-        return ctx_from_config_path_core(
-            envx,
-            &discovered.cfg_path,
-            true,
-            discovered.notices,
-        );
+    if let Some(ProjectConfigDiscovery { cfg_path, notices }) = discovered {
+        return Ok(PerFileConfig::Project { cfg_path, notices });
     }
-    try_user_global_core(envx, start_dir)?.map_or_else(
-        || {
-            finalize_context(
-                envx,
-                YamlLintConfig::default(),
-                envx.current_dir(),
-                None,
-                Vec::new(),
-                false,
-            )
-        },
-        Ok,
-    )
+    try_user_global_core(envx, start_dir)?
+        .map_or_else(
+            || {
+                finalize_context(
+                    envx,
+                    YamlLintConfig::default(),
+                    envx.current_dir(),
+                    None,
+                    Vec::new(),
+                    false,
+                )
+            },
+            Ok,
+        )
+        .map(Box::new)
+        .map(PerFileConfig::Fallback)
 }
 
 /// Project root for a config at `p`: normally its parent directory, but a `.config/`

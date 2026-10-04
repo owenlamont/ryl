@@ -6,7 +6,6 @@
     clippy::cognitive_complexity
 )]
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
@@ -18,8 +17,8 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::{
-    LintFile, ResolvedConfig, github_escape, lexical_abspath, report_display_path,
-    resolve_ctx, sanitize_control,
+    ConfigCache, LintFile, ResolvedConfig, github_escape, lexical_abspath,
+    report_display_path, resolve_ctx, sanitize_control,
 };
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
@@ -1082,7 +1081,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
             ctx.config_found,
         )
     });
-    let mut cache: HashMap<PathBuf, ResolvedConfig> = HashMap::new();
+    let mut cache = ConfigCache::default();
     let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<LintFile> = Vec::new();
     let ruleless_config_found = gather_lint_files(
@@ -1406,7 +1405,7 @@ fn gather_lint_files(
     explicit_files: &[PathBuf],
     global_cfg: Option<&ResolvedConfig>,
     markdown: bool,
-    cache: &mut HashMap<PathBuf, ResolvedConfig>,
+    cache: &mut ConfigCache,
     emitted_notices: &mut HashSet<String>,
     files: &mut Vec<LintFile>,
 ) -> Result<Option<bool>, String> {
