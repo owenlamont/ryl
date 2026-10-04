@@ -978,23 +978,22 @@ jobs:
           if ($actual -ne ${env:WINGETCREATE_SHA256}) {
             throw "wingetcreate.exe SHA256 mismatch: expected ${env:WINGETCREATE_SHA256}, got $actual"
           }
-      # wingetcreate cannot fast-forward the fork itself: once it falls behind upstream,
-      # which it does between releases, --submit fails with "The forked repository could
-      # not be synced with the upstream commits". Non-fatal, since the submit below
-      # reports a sync it could not fix with a clearer error.
+      # wingetcreate cannot fast-forward the fork itself, and syncing it takes Workflows
+      # write whenever upstream has changed .github/workflows, which the classic
+      # WINGET_PAT lacks (a fine-grained token cannot open the upstream PR), so this
+      # step uses a fine-grained token scoped to the fork alone.
       - name: Sync the winget-pkgs fork with upstream
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.WINGET_PAT }}
+          GH_TOKEN: ${{ secrets.WINGET_FORK_SYNC_PAT }}
           WINGET_FORK: ${{ github.repository_owner }}/winget-pkgs
         run: |-
           $output = gh api "repos/${env:WINGET_FORK}/merge-upstream" -f branch=master 2>&1 | Out-String
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "::warning::Could not sync ${env:WINGET_FORK}: $output"
-          } else {
-            Write-Host $output
+            Write-Host "::error::Could not sync ${env:WINGET_FORK}: $output"
+            exit 1
           }
-          exit 0
+          Write-Host $output
 
       - name: Submit ryl to winget-pkgs
         shell: pwsh
