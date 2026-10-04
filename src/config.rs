@@ -47,7 +47,7 @@ pub struct SystemEnv;
 
 impl Env for SystemEnv {
     fn current_dir(&self) -> PathBuf {
-        PathBuf::from(".")
+        env::current_dir().unwrap_or_default()
     }
     fn config_dir(&self) -> Option<PathBuf> {
         env::var("XDG_CONFIG_HOME")
