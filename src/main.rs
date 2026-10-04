@@ -257,7 +257,7 @@ struct Cli {
 
     // These print-and-exit meta-actions are `exclusive` so combining them with a lint/fix
     // request is a usage error. `--migrate-configs` is not exclusive: it combines with its
-    // `requires`-bound `--migrate-*` sub-flags and a root path.
+    // `requires`-bound `--migrate-*` sub-flags.
     /// Print the JSON Schema for ryl TOML config and exit
     #[arg(
         long = "print-toml-config-schema",
