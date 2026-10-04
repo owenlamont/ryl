@@ -1,7 +1,8 @@
-//! `ryl check <paths>` must be byte-for-byte equivalent to the bare `ryl <paths>` lint form:
-//! same diagnostics, exit codes, `--fix`/`--diff`/`--list-files`/stdin behaviour, and
-//! `--format`/`--output-file` handling. The bare form keeps working with no deprecation warning
-//! this slice. Parity tests run the same args both ways and assert identical output.
+//! `ryl check <paths>` must be equivalent to the bare `ryl <paths>` lint form: same diagnostics,
+//! exit codes, `--fix`/`--diff`/`--list-files`/stdin behaviour, and `--format`/`--output-file`
+//! handling. The one difference is the bare form's deprecation warning: a single stderr line
+//! ahead of everything else, never on stdout, suppressed by `--no-warnings`. Parity tests run
+//! the same args both ways and assert exactly that difference.
 
 use std::fs;
 use std::io::Write;
@@ -21,18 +22,31 @@ fn exe() -> Command {
     Command::new(env!("CARGO_BIN_EXE_ryl"))
 }
 
-/// Run identical lint args bare and under `check`, asserting both yield the same
-/// `(exit code, stdout, stderr)`. Returns the shared result for further assertions.
+const DEPRECATION: &str =
+    "warning: bare `ryl <paths>` is deprecated; use `ryl check <paths>` instead\n";
+
+/// Run identical lint args bare and under `check`, asserting `assert_bare_matches_check`.
+/// Returns the `check` result for further assertions.
 fn assert_parity(home: &Path, args: &[&str]) -> (i32, String, String) {
     let bare = run(ryl(home).args(args));
-    let mut checked_args = vec!["check"];
-    checked_args.extend_from_slice(args);
-    let checked = run(ryl(home).args(&checked_args));
+    let checked = run(ryl(home).arg("check").args(args));
+    assert_bare_matches_check(&bare, &checked);
+    checked
+}
+
+/// Same exit code and stdout; bare stderr is `check`'s with the deprecation line prepended.
+fn assert_bare_matches_check(
+    bare: &(i32, String, String),
+    checked: &(i32, String, String),
+) {
+    assert_eq!(bare.0, checked.0, "exit codes must match");
+    assert_eq!(bare.1, checked.1, "stdout must match: {:?}", bare.1);
     assert_eq!(
-        bare, checked,
-        "`ryl {args:?}` and `ryl check {args:?}` must be identical"
+        bare.2.strip_prefix(DEPRECATION),
+        Some(checked.2.as_str()),
+        "bare stderr must be check's plus one leading deprecation line: {:?}",
+        bare.2
     );
-    bare
 }
 
 fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
@@ -142,7 +156,7 @@ fn check_matches_bare_on_multi_format_outputs() {
         check_report.to_str().unwrap(),
         file.to_str().unwrap(),
     ]));
-    assert_eq!(bare, checked, "console output must match");
+    assert_bare_matches_check(&bare, &checked);
     assert_eq!(
         fs::read_to_string(&bare_report).unwrap(),
         fs::read_to_string(&check_report).unwrap(),
@@ -158,9 +172,9 @@ fn check_fix_matches_bare_fix() {
     fs::write(&bare_file, "a: 1 \n").unwrap();
     fs::write(&check_file, "a: 1 \n").unwrap();
 
-    let (bare_code, _bo, bare_err) =
+    let bare =
         run(ryl(dir.path()).args(["-d", CFG, "--fix", bare_file.to_str().unwrap()]));
-    let (check_code, _co, check_err) = run(ryl(dir.path()).args([
+    let checked = run(ryl(dir.path()).args([
         "check",
         "-d",
         CFG,
@@ -168,8 +182,7 @@ fn check_fix_matches_bare_fix() {
         check_file.to_str().unwrap(),
     ]));
 
-    assert_eq!(bare_code, check_code, "fix exit codes match");
-    assert_eq!(bare_err, check_err, "fix summary matches");
+    assert_bare_matches_check(&bare, &checked);
     assert_eq!(
         fs::read_to_string(&check_file).unwrap(),
         "a: 1\n",
@@ -187,7 +200,7 @@ fn check_matches_bare_on_stdin() {
     let bare = run_with_stdin(exe().arg("-").args(["-d", CFG]), b"a: 1 \n");
     let checked =
         run_with_stdin(exe().arg("check").arg("-").args(["-d", CFG]), b"a: 1 \n");
-    assert_eq!(bare, checked, "stdin lint parity");
+    assert_bare_matches_check(&bare, &checked);
 }
 
 #[test]
@@ -196,8 +209,8 @@ fn check_matches_bare_on_stdin_filename() {
     let bare = run_with_stdin(exe().arg("-").args(stdin_args), b"a: 1 \n");
     let checked =
         run_with_stdin(exe().arg("check").arg("-").args(stdin_args), b"a: 1 \n");
-    assert_eq!(bare, checked, "stdin-filename parity");
-    let (_, stdout, stderr) = bare;
+    assert_bare_matches_check(&bare, &checked);
+    let (_, stdout, stderr) = checked;
     assert!(
         command_output(&stdout, &stderr).contains("embedded.yaml"),
         "label uses the stdin filename"
@@ -239,15 +252,36 @@ fn completions_include_check_subcommand() {
 }
 
 #[test]
-fn bare_lint_emits_no_deprecation_warning() {
+fn no_warnings_suppresses_the_deprecation_warning() {
     let dir = tempdir().unwrap();
-    let file = dir.path().join("ok.yaml");
-    fs::write(&file, "a: 1\n").unwrap();
-    let (code, _stdout, stderr) =
-        run(ryl(dir.path()).args(["-d", CFG, file.to_str().unwrap()]));
-    assert_eq!(code, 0);
-    assert!(
-        stderr.is_empty(),
-        "bare ryl must stay silent this slice: {stderr}"
+    let file = dir.path().join("bad.yaml");
+    fs::write(&file, "a: 1 \n").unwrap();
+    let args = ["-d", CFG, "--no-warnings", file.to_str().unwrap()];
+    let bare = run(ryl(dir.path()).args(args));
+    let checked = run(ryl(dir.path()).arg("check").args(args));
+    assert_eq!(
+        bare, checked,
+        "--no-warnings leaves bare identical to check"
     );
+    assert_eq!(bare.0, 1, "the error-level diagnostic still fails the run");
+}
+
+#[test]
+fn top_level_meta_actions_do_not_warn() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().to_str().unwrap();
+    for args in [
+        vec!["--print-toml-config-schema"],
+        vec!["--print-yaml-config-schema"],
+        vec!["--generate-completions", "bash"],
+        // A positional path parses into the bare lint inputs alongside the meta-action.
+        vec!["--migrate-configs", "--migrate-root", root, root],
+    ] {
+        let (code, stdout, stderr) = run(ryl(dir.path()).args(&args));
+        assert_eq!(code, 0, "{args:?} should succeed: {stderr}");
+        assert!(
+            !stdout.contains("deprecated") && !stderr.contains("deprecated"),
+            "{args:?} must not warn: stdout={stdout} stderr={stderr}"
+        );
+    }
 }

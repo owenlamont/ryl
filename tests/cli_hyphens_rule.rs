@@ -14,6 +14,7 @@ fn hyphens_reports_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  hyphens: enable\n")
         .arg(&file));
@@ -42,8 +43,11 @@ fn warning_level_does_not_fail() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "warnings should not fail: stdout={stdout} stderr={stderr}"
@@ -68,8 +72,11 @@ fn rule_ignore_skips_file() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "ignored file should pass: stdout={stdout} stderr={stderr}"
@@ -87,8 +94,11 @@ fn dash_on_own_line_flags_inline_mapping_via_toml() {
     fs::write(&config, "[rules.hyphens]\ndash-on-own-line = true\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
 
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { stdout } else { stderr };
@@ -111,8 +121,11 @@ fn dash_on_own_line_accepts_dash_alone_via_toml() {
     fs::write(&config, "[rules.hyphens]\ndash-on-own-line = true\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
 
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
     assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
@@ -126,6 +139,7 @@ fn dash_on_own_line_rejected_in_yaml_config() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  hyphens:\n    dash-on-own-line: true\n")
         .arg(&file));
@@ -154,8 +168,11 @@ fn custom_max_allows_extra_spacing() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "custom max should pass: stdout={stdout} stderr={stderr}"

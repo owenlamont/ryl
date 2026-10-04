@@ -37,8 +37,8 @@ Precedence **CLI > config > default**: `resolve_targets` returns the CLI pairs i
 `--format` was given, else `config_targets_from_table` of the run config's `[output]`,
 else one default auto-console target. The `[output]` is read run-level by
 `run_output_config` (the `-c`/`-d`/env global config, else the inputs-anchored project
-config so `ryl .` honors a project `.ryl.toml`; a malformed config is propagated — the
-empty-input case has no per-file discovery to surface it, so an invalid `[output]` still
+config so `ryl check .` honors a project `.ryl.toml`; a malformed config is propagated —
+the empty-input case has no per-file discovery to surface it, so an invalid `[output]` still
 errors). `--diff` skips config `[output]` (it has its own unified-diff output), so only
 an explicit CLI `--format junit|gitlab` conflicts with it.
 

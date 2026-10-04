@@ -32,7 +32,11 @@ use common::cli::run;
 fn stdin_with_no_enabled_rules_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
-        Command::new(exe).arg("-").arg("-d").arg("rules: {}\n"),
+        Command::new(exe)
+            .arg("check")
+            .arg("-")
+            .arg("-d")
+            .arg("rules: {}\n"),
         b"key: value\n",
     );
     assert_eq!(
@@ -46,7 +50,7 @@ fn stdin_with_no_enabled_rules_errors() {
 fn stdin_clean_yaml_succeeds_and_uses_label() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("-"), b"key: value\n");
+        run_with_stdin(Command::new(exe).arg("check").arg("-"), b"key: value\n");
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
     assert!(stdout.is_empty(), "expected empty stdout: {stdout}");
     assert!(stderr.is_empty(), "expected empty stderr: {stderr}");
@@ -56,7 +60,7 @@ fn stdin_clean_yaml_succeeds_and_uses_label() {
 fn stdin_with_diagnostics_reports_stdin_label() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("-"), b"key:  value\n");
+        run_with_stdin(Command::new(exe).arg("check").arg("-"), b"key:  value\n");
     assert_eq!(code, 0, "warnings should not fail: stderr={stderr}");
     assert!(stderr.contains("<stdin>"), "expected stdin label: {stderr}");
     assert!(
@@ -69,7 +73,7 @@ fn stdin_with_diagnostics_reports_stdin_label() {
 fn stdin_missing_newline_reports_error() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("-"), b"key: value");
+        run_with_stdin(Command::new(exe).arg("check").arg("-"), b"key: value");
     assert_eq!(code, 1, "expected failure: stderr={stderr}");
     assert!(
         stderr.contains("no new line character at the end of file"),
@@ -80,8 +84,10 @@ fn stdin_missing_newline_reports_error() {
 #[test]
 fn stdin_syntax_error_reports_failure() {
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("-"), b"key: [unterminated\n");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe).arg("check").arg("-"),
+        b"key: [unterminated\n",
+    );
     assert_eq!(code, 1, "expected failure: stderr={stderr}");
     assert!(
         stderr.contains("syntax error"),
@@ -95,6 +101,7 @@ fn stdin_filename_appears_in_diagnostics() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("-")
             .arg("--stdin-filename")
             .arg("pkg/app.yaml"),
@@ -116,6 +123,7 @@ fn stdin_filename_no_source_kind_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("-")
             .arg("--stdin-filename")
             .arg("script.sh"),
@@ -136,7 +144,7 @@ fn stdin_filename_no_source_kind_errors() {
 fn stdin_without_filename_runs_rules_for_non_yaml_extensions() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("-"), b"key:  value\n");
+        run_with_stdin(Command::new(exe).arg("check").arg("-"), b"key:  value\n");
     assert_eq!(code, 0, "warnings should not fail: {stderr}");
     assert!(
         stderr.contains("too many spaces after colon"),
@@ -159,6 +167,7 @@ fn stdin_filename_anchors_project_config_discovery() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .current_dir(&pkg)
             .arg("-")
             .arg("--stdin-filename")
@@ -182,7 +191,10 @@ fn stdin_without_filename_ignores_per_file_ignores() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
-        Command::new(exe).current_dir(dir.path()).arg("-"),
+        Command::new(exe)
+            .arg("check")
+            .current_dir(dir.path())
+            .arg("-"),
         b"name: value\n",
     );
     assert_eq!(
@@ -206,7 +218,10 @@ fn stdin_without_filename_ignores_rule_level_ignore_patterns() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
-        Command::new(exe).current_dir(dir.path()).arg("-"),
+        Command::new(exe)
+            .arg("check")
+            .current_dir(dir.path())
+            .arg("-"),
         b"name: value\n",
     );
     assert_eq!(
@@ -231,6 +246,7 @@ fn stdin_filename_respects_per_file_ignores() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .current_dir(dir.path())
             .arg("-")
             .arg("--stdin-filename")
@@ -246,7 +262,8 @@ fn stdin_filename_respects_per_file_ignores() {
 #[test]
 fn stdin_combined_with_other_input_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) = run(Command::new(exe).arg("-").arg("file.yaml"));
+    let (code, _stdout, stderr) =
+        run(Command::new(exe).arg("check").arg("-").arg("file.yaml"));
     assert_eq!(code, 2, "expected usage error: {stderr}");
     assert!(
         stderr.contains("cannot be combined"),
@@ -257,8 +274,10 @@ fn stdin_combined_with_other_input_errors() {
 #[test]
 fn stdin_filename_without_dash_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) =
-        run(Command::new(exe).arg("--stdin-filename").arg("foo.yaml"));
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("--stdin-filename")
+        .arg("foo.yaml"));
     assert_eq!(code, 2, "expected usage error: {stderr}");
     assert!(
         stderr.contains("only applies when reading from stdin"),
@@ -269,8 +288,10 @@ fn stdin_filename_without_dash_errors() {
 #[test]
 fn fix_with_stdin_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("--fix").arg("-"), b"key: value\n");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe).arg("check").arg("--fix").arg("-"),
+        b"key: value\n",
+    );
     assert_eq!(code, 2, "expected usage error: {stderr}");
     assert!(stderr.contains("--fix"), "expected --fix error: {stderr}");
 }
@@ -279,7 +300,7 @@ fn fix_with_stdin_errors() {
 fn stdin_list_files_prints_label() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
-        Command::new(exe).arg("--list-files").arg("-"),
+        Command::new(exe).arg("check").arg("--list-files").arg("-"),
         b"key: value\n",
     );
     assert_eq!(code, 0, "expected success: {stderr}");
@@ -294,6 +315,7 @@ fn stdin_list_files_uses_stdin_filename() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("--list-files")
             .arg("-")
             .arg("--stdin-filename")
@@ -308,7 +330,7 @@ fn stdin_list_files_uses_stdin_filename() {
 fn stdin_honors_config_data_override() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
-        Command::new(exe).arg("-").arg("-d").arg(
+        Command::new(exe).arg("check").arg("-").arg("-d").arg(
             "rules:\n  new-line-at-end-of-file: disable\n  key-duplicates: enable\n",
         ),
         b"key: value",
@@ -323,7 +345,8 @@ fn stdin_decodes_utf16_bom() {
     for unit in "key: value\n".encode_utf16() {
         bytes.extend_from_slice(&unit.to_le_bytes());
     }
-    let (code, stdout, stderr) = run_with_stdin(Command::new(exe).arg("-"), &bytes);
+    let (code, stdout, stderr) =
+        run_with_stdin(Command::new(exe).arg("check").arg("-"), &bytes);
     assert_eq!(
         code, 0,
         "utf-16 stdin should decode cleanly: stdout={stdout} stderr={stderr}"
@@ -333,8 +356,10 @@ fn stdin_decodes_utf16_bom() {
 #[test]
 fn stdin_strict_mode_treats_warnings_as_failure() {
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("--strict").arg("-"), b"key:  value\n");
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(exe).arg("check").arg("--strict").arg("-"),
+        b"key:  value\n",
+    );
     assert_eq!(code, 2, "strict mode should exit 2: {stderr}");
 }
 
@@ -342,7 +367,7 @@ fn stdin_strict_mode_treats_warnings_as_failure() {
 fn stdin_invalid_utf8_reports_decode_error() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("-"), &[0xFF, 0xFF, 0xFF]);
+        run_with_stdin(Command::new(exe).arg("check").arg("-"), &[0xFF, 0xFF, 0xFF]);
     assert_eq!(code, 1, "expected lint failure: {stderr}");
     assert!(
         stderr.contains("failed to read <stdin>"),
@@ -358,6 +383,7 @@ fn stdin_read_error_reports_lint_failure() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let out = Command::new(exe)
+        .arg("check")
         .arg("-")
         .stdin(Stdio::from(dir_fd))
         .stdout(Stdio::piped())
@@ -378,6 +404,7 @@ fn stdin_filename_decode_error_uses_filename_in_message() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("-")
             .arg("--stdin-filename")
             .arg("buffer.yaml"),
@@ -395,6 +422,7 @@ fn stdin_with_missing_config_file_errors() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("-")
             .arg("-c")
             .arg("/nonexistent/path/to/config.yml"),
@@ -419,7 +447,10 @@ fn stdin_emits_legacy_yaml_notice_when_toml_present() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
-        Command::new(exe).current_dir(dir.path()).arg("-"),
+        Command::new(exe)
+            .arg("check")
+            .current_dir(dir.path())
+            .arg("-"),
         b"key: value\n",
     );
     assert_eq!(code, 0, "expected success: {stderr}");
@@ -433,7 +464,7 @@ fn stdin_emits_legacy_yaml_notice_when_toml_present() {
 fn stdin_no_warnings_suppresses_warning_output() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
-        Command::new(exe).arg("--no-warnings").arg("-"),
+        Command::new(exe).arg("check").arg("--no-warnings").arg("-"),
         b"key:  value\n",
     );
     assert_eq!(code, 0, "warnings should be suppressed: {stderr}");
@@ -453,6 +484,7 @@ fn stdin_markdown_filename_lints_embedded_yaml() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .current_dir(dir.path())
             .arg("-")
             .arg("--stdin-filename")
@@ -471,6 +503,7 @@ fn stdin_markdown_flag_lints_embedded_yaml() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("--markdown")
             .arg("-")
             .arg("-d")
@@ -496,6 +529,7 @@ fn stdin_markdown_filename_ignored_is_skipped() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .current_dir(dir.path())
             .arg("-")
             .arg("--stdin-filename")
@@ -514,6 +548,7 @@ fn stdin_markdown_flag_overrides_non_markdown_filename() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .arg("--markdown")
             .arg("-")
             .arg("--stdin-filename")
@@ -546,6 +581,7 @@ fn stdin_markdown_overlap_is_a_hard_error() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
+            .arg("check")
             .current_dir(dir.path())
             .arg("-")
             .arg("--stdin-filename")

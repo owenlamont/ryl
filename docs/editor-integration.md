@@ -37,7 +37,7 @@ $ ryl server
 
 The server speaks LSP over stdin/stdout; you do not run it directly but point your editor's
 LSP client at the command. (`server` is a subcommand, so to lint a path literally named
-`server` use `ryl ./server` or `ryl server/`.) Configuration is discovered per document exactly as the CLI does
+`server` use `ryl check server`.) Configuration is discovered per document exactly as the CLI does
 it (a `.ryl.toml` / `ryl.toml` / `[tool.ryl]` in `pyproject.toml`, or a yamllint config,
 found by walking up from the file). As with the CLI, **ryl enables no rules by default**: a
 file with no discovered config that enables at least one rule produces no diagnostics.

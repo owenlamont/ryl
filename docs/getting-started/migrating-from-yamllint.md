@@ -15,8 +15,8 @@ On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
 flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
-Bare `ryl <paths>` also lints today but is being phased out in favour of `ryl
-check`.
+Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
+prints a warning to stderr.
 
 ## Automatic migration
 

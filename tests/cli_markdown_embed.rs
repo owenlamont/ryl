@@ -27,7 +27,9 @@ fn front_matter_and_fenced_blocks_map_to_host_positions() {
     let body = "---\ntitle:  hello\nduplicate: 1\nduplicate: 2\n---\n\n```yaml\nfoo:  bar\n```\n";
     let (_dir, file) = project(COLONS_AND_DUPES, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:8") && err.contains("colons"), "{err}");
@@ -51,6 +53,7 @@ fn many_fenced_blocks_map_to_correct_host_lines() {
     fs::write(&file, &body).unwrap();
 
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
         .arg("--markdown")
         .arg("-d")
         .arg("rules:\n  trailing-spaces: enable\n")
@@ -72,7 +75,9 @@ fn indented_fenced_block_adds_indent_to_column() {
     let body = "-  item\n\n   ```yaml\n   key:  value\n   ```\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(
@@ -87,7 +92,9 @@ fn front_matter_only_source_skips_fenced_blocks() {
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:4"), "front matter linted: {err}");
@@ -100,7 +107,9 @@ fn fenced_blocks_only_source_skips_front_matter() {
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("6:4"), "fenced block linted: {err}");
@@ -113,7 +122,9 @@ fn file_shape_rules_are_suppressed_in_embedded_regions() {
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("colons"), "{err}");
@@ -128,7 +139,9 @@ fn crlf_markdown_maps_positions() {
     let body = "# t\r\n\r\n```yaml\r\nfoo:  bar\r\n```\r\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("4:6"), "{err}");
@@ -140,7 +153,9 @@ fn blockquoted_fence_column_accounts_for_quote_marker() {
     let body = "> ```yaml\n> foo: True\n> ```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(
@@ -155,7 +170,9 @@ fn fence_nested_in_front_matter_is_not_double_linted() {
     let body = "---\ndesc: |\n  ```yaml\n  inner: True\n  ```\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 0, "stderr={err}");
     assert!(
@@ -170,7 +187,9 @@ fn fence_crossing_front_matter_terminator_is_dropped() {
     let body = "---\ntags: [x,y]\ndesc: |\n  ```yaml\n  inner: [1,2]\n---\nafter: [3,4]\n```\n\ntext\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:10"), "front matter is linted: {err}");
@@ -187,7 +206,9 @@ fn fence_inside_disabled_front_matter_is_not_linted() {
     let body = "---\ndesc: |\n  ```yaml\n  inner: [1,2]\n  ```\n---\n\ntext\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 0, "stderr={err}");
     assert!(
@@ -203,7 +224,9 @@ fn fence_opening_on_last_front_matter_line_is_dropped() {
     let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 0, "stderr={err}");
     assert!(
@@ -219,7 +242,9 @@ fn body_fence_immediately_after_front_matter_is_linted() {
     let body = "---\na: 1\n---\n```yaml\nnums: [1,2]\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(
@@ -233,7 +258,9 @@ fn multibyte_front_matter_columns_pass_through() {
     let body = "---\ncaf\u{e9}:  x\n---\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:7"), "{err}");
@@ -244,7 +271,9 @@ fn non_yaml_fenced_block_is_ignored() {
     let body = "# t\n\n```python\nx =  1\n```\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 0, "stderr={err}");
     assert!(out.is_empty() && err.is_empty(), "out={out} err={err}");
@@ -255,7 +284,9 @@ fn attribute_and_tilde_fences_are_linted() {
     let body = "```{.yaml}\na:  1\n```\n\n~~~yml\nb:  2\n~~~\n";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:4"), "attribute fence: {err}");
@@ -269,7 +300,9 @@ fn whitespace_only_front_matter_is_skipped() {
     let body = "---\n   \n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 0, "stderr={err}");
     assert!(out.is_empty() && err.is_empty(), "out={out} err={err}");
@@ -281,7 +314,9 @@ fn explicit_markdown_without_files_pattern_is_rejected() {
     let body = "---\na:  1\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 2, "expected usage error: {err}");
     assert!(err.contains("no source kind matches"), "{err}");
@@ -295,6 +330,7 @@ fn fix_rewrites_markdown_front_matter() {
     let (_dir, file) = project(config, "doc.md", body);
 
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
         .arg("--fix")
         .arg(&file));
 
@@ -312,8 +348,9 @@ fn directory_scan_discovers_markdown() {
     let body = "---\na:  1\n---\n";
     let (dir, _file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, _out, err) =
-        run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(dir.path()));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(dir.path()));
 
     assert_eq!(code, 1, "stderr={err}");
     assert!(err.contains("2:4"), "{err}");
@@ -325,7 +362,9 @@ fn file_matching_two_kinds_is_a_hard_error() {
     let body = "---\na:  1\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 2, "expected overlap error: {err}");
     assert!(err.contains("matches both"), "{err}");
@@ -337,8 +376,9 @@ fn directory_scan_overlap_is_a_hard_error() {
     let body = "---\na:  1\n---\n";
     let (dir, _file) = project(config, "doc.md", body);
 
-    let (code, _out, err) =
-        run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(dir.path()));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(dir.path()));
 
     assert_eq!(code, 2, "expected overlap error: {err}");
     assert!(err.contains("matches both"), "{err}");
@@ -353,7 +393,9 @@ fn merge_keys_fires_in_fenced_block() {
     let body = "intro\n\n```yaml\nbase: &b {x: 1}\nchild:\n  <<: *b\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "{err}");
     assert!(
@@ -370,7 +412,9 @@ fn key_duplicates_canonical_fires_in_fenced_block() {
     let body = "```yaml\n0xB: a\n11: b\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "{err}");
     assert!(
@@ -388,7 +432,9 @@ fn unicode_line_breaks_fires_in_fenced_block() {
     let body = "```yaml\nkey: a\u{2028}b\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "{err}");
     assert!(
@@ -403,7 +449,9 @@ fn anchors_ambiguous_name_fires_in_fenced_block() {
     let body = "```yaml\na: &:foo 1\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "{err}");
     assert!(
@@ -422,7 +470,9 @@ fn block_scalar_chomping_fires_in_fenced_block() {
     let body = "intro\n\n```yaml\nscript: |\n  echo hi\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
-    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(code, 1, "{err}");
     assert!(
@@ -440,7 +490,9 @@ fn bare_cr_markdown_host_is_loudly_skipped_not_silently_missed() {
     let body = "# T\r\r```yaml\rk: v  \r```\r";
     let (_dir, file) = project(COLONS_ONLY, "doc.md", body);
 
-    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl")).arg(&file));
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
 
     assert_eq!(
         code, 1,
@@ -460,6 +512,7 @@ fn fix_skips_a_bare_cr_markdown_host_and_leaves_it_unchanged() {
     let before = fs::read(&file).unwrap();
 
     let (_code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
         .arg("--fix")
         .arg(&file));
 

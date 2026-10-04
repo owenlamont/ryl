@@ -292,7 +292,7 @@ struct Cli {
 }
 
 /// Subcommands; none (bare `ryl <paths>`) lints, like `check`. The bare token `check`/`server`
-/// resolves to the subcommand, so lint a path of that name as `ryl ./check` or `ryl check/`.
+/// resolves to the subcommand, so lint a path of that name with `ryl check <name>`.
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
     /// Lint YAML inputs (the explicit form of bare `ryl <paths>`)
@@ -1008,9 +1008,15 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return run_migration(cli);
     }
 
+    let args = &cli.lint_args;
+    if !args.inputs.is_empty() && !args.lint.compatibility.no_warnings {
+        eprintln!(
+            "warning: bare `ryl <paths>` is deprecated; use `ryl check <paths>` instead"
+        );
+    }
     // Output targets are resolved inside `run_lint`/`run_stdin_lint`, where the run's config
     // (and thus a TOML `[output]` fallback) is known; `matches` carries the arg indices.
-    run_lint(&cli.lint_args, matches)
+    run_lint(args, matches)
 }
 
 fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {

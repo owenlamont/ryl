@@ -6,7 +6,7 @@
 formatters (docs/using-with-formatters.md).
 
 For each recipe (yamlfmt / Prettier / yamlfix) over a small corpus, it runs the joint
-workflow `formatter -> ryl --fix -> formatter ...` to a fixed point and asserts three
+workflow `formatter -> ryl check --fix -> formatter ...` to a fixed point and asserts three
 invariants:
 
   1. it converges (no edit loop between the two tools);
@@ -331,7 +331,7 @@ class Runner:
         p = self._work()
         p.write_bytes(content.encode())
         subprocess.run(
-            ["ryl", "--fix", "-c", str(cfg), "work.yaml"],
+            ["ryl", "check", "--fix", "-c", str(cfg), "work.yaml"],
             cwd=self.wd,
             capture_output=True,
             text=True,
@@ -343,7 +343,7 @@ class Runner:
         p = self._work()
         p.write_bytes(content.encode())
         proc = subprocess.run(
-            ["ryl", "--format", "parsable", "-c", str(cfg), "work.yaml"],
+            ["ryl", "check", "--format", "parsable", "-c", str(cfg), "work.yaml"],
             cwd=self.wd,
             capture_output=True,
             text=True,

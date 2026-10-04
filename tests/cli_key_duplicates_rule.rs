@@ -16,8 +16,11 @@ fn run_toml(options: &str, yaml: &str) -> (i32, String) {
     fs::write(&config, format!("[rules.key-duplicates]\n{options}")).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     (code, command_output(&stdout, &stderr).to_string())
 }
 
@@ -665,8 +668,11 @@ fn default_config_allows_quoted_merge_key_duplicates() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "quoted merge-key duplicates must stay silent like yamllint: stdout={stdout} stderr={stderr}"
@@ -699,8 +705,11 @@ fn duplicate_keys_reported() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     assert!(
@@ -731,8 +740,11 @@ fn merge_keys_allowed_by_default() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "merge keys allowed by default: stdout={stdout} stderr={stderr}"
@@ -759,8 +771,11 @@ fn merge_keys_forbidden_when_configured() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = command_output(&stdout, &stderr);
     assert!(

@@ -30,6 +30,7 @@ fn parsable_format_outputs_expected_diagnostic() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-c")
@@ -58,6 +59,7 @@ fn parsable_format_outputs_expected_diagnostic() {
     )
     .unwrap();
     let (warn_code, warn_stdout, warn_stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-c")
@@ -80,6 +82,7 @@ fn parsable_format_omits_rule_suffix_for_syntax_errors() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-c")
@@ -116,6 +119,7 @@ fn github_format_emits_workflow_commands() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("github")
         .arg("-c")
@@ -153,6 +157,7 @@ fn github_format_escapes_newlines_to_prevent_command_injection() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("github")
         .arg("-c")
@@ -180,6 +185,7 @@ fn human_formats_escape_control_characters_in_messages() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-c")
@@ -205,6 +211,7 @@ fn github_format_escapes_control_chars_not_just_newlines() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("github")
         .arg("-c")
@@ -236,6 +243,7 @@ fn github_format_escapes_percent_cr_and_property_delimiters() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("github")
         .arg("-c")
@@ -265,6 +273,7 @@ fn error_message_paths_are_escaped_in_github_format() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (_code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("github")
         .arg("-d")
@@ -285,6 +294,7 @@ fn colored_format_uses_ansi_sequences() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("colored")
         .arg("-c")
@@ -304,6 +314,7 @@ fn colored_format_uses_ansi_sequences() {
     )
     .unwrap();
     let (warn_code, warn_stdout, warn_stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("colored")
         .arg("-c")
@@ -327,6 +338,7 @@ fn colored_format_omits_rule_suffix_for_syntax_errors() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("colored")
         .arg("-c")
@@ -364,6 +376,7 @@ fn colored_format_matches_reference_layout() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("colored")
         .arg("-d")
@@ -390,6 +403,7 @@ fn standard_format_remains_plain_text() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("standard")
         .arg("-c")
@@ -416,6 +430,7 @@ fn auto_format_honors_force_color_env() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .env("FORCE_COLOR", "1")
         .env_remove("NO_COLOR")
         .env_remove("GITHUB_ACTIONS")
@@ -443,6 +458,7 @@ fn auto_format_respects_no_color_env() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .env("FORCE_COLOR", "1")
         .env("NO_COLOR", "1")
         .env_remove("GITHUB_ACTIONS")
@@ -476,6 +492,7 @@ fn gitlab_format_writes_json_array_to_stdout() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-c")
@@ -503,6 +520,7 @@ fn junit_format_writes_xml_to_stdout() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("junit")
         .arg("-c")
@@ -532,6 +550,7 @@ fn output_file_writes_report_and_leaves_streams_clean() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("junit")
         .arg("-o")
@@ -564,6 +583,7 @@ fn output_file_redirects_streaming_format() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-o")
@@ -593,6 +613,7 @@ fn output_file_open_failure_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -615,6 +636,7 @@ fn diff_with_report_format_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("--diff")
@@ -636,6 +658,7 @@ fn gitlab_reports_processing_error_as_blocker() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-c")
@@ -657,6 +680,7 @@ fn gitlab_format_reads_stdin_with_filename() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let mut child = Command::new(exe)
+        .arg("check")
         // The path is relativized against CI_PROJECT_DIR when set; clear it so the
         // assertion holds regardless of the surrounding (GitLab) CI environment.
         .env_remove("CI_PROJECT_DIR")
@@ -700,6 +724,7 @@ fn output_file_write_failure_is_reported() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -718,6 +743,7 @@ fn output_file_write_failure_is_reported() {
 fn run_stdin(args: &[&str], input: &[u8]) -> (i32, String, String) {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let mut child = Command::new(exe)
+        .arg("check")
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -848,6 +874,7 @@ fn output_file_pointing_at_a_linted_input_is_rejected() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -881,6 +908,7 @@ fn empty_input_emits_an_empty_gitlab_report() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -908,6 +936,7 @@ fn gitlab_path_is_relative_to_ci_project_dir() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         .env("CI_PROJECT_DIR", dir.path())
         .arg("--format")
         .arg("gitlab")
@@ -934,6 +963,7 @@ fn empty_input_report_open_failure_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -963,6 +993,7 @@ fn ignored_stdin_emits_an_empty_gitlab_report() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let mut child = Command::new(exe)
+        .arg("check")
         .current_dir(dir.path())
         .arg("-")
         .arg("--stdin-filename")
@@ -998,6 +1029,7 @@ fn ignored_stdin_report_open_failure_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let mut child = Command::new(exe)
+        .arg("check")
         .current_dir(dir.path())
         .arg("-")
         .arg("--stdin-filename")
@@ -1041,6 +1073,7 @@ fn console_and_reports_emit_together() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("standard")
         .arg("--format")
@@ -1087,6 +1120,7 @@ fn console_and_report_use_distinct_default_streams() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("standard")
         .arg("--format")
@@ -1114,6 +1148,7 @@ fn output_file_dash_writes_report_to_stdout() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1136,6 +1171,7 @@ fn output_file_without_preceding_format_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-o")
         .arg(&report)
         .arg("-c")
@@ -1156,6 +1192,7 @@ fn format_with_two_output_files_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1184,6 +1221,7 @@ fn two_formats_to_stdout_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("--format")
@@ -1206,6 +1244,7 @@ fn two_formats_to_console_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("standard")
         .arg("--format")
@@ -1229,6 +1268,7 @@ fn two_formats_to_same_file_is_usage_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1258,6 +1298,7 @@ fn empty_input_with_output_file_creates_file_for_streaming_format() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-o")
@@ -1285,6 +1326,7 @@ fn stdin_output_file_matching_stdin_filename_is_rejected() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let mut child = Command::new(exe)
+        .arg("check")
         .arg("-")
         .arg("--stdin-filename")
         .arg(&target)
@@ -1335,6 +1377,7 @@ fn output_file_symlinked_to_an_input_is_rejected() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1363,6 +1406,7 @@ fn blank_ci_project_dir_does_not_panic() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         .env("CI_PROJECT_DIR", "")
         .arg("--format")
         .arg("gitlab")
@@ -1398,6 +1442,7 @@ fn output_file_hardlinked_to_an_input_is_rejected() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1428,6 +1473,7 @@ fn gitlab_path_uses_dotdot_for_files_outside_the_project_root() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
         // Project root is a subdirectory below the file, so the file is one level up.
         .env("CI_PROJECT_DIR", dir.path().join("sub"))
         .arg("--format")
@@ -1471,6 +1517,7 @@ fn config_output_writes_report_to_file() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     // Run from the project dir so the config's relative `path` lands beside the inputs.
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .current_dir(dir.path())
         .arg("-c")
         .arg(&cfg)
@@ -1503,6 +1550,7 @@ fn config_output_console_and_report_together() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .current_dir(dir.path())
         .arg("-c")
         .arg(&cfg)
@@ -1525,7 +1573,11 @@ fn config_output_dash_path_is_stdout() {
     let file = dirty_yaml(dir.path());
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, _stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    let (code, stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
     assert_eq!(code, 1);
     let issues: serde_json::Value = serde_json::from_str(&stdout)
         .expect("`path = \"-\"` sends the report to stdout");
@@ -1542,6 +1594,7 @@ fn cli_format_overrides_config_output() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("parsable")
         .arg("-c")
@@ -1571,8 +1624,10 @@ fn config_output_is_auto_discovered_from_project_config() {
     fs::write(dir.path().join("dirty.yaml"), "key: value").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, _stderr) =
-        run(Command::new(exe).current_dir(dir.path()).arg("."));
+    let (code, _stdout, _stderr) = run(Command::new(exe)
+        .arg("check")
+        .current_dir(dir.path())
+        .arg("."));
     assert_eq!(code, 1, "the project config's rule still fires");
     let issues: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("gl.json")).unwrap())
@@ -1592,7 +1647,11 @@ fn yaml_config_rejects_output_table() {
     let file = dirty_yaml(dir.path());
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
     assert_eq!(code, 2, "`output` in YAML config is a usage error");
     assert!(
         stderr.contains("output is only supported in TOML configuration"),
@@ -1607,7 +1666,11 @@ fn config_output_empty_path_is_error() {
     let file = dirty_yaml(dir.path());
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, _stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
     assert_eq!(code, 2, "an empty output path is a config error");
     assert!(
         stderr.contains("output.gitlab.path must not be empty"),
@@ -1631,6 +1694,7 @@ fn diff_ignores_config_output_report_format() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .current_dir(dir.path())
         .arg("--diff")
         .arg("."));
@@ -1664,6 +1728,7 @@ fn diff_with_multiple_streaming_formats_is_allowed() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--diff")
         .arg("--format")
         .arg("standard")
@@ -1703,6 +1768,7 @@ fn two_output_files_aliasing_the_same_file_are_rejected() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1734,6 +1800,7 @@ fn earlier_output_artifact_survives_a_later_unopenable_target() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")
@@ -1778,6 +1845,7 @@ fn two_outputs_under_aliased_parent_dirs_are_rejected() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("--format")
         .arg("gitlab")
         .arg("-o")

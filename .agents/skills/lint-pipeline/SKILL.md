@@ -18,8 +18,10 @@ Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
 identically: `LintArgs` (`clap::Args`) is flattened both at the top level and under
 `Commands::Check`, and the dispatch routes `check` through the subcommand's own
 `ArgMatches` so the repeatable `--format`/`--output-file` `indices_of` recovery reads
-the right scope. `check` is the recommended form; bare is being phased out
-(warn-then-remove, later siblings of the #238 lint/format split). Meta-actions
+the right scope. `check` is the recommended form; bare is deprecated: `run_cli` prints
+a one-line stderr warning (skipped under `--no-warnings` or with no inputs) after every
+meta-action has returned, and removal is a later sibling of the #238 lint/format split.
+Meta-actions
 (`--migrate-*`, `--print-*-config-schema`, `--generate-completions`) stay top-level.
 
 ## Inputs
@@ -30,7 +32,7 @@ the right scope. `check` is the recommended form; bare is being phased out
   (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
 - Files named explicitly are linted as their resolved source kind; one that matches no
   `[files]` kind is rejected with an error (rather than silently treated as YAML).
-- Inputs are de-duplicated: a file reached by two spellings (`ryl . f.yaml`, `f.yaml`
+- Inputs are de-duplicated: a file reached by two spellings (`ryl check . f.yaml`, `f.yaml`
   twice, or `f.yaml sub/../f.yaml`) is processed once. `gather_lint_files` keys a `seen`
   set on `main::canonical_input` (`std::path::absolute` + lexical `..` normalization —
   purely lexical, no symlink resolution, so a symlink stays distinct from its target),

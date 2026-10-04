@@ -27,6 +27,9 @@ ryl is a CLI tool for linting yaml files
   behaviour or a spec choice (what to flag, which YAML schema applies, a
   false-positive-vs-false-negative trade-off), lay out the options and let the maintainer
   decide. Carry out mechanical fixes and clear-cut review feedback without asking.
+- With those options, give the precedent in ruff, rumdl, ty and biome — tested against
+  the installed binaries where possible, not recalled. ryl models itself on them;
+  yamllint is a migration target, so it decides only where migrating users would break.
 - If you notice anything inaccurate or stale in this `AGENTS.md` or in a dev skill while
   working, fix it as part of the change rather than leaving it for later.
 - Keep code as succinct as practical: every line has a maintenance and read-time cost,
@@ -205,7 +208,7 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 ## CLI Behavior
 
 `ryl check <inputs>` (the lint subcommand) and bare `ryl <inputs>` lint identically;
-`check` is the recommended form and bare is being phased out. Inputs are files,
+`check` is the recommended form; bare is deprecated and warns on stderr. Inputs are files,
 directories, or `-` for stdin. Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage
 error). ryl never enables a rule that wasn't explicitly turned on, so a run with no
 config, or one enabling nothing, exits `2`.

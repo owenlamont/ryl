@@ -140,7 +140,7 @@ def benchmark_case(
     output_json_path: Path,
 ) -> dict[str, dict[str, float | list[float] | str]]:
     cfg = "extends: relaxed"
-    ryl_cmd = f"{quote_shell(str(ryl_bin))} -d {quote_shell(cfg)} {quote_shell(str(case.dataset_dir))}"
+    ryl_cmd = f"{quote_shell(str(ryl_bin))} check -d {quote_shell(cfg)} {quote_shell(str(case.dataset_dir))}"
     yamllint_cmd = f"{quote_shell(str(yamllint_bin))} -d {quote_shell(cfg)} {quote_shell(str(case.dataset_dir))}"
     run_checked(
         [
