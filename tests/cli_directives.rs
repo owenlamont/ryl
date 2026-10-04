@@ -103,3 +103,16 @@ fn markdown_fix_skips_directive_disabled_line() {
         "disabled line untouched; the other line is fixed"
     );
 }
+
+#[test]
+fn stdin_honours_directive_beside_a_version_comment() {
+    let uses = r#""uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1""#;
+    for comment in [
+        "# v1.2.3  # ryl disable-line rule:line-length",
+        "# ryl disable-line rule:line-length  # v1.2.3",
+    ] {
+        let input = format!("---\n{uses}  {comment}\n");
+        let (code, out) = run_stdin(&input, &["--config-data", "{extends: default}"]);
+        assert_eq!(code, 0, "{comment:?} should suppress line-length: {out}");
+    }
+}

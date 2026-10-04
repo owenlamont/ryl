@@ -126,8 +126,9 @@ produced.
   [Configuration presets](../config-presets.md).
 - Inline `# yamllint disable` / `disable-line` / `enable` comments are honoured
   with the same grammar and semantics, so existing in-file suppressions keep
-  working. The equivalent `# ryl …` spelling is preferred for new files; see
-  [Inline directives](../directives.md).
+  working. The equivalent `# ryl …` spelling is preferred for new files, and
+  can also share a comment with other text; see
+  [Inline directives](../directives.md#alongside-other-comments).
 
 ## Configuration discovery precedence
 
@@ -173,6 +174,14 @@ YAML config containing `extends: default` (or the corresponding TOML preset from
 [Configuration presets](../config-presets.md)). The migration converter flattens an
 `extends: default` source into the generated TOML automatically, and warns when a
 migrated config ends up enabling no rules.
+
+### Directives beside other comments
+
+yamllint honours a directive only when it is the whole comment, so
+`# v1.2.3  # yamllint disable-line rule:line-length` disables nothing. ryl
+keeps that for the `# yamllint …` spelling, so a migrated file behaves the
+same under both tools, but accepts `# ryl …` beside other `#` text in either
+order. See [Inline directives](../directives.md#alongside-other-comments).
 
 ### Anchor and alias names containing a colon
 

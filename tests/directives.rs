@@ -381,3 +381,105 @@ fn reconcile_with_empty_before_emits_all_insertions() {
         "nothing to anchor against, so every inserted line is emitted"
     );
 }
+
+fn colons_lines(input: &str) -> Vec<usize> {
+    rule_lines(input, &cfg(COLONS))
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect()
+}
+
+#[test]
+fn ryl_directive_shares_a_comment_with_other_text() {
+    let honoured = [
+        "a:  1  # v1.2.3  # ryl disable-line rule:colons\n",
+        "a:  1  # ryl disable-line rule:colons  # v1.2.3\n",
+        "a:  1  # ryl disable-line rule:colons\t# v1.2.3  \n",
+        "a:  1  # x  # ryl disable-line rule:colons  # y\n",
+        "a:  1  #  # ryl disable-line rule:colons\n",
+        "a:  1  # ryl disable-line rule:colons  #\n",
+        "a:  1  # v1.2.3  # ryl disable-line rule:colons\r\n",
+        "a:  1  # see rule:truthy  # ryl disable-line rule:colons\n",
+        "a:  \"x # y\"  # v1  # ryl disable-line rule:colons\n",
+    ];
+    for input in honoured {
+        assert!(colons_lines(input).is_empty(), "should suppress: {input:?}");
+    }
+}
+
+#[test]
+fn shared_comment_rejects_near_miss_segments() {
+    let rejected = [
+        "a:  1  # v1.2.3# ryl disable-line rule:colons\n", // no whitespace before `#`
+        "a:  1  # v1.2.3  #ryl disable-line rule:colons\n", // no space after `#`
+        "a:  1  ## ryl disable-line rule:colons  # reason\n", // double hash
+        "a:  1  # ryl disable-line rule:colons extra  # v1\n", // trailing junk
+        "a:  1  # v1  # yamllint disable-line rule:colons\n", // yamllint spelling
+        "a:  1  # yamllint disable-line rule:colons  # v1\n",
+        "a:  1  # ryl disable-line rule:truthy  # see rule:colons\n", // other segment's token
+        "a:  \"# v1  # ryl disable-line rule:colons\"\n",
+    ];
+    for input in rejected {
+        assert_eq!(colons_lines(input), vec![1], "must not suppress: {input:?}");
+    }
+}
+
+#[test]
+fn shared_comment_directives_keep_their_placement_and_order() {
+    assert_eq!(
+        colons_lines("# ryl disable-line rule:colons  # reason\na:  1\nb:  2\n"),
+        vec![3],
+        "own-line directive with a reason still targets the next line"
+    );
+    assert_eq!(
+        colons_lines(
+            "a:  1\n# ryl disable rule:colons  # why\nb:  2\n# ryl enable  # done\nc:  3\n"
+        ),
+        vec![1, 5],
+        "block directives with reasons bracket a region"
+    );
+    assert_eq!(
+        colons_lines("# ryl disable  # ryl enable rule:colons\na:  1\n"),
+        vec![2],
+        "segments apply in the order written"
+    );
+}
+
+#[test]
+fn disable_file_shares_a_comment_with_other_text() {
+    let config = cfg(COLONS);
+    for first in [
+        "# ryl disable-file  # generated",
+        "# generated  # ryl disable-file",
+    ] {
+        let input = format!("{first}\na:  1\n");
+        assert!(
+            lint_str(&input, Path::new("in.yaml"), &config, Path::new(".")).is_empty(),
+            "should skip the file: {first:?}"
+        );
+    }
+    for first in [
+        "# yamllint disable-file  # x",
+        "#ryl disable-file  # x",
+        "## ryl disable-file  # x",
+        "key: v  # ryl disable-file",
+    ] {
+        assert!(
+            !ryl::directives::disables_file(&format!("{first}\na:  1\n")),
+            "must not skip the file: {first:?}"
+        );
+    }
+}
+
+#[test]
+fn shared_comment_directive_applies_inside_embedded_markdown_region() {
+    let markdown = "```yaml\na:  1  # v1  # ryl disable-line rule:colons\nb:  2\n```\n";
+    let problems = ryl::lint_markdown_str(
+        markdown,
+        Path::new("doc.md"),
+        &cfg(COLONS),
+        Path::new("."),
+    );
+    let lines: Vec<usize> = problems.iter().map(|p| p.line).collect();
+    assert_eq!(lines, vec![3], "only the undirected region line reports");
+}

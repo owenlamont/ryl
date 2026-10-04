@@ -76,6 +76,22 @@ messy :  [1 ,2 ]
 # ryl enable         # … until here
 ```
 
+### Alongside other comments
+
+A `# ryl …` directive can share a comment with other text, before or after it,
+such as a version pinned by Dependabot or Renovate or a reason for the
+suppression:
+
+```yaml
+uses: actions/checkout@3d3c42e  # v4.1.0  # ryl disable-line rule:line-length
+uses: actions/checkout@3d3c42e  # ryl disable-line rule:line-length  # v4.1.0
+```
+
+Each `#` preceded by whitespace starts a new part of the comment. A part that
+matches the directive grammar is a directive; the others are ordinary comment
+text, and their `rule:` tokens target nothing. This works for every form,
+including a first-line `disable-file`, but only with the `ryl` spelling.
+
 ## yamllint compatibility
 
 For drop-in compatibility with projects migrating from yamllint, the
@@ -85,15 +101,20 @@ For drop-in compatibility with projects migrating from yamllint, the
 key:   value  # yamllint disable-line rule:colons
 ```
 
-Both spellings follow yamllint's exact grammar. A comment is only treated as a
-directive when it matches precisely &mdash; a single space after `#`, single
+Both spellings follow yamllint's exact grammar. A comment (or, for
+`# ryl …`, one `#` part of it) is only treated as a directive when it matches
+precisely &mdash; a single space after `#`, single
 spaces between words, and `rule:` before each id. Near-misses are plain
 comments and do **not** disable anything:
 
 ```yaml
 a:   1  #   ryl disable-line rule:colons   # extra spaces → not a directive
 a:   1  # ryl disable-line colons          # missing `rule:` → not a directive
+a:   1  # v1  # yamllint disable-line rule:colons  # beside text → not a directive
 ```
+
+`# yamllint …` is matched against the whole comment, as yamllint does, so it
+can't share a comment with other text.
 
 Syntax errors are always reported; no directive can suppress them.
 
