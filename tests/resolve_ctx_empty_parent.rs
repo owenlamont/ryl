@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ryl::cli_support::resolve_ctx;
-use ryl::config::YamlLintConfig;
+use ryl::cli_support::{ResolvedConfig, resolve_ctx};
 
 #[test]
 fn resolve_ctx_handles_path_without_parent() {
-    let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
+    let mut cache: HashMap<PathBuf, ResolvedConfig> = HashMap::new();
     let (base_dir, cfg, notices, config_found) =
         resolve_ctx(Path::new(""), None, false, &mut cache)
             .expect("resolve_ctx should fall back to current directory");

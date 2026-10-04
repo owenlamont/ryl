@@ -12,12 +12,14 @@ use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::{
-    github_escape, lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
+    LintFile, ResolvedConfig, github_escape, lexical_abspath, report_display_path,
+    resolve_ctx, sanitize_control,
 };
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
@@ -1054,7 +1056,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     if args.lint.markdown
         && let Some(ctx) = global_cfg.as_mut()
     {
-        // Enable markdown once here so per-file clones inherit the built matcher.
+        // Enable markdown once here so the shared config carries the built matcher.
         ctx.config.enable_default_markdown(&ctx.base_dir);
     }
     if let Some(cfg) = &global_cfg {
@@ -1066,13 +1068,20 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
 
     let (candidates, explicit_files) = gather_inputs(inputs);
 
-    let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
+    let global_resolved = global_cfg.as_ref().map(|ctx| {
+        (
+            ctx.base_dir.clone(),
+            Arc::new(ctx.config.clone()),
+            ctx.config_found,
+        )
+    });
+    let mut cache: HashMap<PathBuf, ResolvedConfig> = HashMap::new();
     let mut emitted_notices: HashSet<String> = HashSet::new();
-    let mut files: Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)> = Vec::new();
+    let mut files: Vec<LintFile> = Vec::new();
     let ruleless_config_found = gather_lint_files(
         &candidates,
         &explicit_files,
-        global_cfg.as_ref(),
+        global_resolved.as_ref(),
         args.lint.markdown,
         &mut cache,
         &mut emitted_notices,
@@ -1125,7 +1134,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
 ///
 /// Returns an error if a file cannot be read/written or an output destination fails.
 fn lint_and_exit(
-    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+    files: &[LintFile],
     args: &LintArgs,
     targets: &[OutputTarget],
 ) -> Result<ExitCode, String> {
@@ -1162,7 +1171,7 @@ fn lint_and_exit(
 ///
 /// Returns an error if any file cannot be read or written.
 fn apply_fixes_reporting_skips(
-    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+    files: &[LintFile],
     no_warnings: bool,
 ) -> Result<usize, String> {
     let initial_problem_count =
@@ -1236,7 +1245,7 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
 
-    let files = vec![(path, base_dir, cfg, kind)];
+    let files = vec![(path, base_dir, Arc::new(cfg), kind)];
     let results = vec![(0usize, outcome)];
 
     let mut sinks = open_targets(targets)?;
@@ -1368,9 +1377,7 @@ fn resolve_stdin_ctx(
     Ok((path, ctx.base_dir, cfg, apply_yaml_files, ctx.config_found))
 }
 
-fn lint_files(
-    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
-) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
+fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
     let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
         .par_iter()
         .enumerate()
@@ -1390,11 +1397,11 @@ fn lint_files(
 fn gather_lint_files(
     candidates: &[PathBuf],
     explicit_files: &[PathBuf],
-    global_cfg: Option<&ConfigContext>,
+    global_cfg: Option<&ResolvedConfig>,
     markdown: bool,
-    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)>,
+    cache: &mut HashMap<PathBuf, ResolvedConfig>,
     emitted_notices: &mut HashSet<String>,
-    files: &mut Vec<(PathBuf, PathBuf, YamlLintConfig, SourceKind)>,
+    files: &mut Vec<LintFile>,
 ) -> Result<Option<bool>, String> {
     // `config_found` of the first selected file that enables no rules, so a no-rules run
     // reports the right message for that file ("no config found" vs "config enables no
@@ -1457,7 +1464,7 @@ struct FileRecord<'a> {
 /// [`LintSummary`] (and exit code) is independent of which formats render the records.
 /// `no_warnings` drops warning-level diagnostics before they are kept or counted.
 fn collect_records<'a>(
-    files: &'a [(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
+    files: &'a [LintFile],
     results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
     no_warnings: bool,
 ) -> (LintSummary, Vec<FileRecord<'a>>) {
