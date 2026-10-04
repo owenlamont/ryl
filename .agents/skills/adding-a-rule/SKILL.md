@@ -57,7 +57,7 @@ Facts the codebase relies on; re-verify on a granit bump:
   start; a line-based `classify_mapping` is YAML-unsound on colons-in-scalars, quoted
   escapes, and multiline plain scalars (the comments-indentation rewrite learned this over
   ~5 review rounds).
-- Matching a core-schema tag (`!!int`, …): use `crate::yaml_dom::core_schema_suffix` /
-  `is_core_schema`, **never** granit's handle-only `Tag::is_yaml_core_schema` (a verbatim
-  `!<tag:yaml.org,2002:int>` slips past it); compare the full resolved URI when a `%TAG`
-  can split it, as `support::merge_key` does.
+- Matching a `tag:yaml.org,2002:` type (`!!int`, `!!merge`, …): use
+  `crate::yaml_dom::core_schema_suffix` / `is_core_schema`. They resolve every spelling
+  (verbatim, `!!`, a `%TAG` split mid-token) and, unlike granit's strict Core Schema
+  `Tag::core_suffix` / `is_yaml_core_schema`, also see non-core types such as `merge`.
