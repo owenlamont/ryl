@@ -140,6 +140,13 @@ fn run_output_config(
 }
 
 fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
+    if !cli.lint_args.inputs.is_empty() {
+        return Err(
+            "error: migration takes no input paths; use --migrate-root <DIR> to \
+             choose where --migrate-configs searches"
+                .to_string(),
+        );
+    }
     let cleanup = if let Some(suffix) = &cli.migrate.rename_old {
         SourceCleanup::RenameSuffix(suffix.clone())
     } else if cli.migrate.delete_old {
@@ -252,7 +259,7 @@ struct Cli {
 
     // These print-and-exit meta-actions are `exclusive` so combining them with a lint/fix
     // request is a usage error. `--migrate-configs` is not exclusive: it combines with its
-    // `requires`-bound `--migrate-*` sub-flags and a root path.
+    // `requires`-bound `--migrate-*` sub-flags.
     /// Print the JSON Schema for ryl TOML config and exit
     #[arg(
         long = "print-toml-config-schema",

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
@@ -42,12 +43,19 @@ pub trait Env {
     fn env_var(&self, key: &str) -> Option<String>;
 }
 
+/// Read once: ryl never changes directory, and per-file path matching would otherwise
+/// call `getcwd` for every file.
+fn process_cwd() -> &'static Path {
+    static CWD: OnceLock<PathBuf> = OnceLock::new();
+    CWD.get_or_init(|| env::current_dir().unwrap_or_default())
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemEnv;
 
 impl Env for SystemEnv {
     fn current_dir(&self) -> PathBuf {
-        PathBuf::from(".")
+        process_cwd().to_path_buf()
     }
     fn config_dir(&self) -> Option<PathBuf> {
         env::var("XDG_CONFIG_HOME")
@@ -1090,16 +1098,19 @@ fn build_per_file_ignores(
         .collect()
 }
 
-/// A cwd-relative base (`.`) meets an absolute LSP path via the cwd; a path outside the
-/// base falls back to its file name, as `ignore` panics on one not under its root.
+/// A relative path meets an absolute base, or an absolute LSP path a relative one, via
+/// the cwd; a path outside the base falls back to its file name, as `ignore` panics on
+/// one not under its root.
 fn relative_to_base<'a>(path: &'a Path, base_dir: &Path) -> Cow<'a, Path> {
     if let Ok(rel) = path.strip_prefix(base_dir) {
         return Cow::Borrowed(rel);
     }
-    let resolved = std::path::absolute(path)
+    let cwd = process_cwd();
+    let resolved = cwd
+        .join(path)
+        .strip_prefix(cwd.join(base_dir))
         .ok()
-        .zip(std::path::absolute(base_dir).ok())
-        .and_then(|(path, base)| path.strip_prefix(base).ok().map(Path::to_path_buf));
+        .map(Path::to_path_buf);
     Cow::Owned(
         resolved
             .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),

@@ -496,7 +496,8 @@ Useful flags:
 The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 `--migrate-delete-old` flags apply to whichever migration trigger
 (`--migrate-configs`, `--migrate-user-config`, or both) is set; `--migrate-root`
-applies to project migration only.
+applies to project migration only. Migration takes no positional paths: `ryl
+--migrate-configs sub/` exits 2, so scope it with `--migrate-root sub/` instead.
 
 Migration never overwrites or deletes through surprises: it skips (with a
 warning, leaving the source untouched) any config whose target directory already
