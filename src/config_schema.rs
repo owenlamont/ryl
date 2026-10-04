@@ -252,6 +252,8 @@ pub enum FixableRuleSelector {
     QuotedStrings,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
+    #[serde(rename = "truthy")]
+    Truthy,
 }
 
 /// A fixable rule name accepted by `fix.unfixable`.
@@ -281,6 +283,8 @@ pub enum FixRuleName {
     QuotedStrings,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
+    #[serde(rename = "truthy")]
+    Truthy,
 }
 
 /// A rule id, or `ALL` for every rule.

@@ -573,6 +573,27 @@ fn fix_rule_edit_is_none_for_an_unfixable_rule_or_markdown() {
     );
 }
 
+#[test]
+fn fix_rule_edit_for_truthy_needs_a_recasable_boolean() {
+    let cfg = yaml_cfg("[rules]\ntruthy = \"enable\"\n");
+    let edit = |source: &str| {
+        fix_rule_edit(
+            source,
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+            "truthy",
+        )
+    };
+    assert_eq!(
+        edit("a: TRUE\nb: yes\n").expect("TRUE is fixable").new_text,
+        "a: true\nb: yes\n"
+    );
+    assert!(edit("b: yes\n").is_none(), "yes alone has no safe fix");
+}
+
 // --- hover: rule id + message + docs link for a covered position ---
 
 fn diagnostic(rule: Option<&str>, range: Range, message: &str) -> Diagnostic {

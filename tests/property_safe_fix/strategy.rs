@@ -62,6 +62,21 @@ fn arb_yaml_1_1_ambiguous() -> impl Strategy<Value = String> {
     ]
 }
 
+fn arb_bool_spelling() -> impl Strategy<Value = String> {
+    prop::sample::select(
+        &["true", "True", "TRUE", "false", "False", "FALSE", "tRUE"][..],
+    )
+    .prop_map(str::to_owned)
+}
+
+fn arb_tagged_bool_spelling() -> impl Strategy<Value = String> {
+    (
+        prop_oneof![Just("!!str"), Just("!!bool")],
+        arb_bool_spelling(),
+    )
+        .prop_map(|(tag, spelling)| format!("{tag} {spelling}"))
+}
+
 fn arb_scalar() -> impl Strategy<Value = Scalar> {
     prop_oneof![
         4 => arb_plain_value().prop_map(Scalar::Plain),
@@ -70,6 +85,10 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
         1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::Plain),
         1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::SingleQuoted),
         1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::DoubleQuoted),
+        1 => arb_bool_spelling().prop_map(Scalar::Plain),
+        1 => arb_bool_spelling().prop_map(Scalar::SingleQuoted),
+        1 => arb_bool_spelling().prop_map(Scalar::DoubleQuoted),
+        1 => arb_tagged_bool_spelling().prop_map(Scalar::Plain),
     ]
 }
 
@@ -202,7 +221,7 @@ fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
 
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
     (
-        arb_plain_identifier(),
+        prop_oneof![8 => arb_plain_identifier(), 1 => arb_bool_spelling()],
         arb_top_level_node(),
         prop::option::of(arb_inline_comment()),
     )

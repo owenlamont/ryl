@@ -24,6 +24,14 @@ const COMMON_SAFE_FIX_RULES_YAML: &str = "rules:
   empty-lines: enable
 ";
 
+const TRUTHY_DEFAULT: &str = "  truthy: enable\n";
+
+const TRUTHY_TITLE_CASE: &str = "  quoted-strings: enable
+  truthy:
+    allowed-values: ['True', 'False']
+    check-keys: false
+";
+
 const QUOTED_STRINGS_VARIANTS: &[(&str, &str)] = &[
     ("yamllint-default", "  quoted-strings: enable\n"),
     (
@@ -69,6 +77,7 @@ pub const SAFE_FIX_RULES: &[&str] = &[
     "document-start",
     "document-end",
     "empty-lines",
+    "truthy",
 ];
 
 const COMMON_SAFE_FIX_RULES_TOML: &str = "[rules]
@@ -82,6 +91,7 @@ trailing-spaces = 'enable'
 document-start = 'enable'
 document-end = 'enable'
 empty-lines = 'enable'
+truthy = 'enable'
 
 [rules.quoted-strings]
 quote-type = 'single'
@@ -113,6 +123,8 @@ pub struct PreparedConfig {
 static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
     let mut configs: Vec<PreparedConfig> = QUOTED_STRINGS_VARIANTS
         .iter()
+        .map(|(name, suffix)| (*name, format!("{suffix}{TRUTHY_DEFAULT}")))
+        .chain([("truthy-title-case", TRUTHY_TITLE_CASE.to_owned())])
         .map(|(name, suffix)| {
             let yaml = format!("{COMMON_SAFE_FIX_RULES_YAML}{suffix}");
             let cfg = YamlLintConfig::from_yaml_str(&yaml)

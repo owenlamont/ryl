@@ -69,7 +69,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`float-values`](rules/float-values.md) | Float value formats. |  |
 | [`octal-values`](rules/octal-values.md) | Octal value formats. |  |
 | [`quoted-strings`](rules/quoted-strings.md) | Quoted string styles and when to require quotes. | :wrench: |
-| [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. |  |
+| [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: |
 
 ## Severity levels
 

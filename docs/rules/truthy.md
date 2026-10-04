@@ -82,6 +82,16 @@ visible: false
 enabled: yes
 flag: On
 country: NO
+debug: True
+```
+
+### :wrench: After `ryl check --fix` (defaults)
+
+```yaml
+enabled: yes
+flag: On
+country: NO
+debug: true
 ```
 
 ### :white_check_mark: Allowed (with `allowed-values: ["true", "false", "yes", "no"]`)
@@ -100,8 +110,20 @@ truthy word list is flagged.
 
 ## Automatic fixing
 
-This rule does not auto-fix; replacing a bareword changes the value's
-type and meaning, which requires intent from the author.
+`ryl check --fix` rewrites a flagged case variant of `true` or `false`
+(`True`, `TRUE`, `False`, `FALSE`) to the first spelling of the same boolean
+that `allowed-values` permits, trying lowercase, then title case, then upper
+case. Every one of those spellings is the same boolean under YAML 1.1 and 1.2,
+so the value does not change. When `allowed-values` has no spelling of that
+boolean, the value is left as it is.
+
+The fix is **partial**: `yes`, `no`, `on`, `off` and their case variants are
+never rewritten, because the right replacement (quote it to keep the string,
+or change it to a boolean) depends on what the author meant.
+
+With `check-keys` on, keys are fixed too. That can surface a duplicate key:
+`True: 1` and `true: 2` in one mapping were always the same boolean key, and
+[`key-duplicates`](key-duplicates.md) reports it once both read `true`.
 
 ## Related rules
 

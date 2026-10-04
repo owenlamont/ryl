@@ -12,7 +12,7 @@ use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
-    trailing_spaces,
+    trailing_spaces, truthy,
 };
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -94,11 +94,15 @@ const EMPTY_LINES_FIX: RuleFix = RuleFix {
     rule: empty_lines::ID,
     safety: FixSafety::Safe,
 };
+const TRUTHY_FIX: RuleFix = RuleFix {
+    rule: truthy::ID,
+    safety: FixSafety::Safe,
+};
 
 /// Every rule with a safe `--fix`, in application order; extend together with the `apply`
 /// sequence in `FixContext::pass` when adding a safe fixer. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
-pub const SAFE_FIX_RULE_IDS: [&str; 12] = [
+pub const SAFE_FIX_RULE_IDS: [&str; 13] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
@@ -111,6 +115,7 @@ pub const SAFE_FIX_RULE_IDS: [&str; 12] = [
     document_start::ID,
     document_end::ID,
     empty_lines::ID,
+    truthy::ID,
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -649,6 +654,9 @@ impl FixContext<'_> {
         });
         content = self.apply(content, changed_rules, EMPTY_LINES_FIX, |buffer| {
             empty_lines::fix(buffer, &empty_lines::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, changed_rules, TRUTHY_FIX, |buffer| {
+            truthy::fix(buffer, &truthy::Config::resolve(self.cfg))
         });
         content
     }

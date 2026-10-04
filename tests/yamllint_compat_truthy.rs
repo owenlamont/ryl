@@ -38,7 +38,12 @@ fn truthy_rule_matches_yamllint() {
     .unwrap();
 
     let bad_file = dir.path().join("bad.yaml");
-    fs::write(&bad_file, "foo: True\nbar: yes\nTrue: 1\non: off\n").unwrap();
+    // An alias value must advance the key/value toggle, or `False:` reads as a value.
+    fs::write(
+        &bad_file,
+        "foo: True\nbar: yes\nTrue: 1\non: off\nanchor: &a x\nalias: *a\nFalse: y\nvalue: False\n",
+    )
+    .unwrap();
 
     let allowed_file = dir.path().join("allowed.yaml");
     fs::write(&allowed_file, "- yes\n- no\n- true\n- on\n").unwrap();

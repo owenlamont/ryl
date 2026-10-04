@@ -40,6 +40,8 @@ flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 1.2: `--fix` only makes edits that preserve the value under the document's
 *declared* version, so it will not strip the quotes from `'no'` under
 `%YAML 1.1`, where the bareword `no` is the boolean false.
+The `truthy` fix only re-cases `True`/`FALSE` and the like, which are the
+same boolean under both versions.
 
 ## What is different in YAML 1.2
 

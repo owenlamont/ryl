@@ -403,6 +403,7 @@ pub enum FixRule {
     NewLines,
     QuotedStrings,
     TrailingSpaces,
+    Truthy,
 }
 
 impl FixRule {
@@ -420,6 +421,7 @@ impl FixRule {
             "new-lines" => Some(Self::NewLines),
             "quoted-strings" => Some(Self::QuotedStrings),
             "trailing-spaces" => Some(Self::TrailingSpaces),
+            "truthy" => Some(Self::Truthy),
             _ => None,
         }
     }
@@ -1262,6 +1264,7 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
         FixRuleSelector::Rule(FixRule::TrailingSpaces) => {
             TomlFixableRuleSelector::TrailingSpaces
         }
+        FixRuleSelector::Rule(FixRule::Truthy) => TomlFixableRuleSelector::Truthy,
     }
 }
 
@@ -1279,6 +1282,7 @@ fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
         FixRule::NewLines => TomlFixRuleName::NewLines,
         FixRule::QuotedStrings => TomlFixRuleName::QuotedStrings,
         FixRule::TrailingSpaces => TomlFixRuleName::TrailingSpaces,
+        FixRule::Truthy => TomlFixRuleName::Truthy,
     }
 }
 
@@ -1339,6 +1343,7 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
         TomlFixableRuleSelector::TrailingSpaces => {
             FixRuleSelector::Rule(FixRule::TrailingSpaces)
         }
+        TomlFixableRuleSelector::Truthy => FixRuleSelector::Rule(FixRule::Truthy),
     }
 }
 
@@ -1356,6 +1361,7 @@ fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
         TomlFixRuleName::NewLines => FixRule::NewLines,
         TomlFixRuleName::QuotedStrings => FixRule::QuotedStrings,
         TomlFixRuleName::TrailingSpaces => FixRule::TrailingSpaces,
+        TomlFixRuleName::Truthy => FixRule::Truthy,
     }
 }
 

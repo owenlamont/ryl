@@ -1015,7 +1015,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) | Float value formats. |  |
 | [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) | Octal value formats. |  |
 | [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | Quoted string styles and when to require quotes. | :wrench: |
-| [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) | Truthy values like `yes`, `no`, `on`, `off`. |  |
+| [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: |
 
 ## Severity levels
 
@@ -1896,10 +1896,11 @@ There are exactly two ways the two tools can disagree:
 - **A loop.** Only a rule with a safe fix can take part, because a loop needs both tools
   to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `document-start`, `document-end`, `empty-lines`,
-  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, and `trailing-spaces`. If one
+  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
+  `truthy` (case only: `True` to `true`). If one
   of these is set to enforce the opposite of what your formatter emits, they fight.
 - **A standing complaint.** A rule with no fix (for example `indentation`, `line-length`,
-  `truthy`) can flag something the formatter produced but ryl cannot rewrite. There is no
+  or `truthy` on `yes`/`no`) can flag something the formatter produced but ryl cannot rewrite. There is no
   loop, but ryl warns on every run until you align the setting or turn the rule off.
 
 Everything below is about steering clear of both. The configs were checked by running
@@ -2108,8 +2109,8 @@ Notes:
   rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
 - yamlfix canonicalises truthy words only in **block** style (`key: yes`, `- yes`); it
   leaves them untouched inside a pre-existing flow collection (`flags: [yes, no]`) or
-  before a trailing comment (`x: yes  # ...`). ryl's `truthy` rule only flags (it has no
-  auto-fix), so on those leftovers `truthy = "enable"` keeps complaining. Rewrite them by
+  before a trailing comment (`x: yes  # ...`). ryl's `truthy` fix only re-cases `True`
+  and `False`, never `yes`/`no`, so on those leftovers `truthy = "enable"` keeps complaining. Rewrite them by
   hand, or drop `truthy` if your YAML relies on them.
 - yamlfix's truthy normalisation is itself a YAML 1.1 behaviour: it rewrites *unquoted*
   `yes`/`no`/`on`/`off` to booleans, which YAML 1.2 (and ryl) treat as strings. yamlfix
@@ -2589,6 +2590,8 @@ flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 1.2: `--fix` only makes edits that preserve the value under the document's
 *declared* version, so it will not strip the quotes from `'no'` under
 `%YAML 1.1`, where the bareword `no` is the boolean false.
+The `truthy` fix only re-cases `True`/`FALSE` and the like, which are the
+same boolean under both versions.
 
 ## What is different in YAML 1.2
 
@@ -4967,6 +4970,16 @@ visible: false
 enabled: yes
 flag: On
 country: NO
+debug: True
+```
+
+### :wrench: After `ryl check --fix` (defaults)
+
+```yaml
+enabled: yes
+flag: On
+country: NO
+debug: true
 ```
 
 ### :white_check_mark: Allowed (with `allowed-values: ["true", "false", "yes", "no"]`)
@@ -4985,8 +4998,20 @@ truthy word list is flagged.
 
 ## Automatic fixing
 
-This rule does not auto-fix; replacing a bareword changes the value's
-type and meaning, which requires intent from the author.
+`ryl check --fix` rewrites a flagged case variant of `true` or `false`
+(`True`, `TRUE`, `False`, `FALSE`) to the first spelling of the same boolean
+that `allowed-values` permits, trying lowercase, then title case, then upper
+case. Every one of those spellings is the same boolean under YAML 1.1 and 1.2,
+so the value does not change. When `allowed-values` has no spelling of that
+boolean, the value is left as it is.
+
+The fix is **partial**: `yes`, `no`, `on`, `off` and their case variants are
+never rewritten, because the right replacement (quote it to keep the string,
+or change it to a boolean) depends on what the author meant.
+
+With `check-keys` on, keys are fixed too. That can surface a duplicate key:
+`True: 1` and `true: 2` in one mapping were always the same boolean key, and
+[`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/) reports it once both read `true`.
 
 ## Related rules
 
