@@ -6,10 +6,10 @@
 //! The pipeline is probed by calling each rule's public `fix` in pipeline order,
 //! iterating each rule and then the whole pass to a fixed point, so a fixer or pass the
 //! caps would silently truncate fails here. The probe must reproduce `apply_safe_fixes`
-//! byte-for-byte, which pins its rule table to the production order. The generator (`stack`) stacks file-shape
-//! issues around the safe-fix suite's entries so fixers genuinely interact; a
-//! deterministic sibling pins a stacked input that several fixers rewrite, so the
-//! property cannot pass vacuously.
+//! byte-for-byte, which pins its rule table to the production order. The generator
+//! (`stack`) stacks file-shape issues around the safe-fix suite's entries so fixers
+//! genuinely interact; a deterministic sibling pins a stacked input that several fixers
+//! rewrite, so the property cannot pass vacuously.
 
 #[path = "property_safe_fix/ast.rs"]
 #[allow(
@@ -46,7 +46,7 @@ use stack::{Decoration, Filler, StackedDocument, arb_stacked_document};
 
 type RuleFix = (&'static str, Box<dyn Fn(&str) -> Option<String>>);
 
-/// The rules `apply_safe_fixes_filtered` runs, in its order. Every matrix config
+/// The rules one `FixContext::pass` runs, in its order. Every matrix config
 /// enables `new-lines`, so the final newline is always the configured one.
 fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let newline = new_lines::expected_newline(
