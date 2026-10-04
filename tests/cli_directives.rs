@@ -10,8 +10,8 @@ use tempfile::tempdir;
 fn run(cmd: &mut Command) -> (i32, String) {
     let out = cmd.output().expect("process");
     let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let stdout = String::from_utf8_lossy_owned(out.stdout);
+    let stderr = String::from_utf8_lossy_owned(out.stderr);
     (code, format!("{stdout}{stderr}"))
 }
 
@@ -31,8 +31,8 @@ fn run_stdin(input: &str, args: &[&str]) -> (i32, String) {
         .write_all(input.as_bytes())
         .expect("write stdin");
     let out = child.wait_with_output().expect("wait");
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let stdout = String::from_utf8_lossy_owned(out.stdout);
+    let stderr = String::from_utf8_lossy_owned(out.stderr);
     (out.status.code().unwrap_or(-1), format!("{stdout}{stderr}"))
 }
 

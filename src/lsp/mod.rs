@@ -556,31 +556,26 @@ impl Server {
     ) {
         let Notification { method, params } = notification;
         match method.as_str() {
-            "textDocument/didOpen" => {
-                if let Some(params) = parse::<DidOpenTextDocumentParams>(&params) {
-                    let document = params.text_document;
-                    self.update(
-                        connection,
-                        document.uri,
-                        document.version,
-                        document.text,
-                    );
-                    self.wake(connection);
-                }
+            "textDocument/didOpen"
+                if let Some(params) = parse::<DidOpenTextDocumentParams>(&params) =>
+            {
+                let document = params.text_document;
+                self.update(connection, document.uri, document.version, document.text);
+                self.wake(connection);
             }
-            "textDocument/didChange" => {
-                if let Some(params) = parse::<DidChangeTextDocumentParams>(&params) {
-                    self.apply_changes(connection, params);
-                    self.wake(connection);
-                }
+            "textDocument/didChange"
+                if let Some(params) = parse::<DidChangeTextDocumentParams>(&params) =>
+            {
+                self.apply_changes(connection, params);
+                self.wake(connection);
             }
-            "textDocument/didClose" => {
-                if let Some(params) = parse::<DidCloseTextDocumentParams>(&params) {
-                    let uri = params.text_document.uri;
-                    self.documents.remove(uri.as_str());
-                    self.push(connection, uri, None, Vec::new());
-                    self.wake(connection);
-                }
+            "textDocument/didClose"
+                if let Some(params) = parse::<DidCloseTextDocumentParams>(&params) =>
+            {
+                let uri = params.text_document.uri;
+                self.documents.remove(uri.as_str());
+                self.push(connection, uri, None, Vec::new());
+                self.wake(connection);
             }
             "workspace/didChangeWatchedFiles" => {
                 // Params ryl cannot read say nothing about what changed, so assume the worst.
@@ -596,22 +591,22 @@ impl Server {
                 }
                 self.wake(connection);
             }
-            "workspace/didChangeConfiguration" => {
-                if let Some(params) = parse::<DidChangeConfigurationParams>(&params) {
-                    self.settings = Settings::from_options(Some(&params.settings));
-                    self.handle_config_change(connection);
-                    self.wake(connection);
-                }
+            "workspace/didChangeConfiguration"
+                if let Some(params) =
+                    parse::<DidChangeConfigurationParams>(&params) =>
+            {
+                self.settings = Settings::from_options(Some(&params.settings));
+                self.handle_config_change(connection);
+                self.wake(connection);
             }
-            "$/cancelRequest" => {
+            "$/cancelRequest"
                 if let Some(params) = parse::<CancelParams>(&params)
                     && self
                         .pull
                         .as_ref()
-                        .is_some_and(|pull| pull.id == request_id(params.id))
-                {
-                    self.cancel_pull(connection);
-                }
+                        .is_some_and(|pull| pull.id == request_id(params.id)) =>
+            {
+                self.cancel_pull(connection);
             }
             _ => {}
         }

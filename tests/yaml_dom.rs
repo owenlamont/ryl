@@ -1,4 +1,5 @@
 use ryl::yaml_dom::{ScalarOwned, YamlOwned};
+use std::assert_matches;
 
 fn parse_single(source: &str) -> YamlOwned {
     YamlOwned::load_from_str(source)
@@ -151,7 +152,7 @@ fn resolves_core_schema_float_tag() {
 fn unknown_core_schema_tag_is_bad_value() {
     let doc = parse_single("v: !!unknown foo\n");
     let v = doc.as_mapping_get("v").unwrap();
-    assert!(matches!(v, YamlOwned::BadValue));
+    assert_matches!(v, YamlOwned::BadValue);
 }
 
 // granit scans a verbatim `!<…>` tag to an *empty* handle with the full URI in
@@ -193,20 +194,16 @@ fn verbatim_core_schema_seq_tag_unwraps_like_shorthand() {
 #[test]
 fn matching_core_collection_tag_unwraps() {
     for src in ["v: !!map {a: b}\n", "v: !<tag:yaml.org,2002:map> {a: b}\n"] {
-        assert!(
-            matches!(
-                parse_single(src).as_mapping_get("v"),
-                Some(YamlOwned::Mapping(_))
-            ),
+        assert_matches!(
+            parse_single(src).as_mapping_get("v"),
+            Some(YamlOwned::Mapping(_)),
             "{src:?} should resolve to a plain mapping"
         );
     }
     for src in ["v: !!seq [1, 2]\n", "v: !<tag:yaml.org,2002:seq> [1, 2]\n"] {
-        assert!(
-            matches!(
-                parse_single(src).as_mapping_get("v"),
-                Some(YamlOwned::Sequence(_))
-            ),
+        assert_matches!(
+            parse_single(src).as_mapping_get("v"),
+            Some(YamlOwned::Sequence(_)),
             "{src:?} should resolve to a plain sequence"
         );
     }
@@ -225,11 +222,9 @@ fn mismatched_or_unknown_core_collection_tag_stays_tagged() {
         "v: !!custom {a: b}\n",
         "v: !<tag:yaml.org,2002:custom> {a: b}\n",
     ] {
-        assert!(
-            matches!(
-                parse_single(src).as_mapping_get("v"),
-                Some(YamlOwned::Tagged(_, _))
-            ),
+        assert_matches!(
+            parse_single(src).as_mapping_get("v"),
+            Some(YamlOwned::Tagged(_, _)),
             "{src:?} should preserve the non-matching core tag as Tagged"
         );
     }
@@ -238,28 +233,19 @@ fn mismatched_or_unknown_core_collection_tag_stays_tagged() {
 #[test]
 fn non_core_tagged_scalar_wraps_in_tagged() {
     let doc = parse_single("v: !foo bar\n");
-    assert!(matches!(
-        doc.as_mapping_get("v"),
-        Some(YamlOwned::Tagged(_, _))
-    ));
+    assert_matches!(doc.as_mapping_get("v"), Some(YamlOwned::Tagged(_, _)));
 }
 
 #[test]
 fn non_core_tagged_sequence_wraps_in_tagged() {
     let doc = parse_single("v: !foo [1, 2]\n");
-    assert!(matches!(
-        doc.as_mapping_get("v"),
-        Some(YamlOwned::Tagged(_, _))
-    ));
+    assert_matches!(doc.as_mapping_get("v"), Some(YamlOwned::Tagged(_, _)));
 }
 
 #[test]
 fn non_core_tagged_mapping_wraps_in_tagged() {
     let doc = parse_single("v: !foo {a: b}\n");
-    assert!(matches!(
-        doc.as_mapping_get("v"),
-        Some(YamlOwned::Tagged(_, _))
-    ));
+    assert_matches!(doc.as_mapping_get("v"), Some(YamlOwned::Tagged(_, _)));
 }
 
 #[test]
@@ -317,7 +303,7 @@ fn invalid_signed_int_falls_back_to_string() {
 #[test]
 fn core_schema_null_tag_rejects_non_null_value() {
     let doc = parse_single("v: !!null foo\n");
-    assert!(matches!(doc.as_mapping_get("v"), Some(YamlOwned::BadValue)));
+    assert_matches!(doc.as_mapping_get("v"), Some(YamlOwned::BadValue));
 }
 
 #[test]
