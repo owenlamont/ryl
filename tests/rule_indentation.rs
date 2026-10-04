@@ -538,6 +538,7 @@ fn multi_line_flow_collections_check_items_and_closers() {
         hits(yaml, &cfg),
         vec![wrong(3, 3, 4), wrong(4, 3, 0), wrong(6, 3, 4)]
     );
+    assert!(hits("[x,\n a: b\n]\n", &cfg).is_empty());
 }
 
 #[test]

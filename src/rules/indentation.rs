@@ -174,6 +174,9 @@ fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<T
         let (mut start, mut end) = (span.start.index(), span.end.index());
         let kind = match token_type {
             TokenType::Comment(_) => continue,
+            TokenType::FlowMappingStart | TokenType::FlowMappingEnd if start == end => {
+                continue;
+            }
             TokenType::StreamStart | TokenType::StreamEnd => Kind::StreamBoundary,
             TokenType::BlockMappingStart => Kind::BlockMappingStart,
             TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
