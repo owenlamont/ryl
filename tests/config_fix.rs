@@ -399,7 +399,7 @@ fn to_toml_string_round_trips_document_and_empty_lines_fix_config() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['document-start', 'document-end', 'empty-lines']\nunfixable = ['document-start', 'document-end', 'empty-lines']\n",
+        "[fix]\nfixable = ['document-start', 'document-end', 'empty-lines', 'key-ordering']\nunfixable = ['document-start', 'document-end', 'empty-lines', 'key-ordering']\n",
     );
 
     let ctx = discover_config_with(
@@ -418,6 +418,7 @@ fn to_toml_string_round_trips_document_and_empty_lines_fix_config() {
             FixRuleSelector::Rule(FixRule::DocumentStart),
             FixRuleSelector::Rule(FixRule::DocumentEnd),
             FixRuleSelector::Rule(FixRule::EmptyLines),
+            FixRuleSelector::Rule(FixRule::KeyOrdering),
         ]
     );
     assert_eq!(
@@ -426,10 +427,12 @@ fn to_toml_string_round_trips_document_and_empty_lines_fix_config() {
             FixRule::DocumentStart,
             FixRule::DocumentEnd,
             FixRule::EmptyLines,
+            FixRule::KeyOrdering,
         ]
     );
     let toml_output = ctx.config.to_toml_string();
     assert!(toml_output.contains("document-start"));
     assert!(toml_output.contains("document-end"));
     assert!(toml_output.contains("empty-lines"));
+    assert!(toml_output.contains("key-ordering"));
 }

@@ -244,6 +244,8 @@ pub enum FixableRuleSelector {
     DocumentStart,
     #[serde(rename = "empty-lines")]
     EmptyLines,
+    #[serde(rename = "key-ordering")]
+    KeyOrdering,
     #[serde(rename = "new-line-at-end-of-file")]
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
@@ -275,6 +277,8 @@ pub enum FixRuleName {
     DocumentStart,
     #[serde(rename = "empty-lines")]
     EmptyLines,
+    #[serde(rename = "key-ordering")]
+    KeyOrdering,
     #[serde(rename = "new-line-at-end-of-file")]
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]

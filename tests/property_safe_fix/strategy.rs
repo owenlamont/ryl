@@ -131,6 +131,7 @@ fn arb_node() -> impl Strategy<Value = Node> {
 fn arb_top_level_node() -> impl Strategy<Value = Node> {
     prop_oneof![
         10 => arb_node(),
+        3 => prop::collection::vec(arb_nested_entry(), 1..=3).prop_map(Node::BlockMap),
         3 => arb_block_scalar_spec().prop_map(Node::BlockScalar),
         3 => arb_multiline_quoted_spec().prop_map(Node::MultilineQuoted),
         3 => arb_multiline_plain_spec().prop_map(Node::MultilinePlain),
@@ -219,16 +220,43 @@ fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
         )
 }
 
+fn arb_leading_comment() -> impl Strategy<Value = Option<String>> {
+    prop::option::weighted(0.3, "[a-z][a-z0-9]{0,6}")
+}
+
+/// Keys from a two-letter alphabet half the time, so nested mappings are often
+/// out of order or hold duplicates.
+fn arb_nested_entry() -> impl Strategy<Value = BlockEntry> {
+    (
+        arb_leading_comment(),
+        prop_oneof![arb_plain_identifier(), "[ab]"],
+        arb_node(),
+        prop::option::of(arb_inline_comment()),
+    )
+        .prop_map(|(leading_comment, key, value, trailing_inline_comment)| {
+            BlockEntry {
+                leading_comment,
+                key,
+                value,
+                trailing_inline_comment,
+            }
+        })
+}
+
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
     (
+        arb_leading_comment(),
         prop_oneof![8 => arb_plain_identifier(), 1 => arb_bool_spelling()],
         arb_top_level_node(),
         prop::option::of(arb_inline_comment()),
     )
-        .prop_map(|(key, value, trailing_inline_comment)| BlockEntry {
-            key,
-            value,
-            trailing_inline_comment,
+        .prop_map(|(leading_comment, key, value, trailing_inline_comment)| {
+            BlockEntry {
+                leading_comment,
+                key,
+                value,
+                trailing_inline_comment,
+            }
         })
 }
 

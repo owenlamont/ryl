@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc fb0008b9e4dec9200c6e2246380d7fb19a8e9cc1eb3b6c60b12126765698efb8 # shrinks to document = Document { entries: [BlockEntry { key: "a", value: MultilinePlain(MultilinePlainSpec { first: "a", continuations: [Content("a")] }), trailing_inline_comment: None }], newline: Cr, has_final_newline: false }
+cc ad57d7f82bb01d8bdbe15a9e49f0cd187ba1be890568a2dc4f604c1d59b8fcc5 # shrinks to document = Document { version_directive: None, entries: [BlockEntry { leading_comment: None, key: "a", value: FlowMap([(Plain("a"), Scalar(Plain("a"))), (SingleQuoted(""), Scalar(Plain("a")))], FlowStyle { inner_padding: 0, spaces_before_comma: 0, spaces_after_comma: 0, space_after_colon: false }), trailing_inline_comment: None }], newline: Lf, has_final_newline: false }

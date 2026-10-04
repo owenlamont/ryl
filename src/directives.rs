@@ -100,6 +100,14 @@ fn parse_segment(text: &str) -> Option<Parsed> {
     Some(Parsed { action, rules })
 }
 
+/// `Some(true)` when a comment payload holds only `disable-line` directives, `Some(false)`
+/// when it holds a `disable`/`enable`.
+pub(crate) fn directive_scope(text: &str) -> Option<bool> {
+    parse_comment(text)
+        .map(|parsed| matches!(parsed.action, Action::DisableLine))
+        .reduce(|a, b| a && b)
+}
+
 /// Resolve a `rule:` token to the canonical rule id; an unknown id resolves to nothing
 /// (inert either way), matching yamllint's `if id in all_rules` guard.
 fn resolve_rule(token: &str) -> Option<&'static str> {
@@ -245,8 +253,7 @@ impl Directives {
     /// Precondition: each fixer is **pure replace** (line count unchanged) **xor** **pure
     /// insert/delete** (count changed) in a single pass, never a mix. Every current
     /// safe-fix rule satisfies this. The equal-length path assumes positional replacement,
-    /// so a fixer that reordered lines while keeping the count equal would misalign:
-    /// introduce a real line diff here before adding one.
+    /// so a fixer that reorders lines must leave every line disabled for its rule untouched.
     #[must_use]
     pub fn reconcile(&self, rule: &str, before: &str, after: &str) -> String {
         let before_lines: Vec<&str> = split_lines_inclusive(before).collect();

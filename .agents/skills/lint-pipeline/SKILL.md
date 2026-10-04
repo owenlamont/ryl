@@ -100,7 +100,11 @@ remaining" summary and `--diff` see only the final text. If a pass past the cap 
 still change the text, `apply_safe_fixes_capped` writes ruff's "Failed to converge"
 error (a ryl bug report request naming the rules still changing) to stderr from the loop
 itself, so the CLI and LSP both get it; `--no-warnings` does not suppress it, the text
-as of the cap is kept, and the exit code is unaffected. Tests reach it through
+as of the cap is kept, and the exit code is unaffected. After convergence,
+`key_ordering::unfixed` names each mapping its fix declined; `FixOutcome::skipped` and
+`DiffOutcome::skipped` carry those as `rule: Some("key-ordering")` problems, which the
+CLI prints as `<path>:L:C key-ordering not fixed: <reason>` (Markdown regions mapped to
+host lines like parse skips). Tests reach it through
 `apply_safe_fixes_capped` with a small cap. Lint behavior is unchanged: an undefined
 alias is still not a lint syntax error (the `anchors` rule reports it, matching
 yamllint); only `--fix` applies the stricter gate, through the in-place and per-region

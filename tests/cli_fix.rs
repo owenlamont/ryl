@@ -1065,3 +1065,66 @@ fn fix_trims_consecutive_blank_lines_outside_block_scalars() {
         "outside runs trimmed to max=2, inner block-scalar blanks preserved: {fixed:?}"
     );
 }
+
+#[test]
+fn fix_sorts_keys_and_reports_mappings_it_leaves_unsorted() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        &file,
+        "# Gamma.\ngamma: 3  # g\nalpha: 1\nflow: {b: 1, a: 2}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nkey-ordering = 'enable'\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) =
+        run(ryl(dir.path()).arg("check").arg("--diff").arg(&file));
+    assert_eq!(code, 1, "a sort is pending: stderr={stderr}");
+    assert!(
+        stdout.contains("+alpha: 1\n+flow: {b: 1, a: 2}\n"),
+        "diff previews the sort: {stdout}"
+    );
+    assert!(
+        stderr.contains(":2:14 key-ordering not fixed: flow mappings are not sorted"),
+        "--diff reports the unsorted mapping: {stderr}"
+    );
+
+    let (code, _stdout, stderr) =
+        run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 1, "the flow mapping stays reported: stderr={stderr}");
+    assert!(
+        stderr.contains(
+            "input.yaml:2:14 key-ordering not fixed: flow mappings are not sorted"
+        ) && stderr.contains("Found 3 problems (2 fixed, 1 remaining)."),
+        "notice and summary: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha: 1\nflow: {b: 1, a: 2}\n# Gamma.\ngamma: 3  # g\n"
+    );
+}
+
+#[test]
+fn unfixable_key_ordering_leaves_keys_and_prints_no_notice() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "b: 1\na: {d: 1, c: 2}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\nkey-ordering = 'enable'\n[fix]\nunfixable = ['key-ordering']\n",
+    )
+    .unwrap();
+
+    let (code, _stdout, stderr) =
+        run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 1, "stderr={stderr}");
+    assert!(!stderr.contains("not fixed"), "no notice: {stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "b: 1\na: {d: 1, c: 2}\n"
+    );
+}
