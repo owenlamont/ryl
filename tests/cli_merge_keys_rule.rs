@@ -109,12 +109,8 @@ fn flags_verbatim_merge_tag() {
 
 #[test]
 fn flags_merge_tag_split_by_a_tag_directive() {
-    // The spec resolves a tag by concatenating the %TAG prefix with the suffix
-    // (YAML 1.2.2 §6.8.2.2), so a directive may split the merge URI anywhere. The
-    // play.yaml.com reference parser resolves `%TAG !m! tag:yaml.org,2002:m` +
-    // `!m!erge` to the same `tag:yaml.org,2002:merge` as `!!merge`, and
-    // PyYAML/ruamel merge it, so merge-keys must flag it. Guards against matching
-    // only the canonical handle split (which `core_schema_suffix` reports).
+    // The play.yaml.com reference parser and PyYAML/ruamel resolve `!m!erge` under this
+    // `%TAG` to `tag:yaml.org,2002:merge` (YAML 1.2.2 §6.8.2.2), so it is a merge key.
     let (code, output) = lint_with_toml_config(
         "%TAG !m! tag:yaml.org,2002:m\n---\nbase: &b {x: 1}\n!m!erge foo: *b\n",
         ENABLE,
