@@ -9,8 +9,8 @@ fn resolve_ctx_handles_path_without_parent() {
     let mut cache: HashMap<PathBuf, (PathBuf, YamlLintConfig, bool)> = HashMap::new();
     let (base_dir, cfg, notices, config_found) =
         resolve_ctx(Path::new(""), None, false, &mut cache)
-            .expect("resolve_ctx should fall back to current directory");
-    assert_eq!(base_dir, PathBuf::from("."));
+            .expect("resolve_ctx should resolve from the current directory");
+    assert_eq!(base_dir, std::env::current_dir().unwrap());
     assert!(notices.is_empty());
     assert!(cache.contains_key(&PathBuf::from(".")));
     assert!(
