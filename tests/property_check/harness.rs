@@ -146,6 +146,23 @@ pub fn hyphens_dash_on_own_line_config() -> &'static YamlLintConfig {
     &CONFIG
 }
 
+// The trigger-all config pins `spaces: 2`; this one fuzzes step latching.
+const INDENTATION_CONSISTENT_YAML: &str = "rules:
+  indentation:
+    spaces: consistent
+    indent-sequences: consistent
+    check-multi-line-strings: true
+";
+
+#[must_use]
+pub fn indentation_consistent_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_yaml_str(INDENTATION_CONSISTENT_YAML)
+            .expect("property-check consistent indentation config must parse")
+    });
+    &CONFIG
+}
+
 macro_rules! collect_standard {
     ($spans:ident, $cfg:expr, $content:expr, $module:path) => {{
         use $module as rule;
@@ -195,6 +212,12 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
         ryl::rules::hyphens
     );
     collect_standard!(spans, cfg, content, ryl::rules::indentation);
+    collect_standard!(
+        spans,
+        indentation_consistent_config(),
+        content,
+        ryl::rules::indentation
+    );
     collect_standard!(spans, cfg, content, ryl::rules::key_duplicates);
     collect_standard!(
         spans,

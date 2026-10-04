@@ -449,6 +449,30 @@ fn arb_seq_of_mappings_block() -> impl Strategy<Value = Vec<Line>> {
     })
 }
 
+/// A root sequence entry nesting a sequence `step` columns in, so a `consistent`
+/// indentation step is latched from inside a root sequence.
+fn arb_root_sequence_block() -> impl Strategy<Value = Vec<Line>> {
+    (arb_key(), 2u8..=6, any::<bool>()).prop_map(|(key, step, sibling)| {
+        let mut lines = vec![
+            Line::Raw {
+                indent: 0,
+                text: format!("- {key}:"),
+            },
+            Line::Raw {
+                indent: step,
+                text: "- x".to_string(),
+            },
+        ];
+        if sibling {
+            lines.push(Line::Raw {
+                indent: 2,
+                text: "other: 1".to_string(),
+            });
+        }
+        lines
+    })
+}
+
 fn arb_custom_tag_block() -> impl Strategy<Value = Vec<Line>> {
     prop_oneof![Just("!e!keep"), Just("!e!other")].prop_map(|tag| {
         vec![
@@ -531,6 +555,9 @@ fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
         2 => (arb_seq_of_mappings_block(), arb_newline()).prop_map(|(lines, newline)| {
+            lines.into_iter().map(|line| (line, newline)).collect()
+        }),
+        2 => (arb_root_sequence_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
     ]
