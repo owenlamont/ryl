@@ -446,12 +446,16 @@ fn keeps_meaning(
             }
             group.1 |= defines;
         }
+    }
+    let resolved = entries.iter().enumerate().filter_map(|(index, entry)| {
         let key = entry.key.as_ref();
         key.and_then(|key| {
             Scalar::resolve_scalar(Cow::Borrowed(&key.text), key.style, None)
         })
-        .into_iter()
-        .for_each(|identity| identities.entry(identity).or_default().push(index));
+        .map(|identity| (identity, index))
+    });
+    for (identity, index) in resolved {
+        identities.entry(identity).or_default().push(index);
     }
     let kept =
         |group: &[usize]| group.windows(2).all(|w| position[w[0]] < position[w[1]]);

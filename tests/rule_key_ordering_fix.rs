@@ -44,6 +44,7 @@ fn sorts_entries_with_their_comments() {
         ("c: 1\nb: 2\nb: 3\na: 4\n", "a: 4\nb: 2\nb: 3\nc: 1\n"),
         ("x: 0\n<<: {y: 1}\n", "<<: {y: 1}\nx: 0\n"),
         ("d:\n  - ? e\n# lead\na: 1\n", "# lead\na: 1\nd:\n  - ? e\n"),
+        ("b: [&p 1, *p]\na: 2\n", "a: 2\nb: [&p 1, *p]\n"),
         ("x: &a 1\ny: *a\nb: 0\n", "b: 0\nx: &a 1\ny: *a\n"),
         (
             "b: 1  # ryl disable-line rule:truthy\n# ryl disable-line rule:line-length\na: 2\n",

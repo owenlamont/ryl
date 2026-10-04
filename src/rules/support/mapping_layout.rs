@@ -85,7 +85,13 @@ impl<'a> Layout<'a> {
         }
         for mapping in layout.mappings.iter_mut().filter(|m| m.block) {
             layout_block(&layout.lines, mapping);
-            for (line, name, anchor) in &names {
+            let (top, bottom) = (
+                mapping.entries[0].key_line,
+                mapping.entries[mapping.entries.len() - 1].end,
+            );
+            let within = names.partition_point(|n| n.0 < top)
+                ..names.partition_point(|n| n.0 <= bottom);
+            for (line, name, anchor) in &names[within] {
                 if let Some(entry) = mapping
                     .entries
                     .iter_mut()
