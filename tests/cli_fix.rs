@@ -4,7 +4,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::run;
+use common::cli::{run, ryl};
 
 #[test]
 fn fix_applies_safe_newline_and_comment_fixes() {
@@ -340,6 +340,29 @@ fn fix_under_best_practice_converges_in_one_invocation_for_escape_sequences() {
     assert_eq!(
         first_pass, second_pass,
         "one --fix invocation should reach the fixed point; first={first_pass:?} second={second_pass:?}"
+    );
+}
+
+#[test]
+fn fix_reindents_comment_left_by_joined_plain_scalar_in_one_invocation() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("t.yaml");
+    fs::write(&file, "a: b\n  c\n  # x\nd: e\n").unwrap();
+    fs::write(
+        dir.path().join(".yamllint"),
+        "rules:\n  comments-indentation: enable\n  quoted-strings: enable\n",
+    )
+    .unwrap();
+
+    let (code, _, stderr) = run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 0, "fix should succeed: {stderr}");
+    assert!(
+        stderr.contains("(2 fixed, 0 remaining)"),
+        "expected nothing left for a second --fix: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "a: 'b c'\n# x\nd: 'e'\n"
     );
 }
 

@@ -58,16 +58,17 @@ follows the codebase, not the developer's machine.
 
 `tests/property_fix_convergence.rs` asserts the `--fix` pipeline converges: each
 rule's `fix` reaches a fixed point within `RULE_FIX_MAX_ITERATIONS` (so the cap in
-`src/fix.rs` never silently truncates a fixer), and re-running `apply_safe_fixes`
-settles without revisiting an earlier state (two fixers undoing each other). It
-rebuilds the pipeline from each rule's public `fix` in `pipeline_rules` and asserts
-that probe matches `apply_safe_fixes` byte-for-byte. Its generator
+`src/fix.rs` never silently truncates a fixer), the whole pipeline settles within
+`FIX_PIPELINE_MAX_PASSES` without revisiting an earlier state (two fixers undoing each
+other), and one `apply_safe_fixes` call leaves nothing for a second to change. It
+rebuilds a pipeline pass from each rule's public `fix` in `pipeline_rules`, repeats it to
+a fixed point, and asserts that probe matches `apply_safe_fixes` byte-for-byte. Its generator
 (`property_fix_convergence/stack.rs`) wraps `arb_document` entries in indented
 comments, whitespace-only blanks, trailing spaces and `---`/`...` markers so fixers
 act on the same lines.
 
 When you add a new `FixSafety::Safe` rule, add it to `pipeline_rules` at its position
-in `apply_safe_fixes_filtered`; `probe_covers_every_safe_fix_rule` fails until you do,
+in `FixContext::pass`; `probe_covers_every_safe_fix_rule` fails until you do,
 and the byte-for-byte assertion fails on a misordering that changes the output.
 Failing inputs persist to the committed
 `tests/proptest-regressions/property_fix_convergence.txt`; run with

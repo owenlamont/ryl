@@ -14,6 +14,10 @@ use crate::rules::{
 };
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
+/// Bound on whole-pipeline passes: a later fixer can expose a diagnostic an earlier one
+/// fixes (quoted-strings joining a plain scalar's continuation line strands a comment
+/// indented to it).
+pub const FIX_PIPELINE_MAX_PASSES: usize = 8;
 
 /// File-shape rules suppressed inside embedded markdown regions: a region is not a standalone
 /// file, so document-start/end and file-newline checks do not apply and `--fix` must never
@@ -91,8 +95,8 @@ const EMPTY_LINES_FIX: RuleFix = RuleFix {
     safety: FixSafety::Safe,
 };
 
-/// Every rule with a safe `--fix`, in application order; extend together with the `ctx.apply`
-/// sequence in [`apply_safe_fixes_filtered`] when adding a safe fixer. The LSP drives per-rule
+/// Every rule with a safe `--fix`, in application order; extend together with the `apply`
+/// sequence in `FixContext::pass` when adding a safe fixer. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
 pub const SAFE_FIX_RULE_IDS: [&str; 12] = [
     new_lines::ID,
@@ -540,46 +544,13 @@ pub fn apply_safe_fixes_filtered(
         per_line,
     };
     let mut content = input.to_string();
-    content = ctx.apply(content, NEW_LINES_FIX, |buffer| {
-        new_lines::fix(
-            buffer,
-            new_lines::Config::resolve(cfg),
-            new_lines::platform_newline(),
-        )
-    });
-    content = ctx.apply(content, COMMENTS_FIX, |buffer| {
-        comments::fix(buffer, &comments::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, COMMENTS_INDENTATION_FIX, |buffer| {
-        comments_indentation::fix(buffer, &comments_indentation::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, COMMAS_FIX, |buffer| {
-        commas::fix(buffer, &commas::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, BRACES_FIX, |buffer| {
-        braces::fix(buffer, &braces::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, BRACKETS_FIX, |buffer| {
-        brackets::fix(buffer, &brackets::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, FINAL_NEWLINE_FIX, |buffer| {
-        let newline = target_newline(buffer, cfg, path, base_dir);
-        new_line_at_end_of_file::fix(buffer, newline.as_str())
-    });
-    content = ctx.apply(content, QUOTED_STRINGS_FIX, |buffer| {
-        quoted_strings::fix(buffer, &quoted_strings::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, TRAILING_SPACES_FIX, trailing_spaces::fix);
-    content = ctx.apply(content, DOCUMENT_START_FIX, |buffer| {
-        document_start::fix(buffer, &document_start::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, DOCUMENT_END_FIX, |buffer| {
-        document_end::fix(buffer, &document_end::Config::resolve(cfg))
-    });
-    content = ctx.apply(content, EMPTY_LINES_FIX, |buffer| {
-        empty_lines::fix(buffer, &empty_lines::Config::resolve(cfg))
-    });
-
+    for _ in 0..FIX_PIPELINE_MAX_PASSES {
+        let next = ctx.pass(&content);
+        if next == content {
+            break;
+        }
+        content = next;
+    }
     content
 }
 
@@ -599,6 +570,53 @@ struct FixContext<'a> {
 }
 
 impl FixContext<'_> {
+    fn pass(&self, input: &str) -> String {
+        let mut content = input.to_string();
+        content = self.apply(content, NEW_LINES_FIX, |buffer| {
+            new_lines::fix(
+                buffer,
+                new_lines::Config::resolve(self.cfg),
+                new_lines::platform_newline(),
+            )
+        });
+        content = self.apply(content, COMMENTS_FIX, |buffer| {
+            comments::fix(buffer, &comments::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, COMMENTS_INDENTATION_FIX, |buffer| {
+            comments_indentation::fix(
+                buffer,
+                &comments_indentation::Config::resolve(self.cfg),
+            )
+        });
+        content = self.apply(content, COMMAS_FIX, |buffer| {
+            commas::fix(buffer, &commas::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, BRACES_FIX, |buffer| {
+            braces::fix(buffer, &braces::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, BRACKETS_FIX, |buffer| {
+            brackets::fix(buffer, &brackets::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, FINAL_NEWLINE_FIX, |buffer| {
+            let newline = target_newline(buffer, self.cfg, self.path, self.base_dir);
+            new_line_at_end_of_file::fix(buffer, newline.as_str())
+        });
+        content = self.apply(content, QUOTED_STRINGS_FIX, |buffer| {
+            quoted_strings::fix(buffer, &quoted_strings::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, TRAILING_SPACES_FIX, trailing_spaces::fix);
+        content = self.apply(content, DOCUMENT_START_FIX, |buffer| {
+            document_start::fix(buffer, &document_start::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, DOCUMENT_END_FIX, |buffer| {
+            document_end::fix(buffer, &document_end::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, EMPTY_LINES_FIX, |buffer| {
+            empty_lines::fix(buffer, &empty_lines::Config::resolve(self.cfg))
+        });
+        content
+    }
+
     fn apply(
         &self,
         content: String,
