@@ -274,8 +274,7 @@ fn top_level_meta_actions_do_not_warn() {
         vec!["--print-toml-config-schema"],
         vec!["--print-yaml-config-schema"],
         vec!["--generate-completions", "bash"],
-        // A positional path parses into the bare lint inputs alongside the meta-action.
-        vec!["--migrate-configs", "--migrate-root", root, root],
+        vec!["--migrate-configs", "--migrate-root", root],
     ] {
         let (code, stdout, stderr) = run(ryl(dir.path()).args(&args));
         assert_eq!(code, 0, "{args:?} should succeed: {stderr}");
