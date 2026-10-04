@@ -2,10 +2,11 @@
 //!
 //! Mirrors yamllint's `# yamllint disable` / `enable` / `disable-line` /
 //! `disable-file` directives (`yamllint/linter.py`), with a preferred `# ryl ...`
-//! spelling that may also share a comment with other `#` text. [`crate::lint::lint_str`] filters every
-//! diagnostic through [`Directives::is_disabled`], and `--fix` keeps disabled lines
-//! untouched via [`Directives::reconcile`]. A first-line [`disables_file`] directive
-//! skips the whole buffer (a file or an embedded Markdown region).
+//! spelling that may also share a comment with other `#` text.
+//! [`crate::lint::lint_str`] filters every diagnostic through
+//! [`Directives::is_disabled`], and `--fix` keeps disabled lines untouched via
+//! [`Directives::reconcile`]. A first-line [`disables_file`] directive skips the whole
+//! buffer (a file or an embedded Markdown region).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
