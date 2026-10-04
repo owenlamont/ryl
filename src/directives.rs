@@ -2,10 +2,11 @@
 //!
 //! Mirrors yamllint's `# yamllint disable` / `enable` / `disable-line` /
 //! `disable-file` directives (`yamllint/linter.py`), with a preferred `# ryl ...`
-//! spelling kept in lockstep with the grammar. [`crate::lint::lint_str`] filters every
-//! diagnostic through [`Directives::is_disabled`], and `--fix` keeps disabled lines
-//! untouched via [`Directives::reconcile`]. A first-line [`disables_file`] directive
-//! skips the whole buffer (a file or an embedded Markdown region).
+//! spelling that may also share a comment with other `#` text.
+//! [`crate::lint::lint_str`] filters every diagnostic through
+//! [`Directives::is_disabled`], and `--fix` keeps disabled lines untouched via
+//! [`Directives::reconcile`]. A first-line [`disables_file`] directive skips the whole
+//! buffer (a file or an embedded Markdown region).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -30,6 +31,8 @@ static ENABLE: LazyLock<Regex> = LazyLock::new(|| {
 static DISABLE_LINE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^ (?:yamllint|ryl) disable-line(?: rule:\S+)*\s*$").unwrap()
 });
+static SEGMENT_BREAK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[ \t]#").unwrap());
 static RULE_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"rule:(\S+)").unwrap());
 // Matched on the raw first line (including `#`), more lenient than the other directives,
@@ -47,6 +50,11 @@ pub fn disables_file(buffer: &str) -> bool {
         .next()
         .map_or("", |(_, content, _)| content);
     DISABLE_FILE.is_match(first_line)
+        || first_line.strip_prefix('#').is_some_and(|payload| {
+            SEGMENT_BREAK
+                .split(payload)
+                .any(|segment| segment.trim_end() == " ryl disable-file")
+        })
 }
 
 enum Action {
@@ -61,7 +69,15 @@ struct Parsed {
     rules: Option<Vec<&'static str>>,
 }
 
-fn parse_comment(text: &str) -> Option<Parsed> {
+fn parse_comment(text: &str) -> impl Iterator<Item = Parsed> + '_ {
+    let shared = SEGMENT_BREAK.is_match(text);
+    SEGMENT_BREAK
+        .split(text)
+        .filter(move |segment| !shared || segment.starts_with(" ryl "))
+        .filter_map(parse_segment)
+}
+
+fn parse_segment(text: &str) -> Option<Parsed> {
     let action = if DISABLE_LINE.is_match(text) {
         Action::DisableLine
     } else if DISABLE.is_match(text) {
@@ -123,36 +139,35 @@ impl Directives {
         let mut block: HashSet<&'static str> = HashSet::new();
         let mut directives = Self::default();
         for comment in collect_comments(buffer) {
-            let Some(parsed) = parse_comment(&comment.text) else {
-                continue;
-            };
             let line = comment.span.start.line();
-            match parsed.action {
-                Action::Disable => {
-                    insert_rules(&mut block, parsed.rules.as_deref());
-                    directives.block_snapshots.push((line, block.clone()));
-                }
-                Action::Enable => {
-                    match parsed.rules.as_deref() {
-                        None => block.clear(),
-                        Some(ids) => {
-                            for id in ids {
-                                block.remove(id);
+            for parsed in parse_comment(&comment.text) {
+                match parsed.action {
+                    Action::Disable => {
+                        insert_rules(&mut block, parsed.rules.as_deref());
+                        directives.block_snapshots.push((line, block.clone()));
+                    }
+                    Action::Enable => {
+                        match parsed.rules.as_deref() {
+                            None => block.clear(),
+                            Some(ids) => {
+                                for id in ids {
+                                    block.remove(id);
+                                }
                             }
                         }
+                        directives.block_snapshots.push((line, block.clone()));
                     }
-                    directives.block_snapshots.push((line, block.clone()));
-                }
-                Action::DisableLine => {
-                    let target = if comment.placement == Placement::Right {
-                        line
-                    } else {
-                        line + 1
-                    };
-                    insert_rules(
-                        directives.line_disabled.entry(target).or_default(),
-                        parsed.rules.as_deref(),
-                    );
+                    Action::DisableLine => {
+                        let target = if comment.placement == Placement::Right {
+                            line
+                        } else {
+                            line + 1
+                        };
+                        insert_rules(
+                            directives.line_disabled.entry(target).or_default(),
+                            parsed.rules.as_deref(),
+                        );
+                    }
                 }
             }
         }

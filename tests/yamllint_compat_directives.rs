@@ -64,6 +64,14 @@ const CASES: &[(&str, &str)] = &[
         "a:  yes  # yamllint disable-line colons\n",
     ),
     (
+        "rejected-after-comment.yaml",
+        "a:  yes  # v1  # yamllint disable-line rule:colons\n",
+    ),
+    (
+        "rejected-before-comment.yaml",
+        "a:  yes  # yamllint disable-line rule:colons  # v1\n",
+    ),
+    (
         "crlf.yaml",
         "# yamllint disable-line rule:colons\r\na:  1\r\nb:  2\r\n",
     ),

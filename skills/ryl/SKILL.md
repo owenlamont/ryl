@@ -92,7 +92,7 @@ Migrate a yamllint setup with `ryl --migrate-configs` (add `--migrate-write` to 
 - `-` reads stdin; pair with `--stdin-filename <PATH>` so diagnostics, config discovery,
   and filtering behave as if the path were on disk.
 - Suppress rules inline with `# ryl disable`/`enable`/`disable-line`, or a first-line
-  `# ryl disable-file`.
+  `# ryl disable-file`; a `# ryl` directive may share a line with other `#` comments.
 - `--markdown` lints YAML front matter and fenced `yaml`/`yml` blocks in Markdown.
 
 ## Full documentation
