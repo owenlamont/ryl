@@ -2,8 +2,9 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
+use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
 use crate::yaml_dom::{ScalarOwned, YamlOwned};
 use globset::{Glob, GlobMatcher, escape as glob_escape};
@@ -165,42 +166,59 @@ struct RuleConfig {
 
 #[derive(Debug, Clone)]
 struct PerFileIgnore {
-    basename_matcher: GlobMatcher,
-    absolute_matcher: GlobMatcher,
-    negated: bool,
+    glob: PathGlob,
     rules: Vec<String>,
 }
 
 impl PerFileIgnore {
     fn new(pattern: &str, rules: Vec<String>, base_dir: &Path) -> Result<Self, String> {
+        let glob = PathGlob::new(pattern, base_dir).map_err(|err| {
+            let (_, pattern) = split_negation(pattern);
+            format!(
+                "invalid config: per-file-ignores pattern '{pattern}' is invalid: {err}"
+            )
+        })?;
+        Ok(Self { glob, rules })
+    }
+}
+
+/// A path glob matching a file by its basename or by its absolute path, with a leading
+/// `!` inverting the whole match. A file outside the config dir can only match a relative
+/// pattern by basename, as in ruff and yamllint.
+#[derive(Debug, Clone)]
+struct PathGlob {
+    basename: GlobMatcher,
+    absolute: GlobMatcher,
+    negated: bool,
+    cwd: PathBuf,
+}
+
+impl PathGlob {
+    /// `base_dir` resolves against the cwd, as walked and CLI paths do.
+    fn new(pattern: &str, base_dir: &Path) -> Result<Self, globset::Error> {
         let (negated, pattern) = split_negation(pattern);
-        let absolute_pattern = absolute_glob_pattern(pattern, base_dir);
-        let basename_matcher = Glob::new(pattern)
-            .map_err(|err| {
-                format!(
-                    "invalid config: per-file-ignores pattern '{pattern}' is invalid: {err}"
-                )
-            })?
-            .compile_matcher();
-        let absolute_matcher = Glob::new(&absolute_pattern)
-            .expect("absolute per-file ignore pattern should compile after validation")
+        let basename = Glob::new(pattern)?.compile_matcher();
+        let cwd = lexical_abspath(Path::new("."));
+        let anchor = normalize_lexically(&cwd.join(base_dir));
+        let absolute = Glob::new(&absolute_glob_pattern(pattern, &anchor))
+            .expect("an escaped anchor keeps a valid pattern valid")
             .compile_matcher();
         Ok(Self {
-            basename_matcher,
-            absolute_matcher,
+            basename,
+            absolute,
             negated,
-            rules,
+            cwd,
         })
     }
 
-    fn matches(&self, path: &Path, base_dir: &Path) -> bool {
-        let matched = glob_path_matches(
-            &self.basename_matcher,
-            &self.absolute_matcher,
-            path,
-            base_dir,
-        );
-        // Negation inverts the whole match: `!(filename || absolute)`.
+    fn matches(&self, path: &Path) -> bool {
+        let filename_matches = path
+            .file_name()
+            .is_some_and(|file_name| self.basename.is_match(Path::new(file_name)));
+        let matched = filename_matches
+            || self
+                .absolute
+                .is_match(normalize_lexically(&self.cwd.join(path)));
         matched != self.negated
     }
 }
@@ -212,38 +230,33 @@ fn split_negation(pattern: &str) -> (bool, &str) {
         .map_or((false, pattern), |rest| (true, rest))
 }
 
-/// Whether `path` matches either glob: its basename against `basename`, or its
-/// (base-dir-resolved) absolute form against `absolute`.
-fn glob_path_matches(
-    basename: &GlobMatcher,
-    absolute: &GlobMatcher,
-    path: &Path,
-    base_dir: &Path,
-) -> bool {
-    let filename_matches = path
-        .file_name()
-        .is_some_and(|file_name| basename.is_match(Path::new(file_name)));
-    let absolute_path = if path.is_absolute() {
-        Cow::Borrowed(path)
-    } else {
-        Cow::Owned(base_dir.join(path))
-    };
-    filename_matches || absolute.is_match(absolute_path.as_ref())
+/// Resolves an absolute path's `.` and `..` without touching the filesystem, so a glob
+/// pattern and the paths it matches normalize identically.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        if component == Component::ParentDir {
+            out.pop();
+        } else {
+            out.push(component);
+        }
+    }
+    out
 }
 
-fn absolute_glob_pattern(pattern: &str, base_dir: &Path) -> String {
-    if Path::new(pattern).is_absolute() {
-        pattern.to_owned()
+fn absolute_glob_pattern(pattern: &str, anchor: &Path) -> String {
+    let anchored = if Path::new(pattern).is_absolute() {
+        PathBuf::from(pattern)
     } else {
-        let mut pattern_with_base = glob_escape(&base_dir.to_string_lossy());
-        if !pattern_with_base.is_empty()
-            && !pattern_with_base.ends_with(std::path::MAIN_SEPARATOR)
-        {
-            pattern_with_base.push(std::path::MAIN_SEPARATOR);
-        }
-        pattern_with_base.push_str(pattern);
-        pattern_with_base
-    }
+        let escaped_anchor = glob_escape(&anchor.to_string_lossy());
+        PathBuf::from(format!(
+            "{escaped_anchor}{}{pattern}",
+            std::path::MAIN_SEPARATOR
+        ))
+    };
+    normalize_lexically(&anchored)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// The rules a `per-line-ignores` entry suppresses, resolved to `&'static str` ids;
@@ -267,14 +280,12 @@ fn resolve_per_line_rules(rules: &[String]) -> Option<Vec<&'static str>> {
     )
 }
 
-/// Compiled `per-line-ignores` entry: an optional path glob (basename + absolute matcher
-/// pair), an optional line regex, and the rules to suppress (`None` = all). No path glob
-/// applies to every file. At least one of path/regex is guaranteed by validation.
+/// Compiled `per-line-ignores` entry: an optional path glob, an optional line regex, and
+/// the rules to suppress (`None` = all). No path glob applies to every file. At least one
+/// of path/regex is guaranteed by validation.
 #[derive(Debug, Clone)]
 struct PerLineIgnoreMatcher {
-    path_glob: Option<(GlobMatcher, GlobMatcher)>,
-    /// Whether the path glob was `!`-negated. Only meaningful when `path_glob` is `Some`.
-    path_negated: bool,
+    path_glob: Option<PathGlob>,
     regex: Option<Regex>,
     rules: Option<Vec<&'static str>>,
 }
@@ -282,37 +293,25 @@ struct PerLineIgnoreMatcher {
 impl PerLineIgnoreMatcher {
     /// Infallible: `validate_per_line_ignores` already proved every regex/glob compiles.
     fn new(entry: &NormalizedPerLineIgnore, base_dir: &Path) -> Self {
-        let (path_negated, path_glob) = match entry.path.as_deref() {
-            Some(raw) => {
-                let (negated, pattern) = split_negation(raw);
-                let basename = Glob::new(pattern)
-                    .expect("per-line-ignores `path` compiles after config validation")
-                    .compile_matcher();
-                let absolute = Glob::new(&absolute_glob_pattern(pattern, base_dir))
-                    .expect(
-                        "absolute per-line ignore pattern compiles after validation",
-                    )
-                    .compile_matcher();
-                (negated, Some((basename, absolute)))
-            }
-            None => (false, None),
-        };
+        let path_glob = entry.path.as_deref().map(|pattern| {
+            PathGlob::new(pattern, base_dir)
+                .expect("per-line-ignores `path` compiles after config validation")
+        });
         let regex = entry.regex.as_deref().map(|pattern| {
             Regex::new(pattern)
                 .expect("per-line-ignores `regex` compiles after config validation")
         });
         Self {
             path_glob,
-            path_negated,
             regex,
             rules: resolve_per_line_rules(&entry.rules),
         }
     }
 
-    fn path_matches(&self, path: &Path, base_dir: &Path) -> bool {
-        self.path_glob.as_ref().is_none_or(|(basename, absolute)| {
-            glob_path_matches(basename, absolute, path, base_dir) != self.path_negated
-        })
+    fn path_matches(&self, path: &Path) -> bool {
+        self.path_glob
+            .as_ref()
+            .is_none_or(|glob| glob.matches(path))
     }
 
     fn as_apply(&self) -> PerLineRuleApply<'_> {
@@ -688,21 +687,17 @@ impl YamlLintConfig {
             || self
                 .per_file_ignore_matchers
                 .iter()
-                .filter(|entry| entry.matches(path, base_dir))
+                .filter(|entry| entry.glob.matches(path))
                 .any(|entry| entry.rules.iter().any(|candidate| candidate == rule))
     }
 
     /// The `per-line-ignores` entries applying to `path`, as virtual-disable-line applies
     /// for the directives builder.
     #[must_use]
-    pub(crate) fn per_line_applies(
-        &self,
-        path: &Path,
-        base_dir: &Path,
-    ) -> Vec<PerLineRuleApply<'_>> {
+    pub(crate) fn per_line_applies(&self, path: &Path) -> Vec<PerLineRuleApply<'_>> {
         self.per_line_ignore_matchers
             .iter()
-            .filter(|matcher| matcher.path_matches(path, base_dir))
+            .filter(|matcher| matcher.path_matches(path))
             .map(PerLineIgnoreMatcher::as_apply)
             .collect()
     }

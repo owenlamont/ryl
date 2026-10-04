@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
 mod common;
-use common::cli::{command_output, run};
+use common::cli::{command_output, run, ryl};
 
 fn run_lint(config: &str, file_name: &str, body: &str) -> (i32, String) {
     let dir = tempdir().unwrap();
@@ -337,8 +337,6 @@ fn unknown_rule_name_is_a_config_error() {
 
 #[test]
 fn path_glob_matches_a_relative_cli_path() {
-    // Invoked with a relative path so `path_matches` joins it onto the base dir
-    // (the non-absolute branch), mirroring per-file-ignores' relative matching.
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
@@ -358,6 +356,27 @@ fn path_glob_matches_a_relative_cli_path() {
         code,
         0,
         "relative path should match the glob and suppress comments: {}",
+        command_output(&stdout, &stderr)
+    );
+}
+
+#[test]
+fn path_glob_matches_a_walked_dot_prefixed_path() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules.comments]\n\n[[per-line-ignores]]\npath = \"conf/*.yaml\"\n\
+         regex = '^#cloud-config$'\nrules = [\"comments\"]\n",
+    )
+    .unwrap();
+    fs::create_dir(dir.path().join("conf")).unwrap();
+    fs::write(dir.path().join("conf/init.yaml"), "#cloud-config\n").unwrap();
+
+    let (code, stdout, stderr) = run(ryl(dir.path()).current_dir(dir.path()).arg("."));
+    assert_eq!(
+        code,
+        0,
+        "the walked `./conf/init.yaml` should match the glob: {}",
         command_output(&stdout, &stderr)
     );
 }

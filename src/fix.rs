@@ -530,7 +530,7 @@ pub fn apply_safe_fixes_filtered(
     {
         return input.to_string();
     }
-    let per_line = cfg.per_line_applies(path, base_dir);
+    let per_line = cfg.per_line_applies(path);
     let ctx = FixContext {
         cfg,
         path,
