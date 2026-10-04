@@ -232,7 +232,8 @@ content), so on a classic-Mac `\r`-only file the two disagree:
 | line/column of any diagnostic | counted CR-aware | shifted by uncounted `\r`s |
 
 **On supported LF and CRLF files this is identical to yamllint** &mdash; the two
-line-break definitions agree exactly when there is no bare `\r`. The divergence is
+line-break definitions agree exactly when there is no bare `\r` (one CRLF exception
+follows below). The divergence is
 visible only on `\r`-only (or mixed-`\r`) files, which yamllint cannot lint
 faithfully anyway (and whose `new-lines` `type` has no `mac` value). ryl follows the
 specification and its [reference parser](https://play.yaml.com), which rank above
@@ -252,6 +253,22 @@ remap. Rather than silently check nothing — or report a wrong position — ryl
 an error (and `--fix`/`--diff` skip with a notice) telling you to convert the file to
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
+
+### Blank CRLF lines in multi-line scalars
+
+With `indentation: check-multi-line-strings` enabled, yamllint flags a blank line inside
+a multi-line scalar in a CRLF file, because it only recognises `\n` as ending a line:
+
+```yaml
+key: |
+  one
+
+  two
+```
+
+Saved with CRLF endings, yamllint reports `3:1 wrong indentation: expected 2 but found 0`
+and ryl reports nothing. ryl treats CRLF as a line break, as YAML 1.2 requires, so the
+blank line is skipped exactly as it is in an LF file.
 
 ### `%YAML` version-directive handling
 

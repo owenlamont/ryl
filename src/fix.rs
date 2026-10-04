@@ -21,10 +21,8 @@ pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
 /// indented to it). Matches ruff's `MAX_ITERATIONS`.
 pub const FIX_PIPELINE_MAX_PASSES: usize = 100;
 
-/// File-shape rules suppressed inside embedded markdown regions: a region is not a standalone
-/// file, so document-start/end and file-newline checks do not apply and `--fix` must never
-/// inject `---`/`...` or a trailing newline. Shared by the check and fix paths so they cannot
-/// drift.
+/// File-shape rules suppressed in embedded markdown regions (not standalone files, so `--fix`
+/// never injects `---`/`...` or a trailing newline); shared by the check and fix paths.
 const SUPPRESSED: [&str; 4] = [
     document_start::ID,
     document_end::ID,
@@ -132,15 +130,10 @@ pub struct FixOutcome {
     pub skipped: Vec<crate::lint::LintProblem>,
 }
 
-/// `--fix` rewrites in place and `std::fs::write` follows symlinks, so a symlinked input
-/// would let an untrusted tree redirect the write outside it (e.g. `innocent.yaml ->
-/// ~/.bashrc`). Skip it with a warning, consistent with the walker's `follow_links(false)`;
-/// read-only linting through symlinks is unaffected. `--diff` skips too (`flag` distinguishes
-/// the message), since it previews `--fix`.
-///
-/// Best-effort, not a hard sandbox: it checks only the final component (parents are resolved)
-/// and is not atomic with the write, so a symlinked parent or a TOCTOU swap is not covered. A
-/// complete defense needs `openat`/`O_NOFOLLOW`, which is not portable here.
+/// `std::fs::write` follows symlinks, so `--fix` (and `--diff`, its preview) skips a
+/// symlinked input with a warning rather than let an untrusted tree redirect the write
+/// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
+/// final component is checked, not atomically (a full defense needs `O_NOFOLLOW`).
 fn refuse_symlink(path: &Path, flag: &str) -> bool {
     if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
         eprintln!(
@@ -247,13 +240,10 @@ fn cwd_relative_label(path: &Path) -> String {
     crate::cli_support::sanitize_control(&display.display().to_string()).into_owned()
 }
 
-/// Render a unified diff from `original` and `fixed`, or `None` when identical. Follows
-/// `ruff check --diff`: 3 lines of context (pinned, since it is also `similar`'s default a
-/// crate upgrade could silently change) and a plain `--- path`/`+++ path` header (no git
-/// `a/`/`b/`). The header path is `lexical_abspath`-normalized and relativized to CWD (like
-/// ruff) so it applies with `git apply -p0` rather than failing on a `.`/`..`/absolute header,
-/// and sanitized so a crafted filename can't inject escapes or forge a hunk header. The diff
-/// *body* is emitted verbatim so a consumer can re-apply it unchanged.
+/// A unified diff, or `None` when identical, like `ruff check --diff`: 3 context lines
+/// (pinned against a `similar` default change) and a plain `--- path`/`+++ path` header,
+/// `lexical_abspath`-normalized, CWD-relative (so `git apply -p0` works) and sanitized
+/// against injected escapes or forged hunks. The body is verbatim.
 fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
     if original == fixed {
         return None;
@@ -279,10 +269,9 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
     )
 }
 
-/// The `--diff` outcome for in-memory `content`, shared by the file and stdin paths. Mirrors
-/// the in-place fixers' gating: an unparsable plain YAML file yields no diff and one skip; a
-/// Markdown file diffs at the host level via [`fix_markdown_str`], reporting each region that
-/// does not parse. A path unrepresentable in a diff header is skipped here.
+/// The `--diff` outcome for `content` (file and stdin paths), gated like `--fix`: unparsable
+/// YAML yields one skip; Markdown diffs at host level via [`fix_markdown_str`], skipping each
+/// unparsable region. A path unrepresentable in a diff header is skipped here.
 #[must_use]
 pub fn diff_outcome(
     content: &str,
@@ -335,9 +324,8 @@ pub fn diff_outcome(
     }
 }
 
-/// Whether either side ends in a bare `\r`. `similar`'s `ends_with_newline` counts a trailing
-/// `\r` as a terminator and emits a hunk line no patch tool accepts (a mid-line `\r` is fine),
-/// so `--diff` skips that case (use `--fix`).
+/// Whether either side ends in a bare `\r`, which `similar` renders as a hunk line no patch
+/// tool accepts (a mid-line `\r` is fine), so `--diff` skips it (use `--fix`).
 fn ends_in_bare_cr(original: &str, fixed: &str) -> bool {
     original.ends_with('\r') || fixed.ends_with('\r')
 }
@@ -361,9 +349,8 @@ fn diff_skip(message: &str) -> crate::lint::LintProblem {
     }
 }
 
-/// The `--diff` skip for a non-UTF-8 (or BOM) input: a textual diff of the decoded content
-/// cannot apply back to the BOM'd/transcoded bytes the way `--fix`'s re-encode does. Shared by
-/// the file and stdin paths.
+/// The `--diff` skip for a non-UTF-8 (or BOM) input, whose decoded-text diff cannot apply
+/// back to the original bytes as `--fix`'s re-encode does. Shared by file and stdin paths.
 #[must_use]
 pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
     diff_skip("non-UTF-8 or BOM content has no applicable text diff; use --fix")

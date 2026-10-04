@@ -137,14 +137,14 @@ fn consistent_spaces_detects_violation() {
         IndentSequencesSetting::True,
         false,
     );
-    let yaml = "root:\n  child:\n    grand: 1\n   bad: 2\n";
+    let yaml = "root:\n  child:\n    grand: 1\n  other:\n      bad: 2\n";
     let hits = indentation::check(yaml, &cfg);
     assert_eq!(
         hits,
         vec![Violation {
-            line: 4,
-            column: 4,
-            message: "wrong indentation: expected 4 but found 3".to_string(),
+            line: 5,
+            column: 7,
+            message: "wrong indentation: expected 4 but found 6".to_string(),
         }]
     );
 }
@@ -189,21 +189,6 @@ fn indent_sequences_whatever_allows_both_styles() {
 }
 
 #[test]
-fn tab_indentation_is_counted() {
-    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
-    let yaml = "root:\n\tchild: value\n";
-    let hits = indentation::check(yaml, &cfg);
-    assert_eq!(
-        hits,
-        vec![Violation {
-            line: 2,
-            column: 2,
-            message: "wrong indentation: expected 2 but found 1".to_string(),
-        }]
-    );
-}
-
-#[test]
 fn resolve_indent_sequences_from_string_values() {
     let cfg_whatever =
         parse_config("rules:\n  indentation:\n    indent-sequences: whatever\n");
@@ -215,10 +200,10 @@ fn resolve_indent_sequences_from_string_values() {
     let unindented = "root:\n- first\n- second\n";
     assert!(indentation::check(unindented, &cfg_consistent).is_empty());
 
-    let mixed = "root:\n  - first\n- second\n";
+    let mixed = "a:\n  - first\nb:\n- second\n";
     let hits = indentation::check(mixed, &cfg_consistent);
     assert_eq!(hits.len(), 1, "expected single violation: {hits:?}");
-    assert_eq!(hits[0].line, 3);
+    assert_eq!(hits[0].line, 4);
     assert!(hits[0].message.contains("wrong indentation"));
 }
 
@@ -261,22 +246,14 @@ fn reports_misaligned_mapping_with_consistent_spacing() {
         IndentSequencesSetting::True,
         false,
     );
-    let yaml =
-        "root:\n  child:\n    nested: 1\n   bad_child: 2\n   repeated: 3\n wrong: 4\n";
+    let yaml = "root:\n  child:\n    nested: 1\n  sibling:\n     bad: 2\n  last:\n     also: 3\n";
     let hits = indentation::check(yaml, &cfg);
-    assert_eq!(hits.len(), 3, "unexpected diagnostics: {hits:?}");
-    assert!(
-        hits.iter()
-            .any(|hit| hit.line == 4 && hit.message.contains("expected 4 but found 3"))
-    );
-    assert!(
-        hits.iter()
-            .any(|hit| hit.line == 5 && hit.message.contains("expected 2 but found 3"))
-    );
-    assert!(
-        hits.iter()
-            .any(|hit| hit.line == 6 && hit.message.contains("expected 2 but found 1"))
-    );
+    let expected = |line| Violation {
+        line,
+        column: 6,
+        message: "wrong indentation: expected 4 but found 5".to_string(),
+    };
+    assert_eq!(hits, vec![expected(5), expected(7)]);
 }
 
 #[test]
@@ -297,11 +274,16 @@ fn consistent_indent_sequences_detect_style_switch() {
         IndentSequencesSetting::Consistent,
         false,
     );
-    let yaml = "root:\n  - first\n- second\n";
+    let yaml = "a:\n  - first\nb:\n- second\n";
     let hits = indentation::check(yaml, &cfg);
-    assert_eq!(hits.len(), 1, "expected single violation: {hits:?}");
-    assert_eq!(hits[0].line, 3);
-    assert!(hits[0].message.contains("expected 2 but found 0"));
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 4,
+            column: 1,
+            message: "wrong indentation: expected 2 but found 0".to_string(),
+        }]
+    );
 }
 
 #[test]
@@ -311,11 +293,16 @@ fn multiline_blocks_reuse_consistent_spacing() {
         IndentSequencesSetting::True,
         true,
     );
-    let yaml = "|\n  ok\nsecond: |\n  ok\n bad\n";
+    let yaml = "first: |\n  ok\nsecond: |\n  ok\n   bad\n";
     let hits = indentation::check(yaml, &cfg);
-    assert_eq!(hits.len(), 1, "expected single violation: {hits:?}");
-    assert_eq!(hits[0].line, 5);
-    assert!(hits[0].message.contains("expected 2 but found 1"));
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 5,
+            column: 4,
+            message: "wrong indentation: expected 2 but found 3".to_string(),
+        }]
+    );
 }
 
 #[test]
@@ -337,17 +324,17 @@ fn compact_flow_mapping_sequence_resets_after_dedent() {
 }
 
 #[test]
-fn fixed_spacing_reports_repeated_misalignments() {
+fn fixed_spacing_reports_only_the_first_misaligned_sibling() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "root:\n child_one: value\n child_two: value\n";
     let hits = indentation::check(yaml, &cfg);
-    assert!(
-        hits.iter()
-            .any(|hit| hit.line == 2 && hit.message.contains("expected 2 but found 1"))
-    );
-    assert!(
-        hits.iter()
-            .any(|hit| hit.line == 3 && hit.message.contains("expected 0 but found 1"))
+    assert_eq!(
+        hits,
+        vec![Violation {
+            line: 2,
+            column: 2,
+            message: "wrong indentation: expected 2 but found 1".to_string(),
+        }]
     );
 }
 
@@ -359,10 +346,17 @@ fn plain_scalar_contexts_are_tracked() {
 }
 
 #[test]
-fn top_level_indented_plain_scalar_is_permitted() {
+fn top_level_indented_plain_scalar_is_reported() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "  value\n    deeper\n";
-    assert!(indentation::check(yaml, &cfg).is_empty());
+    assert_eq!(
+        indentation::check(yaml, &cfg),
+        vec![Violation {
+            line: 1,
+            column: 3,
+            message: "wrong indentation: expected 0 but found 2".to_string(),
+        }]
+    );
 }
 
 #[test]
@@ -388,16 +382,16 @@ fn sequence_entry_mapping_requires_nested_sequence_indent_when_enabled() {
 }
 
 #[test]
-fn top_level_indented_inline_mapping_sequence_uses_fallback_parent_indent() {
+fn top_level_indented_sequence_is_reported_once() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "  - key: Foo\n  - key: Bar\n";
     let hits = indentation::check(yaml, &cfg);
     assert_eq!(
         hits,
         vec![Violation {
-            line: 2,
+            line: 1,
             column: 3,
-            message: "wrong indentation: expected 4 but found 2".to_string(),
+            message: "wrong indentation: expected 0 but found 2".to_string(),
         }]
     );
 }
@@ -417,10 +411,17 @@ fn sequence_plain_scalar_creates_other_context() {
 }
 
 #[test]
-fn colon_without_key_is_not_considered_mapping() {
+fn value_without_key_cannot_infer_indentation() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
-    let yaml = ": value\n";
-    assert!(indentation::check(yaml, &cfg).is_empty());
+    let hits = indentation::check(": value\n", &cfg);
+    assert_eq!(
+        hits[0],
+        Violation {
+            line: 1,
+            column: 1,
+            message: "cannot infer indentation: unexpected token".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -437,7 +438,7 @@ fn consistent_spacing_records_initial_delta() {
 #[test]
 fn sequence_indented_under_mapping_finds_parent() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
-    let yaml = "root:\n  - valid\n  child: value\n";
+    let yaml = "root:\n  - valid\nchild: value\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
 }
 
@@ -494,4 +495,82 @@ fn allows_indented_mapping_sequence_in_mapping() {
     let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
     let yaml = "subjects:\n  - apiGroup: rbac.authorization.k8s.io\n    kind: User\n";
     assert!(indentation::check(yaml, &cfg).is_empty());
+}
+
+fn hits(yaml: &str, cfg: &Config) -> Vec<(usize, usize, String)> {
+    indentation::check(yaml, cfg)
+        .into_iter()
+        .map(|hit| (hit.line, hit.column, hit.message))
+        .collect()
+}
+
+fn wrong(line: usize, column: usize, expected: usize) -> (usize, usize, String) {
+    let found = column - 1;
+    (
+        line,
+        column,
+        format!("wrong indentation: expected {expected} but found {found}"),
+    )
+}
+
+// Expected diagnostics below were produced by yamllint 1.38 on the same input.
+#[test]
+fn explicit_keys_latch_the_step_from_their_content() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let yaml = "? a\n: b\n?\n    k\n:\n    v\n";
+    assert_eq!(hits(yaml, &cfg), vec![wrong(4, 5, 2), wrong(6, 5, 2)]);
+    assert!(hits("?\n", &cfg).is_empty());
+}
+
+#[test]
+fn multi_line_flow_collections_check_items_and_closers() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let yaml = "a: [\n    1,\n  2,\n  ]\nb: {\n  c: 1\n}\n";
+    assert_eq!(
+        hits(yaml, &cfg),
+        vec![wrong(3, 3, 4), wrong(4, 3, 0), wrong(6, 3, 4)]
+    );
+    assert!(hits("[x,\n a: b\n]\n", &cfg).is_empty());
+}
+
+#[test]
+fn multi_line_scalars_follow_their_owner() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        true,
+    );
+    let yaml = "- |\n    x\n     y\n- ? >\n      k\n  : >\n      v\n- key:\n    |\n      a\n- plain\n  cont\n   more\n- 'q\n  r\n   s'\n- k: # c\n    |\n    t\n- ? k\n  : |\n     u\n";
+    assert_eq!(
+        hits(yaml, &cfg),
+        vec![
+            wrong(3, 6, 4),
+            wrong(13, 4, 2),
+            wrong(15, 3, 3),
+            wrong(19, 5, 6),
+            wrong(22, 6, 6),
+        ]
+    );
+    assert_eq!(hits("|\n  x\n   ", &cfg), vec![wrong(3, 4, 2)]);
+}
+
+#[test]
+fn unindented_sequence_before_the_step_is_known_expects_at_least_one_more() {
+    let cfg = config(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    assert_eq!(
+        hits("- a:\n  - x\n", &cfg),
+        vec![(2, 3, "wrong indentation: expected at least 3".to_string())]
+    );
 }

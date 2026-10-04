@@ -477,3 +477,98 @@ fn multiline_double_quoted_template_indentation_matches_yamllint() {
         );
     }
 }
+
+const ROOT_SEQUENCE_INPUTS: &[(&str, &str)] = &[
+    ("issue-repro", "- a:\n    - x\n"),
+    (
+        "issue-gist-excerpt",
+        "---\n# Extra notifications\n- from_states:\n    - ACTIVATED\n  to_state: VALIDATED\n  groups:\n    - GROUP_COMM_MANAGERS\n\n# PAO\n- from_states:\n    - PROCESSING\n    - FPP\n  to_state: DTP\n",
+    ),
+    ("seq-flush-under-entry-key", "- a:\n  - x\n"),
+    ("seq-step-one", "- a:\n   - x\n"),
+    ("seq-step-four", "- a:\n      - x\n"),
+    ("map-under-entry-key", "- a:\n    b: 1\n"),
+    ("map-step-four-under-entry-key", "- a:\n      b: 1\n"),
+    ("wide-dash-offset", "-   a:\n      - x\n"),
+    ("nested-entry", "- - a:\n      - x\n"),
+    ("nested-entry-step-four", "- - a:\n        - x\n"),
+    (
+        "step-changes-between-entries",
+        "- a:\n    - x\n- b:\n      - y\n",
+    ),
+    ("sequence-under-root-key", "top:\n  - a:\n      - x\n"),
+    (
+        "indentless-sequence-under-root-key",
+        "top:\n- a:\n    - x\n",
+    ),
+    ("second-key-of-entry", "- a: 1\n  b:\n    - x\n"),
+    ("second-key-of-entry-step-four", "- a: 1\n  b:\n      - x\n"),
+    ("mapping-then-sequence", "- a:\n    c:\n      - x\n"),
+    ("mapping-then-deep-sequence", "- a:\n    c:\n        - x\n"),
+    ("empty-entry-then-mapping", "-\n  a:\n    - x\n"),
+    ("empty-entry-then-deep-mapping", "-\n    a:\n      - x\n"),
+    ("mixed-entry-styles", "- a:\n  - x\n- b:\n    - y\n"),
+    (
+        "two-keys-two-sequences",
+        "- a:\n    - x\n    - y\n  b:\n    - z\n",
+    ),
+    (
+        "over-indented-sibling-mapping",
+        "- name: x\n  items:\n    - a\n  other:\n      sub: 1\n",
+    ),
+    ("after-block-scalar", "- a: |\n    text\n  b:\n    - x\n"),
+    ("after-flow-entry", "- {a: 1}\n- a:\n    - x\n"),
+    ("nested-sequence-mapping", "- a:\n    - b:\n        - c\n"),
+    (
+        "nested-sequence-mapping-flush",
+        "- a:\n    - b:\n      - c\n",
+    ),
+    ("comment-before-sequence", "- a:\n\n    # c\n    - x\n"),
+    (
+        "multi-document",
+        "---\n- a:\n    - x\n---\n- b:\n      - y\n",
+    ),
+];
+
+#[test]
+fn root_sequence_step_detection_matches_yamllint() {
+    ensure_yamllint_installed();
+
+    let dir = tempdir().unwrap();
+    let files: Vec<_> = ROOT_SEQUENCE_INPUTS
+        .iter()
+        .map(|(label, text)| {
+            let path = dir.path().join(format!("{label}.yaml"));
+            fs::write(&path, text).unwrap();
+            path
+        })
+        .collect();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for spaces in ["consistent", "2", "4"] {
+        for sequences in ["true", "false", "whatever", "consistent"] {
+            let cfg = dir.path().join(format!("cfg-{spaces}-{sequences}.yaml"));
+            fs::write(
+                &cfg,
+                format!(
+                    "rules:\n  indentation:\n    spaces: {spaces}\n    indent-sequences: {sequences}\n"
+                ),
+            )
+            .unwrap();
+
+            let mut ryl_cmd = build_ryl_command(exe, Some("parsable"));
+            ryl_cmd.arg("-c").arg(&cfg).args(&files);
+            let (ryl_code, ryl_msg) = capture_with_env(ryl_cmd, &[]);
+
+            let mut yam_cmd = build_yamllint_command(Some("parsable"));
+            yam_cmd.arg("-c").arg(&cfg).args(&files);
+            let (yam_code, yam_msg) = capture_with_env(yam_cmd, &[]);
+
+            assert_eq!(
+                ryl_msg, yam_msg,
+                "diagnostics mismatch (spaces: {spaces}, indent-sequences: {sequences})"
+            );
+            assert_eq!(ryl_code, yam_code, "exit mismatch ({spaces}, {sequences})");
+        }
+    }
+}

@@ -11,7 +11,7 @@ use ryl::lint::lint_str;
 
 use harness::{
     check_spans_in_bounds, collect_spans, comments_indentation_open_config,
-    hyphens_dash_on_own_line_config, trigger_all_config,
+    hyphens_dash_on_own_line_config, indentation_consistent_config, trigger_all_config,
 };
 use strategy::arb_document;
 
@@ -217,6 +217,18 @@ fn dash_on_own_line_config_flags_a_generated_shape() {
         "dash-on-own-line config must flag a sequence-of-mappings the default ignores: \
          base={base:?} enhanced={enhanced:?}"
     );
+}
+
+#[test]
+fn consistent_indentation_config_latches_from_a_generated_root_sequence() {
+    // `arb_root_sequence_block` shapes: the step latched in the first entry (2) must
+    // accept that entry and flag a later entry nesting at a different step.
+    use ryl::rules::indentation::{Config, check};
+    let cfg = Config::resolve(indentation_consistent_config());
+    assert_eq!(check("- a:\n    - x\n  other: 1\n", &cfg), vec![]);
+    let hits = check("- a:\n    - x\n- b:\n      - x\n", &cfg);
+    assert_eq!(hits.len(), 1, "a changed step must be flagged: {hits:?}");
+    assert_eq!((hits[0].line, hits[0].column), (4, 7));
 }
 
 #[test]

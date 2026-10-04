@@ -1,12 +1,10 @@
-//! `indentation`: block indentation width and whether block sequences are indented.
-//! Mirrors yamllint's `indentation`. No safe `--fix`: re-indenting moves the
-//! block-structure boundaries the grammar uses to delimit mappings, sequences, and
-//! scalars, so any non-trivial rewrite risks changing the parsed value.
+//! `indentation`: yamllint's token-driven rule on granit's scanner. No safe `--fix`.
+
+use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, line_contents, strip_trailing_comment_preserving_quotes,
-};
+use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::span_utils::CharPos;
 
 pub const ID: &str = "indentation";
 
@@ -100,747 +98,558 @@ impl Config {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut analyzer = Analyzer::new(buffer, cfg);
-    analyzer.run();
+    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let line_starts = build_line_starts(&chars);
+    let tokens = scan(buffer, &chars, &line_starts);
+    let mut analyzer = Analyzer {
+        chars: &chars,
+        line_starts: &line_starts,
+        check_multi_line_strings: cfg.check_multi_line_strings,
+        stack: vec![Parent::new(ParentKind::Root, 0)],
+        cur_line: 0,
+        cur_line_indent: 0,
+        spaces: match cfg.spaces {
+            SpacesSetting::Fixed(value) => Some(to_isize(value)),
+            SpacesSetting::Consistent => None,
+        },
+        indent_sequences: cfg.indent_sequences,
+        diagnostics: Vec::new(),
+    };
+    for (idx, token) in tokens.iter().enumerate() {
+        let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
+        let next = tokens.get(idx + 1);
+        if analyzer
+            .step(token, prev, next, tokens.get(idx + 2))
+            .is_err()
+        {
+            analyzer.diagnostics.push(Violation {
+                line: token.line + 1,
+                column: token.column + 1,
+                message: "cannot infer indentation: unexpected token".to_string(),
+            });
+        }
+    }
     analyzer.diagnostics
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    StreamBoundary,
+    BlockMappingStart,
+    BlockSequenceStart,
+    BlockEnd,
+    BlockEntry,
+    FlowMappingStart,
+    FlowMappingEnd,
+    FlowSequenceStart,
+    FlowSequenceEnd,
+    Key { explicit: bool },
+    Value,
+    Property,
+    Scalar { style: ScalarStyle, empty: bool },
+    Other,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Token {
+    kind: Kind,
+    start: usize,
+    end: usize,
+    line: usize,
+    column: usize,
+    end_line: usize,
+    end_column: usize,
+}
+
+impl Token {
+    fn is(self, kinds: &[Kind]) -> bool {
+        kinds.contains(&self.kind)
+    }
+}
+
+fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<Token> {
+    let mut tokens: Vec<Token> = Vec::new();
+    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
+        let (span, token_type) = token.into_parts();
+        let (mut start, mut end) = (span.start.index(), span.end.index());
+        let kind = match token_type {
+            TokenType::Comment(_) => continue,
+            TokenType::FlowMappingStart | TokenType::FlowMappingEnd if start == end => {
+                continue;
+            }
+            TokenType::StreamStart | TokenType::StreamEnd => Kind::StreamBoundary,
+            TokenType::BlockMappingStart => Kind::BlockMappingStart,
+            TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
+            TokenType::BlockEnd => Kind::BlockEnd,
+            TokenType::BlockEntry => {
+                // granit marks an entry past the dash's trailing blanks and comment.
+                start = match tokens.last() {
+                    Some(prev) if prev.kind == Kind::BlockSequenceStart => prev.start,
+                    _ => {
+                        let line_start =
+                            line_starts[locate(line_starts, start).0].get();
+                        line_start + count_spaces(chars, line_start)
+                    }
+                };
+                end = start + 1;
+                Kind::BlockEntry
+            }
+            TokenType::FlowMappingStart => Kind::FlowMappingStart,
+            TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
+            TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
+            TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
+            TokenType::Key => Kind::Key {
+                explicit: char_at(chars, start) == Some('?')
+                    && char_at(chars, start + 1)
+                        .is_none_or(|ch| matches!(ch, ' ' | '\t') || is_break(ch)),
+            },
+            TokenType::Value => Kind::Value,
+            TokenType::Anchor(_) | TokenType::Tag(..) => Kind::Property,
+            TokenType::Scalar(style, value) => {
+                if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+                    // granit starts a block scalar at its content, PyYAML at `|`/`>`.
+                    let from = tokens.last().map_or(0, |prev| prev.end);
+                    start = block_indicator(chars, from).unwrap_or(start);
+                    let end_line_start = line_starts[locate(line_starts, end).0].get();
+                    let trailing = end - end_line_start;
+                    if count_spaces(chars, end_line_start) >= trailing
+                        && trailing <= span.start.col()
+                    {
+                        end = end_line_start;
+                    }
+                }
+                Kind::Scalar {
+                    style,
+                    empty: value.is_empty(),
+                }
+            }
+            _ => Kind::Other,
+        };
+        let (line, column) = locate(line_starts, start);
+        let (end_line, end_column) = locate(line_starts, end);
+        tokens.push(Token {
+            kind,
+            start,
+            end,
+            line,
+            column,
+            end_line,
+            end_column,
+        });
+    }
+    tokens
+}
+
+fn locate(line_starts: &[CharPos], idx: usize) -> (usize, usize) {
+    let (line, column) = line_and_column(line_starts, CharPos::new(idx));
+    (line - 1, column - 1)
+}
+
+fn char_at(chars: &[(usize, char)], idx: usize) -> Option<char> {
+    chars.get(idx).map(|&(_, ch)| ch)
+}
+
+fn count_spaces(chars: &[(usize, char)], from: usize) -> usize {
+    chars[from.min(chars.len())..]
+        .iter()
+        .take_while(|&&(_, ch)| ch == ' ')
+        .count()
+}
+
+const fn is_break(ch: char) -> bool {
+    matches!(ch, '\n' | '\r')
+}
+
+fn block_indicator(chars: &[(usize, char)], from: usize) -> Option<usize> {
+    let mut in_comment = false;
+    let offset = chars[from..].iter().position(|&(_, ch)| {
+        in_comment = (in_comment || ch == '#') && !is_break(ch);
+        !in_comment && matches!(ch, '|' | '>')
+    });
+    offset.map(|offset| from + offset)
+}
+
+fn to_isize(value: usize) -> isize {
+    isize::try_from(value).unwrap_or(isize::MAX)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParentKind {
+    Root,
+    BlockMapping,
+    FlowMapping,
+    BlockSequence,
+    FlowSequence,
+    BlockEntry,
+    Key,
+    Value,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Parent {
+    kind: ParentKind,
+    indent: isize,
+    line_indent: isize,
+    explicit_key: bool,
+    implicit_block_seq: bool,
+}
+
+impl Parent {
+    const fn new(kind: ParentKind, indent: isize) -> Self {
+        Self {
+            kind,
+            indent,
+            line_indent: indent,
+            explicit_key: false,
+            implicit_block_seq: false,
+        }
+    }
+}
+
+struct UnexpectedToken;
+
 struct Analyzer<'a> {
-    cfg: &'a Config,
-    lines: Vec<&'a str>,
-    frames: Vec<Frame>,
-    spaces: SpacesRuntime,
-    indent_seq: IndentSequencesRuntime,
-    transient: TransientState,
+    chars: &'a [(usize, char)],
+    line_starts: &'a [CharPos],
+    check_multi_line_strings: bool,
+    stack: Vec<Parent>,
+    cur_line: usize,
+    cur_line_indent: isize,
+    spaces: Option<isize>,
+    indent_sequences: IndentSequencesSetting,
     diagnostics: Vec<Violation>,
 }
 
-impl<'a> Analyzer<'a> {
-    fn new(text: &'a str, cfg: &'a Config) -> Self {
-        // `line_contents` is CR-aware and already strips the ending, so `process_line`
-        // receives bare line content.
-        let lines = line_contents(text);
-        Self {
-            cfg,
-            lines,
-            frames: vec![Frame {
-                indent: 0,
-                kind: ContextKind::Root,
-                sequence_expectation: None,
-            }],
-            spaces: SpacesRuntime::new(cfg.spaces),
-            indent_seq: IndentSequencesRuntime::new(cfg.indent_sequences),
-            transient: TransientState::default(),
-            diagnostics: Vec::new(),
-        }
+impl Analyzer<'_> {
+    fn top(&self) -> Parent {
+        self.stack[self.stack.len() - 1]
     }
 
-    fn run(&mut self) {
-        for line_index in 0..self.lines.len() {
-            let line_number = line_index + 1;
-            let raw_line = self.lines[line_index];
-            self.process_line(line_number, raw_line);
-        }
+    fn below_top(&self) -> Parent {
+        self.stack[self.stack.len() - 2]
     }
 
-    fn process_line(&mut self, line_number: usize, line: &str) {
-        let (indent, content) = split_indent(line);
-        self.reset_transient_state(indent, content);
-
-        if self.handle_empty_or_multiline_line(line_number, indent, content) {
-            return;
-        }
-
-        if content.trim_start().starts_with('#') {
-            return;
-        }
-
-        let analysis = LineAnalysis::analyze(content);
-        let compact_mapping_continuation =
-            self.is_compact_mapping_continuation(indent, analysis);
-
-        let Some(pushing_child) = self.update_context_for_indent(
-            line_number,
-            indent,
-            analysis,
-            compact_mapping_continuation,
-        ) else {
-            return;
-        };
-
-        if pushing_child
-            && analysis.is_sequence_entry
-            && let Some(frame) = self.frames.last_mut()
-        {
-            frame.kind = ContextKind::Sequence;
-        }
-
-        if analysis.is_sequence_entry
-            && self
-                .transient
-                .compact_sequence_parent_indent
-                .is_none_or(|parent| indent <= parent)
-        {
-            self.check_sequence_indent(indent, line_number);
-        }
-
-        if matches!(analysis.kind, LineKind::Mapping { .. })
-            && (!analysis.is_sequence_entry || pushing_child)
-            && let Some(frame) = self.frames.last_mut()
-        {
-            frame.kind = analysis.context_kind();
-        }
-        self.update_post_analysis_state(indent, content, analysis);
+    fn detect_indent(&mut self, base: isize, found: isize) -> isize {
+        base.saturating_add(*self.spaces.get_or_insert(found - base))
     }
 
-    fn handle_empty_or_multiline_line(
+    fn step(
         &mut self,
-        line_number: usize,
-        indent: usize,
-        content: &str,
-    ) -> bool {
-        if content.trim().is_empty() {
-            self.transient.prev_line_kind = Some(LineKind::Other);
-            return true;
-        }
-
-        if let Some(state) = self.transient.multiline.as_mut() {
-            if !self.cfg.check_multi_line_strings {
-                self.transient.prev_line_kind = Some(LineKind::Other);
-                return true;
-            }
-            let expected = state.expected_indent(indent, &mut self.spaces);
-            if indent != expected {
-                push_wrong_indent(&mut self.diagnostics, line_number, indent, expected);
-            }
-            return true;
-        }
-
-        false
-    }
-
-    fn reset_transient_state(&mut self, indent: usize, content: &str) {
-        if self
-            .transient
-            .compact_sequence_parent_indent
-            .is_some_and(|parent| indent <= parent)
-        {
-            self.transient.compact_sequence_parent_indent = None;
-        }
-        if self
-            .transient
-            .compact_flow_mapping
-            .is_some_and(|state| indent <= state.parent_indent)
-        {
-            self.transient.compact_flow_mapping = None;
-        }
-
-        if let Some(state) = &self.transient.multiline
-            && indent <= state.base_indent
-            && !content.trim().is_empty()
-        {
-            self.transient.multiline = None;
-        }
-
-        if self
-            .transient
-            .active_sequence_mapping_parent
-            .is_some_and(|state| {
-                !content.trim().is_empty() && indent <= state.owner_indent
-            })
-        {
-            self.transient.active_sequence_mapping_parent = None;
-        }
-    }
-
-    fn update_post_analysis_state(
-        &mut self,
-        indent: usize,
-        content: &str,
-        analysis: LineAnalysis,
-    ) {
-        if analysis.starts_multiline {
-            self.transient.multiline = Some(MultilineState::new(indent));
-        }
-
-        if matches!(
-            analysis.kind,
-            LineKind::Mapping {
-                opens_block: true,
-                ..
-            }
-        ) {
-            self.transient.pending_child = Some(analysis.context_kind());
-        } else {
-            self.transient.pending_child = None;
-        }
-
-        if analysis.is_sequence_entry
-            && matches!(
-                analysis.kind,
-                LineKind::Mapping {
-                    opens_block: true,
-                    ..
+        token: &Token,
+        prev: Option<&Token>,
+        next: Option<&Token>,
+        nextnext: Option<&Token>,
+    ) -> Result<(), UnexpectedToken> {
+        let visible = !matches!(
+            token.kind,
+            Kind::StreamBoundary | Kind::BlockEnd | Kind::Scalar { empty: true, .. }
+        );
+        let first_in_line = visible && token.line + 1 > self.cur_line;
+        let found = to_isize(token.column);
+        if first_in_line {
+            let top = self.top();
+            let expected = match token.kind {
+                Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent,
+                Kind::Value => top.indent,
+                _ if top.kind == ParentKind::Key && top.explicit_key => {
+                    self.detect_indent(top.indent, found)
                 }
-            )
+                _ => top.indent,
+            };
+            if found != expected {
+                let message = if expected < 0 {
+                    format!("wrong indentation: expected at least {}", found + 1)
+                } else {
+                    wrong_indent_message(expected, found)
+                };
+                self.push(token.line + 1, token.column, message);
+            }
+        }
+        if let Kind::Scalar { style, .. } = token.kind
+            && self.check_multi_line_strings
         {
-            self.transient.active_sequence_mapping_parent =
-                Some(SequenceMappingParent {
-                    owner_indent: indent,
-                    parent_indent: indent.saturating_add(analysis.sequence_offset),
-                });
+            self.check_scalar(token, style);
         }
-
-        if syntax::is_compact_sequence_start(content) {
-            self.transient.compact_sequence_parent_indent = Some(indent);
+        if visible {
+            self.cur_line = self.real_end_line(token);
+            if first_in_line {
+                self.cur_line_indent = found;
+            }
         }
-        if let Some(continuation_indent) =
-            syntax::compact_flow_mapping_continuation_indent(content, indent)
-        {
-            self.transient.compact_flow_mapping = Some(CompactFlowMapping {
-                parent_indent: indent,
-                continuation_indent,
-            });
-        }
-
-        self.transient.prev_line_kind = Some(analysis.kind);
+        self.update_stack(token, prev, next, nextnext)?;
+        self.unwind(token, next)
     }
 
-    fn update_context_for_indent(
+    fn update_stack(
         &mut self,
-        line_number: usize,
-        indent: usize,
-        analysis: LineAnalysis,
-        compact_mapping_continuation: bool,
-    ) -> Option<bool> {
-        while self.frames.last().map_or(0, |frame| frame.indent) > indent {
-            self.frames.pop();
+        token: &Token,
+        prev: Option<&Token>,
+        next: Option<&Token>,
+        nextnext: Option<&Token>,
+    ) -> Result<(), UnexpectedToken> {
+        let column = to_isize(token.column);
+        let Some(next) = next else {
+            return Ok(());
+        };
+        let next_column = to_isize(next.column);
+        match token.kind {
+            Kind::BlockMappingStart | Kind::BlockSequenceStart => {
+                let (child, kind) = if token.kind == Kind::BlockMappingStart {
+                    (
+                        matches!(next.kind, Kind::Key { .. }),
+                        ParentKind::BlockMapping,
+                    )
+                } else {
+                    (next.kind == Kind::BlockEntry, ParentKind::BlockSequence)
+                };
+                if !child || next.line != token.line {
+                    return Err(UnexpectedToken);
+                }
+                self.stack.push(Parent::new(kind, column));
+            }
+            Kind::FlowMappingStart | Kind::FlowSequenceStart => {
+                let indent = if next.line == token.line {
+                    next_column
+                } else {
+                    self.detect_indent(self.cur_line_indent, next_column)
+                };
+                let kind = if token.kind == Kind::FlowMappingStart {
+                    ParentKind::FlowMapping
+                } else {
+                    ParentKind::FlowSequence
+                };
+                self.stack.push(Parent {
+                    line_indent: self.cur_line_indent,
+                    ..Parent::new(kind, indent)
+                });
+            }
+            Kind::BlockEntry if !next.is(&[Kind::BlockEntry, Kind::BlockEnd]) => {
+                if self.top().kind != ParentKind::BlockSequence {
+                    self.stack.push(Parent {
+                        implicit_block_seq: true,
+                        ..Parent::new(ParentKind::BlockSequence, column)
+                    });
+                }
+                let indent =
+                    if next.line == token.end_line || next.column == token.column {
+                        next_column
+                    } else {
+                        self.detect_indent(column, next_column)
+                    };
+                self.stack.push(Parent::new(ParentKind::BlockEntry, indent));
+            }
+            Kind::Key { explicit } => {
+                self.stack.push(Parent {
+                    explicit_key: explicit,
+                    ..Parent::new(ParentKind::Key, self.top().indent)
+                });
+            }
+            Kind::Value => self.push_value(prev, next, nextnext)?,
+            _ => {}
         }
+        Ok(())
+    }
 
-        let parent_indent = self.frames.last().map_or(0, |frame| frame.indent);
-        if indent > parent_indent {
-            if matches!(analysis.kind, LineKind::Other)
-                && matches!(
-                    self.transient.prev_line_kind,
-                    Some(LineKind::Sequence | LineKind::Mapping { .. })
-                )
+    fn push_value(
+        &mut self,
+        prev: Option<&Token>,
+        next: &Token,
+        nextnext: Option<&Token>,
+    ) -> Result<(), UnexpectedToken> {
+        let key = self.top();
+        if key.kind != ParentKind::Key {
+            return Err(UnexpectedToken);
+        }
+        let prev_line = prev.map_or(0, |prev| prev.line);
+        let next = match nextnext {
+            Some(after)
+                if next.kind == Kind::Property
+                    && next.line == prev_line
+                    && next.line < after.line =>
             {
-                return None;
+                after
             }
-            let kind = self
-                .transient
-                .pending_child
-                .take()
-                .unwrap_or_else(|| analysis.context_kind());
-            self.frames.push(Frame {
-                indent,
-                kind,
-                sequence_expectation: None,
-            });
-            if !compact_mapping_continuation {
-                self.spaces.observe_increase(
-                    parent_indent,
-                    indent,
-                    line_number,
-                    &mut self.diagnostics,
-                );
-            }
-            Some(true)
-        } else {
-            if !compact_mapping_continuation {
-                self.spaces
-                    .observe_indent(indent, line_number, &mut self.diagnostics);
-            }
-            self.transient.pending_child = None;
-            Some(false)
-        }
-    }
-
-    fn is_compact_mapping_continuation(
-        &self,
-        indent: usize,
-        analysis: LineAnalysis,
-    ) -> bool {
-        if !matches!(analysis.kind, LineKind::Mapping { .. }) {
-            return false;
-        }
-        if self
-            .transient
-            .compact_flow_mapping
-            .is_some_and(|state| state.continuation_indent == indent)
+            _ => next,
+        };
+        if next.is(&[Kind::BlockEnd, Kind::FlowMappingEnd, Kind::FlowSequenceEnd])
+            || matches!(next.kind, Kind::Key { .. })
         {
-            return true;
+            return Ok(());
         }
-        self.frames.iter().rev().any(|frame| {
-            let ContextKind::Mapping { sequence_offset } = frame.kind else {
-                return false;
-            };
-            sequence_offset > 0
-                && frame.indent.saturating_add(sequence_offset) == indent
-        })
+        let next_column = to_isize(next.column);
+        let indent = if key.explicit_key {
+            self.detect_indent(key.indent, next_column)
+        } else if next.line == prev_line {
+            next_column
+        } else if next.is(&[Kind::BlockSequenceStart, Kind::BlockEntry]) {
+            let flush = next_column == key.indent;
+            match self.indent_sequences {
+                IndentSequencesSetting::False => key.indent,
+                IndentSequencesSetting::True if self.spaces.is_none() && flush => -1,
+                IndentSequencesSetting::True => {
+                    self.detect_indent(key.indent, next_column)
+                }
+                setting => {
+                    if setting == IndentSequencesSetting::Consistent {
+                        self.indent_sequences = if flush {
+                            IndentSequencesSetting::False
+                        } else {
+                            IndentSequencesSetting::True
+                        };
+                    }
+                    if flush {
+                        key.indent
+                    } else {
+                        self.detect_indent(key.indent, next_column)
+                    }
+                }
+            }
+        } else {
+            self.detect_indent(key.indent, next_column)
+        };
+        self.stack.push(Parent::new(ParentKind::Value, indent));
+        Ok(())
     }
 
-    fn find_mapping_parent_indent(
-        &self,
-        current_indent: usize,
-    ) -> Option<(usize, usize)> {
-        let mut saw_mapping = false;
-        let mut last_mapping_index = None;
-        for (idx, frame) in self.frames.iter().enumerate().rev() {
-            let ContextKind::Mapping { sequence_offset } = frame.kind else {
+    fn unwind(
+        &mut self,
+        token: &Token,
+        next: Option<&Token>,
+    ) -> Result<(), UnexpectedToken> {
+        let next_is = |kinds: &[Kind]| next.is_some_and(|next| next.is(kinds));
+        let mut consumed = false;
+        loop {
+            let top = self.top();
+            let pop = match top.kind {
+                ParentKind::FlowSequence => {
+                    !consumed && token.kind == Kind::FlowSequenceEnd
+                }
+                ParentKind::FlowMapping => {
+                    !consumed && token.kind == Kind::FlowMappingEnd
+                }
+                ParentKind::BlockMapping | ParentKind::BlockSequence => {
+                    !consumed && token.kind == Kind::BlockEnd && !top.implicit_block_seq
+                }
+                ParentKind::BlockEntry => {
+                    if token.kind != Kind::BlockEntry
+                        && token.kind != Kind::Property
+                        && self.below_top().implicit_block_seq
+                        && !next_is(&[Kind::BlockEntry])
+                    {
+                        self.stack.pop();
+                        true
+                    } else {
+                        next_is(&[Kind::BlockEntry, Kind::BlockEnd])
+                    }
+                }
+                ParentKind::Value => {
+                    if token.kind == Kind::Value || token.kind == Kind::Property {
+                        false
+                    } else {
+                        self.stack.pop();
+                        true
+                    }
+                }
+                ParentKind::Key => {
+                    next_is(&[
+                        Kind::BlockEnd,
+                        Kind::FlowMappingEnd,
+                        Kind::FlowSequenceEnd,
+                    ]) || next.is_some_and(|next| matches!(next.kind, Kind::Key { .. }))
+                }
+                ParentKind::Root => false,
+            };
+            if !pop {
+                return Ok(());
+            }
+            consumed |= matches!(
+                top.kind,
+                ParentKind::FlowSequence
+                    | ParentKind::FlowMapping
+                    | ParentKind::BlockMapping
+                    | ParentKind::BlockSequence
+            );
+            self.stack.pop();
+        }
+    }
+
+    fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
+        let last_line = if token.end_column > 0 {
+            token.end_line
+        } else {
+            token.end_line.saturating_sub(1)
+        };
+        let mut expected = None;
+        for line in token.line + 1..=last_line {
+            let line_start = self.line_starts[line].get();
+            let indent = count_spaces(self.chars, line_start);
+            if char_at(self.chars, line_start + indent).is_some_and(is_break) {
                 continue;
-            };
-            saw_mapping = true;
-            last_mapping_index = Some(idx);
-            let base_indent = frame.indent.saturating_add(sequence_offset);
-            if base_indent <= current_indent {
-                return Some((idx, base_indent));
             }
-        }
-        if saw_mapping {
-            Some((last_mapping_index.unwrap(), current_indent))
-        } else {
-            None
+            let found = to_isize(indent);
+            let expected = *expected.get_or_insert_with(|| {
+                self.expected_scalar_indent(token, style, found)
+            });
+            if found != expected {
+                self.push(line + 1, indent, wrong_indent_message(expected, found));
+            }
         }
     }
 
-    fn check_sequence_indent(&mut self, indent: usize, line_number: usize) {
-        let (ctx_index, parent_indent) = if let Some((ctx_index, parent_indent)) =
-            self.find_mapping_parent_indent(indent)
-        {
-            (Some(ctx_index), parent_indent)
-        } else if let Some(state) = self.transient.active_sequence_mapping_parent
-            && indent > state.owner_indent
-        {
-            (None, state.parent_indent)
-        } else {
-            return;
-        };
+    fn expected_scalar_indent(
+        &mut self,
+        token: &Token,
+        style: ScalarStyle,
+        found: isize,
+    ) -> isize {
+        let column = to_isize(token.column);
+        let top = self.top();
+        match style {
+            ScalarStyle::Plain => column,
+            ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted => column + 1,
+            _ => match top.kind {
+                ParentKind::BlockEntry | ParentKind::Key => {
+                    self.detect_indent(column, found)
+                }
+                ParentKind::Value if token.line + 1 > self.cur_line => {
+                    self.detect_indent(top.indent, found)
+                }
+                ParentKind::Value if self.below_top().explicit_key => {
+                    self.detect_indent(column, found)
+                }
+                ParentKind::Value => self.detect_indent(self.below_top().indent, found),
+                _ => self.detect_indent(top.indent, found),
+            },
+        }
+    }
 
-        let is_indented = indent > parent_indent;
-        let expected = self
-            .spaces
-            .expected_step()
-            .map(|step| parent_indent.saturating_add(step));
-
-        let Some(message) = (match ctx_index {
-            Some(ctx_index) => {
-                let state = &mut self.frames[ctx_index].sequence_expectation;
-                self.indent_seq.check(
-                    parent_indent,
-                    indent,
-                    is_indented,
-                    expected,
-                    state,
-                )
+    fn real_end_line(&self, token: &Token) -> usize {
+        let mut end_line = token.end_line + 1;
+        if !matches!(token.kind, Kind::Scalar { .. }) {
+            return end_line;
+        }
+        for pos in (token.start.saturating_sub(1)..token.end).rev() {
+            let ch = self.chars[pos].1;
+            if !matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c') {
+                break;
             }
-            None => self.indent_seq.check(
-                parent_indent,
-                indent,
-                is_indented,
-                expected,
-                &mut None,
-            ),
-        }) else {
-            return;
-        };
+            if ch == '\n' || (ch == '\r' && char_at(self.chars, pos + 1) != Some('\n'))
+            {
+                end_line -= 1;
+            }
+        }
+        end_line
+    }
 
+    fn push(&mut self, line: usize, found: usize, message: String) {
         self.diagnostics.push(Violation {
-            line: line_number,
-            column: indent + 1,
+            line,
+            column: found + 1,
             message,
         });
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Frame {
-    indent: usize,
-    kind: ContextKind,
-    sequence_expectation: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CompactFlowMapping {
-    parent_indent: usize,
-    continuation_indent: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SequenceMappingParent {
-    owner_indent: usize,
-    parent_indent: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ContextKind {
-    Root,
-    Mapping { sequence_offset: usize },
-    Sequence,
-    Other,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct LineAnalysis {
-    kind: LineKind,
-    starts_multiline: bool,
-    is_sequence_entry: bool,
-    sequence_offset: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum LineKind {
-    Mapping {
-        opens_block: bool,
-        sequence_offset: usize,
-    },
-    Sequence,
-    Other,
-}
-
-impl LineAnalysis {
-    fn analyze(content: &str) -> Self {
-        let trimmed = strip_trailing_comment_preserving_quotes(content).trim();
-        let is_sequence_entry = syntax::is_sequence_entry(trimmed);
-        let (is_mapping_key, opens_block) = syntax::classify_mapping(trimmed);
-        let sequence_offset = if is_mapping_key {
-            syntax::sequence_prefix_width(trimmed)
-        } else {
-            0
-        };
-        let kind = if is_mapping_key {
-            LineKind::Mapping {
-                opens_block,
-                sequence_offset,
-            }
-        } else if is_sequence_entry {
-            LineKind::Sequence
-        } else {
-            LineKind::Other
-        };
-        Self {
-            kind,
-            starts_multiline: block_scalar_marker_index(trimmed).is_some(),
-            is_sequence_entry,
-            sequence_offset,
-        }
-    }
-
-    const fn context_kind(self) -> ContextKind {
-        match self.kind {
-            LineKind::Mapping {
-                sequence_offset, ..
-            } => ContextKind::Mapping { sequence_offset },
-            LineKind::Sequence => ContextKind::Sequence,
-            LineKind::Other => ContextKind::Other,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct MultilineState {
-    base_indent: usize,
-    expected_indent: Option<usize>,
-}
-
-impl MultilineState {
-    const fn new(base_indent: usize) -> Self {
-        Self {
-            base_indent,
-            expected_indent: None,
-        }
-    }
-
-    fn expected_indent(&mut self, indent: usize, spaces: &mut SpacesRuntime) -> usize {
-        if let Some(expected) = self.expected_indent {
-            expected
-        } else {
-            let expected = spaces.current_or_set(self.base_indent, indent);
-            self.expected_indent = Some(expected);
-            expected
-        }
-    }
-}
-
-struct SpacesRuntime {
-    setting: SpacesSetting,
-    value: Option<usize>,
-}
-
-impl SpacesRuntime {
-    const fn new(setting: SpacesSetting) -> Self {
-        Self {
-            setting,
-            value: None,
-        }
-    }
-
-    const fn expected_step(&self) -> Option<usize> {
-        match self.setting {
-            SpacesSetting::Fixed(value) => Some(value),
-            SpacesSetting::Consistent => self.value,
-        }
-    }
-
-    fn current_or_set(&mut self, base: usize, found: usize) -> usize {
-        match self.setting {
-            SpacesSetting::Fixed(v) => base.saturating_add(v),
-            SpacesSetting::Consistent => {
-                let delta = found.saturating_sub(base);
-                if let Some(val) = self.value {
-                    base.saturating_add(val)
-                } else {
-                    let value = delta.max(1);
-                    self.value = Some(value);
-                    base.saturating_add(value)
-                }
-            }
-        }
-    }
-
-    fn observe_increase(
-        &mut self,
-        base: usize,
-        found: usize,
-        line: usize,
-        diagnostics: &mut Vec<Violation>,
-    ) {
-        match self.setting {
-            SpacesSetting::Fixed(value) => {
-                let delta = found.saturating_sub(base);
-                if !delta.is_multiple_of(value) {
-                    push_wrong_indent(
-                        diagnostics,
-                        line,
-                        found,
-                        base.saturating_add(value),
-                    );
-                }
-            }
-            SpacesSetting::Consistent => {
-                let delta = found.saturating_sub(base);
-                if let Some(val) = self.value {
-                    if !delta.is_multiple_of(val) {
-                        push_wrong_indent(
-                            diagnostics,
-                            line,
-                            found,
-                            base.saturating_add(val),
-                        );
-                    }
-                } else {
-                    self.value = Some(delta);
-                }
-            }
-        }
-    }
-
-    fn observe_indent(
-        &self,
-        indent: usize,
-        line: usize,
-        diagnostics: &mut Vec<Violation>,
-    ) {
-        match self.setting {
-            SpacesSetting::Fixed(value) => {
-                if !indent.is_multiple_of(value) {
-                    push_wrong_indent(
-                        diagnostics,
-                        line,
-                        indent,
-                        indent / value * value,
-                    );
-                }
-            }
-            SpacesSetting::Consistent => {
-                if let Some(val) = self.value
-                    && !indent.is_multiple_of(val)
-                {
-                    push_wrong_indent(diagnostics, line, indent, indent / val * val);
-                }
-            }
-        }
-    }
-}
-
-struct IndentSequencesRuntime {
-    setting: IndentSequencesSetting,
-}
-
-impl IndentSequencesRuntime {
-    const fn new(setting: IndentSequencesSetting) -> Self {
-        Self { setting }
-    }
-
-    fn check(
-        &self,
-        parent_indent: usize,
-        found_indent: usize,
-        is_indented: bool,
-        expected_indent: Option<usize>,
-        state: &mut Option<bool>,
-    ) -> Option<String> {
-        match self.setting {
-            IndentSequencesSetting::True => {
-                if !is_indented {
-                    let expected = expected_indent.unwrap_or(parent_indent + 2);
-                    return Some(wrong_indent_message(expected, found_indent));
-                }
-                if let Some(expected) = expected_indent
-                    && found_indent != expected
-                {
-                    return Some(wrong_indent_message(expected, found_indent));
-                }
-                None
-            }
-            IndentSequencesSetting::False => {
-                if is_indented {
-                    Some(wrong_indent_message(parent_indent, found_indent))
-                } else {
-                    None
-                }
-            }
-            IndentSequencesSetting::Whatever => None,
-            IndentSequencesSetting::Consistent => {
-                if let Some(expected) = expected_indent
-                    && is_indented
-                    && found_indent != expected
-                {
-                    return Some(wrong_indent_message(expected, found_indent));
-                }
-                match state {
-                    Some(expected) if *expected == is_indented => None,
-                    Some(expected) => {
-                        let exp_indent = if *expected {
-                            parent_indent + 2
-                        } else {
-                            parent_indent
-                        };
-                        Some(wrong_indent_message(exp_indent, found_indent))
-                    }
-                    None => {
-                        *state = Some(is_indented);
-                        None
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn split_indent(line: &str) -> (usize, &str) {
-    let count = line
-        .chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .count();
-    let content = &line[count..];
-    (count, content)
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct TransientState {
-    pending_child: Option<ContextKind>,
-    multiline: Option<MultilineState>,
-    active_sequence_mapping_parent: Option<SequenceMappingParent>,
-    compact_sequence_parent_indent: Option<usize>,
-    compact_flow_mapping: Option<CompactFlowMapping>,
-    prev_line_kind: Option<LineKind>,
-}
-
-fn wrong_indent_message(expected: usize, found: usize) -> String {
+fn wrong_indent_message(expected: isize, found: isize) -> String {
     format!("wrong indentation: expected {expected} but found {found}")
-}
-
-fn push_wrong_indent(
-    diagnostics: &mut Vec<Violation>,
-    line: usize,
-    found: usize,
-    expected: usize,
-) {
-    diagnostics.push(Violation {
-        line,
-        column: found + 1,
-        message: wrong_indent_message(expected, found),
-    });
-}
-
-mod syntax {
-    pub(super) fn is_sequence_entry(content: &str) -> bool {
-        if !content.starts_with('-') {
-            return false;
-        }
-        matches!(content.chars().nth(1), None | Some(' ' | '\t' | '\r' | '#'))
-    }
-
-    pub(super) fn is_compact_sequence_start(content: &str) -> bool {
-        let trimmed = content.trim();
-        if !is_sequence_entry(trimmed) {
-            return false;
-        }
-        let stripped = trimmed
-            .strip_prefix('-')
-            .expect("sequence entry starts with '-'");
-        is_sequence_entry(stripped.trim_start())
-    }
-
-    pub(super) fn classify_mapping(content: &str) -> (bool, bool) {
-        let mut in_single = false;
-        let mut in_double = false;
-        let mut brace_depth = 0;
-        let mut bracket_depth = 0;
-        let mut escaped = false;
-        for (idx, ch) in content.char_indices() {
-            match ch {
-                '\\' => escaped = !escaped,
-                '\'' if !escaped && !in_double => in_single = !in_single,
-                '"' if !escaped && !in_single => in_double = !in_double,
-                '{' if !in_single && !in_double => brace_depth += 1,
-                '}' if !in_single && !in_double && brace_depth > 0 => {
-                    brace_depth -= 1;
-                }
-                '[' if !in_single && !in_double => bracket_depth += 1,
-                ']' if !in_single && !in_double && bracket_depth > 0 => {
-                    bracket_depth -= 1;
-                }
-                ':' if !in_single
-                    && !in_double
-                    && brace_depth == 0
-                    && bracket_depth == 0 =>
-                {
-                    let before = content[..idx].trim_end();
-                    if before.is_empty() {
-                        return (false, false);
-                    }
-                    return (true, content[idx + 1..].trim().is_empty());
-                }
-                _ => escaped = false,
-            }
-        }
-        (false, false)
-    }
-
-    pub(super) fn sequence_prefix_width(content: &str) -> usize {
-        if !content.starts_with('-') {
-            return 0;
-        }
-        1 + content
-            .chars()
-            .skip(1)
-            .take_while(|ch| matches!(ch, ' ' | '\t'))
-            .count()
-    }
-
-    pub(super) fn compact_flow_mapping_continuation_indent(
-        content: &str,
-        indent: usize,
-    ) -> Option<usize> {
-        let trimmed = content.trim();
-        if !is_sequence_entry(trimmed) {
-            return None;
-        }
-        let base_prefix = sequence_prefix_width(trimmed);
-        trimmed[base_prefix..]
-            .starts_with('{')
-            .then_some(indent.saturating_add(base_prefix + 1))
-    }
 }
