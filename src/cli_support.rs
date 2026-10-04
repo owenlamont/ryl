@@ -3,8 +3,15 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::config::{ConfigContext, YamlLintConfig, discover_per_file};
+use crate::config::{SourceKind, YamlLintConfig, discover_per_file};
+
+/// Base dir, shared config and whether one was found. `Arc`, not a clone per file: a
+/// cloned glob matcher re-allocates its regex cache on first use.
+pub type ResolvedConfig = (PathBuf, Arc<YamlLintConfig>, bool);
+
+pub type LintFile = (PathBuf, PathBuf, Arc<YamlLintConfig>, SourceKind);
 
 /// Replace control characters with a visible `\u{..}` escape, so a crafted key, anchor,
 /// or filename cannot inject terminal escape sequences or, via a newline, a GitHub
@@ -112,19 +119,14 @@ fn relativize(target: &Path, base: &Path) -> PathBuf {
 /// Returns an error when configuration discovery fails for `path`.
 pub fn resolve_ctx<S: BuildHasher>(
     path: &Path,
-    global_cfg: Option<&ConfigContext>,
+    global_cfg: Option<&ResolvedConfig>,
     markdown: bool,
-    cache: &mut HashMap<PathBuf, (PathBuf, YamlLintConfig, bool), S>,
-) -> Result<(PathBuf, YamlLintConfig, Vec<String>, bool), String> {
+    cache: &mut HashMap<PathBuf, ResolvedConfig, S>,
+) -> Result<(PathBuf, Arc<YamlLintConfig>, Vec<String>, bool), String> {
     // The global config is markdown-enabled once by the caller; only a freshly-discovered
     // config needs enabling, done before caching so the matcher is built once per directory.
-    if let Some(gc) = global_cfg {
-        return Ok((
-            gc.base_dir.clone(),
-            gc.config.clone(),
-            Vec::new(),
-            gc.config_found,
-        ));
+    if let Some((base_dir, cfg, found)) = global_cfg {
+        return Ok((base_dir.clone(), Arc::clone(cfg), Vec::new(), *found));
     }
     let start = path
         .parent()
@@ -137,7 +139,7 @@ pub fn resolve_ctx<S: BuildHasher>(
     if markdown {
         cfg.enable_default_markdown(&ctx.base_dir);
     }
-    let entry = (ctx.base_dir.clone(), cfg, ctx.config_found);
+    let entry = (ctx.base_dir.clone(), Arc::new(cfg), ctx.config_found);
     let notices = ctx.notices;
     cache.insert(start, entry.clone());
     Ok((entry.0, entry.1, notices, entry.2))

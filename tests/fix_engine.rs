@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{
@@ -178,7 +179,9 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
     let second = dir.path().join("second.yaml");
     fs::write(&first, "key: value #comment").unwrap();
     fs::write(&second, "alpha: beta").unwrap();
-    let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
+    let cfg = Arc::new(config(
+        "rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n",
+    ));
     let files = vec![
         (
             first.clone(),

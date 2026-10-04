@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use similar::TextDiff;
 
+use crate::cli_support::LintFile;
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
@@ -188,9 +189,7 @@ pub fn apply_safe_fixes_in_place(
 /// # Errors
 ///
 /// Returns an error if any file cannot be read or any fixed contents cannot be written.
-pub fn apply_safe_fixes_to_files(
-    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
-) -> Result<FixStats, String> {
+pub fn apply_safe_fixes_to_files(files: &[LintFile]) -> Result<FixStats, String> {
     let mut stats = FixStats::default();
     for (path, base_dir, cfg, kind) in files {
         let outcome = match kind {
@@ -385,9 +384,7 @@ fn path_unrepresentable_in_diff(path: &Path) -> bool {
 /// # Errors
 ///
 /// Returns an error if any file cannot be read.
-pub fn diff_safe_fixes_for_files(
-    files: &[(PathBuf, PathBuf, YamlLintConfig, SourceKind)],
-) -> Result<DiffStats, String> {
+pub fn diff_safe_fixes_for_files(files: &[LintFile]) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
     for (path, base_dir, cfg, kind) in files {
         if refuse_symlink(path, "--diff") {

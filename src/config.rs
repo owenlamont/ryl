@@ -43,8 +43,7 @@ pub trait Env {
     fn env_var(&self, key: &str) -> Option<String>;
 }
 
-/// Read once: ryl never changes directory, and per-file path matching would otherwise
-/// call `getcwd` for every file.
+/// Read once: ryl never changes directory, and matching runs once per file.
 fn process_cwd() -> &'static Path {
     static CWD: OnceLock<PathBuf> = OnceLock::new();
     CWD.get_or_init(|| env::current_dir().unwrap_or_default())
@@ -1098,9 +1097,8 @@ fn build_per_file_ignores(
         .collect()
 }
 
-/// A relative path meets an absolute base, or an absolute LSP path a relative one, via
-/// the cwd; a path outside the base falls back to its file name, as `ignore` panics on
-/// one not under its root.
+/// Resolves a relative path or base via the cwd; a path outside the base falls back
+/// to its file name, as `ignore` panics on one not under its root.
 fn relative_to_base<'a>(path: &'a Path, base_dir: &Path) -> Cow<'a, Path> {
     if let Ok(rel) = path.strip_prefix(base_dir) {
         return Cow::Borrowed(rel);
