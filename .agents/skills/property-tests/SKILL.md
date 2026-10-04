@@ -15,7 +15,8 @@ below lists exactly what to extend and the deterministic guard to add), then do 
 one-off **~1000× thorough run** before committing: e.g.
 `PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites run
 proptest's default 256 cases in CI unless they pin `cases` themselves — tuned for
-speed, not exhaustiveness). Build `--release`
+speed, not exhaustiveness; `PROPTEST_CASES` still overrides a pinned `cases`, so no
+edit is needed). Build `--release`
 and run it in the background; it routinely flushes rare interleavings the small count
 misses. Commit only once it is green, and keep any newly-persisted seeds in
 `tests/proptest-regressions/`.
