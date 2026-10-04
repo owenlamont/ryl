@@ -3,7 +3,7 @@ use regex::Regex;
 
 use super::{
     KeyOrderingOptions, PerLineIgnore, QuotedStringsOptions, QuotedStringsRequired,
-    QuotedStringsRequiredMode, RuleEntry, RuleOptions, RulesTable,
+    QuotedStringsRequiredMode, RuleEntry, RuleOptions, RulesTable, TomlCommentsOptions,
     TomlQuotedStringsOptions,
 };
 
@@ -83,12 +83,33 @@ impl QuotedStringsOptionSet for TomlQuotedStringsOptions {
     }
 }
 
-impl<Q: QuotedStringsOptionSet, K, A, C, H> RulesTable<Q, K, A, C, H> {
+impl<Q: QuotedStringsOptionSet, K, A, C, H, M> RulesTable<Q, K, A, C, H, M> {
     pub(super) fn validate(&self) -> Result<(), String> {
         validate_key_ordering_rule(self.key_ordering.as_ref())?;
         validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
         Ok(())
     }
+}
+
+pub(super) fn validate_comments_rule(
+    entry: Option<&RuleEntry<TomlCommentsOptions>>,
+) -> Result<(), String> {
+    let Some(options) = rule_options(entry) else {
+        return Ok(());
+    };
+    let Some(max) = options.specific.max_spaces_from_content else {
+        return Ok(());
+    };
+    let min = options.specific.min_spaces_from_content.unwrap_or(2);
+    if max == 0 {
+        return Err("invalid config: comments: \"max-spaces-from-content\" must be at least 1 (a comment needs whitespace before its \"#\")".to_string());
+    }
+    if max > 0 && min > max {
+        return Err(format!(
+            "invalid config: comments: \"max-spaces-from-content\" ({max}) is below \"min-spaces-from-content\" ({min}; it defaults to 2 when unset)"
+        ));
+    }
+    Ok(())
 }
 
 fn validate_key_ordering_rule(

@@ -302,6 +302,7 @@ fn dirty_stacked_document() -> StackedDocument {
                     "items",
                     Node::FlowSeq(vec![plain("a"), plain("b")], dirty_flow),
                     Some(InlineComment {
+                        whitespace_before_hash: "  ".to_string(),
                         spaces_after_hash: 0,
                         text: "note".to_string(),
                     }),

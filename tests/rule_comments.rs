@@ -282,3 +282,55 @@ fn fix_inserts_spaces_for_comment_after_undeclared_anchor_alias() {
     let fixed = comments::fix("a: *missing\nb: 1 #bad\n", &resolved);
     assert_eq!(fixed, Some("a: *missing\nb: 1  # bad\n".to_string()));
 }
+
+fn build_toml_config(toml: &str) -> Config {
+    let cfg = YamlLintConfig::from_toml_str(toml).expect("TOML config parses");
+    Config::resolve(&cfg)
+}
+
+const MAX_TWO: &str = "[rules.comments]\nmax-spaces-from-content = 2\n";
+
+#[test]
+fn reports_inline_comments_beyond_max_spacing() {
+    let resolved = build_toml_config(MAX_TWO);
+    let input = "a: 1  # ok\nb: 1   # scalar\nc: [1]\t\t\t# tabs\nd: |   # header\n  x\ne:   # empty\n---   # marker\n";
+    let hits = comments::check(input, &resolved);
+    let positions: Vec<_> = hits.iter().map(|hit| (hit.line, hit.column)).collect();
+    assert_eq!(positions, vec![(2, 8), (3, 10), (4, 8), (6, 6), (7, 7)]);
+    assert_eq!(
+        hits[0].message,
+        "too many spaces before comment: expected at most 2"
+    );
+}
+
+#[test]
+fn max_spacing_disabled_by_default() {
+    let resolved = build_config("rules:\n  comments: {}\n");
+    let hits = comments::check("a: 1        # far\n", &resolved);
+    assert!(hits.is_empty(), "max should default to off: {hits:?}");
+}
+
+#[test]
+fn fix_trims_to_max_and_normalises_tabs() {
+    let resolved = build_toml_config(MAX_TWO);
+    let fixed = comments::fix(
+        "first: value        # comment\nsecond: value # c\nthird: x\t \t# tab\n",
+        &resolved,
+    );
+    assert_eq!(
+        fixed,
+        Some(
+            "first: value  # comment\nsecond: value  # c\nthird: x  # tab\n"
+                .to_string()
+        )
+    );
+}
+
+#[test]
+fn fix_returns_none_within_spacing_band() {
+    let resolved = build_toml_config(
+        "[rules.comments]\nmin-spaces-from-content = 1\nmax-spaces-from-content = 3\n",
+    );
+    let fixed = comments::fix("a: 1 # one\nb: 1   # three\n", &resolved);
+    assert_eq!(fixed, None);
+}

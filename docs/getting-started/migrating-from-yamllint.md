@@ -356,6 +356,21 @@ items:
 With the option off (the default) ryl matches yamllint exactly. Being ryl-only, the
 option is configured in TOML and rejected in yamllint-compatible YAML config.
 
+### Maximum spaces before an inline comment
+
+yamllint's `comments` rule only sets a minimum gap between content and an inline
+comment. ryl adds a ryl-only, off-by-default
+[`comments: max-spaces-from-content`](../rules/comments.md) option that also caps it, and
+`--fix` trims a wider gap to the cap:
+
+```yaml
+first: value        # flagged with max-spaces-from-content = 2
+second: value  # accepted
+```
+
+With the option off (the default) ryl matches yamllint exactly. Being ryl-only, the
+option is configured in TOML and rejected in yamllint-compatible YAML config.
+
 ### JUnit and GitLab report formats
 
 yamllint offers `standard`, `parsable`, `colored`, `github`, and `auto` output formats.

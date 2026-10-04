@@ -65,6 +65,7 @@ pub struct FlowStyle {
 
 #[derive(Debug, Clone)]
 pub struct InlineComment {
+    pub whitespace_before_hash: String,
     pub spaces_after_hash: u8,
     pub text: String,
 }
@@ -297,7 +298,8 @@ impl BlockEntry {
             }
         };
         if allow_trailing_comment && let Some(comment) = &self.trailing_inline_comment {
-            buffer.push_str("  #");
+            buffer.push_str(&comment.whitespace_before_hash);
+            buffer.push('#');
             push_spaces(buffer, comment.spaces_after_hash);
             buffer.push_str(&comment.text);
         }
