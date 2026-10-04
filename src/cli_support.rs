@@ -1,11 +1,13 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::config::{SourceKind, YamlLintConfig, discover_per_file};
+use crate::config::{
+    ConfigContext, PerFileConfig, SourceKind, SystemEnv, YamlLintConfig,
+    load_project_config, locate_per_file,
+};
 
 /// Base dir, shared config and whether one was found. `Arc`, not a clone per file: a
 /// cloned glob matcher re-allocates its regex cache on first use.
@@ -117,30 +119,54 @@ fn relativize(target: &Path, base: &Path) -> PathBuf {
 ///
 /// # Errors
 /// Returns an error when configuration discovery fails for `path`.
-pub fn resolve_ctx<S: BuildHasher>(
+pub fn resolve_ctx(
     path: &Path,
     global_cfg: Option<&ResolvedConfig>,
     markdown: bool,
-    cache: &mut HashMap<PathBuf, ResolvedConfig, S>,
+    cache: &mut ConfigCache,
 ) -> Result<(PathBuf, Arc<YamlLintConfig>, Vec<String>, bool), String> {
-    // The global config is markdown-enabled once by the caller; only a freshly-discovered
-    // config needs enabling, done before caching so the matcher is built once per directory.
     if let Some((base_dir, cfg, found)) = global_cfg {
         return Ok((base_dir.clone(), Arc::clone(cfg), Vec::new(), *found));
     }
     let start = path
         .parent()
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    if let Some(entry) = cache.get(&start).cloned() {
+    if let Some(entry) = cache.by_dir.get(&start).cloned() {
         return Ok((entry.0, entry.1, Vec::new(), entry.2));
     }
-    let ctx = discover_per_file(path)?;
+    let (entry, notices) = match locate_per_file(path, &SystemEnv)? {
+        PerFileConfig::Project { cfg_path, notices } => {
+            if let Some(entry) = cache.by_config.get(&cfg_path) {
+                (entry.clone(), notices)
+            } else {
+                let entry = resolved(load_project_config(&cfg_path)?, markdown);
+                cache.by_config.insert(cfg_path, entry.clone());
+                (entry, notices)
+            }
+        }
+        PerFileConfig::Fallback(ctx) => {
+            let notices = ctx.notices.clone();
+            (resolved(*ctx, markdown), notices)
+        }
+    };
+    cache.by_dir.insert(start, entry.clone());
+    Ok((entry.0, entry.1, notices, entry.2))
+}
+
+/// Resolved configs keyed by input directory, and project configs by their file, so
+/// directories sharing one config file share one loaded config.
+#[derive(Default)]
+pub struct ConfigCache {
+    by_dir: HashMap<PathBuf, ResolvedConfig>,
+    by_config: HashMap<PathBuf, ResolvedConfig>,
+}
+
+// The global config is markdown-enabled once by the caller; a discovered one is enabled
+// here, before caching, so its matcher is built once.
+fn resolved(ctx: ConfigContext, markdown: bool) -> ResolvedConfig {
     let mut cfg = ctx.config;
     if markdown {
         cfg.enable_default_markdown(&ctx.base_dir);
     }
-    let entry = (ctx.base_dir.clone(), Arc::new(cfg), ctx.config_found);
-    let notices = ctx.notices;
-    cache.insert(start, entry.clone());
-    Ok((entry.0, entry.1, notices, entry.2))
+    (ctx.base_dir, Arc::new(cfg), ctx.config_found)
 }
