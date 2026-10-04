@@ -20,7 +20,11 @@ fn key_ordering_reports_error() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
     assert_eq!(code, 1, "expected failure: stdout={stdout} stderr={stderr}");
     let output = if stderr.is_empty() { &stdout } else { &stderr };
     assert!(
@@ -44,7 +48,11 @@ fn ignored_keys_skip_enforcement() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "ignored keys should not fail: stdout={stdout} stderr={stderr}"
@@ -71,7 +79,11 @@ fn alias_value_does_not_desync_key_ordering() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe).arg("-c").arg(&cfg).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "an alias value must not desync ordering: stdout={stdout} stderr={stderr}"

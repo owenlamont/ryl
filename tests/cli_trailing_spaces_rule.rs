@@ -14,6 +14,7 @@ fn trailing_spaces_reports_error() {
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules:\n  trailing-spaces: enable\n")
         .arg(&file));
@@ -38,8 +39,11 @@ fn warning_level_does_not_fail() {
     fs::write(&config, "rules:\n  trailing-spaces:\n    level: warning\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "warnings should not fail: stdout={stdout} stderr={stderr}"
@@ -64,8 +68,11 @@ fn rule_ignore_skips_file() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "ignored file should pass: stdout={stdout} stderr={stderr}"

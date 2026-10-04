@@ -15,8 +15,11 @@ fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
     let config_path = dir.path().join(".ryl.toml");
     fs::write(&config_path, config).unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config_path).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config_path)
+        .arg(&file));
     (code, command_output(&stdout, &stderr).to_string())
 }
 
@@ -147,6 +150,7 @@ fn rule_is_rejected_in_yaml_config() {
     fs::write(&file, "base: &b {x: 1}\nchild:\n  <<: *b\n").unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
         .arg("-d")
         .arg("rules: {merge-keys: enable}")
         .arg(&file));
@@ -181,8 +185,11 @@ fn per_file_ignores_accept_the_rule_name() {
     .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run(Command::new(exe).arg("-c").arg(&config).arg(&file));
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
     assert_eq!(
         code, 0,
         "per-file-ignores should suppress the rule: stdout={stdout} stderr={stderr}"

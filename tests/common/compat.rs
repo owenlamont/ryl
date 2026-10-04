@@ -99,6 +99,7 @@ pub const SCENARIOS: &[Scenario] = &[
 
 pub fn build_ryl_command(exe: &str, format: Option<&str>) -> Command {
     let mut cmd = Command::new(exe);
+    cmd.arg("check");
     if let Some(fmt) = format {
         cmd.arg("--format").arg(fmt);
     }

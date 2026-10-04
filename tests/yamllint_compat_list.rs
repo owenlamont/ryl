@@ -41,7 +41,8 @@ fn yamllint_and_ryl_list_the_same_files_with_ignores() {
     fs::write(&cfg, "extends: default\nignore: ['docs/**']\n").unwrap();
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
-    let (_code, out, err) = run(Command::new(ryl).arg("--list-files").arg(root));
+    let (_code, out, err) =
+        run(Command::new(ryl).arg("check").arg("--list-files").arg(root));
     assert!(err.is_empty(), "unexpected stderr from ryl: {err}");
     let mut ryl_list: Vec<_> = out.lines().map(|s| s.to_string()).collect();
     ryl_list.sort();
@@ -97,6 +98,7 @@ fn yamllint_filters_explicit_files_if_ignored() {
 
     let ryl = env!("CARGO_BIN_EXE_ryl");
     let (_code, out, _err) = run(Command::new(ryl)
+        .arg("check")
         .arg("--list-files")
         .arg(root)
         .arg(root.join("x.skip.yaml")));
