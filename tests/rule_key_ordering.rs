@@ -3,7 +3,7 @@ use ryl::rules::key_ordering::{self, Config};
 
 fn build_config(yaml: &str) -> Config {
     let cfg = YamlLintConfig::from_yaml_str(yaml).expect("config parses");
-    Config::resolve(&cfg)
+    Config::resolve(&cfg, std::path::Path::new("t.yaml"))
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn c_locale_devolves_to_codepoint_ordering() {
     )
     .expect("config parses");
     assert_eq!(raw.locale(), Some("C.UTF-8"));
-    let cfg = key_ordering::Config::resolve(&raw);
+    let cfg = key_ordering::Config::resolve(&raw, std::path::Path::new("t.yaml"));
     let hits = key_ordering::check("t-shirt: 1\nT-shirt: 2\n", &cfg);
     assert!(
         hits.iter().any(|hit| hit.message.contains("T-shirt")),

@@ -1,10 +1,13 @@
 //! `key-ordering`: mapping keys must appear in order (optionally locale-aware, with
-//! an ignore list). Mirrors yamllint's `key-ordering`. `--fix` moves each entry with its
+//! an ignore list, or a configured list for selected mappings). Mirrors yamllint's
+//! `key-ordering`. `--fix` moves each entry with its
 //! comments, and leaves a mapping unsorted (reported by [`unfixed`]) wherever that could
 //! misattach a comment or change the loaded data.
 
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::path::Path;
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 use regex::Regex;
@@ -12,6 +15,7 @@ use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::config::YamlLintConfig;
 use crate::directives::{Directives, PerLineRuleApply};
+use crate::rules::support::key_path::{self, Selector, Step};
 use crate::rules::support::line_syntax::split_lines_inclusive;
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::mapping_layout::{Entry, Layout, Mapping, byte_at};
@@ -23,6 +27,37 @@ pub const ID: &str = "key-ordering";
 pub struct Config {
     ignored: Vec<Regex>,
     comparator: Comparator,
+    orders: Vec<KeyOrder>,
+}
+
+/// One `orders` entry: the mappings it selects and the rank of each listed key.
+#[derive(Debug, Clone)]
+pub(crate) struct KeyOrder {
+    path: Vec<Selector>,
+    ranks: HashMap<String, usize>,
+    keep_unlisted: bool,
+}
+
+impl KeyOrder {
+    /// # Panics
+    ///
+    /// Panics when `entry` is not a validated `orders` entry.
+    pub(crate) fn new(entry: &YamlOwned) -> Self {
+        let field = |name| entry.as_mapping_get(name);
+        let path = field("path").and_then(YamlOwned::as_str);
+        let keys = field("keys").and_then(YamlOwned::as_sequence);
+        Self {
+            path: key_path::parse(path.expect("validated path"))
+                .expect("validated path"),
+            ranks: (keys.expect("validated keys").iter())
+                .filter_map(YamlOwned::as_str)
+                .enumerate()
+                .map(|(rank, key)| (key.to_owned(), rank))
+                .collect(),
+            keep_unlisted: field("unlisted").and_then(YamlOwned::as_str)
+                == Some("keep"),
+        }
+    }
 }
 
 impl Config {
@@ -32,7 +67,7 @@ impl Config {
     /// # Panics
     ///
     /// Panics when `ignored-keys` contains non-string entries or invalid regexes.
-    pub fn resolve(cfg: &YamlLintConfig) -> Self {
+    pub fn resolve(cfg: &YamlLintConfig, path: &Path) -> Self {
         let mut ignored: Vec<Regex> = Vec::new();
         if let Some(node) = cfg.rule_option(ID, "ignored-keys")
             && let crate::yaml_dom::YamlOwned::Sequence(seq) = node
@@ -54,21 +89,47 @@ impl Config {
         Self {
             ignored,
             comparator,
+            orders: cfg.key_orders_for(path),
         }
     }
 
-    fn is_ignored(&self, key: &str) -> bool {
-        self.ignored.iter().any(|re| re.is_match(key))
+    fn order(&self, path: &[Step]) -> Order<'_> {
+        let list = self
+            .orders
+            .iter()
+            .find(|o| key_path::matches(&o.path, path));
+        Order { config: self, list }
+    }
+}
+
+/// How one mapping's keys sort: listed keys first, in list order, then the rest.
+#[derive(Clone, Copy)]
+struct Order<'a> {
+    config: &'a Config,
+    list: Option<&'a KeyOrder>,
+}
+
+impl Order<'_> {
+    /// Whether `key` sorts at all; any other key keeps its slot.
+    fn ranks(self, key: &str) -> bool {
+        !self.config.ignored.iter().any(|re| re.is_match(key))
+            && self
+                .list
+                .is_none_or(|list| !list.keep_unlisted || list.ranks.contains_key(key))
     }
 
-    fn in_order(&self, previous: Option<&str>, current: &str) -> bool {
-        let Some(prev) = previous else {
-            return true;
+    fn compare(self, left: &str, right: &str) -> Ordering {
+        let rank = |key| {
+            self.list
+                .map_or(0, |list| list.ranks.get(key).copied().unwrap_or(usize::MAX))
         };
-        !matches!(
-            self.comparator.compare(prev, current),
-            std::cmp::Ordering::Greater
-        )
+        rank(left)
+            .cmp(&rank(right))
+            .then_with(|| self.config.comparator.compare(left, right))
+    }
+
+    fn in_order(self, previous: Option<&str>, current: &str) -> bool {
+        previous.is_none_or(|prev| self.compare(prev, current) != Ordering::Greater)
     }
 }
 
@@ -167,7 +228,10 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
                 self.state
                     .handle_scalar(value.as_ref(), span, &mut self.violations);
             }
-            Event::Alias(_) => self.state.skip_node(),
+            Event::Alias(_) => {
+                self.state.step();
+                self.state.skip_node();
+            }
             _ => {}
         }
     }
@@ -175,7 +239,7 @@ impl SpannedEventReceiver<'_> for KeyOrderingReceiver<'_> {
 
 struct KeyOrderingState<'cfg> {
     config: &'cfg Config,
-    walker: Walker<MappingState>,
+    walker: Walker<MappingState<'cfg>, Vec<Step>>,
 }
 
 impl<'cfg> KeyOrderingState<'cfg> {
@@ -199,12 +263,38 @@ impl<'cfg> KeyOrderingState<'cfg> {
     }
 
     fn enter_mapping(&mut self) {
-        self.walker
-            .enter_mapping(MappingState { keys: Vec::new() }, ());
+        let path = self.child_path();
+        let state = MappingState {
+            keys: Vec::new(),
+            order: self.config.order(&path),
+            key: None,
+        };
+        self.walker.enter_mapping(state, path);
     }
 
     fn enter_sequence(&mut self) {
-        self.walker.enter_sequence(());
+        let path = self.child_path();
+        self.walker.enter_sequence(path);
+    }
+
+    /// The step to the node about to begin; a key forgets the previous key's text.
+    fn step(&mut self) -> Step {
+        let expects_key = self.walker.expects_key();
+        match self.walker.current_mapping_mut() {
+            Some(state) if expects_key => {
+                state.key = None;
+                Step::Opaque
+            }
+            Some(state) => state.key.take().map_or(Step::Opaque, Step::Key),
+            None => Step::Item,
+        }
+    }
+
+    fn child_path(&mut self) -> Vec<Step> {
+        let step = self.step();
+        self.walker
+            .current_metadata_mut()
+            .map_or_else(Vec::new, |path| [path.as_slice(), &[step]].concat())
     }
 
     fn skip_node(&mut self) {
@@ -222,17 +312,18 @@ impl<'cfg> KeyOrderingState<'cfg> {
         diagnostics: &mut Vec<Violation>,
     ) {
         let context = self.walker.begin_node();
-        if !context.key_root() || self.config.is_ignored(value) {
+        let state = self.walker.current_mapping_mut();
+        let Some(state) = state.filter(|_| context.key_root()) else {
+            self.walker.finish_node(context);
+            return;
+        };
+        state.key = Some(value.to_owned());
+        if !state.order.ranks(value) {
             self.walker.finish_node(context);
             return;
         }
-
-        let state = self
-            .walker
-            .current_mapping_mut()
-            .expect("stack should contain mapping when key root is active");
         let keys = &mut state.keys;
-        if self.config.in_order(keys.last().map(String::as_str), value) {
+        if state.order.in_order(keys.last().map(String::as_str), value) {
             keys.push(value.to_owned());
         } else {
             diagnostics.push(Violation {
@@ -245,8 +336,10 @@ impl<'cfg> KeyOrderingState<'cfg> {
     }
 }
 
-struct MappingState {
+struct MappingState<'cfg> {
     keys: Vec<String>,
+    order: Order<'cfg>,
+    key: Option<String>,
 }
 
 /// Sort every out-of-order block mapping that can move safely, or `None` when none can.
@@ -310,14 +403,15 @@ struct Plan {
 fn plans(layout: &Layout<'_>, cfg: &Config, directives: &Directives) -> Vec<Plan> {
     let mut plans = Vec::new();
     for (index, mapping) in layout.mappings.iter().enumerate() {
+        let order = cfg.order(&mapping.path);
         let mut previous: Option<&str> = None;
         let mut first = None;
         for entry in &mapping.entries {
-            let Some(key) = entry.key.as_ref().filter(|key| !cfg.is_ignored(&key.text))
+            let Some(key) = entry.key.as_ref().filter(|key| order.ranks(&key.text))
             else {
                 continue;
             };
-            if cfg.in_order(previous, &key.text) {
+            if order.in_order(previous, &key.text) {
                 previous = Some(&key.text);
             } else if !directives.is_disabled(ID, entry.key_line + 1) {
                 first = Some(entry);
@@ -329,21 +423,21 @@ fn plans(layout: &Layout<'_>, cfg: &Config, directives: &Directives) -> Vec<Plan
                 mapping: index,
                 line: entry.key_line,
                 column: entry.key_col,
-                order: order(layout, mapping, cfg, directives),
+                order: sort(layout, mapping, order, directives),
             });
         }
     }
     plans
 }
 
-fn order(
+fn sort(
     layout: &Layout<'_>,
     mapping: &Mapping,
-    cfg: &Config,
+    rank: Order<'_>,
     directives: &Directives,
 ) -> Result<Vec<usize>, &'static str> {
     movable(layout, mapping, directives)?;
-    let order = sorted(&mapping.entries, cfg);
+    let order = sorted(&mapping.entries, rank);
     keeps_meaning(layout, &mapping.entries, &order)?;
     Ok(order)
 }
@@ -397,8 +491,8 @@ fn movable(
     Ok(())
 }
 
-/// `order[slot]` is the entry that sorts into `slot`; ignored keys keep theirs.
-fn sorted(entries: &[Entry], cfg: &Config) -> Vec<usize> {
+/// `order[slot]` is the entry that sorts into `slot`; keys that do not rank keep theirs.
+fn sorted(entries: &[Entry], order: Order<'_>) -> Vec<usize> {
     let key = |index: usize| {
         entries[index]
             .key
@@ -406,16 +500,16 @@ fn sorted(entries: &[Entry], cfg: &Config) -> Vec<usize> {
             .map_or("", |key| key.text.as_str())
     };
     let mut moving: Vec<usize> = (0..entries.len())
-        .filter(|&i| !cfg.is_ignored(key(i)))
+        .filter(|&i| order.ranks(key(i)))
         .collect();
-    moving.sort_by(|&a, &b| cfg.comparator.compare(key(a), key(b)));
+    moving.sort_by(|&a, &b| order.compare(key(a), key(b)));
     let mut moving = moving.into_iter();
     (0..entries.len())
         .map(|slot| {
-            if cfg.is_ignored(key(slot)) {
-                slot
-            } else {
+            if order.ranks(key(slot)) {
                 moving.next().unwrap_or(slot)
+            } else {
+                slot
             }
         })
         .collect()

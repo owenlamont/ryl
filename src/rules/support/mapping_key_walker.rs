@@ -81,6 +81,13 @@ impl<T, M> Walker<T, M> {
         self.finish_node(context);
     }
 
+    pub(crate) fn expects_key(&self) -> bool {
+        self.containers
+            .last()
+            .and_then(|container| container.mapping.as_ref())
+            .is_some_and(|mapping| mapping.expect_key)
+    }
+
     pub(crate) fn current_mapping_mut(&mut self) -> Option<&mut T> {
         self.containers
             .last_mut()

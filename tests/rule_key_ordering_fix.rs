@@ -5,7 +5,10 @@ use ryl::rules::key_ordering::{self, Config};
 
 fn config(options: &str) -> Config {
     let yaml = format!("rules:\n  key-ordering:{options}\n");
-    Config::resolve(&YamlLintConfig::from_yaml_str(&yaml).expect("config parses"))
+    Config::resolve(
+        &YamlLintConfig::from_yaml_str(&yaml).expect("config parses"),
+        std::path::Path::new("t.yaml"),
+    )
 }
 
 fn fix(input: &str) -> Option<String> {
@@ -77,7 +80,12 @@ fn ignored_keys_hold_their_slots_and_locale_ranks_the_rest() {
     )
     .expect("config parses");
     assert_eq!(
-        key_ordering::fix("B: 1\na: 2\n", &Config::resolve(&cfg), &[]).as_deref(),
+        key_ordering::fix(
+            "B: 1\na: 2\n",
+            &Config::resolve(&cfg, std::path::Path::new("t.yaml")),
+            &[]
+        )
+        .as_deref(),
         Some("a: 2\nB: 1\n")
     );
 }

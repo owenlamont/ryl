@@ -65,7 +65,8 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let document_end_cfg = document_end::Config::resolve(cfg);
     let empty_lines_cfg = empty_lines::Config::resolve(cfg);
     let truthy_cfg = truthy::Config::resolve(cfg);
-    let key_ordering_cfg = key_ordering::Config::resolve(cfg);
+    let key_ordering_cfg =
+        key_ordering::Config::resolve(cfg, std::path::Path::new("t.yaml"));
     vec![
         (
             new_lines::ID,

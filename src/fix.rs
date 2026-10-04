@@ -353,7 +353,7 @@ fn unfixed_notices(
     {
         return Vec::new();
     }
-    let rule = key_ordering::Config::resolve(cfg);
+    let rule = key_ordering::Config::resolve(cfg, path);
     key_ordering::unfixed(content, &rule, &cfg.per_line_applies(path))
         .into_iter()
         .map(|violation| crate::lint::LintProblem {
@@ -710,7 +710,7 @@ impl FixContext<'_> {
             truthy::fix(buffer, &truthy::Config::resolve(self.cfg))
         });
         content = self.apply(content, changed_rules, KEY_ORDERING_FIX, |buffer| {
-            let cfg = key_ordering::Config::resolve(self.cfg);
+            let cfg = key_ordering::Config::resolve(self.cfg, self.path);
             key_ordering::fix(buffer, &cfg, &self.per_line)
         });
         content

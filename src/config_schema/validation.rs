@@ -2,10 +2,11 @@ use globset::Glob;
 use regex::Regex;
 
 use super::{
-    KeyOrderingOptions, PerLineIgnore, QuotedStringsOptions, QuotedStringsRequired,
-    QuotedStringsRequiredMode, RuleEntry, RuleOptions, RulesTable, TomlCommentsOptions,
-    TomlQuotedStringsOptions,
+    KeyOrderEntry, KeyOrderingOptions, PerLineIgnore, QuotedStringsOptions,
+    QuotedStringsRequired, QuotedStringsRequiredMode, RuleEntry, RuleOptions,
+    RulesTable, TomlCommentsOptions, TomlKeyOrderingOptions, TomlQuotedStringsOptions,
 };
+use crate::rules::support::key_path;
 
 /// Validate `per-line-ignores` entries: each needs at least one of `regex`/`path`, a
 /// non-empty `rules` list, and valid `regex`/`path` patterns. Validating the patterns here
@@ -83,7 +84,34 @@ impl QuotedStringsOptionSet for TomlQuotedStringsOptions {
     }
 }
 
-impl<Q: QuotedStringsOptionSet, K, A, C, H, M> RulesTable<Q, K, A, C, H, M> {
+pub trait KeyOrderingOptionSet {
+    fn ignored_keys(&self) -> Option<&[String]>;
+    fn orders(&self) -> &[KeyOrderEntry];
+}
+
+impl KeyOrderingOptionSet for KeyOrderingOptions {
+    fn ignored_keys(&self) -> Option<&[String]> {
+        self.ignored_keys.as_deref()
+    }
+
+    fn orders(&self) -> &[KeyOrderEntry] {
+        &[]
+    }
+}
+
+impl KeyOrderingOptionSet for TomlKeyOrderingOptions {
+    fn ignored_keys(&self) -> Option<&[String]> {
+        self.ignored_keys.as_deref()
+    }
+
+    fn orders(&self) -> &[KeyOrderEntry] {
+        self.orders.as_deref().unwrap_or_default()
+    }
+}
+
+impl<Q: QuotedStringsOptionSet, K, A, C, H, M, O: KeyOrderingOptionSet>
+    RulesTable<Q, K, A, C, H, M, O>
+{
     pub(super) fn validate(&self) -> Result<(), String> {
         validate_key_ordering_rule(self.key_ordering.as_ref())?;
         validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
@@ -113,16 +141,43 @@ pub(super) fn validate_comments_rule(
 }
 
 fn validate_key_ordering_rule(
-    entry: Option<&RuleEntry<KeyOrderingOptions>>,
+    entry: Option<&RuleEntry<impl KeyOrderingOptionSet>>,
 ) -> Result<(), String> {
     let Some(options) = rule_options(entry) else {
         return Ok(());
     };
-    let Some(patterns) = &options.specific.ignored_keys else {
-        return Ok(());
-    };
+    for (index, order) in options.specific.orders().iter().enumerate() {
+        validate_key_order(order).map_err(|problem| {
+            format!(
+                "invalid config: entry {} of option \"orders\" of \"key-ordering\" {problem}",
+                index + 1
+            )
+        })?;
+    }
+    options
+        .specific
+        .ignored_keys()
+        .map_or(Ok(()), validate_key_ordering_patterns)
+}
 
-    validate_key_ordering_patterns(patterns)
+fn validate_key_order(order: &KeyOrderEntry) -> Result<(), String> {
+    if order.files.is_empty() {
+        return Err("has an empty `files` list".to_owned());
+    }
+    for pattern in &order.files {
+        Glob::new(pattern.strip_prefix('!').unwrap_or(pattern))
+            .map_err(|err| format!("has an invalid `files` glob '{pattern}': {err}"))?;
+    }
+    key_path::parse(&order.path)
+        .map_err(|err| format!("has an invalid `path` '{}': {err}", order.path))?;
+    if order.keys.is_empty() {
+        return Err("has an empty `keys` list".to_owned());
+    }
+    let mut seen = std::collections::HashSet::new();
+    match order.keys.iter().find(|key| !seen.insert(*key)) {
+        Some(key) => Err(format!("lists key '{key}' twice in `keys`")),
+        None => Ok(()),
+    }
 }
 
 fn validate_quoted_strings_rule(

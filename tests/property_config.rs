@@ -17,8 +17,9 @@
 //! - TOML configs are pushed through `parse -> validate -> normalize`, the
 //!   TOML-specific surface. This includes generated `[[per-line-ignores]]` entries
 //!   (TOML-only), with hostile regex/glob/rules values to exercise
-//!   `validate_per_line_ignores`, plus `[rules] ALL` and `[per-file-ignores]`; a TOML
-//!   config that validates is then linted with like a YAML one.
+//!   `validate_per_line_ignores`, plus `[rules] ALL`, `[per-file-ignores]` and
+//!   `key-ordering` `orders`; a TOML config that validates is then loaded from a file
+//!   (which compiles its globs and paths) and linted with like a YAML one.
 //!
 //! Deterministic siblings pin the empty-config, invalid-regex, billion-laughs, and
 //! valid-config cases so the random invariant cannot pass vacuously if the generator
@@ -31,7 +32,7 @@ use std::path::Path;
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use ryl::config::YamlLintConfig;
+use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::config_schema::{
     normalize_toml_config, parse_toml_config_str, validate_toml_config,
 };
@@ -62,7 +63,15 @@ fn parse_toml_without_panicking(toml_config: &str) {
         && validate_toml_config(&typed).is_ok()
     {
         let _ = normalize_toml_config(&typed);
-        if let Ok(cfg) = YamlLintConfig::from_toml_str(toml_config) {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(".ryl.toml");
+        std::fs::write(&file, toml_config).unwrap();
+        let overrides = Overrides {
+            config_file: Some(file),
+            config_data: None,
+        };
+        if let Ok(ctx) = discover_config(&[], &overrides) {
+            let cfg = ctx.config;
             for doc in SAMPLE_DOCS {
                 let _ = lint_str(doc, Path::new("in.yaml"), &cfg, Path::new("."));
             }

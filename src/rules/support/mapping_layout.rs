@@ -7,6 +7,7 @@ use granit_parser::{
 };
 
 use crate::directives::directive_scope;
+use crate::rules::support::key_path::Step;
 use crate::rules::support::line_syntax::split_lines_preserve_endings;
 use crate::yaml_dom::core_schema_suffix;
 
@@ -30,6 +31,7 @@ pub(crate) struct Entry {
 }
 
 pub(crate) struct Mapping {
+    pub(crate) path: Vec<Step>,
     pub(crate) block: bool,
     pub(crate) keyed_or_tagged: bool,
     pub(crate) loose_comment: bool,
@@ -61,7 +63,7 @@ impl<'a> Layout<'a> {
         };
         let mut iter = events.0.into_iter().peekable();
         while iter.peek().is_some() {
-            layout.node(&mut iter, false);
+            layout.node(&mut iter, &[], false);
         }
         let mut names = Vec::new();
         for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
@@ -104,8 +106,10 @@ impl<'a> Layout<'a> {
     fn node(
         &mut self,
         iter: &mut std::iter::Peekable<std::vec::IntoIter<(Event<'a>, Span)>>,
+        path: &[Step],
         in_key: bool,
     ) -> End {
+        let child = |step| [path, &[step]].concat();
         let (event, span) = iter.next().expect(BALANCED);
         let at = |keep| Some((span.end.line() - 1, span.end.col(), keep));
         match event {
@@ -115,7 +119,7 @@ impl<'a> Layout<'a> {
             Event::SequenceStart(style, ..) => {
                 let mut end = None;
                 while !matches!(iter.peek(), Some((Event::SequenceEnd, _)) | None) {
-                    end = end.max(self.node(iter, in_key));
+                    end = end.max(self.node(iter, &child(Step::Item), in_key));
                 }
                 let (_, close) = iter.next().expect(BALANCED);
                 flow_end(style, end, close)
@@ -128,6 +132,7 @@ impl<'a> Layout<'a> {
                             core_schema_suffix(&tag).as_deref() != Some("map")
                         }),
                     loose_comment: false,
+                    path: path.to_vec(),
                     entries: Vec::new(),
                 };
                 let mut end = None;
@@ -140,10 +145,13 @@ impl<'a> Layout<'a> {
                         _ => None,
                     };
                     let key_start = iter.peek().expect(BALANCED).1.start;
+                    let value = key
+                        .as_ref()
+                        .map_or(Step::Opaque, |key| Step::Key(key.text.clone()));
                     let entry_end =
                         Some((key_start.line() - 1, key_start.col(), false))
-                            .max(self.node(iter, true))
-                            .max(self.node(iter, in_key));
+                            .max(self.node(iter, &child(Step::Opaque), true))
+                            .max(self.node(iter, &child(value), in_key));
                     end = end.max(entry_end);
                     let (line, col, ends_keep) = entry_end.unwrap_or_default();
                     mapping.entries.push(Entry {
