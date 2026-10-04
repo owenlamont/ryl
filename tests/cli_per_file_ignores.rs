@@ -219,25 +219,33 @@ fn toml_per_file_ignores_anchor_at_the_config_dir_from_a_subdirectory() {
 }
 
 #[test]
-fn toml_per_file_ignores_match_a_path_outside_the_config_dir_as_given() {
-    // Like `ignore`, a file outside the config dir is matched by the path as given.
+fn toml_per_file_ignores_match_a_path_outside_the_config_dir_by_basename_only() {
     let dir = workflow_tree();
     let conf = dir.path().join("conf");
     fs::create_dir(&conf).unwrap();
-    fs::write(conf.join("ryl.toml"), WORKFLOW_IGNORE_CONFIG).unwrap();
 
-    let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe)
-        .current_dir(dir.path())
-        .arg("-c")
-        .arg("conf/ryl.toml")
-        .arg("./.github/workflows/action.yml"));
-    assert_eq!(
-        code,
-        0,
-        "an out-of-tree path should match as given: {}",
-        command_output(&stdout, &stderr)
-    );
+    for (pattern, expected) in [("action.yml", 0), (".github/workflows/*", 1)] {
+        fs::write(
+            conf.join("ryl.toml"),
+            format!(
+                "[rules]\ndocument-start = 'enable'\n\
+                 [per-file-ignores]\n'{pattern}' = ['document-start']\n"
+            ),
+        )
+        .unwrap();
+        let exe = env!("CARGO_BIN_EXE_ryl");
+        let (code, stdout, stderr) = run(Command::new(exe)
+            .current_dir(dir.path())
+            .arg("-c")
+            .arg("conf/ryl.toml")
+            .arg("./.github/workflows/action.yml"));
+        assert_eq!(
+            code,
+            expected,
+            "pattern {pattern} against a file outside conf/: {}",
+            command_output(&stdout, &stderr)
+        );
+    }
 }
 
 #[test]

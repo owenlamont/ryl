@@ -183,13 +183,13 @@ impl PerFileIgnore {
 }
 
 /// A path glob matching a file by its basename or by its absolute path, with a leading
-/// `!` inverting the whole match.
+/// `!` inverting the whole match. A file outside the config dir can only match a relative
+/// pattern by basename, as in ruff and yamllint.
 #[derive(Debug, Clone)]
 struct PathGlob {
     basename: GlobMatcher,
     absolute: GlobMatcher,
     negated: bool,
-    anchor: PathBuf,
     cwd: PathBuf,
 }
 
@@ -207,26 +207,18 @@ impl PathGlob {
             basename,
             absolute,
             negated,
-            anchor,
             cwd,
         })
     }
 
-    /// A path outside the anchor is read as relative to it, like `ignore`'s gitignore
-    /// matching.
     fn matches(&self, path: &Path) -> bool {
         let filename_matches = path
             .file_name()
             .is_some_and(|file_name| self.basename.is_match(Path::new(file_name)));
-        let matched = filename_matches || {
-            let resolved = normalize_lexically(&self.cwd.join(path));
-            let absolute_path = if resolved.starts_with(&self.anchor) {
-                resolved
-            } else {
-                normalize_lexically(&self.anchor.join(path))
-            };
-            self.absolute.is_match(absolute_path)
-        };
+        let matched = filename_matches
+            || self
+                .absolute
+                .is_match(normalize_lexically(&self.cwd.join(path)));
         matched != self.negated
     }
 }
