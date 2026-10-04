@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use similar::TextDiff;
@@ -16,8 +17,8 @@ use crate::rules::{
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
 /// Bound on whole-pipeline passes: a later fixer can expose a diagnostic an earlier one
 /// fixes (quoted-strings joining a plain scalar's continuation line strands a comment
-/// indented to it).
-pub const FIX_PIPELINE_MAX_PASSES: usize = 8;
+/// indented to it). Matches ruff's `MAX_ITERATIONS`.
+pub const FIX_PIPELINE_MAX_PASSES: usize = 100;
 
 /// File-shape rules suppressed inside embedded markdown regions: a region is not a standalone
 /// file, so document-start/end and file-newline checks do not apply and `--fix` must never
@@ -239,6 +240,14 @@ impl DiffStats {
     }
 }
 
+/// `path` `lexical_abspath`-normalized, relativized to CWD and control-sanitized.
+fn cwd_relative_label(path: &Path) -> String {
+    let abspath = crate::cli_support::lexical_abspath(path);
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
+    crate::cli_support::sanitize_control(&display.display().to_string()).into_owned()
+}
+
 /// Render a unified diff from `original` and `fixed`, or `None` when identical. Follows
 /// `ruff check --diff`: 3 lines of context (pinned, since it is also `similar`'s default a
 /// crate upgrade could silently change) and a plain `--- path`/`+++ path` header (no git
@@ -250,11 +259,7 @@ fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<Strin
     if original == fixed {
         return None;
     }
-    let abspath = crate::cli_support::lexical_abspath(path);
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
-    let label = crate::cli_support::sanitize_control(&display.display().to_string())
-        .into_owned();
+    let label = cwd_relative_label(path);
     // git/patch headers use forward slashes; normalize the Windows `\` (Unix leaves `\`
     // alone, where it is a filename character, not a separator).
     #[cfg(windows)]
@@ -526,6 +531,30 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
+    apply_safe_fixes_capped(
+        input,
+        cfg,
+        path,
+        base_dir,
+        skip,
+        FIX_PIPELINE_MAX_PASSES,
+        &mut std::io::stderr(),
+    )
+}
+
+/// [`apply_safe_fixes_filtered`] with the pass cap and error sink exposed. Like ruff, if a
+/// pass after the last allowed one would still change the text, report it to `err` and
+/// return the text as of the cap.
+#[must_use]
+pub fn apply_safe_fixes_capped(
+    input: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    skip: &[&str],
+    max_passes: usize,
+    err: &mut dyn Write,
+) -> String {
     // Never mutate a file that does not fully parse. `parse_error` is stricter than lint's
     // `syntax_diagnostic` (it does not tolerate undefined aliases), so any granit error leaves
     // the file byte-for-byte unchanged.
@@ -544,12 +573,27 @@ pub fn apply_safe_fixes_filtered(
         per_line,
     };
     let mut content = input.to_string();
-    for _ in 0..FIX_PIPELINE_MAX_PASSES {
-        let next = ctx.pass(&content);
+    for _ in 0..max_passes {
+        let next = ctx.pass(&content, &mut Vec::new());
         if next == content {
-            break;
+            return content;
         }
         content = next;
+    }
+    let mut changed_rules = Vec::new();
+    if ctx.pass(&content, &mut changed_rules) != content {
+        changed_rules.dedup();
+        // A failed write to stderr has nowhere better to go.
+        let _ = writeln!(
+            err,
+            "\nerror: Failed to converge after {max_passes} iterations.\n\n\
+             This indicates a bug in ryl. If you could open an issue at:\n\n    \
+             https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D\n\n\
+             ...quoting the contents of `{}`, the rule ids {}, along with the ryl config \
+             and executed command, we'd be very appreciative!\n",
+            cwd_relative_label(path),
+            changed_rules.join(", "),
+        );
     }
     content
 }
@@ -570,48 +614,56 @@ struct FixContext<'a> {
 }
 
 impl FixContext<'_> {
-    fn pass(&self, input: &str) -> String {
+    /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix
+    /// changed the text.
+    fn pass(&self, input: &str, changed_rules: &mut Vec<&'static str>) -> String {
         let mut content = input.to_string();
-        content = self.apply(content, NEW_LINES_FIX, |buffer| {
+        content = self.apply(content, changed_rules, NEW_LINES_FIX, |buffer| {
             new_lines::fix(
                 buffer,
                 new_lines::Config::resolve(self.cfg),
                 new_lines::platform_newline(),
             )
         });
-        content = self.apply(content, COMMENTS_FIX, |buffer| {
+        content = self.apply(content, changed_rules, COMMENTS_FIX, |buffer| {
             comments::fix(buffer, &comments::Config::resolve(self.cfg))
         });
-        content = self.apply(content, COMMENTS_INDENTATION_FIX, |buffer| {
-            comments_indentation::fix(
-                buffer,
-                &comments_indentation::Config::resolve(self.cfg),
-            )
-        });
-        content = self.apply(content, COMMAS_FIX, |buffer| {
+        content =
+            self.apply(content, changed_rules, COMMENTS_INDENTATION_FIX, |buffer| {
+                comments_indentation::fix(
+                    buffer,
+                    &comments_indentation::Config::resolve(self.cfg),
+                )
+            });
+        content = self.apply(content, changed_rules, COMMAS_FIX, |buffer| {
             commas::fix(buffer, &commas::Config::resolve(self.cfg))
         });
-        content = self.apply(content, BRACES_FIX, |buffer| {
+        content = self.apply(content, changed_rules, BRACES_FIX, |buffer| {
             braces::fix(buffer, &braces::Config::resolve(self.cfg))
         });
-        content = self.apply(content, BRACKETS_FIX, |buffer| {
+        content = self.apply(content, changed_rules, BRACKETS_FIX, |buffer| {
             brackets::fix(buffer, &brackets::Config::resolve(self.cfg))
         });
-        content = self.apply(content, FINAL_NEWLINE_FIX, |buffer| {
+        content = self.apply(content, changed_rules, FINAL_NEWLINE_FIX, |buffer| {
             let newline = target_newline(buffer, self.cfg, self.path, self.base_dir);
             new_line_at_end_of_file::fix(buffer, newline.as_str())
         });
-        content = self.apply(content, QUOTED_STRINGS_FIX, |buffer| {
+        content = self.apply(content, changed_rules, QUOTED_STRINGS_FIX, |buffer| {
             quoted_strings::fix(buffer, &quoted_strings::Config::resolve(self.cfg))
         });
-        content = self.apply(content, TRAILING_SPACES_FIX, trailing_spaces::fix);
-        content = self.apply(content, DOCUMENT_START_FIX, |buffer| {
+        content = self.apply(
+            content,
+            changed_rules,
+            TRAILING_SPACES_FIX,
+            trailing_spaces::fix,
+        );
+        content = self.apply(content, changed_rules, DOCUMENT_START_FIX, |buffer| {
             document_start::fix(buffer, &document_start::Config::resolve(self.cfg))
         });
-        content = self.apply(content, DOCUMENT_END_FIX, |buffer| {
+        content = self.apply(content, changed_rules, DOCUMENT_END_FIX, |buffer| {
             document_end::fix(buffer, &document_end::Config::resolve(self.cfg))
         });
-        content = self.apply(content, EMPTY_LINES_FIX, |buffer| {
+        content = self.apply(content, changed_rules, EMPTY_LINES_FIX, |buffer| {
             empty_lines::fix(buffer, &empty_lines::Config::resolve(self.cfg))
         });
         content
@@ -620,6 +672,7 @@ impl FixContext<'_> {
     fn apply(
         &self,
         content: String,
+        changed_rules: &mut Vec<&'static str>,
         rule: RuleFix,
         fix: impl Fn(&str) -> Option<String>,
     ) -> String {
@@ -660,6 +713,7 @@ impl FixContext<'_> {
                 break;
             }
             current = next;
+            changed_rules.push(rule.rule);
             if guarded {
                 directives = Directives::parse_with_per_line(&current, &self.per_line);
             }

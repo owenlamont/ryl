@@ -94,9 +94,14 @@ gates the whole pipeline on `lint::parse_error` (stricter than lint's
 error ⇒ the input is returned byte-for-byte unchanged and `apply_safe_fixes_in_place`
 reports it in `FixOutcome::skipped`; the CLI prints a `<path>:L:C skipped by --fix:
 <error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
-pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES`, like
-ruff's `--fix`): one `--fix` reaches the fixed point, and the "N fixed, M remaining"
-summary and `--diff` see only the final text. Lint behavior is unchanged: an undefined
+pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES` = 100,
+ruff's `MAX_ITERATIONS`): one `--fix` reaches the fixed point, and the "N fixed, M
+remaining" summary and `--diff` see only the final text. If a pass past the cap would
+still change the text, `apply_safe_fixes_capped` writes ruff's "Failed to converge"
+error (a ryl bug report request naming the rules still changing) to stderr from the loop
+itself, so the CLI and LSP both get it; `--no-warnings` does not suppress it, the text
+as of the cap is kept, and the exit code is unaffected. Tests reach it through
+`apply_safe_fixes_capped` with a small cap. Lint behavior is unchanged: an undefined
 alias is still not a lint syntax error (the `anchors` rule reports it, matching
 yamllint); only `--fix` applies the stricter gate, through the in-place and per-region
 Markdown paths.
