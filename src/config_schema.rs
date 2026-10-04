@@ -46,6 +46,7 @@ pub struct TomlConfig {
             TomlAnchorsOptions,
             CommentsIndentationOptions,
             TomlHyphensOptions,
+            TomlCommentsOptions,
         >,
     >,
     #[serde(flatten, default)]
@@ -400,6 +401,7 @@ pub struct RulesTable<
     A = AnchorsOptions,
     C = NoOptions,
     H = HyphensOptions,
+    M = CommentsOptions,
 > {
     #[serde(rename = "ALL")]
     pub all: Option<RuleSwitch>,
@@ -410,7 +412,7 @@ pub struct RulesTable<
     pub brackets: Option<RuleEntry<BraceLikeOptions>>,
     pub colons: Option<RuleEntry<ColonsOptions>>,
     pub commas: Option<RuleEntry<CommasOptions>>,
-    pub comments: Option<RuleEntry<CommentsOptions>>,
+    pub comments: Option<RuleEntry<M>>,
     #[serde(rename = "comments-indentation")]
     pub comments_indentation: Option<RuleEntry<C>>,
     #[serde(rename = "document-end")]
@@ -543,6 +545,20 @@ pub struct CommentsOptions {
     pub ignore_shebangs: Option<bool>,
     #[serde(rename = "min-spaces-from-content")]
     pub min_spaces_from_content: Option<i64>,
+}
+
+/// TOML-only `comments` options: the yamllint three plus ryl's `max-spaces-from-content`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TomlCommentsOptions {
+    #[serde(rename = "require-starting-space")]
+    pub require_starting_space: Option<bool>,
+    #[serde(rename = "ignore-shebangs")]
+    pub ignore_shebangs: Option<bool>,
+    #[serde(rename = "min-spaces-from-content")]
+    pub min_spaces_from_content: Option<i64>,
+    #[serde(rename = "max-spaces-from-content")]
+    pub max_spaces_from_content: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -1027,6 +1043,12 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         validate_output_table(output)?;
     }
 
+    validation::validate_comments_rule(
+        config
+            .rules
+            .as_ref()
+            .and_then(|rules| rules.comments.as_ref()),
+    )?;
     validate_common_config(
         config.ignore.as_ref(),
         config.ignore_from_file.as_ref(),
@@ -1061,10 +1083,10 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A, C, H>(
+fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A, C, H, M>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable<Q, K, A, C, H>>,
+    rules: Option<&RulesTable<Q, K, A, C, H, M>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(

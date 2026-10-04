@@ -12,7 +12,8 @@ content.
   enforcing a space keeps comments visually distinct from directive-like
   prefixes.
 - **Inline comments.** Pushing inline comments away from values prevents
-  visual collisions when values change length.
+  visual collisions when values change length; capping the gap keeps them
+  next to the value they describe.
 
 ## Configuration
 
@@ -22,6 +23,7 @@ level = "error"
 require-starting-space = true
 ignore-shebangs = true
 min-spaces-from-content = 2
+max-spaces-from-content = -1
 ```
 
 | Option | Default | Description |
@@ -29,6 +31,10 @@ min-spaces-from-content = 2
 | `require-starting-space` | `true` | Require at least one space between `#` and the comment text. |
 | `ignore-shebangs` | `true` | Skip `#!` shebang lines when `require-starting-space` is on. |
 | `min-spaces-from-content` | `2` | Minimum spaces between code and an inline `#` comment. Use `-1` to disable. |
+| `max-spaces-from-content` | `-1` | Maximum spaces between code and an inline `#` comment; `-1` (the default) disables it. Must be at least 1 and at least `min-spaces-from-content`. TOML only. |
+
+Spaces and tabs each count as one. Setting `max-spaces-from-content` reports
+deliberately column-aligned inline comments, and `--fix` collapses the alignment.
 
 ## Examples
 
@@ -53,10 +59,25 @@ key: value # only one space before inline comment
 key: value  # only one space before inline comment
 ```
 
+### :x: Reported (`min-spaces-from-content = 2`, `max-spaces-from-content = 2`)
+
+```yaml
+first: value        # too far from its value
+second: value # too close
+```
+
+### :wrench: After `ryl check --fix`
+
+```yaml
+first: value  # too far from its value
+second: value  # too close
+```
+
 ## Automatic fixing
 
-`ryl check --fix` inserts the missing space after `#` and pads inline comments
-to the configured `min-spaces-from-content`. Disable with:
+`ryl check --fix` inserts the missing space after `#`, pads inline comments
+to the configured `min-spaces-from-content`, and replaces a gap wider than
+`max-spaces-from-content` with that many spaces. Disable with:
 
 ```toml
 [fix]

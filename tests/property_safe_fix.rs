@@ -163,6 +163,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
                 },
             ),
             trailing_inline_comment: Some(InlineComment {
+                whitespace_before_hash: "  ".to_string(),
                 spaces_after_hash: 0,
                 text: "trailing".to_string(),
             }),

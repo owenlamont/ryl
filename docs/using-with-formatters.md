@@ -259,6 +259,7 @@ formatter (the recipes above already do):
 | `braces` inner spaces | `0` | `1` | `0` |
 | `brackets` inner spaces | `0` | `0` | `0` |
 | `comments` `min-spaces-from-content` | `1` | `1` | `2` |
+| `comments` `max-spaces-from-content` | `1` or unset | `1` or unset | `2` or unset |
 | `quoted-strings` | `required = "only-when-needed"` | `required = "only-when-needed"`, never `quote-type = "single"` | off (yamlfix owns quoting; see note) |
 | `new-lines` `type` | `unix` † | `unix` | `unix` † |
 
@@ -269,7 +270,9 @@ yamlfix emits CRLF only on files it rewrites and settles back to LF under `ryl c
 Two of these point in opposite directions across formatters, which is why there is no
 single config that suits all three at once: flow-mapping padding (`braces`, 1 for
 Prettier but 0 for the others) and inline-comment spacing (`comments`, 1 for yamlfmt and
-Prettier but 2 for yamlfix). Pick the config for the formatter you actually use.
+Prettier but 2 for yamlfix). Pick the config for the formatter you actually use. A
+`max-spaces-from-content` below your formatter's spacing loops too, since ryl trims what
+the formatter pads.
 
 ## Line endings across operating systems
 

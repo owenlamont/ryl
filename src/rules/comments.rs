@@ -1,11 +1,11 @@
-//! `comments`: `#` comment formatting: a required space after the `#`, a minimum
-//! gap from preceding inline content, and an optional shebang exemption. Mirrors
-//! yamllint's `comments`. Safe `--fix` inserts the missing spaces.
+//! `comments`: `#` comment formatting: a required space after the `#`, a minimum and
+//! (ryl-only) maximum gap from preceding inline content, and an optional shebang
+//! exemption. Mirrors yamllint's `comments`. Safe `--fix` pads or trims the spaces.
 
 use granit_parser::Placement;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::comments_scan::collect_comments;
+use crate::rules::support::comments_scan::{CommentInfo, collect_comments};
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 
 pub const ID: &str = "comments";
@@ -15,6 +15,7 @@ pub struct Config {
     require_starting_space: bool,
     ignore_shebangs: bool,
     min_spaces_from_content: Option<usize>,
+    max_spaces_from_content: Option<usize>,
 }
 
 impl Config {
@@ -23,18 +24,14 @@ impl Config {
         let require_starting_space =
             cfg.rule_option_bool(ID, "require-starting-space", true);
         let ignore_shebangs = cfg.rule_option_bool(ID, "ignore-shebangs", true);
-        let min_spaces_value = cfg.rule_option_int(ID, "min-spaces-from-content", 2);
-
-        let min_spaces_from_content = if min_spaces_value < 0 {
-            None
-        } else {
-            Some(usize::try_from(min_spaces_value).unwrap_or(usize::MAX))
-        };
+        let spacing =
+            |key, default| usize::try_from(cfg.rule_option_int(ID, key, default)).ok();
 
         Self {
             require_starting_space,
             ignore_shebangs,
-            min_spaces_from_content,
+            min_spaces_from_content: spacing("min-spaces-from-content", 2),
+            max_spaces_from_content: spacing("max-spaces-from-content", -1),
         }
     }
 
@@ -44,10 +41,6 @@ impl Config {
 
     const fn ignore_shebangs(&self) -> bool {
         self.ignore_shebangs
-    }
-
-    const fn min_spaces_from_content(&self) -> Option<usize> {
-        self.min_spaces_from_content
     }
 }
 
@@ -70,28 +63,25 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     for comment in collect_comments(buffer) {
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;
-        let is_inline = comment.placement == Placement::Right;
 
-        if let Some(required) = cfg.min_spaces_from_content()
-            && is_inline
-        {
-            let byte_start =
-                comment.span.start.byte_offset().expect(
-                    "granit Parser::new_from_str always populates byte offsets",
-                );
-            let line_start = line_start_byte(buffer, byte_start);
-            let spacing = buffer[line_start..byte_start]
-                .chars()
-                .rev()
-                .take_while(|ch| matches!(ch, ' ' | '\t'))
-                .count();
-            if spacing < required {
+        if comment.placement == Placement::Right {
+            let byte_start = comment_byte_start(&comment);
+            let spacing = spacing_before(buffer, byte_start);
+            let message =
+                match (cfg.min_spaces_from_content, cfg.max_spaces_from_content) {
+                    (Some(min), _) if spacing < min => {
+                        Some(format!("too few spaces before comment: expected {min}"))
+                    }
+                    (_, Some(max)) if spacing > max => Some(format!(
+                        "too many spaces before comment: expected at most {max}"
+                    )),
+                    _ => None,
+                };
+            if let Some(message) = message {
                 violations.push(Violation {
                     line,
                     column: hash_column,
-                    message: format!(
-                        "too few spaces before comment: expected {required}"
-                    ),
+                    message,
                 });
             }
         }
@@ -133,27 +123,22 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let mut edits: Vec<(BytePos, BytePos, String)> = Vec::new();
 
     for comment in collect_comments(buffer) {
-        let byte_start = comment
-            .span
-            .start
-            .byte_offset()
-            .expect("granit Parser::new_from_str always populates byte offsets");
+        let byte_start = comment_byte_start(&comment);
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;
-        let is_inline = comment.placement == Placement::Right;
 
-        if let Some(required) = cfg.min_spaces_from_content()
-            && is_inline
-        {
-            let line_start = line_start_byte(buffer, byte_start);
-            let spacing = buffer[line_start..byte_start]
-                .chars()
-                .rev()
-                .take_while(|ch| matches!(ch, ' ' | '\t'))
-                .count();
-            if spacing < required {
-                let at = BytePos::new(byte_start);
-                edits.push((at, at, " ".repeat(required - spacing)));
+        if comment.placement == Placement::Right {
+            let spacing = spacing_before(buffer, byte_start);
+            let at = BytePos::new(byte_start);
+            match (cfg.min_spaces_from_content, cfg.max_spaces_from_content) {
+                (Some(min), _) if spacing < min => {
+                    edits.push((at, at, " ".repeat(min - spacing)));
+                }
+                (_, Some(max)) if spacing > max => {
+                    let run_start = BytePos::new(byte_start - spacing);
+                    edits.push((run_start, at, " ".repeat(max)));
+                }
+                _ => {}
             }
         }
 
@@ -189,6 +174,18 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     Some(apply_replacements(buffer, edits))
 }
 
-fn line_start_byte(buffer: &str, byte_offset: usize) -> usize {
-    buffer[..byte_offset].rfind('\n').map_or(0, |i| i + 1)
+fn comment_byte_start(comment: &CommentInfo) -> usize {
+    comment
+        .span
+        .start
+        .byte_offset()
+        .expect("granit Parser::new_from_str always populates byte offsets")
+}
+
+fn spacing_before(buffer: &str, byte_start: usize) -> usize {
+    buffer[..byte_start]
+        .bytes()
+        .rev()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count()
 }

@@ -29,8 +29,9 @@ complete — so it does *not* assert "no diagnostics remain"): idempotence, pars
 preservation (parses to an equal `YamlOwned`), and a leading `# ryl disable` making the
 fix a byte-for-byte no-op. It runs a matrix of named configs — five YAML
 (`yamllint-default`, `best-practice`, `strict-single`, `strict-double`, `consistent`)
-plus one TOML-backed (`best-practice-toml`, covering ryl-only options like
-`allow-double-quotes-for-escaping`). Deterministic siblings pin known-dirty /
+plus three TOML-backed (`best-practice-toml`, covering ryl-only options like
+`allow-double-quotes-for-escaping`, and two `comments` spacing variants exercising
+`max-spaces-from-content`). Deterministic siblings pin known-dirty /
 production-bug inputs through the same checks (and assert the fixer clears them) so the
 property can't pass vacuously.
 

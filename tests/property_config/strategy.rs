@@ -123,7 +123,13 @@ const CATALOG: &[(&str, &[(&str, OptValKind)])] = &[
             ("allow-non-breakable-words", OptValKind::Bool),
         ],
     ),
-    ("comments", &[("min-spaces-from-content", OptValKind::Int)]),
+    (
+        "comments",
+        &[
+            ("min-spaces-from-content", OptValKind::Int),
+            ("max-spaces-from-content", OptValKind::Int),
+        ],
+    ),
     ("braces", &[("max-spaces-inside", OptValKind::Int)]),
     ("truthy", &[("check-keys", OptValKind::Bool)]),
     (

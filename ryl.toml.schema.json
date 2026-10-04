@@ -357,20 +357,6 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntryForCommentsOptions": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "$ref": "#/$defs/RuleSwitch"
-        },
-        {
-          "$ref": "#/$defs/RuleOptionsForCommentsOptions"
-        }
-      ],
-      "description": "Common rule entry shape used by TOML config."
-    },
     "RuleEntryForDocumentPresenceOptions": {
       "anyOf": [
         {
@@ -535,6 +521,20 @@
         },
         {
           "$ref": "#/$defs/RuleOptionsForTomlAnchorsOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
+    "RuleEntryForTomlCommentsOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForTomlCommentsOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
@@ -825,62 +825,6 @@
             {
               "type": "null"
             }
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "RuleOptionsForCommentsOptions": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-shebangs": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "min-spaces-from-content": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "require-starting-space": {
-          "type": [
-            "boolean",
-            "null"
           ]
         }
       },
@@ -1520,6 +1464,69 @@
       },
       "type": "object"
     },
+    "RuleOptionsForTomlCommentsOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-shebangs": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max-spaces-from-content": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min-spaces-from-content": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "require-starting-space": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RuleOptionsForTomlHyphensOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1888,7 +1895,7 @@
         "comments": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForCommentsOptions"
+              "$ref": "#/$defs/RuleEntryForTomlCommentsOptions"
             },
             {
               "type": "null"

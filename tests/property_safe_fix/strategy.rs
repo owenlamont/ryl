@@ -181,19 +181,23 @@ fn arb_multiline_line() -> impl Strategy<Value = MultilineLine> {
 
 fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
     (
+        "[ \t]{1,6}",
         0u8..=2,
         "[a-z][a-z0-9 ]{0,8}",
         prop::option::of(arb_multibyte_char()),
     )
-        .prop_map(|(spaces_after_hash, mut text, multibyte)| {
-            if let Some(ch) = multibyte {
-                text.push(ch);
-            }
-            InlineComment {
-                spaces_after_hash,
-                text,
-            }
-        })
+        .prop_map(
+            |(whitespace_before_hash, spaces_after_hash, mut text, multibyte)| {
+                if let Some(ch) = multibyte {
+                    text.push(ch);
+                }
+                InlineComment {
+                    whitespace_before_hash,
+                    spaces_after_hash,
+                    text,
+                }
+            },
+        )
 }
 
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {

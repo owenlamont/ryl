@@ -71,9 +71,8 @@ pub const SAFE_FIX_RULES: &[&str] = &[
     "empty-lines",
 ];
 
-const BEST_PRACTICE_TOML: &str = "[rules]
+const COMMON_SAFE_FIX_RULES_TOML: &str = "[rules]
 new-lines = 'enable'
-comments = 'enable'
 comments-indentation = 'enable'
 commas = 'enable'
 braces = 'enable'
@@ -89,6 +88,18 @@ quote-type = 'single'
 required = 'only-when-needed'
 allow-double-quotes-for-escaping = true
 ";
+
+const COMMENTS_TOML_VARIANTS: &[(&str, &str)] = &[
+    ("best-practice-toml", "[rules.comments]\n"),
+    (
+        "comments-exact-spacing-toml",
+        "[rules.comments]\nmin-spaces-from-content = 2\nmax-spaces-from-content = 2\n",
+    ),
+    (
+        "comments-spacing-band-toml",
+        "[rules.comments]\nmin-spaces-from-content = 1\nmax-spaces-from-content = 4\n",
+    ),
+];
 
 pub struct PreparedConfig {
     pub name: &'static str,
@@ -114,20 +125,26 @@ static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
         })
         .collect();
 
-    let dir = TempDir::new().expect("create tempdir for TOML config");
-    let toml_path = dir.path().join(".ryl.toml");
-    fs::write(&toml_path, BEST_PRACTICE_TOML).expect("write TOML config");
-    let overrides = Overrides {
-        config_file: Some(toml_path),
-        config_data: None,
-    };
-    let ctx = discover_config(&[], &overrides)
-        .expect("TOML-backed best-practice config must load");
-    configs.push(PreparedConfig {
-        name: "best-practice-toml",
-        cfg: ctx.config,
-        _backing: Some(dir),
-    });
+    for (name, comments) in COMMENTS_TOML_VARIANTS {
+        let dir = TempDir::new().expect("create tempdir for TOML config");
+        let toml_path = dir.path().join(".ryl.toml");
+        fs::write(
+            &toml_path,
+            format!("{COMMON_SAFE_FIX_RULES_TOML}\n{comments}"),
+        )
+        .expect("write TOML config");
+        let overrides = Overrides {
+            config_file: Some(toml_path),
+            config_data: None,
+        };
+        let ctx = discover_config(&[], &overrides)
+            .expect("named TOML safe-fix config must load");
+        configs.push(PreparedConfig {
+            name,
+            cfg: ctx.config,
+            _backing: Some(dir),
+        });
+    }
 
     configs
 });

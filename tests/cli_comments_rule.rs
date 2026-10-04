@@ -66,3 +66,37 @@ fn comments_rule_ignores_shebang_when_enabled() {
     assert!(stdout.is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.is_empty(), "expected no stderr: {stderr}");
 }
+
+#[test]
+fn fix_trims_to_max_spaces_but_honours_disable_line() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules.comments]\nmax-spaces-from-content = 2\n",
+    )
+    .unwrap();
+    let file = dir.path().join("spaced.yaml");
+    let kept = "kept: 1      # ryl disable-line rule:comments\n";
+    fs::write(&file, format!("first: value        # comment\n{kept}")).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe).arg("check").arg(&file));
+    assert_eq!(code, 1, "expected exit 1: stdout={stdout} stderr={stderr}");
+    let output = if stderr.is_empty() { &stdout } else { &stderr };
+    assert!(
+        output.contains("1:21"),
+        "missing over-max position: {output}"
+    );
+    assert!(
+        !output.contains("2:"),
+        "disabled line was reported: {output}"
+    );
+
+    let (code, stdout, stderr) =
+        run(Command::new(exe).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 0, "expected exit 0: stdout={stdout} stderr={stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        format!("first: value  # comment\n{kept}")
+    );
+}
