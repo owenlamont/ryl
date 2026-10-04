@@ -2,7 +2,8 @@ use std::fs;
 
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{
-    FixOutcome, apply_safe_fixes, apply_safe_fixes_in_place, apply_safe_fixes_to_files,
+    FixOutcome, apply_safe_fixes, apply_safe_fixes_capped, apply_safe_fixes_in_place,
+    apply_safe_fixes_to_files,
 };
 use tempfile::tempdir;
 
@@ -321,4 +322,46 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     let ctx = discover_config(std::slice::from_ref(&file), &Overrides::default())
         .expect("config discovers");
     assert!(!ctx.config.fix().allows_rule("quoted-strings"));
+}
+
+/// Runs the two-pass repro (quoted-strings joins a continuation line, stranding a comment
+/// for comments-indentation) under `max_passes`, returning the output and the error text.
+fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
+    let cfg =
+        config("rules:\n  comments-indentation: enable\n  quoted-strings: enable\n");
+    let mut err = Vec::new();
+    let fixed = apply_safe_fixes_capped(
+        "a: b\n  c\n  # x\nd: e\n",
+        &cfg,
+        std::path::Path::new("input.yaml"),
+        std::path::Path::new("."),
+        &[],
+        max_passes,
+        &mut err,
+    );
+    (fixed, String::from_utf8(err).unwrap())
+}
+
+#[test]
+fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
+    let (fixed, err) = fix_two_pass_repro(1);
+
+    assert_eq!(fixed, "a: 'b c'\n  # x\nd: 'e'\n");
+    for expected in [
+        "error: Failed to converge after 1 iterations.",
+        "This indicates a bug in ryl.",
+        "https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D",
+        "`input.yaml`",
+        "the rule ids comments-indentation,",
+    ] {
+        assert!(err.contains(expected), "missing {expected:?} in {err:?}");
+    }
+}
+
+#[test]
+fn fix_pipeline_converging_exactly_at_the_cap_reports_nothing() {
+    let (fixed, err) = fix_two_pass_repro(2);
+
+    assert_eq!(fixed, "a: 'b c'\n# x\nd: 'e'\n");
+    assert_eq!(err, "");
 }
