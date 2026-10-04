@@ -84,9 +84,7 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   radixes, full bool/null spelling sets); keep that schema choice consistent across rules
   instead of switching to JSON/1.1 semantics in any single rule.
 - Matching a core-schema tag (`!!int`, `!!str`, …): use
-  `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`, **never** granit's
-  `Tag::is_yaml_core_schema` (it inspects only the *handle*, so a verbatim core tag
-  `!<tag:yaml.org,2002:int>` slips past it). The shared helpers handle the canonical
-  handle (incl. a resolving `%TAG`) and the verbatim spelling, but not a `%TAG` that
-  splits the URI mid-token; to match one type regardless of split point, compare the
-  full resolved URI (`handle` ++ `suffix`), as `rules::support::merge_key` does.
+  `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`. They wrap granit's
+  `Tag::suffix_in_namespace`, which resolves every spelling (verbatim, `!!`, a `%TAG`
+  split mid-token), and unlike granit's strict `Tag::is_yaml_core_schema` they also
+  accept non-core types such as `merge`.
