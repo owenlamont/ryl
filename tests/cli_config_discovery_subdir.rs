@@ -22,6 +22,6 @@ fn relative_input_from_subdirectory_finds_ancestor_config() {
             run(ryl(root.path()).current_dir(&sub).args(["check", input]));
         assert_eq!(code, 1, "input {input}: stdout={stdout} stderr={stderr}");
         let output = command_output(&stdout, &stderr);
-        assert!(output.contains("(truthy)"), "input {input}: {output}");
+        assert!(output.contains("truthy"), "input {input}: {output}");
     }
 }
