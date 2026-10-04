@@ -559,6 +559,7 @@ fn multi_line_scalars_follow_their_owner() {
             wrong(22, 6, 6),
         ]
     );
+    assert_eq!(hits("|\n  x\n   ", &cfg), vec![wrong(3, 4, 2)]);
 }
 
 #[test]

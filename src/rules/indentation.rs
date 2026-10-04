@@ -211,7 +211,10 @@ fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<T
                     let from = tokens.last().map_or(0, |prev| prev.end);
                     start = block_indicator(chars, from).unwrap_or(start);
                     let end_line_start = line_starts[locate(line_starts, end).0].get();
-                    if count_spaces(chars, end_line_start) >= end - end_line_start {
+                    let trailing = end - end_line_start;
+                    if count_spaces(chars, end_line_start) >= trailing
+                        && trailing <= span.start.col()
+                    {
                         end = end_line_start;
                     }
                 }
