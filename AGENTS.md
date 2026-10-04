@@ -27,6 +27,9 @@ ryl is a CLI tool for linting yaml files
   behaviour or a spec choice (what to flag, which YAML schema applies, a
   false-positive-vs-false-negative trade-off), lay out the options and let the maintainer
   decide. Carry out mechanical fixes and clear-cut review feedback without asking.
+- With those options, give the precedent in ruff, rumdl, ty and biome — tested against
+  the installed binaries where possible, not recalled. ryl models itself on them;
+  yamllint is a migration target, so it decides only where migrating users would break.
 - If you notice anything inaccurate or stale in this `AGENTS.md` or in a dev skill while
   working, fix it as part of the change rather than leaving it for later.
 - Keep code as succinct as practical: every line has a maintenance and read-time cost,
