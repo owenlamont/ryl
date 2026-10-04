@@ -56,6 +56,11 @@ ignore-from-file = ".gitignore"
 Patterns are gitignore-style: `**` crosses directory boundaries, a bare `*.yaml`
 matches at any depth, and a leading `!` negates an earlier pattern.
 
+A pattern with a directory in it is anchored at the directory holding a discovered
+config, or at the working directory for `-c`/`-d`. A file outside that directory
+matches by file name only, so `*.lock.yaml` still applies to it and
+`.github/workflows/*` does not &mdash; the same as ruff.
+
 ```toml
 [rules.document-start]
 present = true
