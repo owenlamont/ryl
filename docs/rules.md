@@ -95,7 +95,36 @@ truthy = "disable"
 key-ordering = "enable"
 ```
 
-Enabling a rule without options applies its defaults. The built-in `default`
+Enabling a rule without options applies its defaults. To enable every rule,
+including the ryl-only ones, use `ALL`:
+
+```toml
+[rules]
+ALL = "enable"
+truthy = "disable"
+
+[rules.line-length]
+max = 120
+```
+
+Each rule then runs with its own defaults at level `error`. An explicit entry for
+a rule wins over `ALL` wherever it appears in the table. New rules arrive with
+ryl upgrades, so `ALL` can start reporting new diagnostics after an update. `ALL`
+is TOML-only; yamllint-compatible YAML config rejects it.
+
+`ryl check --enable <RULES>` picks the rules from the command line instead:
+comma-separated rule IDs or `ALL`, and the flag can be repeated. It replaces the
+config's selection, so only the listed rules run. A listed rule keeps the options
+and level the config gives it, and runs at its defaults if the config disables
+it or does not mention it. `ignore`, `per-file-ignores` and inline directives
+still apply. The flag works without any config file:
+
+```bash
+ryl check --enable ALL .
+ryl check --enable truthy,line-length .
+```
+
+The built-in `default`
 and `relaxed` presets cover the common starting points (the `empty` preset is
 YAML-`extends:` only, with no usable TOML form); see
 [Configuration presets](config-presets.md).

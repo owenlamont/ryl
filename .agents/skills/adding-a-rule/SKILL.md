@@ -29,7 +29,7 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    `collect_block_diagnostics`). Pick the arm matching the rule's shape (config or not,
    `Vec`/`Option`, per-violation or fixed `MESSAGE`).
 4. **TOML config wiring** (`src/config_schema.rs` + `config_schema/serialization.rs`):
-   a `RuleName` variant + `as_str` arm, a `RulesTable` field with its `…Options` type,
+   a `RuleSelector` variant + `as_str` arm, a `RulesTable` field with its `…Options` type,
    and the `insert_serialized` line in `rules_table_to_value`. These four parallel lists
    have no compile-time cross-check; the `every_rule_round_trips_through_toml_serialization`
    guard test catches a forgotten serialization line. Regenerate the committed

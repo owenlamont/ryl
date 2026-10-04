@@ -356,6 +356,15 @@ fn generated_schema_exposes_known_rule_properties() {
     assert!(rule_properties.get("quoted-strings").is_some());
     assert!(rule_properties.get("new-line-at-end-of-file").is_some());
     assert!(rule_properties.get("comments-indentation").is_some());
+    assert!(rule_properties.get("ALL").is_some());
+    let yaml_schema = yaml_schema_value();
+    assert!(
+        properties_for_ref(&yaml_schema, "rules")
+            .get("ALL")
+            .is_none()
+    );
+    let selector = &schema["$defs"]["RuleSelector"]["enum"];
+    assert!(selector.as_array().unwrap().contains(&json!("ALL")));
 }
 
 #[test]
@@ -598,8 +607,8 @@ fn checked_in_toml_example_covers_all_builtin_rules() {
         .and_then(Value::as_object)
         .expect("example config should contain rules");
 
-    assert_eq!(configured_rules.len(), rule_properties.len());
-    for rule_name in rule_properties.keys() {
+    assert_eq!(configured_rules.len(), rule_properties.len() - 1);
+    for rule_name in rule_properties.keys().filter(|key| *key != "ALL") {
         assert!(
             configured_rules.contains_key(rule_name),
             "example config should include rule {rule_name}"
@@ -1120,6 +1129,7 @@ fn yaml_config_rejects_every_toml_only_key() {
             "per-line-ignores",
             "per-line-ignores:\n  - regex: \"a\"\n    rules: [comments]\n",
         ),
+        ("rules.ALL", "rules:\n  ALL: enable\n"),
     ];
 
     for (key, data) in cases {
@@ -1158,4 +1168,15 @@ fn yaml_config_rejecting_files_points_at_the_yaml_spelling() {
         "`files` has a YAML spelling, so the error must name it rather than sending \
          the reader to TOML"
     );
+}
+
+#[test]
+fn rule_list_typos_name_the_valid_selectors() {
+    for config in [
+        "[per-file-ignores]\n\"a.yaml\" = [\"truthyy\"]\n",
+        "[[per-line-ignores]]\npath = \"a.yaml\"\nrules = [\"truthyy\"]\n",
+    ] {
+        let err = parse_toml_config_str(config, false).unwrap_err();
+        assert!(err.contains("expected one of `ALL`, `anchors`"), "{err}");
+    }
 }

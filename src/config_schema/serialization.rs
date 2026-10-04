@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use super::{
     FixTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
-    NormalizedPerLineIgnore, PerLineIgnore, RuleName, RulesTable, StringOrVec,
+    NormalizedPerLineIgnore, PerLineIgnore, RuleSelector, RulesTable, StringOrVec,
     TomlConfig, YamlConfig,
 };
 
@@ -35,7 +35,7 @@ fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
 }
 
 fn normalize_per_file_ignores(
-    ignores: &std::collections::BTreeMap<String, Vec<RuleName>>,
+    ignores: &std::collections::BTreeMap<String, Vec<RuleSelector>>,
 ) -> std::collections::BTreeMap<String, Vec<String>> {
     ignores
         .iter()
@@ -164,8 +164,23 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
         rules: config
             .rules
             .as_ref()
-            .map_or_else(std::collections::BTreeMap::new, normalized_rules_from_table),
+            .map_or_else(std::collections::BTreeMap::new, |rules| {
+                expand_all_rules(normalized_rules_from_table(rules))
+            }),
     }
+}
+
+fn expand_all_rules(
+    mut rules: std::collections::BTreeMap<String, YamlOwned>,
+) -> std::collections::BTreeMap<String, YamlOwned> {
+    if rules.remove("ALL").as_ref().and_then(YamlOwned::as_str) == Some("enable") {
+        for id in crate::rules::ALL_RULE_IDS {
+            rules.entry(id.to_string()).or_insert_with(|| {
+                YamlOwned::Value(ScalarOwned::String("enable".into()))
+            });
+        }
+    }
+    rules
 }
 
 fn normalize_markdown_table(table: &MarkdownTable) -> NormalizedMarkdown {
@@ -236,6 +251,7 @@ fn rules_table_to_value<
     rules: &RulesTable<Q, K, A, C, H>,
 ) -> toml::Value {
     let mut table = toml::map::Map::new();
+    insert_serialized(&mut table, "ALL", rules.all.as_ref());
     insert_serialized(&mut table, "anchors", rules.anchors.as_ref());
     insert_serialized(
         &mut table,

@@ -94,7 +94,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`
   suppresses warning-level diagnostics in the output. `--strict` turns a
-  warning-only run into exit code `2`.
+  warning-only run into exit code `2`. `--enable <RULES>` runs exactly the
+  listed rules (comma-separated IDs, or `ALL`) in place of the config's
+  selection, and needs no config file.
 - Pass `-` as the input to read YAML from stdin (ruff convention). Add
   `--stdin-filename <PATH>` so diagnostics, project-config discovery,
   and path-based filtering (`yaml-files`, per-file-ignores, per-rule

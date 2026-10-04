@@ -269,3 +269,57 @@ fn toml_per_file_ignores_normalize_dot_segments_in_patterns() {
         );
     }
 }
+
+#[test]
+fn toml_per_file_ignores_all_silences_every_rule_but_not_syntax_errors() {
+    let dir = tempdir().unwrap();
+    let vendored = dir.path().join("pnpm-lock.yaml");
+    let broken = dir.path().join("pnpm-broken.yaml");
+    let own = dir.path().join("own.yaml");
+    fs::write(&vendored, "on: yes   \n").unwrap();
+    fs::write(&broken, "a: [\n").unwrap();
+    fs::write(&own, "on: yes   \n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ntruthy = \"enable\"\ntrailing-spaces = \"enable\"\n\n\
+         [per-file-ignores]\n\"pnpm-*.yaml\" = [\"ALL\"]\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run(ryl(dir.path()).arg("check").arg(dir.path()));
+    let output = command_output(&stdout, &stderr);
+    assert_eq!(code, 1, "{output}");
+    assert!(!output.contains("pnpm-lock.yaml"), "{output}");
+    assert!(
+        output.contains("pnpm-broken.yaml"),
+        "syntax error still reported: {output}"
+    );
+    assert!(
+        output.contains("own.yaml") && output.contains("truthy"),
+        "{output}"
+    );
+
+    let (_, stdout, stderr) =
+        run(ryl(dir.path()).args(["check", "--fix"]).arg(&vendored));
+    assert_eq!(
+        fs::read_to_string(&vendored).unwrap(),
+        "on: yes   \n",
+        "no fix under ALL: {stdout}{stderr}"
+    );
+}
+
+#[test]
+fn toml_per_file_ignores_reject_star_and_list_all() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules]\ntruthy = \"enable\"\n[per-file-ignores]\n\"a.yaml\" = [\"*\"]\n",
+    )
+    .unwrap();
+    let (code, stdout, stderr) = run(ryl(dir.path()).arg("check").arg(&file));
+    let output = command_output(&stdout, &stderr);
+    assert_eq!(code, 2, "{output}");
+    assert!(output.contains("`ALL`, `anchors`"), "{output}");
+}

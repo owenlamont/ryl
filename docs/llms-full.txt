@@ -171,7 +171,13 @@ To lint with yamllint's standard rule set straight away, pass it inline:
 ryl check -d 'extends: default' .
 ```
 
-or drop a config in your project (see [Configure for your
+or name the rules to run with `--enable`, which needs no config file:
+
+```bash
+ryl check --enable ALL .
+```
+
+Or drop a config in your project (see [Configure for your
 project](#configure-for-your-project) below).
 
 ## Lint from stdin
@@ -202,11 +208,11 @@ Exit codes:
 - `2` &mdash; CLI usage error (no inputs provided, bad flags), or
   `--strict` was set and only warnings were produced.
 
-ryl never enables a rule unless a configuration explicitly turns it on, so two
+ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
-  discovered `.ryl.toml`/`.yamllint`). Create a config that enables rules, or pass a
+  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, or pass a
   YAML config with `extends: default` for yamllint's standard rule set.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[rules]`/`[tool.ryl]`, or one disabling everything). Enable at least one rule, or
@@ -1020,7 +1026,36 @@ truthy = "disable"
 key-ordering = "enable"
 ```
 
-Enabling a rule without options applies its defaults. The built-in `default`
+Enabling a rule without options applies its defaults. To enable every rule,
+including the ryl-only ones, use `ALL`:
+
+```toml
+[rules]
+ALL = "enable"
+truthy = "disable"
+
+[rules.line-length]
+max = 120
+```
+
+Each rule then runs with its own defaults at level `error`. An explicit entry for
+a rule wins over `ALL` wherever it appears in the table. New rules arrive with
+ryl upgrades, so `ALL` can start reporting new diagnostics after an update. `ALL`
+is TOML-only; yamllint-compatible YAML config rejects it.
+
+`ryl check --enable <RULES>` picks the rules from the command line instead:
+comma-separated rule IDs or `ALL`, and the flag can be repeated. It replaces the
+config's selection, so only the listed rules run. A listed rule keeps the options
+and level the config gives it, and runs at its defaults if the config disables
+it or does not mention it. `ignore`, `per-file-ignores` and inline directives
+still apply. The flag works without any config file:
+
+```bash
+ryl check --enable ALL .
+ryl check --enable truthy,line-length .
+```
+
+The built-in `default`
 and `relaxed` presets cover the common starting points (the `empty` preset is
 YAML-`extends:` only, with no usable TOML form); see
 [Configuration presets](https://ryl-docs.pages.dev/config-presets/).
@@ -1521,12 +1556,22 @@ present = true
 ```
 
 Each key is a path glob with the same semantics as `ignore`, including `!`
-negation. Each value is a list of rule IDs.
+negation. Each value is a list of rule IDs, or `["ALL"]` to switch off every rule
+for the matching files:
+
+```toml
+[rules]
+truthy = "enable"
+
+[per-file-ignores]
+"**/pnpm-*.yaml" = ["ALL"]
+```
+
+A file under `["ALL"]` is still parsed, so a syntax error in it is still
+reported and the run exits `1`. To skip the file entirely, use `ignore`.
 
 `per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config. Unlike [`per-line-ignores`](https://ryl-docs.pages.dev/per-line-ignores/), it accepts rule IDs
-only &mdash; there is no `"ALL"` shorthand for every rule. To skip a file
-outright, use `ignore`.
+equivalent); it is rejected in yamllint-compatible YAML config.
 
 ## Per-rule `ignore`
 
@@ -1551,6 +1596,7 @@ Here `docs/**` is exempt from `line-length` but still checked by `colons`.
 | :--- | :--- |
 | Never see the file again | `ignore` |
 | Keep checking the file, minus one or two rules | `per-file-ignores` |
+| Check only that the file parses | `per-file-ignores` with `["ALL"]` |
 | Relax a single rule across a subtree | Per-rule `ignore` |
 | Suppress a rule on matching *lines* rather than files | [`per-line-ignores`](https://ryl-docs.pages.dev/per-line-ignores/) |
 

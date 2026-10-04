@@ -28,7 +28,13 @@ To lint with yamllint's standard rule set straight away, pass it inline:
 ryl check -d 'extends: default' .
 ```
 
-or drop a config in your project (see [Configure for your
+or name the rules to run with `--enable`, which needs no config file:
+
+```bash
+ryl check --enable ALL .
+```
+
+Or drop a config in your project (see [Configure for your
 project](#configure-for-your-project) below).
 
 ## Lint from stdin
@@ -59,11 +65,11 @@ Exit codes:
 - `2` &mdash; CLI usage error (no inputs provided, bad flags), or
   `--strict` was set and only warnings were produced.
 
-ryl never enables a rule unless a configuration explicitly turns it on, so two
+ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
-  discovered `.ryl.toml`/`.yamllint`). Create a config that enables rules, or pass a
+  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, or pass a
   YAML config with `extends: default` for yamllint's standard rule set.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[rules]`/`[tool.ryl]`, or one disabling everything). Enable at least one rule, or

@@ -276,7 +276,7 @@ fn rule_is_rejected_in_yaml_config() {
 #[test]
 fn per_file_ignores_accept_the_rule_name() {
     // A `[per-file-ignores]` entry naming the rule must be accepted (the rule id
-    // round-trips through `RuleName`), suppressing its diagnostics for that file.
+    // round-trips through `RuleSelector`), suppressing its diagnostics for that file.
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "block: |\n  body\n").unwrap();

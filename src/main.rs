@@ -17,8 +17,8 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use ryl::cli_support::{
-    ConfigCache, LintFile, ResolvedConfig, github_escape, lexical_abspath,
-    report_display_path, resolve_ctx, sanitize_control,
+    CliConfigFlags, ConfigCache, LintFile, ResolvedConfig, github_escape,
+    lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
 };
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
@@ -36,6 +36,7 @@ use ryl::migrate::{
     UserConfigMigration, WriteMode, migrate_configs,
 };
 use ryl::report::{ReportEntry, render_gitlab, render_junit};
+use ryl::rules::ALL_RULE_IDS;
 use ryl::{
     LintProblem, Severity, lint_file, lint_markdown_file, lint_markdown_str, lint_str,
 };
@@ -363,6 +364,38 @@ struct LintFlags {
     /// blocks) using default globs, without configuring `[files].markdown`
     #[arg(long = "markdown", default_value_t = false)]
     markdown: bool,
+
+    /// Lint with exactly these rules (comma-separated ids, or ALL), replacing the
+    /// config's selection; works without a config file
+    #[arg(
+        long = "enable",
+        value_name = "RULES",
+        value_delimiter = ',',
+        value_parser = parse_rule_selector,
+        conflicts_with = "list_files"
+    )]
+    enable: Vec<&'static str>,
+}
+
+fn parse_rule_selector(value: &str) -> Result<&'static str, String> {
+    std::iter::once("ALL")
+        .chain(ALL_RULE_IDS)
+        .find(|id| *id == value)
+        .ok_or_else(|| format!("no such rule: \"{value}\""))
+}
+
+fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
+    let enable = &args.lint.enable;
+    CliConfigFlags {
+        markdown: args.lint.markdown,
+        enable: (!enable.is_empty()).then(|| {
+            if enable.contains(&"ALL") {
+                ALL_RULE_IDS.to_vec()
+            } else {
+                enable.clone()
+            }
+        }),
+    }
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -1058,12 +1091,10 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
         );
     }
 
+    let flags = cli_config_flags(args);
     let mut global_cfg = build_global_cfg(&args.inputs, args)?;
-    if args.lint.markdown
-        && let Some(ctx) = global_cfg.as_mut()
-    {
-        // Enable markdown once here so the shared config carries the built matcher.
-        ctx.config.enable_default_markdown(&ctx.base_dir);
+    if let Some(ctx) = global_cfg.as_mut() {
+        flags.apply(&mut ctx.config, &ctx.base_dir);
     }
     if let Some(cfg) = &global_cfg {
         for notice in &cfg.notices {
@@ -1088,7 +1119,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
         &candidates,
         &explicit_files,
         global_resolved.as_ref(),
-        args.lint.markdown,
+        &flags,
         &mut cache,
         &mut emitted_notices,
         &mut files,
@@ -1374,9 +1405,7 @@ fn resolve_stdin_ctx(
         eprintln!("{}", sanitize_control(notice.as_str()));
     }
     let mut cfg = ctx.config;
-    if args.lint.markdown {
-        cfg.enable_default_markdown(&ctx.base_dir);
-    }
+    cli_config_flags(args).apply(&mut cfg, &ctx.base_dir);
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
@@ -1404,7 +1433,7 @@ fn gather_lint_files(
     candidates: &[PathBuf],
     explicit_files: &[PathBuf],
     global_cfg: Option<&ResolvedConfig>,
-    markdown: bool,
+    flags: &CliConfigFlags,
     cache: &mut ConfigCache,
     emitted_notices: &mut HashSet<String>,
     files: &mut Vec<LintFile>,
@@ -1425,7 +1454,7 @@ fn gather_lint_files(
         .chain(explicit_files.iter().map(|path| (path, true)));
     for (path, explicit) in tagged {
         let (base_dir, cfg, notices, found) =
-            resolve_ctx(path, global_cfg, markdown, cache)?;
+            resolve_ctx(path, global_cfg, flags, cache)?;
         for notice in notices {
             if emitted_notices.insert(notice.clone()) {
                 eprintln!("{}", sanitize_control(notice.as_str()));
