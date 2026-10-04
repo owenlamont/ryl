@@ -349,3 +349,24 @@ fn migrate_combined_reports_absent_user_config_even_when_project_migrates() {
         "absent user-global reported even though the project migrated: {stdout}"
     );
 }
+
+#[test]
+fn migrate_rejects_positional_path() {
+    let td = tempdir().unwrap();
+    fs::create_dir(td.path().join("sub")).unwrap();
+    fs::write(td.path().join("sub/.yamllint"), "rules: {}\n").unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for trigger in ["--migrate-configs", "--migrate-user-config"] {
+        let (code, _stdout, stderr) = run(Command::new(exe)
+            .current_dir(td.path())
+            .env("HOME", td.path())
+            .env("XDG_CONFIG_HOME", td.path())
+            .args([trigger, "--migrate-write", "sub"]));
+        assert_eq!(code, 2, "{trigger}: stderr={stderr}");
+        assert!(
+            stderr.contains("--migrate-root") && !stderr.contains("deprecated"),
+            "{trigger}: {stderr}"
+        );
+    }
+    assert!(!td.path().join("sub/.ryl.toml").exists());
+}
