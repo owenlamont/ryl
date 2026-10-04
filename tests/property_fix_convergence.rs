@@ -1,11 +1,12 @@
 //! Property tests that the safe-fix pipeline converges: no fixer needs the
-//! `RULE_FIX_MAX_ITERATIONS` cap to stop, and re-running `apply_safe_fixes` reaches a
-//! fixed point without revisiting an earlier state (a cycle between fixers).
+//! `RULE_FIX_MAX_ITERATIONS` cap to stop, the pipeline reaches a fixed point within
+//! `FIX_PIPELINE_MAX_PASSES` without revisiting an earlier state (a cycle between
+//! fixers), and so one `apply_safe_fixes` call leaves nothing for a second to change.
 //!
-//! The pipeline is probed by calling each rule's public `fix` in pipeline order and
-//! iterating it to a fixed point, so a fixer the cap would silently truncate fails
-//! here. The probe must reproduce `apply_safe_fixes` byte-for-byte, which pins its
-//! rule table to the production order. The generator (`stack`) stacks file-shape
+//! The pipeline is probed by calling each rule's public `fix` in pipeline order,
+//! iterating each rule and then the whole pass to a fixed point, so a fixer or pass the
+//! caps would silently truncate fails here. The probe must reproduce `apply_safe_fixes`
+//! byte-for-byte, which pins its rule table to the production order. The generator (`stack`) stacks file-shape
 //! issues around the safe-fix suite's entries so fixers genuinely interact; a
 //! deterministic sibling pins a stacked input that several fixers rewrite, so the
 //! property cannot pass vacuously.
@@ -30,7 +31,7 @@ mod strategy;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
-use ryl::fix::{RULE_FIX_MAX_ITERATIONS, apply_safe_fixes};
+use ryl::fix::{FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes};
 use ryl::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
@@ -42,8 +43,6 @@ use config::{
     synthetic_base_dir, synthetic_path,
 };
 use stack::{Decoration, Filler, StackedDocument, arb_stacked_document};
-
-const PIPELINE_MAX_PASSES: usize = 8;
 
 type RuleFix = (&'static str, Box<dyn Fn(&str) -> Option<String>>);
 
@@ -154,27 +153,37 @@ fn probe_pass(
         })
 }
 
-/// Re-runs the pipeline until a pass changes nothing, failing on a revisited state or
-/// on running out of passes. Returns the number of passes that changed the input.
+/// Re-runs the probe pass until it changes nothing, failing on a revisited state or on
+/// exceeding the production pass cap, then checks one `apply_safe_fixes` call lands on
+/// that fixed point and stays there. Returns the number of passes that changed the input.
 fn assert_converges(
     input: &str,
     cfg: &YamlLintConfig,
     cfg_name: &str,
 ) -> Result<usize, TestCaseError> {
     let rules = pipeline_rules(cfg);
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
     let mut seen = vec![input.to_string()];
-    for pass in 0..PIPELINE_MAX_PASSES {
+    for pass in 0..FIX_PIPELINE_MAX_PASSES {
         let state = &seen[pass];
-        let next = apply_safe_fixes(state, cfg, synthetic_path(), synthetic_base_dir());
-        let probed = probe_pass(state, &rules, cfg_name)?;
-        prop_assert_eq!(
-            &probed,
-            &next,
-            "rule-by-rule probe disagrees with apply_safe_fixes under config '{}'; state {:?}",
-            cfg_name,
-            state
-        );
+        let next = probe_pass(state, &rules, cfg_name)?;
         if &next == state {
+            prop_assert_eq!(
+                &fixed,
+                state,
+                "rule-by-rule probe disagrees with apply_safe_fixes under config '{}'; input {:?}",
+                cfg_name,
+                input
+            );
+            let refixed =
+                apply_safe_fixes(&fixed, cfg, synthetic_path(), synthetic_base_dir());
+            prop_assert_eq!(
+                &refixed,
+                &fixed,
+                "a second apply_safe_fixes still changes the output under config '{}'; input {:?}",
+                cfg_name,
+                input
+            );
             return Ok(pass);
         }
         prop_assert!(
@@ -188,7 +197,7 @@ fn assert_converges(
         seen.push(next);
     }
     Err(TestCaseError::fail(format!(
-        "fix pipeline did not converge within {PIPELINE_MAX_PASSES} passes under config '{cfg_name}'; input {input:?}; states {seen:?}"
+        "fix pipeline did not converge within {FIX_PIPELINE_MAX_PASSES} passes under config '{cfg_name}'; input {input:?}; states {seen:?}"
     )))
 }
 
@@ -252,6 +261,21 @@ fn stacked_input_engages_several_fixers_and_converges() {
             prepared.name
         );
     }
+}
+
+#[test]
+fn comment_left_by_joined_plain_scalar_is_fixed_in_one_call() {
+    let passes = assert_converges(
+        "a: b\n  c\n  # x\nd: e\n",
+        named_config("yamllint-default"),
+        "yamllint-default",
+    )
+    .unwrap_or_else(|err| panic!("{err}"));
+    assert_eq!(
+        passes, 2,
+        "quoted-strings joins the scalar after comments-indentation has run, so the \
+         comment is only re-indented on a second pass"
+    );
 }
 
 fn dirty_stacked_document() -> StackedDocument {

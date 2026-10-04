@@ -90,10 +90,14 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 gates the whole pipeline on `lint::parse_error` (stricter than lint's
 `syntax_diagnostic` — it does *not* tolerate undefined aliases), so *any* granit parse
 error ⇒ the input is returned byte-for-byte unchanged and `apply_safe_fixes_in_place`
-returns `FixOutcome::Skipped(problem)`; the CLI prints a `<path>:L:C skipped by --fix:
-<error>` notice. Lint behavior is unchanged: an undefined alias is still not a lint
-syntax error (the `anchors` rule reports it, matching yamllint); only `--fix` applies the
-stricter gate, through the in-place and per-region Markdown paths.
+reports it in `FixOutcome::skipped`; the CLI prints a `<path>:L:C skipped by --fix:
+<error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
+pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES`, like
+ruff's `--fix`): one `--fix` reaches the fixed point, and the "N fixed, M remaining"
+summary and `--diff` see only the final text. Lint behavior is unchanged: an undefined
+alias is still not a lint syntax error (the `anchors` rule reports it, matching
+yamllint); only `--fix` applies the stricter gate, through the in-place and per-region
+Markdown paths.
 
 ## `--diff`
 
