@@ -1,13 +1,16 @@
 //! `truthy`: flag YAML 1.1 boolean-ish words (`yes`/`no`/`on`/`off`/`True`/…) that are
 //! plain strings under the YAML 1.2 core schema and so a portability trap. Mirrors
-//! yamllint's `truthy`. No safe `--fix`: rewriting `Yes` means choosing between quoting
-//! it (keeps the string), normalising to `true`/`false` (a type change), or rewording.
+//! yamllint's `truthy`. Safe `--fix` re-cases `True`/`FALSE`/… to an allowed spelling of
+//! the same boolean; `yes`/`no`/`on`/`off` need a quoting-or-type choice, so stay manual.
 
 use std::collections::HashSet;
 
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::span_utils::{
+    BytePos, apply_replacements, marker_byte_offset,
+};
 use crate::rules::support::yaml_version::{Version, event_version};
 
 pub const ID: &str = "truthy";
@@ -73,6 +76,15 @@ impl Config {
 
     fn allows(&self, value: &str) -> bool {
         self.allowed.contains(value)
+    }
+
+    fn fix_target(&self, value: &str) -> Option<&'static str> {
+        let family: [&'static str; 3] = match value {
+            "true" | "True" | "TRUE" => ["true", "True", "TRUE"],
+            "false" | "False" | "FALSE" => ["false", "False", "FALSE"],
+            _ => return None,
+        };
+        family.into_iter().find(|spelling| self.allows(spelling))
     }
 
     fn allowed_display(&self) -> &str {
@@ -214,6 +226,7 @@ impl<'cfg> TruthyState<'cfg> {
         tagged: bool,
         span: Span,
         diagnostics: &mut Vec<Violation>,
+        replacements: &mut Vec<Replacement>,
     ) {
         let active_key = self.begin_node();
 
@@ -241,15 +254,23 @@ impl<'cfg> TruthyState<'cfg> {
                     self.config.allowed_display()
                 ),
             });
+            if let Some(target) = self.config.fix_target(value) {
+                let start = marker_byte_offset(span.start);
+                let end = BytePos::new(start.get() + value.len());
+                replacements.push((start, end, target.to_owned()));
+            }
         }
 
         self.finish_scalar(active_key);
     }
 }
 
+type Replacement = (BytePos, BytePos, String);
+
 struct TruthyReceiver<'cfg> {
     state: TruthyState<'cfg>,
     diagnostics: Vec<Violation>,
+    replacements: Vec<Replacement>,
 }
 
 #[allow(clippy::missing_const_for_fn)]
@@ -258,6 +279,7 @@ impl<'cfg> TruthyReceiver<'cfg> {
         Self {
             state: TruthyState::new(cfg),
             diagnostics: Vec::new(),
+            replacements: Vec::new(),
         }
     }
 }
@@ -284,17 +306,32 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
                     tagged,
                     span,
                     &mut self.diagnostics,
+                    &mut self.replacements,
                 );
+            }
+            Event::Alias(_) => {
+                let active_key = self.state.begin_node();
+                self.state.finish_scalar(active_key);
             }
             _ => {}
         }
     }
 }
 
-#[must_use]
-pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+fn walk<'cfg>(buffer: &str, cfg: &'cfg Config) -> TruthyReceiver<'cfg> {
     let mut parser = Parser::new_from_str(buffer);
     let mut receiver = TruthyReceiver::new(cfg);
     let _ = parser.load(&mut receiver, true);
-    receiver.diagnostics
+    receiver
+}
+
+#[must_use]
+pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    walk(buffer, cfg).diagnostics
+}
+
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    let replacements = walk(buffer, cfg).replacements;
+    (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
 }

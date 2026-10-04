@@ -146,3 +146,74 @@ fn ignores_yaml_directive_with_non_numeric_major() {
 // Inline rule-disable directives (`# yamllint/ryl disable…`) are handled globally by
 // the lint engine, not per-rule; their behaviour is covered in tests/cli_directives.rs
 // and tests/yamllint_compat_directives.rs.
+
+const DEFAULT_CFG: &str = "rules:\n  truthy: enable\n";
+const NO_KEYS_CFG: &str = "rules:\n  truthy:\n    check-keys: false\n";
+const KEYS_INPUT: &str =
+    "TRUE: x\n? False\n: x\nf: {FALSE: False}\nl:\n  - True\nk: &a TRUE\n";
+
+#[test]
+fn fix_recases_flagged_booleans_to_an_allowed_spelling() {
+    let cases: [(&str, &str, Option<&str>); 10] = [
+        (
+            DEFAULT_CFG,
+            "%YAML 1.2\n---\nenabled: TRUE\nvisible: False\nlabel: yes\nmode: off\n",
+            Some(
+                "%YAML 1.2\n---\nenabled: true\nvisible: false\nlabel: yes\nmode: off\n",
+            ),
+        ),
+        (
+            DEFAULT_CFG,
+            "%YAML 1.1\n---\nenabled: True\nlabel: yes\n",
+            Some("%YAML 1.1\n---\nenabled: true\nlabel: yes\n"),
+        ),
+        (
+            DEFAULT_CFG,
+            "a: 'True'\nb: \"FALSE\"\nc: !!bool True\nd: !!str True\ne: !x TRUE\nf: tRUE\ng: yes\n",
+            None,
+        ),
+        (
+            DEFAULT_CFG,
+            KEYS_INPUT,
+            Some(
+                "true: x\n? false\n: x\nf: {false: false}\nl:\n  - true\nk: &a true\n",
+            ),
+        ),
+        (
+            NO_KEYS_CFG,
+            KEYS_INPUT,
+            Some(
+                "TRUE: x\n? False\n: x\nf: {FALSE: false}\nl:\n  - true\nk: &a true\n",
+            ),
+        ),
+        (
+            NO_KEYS_CFG,
+            "anchor: &a x\nalias: *a\nTrue: y\nvalue: False\n*a : True\n",
+            Some("anchor: &a x\nalias: *a\nTrue: y\nvalue: false\n*a : true\n"),
+        ),
+        (
+            "rules:\n  truthy:\n    allowed-values: ['True', 'False']\n",
+            "a: TRUE\nb: true\nc: FALSE\n",
+            Some("a: True\nb: True\nc: False\n"),
+        ),
+        (
+            "rules:\n  truthy:\n    allowed-values: ['true']\n",
+            "a: False\nb: TRUE\n",
+            Some("a: False\nb: true\n"),
+        ),
+        (
+            DEFAULT_CFG,
+            "é: True\r\nk: [x, FALSE]\r\n",
+            Some("é: true\r\nk: [x, false]\r\n"),
+        ),
+        (DEFAULT_CFG, "a: true\nb: yes\n", None),
+    ];
+    for (cfg_yaml, input, expected) in cases {
+        let resolved = build_config(cfg_yaml);
+        let fixed = truthy::fix(input, &resolved);
+        assert_eq!(fixed.as_deref(), expected, "fix of {input:?}");
+        if let Some(text) = fixed {
+            assert_eq!(truthy::fix(&text, &resolved), None, "refix of {text:?}");
+        }
+    }
+}

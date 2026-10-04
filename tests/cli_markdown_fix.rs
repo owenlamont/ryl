@@ -467,3 +467,18 @@ fn markdown_flag_enables_fix_without_files_glob() {
         "--markdown enables embedded-YAML fixing without a [files].markdown glob"
     );
 }
+
+#[test]
+fn fix_recases_truthy_in_front_matter_and_fenced_block() {
+    let config = "files = { markdown = [\"*.md\"] }\n[rules.truthy]\n";
+    let body = "---\nenabled: TRUE\n---\n\nTrue text\n\n```yaml\nvisible: False\n```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 0, "stderr={err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "---\nenabled: true\n---\n\nTrue text\n\n```yaml\nvisible: false\n```\n"
+    );
+}

@@ -41,7 +41,8 @@
         "new-line-at-end-of-file",
         "new-lines",
         "quoted-strings",
-        "trailing-spaces"
+        "trailing-spaces",
+        "truthy"
       ],
       "type": "string"
     },
@@ -85,7 +86,8 @@
         "new-line-at-end-of-file",
         "new-lines",
         "quoted-strings",
-        "trailing-spaces"
+        "trailing-spaces",
+        "truthy"
       ],
       "type": "string"
     },

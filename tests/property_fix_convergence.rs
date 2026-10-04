@@ -35,7 +35,7 @@ use ryl::fix::{FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixe
 use ryl::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
-    trailing_spaces,
+    trailing_spaces, truthy,
 };
 
 use config::{
@@ -64,6 +64,7 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let document_start_cfg = document_start::Config::resolve(cfg);
     let document_end_cfg = document_end::Config::resolve(cfg);
     let empty_lines_cfg = empty_lines::Config::resolve(cfg);
+    let truthy_cfg = truthy::Config::resolve(cfg);
     vec![
         (
             new_lines::ID,
@@ -113,6 +114,10 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
         (
             empty_lines::ID,
             Box::new(move |buffer| empty_lines::fix(buffer, &empty_lines_cfg)),
+        ),
+        (
+            truthy::ID,
+            Box::new(move |buffer| truthy::fix(buffer, &truthy_cfg)),
         ),
     ]
 }

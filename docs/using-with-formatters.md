@@ -27,10 +27,11 @@ There are exactly two ways the two tools can disagree:
 - **A loop.** Only a rule with a safe fix can take part, because a loop needs both tools
   to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `document-start`, `document-end`, `empty-lines`,
-  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, and `trailing-spaces`. If one
+  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
+  `truthy` (case only: `True` to `true`). If one
   of these is set to enforce the opposite of what your formatter emits, they fight.
 - **A standing complaint.** A rule with no fix (for example `indentation`, `line-length`,
-  `truthy`) can flag something the formatter produced but ryl cannot rewrite. There is no
+  or `truthy` on `yes`/`no`) can flag something the formatter produced but ryl cannot rewrite. There is no
   loop, but ryl warns on every run until you align the setting or turn the rule off.
 
 Everything below is about steering clear of both. The configs were checked by running
@@ -239,8 +240,8 @@ Notes:
   rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
 - yamlfix canonicalises truthy words only in **block** style (`key: yes`, `- yes`); it
   leaves them untouched inside a pre-existing flow collection (`flags: [yes, no]`) or
-  before a trailing comment (`x: yes  # ...`). ryl's `truthy` rule only flags (it has no
-  auto-fix), so on those leftovers `truthy = "enable"` keeps complaining. Rewrite them by
+  before a trailing comment (`x: yes  # ...`). ryl's `truthy` fix only re-cases `True`
+  and `False`, never `yes`/`no`, so on those leftovers `truthy = "enable"` keeps complaining. Rewrite them by
   hand, or drop `truthy` if your YAML relies on them.
 - yamlfix's truthy normalisation is itself a YAML 1.1 behaviour: it rewrites *unquoted*
   `yes`/`no`/`on`/`off` to booleans, which YAML 1.2 (and ryl) treat as strings. yamlfix
