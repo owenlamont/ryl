@@ -2914,3 +2914,37 @@ fn server_binary_exits_nonzero_on_bare_exit() {
     let status = child.wait().expect("wait for child");
     assert_eq!(status.code(), Some(1), "a bare exit (no shutdown) exits 1");
 }
+
+#[test]
+fn per_rule_fix_all_sorts_keys() {
+    let dir = project("[rules]\nkey-ordering = \"enable\"\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "b: 1\na: 2\n");
+    let _ = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, vec![diag("key-ordering", 1, 0)])
+        .expect("actions offered");
+    let action = actions
+        .iter()
+        .find_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action)
+                if action.title == "Fix all key-ordering problems" =>
+            {
+                Some(action)
+            }
+            _ => None,
+        })
+        .expect("the per-rule fix-all action is present");
+    let Some(DocumentChanges::Edits(edits)) = action
+        .edit
+        .as_ref()
+        .and_then(|edit| edit.document_changes.as_ref())
+    else {
+        panic!("expected a versioned edit");
+    };
+    let OneOf::Left(text_edit) = &edits[0].edits[0] else {
+        panic!("expected a plain TextEdit");
+    };
+    assert_eq!(text_edit.new_text, "a: 2\nb: 1\n");
+}

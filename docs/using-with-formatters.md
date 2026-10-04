@@ -313,7 +313,7 @@ align them or accept the finding. They land here for one of two reasons:
 - The formatter produces the disfavoured form: `truthy` (yamlfmt and Prettier leave
   `yes`/`no` as written; only yamlfix canonicalizes, and only block-style truthy),
   `key-ordering` (no formatter
-  reorders keys, so enable it only if your sources are already ordered), and
+  reorders keys, so run `ryl check --fix` or enable it only for ordered sources), and
   `line-length` (a formatter cannot break a long unbreakable scalar such as a URL, so set
   `max` to suit your print width and expect occasional findings on long values).
 - The rule checks content the formatter is neutral about, neither adding nor removing the

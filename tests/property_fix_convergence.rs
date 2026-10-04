@@ -34,8 +34,8 @@ use ryl::config::YamlLintConfig;
 use ryl::fix::{FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes};
 use ryl::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
-    trailing_spaces, truthy,
+    document_start, empty_lines, key_ordering, new_line_at_end_of_file, new_lines,
+    quoted_strings, trailing_spaces, truthy,
 };
 
 use config::{
@@ -65,6 +65,7 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let document_end_cfg = document_end::Config::resolve(cfg);
     let empty_lines_cfg = empty_lines::Config::resolve(cfg);
     let truthy_cfg = truthy::Config::resolve(cfg);
+    let key_ordering_cfg = key_ordering::Config::resolve(cfg);
     vec![
         (
             new_lines::ID,
@@ -118,6 +119,10 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
         (
             truthy::ID,
             Box::new(move |buffer| truthy::fix(buffer, &truthy_cfg)),
+        ),
+        (
+            key_ordering::ID,
+            Box::new(move |buffer| key_ordering::fix(buffer, &key_ordering_cfg, &[])),
         ),
     ]
 }
@@ -289,6 +294,7 @@ fn dirty_stacked_document() -> StackedDocument {
     };
     let plain = |text: &str| Node::Scalar(Scalar::Plain(text.to_string()));
     let entry = |key: &str, value, comment| BlockEntry {
+        leading_comment: None,
         key: key.to_string(),
         value,
         trailing_inline_comment: comment,

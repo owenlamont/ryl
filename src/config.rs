@@ -399,6 +399,7 @@ pub enum FixRule {
     DocumentEnd,
     DocumentStart,
     EmptyLines,
+    KeyOrdering,
     NewLineAtEndOfFile,
     NewLines,
     QuotedStrings,
@@ -417,6 +418,7 @@ impl FixRule {
             "document-end" => Some(Self::DocumentEnd),
             "document-start" => Some(Self::DocumentStart),
             "empty-lines" => Some(Self::EmptyLines),
+            "key-ordering" => Some(Self::KeyOrdering),
             "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
             "new-lines" => Some(Self::NewLines),
             "quoted-strings" => Some(Self::QuotedStrings),
@@ -1257,6 +1259,9 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
         FixRuleSelector::Rule(FixRule::EmptyLines) => {
             TomlFixableRuleSelector::EmptyLines
         }
+        FixRuleSelector::Rule(FixRule::KeyOrdering) => {
+            TomlFixableRuleSelector::KeyOrdering
+        }
         FixRuleSelector::Rule(FixRule::NewLines) => TomlFixableRuleSelector::NewLines,
         FixRuleSelector::Rule(FixRule::QuotedStrings) => {
             TomlFixableRuleSelector::QuotedStrings
@@ -1278,6 +1283,7 @@ fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
         FixRule::DocumentEnd => TomlFixRuleName::DocumentEnd,
         FixRule::DocumentStart => TomlFixRuleName::DocumentStart,
         FixRule::EmptyLines => TomlFixRuleName::EmptyLines,
+        FixRule::KeyOrdering => TomlFixRuleName::KeyOrdering,
         FixRule::NewLineAtEndOfFile => TomlFixRuleName::NewLineAtEndOfFile,
         FixRule::NewLines => TomlFixRuleName::NewLines,
         FixRule::QuotedStrings => TomlFixRuleName::QuotedStrings,
@@ -1336,6 +1342,9 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
         TomlFixableRuleSelector::EmptyLines => {
             FixRuleSelector::Rule(FixRule::EmptyLines)
         }
+        TomlFixableRuleSelector::KeyOrdering => {
+            FixRuleSelector::Rule(FixRule::KeyOrdering)
+        }
         TomlFixableRuleSelector::NewLines => FixRuleSelector::Rule(FixRule::NewLines),
         TomlFixableRuleSelector::QuotedStrings => {
             FixRuleSelector::Rule(FixRule::QuotedStrings)
@@ -1357,6 +1366,7 @@ fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
         TomlFixRuleName::DocumentEnd => FixRule::DocumentEnd,
         TomlFixRuleName::DocumentStart => FixRule::DocumentStart,
         TomlFixRuleName::EmptyLines => FixRule::EmptyLines,
+        TomlFixRuleName::KeyOrdering => FixRule::KeyOrdering,
         TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
         TomlFixRuleName::NewLines => FixRule::NewLines,
         TomlFixRuleName::QuotedStrings => FixRule::QuotedStrings,

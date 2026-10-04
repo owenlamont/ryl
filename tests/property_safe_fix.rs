@@ -152,6 +152,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
     let dirty_flow_seq = Document {
         version_directive: None,
         entries: vec![BlockEntry {
+            leading_comment: None,
             key: "items".to_string(),
             value: Node::FlowSeq(
                 vec![plain("TRUE"), plain("false")],

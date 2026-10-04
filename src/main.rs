@@ -1230,11 +1230,16 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
     }
 }
 
-/// Stderr notice for a file `--fix`/`--diff` left untouched. Path and message are
-/// user-controlled, so both are sanitized; `action` is the literal flag name.
+/// Stderr notice for a file `--fix`/`--diff` left untouched, or for a rule's finding it
+/// could not fix. Path and message are user-controlled, so both are sanitized; `action` is
+/// the literal flag name.
 fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
+    let what = problem.rule.map_or_else(
+        || format!("skipped by {action}"),
+        |rule| format!("{rule} not fixed"),
+    );
     eprintln!(
-        "{}:{}:{} skipped by {action}: {}",
+        "{}:{}:{} {what}: {}",
         sanitize_control(&path.display().to_string()),
         problem.line,
         problem.column,

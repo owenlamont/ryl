@@ -52,9 +52,24 @@ When you add a new `FixSafety::Safe` rule:
    rule-specific file) for any production bug discovered along the way, so the
    property suite is backed by a deterministic guard.
 
+`parse_for_compare` sorts every mapping's entries before comparing, because
+`key-ordering` reorders them; anything else that loads YAML to compare a fix's
+output (`property_markdown_fix`) goes through it.
+
 Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.txt`
 and replayed first on every run. That file is committed to git so the regression
 follows the codebase, not the developer's machine.
+
+## Property Tests For `key-ordering`'s Fix
+
+`tests/property_key_ordering_fix.rs` has its own generator of nested and
+sequence-item mappings carrying every shape the fix declines (loose comments,
+anchors and aliases, `true`/`True`, keep-chomping scalars, tags, `?` keys, flow
+mappings, directives). Beyond idempotence and loaded-data preservation it asserts
+that every line survives, that leading and trailing comments keep their anchor
+line, and that the verification backstop in `key_ordering::fix` never fires:
+whatever stays out of order is named by `key_ordering::unfixed` with a bail
+reason. Extend that generator, not the shared one, when adding a bail condition.
 
 ## Property Tests For Fix Convergence
 
@@ -166,9 +181,6 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   non-trivial fix risks changing the parsed value.
 - `key-duplicates` — Resolving a duplicate requires deciding which key (and
   value) to keep; both choices alter the parsed mapping and need user intent.
-- `key-ordering` — Reordering a mapping silently disassociates any comment
-  the user placed above or beside a key from that key, losing information the
-  YAML grammar does not carry.
 - `line-length` — Splitting an over-long line requires line-folding decisions
   that depend on whether the scalar is plain, quoted, or block-styled, and on
   whether folding is semantically allowed; no single rewrite is universally

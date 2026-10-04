@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc da73928ab986efd6aae3f184fd1e4bbe7b08e057c2cd2e59fb7389edab7304fd # shrinks to map = Map { tag: false, entries: [Entry { above: None, key: "d", value: Seq([Map { tag: false, entries: [Entry { above: None, key: "? e", value: Plain("1"), inline: None, below: None }] }]), inline: None, below: None }, Entry { above: Some("# lead"), key: "a", value: Flow("{a: 1, b: 2}"), inline: None, below: None }] }

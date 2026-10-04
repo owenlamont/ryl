@@ -482,3 +482,47 @@ fn fix_recases_truthy_in_front_matter_and_fenced_block() {
         "---\nenabled: true\n---\n\nTrue text\n\n```yaml\nvisible: false\n```\n"
     );
 }
+
+#[test]
+fn fix_sorts_embedded_keys_and_maps_the_not_fixed_notice() {
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[rules]\nkey-ordering = \"enable\"\n";
+    let body = "---\nb: 1\na: 2\n---\n\n# t\n\n```yaml\nd: 1\nc: 2\n```\n\n> ```yaml\n> {f: 1, e: 2}\n> ```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, _out, err) = fix(&file);
+
+    assert_eq!(code, 1, "the flow mapping stays reported: {err}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        body.replace("b: 1\na: 2", "a: 2\nb: 1")
+            .replace("d: 1\nc: 2", "c: 2\nd: 1"),
+    );
+    assert!(
+        err.contains(
+            "doc.md:14:10 key-ordering not fixed: flow mappings are not sorted"
+        ),
+        "notice maps to the host line and column: {err}"
+    );
+}
+
+#[test]
+fn diff_reports_embedded_not_fixed_notice_against_fixed_text() {
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[rules]\nkey-ordering = \"enable\"\n";
+    let body = "```yaml\nd: 1\nc: 2\n```\n\n```yaml\n{f: 1, e: 2}\n```\n\n```yaml\na: *missing\n```\n";
+    let (_dir, file) = project(config, "doc.md", body);
+
+    let (code, out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--diff")
+        .arg(&file));
+
+    assert_eq!(code, 1, "a sort is pending: {err}");
+    assert!(out.contains("+c: 2\n"), "diff sorts the first block: {out}");
+    assert!(
+        err.contains("doc.md:7:8 key-ordering not fixed: flow mappings are not sorted")
+            && err.contains("doc.md:11:4 skipped by --diff"),
+        "both notices: {err}"
+    );
+}

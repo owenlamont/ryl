@@ -7,12 +7,12 @@ use crate::cli_support::LintFile;
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
-use crate::markdown_embed::{MarkdownSources, extract_regions};
+use crate::markdown_embed::{MarkdownSources, extract_regions, markdown_parse_skips};
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
-    trailing_spaces, truthy,
+    document_start, empty_lines, key_ordering, new_line_at_end_of_file, new_lines,
+    quoted_strings, trailing_spaces, truthy,
 };
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -98,11 +98,15 @@ const TRUTHY_FIX: RuleFix = RuleFix {
     rule: truthy::ID,
     safety: FixSafety::Safe,
 };
+const KEY_ORDERING_FIX: RuleFix = RuleFix {
+    rule: key_ordering::ID,
+    safety: FixSafety::Safe,
+};
 
 /// Every rule with a safe `--fix`, in application order; extend together with the `apply`
 /// sequence in `FixContext::pass` when adding a safe fixer. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
-pub const SAFE_FIX_RULE_IDS: [&str; 13] = [
+pub const SAFE_FIX_RULE_IDS: [&str; 14] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
@@ -116,6 +120,7 @@ pub const SAFE_FIX_RULE_IDS: [&str; 13] = [
     document_end::ID,
     empty_lines::ID,
     truthy::ID,
+    key_ordering::ID,
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -171,15 +176,12 @@ pub fn apply_safe_fixes_in_place(
         });
     }
     let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
-    if fixed == decoded.content() {
-        return Ok(FixOutcome::default());
+    let skipped = unfixed_notices(&fixed, cfg, path, base_dir);
+    let changed = fixed != decoded.content();
+    if changed {
+        decoded.write(path, &fixed)?;
     }
-
-    decoded.write(path, &fixed)?;
-    Ok(FixOutcome {
-        changed: true,
-        skipped: Vec::new(),
-    })
+    Ok(FixOutcome { changed, skipped })
 }
 
 /// Apply every safe fix to each file in place.
@@ -311,7 +313,7 @@ pub fn diff_outcome(
             }
             DiffOutcome {
                 diff: render_unified_diff(content, &fixed, path),
-                skipped: Vec::new(),
+                skipped: unfixed_notices(&fixed, cfg, path, base_dir),
             }
         }
         SourceKind::Markdown => {
@@ -321,12 +323,60 @@ pub fn diff_outcome(
             // Report skips against the *original* content: `--diff` never writes, so the file
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
-            let skipped = crate::markdown_embed::markdown_parse_skips(content, cfg);
+            let skips = |markdown| {
+                markdown_parse_skips(markdown, cfg, |region| {
+                    region_skips(region, cfg, path, base_dir)
+                })
+            };
+            let mut skipped = skips(content);
+            // `key-ordering` notices describe the fixed text, so they come from it.
+            if let Some(fixed) = &fixed {
+                skipped.retain(|problem| problem.rule.is_none());
+                skipped.extend(skips(fixed).into_iter().filter(|p| p.rule.is_some()));
+            }
             let diff =
                 fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
             DiffOutcome { diff, skipped }
         }
     }
+}
+
+/// Each mapping `key-ordering`'s fix left unsorted in fixed `content`, as a notice.
+fn unfixed_notices(
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) -> Vec<crate::lint::LintProblem> {
+    if !rule_enabled(KEY_ORDERING_FIX, cfg, path, base_dir)
+        || crate::directives::disables_file(content)
+    {
+        return Vec::new();
+    }
+    let rule = key_ordering::Config::resolve(cfg);
+    key_ordering::unfixed(content, &rule, &cfg.per_line_applies(path))
+        .into_iter()
+        .map(|violation| crate::lint::LintProblem {
+            line: violation.line,
+            column: violation.column,
+            level: crate::lint::Severity::Error,
+            message: violation.message,
+            rule: Some(key_ordering::ID),
+        })
+        .collect()
+}
+
+/// A Markdown region's `--fix` skips: its parse error, else its unsorted mappings.
+fn region_skips(
+    region: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) -> Vec<crate::lint::LintProblem> {
+    crate::lint::parse_error(region).map_or_else(
+        || unfixed_notices(region, cfg, path, base_dir),
+        |problem| vec![problem],
+    )
 }
 
 /// Whether either side ends in a bare `\r`, which `similar` renders as a hunk line no patch
@@ -411,9 +461,10 @@ pub fn apply_markdown_safe_fixes_in_place(
     // Collect parse errors for regions the per-region gate in `fix_markdown_str` skipped, so
     // the CLI reports them. Read from the *fixed* bytes (what gets written) so the reported
     // line stays correct after an earlier region's fix shifts the line count.
-    let skipped = crate::markdown_embed::markdown_parse_skips(
+    let skipped = markdown_parse_skips(
         fixed.as_deref().unwrap_or_else(|| decoded.content()),
         cfg,
+        |region| region_skips(region, cfg, path, base_dir),
     );
     let changed = match fixed {
         Some(fixed) => {
@@ -657,6 +708,10 @@ impl FixContext<'_> {
         });
         content = self.apply(content, changed_rules, TRUTHY_FIX, |buffer| {
             truthy::fix(buffer, &truthy::Config::resolve(self.cfg))
+        });
+        content = self.apply(content, changed_rules, KEY_ORDERING_FIX, |buffer| {
+            let cfg = key_ordering::Config::resolve(self.cfg);
+            key_ordering::fix(buffer, &cfg, &self.per_line)
         });
         content
     }

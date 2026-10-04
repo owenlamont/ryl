@@ -5,7 +5,7 @@
 //! **faithful** and **applicable**, across the safe-fix config matrix:
 //!
 //!  * *faithful*: a diff is emitted exactly when `--fix` would change the file, and
-//!    a plain YAML file is never both diffed and skipped;
+//!    a plain YAML file is never both diffed and parse-skipped;
 //!  * *applicable*: the emitted diff, applied by an **independent** implementation
 //!    (`diffy`, not the `similar` crate that produced it), reproduces the fix output
 //!    byte-for-byte. This is the contract a runner like hk relies on when it applies
@@ -86,7 +86,7 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
         );
         if let Some(diff) = &outcome.diff {
             prop_assert!(
-                outcome.skipped.is_empty(),
+                outcome.skipped.iter().all(|skip| skip.rule.is_some()),
                 "a diffed YAML file must not also be skipped under '{}'; input {:?}",
                 prepared.name,
                 input

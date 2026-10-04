@@ -51,7 +51,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`document-start`](rules/document-start.md) | Document start marker `---`. | :wrench: |
 | [`empty-values`](rules/empty-values.md) | Empty values in mappings and sequences. |  |
 | [`key-duplicates`](rules/key-duplicates.md) | Duplicate keys in mappings. |  |
-| [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. |  |
+| [`key-ordering`](rules/key-ordering.md) | Alphabetical ordering of mapping keys. | :wrench: |
 | [`merge-keys`](rules/merge-keys.md) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
 | [`tags`](rules/tags.md) | Unsafe and non-portable YAML tags. |  |
 

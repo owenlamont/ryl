@@ -15,6 +15,7 @@ pub enum Node {
     BlockScalar(BlockScalarSpec),
     MultilineQuoted(MultilineQuotedSpec),
     MultilinePlain(MultilinePlainSpec),
+    BlockMap(Vec<BlockEntry>),
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,7 @@ pub struct InlineComment {
 
 #[derive(Debug, Clone)]
 pub struct BlockEntry {
+    pub leading_comment: Option<String>,
     pub key: String,
     pub value: Node,
     pub trailing_inline_comment: Option<InlineComment>,
@@ -175,7 +177,8 @@ impl Node {
             }
             Self::BlockScalar(_)
             | Self::MultilineQuoted(_)
-            | Self::MultilinePlain(_) => {
+            | Self::MultilinePlain(_)
+            | Self::BlockMap(_) => {
                 unreachable!("multi-line nodes must be rendered via BlockEntry");
             }
         }
@@ -277,7 +280,23 @@ impl Document {
 
 impl BlockEntry {
     fn render(&self, buffer: &mut String, line_term: &str) {
+        self.render_at(buffer, line_term, "");
+    }
+
+    fn render_at(&self, buffer: &mut String, line_term: &str, indent: &str) {
+        if let Some(comment) = &self.leading_comment {
+            buffer.push_str(&format!("{indent}# {comment}{line_term}"));
+        }
+        buffer.push_str(indent);
         buffer.push_str(&self.key);
+        if let Node::BlockMap(entries) = &self.value {
+            buffer.push(':');
+            for entry in entries {
+                buffer.push_str(line_term);
+                entry.render_at(buffer, line_term, &format!("{indent}  "));
+            }
+            return;
+        }
         buffer.push_str(": ");
         let allow_trailing_comment = match &self.value {
             Node::Scalar(_) | Node::FlowSeq(_, _) | Node::FlowMap(_, _) => {
@@ -296,6 +315,7 @@ impl BlockEntry {
                 spec.render(buffer, line_term);
                 false
             }
+            Node::BlockMap(_) => unreachable!("rendered above"),
         };
         if allow_trailing_comment && let Some(comment) = &self.trailing_inline_comment {
             buffer.push_str(&comment.whitespace_before_hash);

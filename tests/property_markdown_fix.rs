@@ -196,7 +196,7 @@ fn blockquoted_fence_round_trips() {
     run_invariants(markdown).expect("invariants hold for a blockquoted fence");
     assert_eq!(
         fixed_with_default(markdown).as_deref(),
-        Some("> ```yaml\n> nums: [1, 2]\n> more: [3, 4]\n> ```\n"),
+        Some("> ```yaml\n> more: [3, 4]\n> nums: [1, 2]\n> ```\n"),
         "a uniform `> ` prefix is preserved on every fixed line"
     );
 }
