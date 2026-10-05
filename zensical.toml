@@ -32,6 +32,7 @@ nav = [
   { "Output formats" = "output-formats.md" },
   { "Editor integration" = "editor-integration.md" },
   { "YAML version compatibility" = "yaml-version.md" },
+  { "What ryl won't do" = "scope.md" },
 ]
 
 [project.theme]

@@ -20,6 +20,8 @@ ryl is a CLI tool for linting yaml files
 - Code maintainability is the top priority: a new agent should get all needed context
   from the docs and code with no surprising behaviour (the pit-of-success principle —
   the most likely way to do something is also the correct way).
+- Before taking on a feature request, check it against `docs/scope.md` (what ryl
+  declines and why); a request it rules out goes back to the maintainer, not to code.
 - Before implementing a new or changed rule — or any non-trivial feature — propose a
   short plan and agree the approach before writing code; don't jump straight to
   implementation.
