@@ -27,7 +27,7 @@ pub const FORMAT_OWNED_RULES: [&str; 12] = [
     "trailing-spaces",
 ];
 
-const TOML_LADDER: &str = "[rules]
+const TOML_LADDER: &str = "[lint.rules]
 braces = 'enable'
 brackets = 'enable'
 commas = 'enable'
@@ -39,11 +39,11 @@ new-line-at-end-of-file = 'enable'
 new-lines = 'enable'
 trailing-spaces = 'enable'
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 2
 max-spaces-from-content = 2
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 quote-type = 'single'
 required = 'only-when-needed'
 allow-double-quotes-for-escaping = true
