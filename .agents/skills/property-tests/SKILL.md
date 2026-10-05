@@ -2,9 +2,10 @@
 name: property-tests
 description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
-  editing any property-test suite (safe-fix / fix-convergence / rule-checker /
-  markdown-fix / config). Covers what each generator must be extended with, the ~1000x
-  pre-commit run, and which rules intentionally have no safe `--fix`.
+  editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
+  rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
+  each generator must be extended with, the ~1000x pre-commit run, and which rules
+  intentionally have no safe `--fix`.
 ---
 
 # Property Tests
@@ -92,6 +93,33 @@ and the byte-for-byte assertion fails on a misordering that changes the output.
 Failing inputs persist to the committed
 `tests/proptest-regressions/property_fix_convergence.txt`; run with
 `cargo test --test property_fix_convergence`.
+
+## Property Tests For The Formatter Guarantee
+
+`tests/property_format.rs` proves the formatter's guarantee for every row of the pass
+table in `property_format/passes.rs`: idempotence, parse preservation,
+value preservation, and comment/anchor fidelity. Today each row is `apply_safe_fixes`
+under a config enabling only the 12 format-owned safe-fix rules (`FORMAT_OWNED_RULES`;
+`truthy` and `key-ordering` are lint-owned and stay out), one per quoted-strings variant
+plus a TOML row for the ryl-only ladder options.
+
+- Value preservation compares granit's event stream (`property_format/representation.rs`),
+  not loaded values: document count, node kinds, entry order, duplicate keys, explicit
+  tags, the anchor/alias graph, and each scalar resolved against its document's declared
+  version. A `%YAML 1.1` document resolves plain scalars through the suite's own 1.1
+  table, written independently of `quoted-strings`'.
+- Comment fidelity keys each trimmed comment to the data events before it and whether it
+  is inline; anchor and alias names must survive in order.
+- The generator (`property_format/properties.rs`) adds anchors, aliases, tags and
+  escape-bearing quoted scalars to the fix-convergence stacked documents.
+
+A new formatter pass, or a rule graduating to the formatter, adds its row to the pass table
+before it ships; widen the generator if it rewrites syntax the stacked documents lack.
+`a_deliberately_broken_pass_fails_the_suite` feeds broken passes through the same checks,
+and `representation_tells_apart_what_value_preservation_forbids` pins the oracle's
+resolution; extend both when an invariant changes. Failing inputs persist to
+`tests/proptest-regressions/property_format.txt`; run with
+`cargo test --test property_format`.
 
 ## Property Tests For Rule Checkers
 
