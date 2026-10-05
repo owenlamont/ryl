@@ -58,7 +58,8 @@ enabled rule runs; `--markdown` forces Markdown.
 
 `src/directives.rs`: `# ryl disable` / `enable` / `disable-line` (and `# yamllint …`
 aliases) suppress rules for a block or line, mirroring yamllint's grammar
-(`yamllint/linter.py`); a first-line `# ryl/yamllint disable-file`
+(`yamllint/linter.py`); only the `# ryl` spelling may share a comment with other `#`
+text. A first-line `# ryl/yamllint disable-file`
 (`directives::disables_file`) skips the whole file (no diagnostics, not even syntax
 errors, no `--fix`). Handling is global: `lint_str` filters every diagnostic through
 `Directives::is_disabled` before the syntax-error check, and `fix` reverts edits to

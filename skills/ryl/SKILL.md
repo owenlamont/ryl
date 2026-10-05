@@ -4,7 +4,7 @@ description: >-
   Lint and auto-fix YAML with the ryl CLI (a fast, yamllint-compatible linter).
   Use when running or configuring ryl in a repo, fixing YAML lint errors, setting
   up YAML linting, or migrating from yamllint. Covers the no-default-on-rules
-  gotcha (ryl exits 2 without a config), exit codes, --fix vs --diff,
+  gotcha (ryl exits 2 without a config or --enable), exit codes, --fix vs --diff,
   machine-readable output, the YAML-vs-TOML config split, inline directives, and
   YAML embedded in Markdown.
 license: MIT
@@ -21,14 +21,18 @@ Pre-commit via the `owenlamont/ryl-pre-commit` hook (`ryl` for YAML files,
 
 ## Critical: ryl has no default-on rules
 
-ryl never enables a rule unless a configuration turns it on. When it has a file to lint
-but no config (or a config that enables zero rules) it exits `2`, not `0` (an empty or
-fully-ignored input set still exits `0`). This is stricter than yamllint. Always give it
-a config first:
+ryl never enables a rule unless a configuration or `--enable` turns it on. When it has a
+file to lint but no config and no `--enable` (or a config that enables zero rules) it
+exits `2`, not `0` (an empty or fully-ignored input set still exits `0`). This is
+stricter than yamllint. Always give it a config or `--enable` first:
 
 ```bash
 ryl check -d 'extends: default' .          # quick: yamllint's standard rule set
+ryl check --enable truthy,line-length .     # run only these rules, config or not
 ```
+
+`--enable` takes comma-separated rule IDs or `ALL` (every rule, ryl-only ones included)
+and replaces the config's rule selection for that run.
 
 Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
 `tool.ryl`, so `[rules]` becomes `[tool.ryl.rules]`):
@@ -39,6 +43,9 @@ Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables wit
 trailing-spaces = "enable"
 new-line-at-end-of-file = "enable"
 ```
+
+`ALL = "enable"` under `[rules]` turns on every rule at its defaults; an explicit entry
+for a rule wins over it.
 
 ## Run and branch on exit codes
 

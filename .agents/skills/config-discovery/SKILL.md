@@ -16,8 +16,10 @@ extension) > project config > `YAMLLINT_CONFIG_FILE` > user-global. Precedence d
 `docs/getting-started/quickstart.md`.
 
 `-d`/`-c`/a present `YAMLLINT_CONFIG_FILE` trigger run-wide resolution
-(`main::build_global_cfg`); otherwise project + user-global discovery is per file via
-`discover_per_file` (cached per dir), so a monorepo gets a config per subtree. Run-wide
+(`main::build_global_cfg`); otherwise project + user-global discovery is per file
+(`cli_support::resolve_ctx`), so a monorepo gets a config per subtree. `ConfigCache`
+caches by directory and by config file path, so directories sharing one config load it
+once and share one `Arc`. Run-wide
 resolution still applies the full precedence, so a project config found from the inputs
 precedes the env config.
 
