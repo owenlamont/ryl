@@ -148,7 +148,7 @@ impl TomlConfig {
         let lint = self.lint.as_ref();
         let fix = self.fix.as_ref();
         // Positional: one `(legacy set, replacement set)` pair per `DEPRECATED_TOML_KEYS` row.
-        let presence = [
+        let presence: [(bool, bool); DEPRECATED_TOML_KEYS.len()] = [
             (
                 self.rules.is_some(),
                 lint.is_some_and(|l| l.rules.is_some()),
