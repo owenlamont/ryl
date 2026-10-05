@@ -1,9 +1,10 @@
+use std::path::Path;
 use std::sync::LazyLock;
 
-use ryl::config::YamlLintConfig;
+use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::rules::{
-    block_scalar_chomping, merge_keys, new_line_at_end_of_file, new_lines,
-    trailing_spaces, unicode_line_breaks,
+    block_scalar_chomping, key_ordering, merge_keys, new_line_at_end_of_file,
+    new_lines, trailing_spaces, unicode_line_breaks,
 };
 
 #[derive(Debug, Clone)]
@@ -69,6 +70,38 @@ forbid-unsafe-tags = true
 forbid-removed-types = true
 allowed-tags = [\"!keep\"]
 ";
+
+// `orders` is TOML-only and compiled when a config file loads, so this config comes
+// from a file; its wildcards reach mapping values and sequence items at any depth.
+const KEY_ORDERS_TOML: &str = "[rules.key-ordering]
+
+[[rules.key-ordering.orders]]
+files = ['*']
+path = '$.*[*]'
+keys = ['b', 'a']
+
+[[rules.key-ordering.orders]]
+files = ['*']
+path = '$[*].*'
+keys = ['b', 'a']
+unlisted = 'keep'
+";
+
+fn key_orders_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<(tempfile::TempDir, YamlLintConfig)> =
+        LazyLock::new(|| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let file = dir.path().join(".ryl.toml");
+            std::fs::write(&file, KEY_ORDERS_TOML).expect("write config");
+            let overrides = Overrides {
+                config_file: Some(file),
+                config_data: None,
+            };
+            let config = discover_config(&[], &overrides).expect("orders config loads");
+            (dir, config.config)
+        });
+    &CONFIG.1
+}
 
 #[must_use]
 pub fn tags_config() -> &'static YamlLintConfig {
@@ -225,7 +258,16 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
         content,
         ryl::rules::key_duplicates
     );
-    collect_standard!(spans, cfg, content, ryl::rules::key_ordering);
+    for config in [cfg, key_orders_config()] {
+        let resolved = key_ordering::Config::resolve(config, Path::new("t.yaml"));
+        for violation in key_ordering::check(content, &resolved) {
+            spans.push(Span {
+                rule: key_ordering::ID,
+                line: violation.line,
+                column: violation.column,
+            });
+        }
+    }
     collect_standard!(spans, cfg, content, ryl::rules::line_length);
     collect_standard!(spans, cfg, content, ryl::rules::octal_values);
     collect_standard!(spans, cfg, content, ryl::rules::quoted_strings);

@@ -126,6 +126,45 @@
         }
       ]
     },
+    "KeyOrderEntry": {
+      "additionalProperties": false,
+      "description": "A configured key order for the mappings that both `files` and `path` select.",
+      "properties": {
+        "files": {
+          "description": "Globs matched like `per-file-ignores` keys; `!` excludes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "`JSONPath` subset: `$`, `.name`, `['name']`, `[*]`, `.*`.",
+          "type": "string"
+        },
+        "unlisted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unlisted"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "files",
+        "path",
+        "keys"
+      ],
+      "type": "object"
+    },
     "MarkdownTable": {
       "additionalProperties": false,
       "description": "Markdown embedding behaviour. ryl-only (TOML); yamllint has no equivalent.",
@@ -431,20 +470,6 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
-    "RuleEntryForKeyOrderingOptions": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "$ref": "#/$defs/RuleSwitch"
-        },
-        {
-          "$ref": "#/$defs/RuleOptionsForKeyOrderingOptions"
-        }
-      ],
-      "description": "Common rule entry shape used by TOML config."
-    },
     "RuleEntryForLineLengthOptions": {
       "anyOf": [
         {
@@ -567,6 +592,20 @@
         },
         {
           "$ref": "#/$defs/RuleOptionsForTomlKeyDuplicatesOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
+    "RuleEntryForTomlKeyOrderingOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForTomlKeyOrderingOptions"
         }
       ],
       "description": "Common rule entry shape used by TOML config."
@@ -1114,52 +1153,6 @@
       },
       "type": "object"
     },
-    "RuleOptionsForKeyOrderingOptions": {
-      "additionalProperties": false,
-      "description": "Common rule fields plus rule-specific options.",
-      "properties": {
-        "ignore": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignore-from-file": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ignored-keys": {
-          "items": {
-            "type": "string"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "level": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuleLevel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
-    },
     "RuleOptionsForLineLengthOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1636,6 +1629,61 @@
       },
       "type": "object"
     },
+    "RuleOptionsForTomlKeyOrderingOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignored-keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/KeyOrderEntry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RuleOptionsForTomlQuotedStringsOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -1999,7 +2047,7 @@
         "key-ordering": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForKeyOrderingOptions"
+              "$ref": "#/$defs/RuleEntryForTomlKeyOrderingOptions"
             },
             {
               "type": "null"
@@ -2160,6 +2208,14 @@
         "OFF",
         "Off",
         "off"
+      ],
+      "type": "string"
+    },
+    "Unlisted": {
+      "description": "Where keys missing from `keys` go: sorted after the listed keys, or kept in place.",
+      "enum": [
+        "sort",
+        "keep"
       ],
       "type": "string"
     }

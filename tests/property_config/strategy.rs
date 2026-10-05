@@ -58,7 +58,22 @@ pub struct ConfigModel {
     pub locale: Option<&'static str>,
     pub per_line_ignores: Vec<PerLineModel>,
     pub per_file_ignores: Vec<(&'static str, Vec<&'static str>)>,
+    pub key_orders: Vec<KeyOrderModel>,
 }
+
+/// A generated `[[rules.key-ordering.orders]]` entry (TOML-only), with hostile globs,
+/// paths outside the supported subset, empty or duplicated keys, and a bogus `unlisted`.
+#[derive(Debug, Clone)]
+pub struct KeyOrderModel {
+    pub files: Vec<&'static str>,
+    pub path: &'static str,
+    pub keys: Vec<&'static str>,
+    pub unlisted: Option<&'static str>,
+}
+
+const KEY_ORDER_PATHS: &[&str] = &[
+    "$", "$.*", "$[*].b", "$['a.b']", "$[0]", "$..a", "a", "$['a", "$.1",
+];
 
 /// Regex strings spanning valid, invalid, and pathological-but-valid (the last to
 /// confirm the linear `regex` engine, not catastrophic backtracking).
@@ -193,6 +208,21 @@ fn arb_per_line() -> impl Strategy<Value = PerLineModel> {
         .prop_map(|(regex, path, rules)| PerLineModel { regex, path, rules })
 }
 
+fn arb_key_order() -> impl Strategy<Value = KeyOrderModel> {
+    (
+        prop::collection::vec(prop::sample::select(PER_LINE_PATHS), 0..3),
+        prop::sample::select(KEY_ORDER_PATHS),
+        prop::collection::vec(prop::sample::select(&["a", "b"][..]), 0..3),
+        prop::option::of(prop::sample::select(&["sort", "keep", "bogus"][..])),
+    )
+        .prop_map(|(files, path, keys, unlisted)| KeyOrderModel {
+            files,
+            path,
+            keys,
+            unlisted,
+        })
+}
+
 pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
     (
         prop::collection::vec(arb_rule(), 0..6),
@@ -208,21 +238,25 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
             prop::collection::vec(prop::sample::select(PER_LINE_RULES), 0..3),
             0..3,
         ),
+        prop::collection::vec(arb_key_order(), 0..3),
     )
-        .prop_map(|(rules, ignore, locale, per_line_ignores, all, per_file)| {
-            ConfigModel {
-                all,
-                // Drop duplicate rule ids: rendering the same id twice produces a
-                // duplicate `[rules.<id>]` table (a hard TOML error) or a duplicate YAML
-                // key, which would bounce a chunk of generated configs off the parser
-                // before they reach validation/normalisation/linting.
-                rules: dedup_rules(rules),
-                ignore: ignore.map(|patterns| patterns.into_iter().collect()),
-                locale,
-                per_line_ignores,
-                per_file_ignores: per_file.into_iter().collect(),
-            }
-        })
+        .prop_map(
+            |(rules, ignore, locale, per_line_ignores, all, per_file, key_orders)| {
+                ConfigModel {
+                    all,
+                    // Drop duplicate rule ids: rendering the same id twice produces a
+                    // duplicate `[rules.<id>]` table (a hard TOML error) or a duplicate YAML
+                    // key, which would bounce a chunk of generated configs off the parser
+                    // before they reach validation/normalisation/linting.
+                    rules: dedup_rules(rules),
+                    ignore: ignore.map(|patterns| patterns.into_iter().collect()),
+                    locale,
+                    per_line_ignores,
+                    per_file_ignores: per_file.into_iter().collect(),
+                    key_orders,
+                }
+            },
+        )
 }
 
 fn dedup_rules(rules: Vec<RuleCfg>) -> Vec<RuleCfg> {
@@ -315,6 +349,20 @@ pub fn render_toml(model: &ConfigModel) -> String {
             for (key, value) in options {
                 out.push_str(&format!("{key} = {}\n", render_optval_toml(value)));
             }
+        }
+    }
+    let quoted = |items: &[&str]| {
+        let inner: Vec<String> =
+            items.iter().map(|item| format!("\"{item}\"")).collect();
+        format!("[{}]", inner.join(", "))
+    };
+    for entry in &model.key_orders {
+        out.push_str("[[rules.key-ordering.orders]]\n");
+        out.push_str(&format!("files = {}\n", quoted(&entry.files)));
+        out.push_str(&format!("path = '{}'\n", entry.path));
+        out.push_str(&format!("keys = {}\n", quoted(&entry.keys)));
+        if let Some(unlisted) = entry.unlisted {
+            out.push_str(&format!("unlisted = \"{unlisted}\"\n"));
         }
     }
     // `per-line-ignores` is a top-level array of tables, TOML-only (the YAML path

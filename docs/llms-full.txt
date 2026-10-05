@@ -997,7 +997,7 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | Document start marker `---`. | :wrench: |
 | [`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/) | Empty values in mappings and sequences. |  |
 | [`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/) | Duplicate keys in mappings. |  |
-| [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/) | Alphabetical ordering of mapping keys. | :wrench: |
+| [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/) | Alphabetical or configured ordering of mapping keys. | :wrench: |
 | [`merge-keys`](https://ryl-docs.pages.dev/rules/merge-keys/) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
 | [`tags`](https://ryl-docs.pages.dev/rules/tags/) | Unsafe and non-portable YAML tags. |  |
 
@@ -4141,6 +4141,7 @@ ignored-keys = []
 | Option | Default | Description |
 | :--- | :--- | :--- |
 | `ignored-keys` | `[]` | Regular expressions; keys matching any pattern may appear in any order. |
+| `orders` | `[]` | TOML only. Configured key orders for selected mappings; see [Custom orders](#custom-orders). |
 
 ## Examples
 
@@ -4169,6 +4170,70 @@ beta: 2
 x-trailing-extension: value
 alpha: 1
 beta: 2
+```
+
+## Custom orders
+
+Each `[[rules.key-ordering.orders]]` entry gives a mapping a key order other
+than alphabetical. An entry applies where both its `files` and its `path`
+match, and the first matching entry wins. Mappings that no entry selects keep
+the alphabetical order, and that includes mappings nested inside a selected one.
+
+```toml
+[rules.key-ordering]
+level = "error"
+
+[[rules.key-ordering.orders]]
+files = [".pre-commit-config.yaml"]
+path = "$.repos[*].hooks[*]"
+keys = ["alias", "name", "description", "args", "env"]
+```
+
+| Field | Description |
+| :--- | :--- |
+| `files` | Globs matched like `per-file-ignores` keys: a basename or a path relative to the config. A pattern starting with `!` excludes. |
+| `path` | A JSONPath subset: `$` (each document's root), `.name`, `['name']`, and `[*]` or `.*` (any key or sequence item). |
+| `keys` | The order, first to last. |
+| `unlisted` | `"sort"` (default) puts unlisted keys after the listed ones, alphabetically. `"keep"` leaves them in their original positions. |
+
+Keys matched by `ignored-keys` keep their positions either way. With the
+configuration above, `ryl check --fix` turns
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: example
+        args: [--check]
+        # Display name for this hook.
+        name: Example hook
+        alias: example-check
+```
+
+into
+
+```yaml
+repos:
+  - hooks:
+      - alias: example-check
+        # Display name for this hook.
+        name: Example hook
+        args: [--check]
+        id: example
+    repo: local
+```
+
+and with `unlisted = "keep"`, `id` stays first:
+
+```yaml
+repos:
+  - hooks:
+      - id: example
+        alias: example-check
+        # Display name for this hook.
+        name: Example hook
+        args: [--check]
+    repo: local
 ```
 
 ## Automatic fixing

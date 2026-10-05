@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
+use crate::rules::key_ordering::{self, KeyOrder};
 use crate::yaml_dom::{ScalarOwned, YamlOwned};
 use globset::{Glob, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
@@ -137,6 +138,7 @@ pub struct YamlLintConfig {
     /// `--migrate-configs`.
     per_line_ignores: Vec<NormalizedPerLineIgnore>,
     per_line_ignore_matchers: Vec<PerLineIgnoreMatcher>,
+    key_orders: Vec<(Vec<PathGlob>, KeyOrder)>,
     rule_names: Vec<String>,
     rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
@@ -486,6 +488,7 @@ impl Default for YamlLintConfig {
             per_file_ignore_matchers: Vec::new(),
             per_line_ignores: Vec::new(),
             per_line_ignore_matchers: Vec::new(),
+            key_orders: Vec::new(),
             rule_names: Vec::new(),
             rules: std::collections::BTreeMap::new(),
             yaml_file_patterns: DEFAULT_YAML_FILE_PATTERNS
@@ -679,6 +682,7 @@ impl YamlLintConfig {
     /// patterns cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
         self.per_file_ignore_matchers.clear();
+        self.key_orders.clear();
         // A per-line entry with a path constraint can't match a synthetic label, so
         // drop it; pure-regex entries are content-based and still apply to stdin.
         self.per_line_ignore_matchers
@@ -705,6 +709,22 @@ impl YamlLintConfig {
                         .iter()
                         .any(|candidate| candidate == rule || candidate == "ALL")
                 })
+    }
+
+    /// `key-ordering`'s `orders` entries whose `files` match `path`, in config order.
+    #[must_use]
+    pub(crate) fn key_orders_for(&self, path: &Path) -> Vec<KeyOrder> {
+        let selects = |globs: &[PathGlob]| {
+            let (excludes, includes): (Vec<_>, Vec<_>) =
+                globs.iter().partition(|glob| glob.negated);
+            (includes.is_empty() || includes.iter().any(|glob| glob.matches(path)))
+                && excludes.iter().all(|glob| glob.matches(path))
+        };
+        self.key_orders
+            .iter()
+            .filter(|(globs, _)| selects(globs))
+            .map(|(_, order)| order.clone())
+            .collect()
     }
 
     /// The `per-line-ignores` entries applying to `path`, as virtual-disable-line applies
@@ -1003,6 +1023,22 @@ impl YamlLintConfig {
             build_per_file_ignores(&self.per_file_ignores, base_dir)?;
         self.per_line_ignore_matchers =
             build_per_line_ignores(&self.per_line_ignores, base_dir);
+        let orders = self.rule_option(key_ordering::ID, "orders");
+        self.key_orders = (orders
+            .and_then(YamlOwned::as_sequence)
+            .into_iter()
+            .flatten())
+        .map(|entry| {
+            let files = entry
+                .as_mapping_get("files")
+                .and_then(YamlOwned::as_sequence);
+            let globs = (files.into_iter().flatten().filter_map(YamlOwned::as_str))
+                .map(|glob| {
+                    PathGlob::new(glob, base_dir).expect("validated `files` glob")
+                });
+            (globs.collect(), KeyOrder::new(entry))
+        })
+        .collect();
 
         self.build_file_kind_matchers(base_dir);
 

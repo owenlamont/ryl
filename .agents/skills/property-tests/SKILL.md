@@ -69,7 +69,9 @@ mappings, directives). Beyond idempotence and loaded-data preservation it assert
 that every line survives, that leading and trailing comments keep their anchor
 line, and that the verification backstop in `key_ordering::fix` never fires:
 whatever stays out of order is named by `key_ordering::unfixed` with a bail
-reason. Extend that generator, not the shared one, when adding a bail condition.
+reason. It runs under `orders` configs too (loaded from a file, since `orders` compiles
+only then), so a path-selection change is covered by the same invariants. Extend that
+generator, not the shared one, when adding a bail condition.
 
 ## Property Tests For Fix Convergence
 
@@ -142,7 +144,8 @@ scalars, bogus locales) rendered to both YAML and TOML. The oracle-free invarian
 pipeline errors or succeeds but **never panics** — YAML via `YamlLintConfig::from_yaml_str`
 (then linting samples, to drive the `.expect()`s in `key-ordering`/`quoted-strings`
 `resolve()`), TOML via `parse_toml_config_str -> validate_toml_config ->
-normalize_toml_config`. Deterministic siblings pin empty-config, invalid-regex,
+normalize_toml_config`, then loaded from a file so `finalize` compiles path-based
+settings such as `key-ordering` `orders`. Deterministic siblings pin empty-config, invalid-regex,
 billion-laughs, and rich-valid cases. When a rule gains a config-compiled regex or typed
 option, add its key(s) to `CATALOG` in `strategy.rs`.
 

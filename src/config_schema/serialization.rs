@@ -216,8 +216,9 @@ fn normalized_rules_from_table<
     C: Serialize,
     H: Serialize,
     M: Serialize,
+    O: Serialize,
 >(
-    rules: &RulesTable<Q, K, A, C, H, M>,
+    rules: &RulesTable<Q, K, A, C, H, M, O>,
 ) -> std::collections::BTreeMap<String, YamlOwned> {
     rules_table_to_value(rules)
         .as_table()
@@ -249,8 +250,9 @@ fn rules_table_to_value<
     C: Serialize,
     H: Serialize,
     M: Serialize,
+    O: Serialize,
 >(
-    rules: &RulesTable<Q, K, A, C, H, M>,
+    rules: &RulesTable<Q, K, A, C, H, M, O>,
 ) -> toml::Value {
     let mut table = toml::map::Map::new();
     insert_serialized(&mut table, "ALL", rules.all.as_ref());

@@ -103,6 +103,22 @@ macro_rules! lint_rule {
             }
         }
     };
+    // config resolved for the file's path, `Vec<Violation>`, per-violation message
+    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, path) => {
+        if let Some(level) = $cfg.rule_level($m::ID)
+            && !$cfg.is_rule_ignored($m::ID, $path, $base)
+        {
+            for hit in $m::check($content, &$m::Config::resolve($cfg, $path)) {
+                $d.push(LintProblem {
+                    line: hit.line,
+                    column: hit.column,
+                    level: level.into(),
+                    message: hit.message,
+                    rule: Some($m::ID),
+                });
+            }
+        }
+    };
     // config, `Vec<Violation>`, fixed module `MESSAGE`
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, message) => {
         if let Some(level) = $cfg.rule_level($m::ID)
@@ -254,7 +270,15 @@ fn collect_block_diagnostics(
     base_dir: &Path,
 ) {
     lint_rule!(diagnostics, cfg, content, path, base_dir, key_duplicates);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, key_ordering);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        content,
+        path,
+        base_dir,
+        key_ordering,
+        path
+    );
     lint_rule!(diagnostics, cfg, content, path, base_dir, hyphens);
     lint_rule!(
         diagnostics,

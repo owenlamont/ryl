@@ -3,7 +3,8 @@
 //! anchors and aliases, merge keys, same-key spellings, keep-chomping scalars, tags,
 //! explicit keys, flow mappings, and suppression directives.
 //!
-//! Invariants, under a codepoint and a locale-plus-`ignored-keys` config:
+//! Invariants, under a codepoint config, a locale-plus-`ignored-keys` config, and
+//! `orders` configs with either `unlisted` value:
 //!  * one `apply_safe_fixes` reaches a fixed point and keeps the loaded data;
 //!  * every line survives, so no text is lost or invented;
 //!  * each comment classified as leading (directly above a key at its column) or
@@ -14,17 +15,42 @@
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use ryl::config::YamlLintConfig;
+use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
 use ryl::rules::key_ordering;
 use ryl::yaml_dom::YamlOwned;
 use std::path::Path;
+use std::sync::LazyLock;
+use tempfile::TempDir;
 
-const CONFIGS: [&str; 2] = [
-    "rules:\n  key-ordering: enable\n",
-    "locale: en_US.UTF-8\nrules:\n  key-ordering:\n    ignored-keys: ['^c']\n",
+const CONFIGS: [&str; 4] = [
+    "[rules.key-ordering]\n",
+    "locale = 'en_US.UTF-8'\n[rules.key-ordering]\nignored-keys = ['^c']\n",
+    "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\nfiles = ['*']\npath = '$'\n\
+     keys = ['d', 'b']\n\n[[rules.key-ordering.orders]]\nfiles = ['*']\n\
+     path = '$.*[*]'\nkeys = ['c', 'a']\n",
+    "[rules.key-ordering]\nignored-keys = ['^c']\n\n[[rules.key-ordering.orders]]\n\
+     files = ['*']\npath = \"$['a'][*]\"\nkeys = ['d', 'a']\nunlisted = 'keep'\n\n\
+     [[rules.key-ordering.orders]]\nfiles = ['*']\npath = '$.*.*'\n\
+     keys = ['b', 'a']\nunlisted = 'keep'\n",
 ];
+static LOADED: LazyLock<(TempDir, Vec<YamlLintConfig>)> = LazyLock::new(|| {
+    let dir = TempDir::new().expect("tempdir");
+    let configs = CONFIGS.iter().enumerate().map(|(index, toml)| {
+        let file = dir.path().join(format!("{index}.toml"));
+        std::fs::write(&file, toml).expect("write config");
+        let overrides = Overrides {
+            config_file: Some(file),
+            config_data: None,
+        };
+        discover_config(&[], &overrides)
+            .expect("config loads")
+            .config
+    });
+    let configs = configs.collect();
+    (dir, configs)
+});
 const VERIFY: &str = "the sorted output failed verification";
 
 #[derive(Debug, Clone)]
@@ -172,10 +198,6 @@ fn render(map: &Map) -> String {
     lines.join("\n") + "\n"
 }
 
-fn config(yaml: &str) -> YamlLintConfig {
-    YamlLintConfig::from_yaml_str(yaml).expect("config parses")
-}
-
 fn loaded(text: &str) -> Option<Vec<YamlOwned>> {
     fn canonical(node: YamlOwned) -> YamlOwned {
         match node {
@@ -267,12 +289,11 @@ proptest! {
         let Some(before) = loaded(&input) else {
             return Ok(());
         };
-        for yaml in CONFIGS {
-            let cfg = config(yaml);
+        for cfg in &LOADED.1 {
             let path = Path::new("synthetic.yaml");
-            let fixed = apply_safe_fixes(&input, &cfg, path, Path::new("."));
+            let fixed = apply_safe_fixes(&input, cfg, path, Path::new("."));
             prop_assert_eq!(
-                apply_safe_fixes(&fixed, &cfg, path, Path::new(".")),
+                apply_safe_fixes(&fixed, cfg, path, Path::new(".")),
                 fixed.clone(),
                 "not idempotent; input {:?}", input
             );
@@ -283,13 +304,13 @@ proptest! {
                 attachments(&input),
                 "a comment changed anchor; input {:?}; fixed {:?}", input, fixed
             );
-            let rule = key_ordering::Config::resolve(&cfg);
+            let rule = key_ordering::Config::resolve(cfg, path);
             let unfixed = key_ordering::unfixed(&fixed, &rule, &[]);
             prop_assert!(
                 unfixed.iter().all(|notice| notice.message != VERIFY),
                 "the verification backstop fired; input {:?}; fixed {:?}", input, fixed
             );
-            let remaining = lint_str(&fixed, path, &cfg, Path::new("."))
+            let remaining = lint_str(&fixed, path, cfg, Path::new("."))
                 .iter()
                 .any(|problem| problem.rule == Some(key_ordering::ID));
             prop_assert!(
@@ -302,8 +323,7 @@ proptest! {
 
 #[test]
 fn generator_reaches_both_sorted_and_declined_mappings() {
-    let cfg = config(CONFIGS[0]);
-    let rule = key_ordering::Config::resolve(&cfg);
+    let rule = key_ordering::Config::resolve(&LOADED.1[0], Path::new("t.yaml"));
     let sorted = "b:\n  - d: 1\n    c: 2\n  # deep\na: &p v\n";
     assert_eq!(
         key_ordering::fix(sorted, &rule, &[]).as_deref(),
@@ -312,4 +332,26 @@ fn generator_reaches_both_sorted_and_declined_mappings() {
     let declined = "b: 1\n# loose\n\na: 2\n";
     assert_eq!(key_ordering::fix(declined, &rule, &[]), None);
     assert_eq!(key_ordering::unfixed(declined, &rule, &[]).len(), 1);
+}
+
+#[test]
+fn orders_configs_select_the_generated_shapes() {
+    let fix = |config: usize, input| {
+        let rule =
+            key_ordering::Config::resolve(&LOADED.1[config], Path::new("t.yaml"));
+        key_ordering::fix(input, &rule, &[])
+    };
+    assert_eq!(fix(2, "b: 1\nd: 2\n").as_deref(), Some("d: 2\nb: 1\n"));
+    assert_eq!(
+        fix(2, "x:\n  - a: 1\n    b: 2\n    c: 3\n").as_deref(),
+        Some("x:\n  - c: 3\n    a: 1\n    b: 2\n")
+    );
+    assert_eq!(
+        fix(3, "x:\n  y:\n    a: 1\n    c: 0\n    d: 3\n    b: 2\n").as_deref(),
+        Some("x:\n  y:\n    b: 2\n    c: 0\n    d: 3\n    a: 1\n")
+    );
+    assert_eq!(
+        fix(3, "a:\n  - b: 0\n    a: 1\n    d: 2\n").as_deref(),
+        Some("a:\n  - b: 0\n    d: 2\n    a: 1\n")
+    );
 }

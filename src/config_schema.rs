@@ -47,6 +47,7 @@ pub struct TomlConfig {
             CommentsIndentationOptions,
             TomlHyphensOptions,
             TomlCommentsOptions,
+            TomlKeyOrderingOptions,
         >,
     >,
     #[serde(flatten, default)]
@@ -410,6 +411,7 @@ pub struct RulesTable<
     C = NoOptions,
     H = HyphensOptions,
     M = CommentsOptions,
+    O = KeyOrderingOptions,
 > {
     #[serde(rename = "ALL")]
     pub all: Option<RuleSwitch>,
@@ -438,7 +440,7 @@ pub struct RulesTable<
     #[serde(rename = "key-duplicates")]
     pub key_duplicates: Option<RuleEntry<K>>,
     #[serde(rename = "key-ordering")]
-    pub key_ordering: Option<RuleEntry<KeyOrderingOptions>>,
+    pub key_ordering: Option<RuleEntry<O>>,
     #[serde(rename = "line-length")]
     pub line_length: Option<RuleEntry<LineLengthOptions>>,
     #[serde(rename = "merge-keys")]
@@ -692,6 +694,36 @@ pub struct TomlKeyDuplicatesOptions {
 pub struct KeyOrderingOptions {
     #[serde(rename = "ignored-keys")]
     pub ignored_keys: Option<Vec<String>>,
+}
+
+/// TOML-only `key-ordering` options: the yamllint-compatible `ignored-keys` plus ryl's
+/// `orders`, which has no YAML-config equivalent.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TomlKeyOrderingOptions {
+    #[serde(rename = "ignored-keys")]
+    pub ignored_keys: Option<Vec<String>>,
+    pub orders: Option<Vec<KeyOrderEntry>>,
+}
+
+/// A configured key order for the mappings that both `files` and `path` select.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KeyOrderEntry {
+    /// Globs matched like `per-file-ignores` keys; `!` excludes.
+    pub files: Vec<String>,
+    /// `JSONPath` subset: `$`, `.name`, `['name']`, `[*]`, `.*`.
+    pub path: String,
+    pub keys: Vec<String>,
+    pub unlisted: Option<Unlisted>,
+}
+
+/// Where keys missing from `keys` go: sorted after the listed keys, or kept in place.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Unlisted {
+    Sort,
+    Keep,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -1091,10 +1123,18 @@ pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     )
 }
 
-fn validate_common_config<Q: validation::QuotedStringsOptionSet, K, A, C, H, M>(
+fn validate_common_config<
+    Q: validation::QuotedStringsOptionSet,
+    K,
+    A,
+    C,
+    H,
+    M,
+    O: validation::KeyOrderingOptionSet,
+>(
     ignore: Option<&StringOrVec>,
     ignore_from_file: Option<&StringOrVec>,
-    rules: Option<&RulesTable<Q, K, A, C, H, M>>,
+    rules: Option<&RulesTable<Q, K, A, C, H, M, O>>,
 ) -> Result<(), String> {
     if ignore.is_some() && ignore_from_file.is_some() {
         return Err(
