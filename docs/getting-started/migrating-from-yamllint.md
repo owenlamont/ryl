@@ -303,6 +303,32 @@ includes single `y`/`n`, which PyYAML's resolver omits. Resolving under the
 declared version also keeps `--fix` sound: it never strips the quotes from a
 scalar whose value would change under the document's own `%YAML 1.1`.
 
+### Comments after a block scalar header
+
+ryl's `comments` rule checks a comment that follows a block scalar header (`|`, `>`
+and their indicators) like any other inline comment, so `--fix` pads it too.
+yamllint never sees that comment: PyYAML consumes it as part of the scalar token,
+so both `require-starting-space` and `min-spaces-from-content` skip it.
+
+```yaml
+d: | # c
+  text
+e: >- #c
+  more
+```
+
+| Line | ryl (`comments` defaults) | yamllint |
+| :--- | :--- | :--- |
+| 1 (`d:`) | too few spaces before comment | no problem |
+| 3 (`e:`) | too few spaces before comment; missing starting space | no problem |
+
+**Why ryl differs:** the YAML 1.2.2 spec ends the header with an ordinary inline
+comment, `c-b-block-header(t) ::= (indicators) s-b-comment`
+([production 162](https://yaml.org/spec/1.2.2/#rule-c-b-block-header)), and its own
+[Example 8.1](https://yaml.org/spec/1.2.2/#example-block-scalar-header) writes
+`- | # Empty header`. yamllint's exemption is a side effect of reading comments only
+between tokens, not a style choice.
+
 ### Per-line ignores
 
 ryl adds a [`per-line-ignores`](../per-line-ignores.md) config table with no
