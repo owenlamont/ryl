@@ -268,3 +268,10 @@ fn column_counts_characters_not_bytes_before_comma() {
         }]
     );
 }
+
+#[test]
+fn fix_leaves_unsatisfiable_spacing_after_alone() {
+    let cfg = Config::new_for_tests(0, 3, 1);
+    let fixed = commas::fix("[1 ,2]\n", &cfg);
+    assert_eq!(fixed, Some("[1,2]\n".to_string()));
+}

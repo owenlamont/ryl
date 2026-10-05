@@ -4,7 +4,7 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
-    template_double_curly_end,
+    target_spacing, template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
     BytePos, CharPos, apply_replacements, containing_scalar_range,
@@ -347,13 +347,7 @@ fn collect_comma_fixes(
 }
 
 fn target_spaces_after(cfg: &Config, current: usize) -> Option<usize> {
-    let min_spaces = usize::try_from(cfg.min_spaces_after).ok().unwrap_or(0);
-    let max_spaces = if cfg.max_spaces_after >= 0 {
-        usize::try_from(cfg.max_spaces_after).unwrap_or(usize::MAX)
-    } else {
-        usize::MAX
-    };
-    let target = current.max(min_spaces).min(max_spaces);
+    let target = target_spacing(current, cfg.min_spaces_after, cfg.max_spaces_after);
     (target != current).then_some(target)
 }
 

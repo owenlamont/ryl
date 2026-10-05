@@ -56,7 +56,8 @@ object: [1, 2, abc]
 
 `ryl check --fix` adjusts whitespace inside brackets to satisfy the configured
 bounds. The `forbid` constraint is not auto-fixed because converting flow
-sequences to block style requires re-flowing the document.
+sequences to block style requires re-flowing the document. A minimum above its
+maximum cannot be satisfied, so `--fix` leaves that spacing as it is.
 
 ## Related rules
 

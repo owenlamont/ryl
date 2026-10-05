@@ -391,3 +391,17 @@ fn bracket_columns_count_characters_not_bytes() {
         ],
     );
 }
+
+#[test]
+fn braces_fix_leaves_unsatisfiable_spacing_alone() {
+    let cfg = BracesConfig::new_for_tests(Forbid::None, 3, 1, 0, 0);
+    let fixed = braces::fix("object: {key: 1}\nempty: { }\n", &cfg);
+    assert_eq!(fixed, Some("object: {key: 1}\nempty: {}\n".to_string()));
+}
+
+#[test]
+fn brackets_fix_leaves_unsatisfiable_empty_spacing_alone() {
+    let cfg = BracketsConfig::new_for_tests(Forbid::None, 1, 1, 2, 1);
+    let fixed = brackets::fix("object: [1, 2]\nempty: []\n", &cfg);
+    assert_eq!(fixed, Some("object: [ 1, 2 ]\nempty: []\n".to_string()));
+}

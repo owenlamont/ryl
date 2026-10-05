@@ -50,7 +50,8 @@ list: [10, 20, 30, {x: 1, y: 2}]
 ## Automatic fixing
 
 `ryl check --fix` normalises whitespace around commas to satisfy the configured
-limits. Disable with:
+limits, leaving the spacing after a comma as it is when `min-spaces-after` exceeds
+`max-spaces-after`. Disable with:
 
 ```toml
 [fix]

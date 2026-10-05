@@ -1128,3 +1128,23 @@ fn unfixable_key_ordering_leaves_keys_and_prints_no_notice() {
         "b: 1\na: {d: 1, c: 2}\n"
     );
 }
+
+#[test]
+fn fix_leaves_file_unchanged_when_min_spacing_exceeds_max() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "a: {x: 1}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules.braces]\nmin-spaces-inside = 3\nmax-spaces-inside = 1\n",
+    )
+    .unwrap();
+
+    let (code, _, stderr) = run(ryl(dir.path()).arg("--fix").arg(&file));
+    assert_eq!(code, 1, "braces diagnostics should remain: {stderr}");
+    assert!(
+        stderr.contains("Found 2 problems (0 fixed, 2 remaining)."),
+        "expected no fixes in summary: {stderr}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "a: {x: 1}\n");
+}
