@@ -6,6 +6,7 @@
 use std::borrow::Cow;
 
 use granit_parser::{ScalarStyle, Tag};
+use num_bigint::BigInt;
 use ordered_float::OrderedFloat;
 
 use super::core_schema_suffix;
@@ -72,12 +73,10 @@ impl<'input> Scalar<'input> {
         if let Some(integer) = parse_core_schema_int(&v) {
             return Self::Integer(integer);
         }
-        // A decimal integer overflowing `i64` keeps its exact text rather than
-        // reparsing as `f64`, which would collapse distinct large integers onto one
-        // value (a false-positive duplicate key under `check-canonical`). Hex/octal
-        // overflow spellings already fall through to a string (they cannot parse as
-        // `f64`).
-        if is_decimal_integer_spelling(&v) {
+        // An integer overflowing `i64` keeps its exact text rather than reparsing as
+        // `f64`, which would collapse distinct large integers onto one value (a
+        // false-positive duplicate key under `check-canonical`).
+        if is_core_schema_int_spelling(&v) {
             return Self::String(v);
         }
         if is_core_schema_null(&v) {
@@ -113,12 +112,34 @@ pub fn is_core_schema_null(v: &str) -> bool {
     matches!(v, "" | "~" | "null" | "Null" | "NULL")
 }
 
-/// A decimal integer spelling (`[-+]?[0-9]+`). Reached only after
-/// `parse_core_schema_int` fails, so `true` means an integer that overflows `i64`.
+/// A YAML 1.2 core-schema integer spelling (`[-+]?[0-9]+`, `0o[0-7]+`,
+/// `0x[0-9a-fA-F]+`) of any width: one beyond `i64` resolves to a `String` here but
+/// is still an integer to a YAML loader.
 #[must_use]
-fn is_decimal_integer_spelling(v: &str) -> bool {
-    let digits = v.strip_prefix(['+', '-']).unwrap_or(v);
-    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+pub fn is_core_schema_int_spelling(v: &str) -> bool {
+    core_schema_int_digits(v).is_some()
+}
+
+/// The digits and radix of a core-schema integer spelling, signed only in base 10
+/// because `from_str_radix` would also accept the sign in `0x-1`.
+fn core_schema_int_digits(v: &str) -> Option<(&str, u32)> {
+    let (digits, unsigned, radix) = if let Some(hex) = v.strip_prefix("0x") {
+        (hex, hex, 16)
+    } else if let Some(octal) = v.strip_prefix("0o") {
+        (octal, octal, 8)
+    } else {
+        (v, v.strip_prefix(['+', '-']).unwrap_or(v), 10)
+    };
+    (!unsigned.is_empty() && unsigned.chars().all(|c| c.is_digit(radix)))
+        .then_some((digits, radix))
+}
+
+/// The decimal spelling of a core-schema integer of any width, without a `+` or
+/// leading zeros, so differently written integers past `i64` compare equal.
+#[must_use]
+pub(crate) fn canonical_core_schema_int(v: &str) -> Option<String> {
+    let (digits, radix) = core_schema_int_digits(v)?;
+    BigInt::parse_bytes(digits.as_bytes(), radix).map(|value| value.to_string())
 }
 
 /// A YAML 1.2 core-schema integer, honouring `0x`/`0o` radix prefixes and a leading
@@ -126,13 +147,8 @@ fn is_decimal_integer_spelling(v: &str) -> bool {
 /// one (`!!int 0xB` == `11`).
 #[must_use]
 pub fn parse_core_schema_int(v: &str) -> Option<i64> {
-    if let Some(hex) = v.strip_prefix("0x") {
-        i64::from_str_radix(hex, 16).ok()
-    } else if let Some(octal) = v.strip_prefix("0o") {
-        i64::from_str_radix(octal, 8).ok()
-    } else {
-        v.parse::<i64>().ok()
-    }
+    core_schema_int_digits(v)
+        .and_then(|(digits, radix)| i64::from_str_radix(digits, radix).ok())
 }
 
 #[must_use]

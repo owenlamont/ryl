@@ -301,6 +301,18 @@ fn invalid_signed_int_falls_back_to_string() {
 }
 
 #[test]
+fn sign_after_radix_prefix_falls_back_to_string() {
+    let doc = parse_single("a: 0x-1\nb: 0o-7\nc: 0x+1\n");
+    for (key, text) in [("a", "0x-1"), ("b", "0o-7"), ("c", "0x+1")] {
+        assert_eq!(
+            doc.as_mapping_get(key).and_then(YamlOwned::as_str),
+            Some(text),
+            "{text} should stay a string"
+        );
+    }
+}
+
+#[test]
 fn core_schema_null_tag_rejects_non_null_value() {
     let doc = parse_single("v: !!null foo\n");
     assert_matches!(doc.as_mapping_get("v"), Some(YamlOwned::BadValue));

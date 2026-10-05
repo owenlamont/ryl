@@ -354,6 +354,23 @@ fn fix_only_when_needed_removes_redundant_single_quotes() {
 }
 
 #[test]
+fn only_when_needed_keeps_quotes_on_integers_beyond_i64() {
+    let cfg = build_config(
+        "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",
+    );
+    let integers = "- '9223372036854775808'\n- '-9223372036854775809'\n- '0x1FFFFFFFFFFFFFFFF'\n- '0o7777777777777777777777'\n";
+    let buffer = format!("{integers}- '0xG'\n- '0o8'\n");
+    let hits = quoted_strings::check(&buffer, &cfg);
+    assert_eq!(
+        hits.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+        [5, 6],
+        "only the non-integer hex/octal lookalikes are redundantly quoted"
+    );
+    let fixed = quoted_strings::fix(&buffer, &cfg);
+    assert_eq!(fixed, Some(format!("{integers}- 0xG\n- 0o8\n")));
+}
+
+#[test]
 fn fix_only_when_needed_converts_double_to_single_when_needed() {
     let cfg = build_config(
         "rules:\n  document-start: disable\n  quoted-strings:\n    quote-type: single\n    required: only-when-needed\n",

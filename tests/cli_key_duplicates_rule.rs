@@ -294,27 +294,50 @@ fn canonical_treats_an_empty_plain_key_as_null() {
 }
 
 #[test]
-fn canonical_keeps_overflowing_integers_as_distinct_keys() {
-    // Integers beyond i64 keep their exact text instead of collapsing to f64, so
-    // two distinct large integers are not a duplicate (no false positive); the
-    // same integer written two ways is a safe miss, not a false hit.
-    let (distinct, out1) = run_toml(
+fn canonical_compares_wide_integers_by_value() {
+    let (code, output) = run_toml(
         "check-canonical = true\n",
-        "9223372036854775808: a\n9223372036854775809: b\n",
+        "9223372036854775808: a\n0x8000000000000000: b\n9223372036854775809: c\n",
+    );
+    assert_eq!(code, 1, "expected a wide-integer duplicate: {output}");
+    assert!(
+        output.contains("duplication of key \"0x8000000000000000\" in mapping"),
+        "a hex spelling should equal its decimal value: {output}"
     );
     assert_eq!(
-        distinct, 0,
-        "distinct large integers must not collide: {out1}"
+        output.matches("duplication of key").count(),
+        1,
+        "distinct wide values must not collide: {output}"
     );
+}
 
-    let (signed, out2) = run_toml(
+#[test]
+fn canonical_keeps_a_wide_plain_integer_apart_from_its_quoted_digits() {
+    let (code, output) = run_toml(
         "check-canonical = true\n",
-        "+9223372036854775808: a\n9223372036854775808: b\n",
+        "9223372036854775808: a\n'9223372036854775808': b\n",
     );
-    assert_eq!(
-        signed, 0,
-        "differently signed spellings stay distinct: {out2}"
+    assert_eq!(code, 0, "a wide integer is not its quoted digits: {output}");
+
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "9223372036854775808: a\n9223372036854775808: b\n!!str 9223372036854775809: c\n'9223372036854775809': d\n",
     );
+    assert_eq!(code, 1, "repeated wide integer and !!str collide: {output}");
+    assert!(
+        output.contains("duplication of key \"9223372036854775808\" in mapping")
+            && output.contains("duplication of key \"9223372036854775809\" in mapping"),
+        "expected both duplicates: {output}"
+    );
+}
+
+#[test]
+fn canonical_reads_a_sign_after_a_radix_prefix_as_text() {
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "0x-1: a\n-1: b\n0o+7: c\n7: d\n",
+    );
+    assert_eq!(code, 0, "0x-1 and 0o+7 are strings, not integers: {output}");
 }
 
 #[test]

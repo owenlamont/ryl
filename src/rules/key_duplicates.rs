@@ -36,7 +36,7 @@ use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver, Tag}
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
-use crate::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
+use crate::yaml_dom::{Scalar, ScalarOwned, canonical_core_schema_int, is_core_schema};
 
 pub const ID: &str = "key-duplicates";
 
@@ -96,6 +96,9 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum KeyId {
     Resolved(ScalarOwned),
+    /// A plain integer too wide for `i64`, held as canonical decimal digits that must
+    /// not equal the same digits quoted.
+    WideInt(String),
     Raw(String),
 }
 
@@ -109,6 +112,13 @@ fn key_id(
         && tag.is_none_or(|tag| is_core_schema(tag))
         && let Some(scalar) = Scalar::resolve_scalar(Cow::Borrowed(value), style, tag)
     {
+        if style == ScalarStyle::Plain
+            && tag.is_none()
+            && matches!(scalar, Scalar::String(_))
+            && let Some(decimal) = canonical_core_schema_int(value)
+        {
+            return KeyId::WideInt(decimal);
+        }
         return KeyId::Resolved(scalar.into_owned());
     }
     KeyId::Raw(value.to_owned())
