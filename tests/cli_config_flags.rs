@@ -66,8 +66,8 @@ fn config_enabling_no_rules_is_rejected_loudly() {
         let (code, _out, err) = run(Command::new(exe).arg("-d").arg(data).arg(&file));
         assert_eq!(code, 2, "a rule-less config must error: {err}");
         assert!(
-            err.contains("enables no rules"),
-            "expected the no-rules error: {err}"
+            err.contains("enables no rules") && err.contains("--enable ALL"),
+            "expected the no-rules error suggesting --enable: {err}"
         );
     }
 

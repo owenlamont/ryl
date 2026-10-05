@@ -69,11 +69,12 @@ ryl never enables a rule unless a configuration or `--enable` explicitly turns i
 cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
-  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, or pass a
-  YAML config with `extends: default` for yamllint's standard rule set.
+  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, pass a
+  YAML config with `extends: default` for yamllint's standard rule set, or pass
+  `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
-  least one rule, or use `extends: default`.
+  least one rule, use `extends: default`, or pass `--enable ALL`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
 is found and silently accepts a rule-less config. Give ryl a config containing
