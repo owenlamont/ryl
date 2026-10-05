@@ -183,6 +183,13 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("0xB".to_string()),
         Just("11".to_string()),
         Just("~".to_string()),
+        // Integers past `i64` (plain and quoted) and a sign after a radix prefix.
+        Just("9223372036854775808".to_string()),
+        Just("'9223372036854775808'".to_string()),
+        Just("0x8000000000000000".to_string()),
+        Just("0o1000000000000000000000".to_string()),
+        Just("0x-1".to_string()),
+        Just("0o+7".to_string()),
         // An alias as a mapping key: paired with the entry generator's
         // `spaces_before_colon` range it produces `*anchor : v` (the required-space
         // `colons` exemption) plus the non-exempt 0/2-space forms, and exercises an
@@ -202,6 +209,8 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("True".to_string()),
         Just("010".to_string()),
         Just("0o17".to_string()),
+        Just("9223372036854775808".to_string()),
+        Just("0x-1".to_string()),
         Just("0.5".to_string()),
         Just(".5".to_string()),
         Just("1e3".to_string()),
