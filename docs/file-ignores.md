@@ -20,7 +20,7 @@ A top-level `ignore` lists paths ryl skips entirely. No rule runs against them
 and they produce no diagnostics.
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
 ignore = """
@@ -45,7 +45,7 @@ reuse its `.gitignore`:
 
 <!-- ryl-config-check: skip -->
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
 ignore-from-file = ".gitignore"
@@ -63,7 +63,7 @@ matches by file name only, so `*.lock.yaml` still applies to it and
 `.github/workflows/*` does not &mdash; the same as ruff.
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
 ignore = """
@@ -88,12 +88,12 @@ everything else &mdash; a Helm values file with no document start, a workflow
 file whose `on:` key trips [`truthy`](rules/truthy.md).
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/values.yaml" = ["document-start"]
 ".github/workflows/*" = ["truthy"]
 ```
@@ -103,10 +103,10 @@ negation. Each value is a list of rule IDs, or `["ALL"]` to switch off every rul
 for the matching files:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "enable"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/pnpm-*.yaml" = ["ALL"]
 ```
 
@@ -122,13 +122,13 @@ Every rule accepts its own `ignore`, scoping that one rule to a subset of the
 tree. Other rules still run against the excluded paths.
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 max = 80
 ignore = """
 docs/**
 """
 
-[rules.colons]
+[lint.rules.colons]
 ```
 
 Here `docs/**` is exempt from `line-length` but still checked by `colons`.

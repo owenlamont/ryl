@@ -21,6 +21,10 @@
 //!   `key-ordering` `orders`; a TOML config that validates is then loaded from a file
 //!   (which compiles its globs and paths) and linted with like a YAML one.
 //!
+//! - Each TOML config is rendered in both the deprecated top-level shape and the
+//!   nested `[lint]` shape, which must load to the same effective config (or both
+//!   fail), with only the deprecated shape reporting deprecated keys.
+//!
 //! Deterministic siblings pin the empty-config, invalid-regex, billion-laughs, and
 //! valid-config cases so the random invariant cannot pass vacuously if the generator
 //! drifts.
@@ -33,6 +37,7 @@ use std::path::Path;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
+use ryl::config_schema::TomlConfig;
 use ryl::config_schema::{
     normalize_toml_config, parse_toml_config_str, validate_toml_config,
 };
@@ -91,7 +96,27 @@ proptest! {
     #[test]
     fn config_parsing_and_linting_never_panics(model in arb_config()) {
         lint_with(&render_yaml(&model));
-        parse_toml_without_panicking(&render_toml(&model));
+        parse_toml_without_panicking(&render_toml(&model, "lint."));
+    }
+
+    #[test]
+    fn legacy_and_nested_toml_shapes_load_identically(model in arb_config()) {
+        let legacy = render_toml(&model, "");
+        let nested = render_toml(&model, "lint.");
+        let effective = |text: &str| {
+            YamlLintConfig::from_toml_str(text).map(|cfg| cfg.to_toml_string())
+        };
+        prop_assert_eq!(effective(&legacy).ok(), effective(&nested).ok());
+        let deprecated = |text: &str| {
+            parse_toml_config_str(text, false)
+                .ok()
+                .flatten()
+                .map(|cfg: TomlConfig| cfg.deprecated_keys().len())
+        };
+        prop_assert_eq!(deprecated(&nested).unwrap_or(0), 0);
+        if let Some(count) = deprecated(&legacy) {
+            prop_assert!(count > 0, "the legacy shape always sets `rules`");
+        }
     }
 }
 

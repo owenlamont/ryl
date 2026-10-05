@@ -16,7 +16,7 @@ whitespace they may contain.
 ## Configuration
 
 ```toml
-[rules.braces]
+[lint.rules.braces]
 level = "error"
 forbid = false
 min-spaces-inside = 0

@@ -80,17 +80,17 @@ printed but do not fail the run.
 Configure the severity inline with the rule:
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 120
 ```
 
 ## Enabling and disabling rules
 
-Toggle a rule on or off with a top-level string in the `[rules]` table:
+Toggle a rule on or off with a top-level string in the `[lint.rules]` table:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "disable"
 key-ordering = "enable"
 ```
@@ -99,11 +99,11 @@ Enabling a rule without options applies its defaults. To enable every rule,
 including the ryl-only ones, use `ALL`:
 
 ```toml
-[rules]
+[lint.rules]
 ALL = "enable"
 truthy = "disable"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -140,10 +140,10 @@ The `--fix` flag applies safe fixes for rules marked with :wrench: above:
 ryl check --fix .
 ```
 
-Control which rules apply fixes with a `[fix]` table:
+Control which rules apply fixes with `fixable`/`unfixable` in the `[lint]` table:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```

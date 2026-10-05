@@ -53,7 +53,7 @@ version: "1.0"
 ## Configuration
 
 ```toml
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 level = "warning"
 quote-type = "any"
 required = true
@@ -81,10 +81,10 @@ adds or removes quotes to satisfy `required`. The fix is conservative: it
 only changes scalars where the corrected form parses to the same value as
 the original.
 
-Disable the fix for this rule by adding it to `[fix].unfixable`:
+Disable the fix for this rule by adding it to `lint.unfixable`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```

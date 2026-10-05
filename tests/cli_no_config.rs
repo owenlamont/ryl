@@ -85,7 +85,7 @@ fn mixed_run_reports_no_config_for_the_unconfigured_file() {
     let configured = tempdir().unwrap();
     std::fs::write(
         configured.path().join(".ryl.toml"),
-        "[rules]\nanchors = \"enable\"\n",
+        "[lint.rules]\nanchors = \"enable\"\n",
     )
     .unwrap();
     let with_config = configured.path().join("a.yaml");

@@ -18,9 +18,9 @@ fn project(
     (dir, file)
 }
 
-const COLONS_AND_DUPES: &str = "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\nkey-duplicates = \"enable\"\n";
+const COLONS_AND_DUPES: &str = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\nkey-duplicates = \"enable\"\n";
 const COLONS_ONLY: &str =
-    "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\n";
 
 #[test]
 fn front_matter_and_fenced_blocks_map_to_host_positions() {
@@ -88,7 +88,7 @@ fn indented_fenced_block_adds_indent_to_column() {
 
 #[test]
 fn front_matter_only_source_skips_fenced_blocks() {
-    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { fenced-blocks = false }\n[rules]\ncolons = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { fenced-blocks = false }\n[lint.rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -103,7 +103,7 @@ fn front_matter_only_source_skips_fenced_blocks() {
 
 #[test]
 fn fenced_blocks_only_source_skips_front_matter() {
-    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncolons = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[lint.rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -118,7 +118,7 @@ fn fenced_blocks_only_source_skips_front_matter() {
 
 #[test]
 fn file_shape_rules_are_suppressed_in_embedded_regions() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ndocument-start = \"enable\"\ncolons = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ndocument-start = \"enable\"\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n\n```yaml\nb:  2\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -149,7 +149,8 @@ fn crlf_markdown_maps_positions() {
 
 #[test]
 fn blockquoted_fence_column_accounts_for_quote_marker() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ntruthy = \"enable\"\n";
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\ntruthy = \"enable\"\n";
     let body = "> ```yaml\n> foo: True\n> ```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -166,7 +167,8 @@ fn blockquoted_fence_column_accounts_for_quote_marker() {
 
 #[test]
 fn fence_nested_in_front_matter_is_not_double_linted() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ntruthy = \"enable\"\n";
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\ntruthy = \"enable\"\n";
     let body = "---\ndesc: |\n  ```yaml\n  inner: True\n  ```\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -183,7 +185,8 @@ fn fence_nested_in_front_matter_is_not_double_linted() {
 
 #[test]
 fn fence_crossing_front_matter_terminator_is_dropped() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\n";
     let body = "---\ntags: [x,y]\ndesc: |\n  ```yaml\n  inner: [1,2]\n---\nafter: [3,4]\n```\n\ntext\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -202,7 +205,7 @@ fn fence_crossing_front_matter_terminator_is_dropped() {
 
 #[test]
 fn fence_inside_disabled_front_matter_is_not_linted() {
-    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncommas = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[lint.rules]\ncommas = \"enable\"\n";
     let body = "---\ndesc: |\n  ```yaml\n  inner: [1,2]\n  ```\n---\n\ntext\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -220,7 +223,8 @@ fn fence_inside_disabled_front_matter_is_not_linted() {
 
 #[test]
 fn fence_opening_on_last_front_matter_line_is_dropped() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\n";
     let body = "---\ndesc: |\n  ```yaml\n---\nafter: [1,2]\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -238,7 +242,8 @@ fn fence_opening_on_last_front_matter_line_is_dropped() {
 
 #[test]
 fn body_fence_immediately_after_front_matter_is_linted() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\n";
     let body = "---\na: 1\n---\n```yaml\nnums: [1,2]\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -295,8 +300,7 @@ fn attribute_and_tilde_fences_are_linted() {
 
 #[test]
 fn whitespace_only_front_matter_is_skipped() {
-    let config =
-        "files = { markdown = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ntrailing-spaces = \"enable\"\n";
     let body = "---\n   \n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -310,7 +314,7 @@ fn whitespace_only_front_matter_is_skipped() {
 
 #[test]
 fn explicit_markdown_without_files_pattern_is_rejected() {
-    let config = "[rules]\ncolons = \"enable\"\n";
+    let config = "[lint.rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -324,8 +328,7 @@ fn explicit_markdown_without_files_pattern_is_rejected() {
 
 #[test]
 fn fix_rewrites_markdown_front_matter() {
-    let config =
-        "files = { markdown = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ntrailing-spaces = \"enable\"\n";
     let body = "---\nfoo: bar  \n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -358,7 +361,7 @@ fn directory_scan_discovers_markdown() {
 
 #[test]
 fn file_matching_two_kinds_is_a_hard_error() {
-    let config = "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    let config = "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -372,7 +375,7 @@ fn file_matching_two_kinds_is_a_hard_error() {
 
 #[test]
 fn directory_scan_overlap_is_a_hard_error() {
-    let config = "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    let config = "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\n";
     let body = "---\na:  1\n---\n";
     let (dir, _file) = project(config, "doc.md", body);
 
@@ -389,7 +392,8 @@ fn directory_scan_overlap_is_a_hard_error() {
 
 #[test]
 fn merge_keys_fires_in_fenced_block() {
-    let cfg = "files = { markdown = [\"*.md\"] }\n[rules]\nmerge-keys = \"enable\"\n";
+    let cfg =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\nmerge-keys = \"enable\"\n";
     let body = "intro\n\n```yaml\nbase: &b {x: 1}\nchild:\n  <<: *b\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
@@ -408,7 +412,7 @@ fn merge_keys_fires_in_fenced_block() {
 
 #[test]
 fn key_duplicates_canonical_fires_in_fenced_block() {
-    let cfg = "files = { markdown = [\"*.md\"] }\n[rules.key-duplicates]\ncheck-canonical = true\n";
+    let cfg = "files = { markdown = [\"*.md\"] }\n[lint.rules.key-duplicates]\ncheck-canonical = true\n";
     let body = "```yaml\n0xB: a\n11: b\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
@@ -427,7 +431,7 @@ fn key_duplicates_canonical_fires_in_fenced_block() {
 
 #[test]
 fn unicode_line_breaks_fires_in_fenced_block() {
-    let cfg = "files = { markdown = [\"*.md\"] }\n[rules]\nunicode-line-breaks = \"enable\"\n";
+    let cfg = "files = { markdown = [\"*.md\"] }\n[lint.rules]\nunicode-line-breaks = \"enable\"\n";
     // A raw U+2028 line separator inside the fenced scalar (content, not a break).
     let body = "```yaml\nkey: a\u{2028}b\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
@@ -445,7 +449,7 @@ fn unicode_line_breaks_fires_in_fenced_block() {
 
 #[test]
 fn anchors_ambiguous_name_fires_in_fenced_block() {
-    let cfg = "files = { markdown = [\"*.md\"] }\n[rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n";
+    let cfg = "files = { markdown = [\"*.md\"] }\n[lint.rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n";
     let body = "```yaml\na: &:foo 1\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 
@@ -466,7 +470,7 @@ fn anchors_ambiguous_name_fires_in_fenced_block() {
 fn block_scalar_chomping_fires_in_fenced_block() {
     // The rule runs in embedded YAML (it is not markdown-suppressed); a bare block
     // header inside a fenced block maps back to its host line and marker column.
-    let cfg = "files = { markdown = [\"*.md\"] }\n[rules]\nblock-scalar-chomping = \"enable\"\n";
+    let cfg = "files = { markdown = [\"*.md\"] }\n[lint.rules]\nblock-scalar-chomping = \"enable\"\n";
     let body = "intro\n\n```yaml\nscript: |\n  echo hi\n```\n";
     let (_dir, file) = project(cfg, "doc.md", body);
 

@@ -90,7 +90,7 @@ fn rule_ignore_string_is_honored() {
 fn toml_rule_ignore_array_is_honored() {
     let td = tempdir().unwrap();
     let path = td.path().join(".ryl.toml");
-    fs::write(path.clone(), "[rules.colons]\nignore = ['docs/**']\n").unwrap();
+    fs::write(path.clone(), "[lint.rules.colons]\nignore = ['docs/**']\n").unwrap();
 
     let ctx = discover_config(
         &[],

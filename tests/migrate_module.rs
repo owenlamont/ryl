@@ -229,6 +229,26 @@ fn migrate_write_errors_when_rename_destination_is_invalid() {
 }
 
 #[test]
+fn migrate_rewrite_errors_without_writing_when_backup_fails() {
+    let td = tempdir().unwrap();
+    let legacy = "[rules]\ntruthy = \"enable\"\n";
+    fs::write(td.path().join("ryl.toml"), legacy).unwrap();
+    let opts = MigrateOptions {
+        project_root: Some(td.path().to_path_buf()),
+        user_config: None,
+        write_mode: WriteMode::Write,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::RenameSuffix("/missing/subdir".to_string()),
+    };
+    let err = migrate_configs(&opts).unwrap_err();
+    assert!(err.contains("failed to back up"), "{err}");
+    assert_eq!(
+        fs::read_to_string(td.path().join("ryl.toml")).unwrap(),
+        legacy
+    );
+}
+
+#[test]
 fn migrate_user_config_writes_target_creating_missing_dir() {
     let td = tempdir().unwrap();
     let source = td.path().join("yamllint").join("config");
@@ -303,7 +323,7 @@ fn migrate_project_skips_when_ryl_native_config_exists() {
     // A pre-existing .ryl.toml must not be clobbered, even with --delete-old.
     fs::write(
         td.path().join(".ryl.toml"),
-        "[rules]\nkey-duplicates = \"enable\"\n",
+        "[lint.rules]\nkey-duplicates = \"enable\"\n",
     )
     .unwrap();
     let opts = MigrateOptions {
@@ -343,7 +363,7 @@ fn migrate_project_skips_when_config_dir_ryl_config_exists() {
     fs::create_dir(td.path().join(".config")).unwrap();
     fs::write(
         td.path().join(".config").join("ryl.toml"),
-        "[rules]\nkey-duplicates = \"enable\"\n",
+        "[lint.rules]\nkey-duplicates = \"enable\"\n",
     )
     .unwrap();
     let opts = MigrateOptions {
@@ -384,7 +404,7 @@ fn migrate_user_config_skips_when_ryl_toml_exists() {
     // Only the non-hidden ryl.toml exists here (exercises the second collision candidate).
     fs::write(
         ryl_dir.join("ryl.toml"),
-        "[rules]\nkey-duplicates = \"enable\"\n",
+        "[lint.rules]\nkey-duplicates = \"enable\"\n",
     )
     .unwrap();
     let opts = MigrateOptions {
@@ -418,7 +438,7 @@ fn migrate_skipped_directory_does_not_delete_lower_precedence_siblings() {
     // lower-precedence siblings must not be deleted as a side effect.
     fs::write(
         td.path().join(".ryl.toml"),
-        "[rules]\nkey-duplicates = \"enable\"\n",
+        "[lint.rules]\nkey-duplicates = \"enable\"\n",
     )
     .unwrap();
     let opts = MigrateOptions {
@@ -484,7 +504,7 @@ fn apply_entries_refuses_to_overwrite_existing_target() {
     let entries = vec![MigrationEntry {
         source: td.path().join(".yamllint"),
         target: target.clone(),
-        toml: "[rules]\n".to_string(),
+        toml: "[lint.rules]\n".to_string(),
     }];
     let err = apply_migration_entries(&entries, &[], &SourceCleanup::Keep).unwrap_err();
     assert!(
@@ -735,7 +755,7 @@ fn apply_entries_errors_when_target_parent_cannot_be_created() {
     let entries = vec![MigrationEntry {
         source: td.path().join(".yamllint"),
         target: blocker.join("ryl.toml"),
-        toml: "[rules]\n".to_string(),
+        toml: "[lint.rules]\n".to_string(),
     }];
     let err = apply_migration_entries(&entries, &[], &SourceCleanup::Keep).unwrap_err();
     assert!(err.contains("failed to create directory"), "got: {err}");
@@ -749,7 +769,7 @@ fn apply_entries_delete_mode_propagates_delete_failures() {
     let entries = vec![MigrationEntry {
         source: source.clone(),
         target,
-        toml: "[rules]\n".to_string(),
+        toml: "[lint.rules]\n".to_string(),
     }];
     let err =
         apply_migration_entries(&entries, &[], &SourceCleanup::Delete).unwrap_err();

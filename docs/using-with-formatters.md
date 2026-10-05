@@ -71,7 +71,7 @@ not canonicalize truthy values. Its settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for google/yamlfmt
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -81,26 +81,26 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.document-start]
+[lint.rules.document-start]
 present = false              # yamlfmt removes `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # yamlfmt uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -108,7 +108,7 @@ Notes:
 
 - If you prefer to keep `---`, set yamlfmt's
   [`include_document_start: true`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
-  in its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
+  in its `.yamlfmt` config and change ryl to `[lint.rules.document-start]` `present = true`. The
   two markers must agree. yamlfmt strips the `...` document-end marker, so leave ryl's
   `document-end` rule off.
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
@@ -131,7 +131,7 @@ padding this recipe relies on), [`singleQuote`](https://prettier.io/docs/options
 
 ```toml
 # .ryl.toml, tuned for Prettier
-[rules]
+[lint.rules]
 brackets = "enable"
 colons = "enable"
 commas = "enable"
@@ -140,29 +140,29 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.braces]
+[lint.rules.braces]
 min-spaces-inside = 1        # Prettier pads `{ a: 1 }`
 max-spaces-inside = 1
 min-spaces-inside-empty = 0  # but keeps an empty `{}` tight
 max-spaces-inside-empty = 0
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # Prettier uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -199,7 +199,7 @@ settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for yamlfix
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -210,23 +210,23 @@ new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 truthy = "enable"           # yamlfix canonicalizes block-style yes/no (see caveat)
 
-[rules.document-start]
+[lint.rules.document-start]
 present = true              # yamlfix adds `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 2  # yamlfix uses two spaces (ryl's default)
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 

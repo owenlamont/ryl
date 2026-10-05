@@ -15,7 +15,7 @@ Reports whitespace at the end of any line.
 ## Configuration
 
 ```toml
-[rules.trailing-spaces]
+[lint.rules.trailing-spaces]
 level = "error"
 ```
 
@@ -66,7 +66,7 @@ parsed as YAML, so a broken document is never made worse.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["trailing-spaces"]
 ```

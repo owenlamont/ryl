@@ -15,7 +15,7 @@ Controls the number of spaces around mapping colons (`:`).
 ## Configuration
 
 ```toml
-[rules.colons]
+[lint.rules.colons]
 level = "error"
 max-spaces-before = 0
 max-spaces-after = 1

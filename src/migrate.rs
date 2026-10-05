@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use ignore::WalkBuilder;
 
 use crate::config::{Overrides, discover_config};
+use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteMode {
@@ -44,11 +45,20 @@ pub struct MigrateOptions {
     pub cleanup: SourceCleanup,
 }
 
+/// One config to write. A `source` equal to its `target` is a ryl TOML config rewritten
+/// in place: `RenameSuffix` cleanup copies it to the backup name before the write, and
+/// `Delete` leaves it alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationEntry {
     pub source: PathBuf,
     pub target: PathBuf,
     pub toml: String,
+}
+
+impl MigrationEntry {
+    fn is_rewrite(&self) -> bool {
+        self.source == self.target
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,12 +151,25 @@ pub fn apply_migration_entries(
                 )
             })?;
         }
+        if let SourceCleanup::RenameSuffix(suffix) = cleanup
+            && entry.is_rewrite()
+        {
+            let backup = rename_destination(&entry.source, suffix);
+            fs::copy(&entry.source, &backup).map_err(|err| {
+                format!(
+                    "failed to back up {} to {}: {err}",
+                    entry.source.display(),
+                    backup.display()
+                )
+            })?;
+        }
         // `create_new` atomically refuses (without following a symlink) to overwrite an
         // existing target, so a target appearing between planning and writing can never be
         // clobbered by a stale plan.
         fs::OpenOptions::new()
             .write(true)
-            .create_new(true)
+            .create_new(!entry.is_rewrite())
+            .truncate(entry.is_rewrite())
             .open(&entry.target)
             .and_then(|mut file| file.write_all(entry.toml.as_bytes()))
             .map_err(|err| {
@@ -157,15 +180,22 @@ pub fn apply_migration_entries(
             })?;
     }
 
-    for source in entries
-        .iter()
-        .map(|entry| &entry.source)
-        .chain(cleanup_only_sources.iter())
-    {
+    for source in cleanup_sources(entries, cleanup_only_sources) {
         apply_cleanup(source)?;
     }
 
     Ok(())
+}
+
+fn cleanup_sources<'a>(
+    entries: &'a [MigrationEntry],
+    cleanup_only_sources: &'a [PathBuf],
+) -> impl Iterator<Item = &'a Path> {
+    entries
+        .iter()
+        .filter(|entry| !entry.is_rewrite())
+        .map(|entry| entry.source.as_path())
+        .chain(cleanup_only_sources.iter().map(PathBuf::as_path))
 }
 
 fn yaml_config_rank(path: &Path) -> usize {
@@ -184,9 +214,15 @@ fn is_legacy_yaml_config_path(path: &Path) -> bool {
         })
 }
 
-fn discover_legacy_yaml_configs(root: &Path) -> Vec<PathBuf> {
+fn is_ryl_toml_config_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| matches!(name, ".ryl.toml" | "ryl.toml" | "pyproject.toml"))
+}
+
+fn discover_configs(root: &Path, is_config: fn(&Path) -> bool) -> Vec<PathBuf> {
     if root.is_file() {
-        return if is_legacy_yaml_config_path(root) {
+        return if is_config(root) {
             vec![root.to_path_buf()]
         } else {
             Vec::new()
@@ -205,7 +241,7 @@ fn discover_legacy_yaml_configs(root: &Path) -> Vec<PathBuf> {
     walker
         .flatten()
         .map(|entry| entry.path().to_path_buf())
-        .filter(|path| path.is_file() && is_legacy_yaml_config_path(path))
+        .filter(|path| path.is_file() && is_config(path))
         .collect()
 }
 
@@ -316,7 +352,7 @@ fn build_entry(
 
 fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), String> {
     let mut grouped: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    for path in discover_legacy_yaml_configs(root) {
+    for path in discover_configs(root, is_legacy_yaml_config_path) {
         let parent = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         grouped.entry(parent).or_default().push(path);
     }
@@ -354,6 +390,63 @@ fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), St
     Ok(())
 }
 
+/// Plan an in-place rewrite of each ryl TOML config under `root` that sets a deprecated
+/// key. `pyproject.toml` is only reported: re-serialising it would drop the comments and
+/// layout of every other tool's settings. A file that fails to load is skipped with a
+/// warning, so a stray fixture cannot block the rest of the migration.
+fn build_toml_rewrites(root: &Path, plan: &mut MigrationPlan) {
+    let mut paths = discover_configs(root, is_ryl_toml_config_path);
+    paths.sort();
+    for path in paths {
+        let pyproject = path
+            .file_name()
+            .is_some_and(|name| name == "pyproject.toml");
+        let loaded = fs::read_to_string(&path)
+            .map_err(|err| format!("failed to read config: {err}"))
+            .and_then(|text| parse_toml_config_str(&text, pyproject));
+        let config = match loaded {
+            Ok(Some(config)) => config,
+            Ok(None) => continue,
+            Err(err) => {
+                plan.warnings
+                    .push(format!("warning: skipping {}: {err}", path.display()));
+                continue;
+            }
+        };
+        let deprecated = config.deprecated_keys();
+        if deprecated.is_empty() {
+            continue;
+        }
+        if is_symlink(&path) {
+            plan.warnings.push(format!(
+                "warning: skipping {}: refusing to follow a symlink",
+                path.display()
+            ));
+            continue;
+        }
+        if pyproject {
+            let moves = deprecated
+                .iter()
+                .map(|used| format!("`{}` to `{}`", used.key.key, used.key.replacement))
+                .collect::<Vec<_>>()
+                .join(", ");
+            plan.warnings.push(format!(
+                "warning: not rewriting {}: in [tool.ryl], move {moves}",
+                path.display()
+            ));
+            continue;
+        }
+        let rendered =
+            toml::to_string_pretty(&toml_config_to_value(&config.to_nested()))
+                .expect("serializing a TOML value cannot fail");
+        plan.entries.push(MigrationEntry {
+            source: path.clone(),
+            target: path,
+            toml: format!("{}\n", rendered.trim_end()),
+        });
+    }
+}
+
 /// Build and optionally apply YAML-to-TOML config migration.
 ///
 /// # Errors
@@ -368,6 +461,7 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
             ));
         }
         build_project_entries(root, &mut plan)?;
+        build_toml_rewrites(root, &mut plan);
     }
     if let Some(user) = &options.user_config
         && user.source.exists()

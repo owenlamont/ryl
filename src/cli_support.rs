@@ -135,11 +135,16 @@ pub fn resolve_ctx(
         return Ok((entry.0, entry.1, Vec::new(), entry.2));
     }
     let (entry, notices) = match locate_per_file(path, &SystemEnv)? {
-        PerFileConfig::Project { cfg_path, notices } => {
+        PerFileConfig::Project {
+            cfg_path,
+            mut notices,
+        } => {
             if let Some(entry) = cache.by_config.get(&cfg_path) {
                 (entry.clone(), notices)
             } else {
-                let entry = resolved(load_project_config(&cfg_path)?, flags);
+                let ctx = load_project_config(&cfg_path)?;
+                notices.extend(ctx.notices.iter().cloned());
+                let entry = resolved(ctx, flags);
                 cache.by_config.insert(cfg_path, entry.clone());
                 (entry, notices)
             }

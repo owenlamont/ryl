@@ -23,7 +23,7 @@ fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
     (code, command_output(&stdout, &stderr).to_string())
 }
 
-const ENABLE: &str = "[rules]\nblock-scalar-chomping = \"enable\"\n";
+const ENABLE: &str = "[lint.rules]\nblock-scalar-chomping = \"enable\"\n";
 
 #[test]
 fn flags_bare_literal_and_folded_clip_headers() {
@@ -275,7 +275,7 @@ fn rule_is_rejected_in_yaml_config() {
 
 #[test]
 fn per_file_ignores_accept_the_rule_name() {
-    // A `[per-file-ignores]` entry naming the rule must be accepted (the rule id
+    // A `[lint.per-file-ignores]` entry naming the rule must be accepted (the rule id
     // round-trips through `RuleSelector`), suppressing its diagnostics for that file.
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
@@ -284,7 +284,7 @@ fn per_file_ignores_accept_the_rule_name() {
     fs::write(
         &config,
         format!(
-            "[rules]\nblock-scalar-chomping = \"enable\"\n[per-file-ignores]\n'{}' = ['block-scalar-chomping']\n",
+            "[lint.rules]\nblock-scalar-chomping = \"enable\"\n[lint.per-file-ignores]\n'{}' = ['block-scalar-chomping']\n",
             file.display()
         ),
     )
@@ -310,7 +310,7 @@ fn disabled_by_default() {
     // no diagnostic under an unrelated rule's config.
     let (code, output) = lint_with_toml_config(
         "block: |\n  body\n",
-        "[rules]\ntrailing-spaces = \"enable\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     assert_eq!(code, 0, "rule is off by default: {output}");
     assert!(

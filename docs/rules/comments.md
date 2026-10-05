@@ -18,7 +18,7 @@ content.
 ## Configuration
 
 ```toml
-[rules.comments]
+[lint.rules.comments]
 level = "error"
 require-starting-space = true
 ignore-shebangs = true
@@ -84,7 +84,7 @@ to the configured `min-spaces-from-content`, and replaces a gap wider than
 `max-spaces-from-content` with that many spaces. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```

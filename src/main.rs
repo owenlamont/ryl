@@ -204,7 +204,7 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
             .any(|entry| Some(entry.source.as_path()) != user_source);
         if !project_migrated {
             println!(
-                "No legacy YAML config files migrated under {}",
+                "No legacy config files migrated under {}",
                 sanitize_control(&root.display().to_string())
             );
         }
@@ -277,7 +277,7 @@ struct Cli {
     )]
     print_yaml_config_schema: bool,
 
-    /// Convert discovered legacy YAML config files into .ryl.toml files
+    /// Convert legacy YAML configs into .ryl.toml files and move deprecated keys in ryl TOML configs
     #[arg(long = "migrate-configs", default_value_t = false)]
     migrate_configs: bool,
 
@@ -1097,11 +1097,9 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     if let Some(ctx) = global_cfg.as_mut() {
         flags.apply(&mut ctx.config, &ctx.base_dir);
     }
-    if let Some(cfg) = &global_cfg {
-        for notice in &cfg.notices {
-            eprintln!("{}", sanitize_control(notice));
-        }
-    }
+    let mut notices = global_cfg
+        .as_ref()
+        .map_or_else(Vec::new, |ctx| ctx.notices.clone());
     let inputs = &args.inputs;
 
     let (candidates, explicit_files) = gather_inputs(inputs);
@@ -1114,7 +1112,6 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
         )
     });
     let mut cache = ConfigCache::default();
-    let mut emitted_notices: HashSet<String> = HashSet::new();
     let mut files: Vec<LintFile> = Vec::new();
     let ruleless_config_found = gather_lint_files(
         &candidates,
@@ -1122,9 +1119,10 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
         global_resolved.as_ref(),
         &flags,
         &mut cache,
-        &mut emitted_notices,
+        &mut notices,
         &mut files,
     )?;
+    emit_notices(&notices, args.lint.compatibility.no_warnings);
 
     if args.lint.compatibility.list_files {
         for (path, ..) in &files {
@@ -1418,15 +1416,23 @@ fn resolve_stdin_ctx(
         PathBuf::from(".")
     };
     let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
-    for notice in &ctx.notices {
-        eprintln!("{}", sanitize_control(notice.as_str()));
-    }
+    emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
     let mut cfg = ctx.config;
     cli_config_flags(args).apply(&mut cfg, &ctx.base_dir);
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
     Ok((path, ctx.base_dir, cfg, apply_yaml_files, ctx.config_found))
+}
+
+/// Config notices are all warnings, so `--no-warnings` silences them.
+fn emit_notices(notices: &[String], no_warnings: bool) {
+    if no_warnings {
+        return;
+    }
+    for notice in notices {
+        eprintln!("{}", sanitize_control(notice));
+    }
 }
 
 fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
@@ -1452,7 +1458,7 @@ fn gather_lint_files(
     global_cfg: Option<&ResolvedConfig>,
     flags: &CliConfigFlags,
     cache: &mut ConfigCache,
-    emitted_notices: &mut HashSet<String>,
+    notices: &mut Vec<String>,
     files: &mut Vec<LintFile>,
 ) -> Result<Option<bool>, String> {
     // `config_found` of the first selected file that enables no rules, so a no-rules run
@@ -1470,11 +1476,11 @@ fn gather_lint_files(
         .map(|path| (path, false))
         .chain(explicit_files.iter().map(|path| (path, true)));
     for (path, explicit) in tagged {
-        let (base_dir, cfg, notices, found) =
+        let (base_dir, cfg, file_notices, found) =
             resolve_ctx(path, global_cfg, flags, cache)?;
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{}", sanitize_control(notice.as_str()));
+        for notice in file_notices {
+            if !notices.contains(&notice) {
+                notices.push(notice);
             }
         }
         if cfg.is_file_ignored(path, &base_dir) {

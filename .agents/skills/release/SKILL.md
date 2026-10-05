@@ -13,6 +13,11 @@ description: >-
   - Cargo: update `Cargo.toml` `version`.
   - Python: update `pyproject.toml` `[project].version`.
   - NPM: update `package.json` `version`.
+  - If the release first ships a config deprecation, set its `deprecated_since` in
+    `config_schema::DEPRECATED_TOML_KEYS` (and the test pinning that table) to this
+    version. The repo's own `.ryl.toml` keeps the old shape until the `ryl-pre-commit`
+    pin in `prek.toml` reaches that release (the pinned binary rejects the new keys);
+    move it in the PR that bumps the pin.
 - Refresh both lockfiles and validate (five version-bearing files in total):
   - Run `cargo generate-lockfile` to refresh `Cargo.lock`. This deliberately sweeps in
     semver-compatible transitive bumps — the maintainer prefers staying current, so do

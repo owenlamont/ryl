@@ -15,7 +15,7 @@ block sequences.
 ## Configuration
 
 ```toml
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "error"
 max-spaces-after = 1
 dash-on-own-line = false

@@ -73,7 +73,7 @@ cases exit `2` rather than silently linting nothing:
   YAML config with `extends: default` for yamllint's standard rule set, or pass
   `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
   least one rule, use `extends: default`, or pass `--enable ALL`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
@@ -137,9 +137,13 @@ project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
 
-Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
-configuration is flat &mdash; copy the preset you want from
-[Configuration presets](../config-presets.md) and customise from there:
+Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
+every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
+`[output]`) sit at the top level; linter settings sit under `[lint]`
+(`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
+`[[lint.per-line-ignores]]`); `[format]` is reserved for the formatter. Copy the
+preset you want from [Configuration presets](../config-presets.md) and customise
+from there:
 
 ```toml
 [files]
@@ -151,7 +155,7 @@ yaml = [
 
 # ... rule enable/disable table from the preset ...
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 allow-non-breakable-words = true
 ```
@@ -186,6 +190,15 @@ ryl --migrate-configs --migrate-write
 ```
 
 See [Migrating from yamllint](migrating-from-yamllint.md) for details.
+
+Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
+`per-line-ignores` at the top level. ryl still reads them, but warns once per
+key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
+one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
+`.ryl.toml`/`ryl.toml` in place (dropping its comments; add
+`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`); for
+`pyproject.toml` it only prints the keys to move, since rewriting would drop the
+rest of the file's comments and layout.
 
 ## Configure across projects (user-global)
 

@@ -45,13 +45,13 @@ Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
 ## Configuration
 
 `block-scalar-chomping` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[rules.block-scalar-chomping]` in
-`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.block-scalar-chomping]` in
+configured **only in TOML** &mdash; `[lint.rules.block-scalar-chomping]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.block-scalar-chomping]` in
 `pyproject.toml`. It is rejected in yamllint-compatible YAML config (including `-d`
 data) so the YAML namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.block-scalar-chomping]
+[lint.rules.block-scalar-chomping]
 level = "error"
 ```
 

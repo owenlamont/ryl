@@ -82,7 +82,7 @@ ryl is a CLI tool for linting yaml files
   future yamllint additions can't clash with YAML semantics. A whole ryl-only *rule*
   (e.g. `tags`) goes in `rules::RYL_ONLY_RULE_IDS` — the YAML path rejects it and
   `config_schema::yaml_schema` prunes it, so it's configurable only via TOML
-  (`[rules.<id>]`).
+  (`[lint.rules.<id>]`).
 
 ## Dev Skills
 

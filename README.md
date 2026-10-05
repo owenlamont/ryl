@@ -71,14 +71,14 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   `empty-lines`, `key-ordering`, `new-line-at-end-of-file`, `new-lines`,
   `quoted-strings`, `trailing-spaces`, and `truthy` (case only, e.g. `True`
   to `true`). The set of rules that may apply fixes is configurable via the
-  TOML `[fix]` table.
+  TOML `lint.fixable`/`lint.unfixable` keys.
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file
   would change.
 - TOML is the recommended configuration format and supports ryl-only
-  features that have no upstream equivalent: the `[fix]` table,
-  `[per-file-ignores]`, and rule options such as
+  features that have no upstream equivalent: the `lint.fixable`/`lint.unfixable`
+  fix policy, `[lint.per-file-ignores]`, and rule options such as
   `allow-double-quotes-for-escaping`.
 - TOML assigns each file a source kind via the `[files]` table
   (`yaml = [...]`, `markdown = [...]`). The legacy `yaml-files` key is YAML-only;

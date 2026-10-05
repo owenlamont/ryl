@@ -263,7 +263,7 @@ fn yaml_cfg(toml: &str) -> YamlLintConfig {
 
 #[test]
 fn diagnostics_map_a_yaml_problem_to_lsp() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let diags = diagnostics(
         "a: \u{1F600} \n",
         Path::new("/proj/x.yaml"),
@@ -291,7 +291,7 @@ fn diagnostics_map_a_yaml_problem_to_lsp() {
 
 #[test]
 fn diagnostics_carry_warning_severity_when_configured() {
-    let cfg = yaml_cfg("[rules.trailing-spaces]\nlevel = \"warning\"\n");
+    let cfg = yaml_cfg("[lint.rules.trailing-spaces]\nlevel = \"warning\"\n");
     let diags = diagnostics(
         "a: 1 \n",
         Path::new("/proj/x.yaml"),
@@ -308,7 +308,7 @@ fn diagnostics_carry_warning_severity_when_configured() {
 
 #[test]
 fn diagnostics_for_a_syntax_error_have_no_rule_code() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let diags = diagnostics(
         "a: [b\n",
         Path::new("/proj/x.yaml"),
@@ -323,7 +323,7 @@ fn diagnostics_for_a_syntax_error_have_no_rule_code() {
 
 #[test]
 fn diagnostics_lint_embedded_yaml_in_markdown() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let diags = diagnostics(
         "# doc\n\n```yaml\na: 1 \n```\n",
         Path::new("/proj/x.md"),
@@ -337,7 +337,7 @@ fn diagnostics_lint_embedded_yaml_in_markdown() {
 
 #[test]
 fn fix_all_edit_replaces_the_whole_document_when_fixable() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let edit = fix_all_edit(
         "a: 1 \n",
         Path::new("/proj/x.yaml"),
@@ -357,7 +357,7 @@ fn fix_all_edit_replaces_the_whole_document_when_fixable() {
 
 #[test]
 fn fix_all_edit_is_none_when_already_clean() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     assert!(
         fix_all_edit(
             "a: 1\n",
@@ -374,7 +374,7 @@ fn fix_all_edit_is_none_when_already_clean() {
 
 #[test]
 fn fix_all_edit_fixes_embedded_markdown_yaml() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let edit = fix_all_edit(
         "```yaml\na: 1 \n```\n",
         Path::new("/proj/x.md"),
@@ -392,7 +392,7 @@ fn fix_all_edit_fixes_embedded_markdown_yaml() {
 
 #[test]
 fn fix_all_edit_skips_markdown_with_an_unsupported_bare_cr() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     // A lone CR (not part of CRLF) makes the markdown host unfixable.
     assert!(
         fix_all_edit(
@@ -509,7 +509,8 @@ fn path_to_uri_adds_the_leading_slash_for_a_drive_path() {
 #[test]
 fn fix_rule_edit_fixes_only_the_named_rule() {
     // Two fixable problems: a comma-spacing issue and a trailing space.
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\ncommas = \"enable\"\n");
+    let cfg =
+        yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\ncommas = \"enable\"\n");
     let source = "a: [1 ,2] \n";
     let trailing = fix_rule_edit(
         source,
@@ -544,7 +545,8 @@ fn fix_rule_edit_fixes_only_the_named_rule() {
 
 #[test]
 fn fix_rule_edit_is_none_for_an_unfixable_rule_or_markdown() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\nanchors = \"enable\"\n");
+    let cfg =
+        yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\nanchors = \"enable\"\n");
     assert!(
         fix_rule_edit(
             "a: 1 \n",
@@ -575,7 +577,7 @@ fn fix_rule_edit_is_none_for_an_unfixable_rule_or_markdown() {
 
 #[test]
 fn fix_rule_edit_for_truthy_needs_a_recasable_boolean() {
-    let cfg = yaml_cfg("[rules]\ntruthy = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntruthy = \"enable\"\n");
     let edit = |source: &str| {
         fix_rule_edit(
             source,
@@ -794,7 +796,7 @@ fn workspace_project() -> tempfile::TempDir {
     let dir = tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntrailing-spaces = \"enable\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n",
     )
     .expect("config");
     dir

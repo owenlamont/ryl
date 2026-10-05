@@ -144,7 +144,7 @@ fn fix_leaves_double_curly_template_unchanged() {
     fs::write(&file, "value: {{ foo(1,2) }}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncommas = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncommas = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
     )
     .unwrap();
 

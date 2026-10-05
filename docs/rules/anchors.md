@@ -34,7 +34,7 @@ a `:` is welded to them.
 ## Configuration
 
 ```toml
-[rules.anchors]
+[lint.rules.anchors]
 level = "error"
 forbid-undeclared-aliases = true
 forbid-duplicated-anchors = false

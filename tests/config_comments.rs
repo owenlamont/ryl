@@ -69,7 +69,7 @@ fn max_spaces_rejected_in_yaml_config() {
 #[test]
 fn max_spaces_zero_is_rejected() {
     let err = YamlLintConfig::from_toml_str(
-        "[rules.comments]\nmin-spaces-from-content = -1\nmax-spaces-from-content = 0\n",
+        "[lint.rules.comments]\nmin-spaces-from-content = -1\nmax-spaces-from-content = 0\n",
     )
     .unwrap_err();
     assert!(err.contains("must be at least 1"), "{err}");
@@ -78,7 +78,7 @@ fn max_spaces_zero_is_rejected() {
 #[test]
 fn max_spaces_below_default_min_is_rejected() {
     let err = YamlLintConfig::from_toml_str(
-        "[rules.comments]\nmax-spaces-from-content = 1\n",
+        "[lint.rules.comments]\nmax-spaces-from-content = 1\n",
     )
     .unwrap_err();
     assert!(err.contains("\"max-spaces-from-content\" (1)"), "{err}");
@@ -89,11 +89,11 @@ fn max_spaces_below_default_min_is_rejected() {
 fn max_spaces_accepts_valid_pairings() {
     for (min, max) in [(1, 1), (-1, 1), (5, -1)] {
         let toml = format!(
-            "[rules.comments]\nmin-spaces-from-content = {min}\nmax-spaces-from-content = {max}\n"
+            "[lint.rules.comments]\nmin-spaces-from-content = {min}\nmax-spaces-from-content = {max}\n"
         );
         YamlLintConfig::from_toml_str(&toml)
             .unwrap_or_else(|err| panic!("min {min} max {max} should load: {err}"));
     }
-    YamlLintConfig::from_toml_str("[rules]\ncomments = 'enable'\n")
+    YamlLintConfig::from_toml_str("[lint.rules]\ncomments = 'enable'\n")
         .expect("comments without options should load");
 }

@@ -30,7 +30,7 @@ fn run_lint(config: &str, file_name: &str, body: &str) -> (i32, String) {
 fn regex_suppresses_rule_only_on_matching_lines() {
     // `#cloud-config` keeps its exact spelling (no starting space), so without an
     // exemption `comments` flags it; a second `#bad` comment must still fire.
-    let config = "[rules.comments]\n\n[[per-line-ignores]]\n\
+    let config = "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\n\
                   regex = '^#cloud-config$'\nrules = [\"comments\"]\n";
     let (code, out) = run_lint(config, "doc.yaml", "#cloud-config\nkey: value  #bad\n");
     assert_eq!(code, 1, "second comment should still fire: {out}");
@@ -50,7 +50,7 @@ fn path_and_regex_are_anded_to_scope_an_entry() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.comments]\n\n[[per-line-ignores]]\npath = \"*.tpl.yaml\"\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\npath = \"*.tpl.yaml\"\n\
          regex = '^#cloud-config$'\nrules = [\"comments\"]\n",
     )
     .unwrap();
@@ -81,7 +81,7 @@ fn negated_path_glob_applies_outside_the_pattern() {
     fs::create_dir(&src).unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.comments]\n\n[[per-line-ignores]]\npath = \"!src/**\"\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\npath = \"!src/**\"\n\
          regex = '^#cloud-config$'\nrules = [\"comments\"]\n",
     )
     .unwrap();
@@ -113,7 +113,7 @@ fn path_only_entry_suppresses_a_rule_file_wide() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.comments]\n\n[[per-line-ignores]]\npath = \"gen-*.yaml\"\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\npath = \"gen-*.yaml\"\n\
          rules = [\"comments\"]\n",
     )
     .unwrap();
@@ -139,8 +139,8 @@ fn path_only_entry_suppresses_a_rule_file_wide() {
 
 #[test]
 fn all_selector_suppresses_every_rule_on_the_line() {
-    let config = "[rules.comments]\n[rules.line-length]\nmax = 10\n\n\
-                  [[per-line-ignores]]\nregex = 'GENERATED'\nrules = [\"ALL\"]\n";
+    let config = "[lint.rules.comments]\n[lint.rules.line-length]\nmax = 10\n\n\
+                  [[lint.per-line-ignores]]\nregex = 'GENERATED'\nrules = [\"ALL\"]\n";
     // Line 1 trips both comments and line-length but is fully exempt; line 2 stays.
     let body = "k: value  #GENERATED filler over the limit\nother: value-too-long\n";
     let (code, out) = run_lint(config, "doc.yaml", body);
@@ -164,7 +164,7 @@ fn fix_leaves_suppressed_lines_byte_identical() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.comments]\n\n[[per-line-ignores]]\nregex = '^#cloud-config$'\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\nregex = '^#cloud-config$'\n\
          rules = [\"comments\"]\n",
     )
     .unwrap();
@@ -194,7 +194,7 @@ fn fix_still_applies_when_a_per_line_entry_matches_no_current_line() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.trailing-spaces]\n\n[[per-line-ignores]]\nregex = 'NEVER_MATCHES'\n\
+        "[lint.rules.trailing-spaces]\n\n[[lint.per-line-ignores]]\nregex = 'NEVER_MATCHES'\n\
          rules = [\"trailing-spaces\"]\n",
     )
     .unwrap();
@@ -220,8 +220,8 @@ fn regex_matches_embedded_yaml_while_path_matches_host_markdown() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.comments]\n\n[files]\nmarkdown = [\"*.md\"]\n\n\
-         [[per-line-ignores]]\npath = \"*.md\"\nregex = '^#cloud-config$'\n\
+        "[lint.rules.comments]\n\n[files]\nmarkdown = [\"*.md\"]\n\n\
+         [[lint.per-line-ignores]]\npath = \"*.md\"\nregex = '^#cloud-config$'\n\
          rules = [\"comments\"]\n",
     )
     .unwrap();
@@ -251,7 +251,7 @@ fn pure_regex_entry_applies_to_unlabeled_stdin() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.comments]\n\n[[per-line-ignores]]\nregex = '^#cloud-config$'\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\nregex = '^#cloud-config$'\n\
          rules = [\"comments\"]\n",
     )
     .unwrap();
@@ -284,7 +284,7 @@ fn pure_regex_entry_applies_to_unlabeled_stdin() {
 #[test]
 fn invalid_regex_is_a_config_error() {
     let (code, out) = run_lint(
-        "[rules.comments]\n[[per-line-ignores]]\nregex = '('\nrules = [\"comments\"]\n",
+        "[lint.rules.comments]\n[[lint.per-line-ignores]]\nregex = '('\nrules = [\"comments\"]\n",
         "doc.yaml",
         "k: v\n",
     );
@@ -295,7 +295,7 @@ fn invalid_regex_is_a_config_error() {
 #[test]
 fn invalid_path_glob_is_a_config_error() {
     let (code, out) = run_lint(
-        "[rules.comments]\n[[per-line-ignores]]\npath = '['\nrules = [\"comments\"]\n",
+        "[lint.rules.comments]\n[[lint.per-line-ignores]]\npath = '['\nrules = [\"comments\"]\n",
         "doc.yaml",
         "k: v\n",
     );
@@ -306,7 +306,7 @@ fn invalid_path_glob_is_a_config_error() {
 #[test]
 fn entry_without_regex_or_path_is_a_config_error() {
     let (code, out) = run_lint(
-        "[rules.comments]\n[[per-line-ignores]]\nrules = [\"comments\"]\n",
+        "[lint.rules.comments]\n[[lint.per-line-ignores]]\nrules = [\"comments\"]\n",
         "doc.yaml",
         "k: v\n",
     );
@@ -317,7 +317,7 @@ fn entry_without_regex_or_path_is_a_config_error() {
 #[test]
 fn empty_rules_list_is_a_config_error() {
     let (code, out) = run_lint(
-        "[rules.comments]\n[[per-line-ignores]]\nregex = 'x'\nrules = []\n",
+        "[lint.rules.comments]\n[[lint.per-line-ignores]]\nregex = 'x'\nrules = []\n",
         "doc.yaml",
         "k: v\n",
     );
@@ -328,7 +328,7 @@ fn empty_rules_list_is_a_config_error() {
 #[test]
 fn unknown_rule_name_is_a_config_error() {
     let (code, out) = run_lint(
-        "[rules.comments]\n[[per-line-ignores]]\nregex = 'x'\nrules = [\"nope\"]\n",
+        "[lint.rules.comments]\n[[lint.per-line-ignores]]\nregex = 'x'\nrules = [\"nope\"]\n",
         "doc.yaml",
         "k: v\n",
     );
@@ -340,7 +340,7 @@ fn path_glob_matches_a_relative_cli_path() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.comments]\n\n[[per-line-ignores]]\npath = \"*.yaml\"\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\npath = \"*.yaml\"\n\
          regex = '^#cloud-config$'\nrules = [\"comments\"]\n",
     )
     .unwrap();
@@ -365,7 +365,7 @@ fn path_glob_matches_a_walked_dot_prefixed_path() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.comments]\n\n[[per-line-ignores]]\npath = \"conf/*.yaml\"\n\
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\npath = \"conf/*.yaml\"\n\
          regex = '^#cloud-config$'\nrules = [\"comments\"]\n",
     )
     .unwrap();
@@ -386,8 +386,8 @@ fn effective_config_round_trips_per_line_ignores_to_toml() {
     // `to_toml_string` must preserve per-line-ignores so the rendered effective config
     // is not lossy. A regex-only and a path-only entry exercise both optional fields.
     let cfg = ryl::config::YamlLintConfig::from_toml_str(
-        "[rules.comments]\n\n[[per-line-ignores]]\nregex = '#x'\nrules = [\"comments\"]\n\n\
-         [[per-line-ignores]]\npath = \"*.yaml\"\nrules = [\"comments\"]\n",
+        "[lint.rules.comments]\n\n[[lint.per-line-ignores]]\nregex = '#x'\nrules = [\"comments\"]\n\n\
+         [[lint.per-line-ignores]]\npath = \"*.yaml\"\nrules = [\"comments\"]\n",
     )
     .unwrap();
     let rendered = cfg.to_toml_string();

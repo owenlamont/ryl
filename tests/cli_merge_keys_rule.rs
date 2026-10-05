@@ -23,7 +23,7 @@ fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
     (code, command_output(&stdout, &stderr).to_string())
 }
 
-const ENABLE: &str = "[rules]\nmerge-keys = \"enable\"\n";
+const ENABLE: &str = "[lint.rules]\nmerge-keys = \"enable\"\n";
 
 #[test]
 fn flags_merge_key_for_alias_inline_and_sequence_values() {
@@ -128,7 +128,7 @@ fn flags_merge_tag_split_by_a_tag_directive() {
 fn rule_does_not_fire_when_not_enabled() {
     let (code, output) = lint_with_toml_config(
         "base: &b {x: 1}\nchild:\n  <<: *b\n",
-        "[rules]\ntruthy = \"enable\"\n",
+        "[lint.rules]\ntruthy = \"enable\"\n",
     );
     assert_eq!(code, 0, "rule is off unless enabled: {output}");
     assert!(
@@ -174,7 +174,7 @@ fn per_file_ignores_accept_the_rule_name() {
     fs::write(
         &config,
         format!(
-            "[rules]\nmerge-keys = \"enable\"\n[per-file-ignores]\n'{}' = ['merge-keys']\n",
+            "[lint.rules]\nmerge-keys = \"enable\"\n[lint.per-file-ignores]\n'{}' = ['merge-keys']\n",
             file.display()
         ),
     )

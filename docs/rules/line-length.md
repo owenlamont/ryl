@@ -41,7 +41,7 @@ description: >
 ## Configuration
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 80
 allow-non-breakable-words = true

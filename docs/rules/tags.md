@@ -28,13 +28,13 @@ YAML Company.
 ## Configuration
 
 `tags` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[rules.tags]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.rules.tags]` in `pyproject.toml`. It is rejected in
+**only in TOML** &mdash; `[lint.rules.tags]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.lint.rules.tags]` in `pyproject.toml`. It is rejected in
 yamllint-compatible YAML config (including `-d` data) so the YAML `tags`
 namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.tags]
+[lint.rules.tags]
 level = "error"
 forbid-unsafe-tags = false
 forbid-removed-types = false
