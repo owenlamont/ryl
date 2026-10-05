@@ -62,6 +62,22 @@ fn arb_yaml_1_1_ambiguous() -> impl Strategy<Value = String> {
     ]
 }
 
+// Integers past `i64` and a sign after a radix prefix, where the loader's int spelling
+// check and `quoted-strings` must agree on whether quotes are load-bearing.
+fn arb_core_int_edge() -> impl Strategy<Value = String> {
+    prop::sample::select(
+        &[
+            "9223372036854775808",
+            "-9223372036854775809",
+            "0x8000000000000000",
+            "0o1000000000000000000000",
+            "0x-1",
+            "0o+7",
+        ][..],
+    )
+    .prop_map(str::to_owned)
+}
+
 fn arb_bool_spelling() -> impl Strategy<Value = String> {
     prop::sample::select(
         &["true", "True", "TRUE", "false", "False", "FALSE", "tRUE"][..],
@@ -89,6 +105,9 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
         1 => arb_bool_spelling().prop_map(Scalar::SingleQuoted),
         1 => arb_bool_spelling().prop_map(Scalar::DoubleQuoted),
         1 => arb_tagged_bool_spelling().prop_map(Scalar::Plain),
+        1 => arb_core_int_edge().prop_map(Scalar::Plain),
+        1 => arb_core_int_edge().prop_map(Scalar::SingleQuoted),
+        1 => arb_core_int_edge().prop_map(Scalar::DoubleQuoted),
     ]
 }
 
@@ -246,7 +265,11 @@ fn arb_nested_entry() -> impl Strategy<Value = BlockEntry> {
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
     (
         arb_leading_comment(),
-        prop_oneof![8 => arb_plain_identifier(), 1 => arb_bool_spelling()],
+        prop_oneof![
+            8 => arb_plain_identifier(),
+            1 => arb_bool_spelling(),
+            1 => arb_core_int_edge(),
+        ],
         arb_top_level_node(),
         prop::option::of(arb_inline_comment()),
     )
