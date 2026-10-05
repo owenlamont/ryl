@@ -141,6 +141,12 @@ pub(crate) fn canonical_core_schema_int(v: &str) -> Option<String> {
     const LIMB: u64 = 1_000_000_000;
     let (digits, radix) = core_schema_int_digits(v)?;
     let sign = if digits.starts_with('-') { "-" } else { "" };
+    if radix == 10 {
+        let magnitude = digits
+            .trim_start_matches(['+', '-'])
+            .trim_start_matches('0');
+        return Some(format!("{sign}{magnitude}"));
+    }
     let mut limbs: Vec<u64> = vec![0];
     // The sign is the only non-digit `core_schema_int_digits` lets through.
     for digit in digits.chars().filter_map(|c| c.to_digit(radix)) {
