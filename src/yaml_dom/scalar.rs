@@ -72,12 +72,10 @@ impl<'input> Scalar<'input> {
         if let Some(integer) = parse_core_schema_int(&v) {
             return Self::Integer(integer);
         }
-        // A decimal integer overflowing `i64` keeps its exact text rather than
-        // reparsing as `f64`, which would collapse distinct large integers onto one
-        // value (a false-positive duplicate key under `check-canonical`). Hex/octal
-        // overflow spellings already fall through to a string (they cannot parse as
-        // `f64`).
-        if is_decimal_integer_spelling(&v) {
+        // An integer overflowing `i64` keeps its exact text rather than reparsing as
+        // `f64`, which would collapse distinct large integers onto one value (a
+        // false-positive duplicate key under `check-canonical`).
+        if is_core_schema_int_spelling(&v) {
             return Self::String(v);
         }
         if is_core_schema_null(&v) {
@@ -113,12 +111,19 @@ pub fn is_core_schema_null(v: &str) -> bool {
     matches!(v, "" | "~" | "null" | "Null" | "NULL")
 }
 
-/// A decimal integer spelling (`[-+]?[0-9]+`). Reached only after
-/// `parse_core_schema_int` fails, so `true` means an integer that overflows `i64`.
+/// A YAML 1.2 core-schema integer spelling (`[-+]?[0-9]+`, `0o[0-7]+`,
+/// `0x[0-9a-fA-F]+`) of any width: one beyond `i64` resolves to a `String` here but
+/// is still an integer to a YAML loader.
 #[must_use]
-fn is_decimal_integer_spelling(v: &str) -> bool {
-    let digits = v.strip_prefix(['+', '-']).unwrap_or(v);
-    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+pub fn is_core_schema_int_spelling(v: &str) -> bool {
+    let (digits, radix) = if let Some(hex) = v.strip_prefix("0x") {
+        (hex, 16)
+    } else if let Some(octal) = v.strip_prefix("0o") {
+        (octal, 8)
+    } else {
+        (v.strip_prefix(['+', '-']).unwrap_or(v), 10)
+    };
+    !digits.is_empty() && digits.chars().all(|c| c.is_digit(radix))
 }
 
 /// A YAML 1.2 core-schema integer, honouring `0x`/`0o` radix prefixes and a leading
