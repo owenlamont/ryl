@@ -43,7 +43,8 @@ errors (exit 2) before the existence check (`try_env_config_core`, #332); use
 `ConfigContext::notices` are stderr warnings, silenced by `--no-warnings` and shown in the
 LSP via `window/showMessage`. `finalize_context` adds one per deprecated TOML key
 (`config_schema::DEPRECATED_TOML_KEYS`, read by `TomlConfig::deprecated_keys`, which
-`--migrate-configs` also uses to pick the TOML files it rewrites in place).
+`--migrate-configs`/`--migrate-user-config` also use to pick the TOML files they rewrite
+in place; the warning names whichever of the two applies to its file).
 `TomlConfig::merged_lint` resolves each key, the `[lint]` spelling winning; a new
 deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
 `merged_lint`. The legacy YAML config stays flat.

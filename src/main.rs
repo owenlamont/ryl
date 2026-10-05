@@ -194,14 +194,19 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         );
     }
     // Per-trigger "nothing migrated" feedback, reported independently so a combined run
-    // surfaces an empty trigger even when the other produced entries. The user-global entry
-    // (if any) is identified by its source path; the rest are project.
-    let user_source = user_config.as_ref().map(|user| user.source.as_path());
+    // surfaces an empty trigger even when the other produced entries. User-global entries
+    // are identified by their source paths; the rest are project.
+    let user_sources: Vec<PathBuf> =
+        user_config.as_ref().map_or_else(Vec::new, |user| {
+            let mut sources = user.ryl_config_paths();
+            sources.push(user.source.clone());
+            sources
+        });
     if let Some(root) = &project_root {
         let project_migrated = result
             .entries
             .iter()
-            .any(|entry| Some(entry.source.as_path()) != user_source);
+            .any(|entry| !user_sources.contains(&entry.source));
         if !project_migrated {
             println!(
                 "No legacy config files migrated under {}",
@@ -210,10 +215,12 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         }
     }
     if cli.migrate_user_config {
-        let user_migrated = user_source
-            .is_some_and(|source| result.entries.iter().any(|e| e.source == source));
+        let user_migrated = result
+            .entries
+            .iter()
+            .any(|entry| user_sources.contains(&entry.source));
         if !user_migrated {
-            println!("No yamllint user-global config migrated.");
+            println!("No user-global config migrated.");
         }
     }
     if options.output_mode == MigrateOutputMode::IncludeToml {

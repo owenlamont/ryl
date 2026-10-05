@@ -60,7 +60,7 @@ Useful flags:
 | Flag | Purpose |
 | :--- | :--- |
 | `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` |
-| `--migrate-user-config` | Migrate the user-global yamllint config |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` |
 | `--migrate-root <DIR>` | Project search root (defaults to `.`) |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |

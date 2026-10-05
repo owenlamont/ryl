@@ -195,10 +195,11 @@ Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
 `per-line-ignores` at the top level. ryl still reads them, but warns once per
 key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
 one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
-`.ryl.toml`/`ryl.toml` in place (dropping its comments; add
-`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`); for
-`pyproject.toml` it only prints the keys to move, since rewriting would drop the
-rest of the file's comments and layout.
+`.ryl.toml`/`ryl.toml` in place, dropping its comments (add
+`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`), and
+`ryl --migrate-user-config --migrate-write` does the same for the user-global
+config. For `pyproject.toml` it only prints the keys to move, since rewriting
+would drop the rest of the file's comments and layout.
 
 ## Configure across projects (user-global)
 

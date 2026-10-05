@@ -1,7 +1,7 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use common::cli::{run, ryl};
 use tempfile::tempdir;
@@ -312,4 +312,84 @@ fn migrate_rewrite_refuses_to_overwrite_an_existing_backup() {
         fs::read_to_string(dir.path().join(".ryl.toml")).unwrap(),
         LEGACY
     );
+}
+
+/// A project dir under `home` with no project config, so discovery falls back to the
+/// ryl user-global config at `<xdg>/ryl/ryl.toml`.
+fn user_global(config: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let td = tempdir().unwrap();
+    let project = td.path().join("home/project");
+    let xdg = td.path().join("xdg");
+    fs::create_dir_all(&project).unwrap();
+    fs::create_dir_all(xdg.join("ryl")).unwrap();
+    fs::write(xdg.join("ryl/ryl.toml"), config).unwrap();
+    fs::write(project.join("a.yaml"), DOC).unwrap();
+    (td, project, xdg)
+}
+
+fn user_global_check(td: &Path, project: &Path, xdg: &Path) -> (i32, String, String) {
+    run(ryl(&td.join("home"))
+        .env("XDG_CONFIG_HOME", xdg)
+        .current_dir(project)
+        .args(["check", "a.yaml"]))
+}
+
+fn diagnostics(stderr: &str) -> Vec<&str> {
+    stderr
+        .lines()
+        .filter(|line| !line.starts_with("warning: "))
+        .collect()
+}
+
+#[test]
+fn user_global_deprecation_names_the_user_config_migration() {
+    let (td, project, xdg) = user_global(LEGACY);
+    let (_, _, stderr) = user_global_check(td.path(), &project, &xdg);
+    assert!(
+        stderr.contains(
+            "`rules` is deprecated; use `lint.rules` instead (run \
+             `ryl --migrate-user-config` to update)"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn migrate_user_config_rewrites_legacy_user_global_toml_in_place() {
+    let (td, project, xdg) = user_global(LEGACY);
+    let (_, legacy_out, legacy_err) = user_global_check(td.path(), &project, &xdg);
+    let (code, stdout, stderr) = run(ryl(&td.path().join("home"))
+        .env("XDG_CONFIG_HOME", &xdg)
+        .args([
+            "--migrate-user-config",
+            "--migrate-write",
+            "--migrate-delete-old",
+        ]));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        !stdout.contains("No user-global config migrated"),
+        "{stdout}"
+    );
+    let migrated = fs::read_to_string(xdg.join("ryl/ryl.toml"))
+        .expect("--migrate-delete-old never deletes a rewritten config");
+    assert!(migrated.contains("[lint.rules]"), "{migrated}");
+    let (_, migrated_out, migrated_err) = user_global_check(td.path(), &project, &xdg);
+    assert_eq!(migrated_out, legacy_out);
+    assert!(!migrated_err.contains("is deprecated"), "{migrated_err}");
+    assert_eq!(diagnostics(&migrated_err), diagnostics(&legacy_err));
+}
+
+#[test]
+fn user_global_toml_under_the_migrate_root_is_planned_once() {
+    let (td, _, xdg) = user_global(LEGACY);
+    let (code, stdout, stderr) = run(ryl(&td.path().join("home"))
+        .env("XDG_CONFIG_HOME", &xdg)
+        .args([
+            "--migrate-configs",
+            "--migrate-user-config",
+            "--migrate-root",
+        ])
+        .arg(&xdg));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stdout.matches("ryl.toml -> ").count(), 1, "{stdout}");
 }

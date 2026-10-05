@@ -338,10 +338,11 @@ Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
 `per-line-ignores` at the top level. ryl still reads them, but warns once per
 key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
 one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
-`.ryl.toml`/`ryl.toml` in place (dropping its comments; add
-`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`); for
-`pyproject.toml` it only prints the keys to move, since rewriting would drop the
-rest of the file's comments and layout.
+`.ryl.toml`/`ryl.toml` in place, dropping its comments (add
+`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`), and
+`ryl --migrate-user-config --migrate-write` does the same for the user-global
+config. For `pyproject.toml` it only prints the keys to move, since rewriting
+would drop the rest of the file's comments and layout.
 
 ## Configure across projects (user-global)
 
@@ -509,7 +510,7 @@ Useful flags:
 | Flag | Purpose |
 | :--- | :--- |
 | `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` |
-| `--migrate-user-config` | Migrate the user-global yamllint config |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` |
 | `--migrate-root <DIR>` | Project search root (defaults to `.`) |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |

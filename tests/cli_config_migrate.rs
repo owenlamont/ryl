@@ -270,7 +270,7 @@ fn migrate_user_config_absent_source_reports_message() {
         .arg("--migrate-user-config"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(
-        stdout.contains("No yamllint user-global config migrated"),
+        stdout.contains("No user-global config migrated"),
         "got: {stdout}"
     );
 }
@@ -345,7 +345,7 @@ fn migrate_combined_reports_absent_user_config_even_when_project_migrates() {
         "project migrated: {stdout}"
     );
     assert!(
-        stdout.contains("No yamllint user-global config migrated"),
+        stdout.contains("No user-global config migrated"),
         "absent user-global reported even though the project migrated: {stdout}"
     );
 }

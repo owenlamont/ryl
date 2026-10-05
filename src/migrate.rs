@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
-use crate::config::{Overrides, discover_config};
+use crate::config::{Overrides, RYL_USER_GLOBAL_CONFIG_CANDIDATES, discover_config};
 use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,11 +27,25 @@ pub enum SourceCleanup {
     RenameSuffix(String),
 }
 
-/// A yamllint user-global config to migrate to ryl's own user-global location.
+/// A yamllint user-global config to migrate to ryl's own user-global location, whose
+/// existing ryl TOML configs are also rewritten if they set a deprecated key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserConfigMigration {
     pub source: PathBuf,
     pub target: PathBuf,
+}
+
+impl UserConfigMigration {
+    /// The existing ryl user-global TOML configs beside `target`.
+    #[must_use]
+    pub fn ryl_config_paths(&self) -> Vec<PathBuf> {
+        let dir = self.target.parent().unwrap_or(Path::new(""));
+        RYL_USER_GLOBAL_CONFIG_CANDIDATES
+            .iter()
+            .map(|name| dir.join(name))
+            .filter(|path| path.is_file())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -391,60 +405,68 @@ fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), St
 }
 
 /// Plan an in-place rewrite of each ryl TOML config under `root` that sets a deprecated
-/// key. `pyproject.toml` is only reported: re-serialising it would drop the comments and
-/// layout of every other tool's settings. A file that fails to load is skipped with a
-/// warning, so a stray fixture cannot block the rest of the migration.
+/// key.
 fn build_toml_rewrites(root: &Path, plan: &mut MigrationPlan) {
     let mut paths = discover_configs(root, is_ryl_toml_config_path);
     paths.sort();
     for path in paths {
-        let pyproject = path
-            .file_name()
-            .is_some_and(|name| name == "pyproject.toml");
-        let loaded = fs::read_to_string(&path)
-            .map_err(|err| format!("failed to read config: {err}"))
-            .and_then(|text| parse_toml_config_str(&text, pyproject));
-        let config = match loaded {
-            Ok(Some(config)) => config,
-            Ok(None) => continue,
-            Err(err) => {
-                plan.warnings
-                    .push(format!("warning: skipping {}: {err}", path.display()));
-                continue;
-            }
-        };
-        let deprecated = config.deprecated_keys();
-        if deprecated.is_empty() {
-            continue;
-        }
-        if is_symlink(&path) {
-            plan.warnings.push(format!(
-                "warning: skipping {}: refusing to follow a symlink",
-                path.display()
-            ));
-            continue;
-        }
-        if pyproject {
-            let moves = deprecated
-                .iter()
-                .map(|used| format!("`{}` to `{}`", used.key.key, used.key.replacement))
-                .collect::<Vec<_>>()
-                .join(", ");
-            plan.warnings.push(format!(
-                "warning: not rewriting {}: in [tool.ryl], move {moves}",
-                path.display()
-            ));
-            continue;
-        }
-        let rendered =
-            toml::to_string_pretty(&toml_config_to_value(&config.to_nested()))
-                .expect("serializing a TOML value cannot fail");
-        plan.entries.push(MigrationEntry {
-            source: path.clone(),
-            target: path,
-            toml: format!("{}\n", rendered.trim_end()),
-        });
+        plan_toml_rewrite(path, plan);
     }
+}
+
+/// Plan an in-place rewrite of the ryl TOML config at `path` if it sets a deprecated key.
+/// `pyproject.toml` is only reported: re-serialising it would drop the comments and
+/// layout of every other tool's settings. A file that fails to load is skipped with a
+/// warning, so a stray fixture cannot block the rest of the migration.
+fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
+    if plan.entries.iter().any(|entry| entry.source == path) {
+        return;
+    }
+    let pyproject = path
+        .file_name()
+        .is_some_and(|name| name == "pyproject.toml");
+    let loaded = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read config: {err}"))
+        .and_then(|text| parse_toml_config_str(&text, pyproject));
+    let config = match loaded {
+        Ok(Some(config)) => config,
+        Ok(None) => return,
+        Err(err) => {
+            plan.warnings
+                .push(format!("warning: skipping {}: {err}", path.display()));
+            return;
+        }
+    };
+    let deprecated = config.deprecated_keys();
+    if deprecated.is_empty() {
+        return;
+    }
+    if is_symlink(&path) {
+        plan.warnings.push(format!(
+            "warning: skipping {}: refusing to follow a symlink",
+            path.display()
+        ));
+        return;
+    }
+    if pyproject {
+        let moves = deprecated
+            .iter()
+            .map(|used| format!("`{}` to `{}`", used.key.key, used.key.replacement))
+            .collect::<Vec<_>>()
+            .join(", ");
+        plan.warnings.push(format!(
+            "warning: not rewriting {}: in [tool.ryl], move {moves}",
+            path.display()
+        ));
+        return;
+    }
+    let rendered = toml::to_string_pretty(&toml_config_to_value(&config.to_nested()))
+        .expect("serializing a TOML value cannot fail");
+    plan.entries.push(MigrationEntry {
+        source: path.clone(),
+        target: path,
+        toml: format!("{}\n", rendered.trim_end()),
+    });
 }
 
 /// Build and optionally apply YAML-to-TOML config migration.
@@ -463,10 +485,13 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
         build_project_entries(root, &mut plan)?;
         build_toml_rewrites(root, &mut plan);
     }
-    if let Some(user) = &options.user_config
-        && user.source.exists()
-    {
-        build_entry(&user.source, user.target.clone(), &mut plan, true)?;
+    if let Some(user) = &options.user_config {
+        for path in user.ryl_config_paths() {
+            plan_toml_rewrite(path, &mut plan);
+        }
+        if user.source.exists() {
+            build_entry(&user.source, user.target.clone(), &mut plan, true)?;
+        }
     }
     if options.write_mode == WriteMode::Write {
         apply_migration_entries(
