@@ -46,7 +46,7 @@ fn allow_any_open_indent_accepts_open_block_level_via_toml() {
     let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "[rules.comments-indentation]\nallow-any-open-indent = true\n",
+        "[lint.rules.comments-indentation]\nallow-any-open-indent = true\n",
     )
     .unwrap();
 

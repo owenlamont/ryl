@@ -14,7 +14,7 @@ mappings and flow sequences.
 ## Configuration
 
 ```toml
-[rules.commas]
+[lint.rules.commas]
 level = "error"
 max-spaces-before = 0
 min-spaces-after = 1
@@ -54,7 +54,7 @@ limits, leaving the spacing after a comma as it is when `min-spaces-after` excee
 `max-spaces-after`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["commas"]
 ```

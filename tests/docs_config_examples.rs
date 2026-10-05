@@ -4,7 +4,7 @@
 //! generated from the loader) and not a parse-only load: finalizing is what rejects
 //! misspelled rule names, while parsing rejects misspelled rule options and bad
 //! values, so both classes of typo in a docs example are caught. The "no rules
-//! enabled" gate lives above `discover_config`, so `[fix]`/`[files]`-only fragments
+//! enabled" gate lives above `discover_config`, so `[lint]`/`[files]`-only fragments
 //! still validate. Only the `.md` sources are scanned: `docs/llms*.txt` are generated
 //! from them and held in lockstep by a separate drift guard, so the sources cover them.
 //!
@@ -13,8 +13,8 @@
 //! from its content* by structural markers keyed to ryl's config schema:
 //!   - a `toml` block is ryl config when it declares a `[tool.ryl]` table (the
 //!     `pyproject.toml` form) or a table whose top-level name is in the TOML config
-//!     schema (`[rules]`, `[[per-line-ignores]]`, `[output.gitlab]`, ...); other TOML
-//!     (a `prek.toml`, a `Cargo.toml`) is skipped;
+//!     schema (`[lint.rules]`, `[[lint.per-line-ignores]]`, `[output.gitlab]`, ...);
+//!     other TOML (a `prek.toml`, a `Cargo.toml`) is skipped;
 //!   - a `yaml` block is ryl config when a top-level mapping key is in the YAML
 //!     config schema (`rules:`, `extends:`, ...); rule-input examples are skipped.
 //!
@@ -131,8 +131,8 @@ fn extract_blocks(markdown: &str) -> Vec<Block> {
     blocks
 }
 
-/// The top-level name of a TOML table header (`[rules.commas]` -> `rules`,
-/// `[[per-line-ignores]]` -> `per-line-ignores`), or `None` for a non-header line.
+/// The top-level name of a TOML table header (`[lint.rules.commas]` -> `lint`,
+/// `[[output.junit]]` -> `output`), or `None` for a non-header line.
 fn toml_table_header_name(line: &str) -> Option<&str> {
     let header = line.strip_prefix('[')?;
     let name = header
@@ -192,8 +192,9 @@ fn classify(
 /// temp config file (named so the `pyproject.toml` form is recognised) and run the
 /// `discover_config` `-c` path the CLI uses, which parses *and* finalizes (so
 /// misspelled rule names are caught) without the "no rules enabled" gate (so
-/// fragments pass). `-c` bypasses project/env/user-global discovery, so no `HOME`
-/// isolation is needed.
+/// fragments pass). A config notice (a deprecated key) is a failure too, so the docs
+/// teach only the current shape. `-c` bypasses project/env/user-global discovery, so no
+/// `HOME` isolation is needed.
 fn validate(kind: Kind, content: &str) -> Result<(), String> {
     let name = match kind {
         Kind::Toml => "config.toml",
@@ -204,14 +205,18 @@ fn validate(kind: Kind, content: &str) -> Result<(), String> {
     let dir = tempdir().expect("create temp dir for config validation");
     let cfg = dir.path().join(name);
     fs::write(&cfg, content).expect("write temp config file");
-    discover_config(
+    let ctx = discover_config(
         &[],
         &Overrides {
             config_file: Some(cfg),
             config_data: None,
         },
-    )
-    .map(drop)
+    )?;
+    if ctx.notices.is_empty() {
+        Ok(())
+    } else {
+        Err(ctx.notices.join("; "))
+    }
 }
 
 fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -285,19 +290,27 @@ fn classify_routes_each_block_kind() {
     let kind = |b: &Block| classify(b, &toml_keys, &yaml_keys);
 
     assert_eq!(
-        kind(&block("toml", "[rules.commas]\nlevel = \"error\"\n", false)),
+        kind(&block(
+            "toml",
+            "[lint.rules.commas]\nlevel = \"error\"\n",
+            false
+        )),
         Kind::Toml,
     );
     assert_eq!(
         kind(&block(
             "toml",
-            "[tool.ryl.rules.commas]\nlevel = \"error\"\n",
+            "[tool.ryl.lint.rules.commas]\nlevel = \"error\"\n",
             false
         )),
         Kind::Pyproject,
     );
     assert_eq!(
-        kind(&block("toml", "[[per-line-ignores]]\nregex = 'x'\n", false)),
+        kind(&block(
+            "toml",
+            "[[lint.per-line-ignores]]\nregex = 'x'\n",
+            false
+        )),
         Kind::Toml,
         "an array-of-tables header is recognised by its top-level name",
     );
@@ -312,7 +325,7 @@ fn classify_routes_each_block_kind() {
         "a block with no ryl table header is not config",
     );
     assert_eq!(
-        kind(&block("toml", "[rules.commas]\nlevel =\n", false)),
+        kind(&block("toml", "[lint.rules.commas]\nlevel =\n", false)),
         Kind::Toml,
         "a malformed config example is recognised by its header, not skipped",
     );
@@ -336,7 +349,11 @@ fn classify_routes_each_block_kind() {
         "a non-config language is skipped",
     );
     assert_eq!(
-        kind(&block("toml", "[rules.commas]\nlevel = \"error\"\n", true)),
+        kind(&block(
+            "toml",
+            "[lint.rules.commas]\nlevel = \"error\"\n",
+            true
+        )),
         Kind::NotConfig,
         "the skip marker overrides detection",
     );
@@ -349,15 +366,15 @@ fn classify_routes_each_block_kind() {
 #[test]
 fn validate_reports_loader_verdict() {
     let accepted = [
-        (Kind::Toml, "[rules.commas]\nlevel = \"error\"\n"),
+        (Kind::Toml, "[lint.rules.commas]\nlevel = \"error\"\n"),
         (
             Kind::Pyproject,
-            "[tool.ryl.rules.commas]\nlevel = \"error\"\n",
+            "[tool.ryl.lint.rules.commas]\nlevel = \"error\"\n",
         ),
         (Kind::Yaml, "rules:\n  commas: enable\n"),
         (Kind::NotConfig, "anything goes here"),
         // A fragment that enables no rules still validates (no "no rules" gate here).
-        (Kind::Toml, "[fix]\nfixable = [\"ALL\"]\n"),
+        (Kind::Toml, "[lint]\nfixable = [\"ALL\"]\n"),
     ];
     for (kind, content) in accepted {
         assert!(
@@ -367,14 +384,18 @@ fn validate_reports_loader_verdict() {
     }
 
     let rejected = [
-        (Kind::Toml, "[rules.commas]\nlevel = \"bogus\"\n"),
-        (Kind::Toml, "[rules.tariling-spaces]\nlevel = \"error\"\n"),
-        (Kind::Toml, "[rules.commas]\nunknown-option = 0\n"),
+        (Kind::Toml, "[lint.rules.commas]\nlevel = \"bogus\"\n"),
+        (
+            Kind::Toml,
+            "[lint.rules.tariling-spaces]\nlevel = \"error\"\n",
+        ),
+        (Kind::Toml, "[lint.rules.commas]\nunknown-option = 0\n"),
         (
             Kind::Pyproject,
-            "[tool.ryl.rules.tariling-spaces]\nlevel = \"error\"\n",
+            "[tool.ryl.lint.rules.tariling-spaces]\nlevel = \"error\"\n",
         ),
         (Kind::Yaml, "rules:\n  not-a-real-rule: enable\n"),
+        (Kind::Toml, "[rules.commas]\nlevel = \"error\"\n"),
     ];
     for (kind, content) in rejected {
         assert!(
@@ -393,7 +414,7 @@ fn malformed_toml_config_example_is_caught() {
     let yaml_keys = schema_top_level_keys(ryl::config_schema::yaml_schema_value());
     let block = Block {
         lang: "toml".to_string(),
-        content: "[rules.commas]\nlevel =\n".to_string(),
+        content: "[lint.rules.commas]\nlevel =\n".to_string(),
         skip: false,
     };
     let kind = classify(&block, &toml_keys, &yaml_keys);

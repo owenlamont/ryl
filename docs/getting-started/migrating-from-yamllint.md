@@ -8,7 +8,7 @@ If you are coming from yamllint you have two paths:
   No changes needed to get started.
 - **Migrate to TOML.** TOML is the recommended format for ryl-specific
   features that have no upstream equivalent &mdash; for example the
-  [`[fix]` table](#optional-configure-auto-fixes) controlling auto-fix
+  [`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes) controlling auto-fix
   selection.
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
@@ -59,13 +59,13 @@ Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs |
-| `--migrate-user-config` | Migrate the user-global yamllint config |
+| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` |
 | `--migrate-root <DIR>` | Project search root (defaults to `.`) |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |
-| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration |
-| `--migrate-delete-old` | Delete source YAML configs after migration |
+| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
+| `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
 
 The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 `--migrate-delete-old` flags apply to whichever migration trigger
@@ -469,7 +469,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
         ".yamllint",
     ]
 
-    [rules]
+    [lint.rules]
     anchors = "enable"
     braces = "enable"
     brackets = "enable"
@@ -489,20 +489,20 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     trailing-spaces = "enable"
     truthy = "disable"
 
-    [rules.comments]
+    [lint.rules.comments]
     level = "warning"
 
-    [rules.comments-indentation]
+    [lint.rules.comments-indentation]
     level = "warning"
 
-    [rules.document-start]
+    [lint.rules.document-start]
     level = "warning"
 
-    [rules.line-length]
+    [lint.rules.line-length]
     max = 120
     allow-non-breakable-words = true
 
-    [rules.quoted-strings]
+    [lint.rules.quoted-strings]
     quote-type = "double"
     required = "only-when-needed"
     ```
@@ -520,7 +520,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
 TOML configurations can declare which rules are eligible for `ryl check --fix`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```

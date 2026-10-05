@@ -30,29 +30,189 @@ pub struct TomlConfig {
     pub ignore_from_file: Option<StringOrVec>,
     /// Locale identifier used by diagnostics.
     pub locale: Option<String>,
-    /// Native fix policy.
+    /// Linter settings: rule configuration, fix policy, and rule ignores.
+    pub lint: Option<LintTable>,
+    /// Formatter settings.
+    pub format: Option<FormatTable>,
+    /// Deprecated: use `lint.fixable` and `lint.unfixable`.
+    #[schemars(extend("deprecated" = true))]
     pub fix: Option<FixTable>,
+    /// Deprecated: use `lint.per-file-ignores`.
+    #[serde(rename = "per-file-ignores")]
+    #[schemars(extend("deprecated" = true))]
+    pub per_file_ignores: Option<BTreeMap<String, Vec<RuleSelector>>>,
+    /// Deprecated: use `lint.per-line-ignores`.
+    #[serde(rename = "per-line-ignores")]
+    #[schemars(extend("deprecated" = true))]
+    pub per_line_ignores: Option<Vec<PerLineIgnore>>,
+    /// Deprecated: use `lint.rules`.
+    #[schemars(extend("deprecated" = true))]
+    pub rules: Option<TomlRulesTable>,
+    #[serde(flatten, default)]
+    #[schemars(skip)]
+    extra: BTreeMap<String, toml::Value>,
+}
+
+/// The `[lint]` table.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LintTable {
+    /// Rule configuration table.
+    pub rules: Option<TomlRulesTable>,
+    /// Rules `--fix` may fix (default `["ALL"]`).
+    pub fixable: Option<Vec<FixableRuleSelector>>,
+    /// Rules `--fix` must not fix, overriding `fixable`.
+    pub unfixable: Option<Vec<FixRuleName>>,
     /// Per-file rule ignores.
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleSelector>>>,
     /// Per-line rule ignores: suppress rules on lines/files matching a pattern.
     #[serde(rename = "per-line-ignores")]
     pub per_line_ignores: Option<Vec<PerLineIgnore>>,
-    /// Rule configuration table.
-    pub rules: Option<
-        RulesTable<
-            TomlQuotedStringsOptions,
-            TomlKeyDuplicatesOptions,
-            TomlAnchorsOptions,
-            CommentsIndentationOptions,
-            TomlHyphensOptions,
-            TomlCommentsOptions,
-            TomlKeyOrderingOptions,
-        >,
-    >,
-    #[serde(flatten, default)]
-    #[schemars(skip)]
-    extra: BTreeMap<String, toml::Value>,
+}
+
+/// The `[format]` table.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FormatTable {}
+
+pub type TomlRulesTable = RulesTable<
+    TomlQuotedStringsOptions,
+    TomlKeyDuplicatesOptions,
+    TomlAnchorsOptions,
+    CommentsIndentationOptions,
+    TomlHyphensOptions,
+    TomlCommentsOptions,
+    TomlKeyOrderingOptions,
+>;
+
+/// A ryl-native TOML key at a deprecated location, and the key that replaces it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeprecatedKey {
+    pub key: &'static str,
+    pub replacement: &'static str,
+    pub deprecated_since: &'static str,
+    pub removed_in: Option<&'static str>,
+}
+
+/// Placeholder until the release carrying the `[lint]` table is cut.
+const LINT_TABLE_SINCE: &str = "0.25.0";
+
+/// Every deprecated TOML key location, the single source the deprecation warnings and
+/// `--migrate-configs` read.
+pub const DEPRECATED_TOML_KEYS: [DeprecatedKey; 5] = [
+    DeprecatedKey {
+        key: "rules",
+        replacement: "lint.rules",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "fix.fixable",
+        replacement: "lint.fixable",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "fix.unfixable",
+        replacement: "lint.unfixable",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "per-file-ignores",
+        replacement: "lint.per-file-ignores",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "per-line-ignores",
+        replacement: "lint.per-line-ignores",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+];
+
+/// A deprecated key found in a config; `overridden` when its replacement is also set,
+/// so the deprecated value is ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeprecatedKeyUse {
+    pub key: &'static DeprecatedKey,
+    pub overridden: bool,
+}
+
+impl TomlConfig {
+    /// The deprecated keys this config sets, in [`DEPRECATED_TOML_KEYS`] order.
+    #[must_use]
+    pub fn deprecated_keys(&self) -> Vec<DeprecatedKeyUse> {
+        let lint = self.lint.as_ref();
+        let fix = self.fix.as_ref();
+        // Positional: one `(legacy set, replacement set)` pair per `DEPRECATED_TOML_KEYS` row.
+        let presence: [(bool, bool); DEPRECATED_TOML_KEYS.len()] = [
+            (
+                self.rules.is_some(),
+                lint.is_some_and(|l| l.rules.is_some()),
+            ),
+            (
+                fix.is_some_and(|f| f.fixable.is_some()),
+                lint.is_some_and(|l| l.fixable.is_some()),
+            ),
+            (
+                fix.is_some_and(|f| f.unfixable.is_some()),
+                lint.is_some_and(|l| l.unfixable.is_some()),
+            ),
+            (
+                self.per_file_ignores.is_some(),
+                lint.is_some_and(|l| l.per_file_ignores.is_some()),
+            ),
+            (
+                self.per_line_ignores.is_some(),
+                lint.is_some_and(|l| l.per_line_ignores.is_some()),
+            ),
+        ];
+        DEPRECATED_TOML_KEYS
+            .iter()
+            .zip(presence)
+            .filter(|(_, (legacy, _))| *legacy)
+            .map(|(key, (_, overridden))| DeprecatedKeyUse { key, overridden })
+            .collect()
+    }
+
+    /// The effective `[lint]` table: each key from `[lint]`, else from its deprecated
+    /// location.
+    #[must_use]
+    pub fn merged_lint(&self) -> LintTable {
+        let lint = self.lint.clone().unwrap_or_default();
+        let fix = self.fix.as_ref();
+        LintTable {
+            rules: lint.rules.or_else(|| self.rules.clone()),
+            fixable: lint
+                .fixable
+                .or_else(|| fix.and_then(|fix| fix.fixable.clone())),
+            unfixable: lint
+                .unfixable
+                .or_else(|| fix.and_then(|fix| fix.unfixable.clone())),
+            per_file_ignores: lint
+                .per_file_ignores
+                .or_else(|| self.per_file_ignores.clone()),
+            per_line_ignores: lint
+                .per_line_ignores
+                .or_else(|| self.per_line_ignores.clone()),
+        }
+    }
+
+    /// This config with every deprecated key moved to its replacement.
+    #[must_use]
+    pub fn to_nested(&self) -> Self {
+        Self {
+            lint: Some(self.merged_lint()),
+            fix: None,
+            per_file_ignores: None,
+            per_line_ignores: None,
+            rules: None,
+            ..self.clone()
+        }
+    }
 }
 
 /// File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which
@@ -216,7 +376,7 @@ pub struct RuleOptions<T> {
 #[serde(deny_unknown_fields)]
 pub struct NoOptions {}
 
-/// TOML `[fix]` table.
+/// The deprecated `[fix]` table; its keys now live in `[lint]`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FixTable {
@@ -224,7 +384,7 @@ pub struct FixTable {
     pub unfixable: Option<Vec<FixRuleName>>,
 }
 
-/// A rule selector accepted by `fix.fixable`.
+/// A rule selector accepted by `lint.fixable`.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum FixableRuleSelector {
     #[serde(rename = "ALL")]
@@ -259,7 +419,7 @@ pub enum FixableRuleSelector {
     Truthy,
 }
 
-/// A fixable rule name accepted by `fix.unfixable`.
+/// A fixable rule name accepted by `lint.unfixable`.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum FixRuleName {
     #[serde(rename = "braces")]
@@ -1097,7 +1257,8 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         ));
     }
 
-    if let Some(entries) = config.per_line_ignores.as_deref() {
+    let lint = config.merged_lint();
+    if let Some(entries) = lint.per_line_ignores.as_deref() {
         validation::validate_per_line_ignores(entries)?;
     }
 
@@ -1106,15 +1267,14 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
     }
 
     validation::validate_comments_rule(
-        config
-            .rules
+        lint.rules
             .as_ref()
             .and_then(|rules| rules.comments.as_ref()),
     )?;
     validate_common_config(
         config.ignore.as_ref(),
         config.ignore_from_file.as_ref(),
-        config.rules.as_ref(),
+        lint.rules.as_ref(),
     )
 }
 
@@ -1257,9 +1417,11 @@ fn parse_string_items(
 /// TOML rejects an unknown key structurally, while the yamllint-compatible YAML path
 /// tolerates one, so every ryl-native top-level key has to be listed here to be caught.
 /// `files` carries its YAML spelling because "use TOML" would be the wrong fix for it.
-const TOML_ONLY_CONFIG_KEYS: [(&str, Option<&str>); 6] = [
+const TOML_ONLY_CONFIG_KEYS: [(&str, Option<&str>); 8] = [
     ("files", Some("`yaml-files`")),
     ("fix", None),
+    ("format", None),
+    ("lint", None),
     ("markdown", None),
     ("output", None),
     ("per-file-ignores", None),
@@ -1307,7 +1469,7 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     {
         return Err(format!(
             "invalid config: `{rule}` is a ryl-only rule and is not available in \
-             yamllint-compatible YAML config; configure it in TOML (`[rules.{rule}]`)"
+             yamllint-compatible YAML config; configure it in TOML (`[lint.rules.{rule}]`)"
         ));
     }
 

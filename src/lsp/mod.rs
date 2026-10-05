@@ -159,7 +159,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         next_refresh_id: 0,
         settings,
         documents: HashMap::new(),
-        reported_errors: HashSet::new(),
+        reported_messages: HashSet::new(),
         workers: Vec::new(),
         pull: None,
         revision: 0,
@@ -408,9 +408,9 @@ struct Server {
     next_refresh_id: i32,
     settings: Settings,
     documents: HashMap<String, Document>,
-    /// Config errors already surfaced via `window/showMessage`, so a broken config is
+    /// Config errors and warnings already surfaced via `window/showMessage`, so each is
     /// reported once rather than on every file/keystroke.
-    reported_errors: HashSet<String>,
+    reported_messages: HashSet<String>,
     /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk
     /// never blocks the message loop.
     workers: Vec<Worker>,
@@ -530,7 +530,7 @@ impl Server {
             "textDocument/rename" => self.rename(connection, id, &params),
             "textDocument/diagnostic" => {
                 let result = parse::<DocumentDiagnosticParams>(&params)
-                    .map(|params| self.document_diagnostic(&params));
+                    .map(|params| self.document_diagnostic(connection, &params));
                 respond(connection, id, result);
             }
             "workspace/diagnostic" => {
@@ -653,7 +653,10 @@ impl Server {
         text: String,
     ) {
         let diagnostics = match self.diagnostics_for(uri.as_str(), &text) {
-            Ok(diagnostics) => diagnostics,
+            Ok((diagnostics, notices)) => {
+                self.report_config_notices(connection, &notices);
+                diagnostics
+            }
             // A broken config disables linting silently; tell the user once, then publish
             // empty diagnostics.
             Err(error) => {
@@ -692,7 +695,7 @@ impl Server {
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
         // Clear the surfaced-errors set so a still-broken config re-reports once.
-        self.reported_errors.clear();
+        self.reported_messages.clear();
         if self.push_diagnostics {
             self.relint_open_documents(connection);
         } else if self.supports_diagnostic_refresh {
@@ -721,11 +724,27 @@ impl Server {
 
     /// Surface a config-discovery error to the user once (deduped by message).
     fn report_config_error(&mut self, connection: &Connection, error: &str) {
-        if self.reported_errors.insert(error.to_string()) {
-            let params = ShowMessageParams {
-                typ: MessageType::ERROR,
-                message: config_error_text(error),
-            };
+        self.show_message_once(
+            connection,
+            MessageType::ERROR,
+            config_error_text(error),
+        );
+    }
+
+    fn report_config_notices(&mut self, connection: &Connection, notices: &[String]) {
+        for notice in notices {
+            self.show_message_once(connection, MessageType::WARNING, notice.clone());
+        }
+    }
+
+    fn show_message_once(
+        &mut self,
+        connection: &Connection,
+        typ: MessageType,
+        message: String,
+    ) {
+        if self.reported_messages.insert(message.clone()) {
+            let params = ShowMessageParams { typ, message };
             send(
                 connection,
                 Message::Notification(Notification::new(
@@ -773,7 +792,7 @@ impl Server {
         let document = self.documents.get(position.text_document.uri.as_str())?;
         // Recompute for hit-testing (sub-ms/file) rather than caching published diagnostics.
         // A config error here is silent: already surfaced on open/change.
-        let diagnostics = self
+        let (diagnostics, _) = self
             .diagnostics_for(position.text_document.uri.as_str(), &document.text)
             .unwrap_or_default();
         hover::hover(&diagnostics, position.position)
@@ -841,16 +860,22 @@ impl Server {
 
     /// The pull-diagnostic report for one document (open buffer if tracked, else disk).
     fn document_diagnostic(
-        &self,
+        &mut self,
+        connection: &Connection,
         params: &DocumentDiagnosticParams,
     ) -> DocumentDiagnosticReport {
         let uri = params.text_document.uri.as_str();
-        let items = self.document_text(uri).map_or_else(Vec::new, |text| {
-            // Surface a config failure as an error diagnostic, not an empty (clean) report,
-            // so a pull-only client is not misled into thinking the file is fine.
-            self.diagnostics_for(uri, &text)
-                .unwrap_or_else(|error| vec![config_error_diagnostic(&error)])
-        });
+        let (items, notices) =
+            self.document_text(uri)
+                .map_or_else(Default::default, |text| {
+                    // Surface a config failure as an error diagnostic, not an empty (clean)
+                    // report, so a pull-only client is not misled into thinking the file is
+                    // fine.
+                    self.diagnostics_for(uri, &text).unwrap_or_else(|error| {
+                        (vec![config_error_diagnostic(&error)], Vec::new())
+                    })
+                });
+        self.report_config_notices(connection, &notices);
         let result_id = analysis::result_id(&items);
         match &result_id {
             Some(id) if params.previous_result_id.as_ref() == Some(id) => {
@@ -1028,23 +1053,26 @@ impl Server {
         crate::decoder::read_file(&path).ok()
     }
 
-    /// Diagnostics for `text` against `uri`'s config; `Err` on a config failure (callers
-    /// decide whether to surface it).
+    /// Diagnostics for `text` against `uri`'s config, plus the config's notices; `Err` on
+    /// a config failure (callers decide whether to surface it).
     fn diagnostics_for(
         &self,
         uri: &str,
         text: &str,
-    ) -> Result<Vec<Diagnostic>, String> {
+    ) -> Result<(Vec<Diagnostic>, Vec<String>), String> {
         Ok(match self.resolve(uri)? {
-            Some(target) => analysis::diagnostics(
-                text,
-                &target.path,
-                &target.context.config,
-                &target.context.base_dir,
-                target.kind,
-                self.encoding,
-            ),
-            None => Vec::new(),
+            Some(target) => {
+                let diagnostics = analysis::diagnostics(
+                    text,
+                    &target.path,
+                    &target.context.config,
+                    &target.context.base_dir,
+                    target.kind,
+                    self.encoding,
+                );
+                (diagnostics, target.context.notices)
+            }
+            None => Default::default(),
         })
     }
 

@@ -69,7 +69,7 @@ directive-less documents to protect consumers that use 1.1 parsers, either
 declare `%YAML 1.1` in those documents or set:
 
 ```toml
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = true              # always quote, regardless of type
 quote-type = "double"
 ```

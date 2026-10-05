@@ -15,7 +15,7 @@ Requires or forbids the YAML document end marker (`...`).
 ## Configuration
 
 ```toml
-[rules.document-end]
+[lint.rules.document-end]
 level = "error"
 present = true
 ```
@@ -76,7 +76,7 @@ case (removing existing `...` markers) is never auto-fixed.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["document-end"]
 ```

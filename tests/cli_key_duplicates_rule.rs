@@ -6,14 +6,14 @@ use tempfile::tempdir;
 mod common;
 use common::cli::{command_output, run};
 
-/// Lint `yaml` with a TOML config whose `[rules.key-duplicates]` body is
+/// Lint `yaml` with a TOML config whose `[lint.rules.key-duplicates]` body is
 /// `options`, returning the exit code and whichever stream carried output.
 fn run_toml(options: &str, yaml: &str) -> (i32, String) {
     let dir = tempdir().unwrap();
     let file = dir.path().join("in.yaml");
     fs::write(&file, yaml).unwrap();
     let config = dir.path().join("ryl.toml");
-    fs::write(&config, format!("[rules.key-duplicates]\n{options}")).unwrap();
+    fs::write(&config, format!("[lint.rules.key-duplicates]\n{options}")).unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)

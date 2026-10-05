@@ -14,9 +14,10 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 
 use crate::config_schema::{
-    FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore,
-    OutputTable, TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
+    DeprecatedKey, DeprecatedKeyUse, FixRuleName as TomlFixRuleName,
+    FixableRuleSelector as TomlFixableRuleSelector, NormalizedConfig,
+    NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore, OutputTable,
+    TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
     parse_toml_config_str, parse_yaml_config, validate_toml_config,
     yaml_rule_filter_patterns, yaml_rule_level,
 };
@@ -154,6 +155,7 @@ pub struct YamlLintConfig {
     output: Option<OutputTable>,
     locale: Option<String>,
     fix: FixConfig,
+    deprecated_keys: Vec<DeprecatedKeyUse>,
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
@@ -504,6 +506,7 @@ impl Default for YamlLintConfig {
             output: None,
             locale: None,
             fix: FixConfig::default(),
+            deprecated_keys: Vec::new(),
         }
     }
 }
@@ -893,7 +896,10 @@ impl YamlLintConfig {
 
     fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
         let normalized = normalize_toml_config(config);
-        let mut cfg = Self::default();
+        let mut cfg = Self {
+            deprecated_keys: config.deprecated_keys(),
+            ..Self::default()
+        };
         cfg.apply_normalized_config(normalized);
         cfg
     }
@@ -1428,11 +1434,23 @@ fn finalize_context(
     mut cfg: YamlLintConfig,
     base_dir: impl Into<PathBuf>,
     source: Option<PathBuf>,
-    notices: Vec<String>,
+    mut notices: Vec<String>,
     config_found: bool,
 ) -> Result<ConfigContext, String> {
     let base_dir = base_dir.into();
     cfg.finalize(envx, &base_dir)?;
+    let config_path = source.as_deref().unwrap_or_else(|| Path::new("config"));
+    let migrate_command =
+        if ryl_user_global_dir(envx).as_deref() == config_path.parent() {
+            "ryl --migrate-user-config"
+        } else {
+            "ryl --migrate-configs"
+        };
+    notices.extend(
+        cfg.deprecated_keys
+            .iter()
+            .map(|used| deprecation_notice(config_path, migrate_command, *used)),
+    );
     Ok(ConfigContext {
         config: cfg,
         base_dir,
@@ -1440,6 +1458,28 @@ fn finalize_context(
         notices,
         config_found,
     })
+}
+
+fn deprecation_notice(
+    config_path: &Path,
+    migrate_command: &str,
+    used: DeprecatedKeyUse,
+) -> String {
+    let DeprecatedKey {
+        key, replacement, ..
+    } = used.key;
+    let path = config_path.display();
+    if used.overridden {
+        format!(
+            "warning: {path}: `{key}` is deprecated and ignored because `{replacement}` \
+             is also set; remove it"
+        )
+    } else {
+        format!(
+            "warning: {path}: `{key}` is deprecated; use `{replacement}` instead (run \
+             `{migrate_command}` to update)"
+        )
+    }
 }
 
 /// Discover configuration with precedence:
@@ -1779,7 +1819,8 @@ const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 5] = [
 ];
 const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
     [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
-const RYL_USER_GLOBAL_CONFIG_CANDIDATES: [&str; 2] = [".ryl.toml", "ryl.toml"];
+pub(crate) const RYL_USER_GLOBAL_CONFIG_CANDIDATES: [&str; 2] =
+    [".ryl.toml", "ryl.toml"];
 
 #[derive(Debug, Clone)]
 struct ProjectConfigDiscovery {

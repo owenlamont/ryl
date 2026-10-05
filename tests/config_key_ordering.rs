@@ -73,7 +73,7 @@ fn key_ordering_non_string_key_errors() {
 
 fn orders_error(entry: &str) -> String {
     YamlLintConfig::from_toml_str(&format!(
-        "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n{entry}\n"
+        "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n{entry}\n"
     ))
     .expect_err("invalid orders entry should error")
 }
@@ -131,14 +131,14 @@ fn yaml_orders_and_unknown_unlisted_values_are_rejected() {
 
 #[test]
 fn orders_round_trip_through_toml() {
-    let toml = "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+    let toml = "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
                 files = [\"*\"]\npath = \"$.a['b c'][*]\"\nkeys = [\"z\", \"y\"]\n\
                 unlisted = \"keep\"\n";
     let rendered = YamlLintConfig::from_toml_str(toml)
         .expect("valid orders parse")
         .to_toml_string();
     assert!(
-        rendered.contains("[[rules.key-ordering.orders]]"),
+        rendered.contains("[[lint.rules.key-ordering.orders]]"),
         "{rendered}"
     );
     let reparsed = YamlLintConfig::from_toml_str(&rendered).expect("round trip parses");

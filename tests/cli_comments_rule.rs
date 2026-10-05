@@ -72,7 +72,7 @@ fn fix_trims_to_max_spaces_but_honours_disable_line() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.comments]\nmax-spaces-from-content = 2\n",
+        "[lint.rules.comments]\nmax-spaces-from-content = 2\n",
     )
     .unwrap();
     let file = dir.path().join("spaced.yaml");

@@ -58,7 +58,7 @@ fn migrate_configs_write_with_rename_flattens_extends() {
 
     let toml = fs::read_to_string(root.join(".ryl.toml")).unwrap();
     assert!(toml.contains("document-start = \"disable\""));
-    assert!(toml.contains("[rules.truthy]"));
+    assert!(toml.contains("[lint.rules.truthy]"));
     assert!(toml.contains("level = \"error\""));
     assert!(!root.join(".yamllint").exists());
     assert!(root.join(".yamllint.bak").exists());
@@ -178,7 +178,7 @@ fn migrate_configs_empty_default_root_prints_no_configs_message() {
         .current_dir(td.path())
         .arg("--migrate-configs"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
-    assert!(stdout.contains("No legacy YAML config files migrated under"));
+    assert!(stdout.contains("No legacy config files migrated under"));
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn migrate_configs_stdout_prints_generated_toml() {
         .arg("--migrate-stdout"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(stdout.contains("# "));
-    assert!(stdout.contains("[rules]"));
+    assert!(stdout.contains("[lint.rules]"));
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn migrate_user_config_absent_source_reports_message() {
         .arg("--migrate-user-config"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(
-        stdout.contains("No yamllint user-global config migrated"),
+        stdout.contains("No user-global config migrated"),
         "got: {stdout}"
     );
 }
@@ -345,7 +345,7 @@ fn migrate_combined_reports_absent_user_config_even_when_project_migrates() {
         "project migrated: {stdout}"
     );
     assert!(
-        stdout.contains("No yamllint user-global config migrated"),
+        stdout.contains("No user-global config migrated"),
         "absent user-global reported even though the project migrated: {stdout}"
     );
 }

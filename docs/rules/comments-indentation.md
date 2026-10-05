@@ -16,7 +16,7 @@ content. A comment must share the indentation of the line that follows it
 ## Configuration
 
 ```toml
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "error"
 # Accept a comment aligned to any still-open enclosing block level (default false).
 allow-any-open-indent = false
@@ -75,7 +75,7 @@ parent:
 follows them. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```

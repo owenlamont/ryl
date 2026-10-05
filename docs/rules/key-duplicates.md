@@ -22,7 +22,7 @@ core-schema resolution, and keys that collide once `<<` merges are expanded.
 ## Configuration
 
 ```toml
-[rules.key-duplicates]
+[lint.rules.key-duplicates]
 level = "error"
 forbid-duplicated-merge-keys = false
 check-canonical = false              # ryl-only

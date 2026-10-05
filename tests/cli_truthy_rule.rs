@@ -90,7 +90,7 @@ fn fix_with_config(toml: &str, input: &str) -> (i32, String, String) {
 #[test]
 fn truthy_fix_recases_booleans_but_not_yes_no_or_disabled_lines() {
     let (code, fixed, output) = fix_with_config(
-        "[rules.truthy]\n",
+        "[lint.rules.truthy]\n",
         "enabled: TRUE\nvisible: False\nlabel: yes\nmode: off\nkeep: True  # ryl disable-line rule:truthy\n",
     );
     assert_eq!(code, 1, "yes/off remain: {output}");
@@ -106,7 +106,7 @@ fn truthy_fix_recases_booleans_but_not_yes_no_or_disabled_lines() {
 
 #[test]
 fn truthy_fix_honours_fixable_and_unfixable() {
-    let rules = "[rules.truthy]\n[rules.trailing-spaces]\n[fix]\n";
+    let rules = "[lint.rules.truthy]\n[lint.rules.trailing-spaces]\n[lint]\n";
     for (fix_table, expected) in [
         ("unfixable = ['truthy']\n", "a: True\n"),
         ("fixable = ['truthy']\n", "a: true \n"),
@@ -120,7 +120,7 @@ fn truthy_fix_honours_fixable_and_unfixable() {
 #[test]
 fn truthy_fix_on_keys_surfaces_an_existing_duplicate() {
     let (code, fixed, output) = fix_with_config(
-        "[rules.truthy]\n[rules.key-duplicates]\n",
+        "[lint.rules.truthy]\n[lint.rules.key-duplicates]\n",
         "True: 1\ntrue: 2\n",
     );
     assert_eq!(code, 1, "{output}");

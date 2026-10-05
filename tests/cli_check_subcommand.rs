@@ -279,7 +279,7 @@ fn top_level_meta_actions_do_not_warn() {
         let (code, stdout, stderr) = run(ryl(dir.path()).args(&args));
         assert_eq!(code, 0, "{args:?} should succeed: {stderr}");
         assert!(
-            !stdout.contains("deprecated") && !stderr.contains("deprecated"),
+            !stdout.contains("is deprecated") && !stderr.contains("is deprecated"),
             "{args:?} must not warn: stdout={stdout} stderr={stderr}"
         );
     }

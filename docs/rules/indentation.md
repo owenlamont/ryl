@@ -21,7 +21,7 @@ Enforces consistent indentation throughout the document. Specifically:
 ## Configuration
 
 ```toml
-[rules.indentation]
+[lint.rules.indentation]
 level = "error"
 spaces = "consistent"
 indent-sequences = true

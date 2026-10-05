@@ -49,7 +49,7 @@ fn error_when_forbid_merge_key_shadowing_in_yaml_config() {
 #[test]
 fn toml_config_accepts_ryl_only_options() {
     let cfg = YamlLintConfig::from_toml_str(
-        "[rules.key-duplicates]\ncheck-canonical = true\nforbid-merge-key-shadowing = true\n",
+        "[lint.rules.key-duplicates]\ncheck-canonical = true\nforbid-merge-key-shadowing = true\n",
     )
     .expect("TOML config should accept the ryl-only options");
     assert!(

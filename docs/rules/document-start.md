@@ -15,7 +15,7 @@ Requires or forbids the YAML document start marker (`---`).
 ## Configuration
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 level = "error"
 present = true
 ```
@@ -74,7 +74,7 @@ with multi-document boundaries.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["document-start"]
 ```

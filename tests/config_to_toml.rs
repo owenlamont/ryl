@@ -49,7 +49,7 @@ fn to_toml_includes_per_file_ignores_when_present() {
     let cfg = td.path().join(".ryl.toml");
     fs::write(
         &cfg,
-        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'values.yaml' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n[lint.per-file-ignores]\n'values.yaml' = ['document-start']\n",
     )
     .unwrap();
     let ctx = discover_config(
@@ -61,7 +61,7 @@ fn to_toml_includes_per_file_ignores_when_present() {
     )
     .unwrap();
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("[per-file-ignores]"));
+    assert!(toml.contains("[lint.per-file-ignores]"));
     assert!(toml.contains("\"values.yaml\" = ["));
     assert!(toml.contains("\"document-start\""));
 }
@@ -113,7 +113,7 @@ fn to_toml_includes_fix_policy() {
     let cfg_path = td.path().join(".ryl.toml");
     fs::write(
         &cfg_path,
-        "[fix]\nfixable = ['ALL', 'braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-line-at-end-of-file', 'new-lines', 'truthy']\nunfixable = ['braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-line-at-end-of-file', 'new-lines', 'truthy']\n",
+        "[lint]\nfixable = ['ALL', 'braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-line-at-end-of-file', 'new-lines', 'truthy']\nunfixable = ['braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-line-at-end-of-file', 'new-lines', 'truthy']\n",
     )
     .unwrap();
 
@@ -129,7 +129,7 @@ fn to_toml_includes_fix_policy() {
     let toml = ctx.config.to_toml_string();
     assert!(toml.contains("[files]"));
     assert!(toml.contains("yaml = ["));
-    assert!(toml.contains("[fix]"));
+    assert!(toml.contains("[lint]"));
     assert!(toml.contains("fixable = ["));
     assert!(toml.contains("\"ALL\""));
     assert!(toml.contains("\"braces\""));

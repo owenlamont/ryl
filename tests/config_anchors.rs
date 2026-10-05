@@ -68,7 +68,7 @@ rules:
 #[test]
 fn anchors_toml_enables_ambiguous_names() {
     let cfg = YamlLintConfig::from_toml_str(
-        "[rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n",
+        "[lint.rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n",
     )
     .expect("toml parse");
     let resolved = anchors::Config::resolve(&cfg);

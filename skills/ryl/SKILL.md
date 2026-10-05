@@ -35,16 +35,16 @@ ryl check --enable truthy,line-length .     # run only these rules, config or no
 and replaces the config's rule selection for that run.
 
 Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
-`tool.ryl`, so `[rules]` becomes `[tool.ryl.rules]`):
+`tool.ryl`, so `[lint.rules]` becomes `[tool.ryl.lint.rules]`):
 
 ```toml
 # ryl.toml
-[rules]
+[lint.rules]
 trailing-spaces = "enable"
 new-line-at-end-of-file = "enable"
 ```
 
-`ALL = "enable"` under `[rules]` turns on every rule at its defaults; an explicit entry
+`ALL = "enable"` under `[lint.rules]` turns on every rule at its defaults; an explicit entry
 for a rule wins over it.
 
 ## Run and branch on exit codes

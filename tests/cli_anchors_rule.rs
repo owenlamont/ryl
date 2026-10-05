@@ -173,7 +173,7 @@ fn ambiguous_anchor_alias_names_report_error_via_toml() {
     let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "[rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n",
+        "[lint.rules.anchors]\nforbid-ambiguous-anchor-alias-names = true\n",
     )
     .unwrap();
 

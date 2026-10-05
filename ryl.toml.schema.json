@@ -28,7 +28,7 @@
       "type": "object"
     },
     "FixRuleName": {
-      "description": "A fixable rule name accepted by `fix.unfixable`.",
+      "description": "A fixable rule name accepted by `lint.unfixable`.",
       "enum": [
         "braces",
         "brackets",
@@ -49,7 +49,7 @@
     },
     "FixTable": {
       "additionalProperties": false,
-      "description": "TOML `[fix]` table.",
+      "description": "The deprecated `[fix]` table; its keys now live in `[lint]`.",
       "properties": {
         "fixable": {
           "items": {
@@ -73,7 +73,7 @@
       "type": "object"
     },
     "FixableRuleSelector": {
-      "description": "A rule selector accepted by `fix.fixable`.",
+      "description": "A rule selector accepted by `lint.fixable`.",
       "enum": [
         "ALL",
         "braces",
@@ -108,6 +108,11 @@
           "$ref": "#/$defs/ForbidMode"
         }
       ]
+    },
+    "FormatTable": {
+      "additionalProperties": false,
+      "description": "The `[format]` table.",
+      "type": "object"
     },
     "IndentSequencesMode": {
       "enum": [
@@ -163,6 +168,67 @@
         "path",
         "keys"
       ],
+      "type": "object"
+    },
+    "LintTable": {
+      "additionalProperties": false,
+      "description": "The `[lint]` table.",
+      "properties": {
+        "fixable": {
+          "description": "Rules `--fix` may fix (default `[\"ALL\"]`).",
+          "items": {
+            "$ref": "#/$defs/FixableRuleSelector"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per-file-ignores": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/RuleSelector"
+            },
+            "type": "array"
+          },
+          "description": "Per-file rule ignores.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "per-line-ignores": {
+          "description": "Per-line rule ignores: suppress rules on lines/files matching a pattern.",
+          "items": {
+            "$ref": "#/$defs/PerLineIgnore"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "rules": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RulesTable"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Rule configuration table."
+        },
+        "unfixable": {
+          "description": "Rules `--fix` must not fix, overriding `fixable`.",
+          "items": {
+            "$ref": "#/$defs/FixRuleName"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "MarkdownTable": {
@@ -2244,7 +2310,19 @@
           "type": "null"
         }
       ],
-      "description": "Native fix policy."
+      "deprecated": true,
+      "description": "Deprecated: use `lint.fixable` and `lint.unfixable`."
+    },
+    "format": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FormatTable"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Formatter settings."
     },
     "ignore": {
       "anyOf": [
@@ -2267,6 +2345,17 @@
         }
       ],
       "description": "Paths to files that contain ignore patterns."
+    },
+    "lint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LintTable"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Linter settings: rule configuration, fix policy, and rule ignores."
     },
     "locale": {
       "description": "Locale identifier used by diagnostics.",
@@ -2304,14 +2393,16 @@
         },
         "type": "array"
       },
-      "description": "Per-file rule ignores.",
+      "deprecated": true,
+      "description": "Deprecated: use `lint.per-file-ignores`.",
       "type": [
         "object",
         "null"
       ]
     },
     "per-line-ignores": {
-      "description": "Per-line rule ignores: suppress rules on lines/files matching a pattern.",
+      "deprecated": true,
+      "description": "Deprecated: use `lint.per-line-ignores`.",
       "items": {
         "$ref": "#/$defs/PerLineIgnore"
       },
@@ -2329,7 +2420,8 @@
           "type": "null"
         }
       ],
-      "description": "Rule configuration table."
+      "deprecated": true,
+      "description": "Deprecated: use `lint.rules`."
     }
   },
   "title": "ryl TOML config",

@@ -12,7 +12,7 @@ fn relative_input_from_subdirectory_finds_ancestor_config() {
     fs::create_dir(&sub).unwrap();
     fs::write(
         root.path().join(".ryl.toml"),
-        "[rules.truthy]\nlevel = \"error\"\n",
+        "[lint.rules.truthy]\nlevel = \"error\"\n",
     )
     .unwrap();
     fs::write(sub.join("a.yml"), "---\non: push\n").unwrap();

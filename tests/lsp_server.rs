@@ -34,7 +34,7 @@ use lsp_types::{
 use serde_json::{Value, json};
 use tempfile::{TempDir, tempdir};
 
-const TRAILING: &str = "[rules]\ntrailing-spaces = \"enable\"\n";
+const TRAILING: &str = "[lint.rules]\ntrailing-spaces = \"enable\"\n";
 
 /// A method ryl does not (and will not) handle, so requesting it always yields a
 /// `MethodNotFound` error, used to probe that the server is still responsive.
@@ -988,7 +988,7 @@ fn untitled_buffer_is_linted_as_yaml_despite_custom_file_globs() {
     // A project whose `[files].yaml` would not match the synthetic `untitled.yaml`
     // must still lint an unsaved YAML buffer as YAML (non-file URIs force YAML).
     let dir = project(
-        "[files]\nyaml = [\"config/*.yml\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+        "[files]\nyaml = [\"config/*.yml\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     let (client, _init) = Client::launch_full(None, None, true, Some(dir.path()));
     client.did_open(uri("untitled:Untitled-4"), "a: 1 \n");
@@ -1003,7 +1003,8 @@ fn untitled_buffer_is_linted_as_yaml_despite_custom_file_globs() {
 fn untitled_buffer_is_not_suppressed_by_path_ignores() {
     // An `ignore` glob that would match the synthetic untitled.yaml must not
     // suppress an unsaved buffer, which has no real path to filter on.
-    let dir = project("ignore = [\"*.yaml\"]\n[rules]\ntrailing-spaces = \"enable\"\n");
+    let dir =
+        project("ignore = [\"*.yaml\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let (client, _init) = Client::launch_full(None, None, true, Some(dir.path()));
     client.did_open(uri("untitled:Untitled-5"), "a: 1 \n");
     assert_eq!(
@@ -1418,7 +1419,7 @@ fn config_ignored_file_is_not_linted_or_fixed() {
     // A file excluded by the config's `ignore` is skipped, exactly as the CLI does,
     // so the editor neither flags nor offers to fix it.
     let dir =
-        project("ignore = ['skip.yaml']\n[rules]\ntrailing-spaces = \"enable\"\n");
+        project("ignore = ['skip.yaml']\n[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "skip.yaml");
     client.did_open(doc.clone(), "a: 1 \n");
@@ -1437,7 +1438,7 @@ fn file_matching_two_source_kinds_is_reported() {
     // The same glob under both kinds makes the source kind ambiguous (a hard error
     // in the CLI); the server surfaces it like any other config mistake.
     let dir = project(
-        "[files]\nyaml = [\"*.data\"]\nmarkdown = [\"*.data\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+        "[files]\nyaml = [\"*.data\"]\nmarkdown = [\"*.data\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     let (client, _init) = Client::launch(None, None);
     client.did_open(file_uri(dir.path(), "x.data"), "a: 1 \n");
@@ -1509,7 +1510,7 @@ fn config_watcher_includes_an_explicit_config_path() {
 #[test]
 fn watched_file_change_relints_open_documents() {
     // Start under a config that does not flag the trailing space.
-    let dir = project("[rules]\nkey-duplicates = \"enable\"\n");
+    let dir = project("[lint.rules]\nkey-duplicates = \"enable\"\n");
     let (client, _init) =
         Client::launch_with(None, Some(dir.path()), true, None, true, None);
     assert_eq!(
@@ -1799,7 +1800,7 @@ fn rename_off_an_anchor_is_null() {
 #[test]
 fn code_action_offers_no_disable_actions_for_markdown() {
     let dir = project(
-        "[files]\nmarkdown = [\"*.md\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+        "[files]\nmarkdown = [\"*.md\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.md");
@@ -1827,7 +1828,7 @@ fn code_action_offers_no_disable_actions_for_markdown() {
 #[test]
 fn rename_is_disabled_for_markdown_documents() {
     let dir = project(
-        "[files]\nmarkdown = [\"*.md\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+        "[files]\nmarkdown = [\"*.md\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.md");
@@ -2142,7 +2143,7 @@ fn workspace_diagnostic_without_a_root_is_held_open() {
 
 #[test]
 fn a_malformed_watched_files_payload_still_relints() {
-    let dir = project("[rules]\nkey-duplicates = \"enable\"\n");
+    let dir = project("[lint.rules]\nkey-duplicates = \"enable\"\n");
     let (client, _init) =
         Client::launch_with(None, Some(dir.path()), true, None, true, None);
     assert_eq!(
@@ -2461,8 +2462,9 @@ fn document_diagnostic_reports_unchanged_for_a_matching_result_id() {
 
 #[test]
 fn workspace_diagnostic_pull_handles_open_ignored_and_unreadable_files() {
-    let dir =
-        project("ignore = [\"skip.yaml\"]\n[rules]\ntrailing-spaces = \"enable\"\n");
+    let dir = project(
+        "ignore = [\"skip.yaml\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
+    );
     std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("bad");
     std::fs::write(dir.path().join("skip.yaml"), "a: 1 \n").expect("ignored");
     // A UTF-16 LE BOM followed by an odd byte count cannot be decoded.
@@ -2596,7 +2598,7 @@ fn rename_on_an_unopened_document_is_null() {
 #[test]
 fn rename_on_a_markdown_document_is_null() {
     let dir = project(
-        "[files]\nmarkdown = [\"*.md\"]\n[rules]\ntrailing-spaces = \"enable\"\n",
+        "[files]\nmarkdown = [\"*.md\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.md");
@@ -2789,8 +2791,9 @@ fn rename_works_on_an_untitled_yaml_buffer() {
 
 #[test]
 fn prepare_rename_on_an_ignored_file_is_null() {
-    let dir =
-        project("ignore = [\"skip.yaml\"]\n[rules]\ntrailing-spaces = \"enable\"\n");
+    let dir = project(
+        "ignore = [\"skip.yaml\"]\n[lint.rules]\ntrailing-spaces = \"enable\"\n",
+    );
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "skip.yaml");
     client.did_open(doc.clone(), "a: &anchor 1\n");
@@ -2917,7 +2920,7 @@ fn server_binary_exits_nonzero_on_bare_exit() {
 
 #[test]
 fn per_rule_fix_all_sorts_keys() {
-    let dir = project("[rules]\nkey-ordering = \"enable\"\n");
+    let dir = project("[lint.rules]\nkey-ordering = \"enable\"\n");
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.yaml");
     client.did_open(doc.clone(), "b: 1\na: 2\n");
@@ -2947,4 +2950,68 @@ fn per_rule_fix_all_sorts_keys() {
         panic!("expected a plain TextEdit");
     };
     assert_eq!(text_edit.new_text, "a: 2\nb: 1\n");
+}
+
+fn warning_text(message: &Message) -> Option<String> {
+    let Message::Notification(note) = message else {
+        return None;
+    };
+    (note.method == "window/showMessage" && note.params["type"] == 2).then(|| {
+        note.params["message"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    })
+}
+
+const LEGACY_RULES_CONFIG: &str = "[rules]\ntrailing-spaces = \"enable\"\n";
+
+#[test]
+fn deprecated_config_key_is_shown_as_a_warning_once() {
+    let dir = project(LEGACY_RULES_CONFIG);
+    let (client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "a.yaml");
+    client.did_open(doc.clone(), "x: 1\n");
+    let warnings: Vec<String> = client
+        .drain_to_publish()
+        .iter()
+        .filter_map(warning_text)
+        .collect();
+    assert_eq!(
+        warnings.len(),
+        1,
+        "one warning per deprecated key: {warnings:?}"
+    );
+    assert!(
+        warnings[0].contains("`rules` is deprecated; use `lint.rules`"),
+        "the warning names the replacement: {warnings:?}"
+    );
+    client.did_change(doc, "x: 2\n");
+    assert!(
+        !client
+            .drain_to_publish()
+            .iter()
+            .any(|m| warning_text(m).is_some()),
+        "the same deprecation is reported only once"
+    );
+}
+
+#[test]
+fn pull_client_is_shown_deprecated_config_key_warning() {
+    let dir = project(LEGACY_RULES_CONFIG);
+    std::fs::write(dir.path().join("a.yaml"), "x: 1\n").expect("write yaml");
+    let (mut client, _init) = Client::launch_pull(None, false);
+    let doc = file_uri(dir.path(), "a.yaml");
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({ "textDocument": { "uri": doc } }),
+    );
+    let (messages, _) = client.messages_until_response(&id);
+    assert!(
+        messages
+            .iter()
+            .filter_map(warning_text)
+            .any(|text| text.contains("`rules` is deprecated")),
+        "a pull for an unopened file still surfaces the deprecation"
+    );
 }

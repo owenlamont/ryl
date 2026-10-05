@@ -91,7 +91,7 @@ fn dash_on_own_line_flags_inline_mapping_via_toml() {
     let file = dir.path().join("inline.yaml");
     fs::write(&file, "items:\n  - name: web\n    port: 80\n").unwrap();
     let config = dir.path().join("config.toml");
-    fs::write(&config, "[rules.hyphens]\ndash-on-own-line = true\n").unwrap();
+    fs::write(&config, "[lint.rules.hyphens]\ndash-on-own-line = true\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)
@@ -118,7 +118,7 @@ fn dash_on_own_line_accepts_dash_alone_via_toml() {
     // Dash alone with the mapping body indented below is the layout the option wants.
     fs::write(&file, "items:\n  -\n    name: web\n    port: 80\n").unwrap();
     let config = dir.path().join("config.toml");
-    fs::write(&config, "[rules.hyphens]\ndash-on-own-line = true\n").unwrap();
+    fs::write(&config, "[lint.rules.hyphens]\ndash-on-own-line = true\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, stdout, stderr) = run(Command::new(exe)

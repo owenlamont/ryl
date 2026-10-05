@@ -216,7 +216,7 @@ cases exit `2` rather than silently linting nothing:
   YAML config with `extends: default` for yamllint's standard rule set, or pass
   `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
   least one rule, use `extends: default`, or pass `--enable ALL`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
@@ -280,9 +280,13 @@ project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
 
-Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
-configuration is flat &mdash; copy the preset you want from
-[Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise from there:
+Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
+every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
+`[output]`) sit at the top level; linter settings sit under `[lint]`
+(`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
+`[[lint.per-line-ignores]]`); `[format]` is reserved for the formatter. Copy the
+preset you want from [Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise
+from there:
 
 ```toml
 [files]
@@ -294,7 +298,7 @@ yaml = [
 
 # ... rule enable/disable table from the preset ...
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 allow-non-breakable-words = true
 ```
@@ -329,6 +333,16 @@ ryl --migrate-configs --migrate-write
 ```
 
 See [Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/) for details.
+
+Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
+`per-line-ignores` at the top level. ryl still reads them, but warns once per
+key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
+one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
+`.ryl.toml`/`ryl.toml` in place, dropping its comments (add
+`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`), and
+`ryl --migrate-user-config --migrate-write` does the same for the user-global
+config. For `pyproject.toml` it only prints the keys to move, since rewriting
+would drop the rest of the file's comments and layout.
 
 ## Configure across projects (user-global)
 
@@ -444,7 +458,7 @@ If you are coming from yamllint you have two paths:
   No changes needed to get started.
 - **Migrate to TOML.** TOML is the recommended format for ryl-specific
   features that have no upstream equivalent &mdash; for example the
-  [`[fix]` table](#optional-configure-auto-fixes) controlling auto-fix
+  [`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes) controlling auto-fix
   selection.
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
@@ -495,13 +509,13 @@ Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs |
-| `--migrate-user-config` | Migrate the user-global yamllint config |
+| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` |
 | `--migrate-root <DIR>` | Project search root (defaults to `.`) |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |
-| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration |
-| `--migrate-delete-old` | Delete source YAML configs after migration |
+| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
+| `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
 
 The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 `--migrate-delete-old` flags apply to whichever migration trigger
@@ -905,7 +919,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
         ".yamllint",
     ]
 
-    [rules]
+    [lint.rules]
     anchors = "enable"
     braces = "enable"
     brackets = "enable"
@@ -925,20 +939,20 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     trailing-spaces = "enable"
     truthy = "disable"
 
-    [rules.comments]
+    [lint.rules.comments]
     level = "warning"
 
-    [rules.comments-indentation]
+    [lint.rules.comments-indentation]
     level = "warning"
 
-    [rules.document-start]
+    [lint.rules.document-start]
     level = "warning"
 
-    [rules.line-length]
+    [lint.rules.line-length]
     max = 120
     allow-non-breakable-words = true
 
-    [rules.quoted-strings]
+    [lint.rules.quoted-strings]
     quote-type = "double"
     required = "only-when-needed"
     ```
@@ -956,7 +970,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
 TOML configurations can declare which rules are eligible for `ryl check --fix`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
@@ -1057,17 +1071,17 @@ printed but do not fail the run.
 Configure the severity inline with the rule:
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 120
 ```
 
 ## Enabling and disabling rules
 
-Toggle a rule on or off with a top-level string in the `[rules]` table:
+Toggle a rule on or off with a top-level string in the `[lint.rules]` table:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "disable"
 key-ordering = "enable"
 ```
@@ -1076,11 +1090,11 @@ Enabling a rule without options applies its defaults. To enable every rule,
 including the ryl-only ones, use `ALL`:
 
 ```toml
-[rules]
+[lint.rules]
 ALL = "enable"
 truthy = "disable"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -1117,10 +1131,10 @@ The `--fix` flag applies safe fixes for rules marked with :wrench: above:
 ryl check --fix .
 ```
 
-Control which rules apply fixes with a `[fix]` table:
+Control which rules apply fixes with `fixable`/`unfixable` in the `[lint]` table:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
@@ -1174,7 +1188,7 @@ yaml = [
     ".yamllint",
 ]
 
-[rules]
+[lint.rules]
 anchors = "enable"
 braces = "enable"
 brackets = "enable"
@@ -1195,16 +1209,16 @@ octal-values = "disable"
 quoted-strings = "disable"
 trailing-spaces = "enable"
 
-[rules.comments]
+[lint.rules.comments]
 level = "warning"
 
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "warning"
 
-[rules.document-start]
+[lint.rules.document-start]
 level = "warning"
 
-[rules.truthy]
+[lint.rules.truthy]
 level = "warning"
 ```
 
@@ -1218,7 +1232,7 @@ yaml = [
     ".yamllint",
 ]
 
-[rules]
+[lint.rules]
 anchors = "enable"
 comments = "disable"
 comments-indentation = "disable"
@@ -1235,31 +1249,31 @@ quoted-strings = "disable"
 trailing-spaces = "enable"
 truthy = "disable"
 
-[rules.braces]
+[lint.rules.braces]
 level = "warning"
 max-spaces-inside = 1
 
-[rules.brackets]
+[lint.rules.brackets]
 level = "warning"
 max-spaces-inside = 1
 
-[rules.colons]
+[lint.rules.colons]
 level = "warning"
 
-[rules.commas]
+[lint.rules.commas]
 level = "warning"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "warning"
 
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "warning"
 
-[rules.indentation]
+[lint.rules.indentation]
 level = "warning"
 indent-sequences = "consistent"
 
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 allow-non-breakable-inline-mappings = true
 ```
@@ -1267,9 +1281,9 @@ allow-non-breakable-inline-mappings = true
 ## `empty`
 
 There is no usable TOML equivalent: ryl requires at least one rule to be
-enabled, so an empty `[rules]` table is rejected with "configuration enables no
+enabled, so an empty `[lint.rules]` table is rejected with "configuration enables no
 rules". The `empty` preset survives only as a base to `extends:` in YAML config;
-in TOML, list the rules you want under `[rules]` directly.
+in TOML, list the rules you want under `[lint.rules]` directly.
 
 ---
 
@@ -1434,19 +1448,19 @@ equivalent); it is rejected in yamllint-compatible YAML config.
 
 ## Configuration
 
-Each `[[per-line-ignores]]` entry suppresses its `rules` on a line when the
+Each `[[lint.per-line-ignores]]` entry suppresses its `rules` on a line when the
 entry's conditions match:
 
 ```toml
-[rules.comments]
-[rules.line-length]
+[lint.rules.comments]
+[lint.rules.line-length]
 max = 80
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '^#cloud-config$'   # match against the whole source line
 rules = ["comments"]
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '#\s*renovate:'
 rules = ["line-length"]
 ```
@@ -1469,12 +1483,12 @@ Use single-quoted TOML strings for patterns so backslashes need no escaping.
 
 ```toml
 # Let machine-generated marker lines break any rule
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = 'GENERATED — do not edit'
 rules = ["ALL"]
 
 # Allow Go-template braces, but only in template files
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 path = "*.tpl.yaml"
 regex = '\{\{.*\}\}'
 rules = ["braces"]
@@ -1524,7 +1538,7 @@ A top-level `ignore` lists paths ryl skips entirely. No rule runs against them
 and they produce no diagnostics.
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
 ignore = """
@@ -1549,7 +1563,7 @@ reuse its `.gitignore`:
 
 <!-- ryl-config-check: skip -->
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
 ignore-from-file = ".gitignore"
@@ -1567,7 +1581,7 @@ matches by file name only, so `*.lock.yaml` still applies to it and
 `.github/workflows/*` does not &mdash; the same as ruff.
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
 ignore = """
@@ -1592,12 +1606,12 @@ everything else &mdash; a Helm values file with no document start, a workflow
 file whose `on:` key trips [`truthy`](https://ryl-docs.pages.dev/rules/truthy/).
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/values.yaml" = ["document-start"]
 ".github/workflows/*" = ["truthy"]
 ```
@@ -1607,10 +1621,10 @@ negation. Each value is a list of rule IDs, or `["ALL"]` to switch off every rul
 for the matching files:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "enable"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/pnpm-*.yaml" = ["ALL"]
 ```
 
@@ -1626,13 +1640,13 @@ Every rule accepts its own `ignore`, scoping that one rule to a subset of the
 tree. Other rules still run against the excluded paths.
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 max = 80
 ignore = """
 docs/**
 """
 
-[rules.colons]
+[lint.rules.colons]
 ```
 
 Here `docs/**` is exempt from `line-length` but still checked by `colons`.
@@ -1972,7 +1986,7 @@ not canonicalize truthy values. Its settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for google/yamlfmt
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -1982,26 +1996,26 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.document-start]
+[lint.rules.document-start]
 present = false              # yamlfmt removes `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # yamlfmt uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -2009,7 +2023,7 @@ Notes:
 
 - If you prefer to keep `---`, set yamlfmt's
   [`include_document_start: true`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
-  in its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
+  in its `.yamlfmt` config and change ryl to `[lint.rules.document-start]` `present = true`. The
   two markers must agree. yamlfmt strips the `...` document-end marker, so leave ryl's
   `document-end` rule off.
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
@@ -2032,7 +2046,7 @@ padding this recipe relies on), [`singleQuote`](https://prettier.io/docs/options
 
 ```toml
 # .ryl.toml, tuned for Prettier
-[rules]
+[lint.rules]
 brackets = "enable"
 colons = "enable"
 commas = "enable"
@@ -2041,29 +2055,29 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.braces]
+[lint.rules.braces]
 min-spaces-inside = 1        # Prettier pads `{ a: 1 }`
 max-spaces-inside = 1
 min-spaces-inside-empty = 0  # but keeps an empty `{}` tight
 max-spaces-inside-empty = 0
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # Prettier uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -2100,7 +2114,7 @@ settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for yamlfix
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -2111,23 +2125,23 @@ new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 truthy = "enable"           # yamlfix canonicalizes block-style yes/no (see caveat)
 
-[rules.document-start]
+[lint.rules.document-start]
 present = true              # yamlfix adds `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 2  # yamlfix uses two spaces (ryl's default)
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -2651,7 +2665,7 @@ directive-less documents to protect consumers that use 1.1 parsers, either
 declare `%YAML 1.1` in those documents or set:
 
 ```toml
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = true              # always quote, regardless of type
 quote-type = "double"
 ```
@@ -2800,7 +2814,7 @@ a `:` is welded to them.
 ## Configuration
 
 ```toml
-[rules.anchors]
+[lint.rules.anchors]
 level = "error"
 forbid-undeclared-aliases = true
 forbid-duplicated-anchors = false
@@ -2917,13 +2931,13 @@ Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
 ## Configuration
 
 `block-scalar-chomping` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[rules.block-scalar-chomping]` in
-`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.block-scalar-chomping]` in
+configured **only in TOML** &mdash; `[lint.rules.block-scalar-chomping]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.block-scalar-chomping]` in
 `pyproject.toml`. It is rejected in yamllint-compatible YAML config (including `-d`
 data) so the YAML namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.block-scalar-chomping]
+[lint.rules.block-scalar-chomping]
 level = "error"
 ```
 
@@ -2994,7 +3008,7 @@ whitespace they may contain.
 ## Configuration
 
 ```toml
-[rules.braces]
+[lint.rules.braces]
 level = "error"
 forbid = false
 min-spaces-inside = 0
@@ -3067,7 +3081,7 @@ whitespace they may contain.
 ## Configuration
 
 ```toml
-[rules.brackets]
+[lint.rules.brackets]
 level = "error"
 forbid = false
 min-spaces-inside = 0
@@ -3139,7 +3153,7 @@ Controls the number of spaces around mapping colons (`:`).
 ## Configuration
 
 ```toml
-[rules.colons]
+[lint.rules.colons]
 level = "error"
 max-spaces-before = 0
 max-spaces-after = 1
@@ -3225,7 +3239,7 @@ mappings and flow sequences.
 ## Configuration
 
 ```toml
-[rules.commas]
+[lint.rules.commas]
 level = "error"
 max-spaces-before = 0
 min-spaces-after = 1
@@ -3265,7 +3279,7 @@ limits, leaving the spacing after a comma as it is when `min-spaces-after` excee
 `max-spaces-after`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["commas"]
 ```
@@ -3298,7 +3312,7 @@ content. A comment must share the indentation of the line that follows it
 ## Configuration
 
 ```toml
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "error"
 # Accept a comment aligned to any still-open enclosing block level (default false).
 allow-any-open-indent = false
@@ -3357,7 +3371,7 @@ parent:
 follows them. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```
@@ -3393,7 +3407,7 @@ content.
 ## Configuration
 
 ```toml
-[rules.comments]
+[lint.rules.comments]
 level = "error"
 require-starting-space = true
 ignore-shebangs = true
@@ -3459,7 +3473,7 @@ to the configured `min-spaces-from-content`, and replaces a gap wider than
 `max-spaces-from-content` with that many spaces. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
@@ -3490,7 +3504,7 @@ Requires or forbids the YAML document end marker (`...`).
 ## Configuration
 
 ```toml
-[rules.document-end]
+[lint.rules.document-end]
 level = "error"
 present = true
 ```
@@ -3551,7 +3565,7 @@ case (removing existing `...` markers) is never auto-fixed.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["document-end"]
 ```
@@ -3584,7 +3598,7 @@ Requires or forbids the YAML document start marker (`---`).
 ## Configuration
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 level = "error"
 present = true
 ```
@@ -3643,7 +3657,7 @@ with multi-document boundaries.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
@@ -3674,7 +3688,7 @@ file, at the start of the file, and at the end of the file.
 ## Configuration
 
 ```toml
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "error"
 max = 2
 max-start = 0
@@ -3737,7 +3751,7 @@ bails (leaves the file untouched) when the input cannot be parsed.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```
@@ -3771,7 +3785,7 @@ mappings, flow mappings, and block sequences.
 ## Configuration
 
 ```toml
-[rules.empty-values]
+[lint.rules.empty-values]
 level = "error"
 forbid-in-block-mappings = true
 forbid-in-flow-mappings = true
@@ -3852,7 +3866,7 @@ values `.nan` and `.inf`.
 ## Configuration
 
 ```toml
-[rules.float-values]
+[lint.rules.float-values]
 level = "error"
 require-numeral-before-decimal = false
 forbid-scientific-notation = false
@@ -3922,7 +3936,7 @@ block sequences.
 ## Configuration
 
 ```toml
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "error"
 max-spaces-after = 1
 dash-on-own-line = false
@@ -4024,7 +4038,7 @@ Enforces consistent indentation throughout the document. Specifically:
 ## Configuration
 
 ```toml
-[rules.indentation]
+[lint.rules.indentation]
 level = "error"
 spaces = "consistent"
 indent-sequences = true
@@ -4113,7 +4127,7 @@ core-schema resolution, and keys that collide once `<<` merges are expanded.
 ## Configuration
 
 ```toml
-[rules.key-duplicates]
+[lint.rules.key-duplicates]
 level = "error"
 forbid-duplicated-merge-keys = false
 check-canonical = false              # ryl-only
@@ -4226,7 +4240,7 @@ Requires that the keys within each mapping appear in lexicographic
 ## Configuration
 
 ```toml
-[rules.key-ordering]
+[lint.rules.key-ordering]
 level = "error"
 ignored-keys = []
 ```
@@ -4267,16 +4281,16 @@ beta: 2
 
 ## Custom orders
 
-Each `[[rules.key-ordering.orders]]` entry gives a mapping a key order other
+Each `[[lint.rules.key-ordering.orders]]` entry gives a mapping a key order other
 than alphabetical. An entry applies where both its `files` and its `path`
 match, and the first matching entry wins. Mappings that no entry selects keep
 the alphabetical order, and that includes mappings nested inside a selected one.
 
 ```toml
-[rules.key-ordering]
+[lint.rules.key-ordering]
 level = "error"
 
-[[rules.key-ordering.orders]]
+[[lint.rules.key-ordering.orders]]
 files = [".pre-commit-config.yaml"]
 path = "$.repos[*].hooks[*]"
 keys = ["alias", "name", "description", "args", "env"]
@@ -4380,7 +4394,7 @@ gamma: 3  # Gamma-specific note.
   disabled on any of its lines.
 
 To keep `--fix` from reordering keys at all, add `unfixable = ["key-ordering"]`
-to the `[fix]` table.
+to the `[lint]` table.
 
 ## Related rules
 
@@ -4434,7 +4448,7 @@ description: >
 ## Configuration
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 80
 allow-non-breakable-words = true
@@ -4508,13 +4522,13 @@ Sources: YAML 1.2.2 changes page; YAML merge type.
 ## Configuration
 
 `merge-keys` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.rules.merge-keys]` in `pyproject.toml`. It is rejected in
+**only in TOML** &mdash; `[lint.rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.lint.rules.merge-keys]` in `pyproject.toml`. It is rejected in
 yamllint-compatible YAML config (including `-d` data) so the YAML namespace stays
 reserved for any future yamllint rule.
 
 ```toml
-[rules.merge-keys]
+[lint.rules.merge-keys]
 level = "error"
 ```
 
@@ -4586,7 +4600,7 @@ Requires the file to end with a trailing newline character.
 ## Configuration
 
 ```toml
-[rules.new-line-at-end-of-file]
+[lint.rules.new-line-at-end-of-file]
 level = "error"
 ```
 
@@ -4617,7 +4631,7 @@ ryl appends a single newline when the file does not already end with one.
 `ryl check --fix` appends a trailing newline when one is missing. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["new-line-at-end-of-file"]
 ```
@@ -4651,7 +4665,7 @@ Unix (LF), DOS/Windows (CRLF), or whatever the host platform produces.
 ## Configuration
 
 ```toml
-[rules.new-lines]
+[lint.rules.new-lines]
 level = "error"
 type = "unix"
 ```
@@ -4694,7 +4708,7 @@ the behaviour is identical. See
 `ryl check --fix` rewrites all line endings to match `type`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["new-lines"]
 ```
@@ -4728,7 +4742,7 @@ Reports octal integer literals. By default both YAML 1.1 implicit form
 ## Configuration
 
 ```toml
-[rules.octal-values]
+[lint.rules.octal-values]
 level = "error"
 forbid-implicit-octal = true
 forbid-explicit-octal = true
@@ -4831,7 +4845,7 @@ version: "1.0"
 ## Configuration
 
 ```toml
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 level = "warning"
 quote-type = "any"
 required = true
@@ -4859,10 +4873,10 @@ adds or removes quotes to satisfy `required`. The fix is conservative: it
 only changes scalars where the corrected form parses to the same value as
 the original.
 
-Disable the fix for this rule by adding it to `[fix].unfixable`:
+Disable the fix for this rule by adding it to `lint.unfixable`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
@@ -4931,13 +4945,13 @@ YAML Company.
 ## Configuration
 
 `tags` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[rules.tags]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.rules.tags]` in `pyproject.toml`. It is rejected in
+**only in TOML** &mdash; `[lint.rules.tags]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.lint.rules.tags]` in `pyproject.toml`. It is rejected in
 yamllint-compatible YAML config (including `-d` data) so the YAML `tags`
 namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.tags]
+[lint.rules.tags]
 level = "error"
 forbid-unsafe-tags = false
 forbid-removed-types = false
@@ -5024,7 +5038,7 @@ Reports whitespace at the end of any line.
 ## Configuration
 
 ```toml
-[rules.trailing-spaces]
+[lint.rules.trailing-spaces]
 level = "error"
 ```
 
@@ -5075,7 +5089,7 @@ parsed as YAML, so a broken document is never made worse.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["trailing-spaces"]
 ```
@@ -5111,7 +5125,7 @@ truthy words (`yes`, `no`, `on`, `off`, `True`, `Yes`, ...) are flagged.
 ## Configuration
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 level = "error"
 allowed-values = ["true", "false"]
 check-keys = true
@@ -5149,9 +5163,9 @@ Three ways to settle it, narrowest first:
 The recommended form scopes the exemption to the files that need it:
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 ".github/workflows/*" = ["truthy"]
 ```
 
@@ -5269,13 +5283,13 @@ Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
 ## Configuration
 
 `unicode-line-breaks` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[rules.unicode-line-breaks]` in
-`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.unicode-line-breaks]` in
+configured **only in TOML** &mdash; `[lint.rules.unicode-line-breaks]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.unicode-line-breaks]` in
 `pyproject.toml`. It is rejected in yamllint-compatible YAML config (including
 `-d` data) so the YAML namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.unicode-line-breaks]
+[lint.rules.unicode-line-breaks]
 level = "error"
 ```
 

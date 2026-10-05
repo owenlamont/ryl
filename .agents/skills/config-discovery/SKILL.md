@@ -38,6 +38,17 @@ errors (exit 2) before the existence check (`try_env_config_core`, #332); use
 `-c`/`-d`/project discovery for ryl TOML. User-global: ryl-native
 `<config-dir>/ryl/.ryl.toml` or `ryl.toml`, then yamllint `<config-dir>/yamllint/config`.
 
+## Notices and deprecated TOML keys
+
+`ConfigContext::notices` are stderr warnings, silenced by `--no-warnings` and shown in the
+LSP via `window/showMessage`. `finalize_context` adds one per deprecated TOML key
+(`config_schema::DEPRECATED_TOML_KEYS`, read by `TomlConfig::deprecated_keys`, which
+`--migrate-configs`/`--migrate-user-config` also use to pick the TOML files they rewrite
+in place; the warning names whichever of the two applies to its file).
+`TomlConfig::merged_lint` resolves each key, the `[lint]` spelling winning; a new
+deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
+`merged_lint`. The legacy YAML config stays flat.
+
 ## Nothing is enabled implicitly
 
 ryl never enables a rule that wasn't explicitly turned on (no "default-on" rules). Two
@@ -47,7 +58,7 @@ cases exit `2`, both stricter than yamllint:
   (`ConfigContext::config_found == false`), not the `default` preset; reports
   `main::NO_CONFIG_ERROR`. yamllint lints with `extends: default`.
 - **A resolved config that enables no rules** — `rules: {}`, empty
-  `[rules]`/`[tool.ryl]`, a `[files]`-only TOML config, or one disabling everything;
+  `[lint.rules]`/`[tool.ryl]`, a `[files]`-only TOML config, or one disabling everything;
   reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently lints nothing.
 
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks

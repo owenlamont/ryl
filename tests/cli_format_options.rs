@@ -987,7 +987,7 @@ fn ignored_stdin_emits_an_empty_gitlab_report() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "ignore = [\"ignored.yaml\"]\n[rules]\ncolons = \"enable\"\n",
+        "ignore = [\"ignored.yaml\"]\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
 
@@ -1022,7 +1022,7 @@ fn ignored_stdin_report_open_failure_is_usage_error() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "ignore = [\"ignored.yaml\"]\n[rules]\ncolons = \"enable\"\n",
+        "ignore = [\"ignored.yaml\"]\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
     let report = dir.path().join("missing-dir").join("gl.json");
@@ -1500,7 +1500,7 @@ fn output_config(dir: &std::path::Path, output_body: &str) -> std::path::PathBuf
     fs::write(
         &cfg,
         format!(
-            "[rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n{output_body}"
+            "[lint.rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n{output_body}"
         ),
     )
     .unwrap();
@@ -1618,7 +1618,7 @@ fn config_output_is_auto_discovered_from_project_config() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
+        "[lint.rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
     )
     .unwrap();
     fs::write(dir.path().join("dirty.yaml"), "key: value").unwrap();
@@ -1687,7 +1687,7 @@ fn diff_ignores_config_output_report_format() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntrailing-spaces = \"enable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
     )
     .unwrap();
     fs::write(dir.path().join("dirty.yaml"), "key: value  \n").unwrap();
@@ -1722,7 +1722,7 @@ fn diff_with_multiple_streaming_formats_is_allowed() {
     // formats (which would otherwise both default to stderr) must not be a usage error.
     let dir = tempdir().unwrap();
     let cfg = dir.path().join("c.toml");
-    fs::write(&cfg, "[rules]\ntrailing-spaces = \"enable\"\n").unwrap();
+    fs::write(&cfg, "[lint.rules]\ntrailing-spaces = \"enable\"\n").unwrap();
     let file = dir.path().join("dirty.yaml");
     fs::write(&file, "key: value  \n").unwrap();
 

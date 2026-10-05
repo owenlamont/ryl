@@ -283,7 +283,7 @@ fn apply_safe_fixes_skips_quoted_strings_when_unfixable() {
     fs::write(&file, "foo: \"bar\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[fix]\nunfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nunfixable = [\"quoted-strings\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -302,7 +302,7 @@ fn fix_config_allows_quoted_strings_when_listed_in_fixable() {
     fs::write(&file, "foo: bar\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[fix]\nfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nfixable = [\"quoted-strings\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -318,7 +318,7 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     fs::write(&file, "foo: bar\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[fix]\nfixable = [\"comments\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nfixable = [\"comments\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 

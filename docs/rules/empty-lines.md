@@ -15,7 +15,7 @@ file, at the start of the file, and at the end of the file.
 ## Configuration
 
 ```toml
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "error"
 max = 2
 max-start = 0
@@ -78,7 +78,7 @@ bails (leaves the file untouched) when the input cannot be parsed.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```

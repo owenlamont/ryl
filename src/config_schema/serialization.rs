@@ -2,9 +2,9 @@ use crate::yaml_dom::{MappingOwned, ScalarOwned, YamlOwned};
 use serde::Serialize;
 
 use super::{
-    FixTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
-    NormalizedPerLineIgnore, PerLineIgnore, RuleSelector, RulesTable, StringOrVec,
-    TomlConfig, YamlConfig,
+    LintTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig,
+    NormalizedMarkdown, NormalizedPerLineIgnore, PerLineIgnore, RuleSelector,
+    RulesTable, StringOrVec, TomlConfig, YamlConfig,
 };
 
 pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
@@ -24,14 +24,14 @@ fn ignore_patterns_from_string_or_vec(value: &StringOrVec) -> Vec<String> {
     }
 }
 
-fn normalize_fix_table(fix: &FixTable) -> NormalizedFixConfig {
-    NormalizedFixConfig {
-        fixable: fix
+fn normalize_fix_policy(lint: &LintTable) -> Option<NormalizedFixConfig> {
+    (lint.fixable.is_some() || lint.unfixable.is_some()).then(|| NormalizedFixConfig {
+        fixable: lint
             .fixable
             .clone()
             .unwrap_or_else(|| vec![super::FixableRuleSelector::All]),
-        unfixable: fix.unfixable.clone().unwrap_or_default(),
-    }
+        unfixable: lint.unfixable.clone().unwrap_or_default(),
+    })
 }
 
 fn normalize_per_file_ignores(
@@ -138,17 +138,18 @@ pub(crate) fn yaml_owned_to_toml_value(
 /// Panics if serializing already-validated typed TOML rules unexpectedly stops producing
 /// a TOML table.
 pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
+    let lint = config.merged_lint();
     NormalizedConfig {
         ignore_patterns: config
             .ignore
             .as_ref()
             .map(ignore_patterns_from_string_or_vec),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
-        per_file_ignores: config
+        per_file_ignores: lint
             .per_file_ignores
             .as_ref()
             .map_or_else(std::collections::BTreeMap::new, normalize_per_file_ignores),
-        per_line_ignores: config
+        per_line_ignores: lint
             .per_line_ignores
             .as_deref()
             .map_or_else(Vec::new, normalize_per_line_ignores),
@@ -160,8 +161,8 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
         markdown: config.markdown.as_ref().map(normalize_markdown_table),
         output: config.output.clone(),
         locale: config.locale.clone(),
-        fix: config.fix.as_ref().map(normalize_fix_table),
-        rules: config
+        fix: normalize_fix_policy(&lint),
+        rules: lint
             .rules
             .as_ref()
             .map_or_else(std::collections::BTreeMap::new, |rules| {
@@ -322,6 +323,10 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
         config.ignore_from_file.as_ref(),
     );
     insert_serialized(&mut table, "locale", config.locale.as_ref());
+    if let Some(lint) = config.lint.as_ref() {
+        table.insert("lint".to_string(), lint_table_to_value(lint));
+    }
+    insert_serialized(&mut table, "format", config.format.as_ref());
     insert_serialized(&mut table, "fix", config.fix.as_ref());
     insert_serialized(
         &mut table,
@@ -340,6 +345,26 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
     toml::Value::Table(table)
 }
 
+fn lint_table_to_value(lint: &LintTable) -> toml::Value {
+    let mut table = toml::map::Map::new();
+    if let Some(rules) = lint.rules.as_ref() {
+        table.insert("rules".to_string(), rules_table_to_value(rules));
+    }
+    insert_serialized(&mut table, "fixable", lint.fixable.as_ref());
+    insert_serialized(&mut table, "unfixable", lint.unfixable.as_ref());
+    insert_serialized(
+        &mut table,
+        "per-file-ignores",
+        lint.per_file_ignores.as_ref(),
+    );
+    insert_serialized(
+        &mut table,
+        "per-line-ignores",
+        lint.per_line_ignores.as_ref(),
+    );
+    toml::Value::Table(table)
+}
+
 fn insert_string_array(
     table: &mut toml::map::Map<String, toml::Value>,
     key: &str,
@@ -354,13 +379,6 @@ fn insert_string_array(
                 .collect(),
         ),
     );
-}
-
-fn normalized_fix_to_toml_value(fix: &NormalizedFixConfig) -> toml::Value {
-    let mut table = toml::map::Map::new();
-    insert_serialized(&mut table, "fixable", Some(&fix.fixable));
-    insert_serialized(&mut table, "unfixable", Some(&fix.unfixable));
-    toml::Value::Table(table)
 }
 
 fn normalized_rules_to_toml_value(
@@ -404,32 +422,41 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
         table.insert("locale".to_string(), toml::Value::String(locale.clone()));
     }
 
-    if let Some(fix) = config.fix.as_ref() {
-        table.insert("fix".to_string(), normalized_fix_to_toml_value(fix));
+    let lint = normalized_lint_to_toml_table(config);
+    if !lint.is_empty() {
+        table.insert("lint".to_string(), toml::Value::Table(lint));
     }
 
+    toml::Value::Table(table)
+}
+
+fn normalized_lint_to_toml_table(
+    config: &NormalizedConfig,
+) -> toml::map::Map<String, toml::Value> {
+    let mut table = toml::map::Map::new();
+    if let Some(fix) = config.fix.as_ref() {
+        insert_serialized(&mut table, "fixable", Some(&fix.fixable));
+        insert_serialized(&mut table, "unfixable", Some(&fix.unfixable));
+    }
     if !config.per_file_ignores.is_empty() {
         table.insert(
             "per-file-ignores".to_string(),
             normalized_per_file_ignores_to_toml_value(&config.per_file_ignores),
         );
     }
-
     if !config.per_line_ignores.is_empty() {
         table.insert(
             "per-line-ignores".to_string(),
             normalized_per_line_ignores_to_toml_value(&config.per_line_ignores),
         );
     }
-
     if !config.rules.is_empty() {
         table.insert(
             "rules".to_string(),
             normalized_rules_to_toml_value(&config.rules),
         );
     }
-
-    toml::Value::Table(table)
+    table
 }
 
 fn normalized_files_to_toml_value(config: &NormalizedConfig) -> Option<toml::Value> {
