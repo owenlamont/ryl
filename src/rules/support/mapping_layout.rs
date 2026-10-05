@@ -30,6 +30,17 @@ pub(crate) struct Entry {
     pub(crate) aliases: Vec<String>,
 }
 
+impl Entry {
+    fn record_name(&mut self, name: &str, anchor: bool) {
+        let list = if anchor {
+            &mut self.anchors
+        } else {
+            &mut self.aliases
+        };
+        list.push(name.to_owned());
+    }
+}
+
 pub(crate) struct Mapping {
     pub(crate) path: Vec<Step>,
     pub(crate) block: bool,
@@ -91,12 +102,7 @@ impl<'a> Layout<'a> {
                 let within = names.partition_point(|n| n.0 < entry.key_line)
                     ..names.partition_point(|n| n.0 <= entry.end);
                 for (_, name, anchor) in &names[within] {
-                    let list = if *anchor {
-                        &mut entry.anchors
-                    } else {
-                        &mut entry.aliases
-                    };
-                    list.push(name.to_string());
+                    entry.record_name(name, *anchor);
                 }
             }
         }
@@ -320,19 +326,14 @@ impl Layout<'_> {
             let mut out = Vec::with_capacity(last + 1 - first);
             for (slot, &from) in order.iter().enumerate() {
                 let (source, target) = (&entries[from], &entries[slot]);
-                for line in source.start..=source.end {
-                    if line == source.key_line {
-                        let prefix = &lines[target.key_line];
-                        let body = &lines[line];
-                        out.push(format!(
-                            "{}{}",
-                            &prefix[..byte_at(prefix, target.key_col)],
-                            &body[byte_at(body, source.key_col)..]
-                        ));
-                    } else {
-                        out.push(lines[line].clone());
-                    }
-                }
+                let (prefix, body) = (&lines[target.key_line], &lines[source.key_line]);
+                out.extend_from_slice(&lines[source.start..source.key_line]);
+                out.push(format!(
+                    "{}{}",
+                    &prefix[..byte_at(prefix, target.key_col)],
+                    &body[byte_at(body, source.key_col)..]
+                ));
+                out.extend_from_slice(&lines[source.key_line + 1..=source.end]);
                 if let Some(next) = entries.get(slot + 1) {
                     out.extend_from_slice(&lines[target.end + 1..next.start]);
                 }

@@ -148,6 +148,11 @@ impl Directives {
         let mut directives = Self::default();
         for comment in collect_comments(buffer) {
             let line = comment.span.start.line();
+            let disable_line_target = if comment.placement == Placement::Right {
+                line
+            } else {
+                line + 1
+            };
             for parsed in parse_comment(&comment.text) {
                 match parsed.action {
                     Action::Disable => {
@@ -155,24 +160,15 @@ impl Directives {
                         directives.block_snapshots.push((line, block.clone()));
                     }
                     Action::Enable => {
-                        match parsed.rules.as_deref() {
-                            None => block.clear(),
-                            Some(ids) => {
-                                for id in ids {
-                                    block.remove(id);
-                                }
-                            }
-                        }
+                        remove_rules(&mut block, parsed.rules.as_deref());
                         directives.block_snapshots.push((line, block.clone()));
                     }
                     Action::DisableLine => {
-                        let target = if comment.placement == Placement::Right {
-                            line
-                        } else {
-                            line + 1
-                        };
                         insert_rules(
-                            directives.line_disabled.entry(target).or_default(),
+                            directives
+                                .line_disabled
+                                .entry(disable_line_target)
+                                .or_default(),
                             parsed.rules.as_deref(),
                         );
                     }
@@ -205,15 +201,16 @@ impl Directives {
                 has_regex_entry = true;
             }
         }
-        if has_regex_entry {
-            for (index, content) in line_contents(buffer).into_iter().enumerate() {
-                for entry in per_line {
-                    if entry.regex.is_some_and(|regex| regex.is_match(content)) {
-                        insert_rules(
-                            directives.line_disabled.entry(index + 1).or_default(),
-                            entry.rules,
-                        );
-                    }
+        if !has_regex_entry {
+            return directives;
+        }
+        for (index, content) in line_contents(buffer).into_iter().enumerate() {
+            for entry in per_line {
+                if entry.regex.is_some_and(|regex| regex.is_match(content)) {
+                    insert_rules(
+                        directives.line_disabled.entry(index + 1).or_default(),
+                        entry.rules,
+                    );
                 }
             }
         }
@@ -268,6 +265,13 @@ fn insert_rules(set: &mut HashSet<&'static str>, rules: Option<&[&'static str]>)
     match rules {
         None => set.extend(ALL_RULE_IDS),
         Some(ids) => set.extend(ids.iter().copied()),
+    }
+}
+
+fn remove_rules(set: &mut HashSet<&'static str>, rules: Option<&[&'static str]>) {
+    match rules {
+        None => set.clear(),
+        Some(ids) => set.retain(|id| !ids.contains(id)),
     }
 }
 

@@ -1091,15 +1091,11 @@ impl<'cfg> FixState<'cfg> {
                 }
             }
             Some(style_kind) => {
-                if resolves_to_string && !value.is_empty() && !facts.quotes_needed.get()
+                if resolves_to_string
+                    && !value.is_empty()
+                    && !facts.quotes_needed.get()
+                    && !self.redundant_quote_allowed(style_kind, facts)
                 {
-                    if self.redundant_quote_allowed(style_kind, facts) {
-                        if self.mismatched_quote(style_kind, facts) {
-                            let target = self.target_quote_style(style_kind);
-                            return replacement_for_target(value, start, end, target);
-                        }
-                        return None;
-                    }
                     return Some((start, end, value.to_owned()));
                 }
                 if self.mismatched_quote(style_kind, facts) {
