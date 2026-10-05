@@ -4,7 +4,8 @@ use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, line_and_column, skip_comment, template_double_curly_end,
+    build_line_starts, line_and_column, skip_comment, target_spacing,
+    template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
     BytePos, CharPos, apply_replacements, containing_scalar_range,
@@ -727,10 +728,4 @@ fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<us
         }
     }
     None
-}
-
-fn target_spacing(current: usize, min: i64, max: i64) -> usize {
-    let min_spaces = usize::try_from(min).ok().unwrap_or(0);
-    let max_spaces = usize::try_from(max).ok().unwrap_or(usize::MAX);
-    current.max(min_spaces).min(max_spaces)
 }

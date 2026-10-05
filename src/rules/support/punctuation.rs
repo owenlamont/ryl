@@ -6,6 +6,17 @@ use granit_parser::{
 
 use crate::rules::support::span_utils::CharPos;
 
+/// Clamps `current` into `min..=max`; leaves it alone when `min > max`, since no spacing passes.
+pub(crate) fn target_spacing(current: usize, min: i64, max: i64) -> usize {
+    let min = usize::try_from(min).unwrap_or(0);
+    let max = usize::try_from(max).unwrap_or(usize::MAX);
+    if min > max {
+        current
+    } else {
+        current.clamp(min, max)
+    }
+}
+
 pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
     let mut parser = Parser::new_from_str(buffer);
     let mut collector = ScalarRangeCollector::new();
