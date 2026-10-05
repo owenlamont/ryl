@@ -38,8 +38,10 @@ fn no_config_found_is_rejected_with_escape_hatch() {
         "a run with no configuration must be a usage error: {err}"
     );
     assert!(
-        err.contains("no configuration found") && err.contains("extends: default"),
-        "expected the no-config error naming the escape hatch: {err}"
+        err.contains("no configuration found")
+            && err.contains("extends: default")
+            && err.contains("--enable ALL"),
+        "expected the no-config error naming both escape hatches: {err}"
     );
 }
 

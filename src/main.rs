@@ -51,10 +51,10 @@ const OUTPUT_INFALLIBLE: &str =
     "writing diagnostics to an in-memory buffer cannot fail";
 
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
-     least one rule, or use 'extends: default' for the standard rule set";
+     least one rule, use 'extends: default' for the standard rule set, or pass '--enable ALL'";
 
 const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
-     config that enables rules, or use 'extends: default' for the standard rule set";
+     config that enables rules, use 'extends: default' for the standard rule set, or pass '--enable ALL'";
 
 fn no_rules_error(config_found: bool) -> String {
     if config_found {

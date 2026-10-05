@@ -212,11 +212,12 @@ ryl never enables a rule unless a configuration or `--enable` explicitly turns i
 cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
-  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, or pass a
-  YAML config with `extends: default` for yamllint's standard rule set.
+  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, pass a
+  YAML config with `extends: default` for yamllint's standard rule set, or pass
+  `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
-  least one rule, or use `extends: default`.
+  least one rule, use `extends: default`, or pass `--enable ALL`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
 is found and silently accepts a rule-less config. Give ryl a config containing
@@ -598,8 +599,8 @@ it **avoids redundant output**. The complete list:
 
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it
 on. yamllint, run with no configuration, lints with its `default` preset; ryl
-instead exits `2` with `no configuration found`. It also exits `2` (`no rules
-enabled`) when a resolved config turns every rule off, where yamllint would
+instead exits `2` with `no configuration found`. It also exits `2` (`configuration enables no
+rules`) when a resolved config turns every rule off, where yamllint would
 silently lint nothing. Neither exit fires when `--enable` names the rules.
 
 **Why ryl differs:** linting with rules the user never asked for &mdash; or
