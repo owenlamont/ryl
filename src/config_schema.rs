@@ -1014,12 +1014,34 @@ pub fn parse_toml_config_str(
     if pyproject {
         return toml::from_str::<PyProjectToml>(input)
             .map(|doc| doc.tool.ryl)
-            .map_err(|err| format!("failed to parse config data: {err}"));
+            .map_err(|err| toml_error_text(err, Some(input)));
     }
 
     toml::from_str::<TomlConfig>(input)
         .map(Some)
-        .map_err(|err| format!("failed to parse config data: {err}"))
+        .map_err(|err| toml_error_text(err, Some(input)))
+}
+
+/// toml's `Display` is a multi-line snippet; stderr errors must stay on one line.
+fn toml_error_text(mut err: toml::de::Error, input: Option<&str>) -> String {
+    let location = err
+        .span()
+        .zip(input)
+        .map_or_else(String::new, |(span, input)| {
+            let before = input.get(..span.start).unwrap_or(input);
+            let line = before.matches('\n').count() + 1;
+            let column =
+                before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+            format!("TOML parse error at line {line}, column {column}: ")
+        });
+    err.set_input(None);
+    let text = err.to_string();
+    let keys = text.strip_prefix(err.message()).unwrap_or_default().trim();
+    let separator = if keys.is_empty() { "" } else { " " };
+    format!(
+        "failed to parse config data: {location}{}{separator}{keys}",
+        err.message()
+    )
 }
 
 /// Whether the relevant TOML table has no entries: the whole document for a standalone
@@ -1306,7 +1328,7 @@ fn parse_typed_yaml_config(doc: &YamlOwned) -> Result<YamlConfig, String> {
         .map_err(|err| format!("failed to parse config data: {err}"))?;
     value
         .try_into::<YamlConfig>()
-        .map_err(|err| format!("failed to parse config data: {err}"))
+        .map_err(|err| toml_error_text(err, None))
 }
 
 fn normalize_typed_yaml_config(
