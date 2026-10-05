@@ -9,13 +9,9 @@
 //! so the suite cannot pass vacuously.
 
 #[path = "property_safe_fix/ast.rs"]
-#[allow(
-    dead_code,
-    reason = "shared with the safe-fix suite, which uses every item"
-)]
 mod ast;
 #[path = "property_safe_fix/config.rs"]
-#[allow(
+#[expect(
     dead_code,
     reason = "shared with the safe-fix suite, which uses every item"
 )]
@@ -185,6 +181,11 @@ fn representation_tells_apart_what_value_preservation_forbids() {
         ("a: !local x\n", "a: x\n"),
         ("%YAML 1.1\n---\na: 'no'\n", "%YAML 1.1\n---\na: no\n"),
         ("a: 1\n", "a: 1\n---\na: 1\n"),
+        ("a: '9223372036854775808'\n", "a: 9223372036854775808\n"),
+        (
+            "%YAML 1.1\n---\na: !!int 011\n",
+            "%YAML 1.1\n---\na: !!int 11\n",
+        ),
         ("a: [1]\n", "a: {1: }\n"),
     ] {
         assert_ne!(
@@ -205,6 +206,7 @@ fn representation_ignores_layout() {
         ("a: True\n", "a: true\n"),
         ("%YAML 1.2\n---\na: 'no'\n", "%YAML 1.2\n---\na: no\n"),
         ("a: &x 1\nb: *x\n", "a: &y 1\nb: *y\n"),
+        ("%YAML 1.1\n---\na: 1e3\n", "%YAML 1.1\n---\na: '1e3'\n"),
     ] {
         assert_eq!(
             representation(left),

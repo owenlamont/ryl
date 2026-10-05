@@ -3,8 +3,9 @@ name: property-tests
 description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
   editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
-  rule-checker / markdown-fix / config), or adding a formatter pass. Covers what each generator must be extended with, the ~1000x
-  pre-commit run, and which rules intentionally have no safe `--fix`.
+  rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
+  each generator must be extended with, the ~1000x pre-commit run, and which rules
+  intentionally have no safe `--fix`.
 ---
 
 # Property Tests

@@ -23,9 +23,10 @@ pub enum Value {
     Core(ScalarOwned),
     /// A core tag the content does not satisfy (`!!int abc`); kept as written.
     Unresolvable(String),
-    /// A plain scalar YAML 1.1 resolves to a non-string, compared by spelling: equality
-    /// under 1.1 is stricter than value equality, which only flags more rewrites.
-    Yaml11NonString(String),
+    /// Compared by spelling where the oracle has no resolver of its own: a YAML 1.1
+    /// non-string or core-tagged scalar, or a 1.2 integer beyond `i64`. Spelling equality
+    /// is stricter than value equality, which only flags more rewrites.
+    Spelling(String),
     /// Content under a local or non-core tag, which the application resolves.
     Application(String),
 }
@@ -97,6 +98,7 @@ impl Recorder {
     ) -> Value {
         match tag {
             Some(tag) if !is_core_schema(tag) => Value::Application(value.into_owned()),
+            Some(_) if self.yaml_1_1 => Value::Spelling(value.into_owned()),
             Some(_) => Scalar::resolve_scalar(value.clone(), style, tag).map_or_else(
                 || Value::Unresolvable(value.into_owned()),
                 |scalar| Value::Core(scalar.into_owned()),
@@ -105,10 +107,18 @@ impl Recorder {
                 && style == ScalarStyle::Plain
                 && YAML_1_1_NONSTRING.is_match(&value) =>
             {
-                Value::Yaml11NonString(value.into_owned())
+                Value::Spelling(value.into_owned())
             }
             None if self.yaml_1_1 && style == ScalarStyle::Plain => {
                 Value::Core(ScalarOwned::String(value.into_owned()))
+            }
+            None if style == ScalarStyle::Plain && YAML_1_2_INT.is_match(&value) => {
+                match Scalar::resolve_scalar(value.clone(), style, None) {
+                    Some(Scalar::Integer(int)) => {
+                        Value::Core(ScalarOwned::Integer(int))
+                    }
+                    _ => Value::Spelling(value.into_owned()),
+                }
             }
             None => Value::Core(
                 Scalar::resolve_scalar(value, style, None)
@@ -210,8 +220,7 @@ static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
         r"y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
         r"|[-+]?0b[01_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
         r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+",
-        r"|[-+]?(?:[0-9][0-9_]*\.[0-9_]*|\.[0-9_]+)(?:[eE][-+]?[0-9]+)?",
-        r"|[-+]?[0-9][0-9_]*[eE][-+]?[0-9]+",
+        r"|[-+]?(?:[0-9][0-9_]*\.[0-9_]*|\.[0-9_]+)(?:[eE][-+][0-9]+)?",
         r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)",
         r"|~|null|Null|NULL|",
         r"|[0-9]{4}-[0-9]{2}-[0-9]{2}",
@@ -220,4 +229,9 @@ static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
         r")\z",
     ))
     .expect("YAML 1.1 implicit-type regex is valid")
+});
+
+static YAML_1_2_INT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\A(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)\z")
+        .expect("YAML 1.2 core-schema int regex is valid")
 });
