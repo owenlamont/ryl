@@ -22,9 +22,9 @@ Pre-commit via the `owenlamont/ryl-pre-commit` hook (`ryl` for YAML files,
 ## Critical: ryl has no default-on rules
 
 ryl never enables a rule unless a configuration or `--enable` turns it on. When it has a
-file to lint but no config and no `--enable` (or a config that enables zero rules) it
-exits `2`, not `0` (an empty or fully-ignored input set still exits `0`). This is
-stricter than yamllint. Always give it a config or `--enable` first:
+file to lint and neither `--enable` nor a config that enables a rule, it exits `2`, not
+`0` (an empty or fully-ignored input set still exits `0`). This is stricter than
+yamllint. Always give it a config or `--enable` first:
 
 ```bash
 ryl check -d 'extends: default' .          # quick: yamllint's standard rule set
@@ -58,8 +58,8 @@ Exit codes from a plain lint run (`--fix`/`--diff` differ, see below):
 
 - `0`: no errors (warning-level findings still exit `0` unless `--strict`).
 - `1`: error-level findings, invalid YAML, or an unreadable path.
-- `2`: usage error (no inputs, bad flags), no config / no rules enabled, or `--strict`
-  with only warnings.
+- `2`: usage error (no inputs, bad flags), no rules enabled by config or `--enable`, or
+  `--strict` with only warnings.
 
 Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only errors.
 

@@ -72,8 +72,8 @@ cases exit `2` rather than silently linting nothing:
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, or pass a
   YAML config with `extends: default` for yamllint's standard rule set.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[rules]`/`[tool.ryl]`, or one disabling everything). Enable at least one rule, or
-  use `extends: default`.
+  `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  least one rule, or use `extends: default`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
 is found and silently accepts a rule-less config. Give ryl a config containing
