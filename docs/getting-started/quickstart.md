@@ -21,7 +21,7 @@ ryl check .
 ```
 
 ryl does not enable any rules by default, so these commands report `no
-configuration found` (exit `2`) until a configuration enables at least one rule.
+configuration found` (exit `2`) until a configuration or `--enable` turns on a rule.
 To lint with yamllint's standard rule set straight away, pass it inline:
 
 ```bash
@@ -134,7 +134,7 @@ governing its subtree. A yamllint-style YAML config instead keeps yamllint
 semantics, where `extends:` merges in a preset or another file. When no
 project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
-nothing exits `2` rather than silently linting nothing.
+nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
 configuration is flat &mdash; copy the preset you want from
@@ -211,7 +211,7 @@ sources in order and stopping at the first hit. `-d`/`-c` and
 `YAMLLINT_CONFIG_FILE` pin a single config for the whole run; otherwise project
 discovery runs per file, so a monorepo can hold many `.ryl.toml` files, each
 governing its own subtree. The winning config must enable at least one rule, or
-ryl exits `2`:
+`--enable` must name one, or ryl exits `2`:
 
 ```mermaid
 flowchart TD
@@ -228,8 +228,10 @@ flowchart TD
     E -->|"missing or unset"| G{"user-global config?"}
     G -->|"ryl TOML"| UseRyl["config-dir/ryl/.ryl.toml &gt; ryl.toml"] --> Done
     G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config"] --> Done
-    G -->|none| Err2["error: no configuration found (exit 2)"]
-    Done --> R{"any rule enabled?"}
+    G -->|none| N{"--enable?"}
+    N -->|yes| UseEmpty["empty config"] --> Done
+    N -->|no| Err2["error: no configuration found (exit 2)"]
+    Done --> R{"any rule enabled,<br/>after --enable?"}
     R -->|yes| OK([lint])
     R -->|no| Err3["error: no rules enabled (exit 2)"]
     classDef default stroke-width:3px;
