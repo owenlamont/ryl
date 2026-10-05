@@ -318,6 +318,35 @@ fn canonical_keeps_overflowing_integers_as_distinct_keys() {
 }
 
 #[test]
+fn canonical_keeps_a_wide_plain_integer_apart_from_its_quoted_digits() {
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "9223372036854775808: a\n'9223372036854775808': b\n",
+    );
+    assert_eq!(code, 0, "a wide integer is not its quoted digits: {output}");
+
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "9223372036854775808: a\n9223372036854775808: b\n!!str 9223372036854775809: c\n'9223372036854775809': d\n",
+    );
+    assert_eq!(code, 1, "repeated wide integer and !!str collide: {output}");
+    assert!(
+        output.contains("duplication of key \"9223372036854775808\" in mapping")
+            && output.contains("duplication of key \"9223372036854775809\" in mapping"),
+        "expected both duplicates: {output}"
+    );
+}
+
+#[test]
+fn canonical_reads_a_sign_after_a_radix_prefix_as_text() {
+    let (code, output) = run_toml(
+        "check-canonical = true\n",
+        "0x-1: a\n-1: b\n0o+7: c\n7: d\n",
+    );
+    assert_eq!(code, 0, "0x-1 and 0o+7 are strings, not integers: {output}");
+}
+
+#[test]
 fn canonical_treats_a_default_core_tag_as_untagged() {
     let (code, output) = run_toml(
         "check-canonical = true\n",
