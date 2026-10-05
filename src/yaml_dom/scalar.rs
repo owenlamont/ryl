@@ -6,6 +6,7 @@
 use std::borrow::Cow;
 
 use granit_parser::{ScalarStyle, Tag};
+use num_bigint::BigInt;
 use ordered_float::OrderedFloat;
 
 use super::core_schema_suffix;
@@ -131,6 +132,14 @@ fn core_schema_int_digits(v: &str) -> Option<(&str, u32)> {
     };
     (!unsigned.is_empty() && unsigned.chars().all(|c| c.is_digit(radix)))
         .then_some((digits, radix))
+}
+
+/// The decimal spelling of a core-schema integer of any width, without a `+` or
+/// leading zeros, so differently written integers past `i64` compare equal.
+#[must_use]
+pub(crate) fn canonical_core_schema_int(v: &str) -> Option<String> {
+    let (digits, radix) = core_schema_int_digits(v)?;
+    BigInt::parse_bytes(digits.as_bytes(), radix).map(|value| value.to_string())
 }
 
 /// A YAML 1.2 core-schema integer, honouring `0x`/`0o` radix prefixes and a leading

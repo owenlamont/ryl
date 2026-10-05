@@ -77,6 +77,9 @@ jobs:
           set -euo pipefail
           # Run the suite once; every report below is derived from this single run's
           # cached profile data via `cargo llvm-cov report` (no re-execution).
+          # A cache restored for an older Cargo.lock still holds this crate's
+          # instrumented binaries, which the report would otherwise count.
+          cargo llvm-cov clean --workspace
           cargo llvm-cov nextest --no-report
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
           echo '```text' >> coverage.md

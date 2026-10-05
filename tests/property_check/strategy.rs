@@ -183,9 +183,12 @@ fn arb_key() -> impl Strategy<Value = String> {
         Just("0xB".to_string()),
         Just("11".to_string()),
         Just("~".to_string()),
-        // Integers past `i64` (plain and quoted) and a sign after a radix prefix.
+        // Integers past `i64` (plain, quoted, signed, zero-padded, every radix) and a
+        // sign after a radix prefix.
         Just("9223372036854775808".to_string()),
         Just("'9223372036854775808'".to_string()),
+        Just("+09223372036854775808".to_string()),
+        Just("-9223372036854775809".to_string()),
         Just("0x8000000000000000".to_string()),
         Just("0o1000000000000000000000".to_string()),
         Just("0x-1".to_string()),

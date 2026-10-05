@@ -294,26 +294,20 @@ fn canonical_treats_an_empty_plain_key_as_null() {
 }
 
 #[test]
-fn canonical_keeps_overflowing_integers_as_distinct_keys() {
-    // Integers beyond i64 keep their exact text instead of collapsing to f64, so
-    // two distinct large integers are not a duplicate (no false positive); the
-    // same integer written two ways is a safe miss, not a false hit.
-    let (distinct, out1) = run_toml(
+fn canonical_compares_wide_integers_by_value() {
+    let (code, output) = run_toml(
         "check-canonical = true\n",
-        "9223372036854775808: a\n9223372036854775809: b\n",
+        "9223372036854775808: a\n0x8000000000000000: b\n9223372036854775809: c\n",
+    );
+    assert_eq!(code, 1, "expected a wide-integer duplicate: {output}");
+    assert!(
+        output.contains("duplication of key \"0x8000000000000000\" in mapping"),
+        "a hex spelling should equal its decimal value: {output}"
     );
     assert_eq!(
-        distinct, 0,
-        "distinct large integers must not collide: {out1}"
-    );
-
-    let (signed, out2) = run_toml(
-        "check-canonical = true\n",
-        "+9223372036854775808: a\n9223372036854775808: b\n",
-    );
-    assert_eq!(
-        signed, 0,
-        "differently signed spellings stay distinct: {out2}"
+        output.matches("duplication of key").count(),
+        1,
+        "distinct wide values must not collide: {output}"
     );
 }
 
