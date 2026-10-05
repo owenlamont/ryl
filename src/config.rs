@@ -1912,12 +1912,11 @@ fn find_project_config_core(
                 if !envx.path_exists(&candidate) {
                     continue;
                 }
-                if name == "pyproject.toml" {
-                    let loaded =
-                        load_config_from_path_core(envx, &candidate, &dir, true)?;
-                    if loaded.is_none() {
-                        continue;
-                    }
+                if name == "pyproject.toml"
+                    && load_config_from_path_core(envx, &candidate, &dir, true)?
+                        .is_none()
+                {
+                    continue;
                 }
                 let notices = find_first_yaml_candidate(envx, start, home_abs.as_ref())
                     .map(|yaml_path| {

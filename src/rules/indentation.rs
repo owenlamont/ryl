@@ -482,33 +482,39 @@ impl Analyzer<'_> {
         } else if next.line == prev_line {
             next_column
         } else if next.is(&[Kind::BlockSequenceStart, Kind::BlockEntry]) {
-            let flush = next_column == key.indent;
-            match self.indent_sequences {
-                IndentSequencesSetting::False => key.indent,
-                IndentSequencesSetting::True if self.spaces.is_none() && flush => -1,
-                IndentSequencesSetting::True => {
-                    self.detect_indent(key.indent, next_column)
-                }
-                setting => {
-                    if setting == IndentSequencesSetting::Consistent {
-                        self.indent_sequences = if flush {
-                            IndentSequencesSetting::False
-                        } else {
-                            IndentSequencesSetting::True
-                        };
-                    }
-                    if flush {
-                        key.indent
-                    } else {
-                        self.detect_indent(key.indent, next_column)
-                    }
-                }
-            }
+            self.sequence_value_indent(key.indent, next_column)
         } else {
             self.detect_indent(key.indent, next_column)
         };
         self.stack.push(Parent::new(ParentKind::Value, indent));
         Ok(())
+    }
+
+    fn sequence_value_indent(
+        &mut self,
+        key_indent: isize,
+        next_column: isize,
+    ) -> isize {
+        let flush = next_column == key_indent;
+        match self.indent_sequences {
+            IndentSequencesSetting::False => key_indent,
+            IndentSequencesSetting::True if self.spaces.is_none() && flush => -1,
+            IndentSequencesSetting::True => self.detect_indent(key_indent, next_column),
+            setting => {
+                if setting == IndentSequencesSetting::Consistent {
+                    self.indent_sequences = if flush {
+                        IndentSequencesSetting::False
+                    } else {
+                        IndentSequencesSetting::True
+                    };
+                }
+                if flush {
+                    key_indent
+                } else {
+                    self.detect_indent(key_indent, next_column)
+                }
+            }
+        }
     }
 
     fn unwind(
