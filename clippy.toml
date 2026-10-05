@@ -5,3 +5,4 @@
 # build graph is on syn 3.x. Whitelisting only these two keeps multiple_crate_versions
 # active for every other dependency.
 allowed-duplicate-crates = ["bitflags", "syn"]
+excessive-nesting-threshold = 5
