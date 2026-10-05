@@ -211,7 +211,8 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 `check` is the recommended form; bare is deprecated and warns on stderr. Inputs are files,
 directories, or `-` for stdin. Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage
 error). ryl never enables a rule that wasn't explicitly turned on (by config or
-`--enable`), so a run with no config, or one enabling nothing, exits `2`.
+`--enable`), so without `--enable` a run with no config, or one enabling nothing, exits
+`2`.
 
 Each surface — inputs and `--fix`/`--diff`, config discovery, output formats, the
 language server — is documented in the matching dev skill above; user docs are in

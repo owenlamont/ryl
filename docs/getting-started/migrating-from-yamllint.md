@@ -143,8 +143,8 @@ TOML for `-c`, project discovery, and the user-global config (but not
 in two ways: yamllint folds `YAMLLINT_CONFIG_FILE` into the user-global slot (the
 env var *replaces* it, and a missing target falls through to `extends: default`),
 whereas ryl keeps the env var and the user-global config as distinct fall-through
-tiers; and ryl requires the resolved config to enable at least one rule or it
-exits `2` (yamllint instead lints with its `default` preset when nothing is found,
+tiers; and ryl requires the resolved config (or `--enable`) to enable at least
+one rule or it exits `2` (yamllint instead lints with its `default` preset when nothing is found,
 and silently accepts a rule-less config).
 
 See the [configuration precedence
@@ -161,10 +161,11 @@ it **avoids redundant output**. The complete list:
 
 ### No implicit default configuration
 
-ryl never enables a rule unless a configuration explicitly turns it on. yamllint,
-run with no configuration, lints with its `default` preset; ryl instead exits `2`
-with `no configuration found`. It also exits `2` (`no rules enabled`) when a
-resolved config turns every rule off, where yamllint would silently lint nothing.
+ryl never enables a rule unless a configuration or `--enable` explicitly turns it
+on. yamllint, run with no configuration, lints with its `default` preset; ryl
+instead exits `2` with `no configuration found`. It also exits `2` (`no rules
+enabled`) when a resolved config turns every rule off, where yamllint would
+silently lint nothing. Neither exit fires when `--enable` names the rules.
 
 **Why ryl differs:** linting with rules the user never asked for &mdash; or
 silently doing nothing &mdash; is surprising. ryl makes the rule set explicit and

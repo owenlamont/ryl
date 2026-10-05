@@ -164,7 +164,7 @@ ryl check .
 ```
 
 ryl does not enable any rules by default, so these commands report `no
-configuration found` (exit `2`) until a configuration enables at least one rule.
+configuration found` (exit `2`) until a configuration or `--enable` turns on a rule.
 To lint with yamllint's standard rule set straight away, pass it inline:
 
 ```bash
@@ -215,8 +215,8 @@ cases exit `2` rather than silently linting nothing:
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, or pass a
   YAML config with `extends: default` for yamllint's standard rule set.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[rules]`/`[tool.ryl]`, or one disabling everything). Enable at least one rule, or
-  use `extends: default`.
+  `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  least one rule, or use `extends: default`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
 is found and silently accepts a rule-less config. Give ryl a config containing
@@ -277,7 +277,7 @@ governing its subtree. A yamllint-style YAML config instead keeps yamllint
 semantics, where `extends:` merges in a preset or another file. When no
 project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
-nothing exits `2` rather than silently linting nothing.
+nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
 configuration is flat &mdash; copy the preset you want from
@@ -354,7 +354,7 @@ sources in order and stopping at the first hit. `-d`/`-c` and
 `YAMLLINT_CONFIG_FILE` pin a single config for the whole run; otherwise project
 discovery runs per file, so a monorepo can hold many `.ryl.toml` files, each
 governing its own subtree. The winning config must enable at least one rule, or
-ryl exits `2`:
+`--enable` must name one, or ryl exits `2`:
 
 ```mermaid
 flowchart TD
@@ -371,8 +371,10 @@ flowchart TD
     E -->|"missing or unset"| G{"user-global config?"}
     G -->|"ryl TOML"| UseRyl["config-dir/ryl/.ryl.toml &gt; ryl.toml"] --> Done
     G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config"] --> Done
-    G -->|none| Err2["error: no configuration found (exit 2)"]
-    Done --> R{"any rule enabled?"}
+    G -->|none| N{"--enable?"}
+    N -->|yes| UseEmpty["empty config"] --> Done
+    N -->|no| Err2["error: no configuration found (exit 2)"]
+    Done --> R{"any rule enabled,<br/>after --enable?"}
     R -->|yes| OK([lint])
     R -->|no| Err3["error: no rules enabled (exit 2)"]
     classDef default stroke-width:3px;
@@ -409,7 +411,8 @@ If a repo has an `AGENTS.md` (or `CLAUDE.md`), a one-line nudge helps agents rea
 ryl and avoid its main gotcha:
 
 > Lint YAML with `ryl check`. It has no default-on rules, so make sure a config (`ryl.toml`
-> or a yamllint-style `.yamllint`) enables rules first, or it exits `2`.
+> or a yamllint-style `.yamllint`) enables rules first, or pass `--enable <RULES>`;
+> otherwise it exits `2`.
 
 ## Feeding the docs to an LLM
 
@@ -575,8 +578,8 @@ TOML for `-c`, project discovery, and the user-global config (but not
 in two ways: yamllint folds `YAMLLINT_CONFIG_FILE` into the user-global slot (the
 env var *replaces* it, and a missing target falls through to `extends: default`),
 whereas ryl keeps the env var and the user-global config as distinct fall-through
-tiers; and ryl requires the resolved config to enable at least one rule or it
-exits `2` (yamllint instead lints with its `default` preset when nothing is found,
+tiers; and ryl requires the resolved config (or `--enable`) to enable at least
+one rule or it exits `2` (yamllint instead lints with its `default` preset when nothing is found,
 and silently accepts a rule-less config).
 
 See the [configuration precedence
@@ -593,10 +596,11 @@ it **avoids redundant output**. The complete list:
 
 ### No implicit default configuration
 
-ryl never enables a rule unless a configuration explicitly turns it on. yamllint,
-run with no configuration, lints with its `default` preset; ryl instead exits `2`
-with `no configuration found`. It also exits `2` (`no rules enabled`) when a
-resolved config turns every rule off, where yamllint would silently lint nothing.
+ryl never enables a rule unless a configuration or `--enable` explicitly turns it
+on. yamllint, run with no configuration, lints with its `default` preset; ryl
+instead exits `2` with `no configuration found`. It also exits `2` (`no rules
+enabled`) when a resolved config turns every rule off, where yamllint would
+silently lint nothing. Neither exit fires when `--enable` names the rules.
 
 **Why ryl differs:** linting with rules the user never asked for &mdash; or
 silently doing nothing &mdash; is surprising. ryl makes the rule set explicit and
@@ -1367,7 +1371,8 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 ## yamllint compatibility
 
 For drop-in compatibility with projects migrating from yamllint, the
-`# yamllint …` spelling is accepted as an alias everywhere `# ryl …` is:
+`# yamllint …` spelling is accepted as an alias for every directive form, though
+only as a whole comment (see above):
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons
@@ -1922,7 +1927,7 @@ There are exactly two ways the two tools can disagree:
 - **A loop.** Only a rule with a safe fix can take part, because a loop needs both tools
   to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `document-start`, `document-end`, `empty-lines`,
-  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
+  `key-ordering`, `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
   `truthy` (case only: `True` to `true`). If one
   of these is set to enforce the opposite of what your formatter emits, they fight.
 - **A standing complaint.** A rule with no fix (for example `indentation`, `line-length`,

@@ -24,9 +24,10 @@ Full documentation lives at <https://ryl-docs.pages.dev/>.
 
 ## Quick start
 
-ryl enables no rules by default, so it needs a configuration that turns rules on.
-`-d 'extends: default'` opts into yamllint's standard rule set for a one-off run;
-for a project, drop a `.ryl.toml` at the root (see
+ryl enables no rules by default, so it needs a configuration or `--enable` that
+turns rules on. `-d 'extends: default'` opts into yamllint's standard rule set for
+a one-off run, and `--enable <RULES>` runs just the named rules; for a project,
+drop a `.ryl.toml` at the root (see
 [Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
 
 `ryl check` is the lint subcommand (a `ryl format` formatter is coming) and the
@@ -67,10 +68,10 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.
 - Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `document-end`, `document-start`,
-  `empty-lines`, `new-line-at-end-of-file`, `new-lines`, `quoted-strings`,
-  `trailing-spaces`, and `truthy` (case only, e.g. `True` to `true`). The
-  set of rules that may apply fixes is configurable via the TOML `[fix]`
-  table.
+  `empty-lines`, `key-ordering`, `new-line-at-end-of-file`, `new-lines`,
+  `quoted-strings`, `trailing-spaces`, and `truthy` (case only, e.g. `True`
+  to `true`). The set of rules that may apply fixes is configurable via the
+  TOML `[fix]` table.
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file

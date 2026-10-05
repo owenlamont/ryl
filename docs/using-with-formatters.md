@@ -27,7 +27,7 @@ There are exactly two ways the two tools can disagree:
 - **A loop.** Only a rule with a safe fix can take part, because a loop needs both tools
   to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `commas`,
   `comments`, `comments-indentation`, `document-start`, `document-end`, `empty-lines`,
-  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
+  `key-ordering`, `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
   `truthy` (case only: `True` to `true`). If one
   of these is set to enforce the opposite of what your formatter emits, they fight.
 - **A standing complaint.** A rule with no fix (for example `indentation`, `line-length`,

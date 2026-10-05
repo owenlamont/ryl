@@ -95,7 +95,8 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 ## yamllint compatibility
 
 For drop-in compatibility with projects migrating from yamllint, the
-`# yamllint …` spelling is accepted as an alias everywhere `# ryl …` is:
+`# yamllint …` spelling is accepted as an alias for every directive form, though
+only as a whole comment (see above):
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons
