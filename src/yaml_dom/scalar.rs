@@ -4,9 +4,9 @@
 // YAML 1.1 booleans and ryl targets YAML 1.2.
 
 use std::borrow::Cow;
-use std::fmt::Write as _;
 
 use granit_parser::{ScalarStyle, Tag};
+use num_bigint::BigInt;
 use ordered_float::OrderedFloat;
 
 use super::core_schema_suffix;
@@ -138,33 +138,8 @@ fn core_schema_int_digits(v: &str) -> Option<(&str, u32)> {
 /// leading zeros, so differently written integers past `i64` compare equal.
 #[must_use]
 pub(crate) fn canonical_core_schema_int(v: &str) -> Option<String> {
-    const LIMB: u64 = 1_000_000_000;
     let (digits, radix) = core_schema_int_digits(v)?;
-    let sign = if digits.starts_with('-') { "-" } else { "" };
-    if radix == 10 {
-        let magnitude = digits
-            .trim_start_matches(['+', '-'])
-            .trim_start_matches('0');
-        return Some(format!("{sign}{magnitude}"));
-    }
-    let mut limbs: Vec<u64> = vec![0];
-    // The sign is the only non-digit `core_schema_int_digits` lets through.
-    for digit in digits.chars().filter_map(|c| c.to_digit(radix)) {
-        let mut carry = u64::from(digit);
-        for limb in &mut limbs {
-            let shifted = *limb * u64::from(radix) + carry;
-            *limb = shifted % LIMB;
-            carry = shifted / LIMB;
-        }
-        if carry > 0 {
-            limbs.push(carry);
-        }
-    }
-    let mut decimal = format!("{sign}{}", limbs.pop().unwrap_or_default());
-    for limb in limbs.iter().rev() {
-        write!(decimal, "{limb:09}").expect("writing to a String is infallible");
-    }
-    Some(decimal)
+    BigInt::parse_bytes(digits.as_bytes(), radix).map(|value| value.to_string())
 }
 
 /// A YAML 1.2 core-schema integer, honouring `0x`/`0o` radix prefixes and a leading
