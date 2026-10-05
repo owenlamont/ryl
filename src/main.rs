@@ -29,7 +29,8 @@ use ryl::config_schema::{
 };
 use ryl::decoder;
 use ryl::fix::{
-    DiffStats, apply_safe_fixes_to_files, diff_outcome, diff_safe_fixes_for_files,
+    DiffStats, SAFE_FIX_RULE_IDS, apply_safe_fixes_to_files, diff_outcome,
+    diff_safe_fixes_for_files,
 };
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
@@ -1177,23 +1178,35 @@ fn lint_and_exit(
 ) -> Result<ExitCode, String> {
     let mut sinks = open_targets(targets)?;
 
-    let initial_problem_count = if args.lint.fix.fix {
-        apply_fixes_reporting_skips(files, args.lint.compatibility.no_warnings)?
+    let no_warnings = args.lint.compatibility.no_warnings;
+    let before_fix = if args.lint.fix.fix {
+        Some(apply_fixes_reporting_skips(files, no_warnings)?)
     } else {
-        0
+        None
     };
 
     let results = lint_files(files);
-    let (summary, records) =
-        collect_records(files, results, args.lint.compatibility.no_warnings);
+    let fixed = before_fix.map(|before| {
+        let after = safe_fix_rule_counts(&results, no_warnings);
+        before
+            .iter()
+            .zip(&after)
+            .flat_map(|(before, after)| before.iter().zip(after))
+            .map(|(before, after)| before.saturating_sub(*after))
+            .sum::<usize>()
+    });
+    let (summary, records) = collect_records(files, results, no_warnings);
     write_targets(targets, &mut sinks, &records)?;
 
-    if args.lint.fix.fix && initial_problem_count > 0 {
+    if let Some(fixed) = fixed
+        && let found = fixed + summary.problem_count
+        && found > 0
+    {
         eprintln!(
             "Found {} {} ({} fixed, {} remaining).",
-            initial_problem_count,
-            pluralize("problem", initial_problem_count),
-            initial_problem_count.saturating_sub(summary.problem_count),
+            found,
+            pluralize("problem", found),
+            fixed,
             summary.problem_count
         );
     }
@@ -1202,7 +1215,7 @@ fn lint_and_exit(
 }
 
 /// Apply safe fixes in place and report any files skipped (they do not parse), returning the
-/// pre-fix problem count for the summary.
+/// pre-fix [`safe_fix_rule_counts`] for the summary.
 ///
 /// # Errors
 ///
@@ -1210,14 +1223,13 @@ fn lint_and_exit(
 fn apply_fixes_reporting_skips(
     files: &[LintFile],
     no_warnings: bool,
-) -> Result<usize, String> {
-    let initial_problem_count =
-        count_reported_problems(&lint_files(files), no_warnings);
+) -> Result<Vec<SafeFixRuleCounts>, String> {
+    let before = safe_fix_rule_counts(&lint_files(files), no_warnings);
     let fix_stats = apply_safe_fixes_to_files(files)?;
     for (path, problem) in &fix_stats.skipped {
         eprint_skip_notice(path, problem, "--fix");
     }
-    Ok(initial_problem_count)
+    Ok(before)
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -1559,20 +1571,30 @@ struct LintSummary {
     problem_count: usize,
 }
 
-fn count_reported_problems(
+type SafeFixRuleCounts = [usize; SAFE_FIX_RULE_IDS.len()];
+
+/// Each file's reported problems per safe-fix rule, so a fix that adds another rule's problem
+/// cannot cancel one it cleared.
+fn safe_fix_rule_counts(
     results: &[(usize, Result<Vec<LintProblem>, String>)],
     no_warnings: bool,
-) -> usize {
+) -> Vec<SafeFixRuleCounts> {
     results
         .iter()
-        .map(|(_, outcome)| match outcome {
-            Err(_) => 1,
-            Ok(diagnostics) => diagnostics
-                .iter()
-                .filter(|problem| !(no_warnings && problem.level == Severity::Warning))
-                .count(),
+        .map(|(_, outcome)| {
+            let mut counts = [0; SAFE_FIX_RULE_IDS.len()];
+            for problem in outcome.iter().flatten() {
+                if !(no_warnings && problem.level == Severity::Warning)
+                    && let Some(idx) = SAFE_FIX_RULE_IDS
+                        .iter()
+                        .position(|id| problem.rule == Some(*id))
+                {
+                    counts[idx] += 1;
+                }
+            }
+            counts
         })
-        .sum()
+        .collect()
 }
 
 fn pluralize(singular: &str, count: usize) -> &str {

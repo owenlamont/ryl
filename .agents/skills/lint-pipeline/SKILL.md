@@ -96,11 +96,13 @@ reports it in `FixOutcome::skipped`; the CLI prints a `<path>:L:C skipped by --f
 <error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
 pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES` = 100,
 ruff's `MAX_ITERATIONS`): one `--fix` reaches the fixed point, and the "N fixed, M
-remaining" summary and `--diff` see only the final text. If a pass past the cap would
-still change the text, `apply_safe_fixes_capped` writes ruff's "Failed to converge"
-error (a ryl bug report request naming the rules still changing) to stderr from the loop
-itself, so the CLI and LSP both get it; `--no-warnings` does not suppress it, the text
-as of the cap is kept, and the exit code is unaffected. After convergence,
+remaining" summary and `--diff` see only the final text. N sums each file's drop per
+safe-fix rule and "Found" is N + M, as in ruff, so a problem a fix introduces raises it
+above the pre-fix count. If a pass past the cap would still change the text,
+`apply_safe_fixes_capped` writes ruff's "Failed to converge" error (a ryl bug report
+request naming the rules still changing) to stderr from the loop itself, so the CLI and
+LSP both get it; `--no-warnings` does not suppress it, the text as of the cap is kept,
+and the exit code is unaffected. After convergence,
 `key_ordering::unfixed` names each mapping its fix declined; `FixOutcome::skipped` and
 `DiffOutcome::skipped` carry those as `rule: Some("key-ordering")` problems, which the
 CLI prints as `<path>:L:C key-ordering not fixed: <reason>` (Markdown regions mapped to

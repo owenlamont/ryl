@@ -1140,11 +1140,34 @@ fn fix_leaves_file_unchanged_when_min_spacing_exceeds_max() {
     )
     .unwrap();
 
-    let (code, _, stderr) = run(ryl(dir.path()).arg("--fix").arg(&file));
+    let (code, _, stderr) = run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
     assert_eq!(code, 1, "braces diagnostics should remain: {stderr}");
     assert!(
         stderr.contains("Found 2 problems (0 fixed, 2 remaining)."),
         "expected no fixes in summary: {stderr}"
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: {x: 1}\n");
+}
+
+#[test]
+fn fix_summary_counts_fixes_that_introduce_another_rules_problem() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "a: {x: 1}\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[rules.braces]\nmin-spaces-inside = 1\nmax-spaces-inside = 1\n[rules.line-length]\nmax = 10\n",
+    )
+    .unwrap();
+
+    let (code, _, stderr) = run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
+    assert_eq!(
+        code, 1,
+        "the new line-length problem should remain: {stderr}"
+    );
+    assert!(
+        stderr.contains("Found 3 problems (2 fixed, 1 remaining)."),
+        "expected both braces fixes counted: {stderr}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "a: { x: 1 }\n");
 }
