@@ -393,3 +393,27 @@ fn user_global_toml_under_the_migrate_root_is_planned_once() {
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(stdout.matches("ryl.toml -> ").count(), 1, "{stdout}");
 }
+
+#[test]
+fn user_global_toml_reached_by_relative_root_keeps_original_backup() {
+    let (td, _, xdg) = user_global(LEGACY);
+    let user_dir = xdg.join("ryl");
+    let (code, _, stderr) = run(ryl(&td.path().join("home"))
+        .env("XDG_CONFIG_HOME", &xdg)
+        .current_dir(&user_dir)
+        .args([
+            "--migrate-configs",
+            "--migrate-root",
+            ".",
+            "--migrate-user-config",
+            "--migrate-write",
+            "--migrate-rename-old",
+            ".bak",
+        ]));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(user_dir.join("ryl.toml.bak")).unwrap(),
+        LEGACY,
+        "the backup holds the original, not an already-migrated copy"
+    );
+}

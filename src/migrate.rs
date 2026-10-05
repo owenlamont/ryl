@@ -169,13 +169,21 @@ pub fn apply_migration_entries(
             && entry.is_rewrite()
         {
             let backup = rename_destination(&entry.source, suffix);
-            fs::copy(&entry.source, &backup).map_err(|err| {
-                format!(
-                    "failed to back up {} to {}: {err}",
-                    entry.source.display(),
-                    backup.display()
-                )
-            })?;
+            fs::read(&entry.source)
+                .and_then(|original| {
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&backup)
+                        .and_then(|mut file| file.write_all(&original))
+                })
+                .map_err(|err| {
+                    format!(
+                        "failed to back up {} to {}: {err}",
+                        entry.source.display(),
+                        backup.display()
+                    )
+                })?;
         }
         // `create_new` atomically refuses (without following a symlink) to overwrite an
         // existing target, so a target appearing between planning and writing can never be
@@ -419,7 +427,11 @@ fn build_toml_rewrites(root: &Path, plan: &mut MigrationPlan) {
 /// layout of every other tool's settings. A file that fails to load is skipped with a
 /// warning, so a stray fixture cannot block the rest of the migration.
 fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
-    if plan.entries.iter().any(|entry| entry.source == path) {
+    if plan
+        .entries
+        .iter()
+        .any(|entry| same_file::is_same_file(&entry.source, &path).unwrap_or(false))
+    {
         return;
     }
     let pyproject = path
