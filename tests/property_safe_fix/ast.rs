@@ -107,7 +107,7 @@ impl Scalar {
         matches!(self, Self::SingleQuoted(_) | Self::DoubleQuoted(_))
     }
 
-    fn render(&self, buffer: &mut String) {
+    pub fn render(&self, buffer: &mut String) {
         match self {
             Self::Plain(text) => buffer.push_str(text),
             Self::SingleQuoted(text) => {

@@ -33,7 +33,7 @@ const TRUTHY_TITLE_CASE: &str = "  quoted-strings: enable
     check-keys: false
 ";
 
-const QUOTED_STRINGS_VARIANTS: &[(&str, &str)] = &[
+pub const QUOTED_STRINGS_VARIANTS: &[(&str, &str)] = &[
     ("yamllint-default", "  quoted-strings: enable\n"),
     (
         "best-practice",
