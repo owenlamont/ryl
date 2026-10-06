@@ -147,7 +147,7 @@ fn breaks(
                 && !left.is_whitespace()
                 && !right.is_whitespace()
                 && scalar.contains(&before)
-                && after < scalar.end
+                && scalar.contains(&after)
         })
         .map(|(column, window)| (window[1].0, column + 1))
         .collect();

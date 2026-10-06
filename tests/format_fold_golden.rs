@@ -22,7 +22,7 @@ fn fold(input: &str, width: u16, indent: u8) -> String {
     format_str(input, &cfg, Path::new("golden.yaml"), &others)
 }
 
-const CASES: [(&str, &str, u16, u8, &str); 30] = [
+const CASES: [(&str, &str, u16, u8, &str); 34] = [
     ("P1", "key: aaa bbb ccc\n", 12, 2, "key: aaa bbb\n  ccc\n"),
     ("P2", "key: aaa  bbb\n", 8, 2, "key: aaa  bbb\n"),
     ("P4p", "key: aaa --- bbb\n", 9, 2, "key: aaa\n  --- bbb\n"),
@@ -54,9 +54,18 @@ const CASES: [(&str, &str, u16, u8, &str); 30] = [
     ("P10", "k: [aaa bbb, ccc]\n", 7, 2, "k: [aaa bbb, ccc]\n"),
     ("P11", "aaa bbb: c\n", 3, 2, "aaa bbb: c\n"),
     ("P11b", "k: {aaa bbb: c}\n", 7, 2, "k: {aaa bbb: c}\n"),
+    (
+        "flow-value",
+        "k: {x: aaa bbb}\n",
+        10,
+        2,
+        "k: {x: aaa bbb}\n",
+    ),
     ("P12", "aaa bbb\n", 3, 2, "aaa\n  bbb\n"),
     ("P12b", "aaa --- bbb\n", 3, 2, "aaa\n  ---\n  bbb\n"),
     ("P12c", "aaa ... bbb\n", 3, 2, "aaa\n  ...\n  bbb\n"),
+    ("root-col-0", "aaa\nbbb ---\n", 3, 2, "aaa\nbbb\n  ---\n"),
+    ("root-marker", "--- aaa bbb\n", 7, 2, "--- aaa\n  bbb\n"),
     ("P13", "key: aaa\t bbb\n", 9, 2, "key: aaa\t bbb\n"),
     (
         "P14",
@@ -83,6 +92,13 @@ const CASES: [(&str, &str, u16, u8, &str); 30] = [
     ("P18", "k:\n- aaa bbb\n", 5, 2, "k:\n- aaa\n  bbb\n"),
     ("P18b", "k:\n- aaa bbb\n", 5, 1, "k:\n- aaa\n bbb\n"),
     ("C1", "- key: aaa bbb\n", 10, 2, "- key: aaa\n    bbb\n"),
+    (
+        "dedent",
+        "a:\n  b: x\nc: aaa bbb\n",
+        6,
+        2,
+        "a:\n  b: x\nc: aaa\n  bbb\n",
+    ),
     ("C1-nested", "- - aaa bbb\n", 7, 2, "- - aaa\n    bbb\n"),
     ("C5", "key: aaa bbb\r\n", 8, 2, "key: aaa\r\n  bbb\r\n"),
     ("U1", "key: 世界 世界\n", 7, 2, "key: 世界\n  世界\n"),
@@ -121,5 +137,9 @@ fn a_continuation_may_start_with_any_indicator() {
 #[test]
 fn a_break_must_shorten_the_line_counted_in_chars_not_bytes() {
     let input = format!("{} b\n", "界".repeat(100));
-    assert_eq!(fold(&input, 10, 255), input);
+    assert_eq!(
+        fold(&input, 10, 100),
+        format!("{}\n{}b\n", "界".repeat(100), " ".repeat(100))
+    );
+    assert_eq!(fold(&input, 10, 101), input);
 }
