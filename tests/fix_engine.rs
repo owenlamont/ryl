@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{
-    FixOutcome, apply_safe_fixes, apply_safe_fixes_capped, apply_safe_fixes_in_place,
-    apply_safe_fixes_to_files,
+    FixOutcome, Rewrite, apply_safe_fixes, apply_safe_fixes_capped, rewrite_files,
+    rewrite_in_place,
 };
 use tempfile::tempdir;
 
@@ -22,7 +22,8 @@ fn apply_safe_fixes_in_place_reports_no_change() {
     );
 
     let outcome =
-        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+        rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("fix succeeds");
 
     assert_eq!(outcome, FixOutcome::default());
     assert_eq!(fs::read_to_string(&file).unwrap(), "key: value\n");
@@ -36,7 +37,8 @@ fn apply_safe_fixes_in_place_writes_changes() {
     let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
 
     let outcome =
-        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+        rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("fix succeeds");
 
     assert!(outcome.changed && outcome.skipped.is_empty());
     assert_eq!(
@@ -53,7 +55,8 @@ fn apply_safe_fixes_in_place_skips_and_reports_unparsable_file() {
     let cfg = config("rules:\n  trailing-spaces: enable\n");
 
     let outcome =
-        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+        rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("fix succeeds");
 
     assert!(!outcome.changed, "an unparsable file is not changed");
     assert_eq!(outcome.skipped.len(), 1, "one whole-file parse error");
@@ -121,7 +124,7 @@ fn apply_safe_fixes_in_place_returns_read_error_for_missing_file() {
     let file = dir.path().join("missing.yaml");
     let cfg = config("rules:\n  comments: enable\n");
 
-    let err = apply_safe_fixes_in_place(&file, &cfg, dir.path())
+    let err = rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
         .expect_err("missing file should fail");
 
     assert!(err.contains("failed to read"));
@@ -138,7 +141,7 @@ fn apply_safe_fixes_in_place_returns_write_error_for_read_only_file() {
 
     let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
 
-    let err = apply_safe_fixes_in_place(&file, &cfg, dir.path())
+    let err = rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
         .expect_err("read-only file should fail");
 
     assert!(err.contains("failed to write fixed file"));
@@ -197,7 +200,7 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
         ),
     ];
 
-    let stats = apply_safe_fixes_to_files(&files).expect("fixes succeed");
+    let stats = rewrite_files(&files, Rewrite::Fix).expect("fixes succeed");
 
     assert_eq!(
         fs::read_to_string(&first).unwrap(),

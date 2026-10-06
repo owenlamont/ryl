@@ -92,7 +92,7 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 `--fix` never mutates a file that does not fully parse: `fix::apply_safe_fixes_filtered`
 gates the whole pipeline on `lint::parse_error` (stricter than lint's
 `syntax_diagnostic` — it does *not* tolerate undefined aliases), so *any* granit parse
-error ⇒ the input is returned byte-for-byte unchanged and `apply_safe_fixes_in_place`
+error ⇒ the input is returned byte-for-byte unchanged and `rewrite_in_place`
 reports it in `FixOutcome::skipped`; the CLI prints a `<path>:L:C skipped by --fix:
 <error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
 pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES` = 100,
@@ -120,7 +120,7 @@ context) per changed file to **stdout** and exits `1` iff any file would change,
 mirroring `ruff check --diff`. `conflicts_with` `--fix`, ignores `--format`, supports
 stdin. Diff-only: remaining *unfixable* findings are neither printed nor counted (a file
 tripping only an unfixable rule exits `0`). Reuses the fix pipeline
-(`fix::diff_safe_fixes_for_files` → `fix::diff_outcome`), inheriting the parse-error gate
+(`fix::diff_files` → `fix::diff_outcome`), inheriting the parse-error gate
 and symlink skip (both → a `skipped by --diff` notice, no exit effect).
 
 A non-UTF-8/BOM input is likewise skipped (`fix::non_utf8_diff_skip`; files via

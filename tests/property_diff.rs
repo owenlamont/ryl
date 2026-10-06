@@ -34,7 +34,7 @@ mod wrap;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{SourceKind, YamlLintConfig};
-use ryl::fix::{apply_safe_fixes, diff_outcome, fix_markdown_str};
+use ryl::fix::{Rewrite, apply_safe_fixes, diff_outcome, fix_markdown_str};
 
 use config::{safe_fix_configs, synthetic_base_dir, synthetic_path};
 use strategy::arb_document;
@@ -63,6 +63,7 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Yaml,
+            Rewrite::Fix,
         );
         // A bare `\r` is diffed as line *content* (the `\n`-only renderer), so it
         // round-trips through `git apply`. The one residual case `similar` can't
@@ -108,14 +109,20 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
 fn assert_markdown_preview(input: &str) -> Result<(), TestCaseError> {
     for prepared in safe_fix_configs() {
         let cfg = &prepared.cfg;
-        let fixed =
-            fix_markdown_str(input, synthetic_path(), cfg, synthetic_base_dir());
+        let fixed = fix_markdown_str(
+            input,
+            synthetic_path(),
+            cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix,
+        );
         let outcome = diff_outcome(
             input,
             cfg,
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Markdown,
+            Rewrite::Fix,
         );
         prop_assert_eq!(
             outcome.diff.is_some(),
@@ -147,6 +154,7 @@ fn yaml_produces_a_diff(input: &str) -> bool {
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Yaml,
+            Rewrite::Fix,
         )
         .diff
         .is_some()
@@ -178,7 +186,7 @@ proptest! {
                 &prepared.cfg,
                 synthetic_path(),
                 synthetic_base_dir(),
-                SourceKind::Yaml,
+                SourceKind::Yaml, Rewrite::Fix
             );
             prop_assert!(
                 outcome.diff.is_none(),
@@ -231,6 +239,7 @@ fn unparsable_yaml_is_skipped_not_diffed() {
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Yaml,
+            Rewrite::Fix,
         );
         assert!(
             outcome.diff.is_none(),
@@ -266,6 +275,7 @@ fn crlf_preserving_config_diff_round_trips_via_diffy() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Yaml,
+        Rewrite::Fix,
     );
     let diff = outcome
         .diff
@@ -298,6 +308,7 @@ fn bare_cr_as_content_diff_round_trips_via_diffy() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Yaml,
+        Rewrite::Fix,
     );
     let diff = outcome
         .diff
@@ -326,6 +337,7 @@ fn trailing_bare_cr_change_is_skipped_not_diffed() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Yaml,
+        Rewrite::Fix,
     );
     assert!(
         outcome.diff.is_none() && !outcome.skipped.is_empty(),
@@ -345,6 +357,7 @@ fn known_dirty_markdown_diff_round_trips() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Markdown,
+        Rewrite::Fix,
     );
     assert!(
         outcome.diff.is_some(),
@@ -361,7 +374,14 @@ fn markdown_diff_skips_a_bare_cr_host() {
     let input = "```yaml\ritems: [a ,b]\r```\r";
     let cfg = &safe_fix_configs()[0].cfg;
     assert!(
-        fix_markdown_str(input, synthetic_path(), cfg, synthetic_base_dir()).is_none(),
+        fix_markdown_str(
+            input,
+            synthetic_path(),
+            cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix
+        )
+        .is_none(),
         "a bare-CR markdown host must not be fixed"
     );
     let outcome = diff_outcome(
@@ -370,6 +390,7 @@ fn markdown_diff_skips_a_bare_cr_host() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Markdown,
+        Rewrite::Fix,
     );
     assert!(
         outcome.diff.is_none() && !outcome.skipped.is_empty(),
