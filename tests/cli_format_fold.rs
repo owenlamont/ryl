@@ -78,6 +78,21 @@ fn check_and_diff_explain_folds_and_pass_unfoldable_lines() {
 }
 
 #[test]
+fn a_fold_only_another_pass_makes_necessary_is_still_reported() {
+    let config = "line-length = 16\n[format]\nfold-long-lines = true\n";
+    let (code, _, stderr, _) = ryl_on(
+        Some(config),
+        "---\nkey: aaa bbb #c\n",
+        &["format", "--check"],
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("1:1       error    would reformat  (line-length)"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn disabled_lines_stay_whole_and_nothing_is_duplicated() {
     let input = "---\nj: aaa bbb ccc ddd eee fff\n\
                  n: aaa bbb ccc ddd eee fff  # ryl disable-line rule:line-length\n\
