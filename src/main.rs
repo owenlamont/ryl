@@ -383,6 +383,10 @@ struct FormatArgs {
     /// file would change
     #[arg(long = "diff", default_value_t = false)]
     diff: bool,
+
+    /// Suppress config warnings
+    #[arg(long = "no-warnings", default_value_t = false)]
+    no_warnings: bool,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -1490,6 +1494,13 @@ fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
 fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     let args = LintArgs {
         source: format.source.clone(),
+        lint: LintFlags {
+            compatibility: CompatibilityLintFlags {
+                no_warnings: format.no_warnings,
+                ..CompatibilityLintFlags::default()
+            },
+            ..LintFlags::default()
+        },
         ..LintArgs::default()
     };
     let preview = if format.diff {

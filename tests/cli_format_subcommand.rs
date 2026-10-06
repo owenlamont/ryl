@@ -162,3 +162,16 @@ fn unusable_inputs_are_errors() {
         assert_eq!((code, stdout.as_str()), (2, ""), "{args:?}: {stderr}");
     }
 }
+
+#[test]
+fn no_warnings_silences_config_deprecation_notices() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), "[rules]\n").unwrap();
+    fs::write(dir.path().join("a.yaml"), "a: 1\n").unwrap();
+    for (flag, warns) in [(None, true), (Some("--no-warnings"), false)] {
+        let (code, _, stderr) =
+            run(ryl(dir.path()).arg("format").args(flag).arg(dir.path()));
+        assert_eq!(code, 0, "{flag:?}: {stderr}");
+        assert_eq!(stderr.contains("deprecated"), warns, "{flag:?}: {stderr}");
+    }
+}
