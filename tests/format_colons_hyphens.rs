@@ -58,6 +58,8 @@ fn the_formatter_respaces_every_local_site() {
         ("-   - a\n", "- - a\n"),
         ("- -   n\n", "- - n\n"),
         ("seq:\n  -   a:  1\n  -    b\n", "seq:\n  - a: 1\n  - b\n"),
+        ("-   a: \"x\n      y\"\n", "- a: \"x\n      y\"\n"),
+        ("? a\n:  b: uo11\n    hi5\n", "? a\n: b: uo11\n    hi5\n"),
     ] {
         assert_eq!(format(input), expected, "{input:?}");
         assert_eq!(left_alone(input), [], "{input:?}");
@@ -75,12 +77,16 @@ fn a_compact_collection_continuing_below_is_left_alone_and_reported() {
         ("-   - - a\n    - b\n", hyphens::ID),
         ("-   ? a\n    : b\n", hyphens::ID),
         ("-   a: |2\n      text\n", hyphens::ID),
-        ("-   a: \"x\n      y\"\n", hyphens::ID),
+        ("-   a: |2+\n      ", hyphens::ID),
+        ("-   a: |2+\n      \n", hyphens::ID),
         ("?   k1: 1\n    k2: 2\n", colons::ID),
     ] {
         assert_eq!(format(input), input, "{input:?}");
         assert_eq!(left_alone(input), [(rule, 1, 4)], "{input:?}");
     }
+    // A blank-only body's spaces change meaning under `|2+` if the key moves without it.
+    let explicit = "? k\n:   a: |2+\n     ";
+    assert_eq!(format(explicit), explicit);
     let explicit_value = "? a\n:   - x\n    - y\n";
     assert_eq!(format(explicit_value), explicit_value);
     assert_eq!(left_alone(explicit_value), [(colons::ID, 2, 4)]);
