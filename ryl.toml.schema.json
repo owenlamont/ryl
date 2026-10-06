@@ -123,6 +123,11 @@
           "default": "add",
           "description": "Whether to add a missing `---` document start marker."
         },
+        "fold-long-lines": {
+          "default": false,
+          "description": "Whether to split plain scalar lines longer than `line-length` at single spaces.",
+          "type": "boolean"
+        },
         "line-ending": {
           "$ref": "#/$defs/LineEndingTarget",
           "default": "lf",

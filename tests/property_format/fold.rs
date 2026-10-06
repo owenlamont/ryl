@@ -1,0 +1,251 @@
+//! Documents built to be folded: multi-word plain scalars in every block position (mapping
+//! value, sequence entry, compact `- key:`, nested sequence, root), beside the multi-word
+//! keys, flow collections and explicit keys a fold must leave alone. Words after the first
+//! start with YAML indicators, `---`/`...` or multibyte characters, and are joined by
+//! spaces, double spaces, tabs or no-break spaces.
+//!
+//! Two oracles that need no YAML parser's leniency: `inserted_breaks` proves the output is
+//! the input with lone spaces turned into indented line breaks and no line grown, and
+//! `under_indented_break` proves each inserted continuation is deeper than the block
+//! collection owning its scalar.
+
+use granit_parser::{Scanner, StrInput, TokenType};
+use proptest::prelude::*;
+
+const FIRST_WORDS: [&str; 4] = ["aaa", "b", "世界", "é"];
+
+const WORDS: [&str; 26] = [
+    "aaa",
+    "bbbbbbbbbb",
+    "-",
+    "-x",
+    "?",
+    ":x",
+    "a:b",
+    "&x",
+    "*x",
+    "!x",
+    "[x]",
+    "{x}",
+    "|",
+    ">",
+    "'x'",
+    "\"x\"",
+    "%x",
+    "@x",
+    "`x`",
+    ",x",
+    "---",
+    "...",
+    "é",
+    "世界",
+    "🦀",
+    "x#",
+];
+
+const SEPARATORS: [&str; 8] = [" ", " ", " ", " ", "  ", "\t", " \t", "\u{a0}"];
+
+fn arb_words(words: &'static [&'static str]) -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(&FIRST_WORDS[..]),
+        prop::collection::vec(
+            (
+                prop::sample::select(&SEPARATORS[..]),
+                prop::sample::select(words),
+            ),
+            1..=8,
+        ),
+    )
+        .prop_map(|(first, rest)| {
+            rest.into_iter()
+                .fold(first.to_string(), |text, (gap, word)| {
+                    format!("{text}{gap}{word}")
+                })
+        })
+}
+
+fn arb_value() -> impl Strategy<Value = String> {
+    arb_words(&WORDS)
+}
+
+fn arb_flow_safe() -> impl Strategy<Value = String> {
+    arb_words(&WORDS[..2])
+}
+
+fn arb_comment() -> impl Strategy<Value = String> {
+    prop::option::of("[a-z ]{0,12}").prop_map(|comment| {
+        comment.map_or_else(String::new, |text| format!(" #{text}"))
+    })
+}
+
+fn arb_entry() -> impl Strategy<Value = String> {
+    prop_oneof![
+        4 => (arb_value(), arb_comment()).prop_map(|(value, comment)| format!(": {value}{comment}")),
+        1 => (arb_value(), arb_value(), prop_oneof![Just(2), Just(4)])
+            .prop_map(|(first, next, indent)| {
+                format!(": {first}\n{}{next}", " ".repeat(indent))
+            }),
+        1 => (arb_value(), arb_value()).prop_map(|(a, b)| format!(":\n  nested: {a}\n  other: {b}")),
+        1 => (arb_value(), arb_value()).prop_map(|(a, b)| format!(":\n- {a}\n- inner: {b}")),
+        1 => (arb_flow_safe(), arb_flow_safe())
+            .prop_map(|(a, b)| format!(": [{a}, {b}]")),
+        1 => arb_flow_safe().prop_map(|a| format!(": {{x: {a}}}")),
+    ]
+}
+
+fn arb_mapping() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        (
+            prop_oneof![3 => Just(None), 1 => arb_flow_safe().prop_map(Some)],
+            arb_entry(),
+        ),
+        1..=4,
+    )
+    .prop_map(|entries| {
+        entries
+            .into_iter()
+            .enumerate()
+            .map(|(index, (key, entry))| match key {
+                Some(key) => format!("{key} {index}{entry}\n"),
+                None => format!("k{index}{entry}\n"),
+            })
+            .collect()
+    })
+}
+
+fn arb_sequence() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        prop_oneof![
+            (arb_value(), arb_comment())
+                .prop_map(|(value, comment)| format!("- {value}{comment}\n")),
+            arb_value().prop_map(|value| format!("- key: {value}\n  other: x\n")),
+            arb_value().prop_map(|value| format!("- - {value}\n")),
+            (arb_flow_safe(), arb_value())
+                .prop_map(|(key, value)| format!("- ? {key}\n  : {value}\n")),
+        ],
+        1..=4,
+    )
+    .prop_map(|entries| entries.concat())
+}
+
+fn arb_root() -> impl Strategy<Value = String> {
+    (
+        prop_oneof![Just(""), Just("--- "), Just("%YAML 1.1\n--- ")],
+        arb_value(),
+    )
+        .prop_map(|(prefix, value)| format!("{prefix}{value}\n"))
+}
+
+pub fn arb_fold_document() -> impl Strategy<Value = String> {
+    (
+        prop_oneof![3 => arb_mapping(), 2 => arb_sequence(), 1 => arb_root()],
+        prop_oneof![Just("\n"), Just("\r\n"), Just("\r")],
+    )
+        .prop_map(|(text, newline)| text.replace('\n', newline))
+}
+
+fn line_lengths(text: &str) -> Vec<usize> {
+    text.replace("\r\n", "\n")
+        .split(['\n', '\r'])
+        .map(|line| line.chars().count())
+        .collect()
+}
+
+/// The `(byte offset, indent)` of each continuation line a fold inserted into `output`,
+/// or why `output` is not `input` with lone spaces turned into indented line breaks that
+/// shorten their lines.
+pub fn inserted_breaks(
+    input: &str,
+    output: &str,
+) -> Result<Vec<(usize, usize)>, String> {
+    let lengths = line_lengths(input);
+    let (mut line, mut piece) = (0, 0);
+    let grew = |line: usize, piece: usize| {
+        (piece > lengths[line])
+            .then(|| format!("line {} grew to {piece} chars", line + 1))
+    };
+    let mut out = output.char_indices().peekable();
+    let mut breaks = Vec::new();
+    for (index, ch) in input.char_indices() {
+        let Some(&(offset, got)) = out.peek() else {
+            return Err(format!("output ends before input byte {index}"));
+        };
+        if got == ch {
+            out.next();
+            if !matches!(ch, '\n' | '\r') {
+                piece += 1;
+            } else if !input[index..].starts_with("\r\n") {
+                grew(line, piece).map_or(Ok(()), Err)?;
+                (line, piece) = (line + 1, 0);
+            }
+            continue;
+        }
+        let lone = ch == ' '
+            && input[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|c| !c.is_whitespace())
+            && input[index + 1..]
+                .chars()
+                .next()
+                .is_some_and(|c| !c.is_whitespace());
+        if !lone || !matches!(got, '\n' | '\r') {
+            return Err(format!(
+                "input byte {index} {ch:?} became {got:?} at output byte {offset}"
+            ));
+        }
+        grew(line, piece).map_or(Ok(()), Err)?;
+        while out.next_if(|(_, c)| matches!(c, '\n' | '\r')).is_some() {}
+        piece = 0;
+        while out.next_if(|(_, c)| *c == ' ').is_some() {
+            piece += 1;
+        }
+        breaks.push((
+            out.peek().map_or(output.len(), |(offset, _)| *offset),
+            piece,
+        ));
+    }
+    grew(line, piece).map_or(Ok(()), Err)?;
+    match out.next() {
+        Some((offset, _)) => Err(format!("output has extra text from byte {offset}")),
+        None => Ok(breaks),
+    }
+}
+
+/// The first inserted continuation (by byte offset in `output`) no deeper than the block
+/// collection owning its scalar, or at column 0 under a root scalar.
+pub fn under_indented_break(output: &str, breaks: &[(usize, usize)]) -> Option<usize> {
+    let mut blocks = Vec::new();
+    let mut owners = Vec::new();
+    for token in Scanner::new(StrInput::new(output)).map_while(Result::ok) {
+        let (span, kind) = token.into_parts();
+        match kind {
+            TokenType::BlockMappingStart | TokenType::BlockSequenceStart => {
+                blocks.push(span.start.col());
+            }
+            TokenType::BlockEnd => {
+                blocks.pop();
+            }
+            TokenType::Scalar(..) => owners.push((
+                span.start
+                    .byte_offset()
+                    .expect("str input has byte offsets")
+                    ..span.end.byte_offset().expect("str input has byte offsets"),
+                blocks.last().copied(),
+            )),
+            _ => {}
+        }
+    }
+    breaks.iter().find_map(|&(at, indent)| {
+        let owner = owners
+            .iter()
+            .find(|(span, _)| span.contains(&at))
+            .map(|(_, owner)| *owner);
+        let deep_enough = match owner {
+            Some(Some(column)) => indent > column,
+            Some(None) => indent > 0,
+            None => false,
+        };
+        (!deep_enough).then_some(at)
+    })
+}
