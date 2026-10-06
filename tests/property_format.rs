@@ -37,6 +37,7 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::lint::lint_str;
+use ryl::rules::{colons, hyphens};
 
 use config::{synthetic_base_dir, synthetic_path};
 use fold::{arb_fold_document, inserted_breaks, under_indented_break};
@@ -67,6 +68,13 @@ fn check_invariants(
         return Err(format!(
             "comment/anchor fidelity: output {once:?}; before {before:?}; after {after:?}"
         ));
+    }
+    let left_alone = |text: &str| {
+        colons::unfixed(text, &colons::Config::format()).len()
+            + hyphens::unfixed(text, &hyphens::Config::format()).len()
+    };
+    if left_alone(input) != left_alone(&once) {
+        return Err(format!("left-alone fidelity: output {once:?}"));
     }
     let twice = format(&once);
     if twice != once {
@@ -240,7 +248,8 @@ fn the_suite_covers_exactly_the_formatter_rules() {
 #[test]
 fn every_pass_rewrites_a_document_every_format_owned_rule_flags() {
     let input = "# lead\r\n  # misindented\nseq: [ &a0 'x' ,  *a0 ]  #note\n\
-                 map: {  k: !!str 'v'  }\nq: 'yes'\n\n\n\nlast: \"plain\"   \nend: bare\n\
+                 map: {  k: !!str 'v'  }\nq: 'yes'\n\n\n\nlast: \"plain\"   \nend :  bare\n\
+                 list:\n-   item\n\
                  long: alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo \
                  lima mike november";
     assert!(representation(input).is_some(), "dirty input must parse");
@@ -369,9 +378,31 @@ fn a_deliberately_broken_pass_fails_the_suite() {
             "renames an anchor",
         ),
     ];
-    check_invariants(&|s: &str| s.to_string(), input)
-        .expect("identity pass keeps the guarantee");
-    for (invariant, pass, what) in broken {
+    let broken_spacing: [(&str, (&str, Broken, &str)); 2] = [
+        (
+            "-   a:\n    b: 1\n",
+            (
+                "value-preservation",
+                |s| s.replace("-   ", "- "),
+                "collapses a dash's spaces",
+            ),
+        ),
+        (
+            "-   a: 1\n    b: 2\n",
+            (
+                "left-alone fidelity",
+                |s| s.replace("-   a: 1\n    b: 2", "- a: 1\n  b: 2"),
+                "re-indents a compact mapping",
+            ),
+        ),
+    ];
+    let cases = broken
+        .into_iter()
+        .map(|case| (input, case))
+        .chain(broken_spacing);
+    for (input, (invariant, pass, what)) in cases {
+        check_invariants(&|s: &str| s.to_string(), input)
+            .expect("identity pass keeps the guarantee");
         let violation = check_invariants(&pass, input)
             .expect_err(&format!("a pass that {what} must fail the suite"));
         assert!(
