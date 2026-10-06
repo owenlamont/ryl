@@ -1,19 +1,14 @@
 //! `colons` rule: limit spaces around `:` (and explicit `?`) in mappings.
 //!
-//! Alias-key exemption: `:` is a legal anchor-name char (YAML 1.2.2 §6.9.2), so `*foo:`
-//! aliases an anchor named `foo:`, and using it as a key *requires* one separating space
-//! (`*foo : bar`), which must not be reported. Alias extents come from the parser
-//! (`collect_alias_ends`), so the exemption fires exactly when an alias node ends one
-//! space before the colon, matching yamllint's `colons.py` `AliasToken` rule (see
-//! adrienverge/yamllint#226).
-use std::collections::HashSet;
-
+//! An alias, anchor or tag key keeps one space before `:`, which is never reported: `:` is
+//! a legal anchor-name and tag char (YAML 1.2.2 §6.9.2), so `*foo:` aliases an anchor named
+//! `foo:`. yamllint exempts only the alias (adrienverge/yamllint#226).
+//!
+//! Safe `--fix` collapses each run to the tolerance, never below that one space or the one
+//! after an indicator. A `?` or `:` opening a compact block collection that continues
+//! below is left alone: its spacing is the collection's indentation.
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{
-    build_line_starts, collect_alias_ends, collect_scalar_ranges, line_and_column,
-    skip_comment,
-};
-use crate::rules::support::span_utils::{CharPos, containing_scalar_range};
+use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode, Site};
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
@@ -24,6 +19,7 @@ const TOO_MANY_AFTER_QUESTION: &str = "too many spaces after question mark";
 pub struct Config {
     max_spaces_before: i64,
     max_spaces_after: i64,
+    mode: Mode,
 }
 
 impl Config {
@@ -32,25 +28,27 @@ impl Config {
 
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        Self {
-            max_spaces_before: cfg.rule_option_int(
-                ID,
-                "max-spaces-before",
-                Self::DEFAULT_MAX_BEFORE,
-            ),
-            max_spaces_after: cfg.rule_option_int(
-                ID,
-                "max-spaces-after",
-                Self::DEFAULT_MAX_AFTER,
-            ),
-        }
+        Self::new(
+            cfg.rule_option_int(ID, "max-spaces-before", Self::DEFAULT_MAX_BEFORE),
+            cfg.rule_option_int(ID, "max-spaces-after", Self::DEFAULT_MAX_AFTER),
+        )
     }
 
     #[must_use]
-    pub const fn new_for_tests(max_spaces_before: i64, max_spaces_after: i64) -> Self {
+    pub const fn new(max_spaces_before: i64, max_spaces_after: i64) -> Self {
         Self {
             max_spaces_before,
             max_spaces_after,
+            mode: Mode::Lint,
+        }
+    }
+
+    /// The formatter's target: no space before `:`, exactly one after `:` and `?`.
+    #[must_use]
+    pub const fn format() -> Self {
+        Self {
+            mode: Mode::Format,
+            ..Self::new(0, 1)
         }
     }
 
@@ -63,6 +61,34 @@ impl Config {
     pub const fn max_spaces_after(&self) -> i64 {
         self.max_spaces_after
     }
+
+    fn tolerance(&self, site: &Site) -> Option<i64> {
+        match site.indicator {
+            Indicator::Colon if site.before => Some(self.max_spaces_before),
+            Indicator::Colon | Indicator::Question => Some(self.max_spaces_after),
+            Indicator::Dash => None,
+        }
+    }
+
+    fn violations(&self, buffer: &str, keep: impl Fn(Fix) -> bool) -> Vec<Violation> {
+        token_spacing::sites(buffer)
+            .into_iter()
+            .filter(|site| {
+                keep(site.fix)
+                    && self.tolerance(site).is_some_and(|tol| site.exceeds(tol))
+            })
+            .map(|site| Violation {
+                line: site.line,
+                column: site.column,
+                message: match (site.indicator, site.before) {
+                    (Indicator::Question, _) => TOO_MANY_AFTER_QUESTION,
+                    (_, true) => TOO_MANY_BEFORE,
+                    (_, false) => TOO_MANY_AFTER,
+                }
+                .to_string(),
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,267 +98,19 @@ pub struct Violation {
     pub message: String,
 }
 
-enum BeforeResult {
-    SameLine { spaces: usize },
-    Ignored,
-}
-
-enum AfterResult {
-    SameLine { spaces: usize, next_char: usize },
-    Ignored,
-}
-
+/// The violations under `cfg`; for the formatter's config, only those its fix rewrites.
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    if buffer.is_empty() {
-        return Vec::new();
-    }
-
-    let scalar_ranges = collect_scalar_ranges(buffer);
-    let alias_ends: HashSet<usize> = collect_alias_ends(buffer)
-        .iter()
-        .map(|pos| pos.get())
-        .collect();
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
-
-    let mut scalar_idx = 0usize;
-    let mut idx = 0usize;
-    let mut violations = Vec::new();
-
-    while idx < chars.len() {
-        if let Some(range) =
-            containing_scalar_range(&scalar_ranges, &mut scalar_idx, idx)
-        {
-            idx = range.end.get();
-            continue;
-        }
-
-        match chars[idx].1 {
-            '#' => {
-                idx = skip_comment(&chars, idx);
-                continue;
-            }
-            ':' => {
-                evaluate_colon(
-                    cfg,
-                    &mut violations,
-                    &chars,
-                    idx,
-                    &line_starts,
-                    &alias_ends,
-                );
-            }
-            '?' => {
-                evaluate_question_mark(cfg, &mut violations, &chars, idx, &line_starts);
-            }
-            _ => {}
-        }
-
-        idx += 1;
-    }
-
-    violations
+    cfg.violations(buffer, |fix| cfg.mode == Mode::Lint || fix == Fix::Safe)
 }
 
-fn evaluate_colon(
-    cfg: &Config,
-    violations: &mut Vec<Violation>,
-    chars: &[(usize, char)],
-    colon_idx: usize,
-    line_starts: &[CharPos],
-    alias_ends: &HashSet<usize>,
-) {
-    // Alias-key exemption (see module header): skip when an alias ends one char before.
-    if colon_idx
-        .checked_sub(1)
-        .is_some_and(|prev| alias_ends.contains(&prev))
-    {
-        return;
-    }
-
-    if cfg.max_spaces_before >= 0
-        && let BeforeResult::SameLine { spaces } =
-            compute_spaces_before(chars, colon_idx)
-    {
-        let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        if spaces_i64 > cfg.max_spaces_before {
-            let (line, column) = line_and_column(line_starts, CharPos::new(colon_idx));
-            let highlight_column = column.saturating_sub(1).max(1);
-            violations.push(Violation {
-                line,
-                column: highlight_column,
-                message: TOO_MANY_BEFORE.to_string(),
-            });
-        }
-    }
-
-    if cfg.max_spaces_after >= 0
-        && let AfterResult::SameLine { spaces, next_char } =
-            compute_spaces_after(chars, colon_idx)
-    {
-        if chars[next_char].1 == '#' {
-            return;
-        }
-        let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        if spaces_i64 > cfg.max_spaces_after {
-            let (line, column) = line_and_column(line_starts, CharPos::new(next_char));
-            let highlight_column = column.saturating_sub(1).max(1);
-            violations.push(Violation {
-                line,
-                column: highlight_column,
-                message: TOO_MANY_AFTER.to_string(),
-            });
-        }
-    }
-}
-
-fn evaluate_question_mark(
-    cfg: &Config,
-    violations: &mut Vec<Violation>,
-    chars: &[(usize, char)],
-    question_idx: usize,
-    line_starts: &[CharPos],
-) {
-    if cfg.max_spaces_after >= 0
-        && is_explicit_question_mark(chars, question_idx)
-        && let AfterResult::SameLine { spaces, next_char } =
-            compute_spaces_after(chars, question_idx)
-    {
-        let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        if spaces_i64 > cfg.max_spaces_after {
-            let (line, column) = line_and_column(line_starts, CharPos::new(next_char));
-            let highlight_column = column.saturating_sub(1).max(1);
-            violations.push(Violation {
-                line,
-                column: highlight_column,
-                message: TOO_MANY_AFTER_QUESTION.to_string(),
-            });
-        }
-    }
-}
-
-fn compute_spaces_before(chars: &[(usize, char)], colon_idx: usize) -> BeforeResult {
-    let mut spaces = 0usize;
-    let mut idx = colon_idx;
-
-    while let Some(prev) = idx.checked_sub(1) {
-        match chars[prev].1 {
-            ' ' | '\t' => {
-                spaces += 1;
-                idx = prev;
-            }
-            '\n' | '\r' => return BeforeResult::Ignored,
-            _ => return BeforeResult::SameLine { spaces },
-        }
-    }
-    BeforeResult::SameLine { spaces }
-}
-
-fn compute_spaces_after(chars: &[(usize, char)], start_idx: usize) -> AfterResult {
-    let mut spaces = 0usize;
-    let mut idx = start_idx + 1;
-
-    while idx < chars.len() {
-        let ch = chars[idx].1;
-        match ch {
-            ' ' | '\t' => {
-                spaces += 1;
-                idx += 1;
-            }
-            '\n' => return AfterResult::Ignored,
-            '\r' => {
-                if idx + 1 < chars.len() && chars[idx + 1].1 == '\n' {
-                    return AfterResult::Ignored;
-                }
-                return AfterResult::Ignored;
-            }
-            _ => {
-                return AfterResult::SameLine {
-                    spaces,
-                    next_char: idx,
-                };
-            }
-        }
-    }
-
-    AfterResult::Ignored
-}
-
-fn is_explicit_question_mark(chars: &[(usize, char)], idx: usize) -> bool {
-    let next = chars.get(idx + 1).map_or('\0', |(_, ch)| *ch);
-    if !(matches!(next, ' ' | '\t' | '\n' | '\r')) {
-        return false;
-    }
-
-    match prev_non_ws_same_line(chars, idx) {
-        None => true,
-        Some((prev_idx, prev_ch)) => {
-            matches!(prev_ch, '[' | '{' | ',' | '?')
-                || (prev_ch == '-' && is_sequence_indicator(chars, prev_idx))
-        }
-    }
-}
-
-fn prev_non_ws_same_line(chars: &[(usize, char)], idx: usize) -> Option<(usize, char)> {
-    let mut cursor = idx;
-    while let Some(prev) = cursor.checked_sub(1) {
-        let ch = chars[prev].1;
-        match ch {
-            ' ' | '\t' => {
-                cursor = prev;
-            }
-            '\n' | '\r' => return None,
-            _ => return Some((prev, ch)),
-        }
-    }
-    None
-}
-
-fn is_sequence_indicator(chars: &[(usize, char)], hyphen_idx: usize) -> bool {
-    let mut cursor = hyphen_idx;
-    while let Some(prev) = cursor.checked_sub(1) {
-        let ch = chars[prev].1;
-        match ch {
-            ' ' | '\t' => cursor = prev,
-            '\n' | '\r' => return true,
-            _ => return false,
-        }
-    }
-    true
-}
-
-#[doc(hidden)]
 #[must_use]
-pub fn coverage_is_explicit_question_mark(chars: &[(usize, char)], idx: usize) -> bool {
-    is_explicit_question_mark(chars, idx)
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    token_spacing::fix(buffer, cfg.mode, |site| cfg.tolerance(site))
 }
 
-#[doc(hidden)]
+/// The violations `fix` leaves because respacing them would re-indent a collection.
 #[must_use]
-pub fn coverage_is_sequence_indicator(chars: &[(usize, char)], idx: usize) -> bool {
-    is_sequence_indicator(chars, idx)
-}
-
-#[doc(hidden)]
-#[must_use]
-pub fn coverage_evaluate_question_mark(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let mut violations = Vec::new();
-    let line_starts = build_line_starts(&chars);
-    if let Some((idx, _)) = chars.iter().enumerate().find(|(_, (_, ch))| *ch == '?') {
-        evaluate_question_mark(cfg, &mut violations, &chars, idx, &line_starts);
-    } else {
-        // explicit branch to ensure coverage marks the absence case
-        let () = ();
-    }
-    violations
-}
-
-#[doc(hidden)]
-#[must_use]
-pub fn coverage_skip_comment(buffer: &str) -> bool {
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let idx = skip_comment(&chars, 0);
-    chars.get(idx).is_some_and(|(_, ch)| *ch == '\n')
+pub fn unfixed(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    cfg.violations(buffer, |fix| fix == Fix::Reindents)
 }

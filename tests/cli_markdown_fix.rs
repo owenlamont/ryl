@@ -233,8 +233,8 @@ fn fix_is_idempotent() {
 
 #[test]
 fn fix_reports_fixed_and_remaining_summary() {
-    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\ncolons = \"enable\"\n";
-    let body = "```yaml\nnums: [1,2]\nfoo:  bar\n```\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\nempty-values = \"enable\"\n";
+    let body = "```yaml\nnums: [1,2]\nfoo:\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
     let (code, _out, err) = fix(&file);

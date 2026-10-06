@@ -31,10 +31,10 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`block-scalar-chomping`](rules/block-scalar-chomping.md) | Explicit chomping indicator (`-`/`+`) on block scalars. |  |
 | [`braces`](rules/braces.md) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
 | [`brackets`](rules/brackets.md) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
-| [`colons`](rules/colons.md) | Spaces around mapping colons. |  |
+| [`colons`](rules/colons.md) | Spaces around mapping colons. | :wrench: |
 | [`commas`](rules/commas.md) | Spaces around flow collection commas. | :wrench: |
 | [`empty-lines`](rules/empty-lines.md) | Number of consecutive empty lines. | :wrench: |
-| [`hyphens`](rules/hyphens.md) | Spaces after sequence hyphens. |  |
+| [`hyphens`](rules/hyphens.md) | Spaces after sequence hyphens. | :wrench: |
 | [`indentation`](rules/indentation.md) | Block indentation, sequence indentation, multi-line strings. |  |
 | [`line-length`](rules/line-length.md) | Maximum line length. |  |
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | A trailing newline at end of file. | :wrench: |

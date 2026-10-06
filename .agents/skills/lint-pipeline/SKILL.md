@@ -151,3 +151,6 @@ zero-config run formats. Inline directives are honoured by both. A YAML config g
 - `format::conflicts` formats a fixed probe and lints it under the file's config; each
   enabled formatting rule that rejects the output is a stderr warning, deduplicated by
   text across configs, silenced by `--no-warnings`, never printed by `ryl check`.
+- `format::unfixed` names each `colons`/`hyphens` site the formatter leaves because
+  re-spacing it would re-indent a compact block collection. Every mode prints them as
+  `<path>:L:C <rule> not fixed: …` skip notices; they never change the exit code.

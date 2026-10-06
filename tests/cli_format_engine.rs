@@ -10,7 +10,7 @@ use tempfile::tempdir;
 mod common;
 use common::cli::{run, ryl};
 
-/// Dirty for eleven of the twelve formatting rules (not `new-lines` or
+/// Dirty for eleven of the fourteen formatting rules (not `new-lines` or
 /// `comments-indentation`), the eleventh being its missing final newline.
 const DIRTY: &str =
     "k: 'abc'\nm: {  a: 1 ,b: 2  }\nq: \"a: b\"\n'key': x   \nn: 1 # c\n\n\n\n\nz: [ ]";
@@ -219,7 +219,7 @@ fn check_falls_back_per_rule_and_skips_directive_disabled_lines() {
     let (code, _, stderr, _) = format_file(None, unedited, &["--check"]);
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("braces"), "{stderr}");
-    assert!(!stderr.contains("quoted-strings"), "{stderr}");
+    assert!(!stderr.contains("2:5"), "{stderr}");
     let kept_beside_fixed = "---\na: {'k':v}\nb: 'abc'\n";
     let (code, _, stderr, _) = format_file(None, kept_beside_fixed, &["--check"]);
     assert_eq!(code, 1, "{stderr}");

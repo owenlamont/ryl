@@ -12,9 +12,9 @@ use crate::markdown_embed::{
 };
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
-    braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, key_ordering, line_length, new_line_at_end_of_file,
-    new_lines, quoted_strings, trailing_spaces, truthy,
+    braces, brackets, colons, commas, comments, comments_indentation, document_end,
+    document_start, empty_lines, hyphens, key_ordering, line_length,
+    new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
 };
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -40,13 +40,15 @@ pub fn suppressed_rules() -> &'static [&'static str] {
 /// Every rule with a safe `--fix`, in application order; extend together with the `apply`
 /// sequence in `FixContext::pass` when adding a safe fixer. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
-pub const SAFE_FIX_RULE_IDS: [&str; 14] = [
+pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
     commas::ID,
     braces::ID,
     brackets::ID,
+    colons::ID,
+    hyphens::ID,
     new_line_at_end_of_file::ID,
     quoted_strings::ID,
     trailing_spaces::ID,
@@ -365,7 +367,8 @@ fn diff_and_skips(
     }
 }
 
-/// Each mapping `key-ordering`'s fix left unsorted in fixed `content`, as a notice.
+/// Each finding `rewrite` left in fixed `content`, as a notice: for `--fix`, each mapping
+/// `key-ordering` left unsorted.
 fn unfixed_notices(
     content: &str,
     cfg: &YamlLintConfig,
@@ -373,10 +376,13 @@ fn unfixed_notices(
     base_dir: &Path,
     rewrite: Rewrite,
 ) -> Vec<crate::lint::LintProblem> {
-    if rewrite == Rewrite::Format
-        || !rule_enabled(key_ordering::ID, cfg, path, base_dir)
-        || crate::directives::disables_file(content)
-    {
+    if crate::directives::disables_file(content) {
+        return Vec::new();
+    }
+    if rewrite == Rewrite::Format {
+        return crate::format::unfixed(content);
+    }
+    if !rule_enabled(key_ordering::ID, cfg, path, base_dir) {
         return Vec::new();
     }
     let rule = key_ordering::Config::resolve(cfg, path);
@@ -626,6 +632,8 @@ pub(crate) struct Passes<'a> {
     pub(crate) commas: Option<commas::Config>,
     pub(crate) braces: Option<braces::Config>,
     pub(crate) brackets: Option<brackets::Config>,
+    pub(crate) colons: Option<colons::Config>,
+    pub(crate) hyphens: Option<hyphens::Config>,
     pub(crate) final_newline: Option<NewlinePolicy>,
     pub(crate) quoted_strings: Option<quoted_strings::Config>,
     pub(crate) trailing_spaces: bool,
@@ -673,6 +681,8 @@ impl<'a> Passes<'a> {
             commas: on(commas::ID).then(|| commas::Config::resolve(cfg)),
             braces: on(braces::ID).then(|| braces::Config::resolve(cfg)),
             brackets: on(brackets::ID).then(|| brackets::Config::resolve(cfg)),
+            colons: on(colons::ID).then(|| colons::Config::resolve(cfg)),
+            hyphens: on(hyphens::ID).then(|| hyphens::Config::resolve(cfg)),
             final_newline: on(new_line_at_end_of_file::ID).then_some(newline),
             quoted_strings: on(quoted_strings::ID)
                 .then(|| quoted_strings::Config::resolve(cfg)),
@@ -771,6 +781,8 @@ impl FixContext<'_> {
         fix!(commas);
         fix!(braces);
         fix!(brackets);
+        fix!(colons);
+        fix!(hyphens);
         fix!(
             new_line_at_end_of_file,
             passes.final_newline.as_ref(),

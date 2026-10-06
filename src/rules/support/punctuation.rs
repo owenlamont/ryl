@@ -1,8 +1,6 @@
 use std::ops::Range;
 
-use granit_parser::{
-    Event, Parser, Scanner, Span, SpannedEventReceiver, StrInput, TokenType,
-};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::rules::support::span_utils::CharPos;
 
@@ -22,18 +20,6 @@ pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
     let mut collector = ScalarRangeCollector::new();
     let _ = parser.load(&mut collector, true);
     collector.into_sorted()
-}
-
-/// `CharPos` just past each alias token (`*name`), from the scanner so it is
-/// independent of anchor resolution: an undefined or forward alias is still a token
-/// (the parser would error on it). `colons` uses these to exempt the required space
-/// before an alias mapping key (`*foo : bar`).
-pub(crate) fn collect_alias_ends(buffer: &str) -> Vec<CharPos> {
-    Scanner::new(StrInput::new(buffer))
-        .map_while(Result::ok)
-        .filter(|token| matches!(token.token_type(), TokenType::Alias(_)))
-        .map(|token| CharPos::new(token.span().end.index()))
-        .collect()
 }
 
 pub(crate) fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {

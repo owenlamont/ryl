@@ -664,6 +664,15 @@ The *unused* note in row 1 and the *duplicated* report in row 2 require the matc
 non-default `anchors` options (`forbid-unused-anchors`, `forbid-duplicated-anchors`); the
 colon-in-name parsing divergence the table illustrates is independent of them.
 
+The `colons` rule follows the same reading. It checks the colons the parser sees as
+mapping indicators:
+
+| Input | ryl | yamllint |
+| :--- | :--- | :--- |
+| `&a : v`, `!t : v` | the space before `:` is required: `&a: v` is the scalar `v` anchored `a:` | too many spaces before colon |
+| `*a :  v` | too many spaces after colon | nothing: an alias key exempts both sides |
+| `*a:  v` | a syntax error: `:` is part of the alias name | too many spaces after colon |
+
 **Why ryl differs:** the YAML specification and its reference parser are the
 authority, and PyYAML's narrowing at `:` is non-conformant (see
 [adrienverge/yamllint#686](https://github.com/adrienverge/yamllint/issues/686) and
@@ -1033,10 +1042,10 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`block-scalar-chomping`](https://ryl-docs.pages.dev/rules/block-scalar-chomping/) | Explicit chomping indicator (`-`/`+`) on block scalars. |  |
 | [`braces`](https://ryl-docs.pages.dev/rules/braces/) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
 | [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
-| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | Spaces around mapping colons. |  |
+| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | Spaces around mapping colons. | :wrench: |
 | [`commas`](https://ryl-docs.pages.dev/rules/commas/) | Spaces around flow collection commas. | :wrench: |
 | [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | Number of consecutive empty lines. | :wrench: |
-| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | Spaces after sequence hyphens. |  |
+| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | Spaces after sequence hyphens. | :wrench: |
 | [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | Block indentation, sequence indentation, multi-line strings. |  |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Maximum line length. |  |
 | [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | A trailing newline at end of file. | :wrench: |
@@ -3201,14 +3210,14 @@ second: 2
 third:  3
 ```
 
-### Alias mapping keys
+### Alias, anchor and tag mapping keys
 
-A YAML anchor/alias name may legally contain `:`, so `*anchor:` welds into an alias to an
-anchor named `anchor:` (a parse error here, since no mapping colon remains). Using an
-alias as a mapping key therefore *requires* one separating space before the colon
-&mdash; `*anchor : value`. When exactly that one space is present the colon's spacing is
-not reported (the rule defers to the parser's view of the alias); more than one space
-before the colon is reported as usual.
+A YAML anchor/alias name or a tag may legally contain `:`, so `*anchor:` welds into an
+alias to an anchor named `anchor:` (a parse error here, since no mapping colon remains),
+and `&anchor: value` is the scalar `value` anchored `anchor:`. Using an alias as a
+mapping key, or an empty key carrying only an anchor or tag, therefore *requires* one
+separating space before the colon &mdash; `*anchor : value`, `&anchor : value`. That one
+space is not reported; more than one is reported as usual.
 
 ```yaml
 base: &a name
@@ -3222,7 +3231,21 @@ base: &a name
 
 ## Automatic fixing
 
-This rule does not auto-fix; correct spacing manually.
+`ryl check --fix` trims the spaces before `:` and after `:` or `?` to the configured
+maximum, never below the one space an alias, anchor or tag key needs before `:`, or the
+one space YAML needs after `:` or `?`. A space after `:` that leads to `,`, `]` or `}`
+is left to [`commas`](https://ryl-docs.pages.dev/rules/commas/), [`braces`](https://ryl-docs.pages.dev/rules/braces/) and [`brackets`](https://ryl-docs.pages.dev/rules/brackets/).
+
+`ryl format` writes no space before `:` (one for those keys) and exactly one after `:`
+and `?`, turning a tab into a space. An explicit `?` or `:` that opens a block
+collection continuing below is reported and left alone, because its spaces set the
+collection's indentation:
+
+```yaml
+? key
+:   - a      # left alone: re-spacing re-indents the sequence
+    - b
+```
 
 ## Related rules
 
@@ -4011,9 +4034,20 @@ items:
 
 ## Automatic fixing
 
-This rule does not auto-fix. Trim the extra spaces (`max-spaces-after`) or break the
-mapping onto the line below the `-` (`dash-on-own-line`) manually: re-indenting the
-mapping body is a structural change ryl will not make automatically.
+`ryl check --fix` trims the spaces after `-` to `max-spaces-after`, never below one.
+`ryl format` leaves exactly one. Both leave a `-` alone when the block mapping or
+sequence it opens continues on later lines, and `ryl format` reports it: the spaces set
+that collection's indentation, so trimming them alone would re-indent or break it:
+
+```yaml
+-   name: web    # left alone: `port` is aligned under `name`
+    port: 80
+-   - a          # left alone
+    - b
+```
+
+`dash-on-own-line` has no automatic fix: breaking the mapping onto the line below the
+`-` re-indents its body.
 
 ## Related rules
 

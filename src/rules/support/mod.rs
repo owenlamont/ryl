@@ -7,4 +7,5 @@ pub(crate) mod mapping_layout;
 pub(crate) mod merge_key;
 pub(crate) mod punctuation;
 pub(crate) mod span_utils;
+pub(crate) mod token_spacing;
 pub(crate) mod yaml_version;
