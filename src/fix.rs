@@ -334,7 +334,17 @@ fn diff_and_skips(
             }
             DiffOutcome {
                 diff: render_unified_diff(content, &fixed, path),
-                skipped: unfixed_notices(&fixed, cfg, path, base_dir, rewrite),
+                skipped: unfixed_notices(
+                    if rewrite == Rewrite::Format {
+                        content
+                    } else {
+                        &fixed
+                    },
+                    cfg,
+                    path,
+                    base_dir,
+                    rewrite,
+                ),
                 ..DiffOutcome::default()
             }
         }
@@ -352,7 +362,7 @@ fn diff_and_skips(
             };
             let mut skipped = skips(content);
             // `key-ordering` notices describe the fixed text, so they come from it.
-            if let Some(fixed) = &fixed {
+            if let Some(fixed) = fixed.as_ref().filter(|_| rewrite == Rewrite::Fix) {
                 skipped.retain(|problem| problem.rule.is_none());
                 skipped.extend(skips(fixed).into_iter().filter(|p| p.rule.is_some()));
             }

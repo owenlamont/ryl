@@ -68,3 +68,13 @@ fn check_fix_respaces_to_the_tolerance() {
         "{stderr}"
     );
 }
+
+#[test]
+fn notices_count_lines_in_the_file_each_mode_leaves() {
+    let input = "-   a: 1\n    b: 2\n";
+    let (_, stderr, _) = run_on(input, &["format", "--check"]);
+    assert!(stderr.contains("a.yaml:1:4 hyphens not fixed"), "{stderr}");
+    let (_, stderr, formatted) = run_on(input, &["format"]);
+    assert_eq!(formatted, format!("---\n{input}"));
+    assert!(stderr.contains("a.yaml:2:4 hyphens not fixed"), "{stderr}");
+}

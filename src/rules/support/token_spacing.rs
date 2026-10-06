@@ -85,10 +85,10 @@ pub(crate) fn sites(buffer: &str) -> Vec<Site> {
                     sites.extend(walk.after(Indicator::Dash, dash, idx));
                 }
             }
-            TokenType::Key if span.end.index() > at => {
+            TokenType::Key if span.end.index() > at && walk.char_at(at) == '?' => {
                 sites.extend(walk.after(Indicator::Question, at, idx));
             }
-            TokenType::Value => {
+            TokenType::Value if walk.char_at(at) == ':' => {
                 sites.extend(walk.before_colon(at, idx));
                 sites.extend(walk.after(Indicator::Colon, at, idx));
             }
