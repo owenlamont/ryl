@@ -282,7 +282,7 @@ nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
-`[output]`) sit at the top level; linter settings sit under `[lint]`
+`[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
 (`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` is reserved for the formatter. Copy the
 preset you want from [Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise
@@ -301,6 +301,17 @@ yaml = [
 [lint.rules.line-length]
 max = 120
 allow-non-breakable-words = true
+```
+
+The top-level `line-length` (1 to 65535) and `indent-width` (1 to 255) are the
+formatter's targets and the defaults for `[lint.rules.line-length] max` and
+`[lint.rules.indentation] spaces`; an explicit rule option overrides them for
+linting only. Unset, `max` is 80 and `spaces` is `"consistent"`. A YAML config
+cannot set them.
+
+```toml
+line-length = 100
+indent-width = 4
 ```
 
 YAML configuration is also accepted for parity with yamllint and supports
@@ -4047,7 +4058,7 @@ check-multi-line-strings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `spaces` | `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
+| `spaces` | top-level `indent-width` if set, else `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
 | `indent-sequences` | `true` | `true`, `false`, `"whatever"`, or `"consistent"`. Whether block sequence items are indented under the parent key. |
 | `check-multi-line-strings` | `false` | When `true`, apply indent checks inside block scalars and multi-line flow strings. |
 
@@ -4457,7 +4468,7 @@ allow-non-breakable-inline-mappings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `max` | `80` | Maximum number of characters allowed per line. |
+| `max` | top-level `line-length` if set, else `80` | Maximum number of characters allowed per line. |
 | `allow-non-breakable-words` | `true` | Allow over-length lines whose long token has no whitespace to break on (typical for URLs or hashes). |
 | `allow-non-breakable-inline-mappings` | `false` | Extend the above allowance to lines like `key: <single long token>` where the value has no break candidate. |
 

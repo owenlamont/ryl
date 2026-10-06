@@ -144,17 +144,23 @@ fn toml_table_header_name(line: &str) -> Option<&str> {
 }
 
 /// Classify a `toml` block: the `pyproject.toml` form (a `[tool.ryl]` table), a
-/// standalone config (a table named in the schema), or not ryl config. Detection
-/// scans table headers rather than parsing, so a malformed config example is still
-/// recognised and handed to the loader to report.
+/// standalone config (a table or a pre-header key named in the schema), or not ryl
+/// config. Detection scans lines rather than parsing, so a malformed config example is
+/// still recognised and handed to the loader to report.
 fn classify_toml(content: &str, toml_keys: &BTreeSet<String>) -> Kind {
     let mut kind = Kind::NotConfig;
+    let mut top_level = true;
     for line in content.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("[tool.ryl]") || trimmed.starts_with("[tool.ryl.") {
             return Kind::Pyproject;
         }
-        if toml_table_header_name(trimmed).is_some_and(|name| toml_keys.contains(name))
+        let header = toml_table_header_name(trimmed);
+        top_level &= header.is_none();
+        let key = trimmed.split_once('=').map(|(key, _)| key.trim());
+        if header
+            .or(key.filter(|_| top_level))
+            .is_some_and(|name| toml_keys.contains(name))
         {
             kind = Kind::Toml;
         }
@@ -315,9 +321,19 @@ fn classify_routes_each_block_kind() {
         "an array-of-tables header is recognised by its top-level name",
     );
     assert_eq!(
+        kind(&block("toml", "line-length = 100\n", false)),
+        Kind::Toml,
+        "a top-level key before any header is recognised",
+    );
+    assert_eq!(
         kind(&block("toml", "[package]\nname = \"demo\"\n", false)),
         Kind::NotConfig,
         "another tool's TOML is not ryl config",
+    );
+    assert_eq!(
+        kind(&block("toml", "[tool.ruff]\nline-length = 100\n", false)),
+        Kind::NotConfig,
+        "a schema key under another table is not ryl config",
     );
     assert_eq!(
         kind(&block("toml", "this = is = not = toml", false)),

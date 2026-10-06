@@ -22,7 +22,11 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max = cfg.rule_option_int(ID, "max", 80);
+        let max = cfg.rule_option_int(
+            ID,
+            "max",
+            cfg.line_length().map_or(80, |width| i64::from(width.get())),
+        );
         let allow_inline =
             cfg.rule_option_bool(ID, "allow-non-breakable-inline-mappings", false);
         let allow_words =

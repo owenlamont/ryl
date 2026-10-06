@@ -59,6 +59,8 @@ pub struct ConfigModel {
     pub per_line_ignores: Vec<PerLineModel>,
     pub per_file_ignores: Vec<(&'static str, Vec<&'static str>)>,
     pub key_orders: Vec<KeyOrderModel>,
+    /// TOML-only top-level `line-length` and `indent-width`, as raw TOML values.
+    pub shared: (Option<&'static str>, Option<&'static str>),
 }
 
 /// A generated `[[rules.key-ordering.orders]]` entry (TOML-only), with hostile globs,
@@ -239,9 +241,26 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
             0..3,
         ),
         prop::collection::vec(arb_key_order(), 0..3),
+        (
+            prop::option::of(prop::sample::select(
+                &["1", "100", "65535", "0", "-1", "70000", "\"80\"", "2.5"][..],
+            )),
+            prop::option::of(prop::sample::select(
+                &["1", "4", "255", "0", "-1", "256", "\"2\"", "2.5"][..],
+            )),
+        ),
     )
         .prop_map(
-            |(rules, ignore, locale, per_line_ignores, all, per_file, key_orders)| {
+            |(
+                rules,
+                ignore,
+                locale,
+                per_line_ignores,
+                all,
+                per_file,
+                key_orders,
+                shared,
+            )| {
                 ConfigModel {
                     all,
                     // Drop duplicate rule ids: rendering the same id twice produces a
@@ -254,6 +273,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                     per_line_ignores,
                     per_file_ignores: per_file.into_iter().collect(),
                     key_orders,
+                    shared,
                 }
             },
         )
@@ -330,6 +350,12 @@ pub fn render_toml(model: &ConfigModel, prefix: &str) -> String {
     }
     if let Some(locale) = model.locale {
         out.push_str(&format!("locale = \"{locale}\"\n"));
+    }
+    if let Some(value) = model.shared.0 {
+        out.push_str(&format!("line-length = {value}\n"));
+    }
+    if let Some(value) = model.shared.1 {
+        out.push_str(&format!("indent-width = {value}\n"));
     }
     // Scalar toggles belong under the inline [rules] table; leveled rules each get
     // their own [rules.<id>] table emitted afterwards so TOML stays well-formed.

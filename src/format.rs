@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::{NonZeroU8, NonZeroU16};
 use std::path::Path;
 
 use similar::{DiffTag, TextDiff};
@@ -113,6 +114,18 @@ pub fn format_str(
     skip: &[&str],
 ) -> String {
     format_tracked(input, cfg.format(), path, skip, &mut Vec::new())
+}
+
+/// The indent width `ryl format` targets: the top-level `indent-width`, else 2.
+#[must_use]
+pub fn indent_width(cfg: &YamlLintConfig) -> u8 {
+    cfg.indent_width().map_or(2, NonZeroU8::get)
+}
+
+/// The line length `ryl format` targets: the top-level `line-length`, else 80.
+#[must_use]
+pub fn line_length(cfg: &YamlLintConfig) -> u16 {
+    cfg.line_length().map_or(80, NonZeroU16::get)
 }
 
 fn format_tracked(

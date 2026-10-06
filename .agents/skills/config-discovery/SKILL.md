@@ -49,6 +49,10 @@ in place; the warning names whichever of the two applies to its file).
 deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
 `merged_lint`. The legacy YAML config stays flat.
 
+The top-level `line-length`/`indent-width` are TOML-only and never deprecated: an
+explicit `[lint.rules.<rule>]` option beats them, and they beat the rule's built-in
+default (`indentation.spaces` stays `consistent` when `indent-width` is unset).
+
 ## Nothing is enabled implicitly
 
 ryl never enables a rule that wasn't explicitly turned on (no "default-on" rules). Two

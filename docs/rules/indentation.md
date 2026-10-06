@@ -30,7 +30,7 @@ check-multi-line-strings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `spaces` | `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
+| `spaces` | top-level `indent-width` if set, else `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
 | `indent-sequences` | `true` | `true`, `false`, `"whatever"`, or `"consistent"`. Whether block sequence items are indented under the parent key. |
 | `check-multi-line-strings` | `false` | When `true`, apply indent checks inside block scalars and multi-line flow strings. |
 

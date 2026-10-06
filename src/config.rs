@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::num::{NonZeroU8, NonZeroU16};
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -155,6 +156,8 @@ pub struct YamlLintConfig {
     output: Option<OutputTable>,
     format: FormatTable,
     source: Option<PathBuf>,
+    line_length: Option<NonZeroU16>,
+    indent_width: Option<NonZeroU8>,
     locale: Option<String>,
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
@@ -508,6 +511,8 @@ impl Default for YamlLintConfig {
             output: None,
             format: FormatTable::default(),
             source: None,
+            line_length: None,
+            indent_width: None,
             locale: None,
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
@@ -861,6 +866,16 @@ impl YamlLintConfig {
         self.source.as_deref()
     }
 
+    #[must_use]
+    pub const fn line_length(&self) -> Option<NonZeroU16> {
+        self.line_length
+    }
+
+    #[must_use]
+    pub const fn indent_width(&self) -> Option<NonZeroU8> {
+        self.indent_width
+    }
+
     fn from_yaml_str_with_env(
         s: &str,
         envx: Option<&dyn Env>,
@@ -999,6 +1014,9 @@ impl YamlLintConfig {
         if let Some(locale) = normalized.locale {
             self.locale = Some(locale);
         }
+
+        self.line_length = normalized.line_length;
+        self.indent_width = normalized.indent_width;
 
         if let Some(fix) = normalized.fix.as_ref() {
             self.fix = typed_fix_config(fix);
@@ -1370,6 +1388,8 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
         ),
         output: config.output.clone(),
         locale: config.locale.clone(),
+        line_length: config.line_length,
+        indent_width: config.indent_width,
         fix: normalized_fix_config(&config.fix),
         rules: config
             .rules

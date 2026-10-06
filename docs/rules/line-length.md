@@ -50,7 +50,7 @@ allow-non-breakable-inline-mappings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `max` | `80` | Maximum number of characters allowed per line. |
+| `max` | top-level `line-length` if set, else `80` | Maximum number of characters allowed per line. |
 | `allow-non-breakable-words` | `true` | Allow over-length lines whose long token has no whitespace to break on (typical for URLs or hashes). |
 | `allow-non-breakable-inline-mappings` | `false` | Extend the above allowance to lines like `key: <single long token>` where the value has no break candidate. |
 

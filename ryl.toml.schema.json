@@ -2391,6 +2391,26 @@
       ],
       "description": "Paths to files that contain ignore patterns."
     },
+    "indent-width": {
+      "description": "The formatter's indent width, and the default for `[lint.rules.indentation] spaces`.",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 1,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "line-length": {
+      "description": "The formatter's line length, and the default for `[lint.rules.line-length] max`.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 1,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "lint": {
       "anyOf": [
         {
