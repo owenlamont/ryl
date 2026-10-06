@@ -206,7 +206,7 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         let project_migrated = result
             .entries
             .iter()
-            .any(|entry| !user_sources.contains(&entry.source));
+            .any(|entry| !is_user_source(&entry.source, &user_sources));
         if !project_migrated {
             println!(
                 "No legacy config files migrated under {}",
@@ -218,7 +218,7 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         let user_migrated = result
             .entries
             .iter()
-            .any(|entry| user_sources.contains(&entry.source));
+            .any(|entry| is_user_source(&entry.source, &user_sources));
         if !user_migrated {
             println!("No user-global config migrated.");
         }
@@ -1430,6 +1430,14 @@ fn resolve_stdin_ctx(
         cfg.disable_path_based_rule_ignores();
     }
     Ok((path, ctx.base_dir, cfg, apply_yaml_files, ctx.config_found))
+}
+
+/// Whether a migrated `source` is a user-global config, by file identity so a relative
+/// `--migrate-root` spelling still matches; a deleted source only matches literally.
+fn is_user_source(source: &Path, user_sources: &[PathBuf]) -> bool {
+    user_sources.iter().any(|user| {
+        user == source || same_file::is_same_file(user, source).unwrap_or(false)
+    })
 }
 
 /// Config notices are all warnings, so `--no-warnings` silences them.

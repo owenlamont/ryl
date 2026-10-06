@@ -16,7 +16,7 @@ use crate::rules::support::span_utils::{
 use crate::rules::support::yaml_version::{
     Version, event_version, keeps_quotes_under_yaml_1_1,
 };
-use crate::yaml_dom::{Scalar, is_core_schema};
+use crate::yaml_dom::{Scalar, is_core_schema, is_core_schema_int_spelling};
 
 pub const ID: &str = "quoted-strings";
 
@@ -491,10 +491,11 @@ fn resolves_to_string_for_version(version: Option<Version>, value: &str) -> bool
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
-    matches!(
-        Scalar::resolve_plain_scalar(value.into()),
-        Scalar::String(_)
-    )
+    !is_core_schema_int_spelling(value)
+        && matches!(
+            Scalar::resolve_plain_scalar(value.into()),
+            Scalar::String(_)
+        )
 }
 
 fn should_skip_scalar(

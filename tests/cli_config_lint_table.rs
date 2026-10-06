@@ -398,7 +398,7 @@ fn user_global_toml_under_the_migrate_root_is_planned_once() {
 fn user_global_toml_reached_by_relative_root_keeps_original_backup() {
     let (td, _, xdg) = user_global(LEGACY);
     let user_dir = xdg.join("ryl");
-    let (code, _, stderr) = run(ryl(&td.path().join("home"))
+    let (code, stdout, stderr) = run(ryl(&td.path().join("home"))
         .env("XDG_CONFIG_HOME", &xdg)
         .current_dir(&user_dir)
         .args([
@@ -415,5 +415,9 @@ fn user_global_toml_reached_by_relative_root_keeps_original_backup() {
         fs::read_to_string(user_dir.join("ryl.toml.bak")).unwrap(),
         LEGACY,
         "the backup holds the original, not an already-migrated copy"
+    );
+    assert!(
+        !stdout.contains("No user-global config migrated."),
+        "the rewrite reached through the relative root is the user-global one: {stdout}"
     );
 }
