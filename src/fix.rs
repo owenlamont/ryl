@@ -140,6 +140,38 @@ pub struct FixOutcome {
     pub skipped: Vec<crate::lint::LintProblem>,
 }
 
+/// The text transform a write-back or preview applies: the safe lint fixes or the formatter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rewrite {
+    Fix,
+    Format,
+}
+
+impl Rewrite {
+    /// How the CLI names this rewrite's in-place mode in notices.
+    #[must_use]
+    pub fn flag(self) -> &'static str {
+        match self {
+            Self::Fix => "--fix",
+            Self::Format => "ryl format",
+        }
+    }
+
+    fn apply(
+        self,
+        input: &str,
+        cfg: &YamlLintConfig,
+        path: &Path,
+        base_dir: &Path,
+        skip: &[&str],
+    ) -> String {
+        match self {
+            Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
+            Self::Format => crate::format::format_str(input, cfg.format()),
+        }
+    }
+}
+
 /// `std::fs::write` follows symlinks, so `--fix` (and `--diff`, its preview) skips a
 /// symlinked input with a warning rather than let an untrusted tree redirect the write
 /// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
@@ -155,49 +187,77 @@ fn refuse_symlink(path: &Path, flag: &str) -> bool {
     false
 }
 
-/// Apply every safe fix to `path` in place.
+/// Apply `rewrite` to `path` in place.
 ///
 /// # Errors
 ///
-/// Returns an error if the file cannot be read or the fixed contents cannot be written.
-pub fn apply_safe_fixes_in_place(
+/// Returns an error if the file cannot be read or the rewritten contents cannot be written.
+pub fn rewrite_in_place(
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
+    kind: SourceKind,
+    rewrite: Rewrite,
 ) -> Result<FixOutcome, String> {
-    if refuse_symlink(path, "--fix") {
+    if refuse_symlink(path, rewrite.flag()) {
         return Ok(FixOutcome::default());
     }
     let decoded = decoder::read_file_lossless(path)?;
-    if let Some(problem) = crate::lint::parse_error(decoded.content()) {
-        return Ok(FixOutcome {
-            changed: false,
-            skipped: vec![problem],
-        });
+    let (rewritten, skipped) =
+        rewrite_str(decoded.content(), cfg, path, base_dir, kind, rewrite);
+    if let Some(rewritten) = &rewritten {
+        decoded.write(path, rewritten)?;
     }
-    let fixed = apply_safe_fixes(decoded.content(), cfg, path, base_dir);
-    let skipped = unfixed_notices(&fixed, cfg, path, base_dir);
-    let changed = fixed != decoded.content();
-    if changed {
-        decoded.write(path, &fixed)?;
-    }
-    Ok(FixOutcome { changed, skipped })
+    Ok(FixOutcome {
+        changed: rewritten.is_some(),
+        skipped,
+    })
 }
 
-/// Apply every safe fix to each file in place.
+/// `content` after `rewrite` (`None` when unchanged), plus the skips to report against the
+/// rewritten text: unparsable YAML is left untouched with one skip; for Markdown, each
+/// region [`fix_markdown_str`] left alone.
+#[must_use]
+pub fn rewrite_str(
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    kind: SourceKind,
+    rewrite: Rewrite,
+) -> (Option<String>, Vec<crate::lint::LintProblem>) {
+    match kind {
+        SourceKind::Yaml => {
+            if let Some(problem) = crate::lint::parse_error(content) {
+                return (None, vec![problem]);
+            }
+            let fixed = rewrite.apply(content, cfg, path, base_dir, &[]);
+            let skipped = unfixed_notices(&fixed, cfg, path, base_dir, rewrite);
+            ((fixed != content).then_some(fixed), skipped)
+        }
+        SourceKind::Markdown => {
+            let fixed = fix_markdown_str(content, path, cfg, base_dir, rewrite);
+            // Read from the *fixed* bytes (what gets written) so the reported line stays
+            // correct after an earlier region's fix shifts the line count.
+            let skipped = markdown_parse_skips(
+                fixed.as_deref().unwrap_or(content),
+                cfg,
+                |region| region_skips(region, cfg, path, base_dir, rewrite),
+            );
+            (fixed, skipped)
+        }
+    }
+}
+
+/// Apply `rewrite` to each file in place.
 ///
 /// # Errors
 ///
-/// Returns an error if any file cannot be read or any fixed contents cannot be written.
-pub fn apply_safe_fixes_to_files(files: &[LintFile]) -> Result<FixStats, String> {
+/// Returns an error if any file cannot be read or any rewritten contents cannot be written.
+pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> Result<FixStats, String> {
     let mut stats = FixStats::default();
     for (path, base_dir, cfg, kind) in files {
-        let outcome = match kind {
-            SourceKind::Markdown => {
-                apply_markdown_safe_fixes_in_place(path, cfg, base_dir)?
-            }
-            SourceKind::Yaml => apply_safe_fixes_in_place(path, cfg, base_dir)?,
-        };
+        let outcome = rewrite_in_place(path, cfg, base_dir, *kind, rewrite)?;
         if outcome.changed {
             stats.changed_files += 1;
         }
@@ -286,6 +346,7 @@ pub fn diff_outcome(
     path: &Path,
     base_dir: &Path,
     kind: SourceKind,
+    rewrite: Rewrite,
 ) -> DiffOutcome {
     if path_unrepresentable_in_diff(path) {
         return DiffOutcome {
@@ -304,7 +365,7 @@ pub fn diff_outcome(
                     skipped: vec![problem],
                 };
             }
-            let fixed = apply_safe_fixes(content, cfg, path, base_dir);
+            let fixed = rewrite.apply(content, cfg, path, base_dir, &[]);
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
                     diff: None,
@@ -313,19 +374,19 @@ pub fn diff_outcome(
             }
             DiffOutcome {
                 diff: render_unified_diff(content, &fixed, path),
-                skipped: unfixed_notices(&fixed, cfg, path, base_dir),
+                skipped: unfixed_notices(&fixed, cfg, path, base_dir, rewrite),
             }
         }
         SourceKind::Markdown => {
             // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
             // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
-            let fixed = fix_markdown_str(content, path, cfg, base_dir);
+            let fixed = fix_markdown_str(content, path, cfg, base_dir, rewrite);
             // Report skips against the *original* content: `--diff` never writes, so the file
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
             let skips = |markdown| {
                 markdown_parse_skips(markdown, cfg, |region| {
-                    region_skips(region, cfg, path, base_dir)
+                    region_skips(region, cfg, path, base_dir, rewrite)
                 })
             };
             let mut skipped = skips(content);
@@ -347,8 +408,10 @@ fn unfixed_notices(
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
+    rewrite: Rewrite,
 ) -> Vec<crate::lint::LintProblem> {
-    if !rule_enabled(KEY_ORDERING_FIX, cfg, path, base_dir)
+    if rewrite == Rewrite::Format
+        || !rule_enabled(KEY_ORDERING_FIX, cfg, path, base_dir)
         || crate::directives::disables_file(content)
     {
         return Vec::new();
@@ -372,9 +435,10 @@ fn region_skips(
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
+    rewrite: Rewrite,
 ) -> Vec<crate::lint::LintProblem> {
     crate::lint::parse_error(region).map_or_else(
-        || unfixed_notices(region, cfg, path, base_dir),
+        || unfixed_notices(region, cfg, path, base_dir, rewrite),
         |problem| vec![problem],
     )
 }
@@ -419,17 +483,21 @@ fn path_unrepresentable_in_diff(path: &Path) -> bool {
     name.to_str().is_none() || name.to_string_lossy().contains(char::is_control)
 }
 
-/// Unified diffs for each file's safe fixes, reading from disk and never writing. A symlinked
-/// input is skipped with a warning (parity with `--fix`); other un-diffable inputs (non-UTF-8/
+/// Unified diffs for each file's `rewrite`, reading from disk and never writing. A symlinked
+/// input is skipped with a warning naming `flag` (parity with `--fix`); other un-diffable inputs (non-UTF-8/
 /// BOM content, unparsable, or an unrepresentable name) are skipped via [`diff_outcome`].
 ///
 /// # Errors
 ///
 /// Returns an error if any file cannot be read.
-pub fn diff_safe_fixes_for_files(files: &[LintFile]) -> Result<DiffStats, String> {
+pub fn diff_files(
+    files: &[LintFile],
+    rewrite: Rewrite,
+    flag: &str,
+) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
     for (path, base_dir, cfg, kind) in files {
-        if refuse_symlink(path, "--diff") {
+        if refuse_symlink(path, flag) {
             continue;
         }
         let decoded = decoder::read_file_lossless(path)?;
@@ -437,46 +505,14 @@ pub fn diff_safe_fixes_for_files(files: &[LintFile]) -> Result<DiffStats, String
             stats.skipped.push((path.clone(), non_utf8_diff_skip()));
             continue;
         }
-        let outcome = diff_outcome(decoded.content(), cfg, path, base_dir, *kind);
+        let outcome =
+            diff_outcome(decoded.content(), cfg, path, base_dir, *kind, rewrite);
         stats.record(path, outcome);
     }
     Ok(stats)
 }
 
-/// Apply safe fixes to every embedded YAML region of a markdown file in place.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or the rewritten contents cannot be written.
-pub fn apply_markdown_safe_fixes_in_place(
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-) -> Result<FixOutcome, String> {
-    if refuse_symlink(path, "--fix") {
-        return Ok(FixOutcome::default());
-    }
-    let decoded = decoder::read_file_lossless(path)?;
-    let fixed = fix_markdown_str(decoded.content(), path, cfg, base_dir);
-    // Collect parse errors for regions the per-region gate in `fix_markdown_str` skipped, so
-    // the CLI reports them. Read from the *fixed* bytes (what gets written) so the reported
-    // line stays correct after an earlier region's fix shifts the line count.
-    let skipped = markdown_parse_skips(
-        fixed.as_deref().unwrap_or_else(|| decoded.content()),
-        cfg,
-        |region| region_skips(region, cfg, path, base_dir),
-    );
-    let changed = match fixed {
-        Some(fixed) => {
-            decoded.write(path, &fixed)?;
-            true
-        }
-        None => false,
-    };
-    Ok(FixOutcome { changed, skipped })
-}
-
-/// Apply safe fixes to each embedded YAML region of `markdown` and splice the results back
+/// Apply `rewrite` to each embedded YAML region of `markdown` and splice the results back
 /// in, or `None` if nothing changed. File-shape rules are excluded per [`suppressed_rules`].
 /// Each line regains the prefix the parser stripped (spaces, a blockquote `> `, or a tab), and
 /// a region is rewritten only when re-applying that prefix reproduces the original raw bytes
@@ -488,6 +524,7 @@ pub fn fix_markdown_str(
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
+    rewrite: Rewrite,
 ) -> Option<String> {
     if crate::markdown_embed::markdown_has_unsupported_cr(markdown) {
         return None;
@@ -505,13 +542,8 @@ pub fn fix_markdown_str(
         if region.content.trim().is_empty() {
             continue;
         }
-        let fixed = apply_safe_fixes_filtered(
-            &region.content,
-            cfg,
-            path,
-            base_dir,
-            suppressed_rules(),
-        );
+        let fixed =
+            rewrite.apply(&region.content, cfg, path, base_dir, suppressed_rules());
         if fixed == region.content {
             continue;
         }

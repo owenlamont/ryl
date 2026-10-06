@@ -8,7 +8,8 @@ use sha2::{Digest, Sha256};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::fix::{
-    SAFE_FIX_RULE_IDS, apply_safe_fixes, apply_safe_fixes_filtered, fix_markdown_str,
+    Rewrite, SAFE_FIX_RULE_IDS, apply_safe_fixes, apply_safe_fixes_filtered,
+    fix_markdown_str,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::lsp::encoding::{PositionEncoding, full_range, problem_range};
@@ -72,7 +73,9 @@ pub fn fix_all_edit(
     enc: PositionEncoding,
 ) -> Option<TextEdit> {
     let fixed = match kind {
-        SourceKind::Markdown => fix_markdown_str(text, path, cfg, base_dir)?,
+        SourceKind::Markdown => {
+            fix_markdown_str(text, path, cfg, base_dir, Rewrite::Fix)?
+        }
         SourceKind::Yaml => apply_safe_fixes(text, cfg, path, base_dir),
     };
     (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))

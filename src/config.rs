@@ -15,7 +15,7 @@ use regex::Regex;
 
 use crate::config_schema::{
     DeprecatedKey, DeprecatedKeyUse, FixRuleName as TomlFixRuleName,
-    FixableRuleSelector as TomlFixableRuleSelector, NormalizedConfig,
+    FixableRuleSelector as TomlFixableRuleSelector, FormatTable, NormalizedConfig,
     NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore, OutputTable,
     TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
     parse_toml_config_str, parse_yaml_config, validate_toml_config,
@@ -153,6 +153,7 @@ pub struct YamlLintConfig {
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
     output: Option<OutputTable>,
+    format: FormatTable,
     locale: Option<String>,
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
@@ -504,6 +505,7 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
+            format: FormatTable::default(),
             locale: None,
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
@@ -845,6 +847,12 @@ impl YamlLintConfig {
         self.output.as_ref()
     }
 
+    /// The TOML `[format]` table (empty when the config declared none).
+    #[must_use]
+    pub fn format(&self) -> &FormatTable {
+        &self.format
+    }
+
     fn from_yaml_str_with_env(
         s: &str,
         envx: Option<&dyn Env>,
@@ -898,6 +906,7 @@ impl YamlLintConfig {
         let normalized = normalize_toml_config(config);
         let mut cfg = Self {
             deprecated_keys: config.deprecated_keys(),
+            format: config.format.clone().unwrap_or_default(),
             ..Self::default()
         };
         cfg.apply_normalized_config(normalized);
