@@ -85,10 +85,10 @@ pub(crate) fn sites(buffer: &str) -> Vec<Site> {
                     sites.extend(walk.after(Indicator::Dash, dash, idx));
                 }
             }
-            TokenType::Key if span.end.index() > at && walk.char_at(at) == '?' => {
+            TokenType::Key if span.end.index() > at => {
                 sites.extend(walk.after(Indicator::Question, at, idx));
             }
-            TokenType::Value if walk.char_at(at) == ':' => {
+            TokenType::Value => {
                 sites.extend(walk.before_colon(at, idx));
                 sites.extend(walk.after(Indicator::Colon, at, idx));
             }
@@ -207,12 +207,10 @@ impl Walk<'_> {
         Some(site)
     }
 
-    /// Whether the node after token `idx`, past its properties, is a block collection
-    /// opening on `line` with content on a later one.
+    /// Whether the node after token `idx` is a block collection opening on `line` with
+    /// content on a later one.
     fn opens_multiline_collection(&self, idx: usize, line: usize) -> bool {
-        let mut rest = self.tokens[idx + 1..].iter().skip_while(|(_, token)| {
-            matches!(token, TokenType::Anchor(_) | TokenType::Tag(..))
-        });
+        let mut rest = self.tokens[idx + 1..].iter();
         let opens = rest.next().is_some_and(|(span, token)| {
             span.start.line() == line
                 && matches!(
