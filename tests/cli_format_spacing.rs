@@ -53,6 +53,10 @@ fn format_check_fails_only_on_what_it_would_change() {
     assert!(stderr.contains("hyphens not fixed"), "{stderr}");
     let (code, stderr, _) = run_on(DIRTY, &["format", "--check"]);
     assert_eq!(code, 1, "{stderr}");
+    let disabled =
+        COMPACT.replace("a: 1", "a: 1  # yamllint disable-line rule:hyphens");
+    let (_, stderr, _) = run_on(&disabled, &["format", "--check"]);
+    assert!(!stderr.contains("hyphens not fixed"), "{stderr}");
 }
 
 #[test]
@@ -77,4 +81,18 @@ fn notices_count_lines_in_the_file_each_mode_leaves() {
     let (_, stderr, formatted) = run_on(input, &["format"]);
     assert_eq!(formatted, format!("---\n{input}"));
     assert!(stderr.contains("a.yaml:2:4 hyphens not fixed"), "{stderr}");
+}
+
+#[test]
+fn markdown_notices_count_lines_in_the_unchanged_host() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[files]\nmarkdown = ['*.md']\n",
+    )
+    .unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "```yaml\nk:\n\n\n\n-   x: 1\n    y: 2\n```\n").unwrap();
+    let (_, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
+    assert!(stderr.contains("doc.md:6:4 hyphens not fixed"), "{stderr}");
 }
