@@ -28,9 +28,9 @@ impl Fold {
     }
 }
 
-/// `buffer` with each over-long line of a block plain scalar split at single spaces, or
-/// `None` when nothing folds. A line `line-length` is disabled on stays whole, as does one
-/// ending in a directive comment, which a fold would move to another line.
+/// `buffer` with each over-long line of a plain or quoted scalar in block context split
+/// at single spaces, or `None` when nothing folds. A line `line-length` is disabled on
+/// stays whole, as does one ending in a directive comment, which a fold would move.
 #[must_use]
 pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
     let directives = Directives::parse(buffer);
@@ -46,14 +46,18 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
         |offset: usize| lines.partition_point(|(start, _)| *start <= offset) - 1;
     let newline = buffer_newline(buffer);
     let mut edits = Vec::new();
-    for (span, owner) in foldable_scalars(buffer) {
+    for (span, owner, style) in foldable_scalars(buffer) {
+        // granit rejects a quoted mapping value continued one column past its key.
+        let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
         let (first, last) = (line_of(span.start), line_of(span.end - 1));
         let indent = lines[first + 1..=last]
             .iter()
             .find(|(_, text)| !text.trim().is_empty())
             .map(|(_, text)| text.len() - text.trim_start_matches(' ').len())
             .filter(|spaces| *spaces > 0)
-            .unwrap_or_else(|| owner.unwrap_or(0) + usize::from(cfg.indent));
+            .unwrap_or_else(|| {
+                owner.unwrap_or(0) + usize::from(cfg.indent).max(min_step)
+            });
         let continuation = format!("{newline}{}", " ".repeat(indent));
         for (index, (start, text)) in
             lines.iter().enumerate().take(last + 1).skip(first)
@@ -67,7 +71,13 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
             {
                 continue;
             }
-            for space in breaks(text, &scalar, indent, usize::from(cfg.width)) {
+            for space in breaks(
+                text,
+                &scalar,
+                style == ScalarStyle::DoubleQuoted,
+                indent,
+                usize::from(cfg.width),
+            ) {
                 edits.push((
                     BytePos::new(start + space),
                     BytePos::new(start + space + 1),
@@ -79,9 +89,10 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
     (!edits.is_empty()).then(|| apply_replacements(buffer, edits))
 }
 
-/// Each block-context plain scalar that is not a key, with the column of the collection
-/// that owns it (`None` at the document root).
-fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>)> {
+/// The content (inside any quotes) of each block-context plain or quoted scalar that is not
+/// a key, with the column of the collection that owns it (`None` at the document root)
+/// and its style.
+fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>, ScalarStyle)> {
     let mut blocks = Vec::new();
     let mut flow = 0usize;
     let mut owner = None;
@@ -112,12 +123,16 @@ fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>)> {
                 flow = flow.saturating_sub(1);
                 None
             }
-            TokenType::Scalar(ScalarStyle::Plain, _) if flow == 0 => {
-                if let Some(owner) = owner {
+            TokenType::Scalar(style, _) if flow == 0 => {
+                let quotes = usize::from(style != ScalarStyle::Plain);
+                if let Some(owner) = owner
+                    && !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+                {
                     scalars.push((
-                        marker_byte_offset(span.start).get()
-                            ..marker_byte_offset(span.end).get(),
+                        marker_byte_offset(span.start).get() + quotes
+                            ..marker_byte_offset(span.end).get() - quotes,
                         owner,
+                        style,
                     ));
                 }
                 None
@@ -130,10 +145,12 @@ fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>)> {
 
 /// The byte offsets in `line` of the spaces to break at so each piece fits `width` chars
 /// where it can, each continuation starting at column `indent`. A break is a lone space
-/// inside `scalar` (a byte range of `line`) and must shorten the line it splits.
+/// inside `scalar` (a byte range of `line`), not escaped by an odd run of `\` when
+/// `escapes`, and must shorten the line it splits.
 fn breaks(
     line: &str,
     scalar: &Range<usize>,
+    escapes: bool,
     indent: usize,
     width: usize,
 ) -> Vec<usize> {
@@ -146,8 +163,18 @@ fn breaks(
             window[1].1 == ' '
                 && !left.is_whitespace()
                 && !right.is_whitespace()
+                // `comments-indentation` re-indents a `#`-led line even in a quoted scalar (#525).
+                && right != '#'
                 && scalar.contains(&before)
                 && scalar.contains(&after)
+                && !(escapes
+                    && line[..window[1].0]
+                        .bytes()
+                        .rev()
+                        .take_while(|byte| *byte == b'\\')
+                        .count()
+                        % 2
+                        == 1)
         })
         .map(|(column, window)| (window[1].0, column + 1))
         .collect();

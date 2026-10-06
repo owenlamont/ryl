@@ -1,8 +1,8 @@
-//! Documents built to be folded: multi-word plain scalars in every block position (mapping
-//! value, sequence entry, compact `- key:`, nested sequence, root), beside the multi-word
-//! keys, flow collections and explicit keys a fold must leave alone. Words after the first
-//! start with YAML indicators, `---`/`...` or multibyte characters, and are joined by
-//! spaces, double spaces, tabs or no-break spaces.
+//! Documents built to be folded: multi-word plain and quoted scalars in every block
+//! position (mapping value, sequence entry, compact `- key:`, nested sequence, root),
+//! beside the multi-word keys, flow collections and explicit keys a fold must leave alone.
+//! Words after the first start with YAML indicators, `---`/`...`, escapes, `''` or
+//! multibyte characters, and are joined by spaces, double spaces, tabs or no-break spaces.
 //!
 //! Two oracles that need no YAML parser's leniency: `inserted_breaks` proves the output is
 //! the input with lone spaces turned into indented line breaks and no line grown, and
@@ -43,6 +43,33 @@ const WORDS: [&str; 26] = [
     "x#",
 ];
 
+const SINGLE_QUOTED_WORDS: [&str; 10] = [
+    "aaa",
+    "bbbbbbbbbb",
+    "it''s",
+    "''",
+    "#x",
+    "-",
+    "---",
+    ":",
+    "\"x\"",
+    "\\",
+];
+
+const DOUBLE_QUOTED_WORDS: [&str; 11] = [
+    "aaa",
+    "bbbbbbbbbb",
+    "x\\ y",
+    "\\t",
+    "\\\\",
+    "\\\"",
+    "\\u00e9",
+    "#x",
+    "'x'",
+    "---",
+    ":",
+];
+
 const SEPARATORS: [&str; 8] = [" ", " ", " ", " ", "  ", "\t", " \t", "\u{a0}"];
 
 fn arb_words(words: &'static [&'static str]) -> impl Strategy<Value = String> {
@@ -65,6 +92,14 @@ fn arb_words(words: &'static [&'static str]) -> impl Strategy<Value = String> {
 }
 
 fn arb_value() -> impl Strategy<Value = String> {
+    prop_oneof![
+        3 => arb_plain(),
+        1 => arb_words(&SINGLE_QUOTED_WORDS).prop_map(|text| format!("'{text}'")),
+        1 => arb_words(&DOUBLE_QUOTED_WORDS).prop_map(|text| format!("\"{text}\"")),
+    ]
+}
+
+fn arb_plain() -> impl Strategy<Value = String> {
     arb_words(&WORDS)
 }
 
@@ -81,14 +116,16 @@ fn arb_comment() -> impl Strategy<Value = String> {
 fn arb_entry() -> impl Strategy<Value = String> {
     prop_oneof![
         4 => (arb_value(), arb_comment()).prop_map(|(value, comment)| format!(": {value}{comment}")),
-        1 => (arb_value(), arb_value(), prop_oneof![Just(2), Just(4)])
+        1 => (arb_plain(), arb_plain(), prop_oneof![Just(2), Just(4)])
             .prop_map(|(first, next, indent)| {
                 format!(": {first}\n{}{next}", " ".repeat(indent))
             }),
+        1 => (arb_flow_safe(), arb_flow_safe(), prop_oneof![Just("'"), Just("\"")])
+            .prop_map(|(first, next, quote)| format!(": {quote}{first}\n   {next}{quote}")),
         1 => (arb_value(), arb_value()).prop_map(|(a, b)| format!(":\n  nested: {a}\n  other: {b}")),
         1 => (arb_value(), arb_value()).prop_map(|(a, b)| format!(":\n- {a}\n- inner: {b}")),
         1 => (arb_flow_safe(), arb_flow_safe())
-            .prop_map(|(a, b)| format!(": [{a}, {b}]")),
+            .prop_map(|(a, b)| format!(": [{a}, '{b}']")),
         1 => arb_flow_safe().prop_map(|a| format!(": {{x: {a}}}")),
     ]
 }
@@ -96,7 +133,11 @@ fn arb_entry() -> impl Strategy<Value = String> {
 fn arb_mapping() -> impl Strategy<Value = String> {
     prop::collection::vec(
         (
-            prop_oneof![3 => Just(None), 1 => arb_flow_safe().prop_map(Some)],
+            prop_oneof![
+                3 => Just(None),
+                1 => (arb_flow_safe(), prop_oneof![Just(""), Just("'"), Just("\"")])
+                    .prop_map(Some),
+            ],
             arb_entry(),
         ),
         1..=4,
@@ -106,7 +147,7 @@ fn arb_mapping() -> impl Strategy<Value = String> {
             .into_iter()
             .enumerate()
             .map(|(index, (key, entry))| match key {
-                Some(key) => format!("{key} {index}{entry}\n"),
+                Some((key, quote)) => format!("{quote}{key} {index}{quote}{entry}\n"),
                 None => format!("k{index}{entry}\n"),
             })
             .collect()

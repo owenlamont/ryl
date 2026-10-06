@@ -2,8 +2,10 @@
 //! to its input's value. Where `expected` is the corpus's folded candidate, play.yaml.com's
 //! reference parser also read it as the input's events (U1 unchecked: the playground
 //! mangles UTF-8). The other rows' candidates the reference parser rejected (P6, P7, P12c,
-//! C1b), read differently (P2, P12b, P13, U2), or are folds `ryl format` never makes: in
-//! flow collections, in keys, or to a column-0 root continuation (P12).
+//! C1b, S2, S5c, C2b, D5), read differently (P2, P12b, P13, U2, S3, D7, D8), or are folds
+//! `ryl format` never makes: in flow collections or keys, to a column-0 root continuation
+//! (P12), beside a quote (C3), with an escaped line break (D2), or to a `#`-led
+//! continuation (S5), which `comments-indentation` would re-indent.
 
 use std::path::Path;
 
@@ -22,7 +24,7 @@ fn fold(input: &str, width: u16, indent: u8) -> String {
     format_str(input, &cfg, Path::new("golden.yaml"), &others)
 }
 
-const CASES: [(&str, &str, u16, u8, &str); 34] = [
+const CASES: [(&str, &str, u16, u8, &str); 57] = [
     ("P1", "key: aaa bbb ccc\n", 12, 2, "key: aaa bbb\n  ccc\n"),
     ("P2", "key: aaa  bbb\n", 8, 2, "key: aaa  bbb\n"),
     ("P4p", "key: aaa --- bbb\n", 9, 2, "key: aaa\n  --- bbb\n"),
@@ -103,8 +105,61 @@ const CASES: [(&str, &str, u16, u8, &str); 34] = [
     ("C5", "key: aaa bbb\r\n", 8, 2, "key: aaa\r\n  bbb\r\n"),
     ("U1", "key: 世界 世界\n", 7, 2, "key: 世界\n  世界\n"),
     ("U2", "key: aaa\u{a0}bbb\n", 8, 2, "key: aaa\u{a0}bbb\n"),
-    ("quoted", "key: 'aaa bbb'\n", 9, 2, "key: 'aaa bbb'\n"),
     ("literal", "k: |\n  aaa bbb\n", 4, 2, "k: |\n  aaa bbb\n"),
+    ("S1", "key: 'aaa bbb'\n", 9, 2, "key: 'aaa\n  bbb'\n"),
+    (
+        "S1-indent-1",
+        "key: 'aaa bbb'\n",
+        9,
+        1,
+        "key: 'aaa\n  bbb'\n",
+    ),
+    (
+        "S2",
+        "a:\n  k: 'aaa bbb'\n",
+        9,
+        2,
+        "a:\n  k: 'aaa\n    bbb'\n",
+    ),
+    ("S3", "key: 'aaa  bbb'\n", 9, 2, "key: 'aaa  bbb'\n"),
+    ("S4", "key: 'it''s a b'\n", 11, 2, "key: 'it''s\n  a b'\n"),
+    ("S5", "key: 'aaa #bbb'\n", 9, 2, "key: 'aaa #bbb'\n"),
+    ("S5b", "key: 'aaa - bbb'\n", 9, 2, "key: 'aaa\n  - bbb'\n"),
+    ("S5c", "'aaa --- bbb'\n", 4, 2, "'aaa\n  ---\n  bbb'\n"),
+    ("S6", "'aaa bbb': c\n", 4, 2, "'aaa bbb': c\n"),
+    (
+        "S7",
+        "key: 'aaa bbb' # n\n",
+        9,
+        2,
+        "key: 'aaa\n  bbb' # n\n",
+    ),
+    ("S-seq", "- 'aaa bbb'\n", 6, 1, "- 'aaa\n  bbb'\n"),
+    ("S-flow", "k: ['aaa bbb']\n", 4, 2, "k: ['aaa bbb']\n"),
+    (
+        "S-multiline",
+        "key: 'aaa\n   bbb ccc'\n",
+        8,
+        2,
+        "key: 'aaa\n   bbb\n   ccc'\n",
+    ),
+    ("D1", "key: \"aaa bbb\"\n", 9, 2, "key: \"aaa\n  bbb\"\n"),
+    ("D2", "key: \"aaabbb\"\n", 9, 2, "key: \"aaabbb\"\n"),
+    ("D5", "key: \"a\\u00e9b\"\n", 9, 2, "key: \"a\\u00e9b\"\n"),
+    ("D6", "key: \"a\\t b\"\n", 9, 2, "key: \"a\\t\n  b\"\n"),
+    ("D7", "key: \"a\\ b\"\n", 8, 2, "key: \"a\\ b\"\n"),
+    (
+        "D7-even",
+        "key: \"a\\\\ b\"\n",
+        9,
+        2,
+        "key: \"a\\\\\n  b\"\n",
+    ),
+    ("D8", "key: \"aaa  bbb\"\n", 9, 2, "key: \"aaa  bbb\"\n"),
+    ("D9", "\"aaa bbb\": c\n", 4, 2, "\"aaa bbb\": c\n"),
+    ("C2", "- key: 'aaa bbb'\n", 11, 2, "- key: 'aaa\n    bbb'\n"),
+    ("C3", "key: 'aaa '\n", 9, 2, "key: 'aaa '\n"),
+    ("C4", "key: \"a \\tb\"\n", 7, 2, "key: \"a\n  \\tb\"\n"),
 ];
 
 const CONTINUATION_WORDS: [&str; 17] = [
