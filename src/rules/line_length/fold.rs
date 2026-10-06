@@ -137,14 +137,12 @@ fn breaks(
         .windows(3)
         .enumerate()
         .filter(|(_, window)| {
-            let [(before, left), (_, space), (after, right)] = window else {
-                unreachable!("windows(3) yields three chars");
-            };
-            *space == ' '
+            let ((before, left), (after, right)) = (window[0], window[2]);
+            window[1].1 == ' '
                 && !left.is_whitespace()
                 && !right.is_whitespace()
-                && scalar.contains(before)
-                && *after < scalar.end
+                && scalar.contains(&before)
+                && after < scalar.end
         })
         .map(|(column, window)| (window[1].0, column + 1))
         .collect();
