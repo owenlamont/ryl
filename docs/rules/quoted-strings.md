@@ -109,8 +109,9 @@ ambiguous barewords and keep `quoted-strings` off.
 A document that declares `%YAML 1.1` is resolved as YAML 1.1, so ryl keeps
 the quotes on these barewords (and on 1.1 integers, sexagesimals, and
 timestamps) and `--fix` leaves them in place &mdash; stripping them would
-change the value for a 1.1 consumer. See
-[YAML version compatibility](../yaml-version.md) for more context.
+change the value for a 1.1 consumer. `ryl format` keeps those quotes whatever
+the directive. See [YAML version compatibility](../yaml-version.md) for more
+context.
 
 ## Related rules
 

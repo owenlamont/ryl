@@ -14,7 +14,7 @@ use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
 use crate::rules::support::yaml_version::{
-    Version, event_version, keeps_quotes_under_yaml_1_1,
+    Version, event_version, resolves_as_yaml_1_1, resolves_to_nonstring_in_yaml_1_1,
 };
 use crate::yaml_dom::{Scalar, is_core_schema, is_core_schema_int_spelling};
 
@@ -90,6 +90,16 @@ pub struct Config {
     allow_quoted_quotes: bool,
     allow_double_quotes_for_escaping: bool,
     pub check_keys: bool,
+    value_readers: ValueReaders,
+}
+
+/// The readers for whom unquoting must preserve a scalar's value.
+#[derive(Debug, Clone, Copy)]
+enum ValueReaders {
+    /// Those honouring the document's `%YAML` directive (1.2 core when absent).
+    DeclaredVersion,
+    /// YAML 1.1 readers such as `PyYAML` too, whatever the directive.
+    AlsoYaml1_1,
 }
 
 impl Config {
@@ -174,6 +184,7 @@ impl Config {
             allow_quoted_quotes,
             allow_double_quotes_for_escaping,
             check_keys,
+            value_readers: ValueReaders::DeclaredVersion,
         }
     }
 
@@ -188,8 +199,8 @@ impl Config {
         self
     }
 
-    /// Quotes only where the plain scalar would differ, in `style` unless escapes need
-    /// double quotes; keys included.
+    /// Quotes only where the plain scalar would differ under YAML 1.2 core or YAML 1.1,
+    /// in `style` unless escapes need double quotes; keys included.
     #[must_use]
     pub const fn ladder(style: QuoteStyle) -> Self {
         let (quote_type, quote_type_label) = match style {
@@ -205,6 +216,7 @@ impl Config {
             allow_quoted_quotes: false,
             allow_double_quotes_for_escaping: true,
             check_keys: true,
+            value_readers: ValueReaders::AlsoYaml1_1,
         }
     }
 }
@@ -329,7 +341,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
         let context = self.walker.begin_node();
         let active_key = context.active();
         let resolves_to_string =
-            resolves_to_string_for_version(self.current_version, value);
+            resolves_to_string_for_version(self.config, self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
@@ -509,10 +521,18 @@ fn build_violation(span: Span, message: String) -> Violation {
 }
 
 /// Whether the scalar resolves to a string under the document's effective version. A
-/// value YAML 1.1 reads as a non-string (under an explicit `%YAML 1.1`) is not a string,
-/// so a plain one is left alone and a quoted one keeps its load-bearing quotes.
-fn resolves_to_string_for_version(version: Option<Version>, value: &str) -> bool {
-    value_resolves_to_string(value) && !keeps_quotes_under_yaml_1_1(version, value)
+/// value YAML 1.1 reads as a non-string (under an explicit `%YAML 1.1`, or always for
+/// the format ladder) is not a string, so a plain one is left alone and a quoted one
+/// keeps its load-bearing quotes.
+fn resolves_to_string_for_version(
+    config: &Config,
+    version: Option<Version>,
+    value: &str,
+) -> bool {
+    let yaml_1_1 = matches!(config.value_readers, ValueReaders::AlsoYaml1_1)
+        || resolves_as_yaml_1_1(version);
+    value_resolves_to_string(value)
+        && !(yaml_1_1 && resolves_to_nonstring_in_yaml_1_1(value))
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
@@ -979,7 +999,7 @@ impl<'cfg> FixState<'cfg> {
         let context = self.walker.begin_node();
         let active_key = context.active();
         let resolves_to_string =
-            resolves_to_string_for_version(self.current_version, value);
+            resolves_to_string_for_version(self.config, self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
@@ -1002,7 +1022,7 @@ impl<'cfg> FixState<'cfg> {
         let context = self.walker.begin_node();
         let active_key = context.active();
         let resolves_to_string =
-            resolves_to_string_for_version(self.current_version, value);
+            resolves_to_string_for_version(self.config, self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);

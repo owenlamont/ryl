@@ -43,6 +43,10 @@ flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 The `truthy` fix only re-cases `True`/`FALSE` and the like, which are the
 same boolean under both versions.
 
+`ryl format` is stricter: whatever the directive, it keeps the quotes on any
+scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'1_000'`), so its
+output means the same to a 1.1 consumer such as PyYAML.
+
 ## What is different in YAML 1.2
 
 | Literal | YAML 1.1 | YAML 1.2 |

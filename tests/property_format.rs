@@ -1,9 +1,10 @@
 //! The formatter's guarantee as properties: every pass in `passes::format_passes` must be
 //! idempotent, parse-preserving, value-preserving at the representation level (tags,
 //! aliases, duplicate keys and entry order included, resolved against the declared YAML
-//! version), and must keep every comment beside its node and every anchor and alias name.
-//! Folding also keeps the two parser-independent properties in `fold`: only lone spaces
-//! become line breaks, and every continuation is deeper than its scalar's owner.
+//! version, and for `ryl format` under YAML 1.1 too), and must keep every comment beside
+//! its node and every anchor and alias name. Folding also keeps the two
+//! parser-independent properties in `fold`: only lone spaces become line breaks, and
+//! every continuation is deeper than its scalar's owner.
 //!
 //! The generator layers anchors, aliases and tags (`properties`) over the fix-convergence
 //! suite's stacked documents. Deterministic tests pin the quote ladder, show the oracle
@@ -45,7 +46,7 @@ use passes::{
     named_pass, yaml_rules_for,
 };
 use properties::arb_document_with_properties;
-use representation::{annotations, representation};
+use representation::{annotations, representation, yaml_1_1_representation};
 
 fn check_invariants(
     format: &dyn Fn(&str) -> String,
@@ -75,8 +76,32 @@ fn check_invariants(
     Ok(())
 }
 
+fn check_yaml_1_1_values(
+    format: &dyn Fn(&str) -> String,
+    input: &str,
+) -> Result<(), String> {
+    let once = format(input);
+    let (before, after) = (
+        yaml_1_1_representation(input),
+        yaml_1_1_representation(&once),
+    );
+    if before != after {
+        return Err(format!(
+            "yaml-1.1 value-preservation: output {once:?}; before {before:?}; after {after:?}"
+        ));
+    }
+    Ok(())
+}
+
 fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
     check_invariants(&pass.format, input)
+        .and_then(|()| {
+            if pass.keeps_yaml_1_1_values {
+                check_yaml_1_1_values(&pass.format, input)
+            } else {
+                Ok(())
+            }
+        })
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
@@ -178,7 +203,6 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
         ("k: '011'\n", "\nk: '011'\n"),
         ("k: 'true'\n", "\nk: 'true'\n"),
         ("k: \"a: b\"\n", "\nk: 'a: b'\n"),
-        ("%YAML 1.2\n---\nk: 'no'\n", "\nk: no\n"),
         ("%YAML 1.1\n---\nk: 'no'\n", "\nk: 'no'\n"),
         ("%YAML 1.1\n---\nk: '0b101'\n", "\nk: '0b101'\n"),
     ];
@@ -190,6 +214,55 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
             assert!(
                 output.contains(expected),
                 "pass '{pass_name}' on {input:?} must emit {expected:?}, got {output:?}"
+            );
+        }
+    }
+}
+
+/// Unlike `--fix`, which follows the document's version, the formatter keeps quotes any
+/// YAML 1.1 reader needs, so its output means the same to PyYAML and Docker Compose.
+#[test]
+fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
+    let pass = named_pass("format/default");
+    let kept = [
+        "no",
+        "Yes",
+        "ON",
+        "off",
+        "y",
+        "N",
+        "0b101",
+        "1_000",
+        "1:20",
+        "190:20:30.15",
+        "2001-12-14",
+        "<<",
+        "=",
+    ];
+    for prelude in ["", "%YAML 1.2\n---\n"] {
+        for value in kept {
+            for (input, expected) in [
+                (
+                    format!("{prelude}k: \"{value}\"\n"),
+                    format!("\nk: '{value}'\n"),
+                ),
+                (
+                    format!("{prelude}\"{value}\": 1\n"),
+                    format!("\n'{value}': 1\n"),
+                ),
+            ] {
+                let output = (pass.format)(&input);
+                assert!(
+                    output.contains(&expected),
+                    "{input:?} must emit {expected:?}, got {output:?}"
+                );
+            }
+        }
+        for value in ["_", "1.2.3"] {
+            let output = (pass.format)(&format!("{prelude}k: '{value}'\n"));
+            assert!(
+                output.contains(&format!("\nk: {value}\n")),
+                "'{value}' is a string to every reader, got {output:?}"
             );
         }
     }
@@ -301,6 +374,21 @@ fn representation_tells_apart_what_value_preservation_forbids() {
             "{left:?} and {right:?} must differ"
         );
     }
+}
+
+#[test]
+fn a_pass_unquoting_a_yaml_1_1_boolean_fails_only_the_yaml_1_1_check() {
+    let input = "k: 'no'\n";
+    let unquote = |s: &str| s.replace("'no'", "no");
+    check_invariants(&unquote, input).expect("`no` is the same string under YAML 1.2");
+    let violation = check_yaml_1_1_values(&unquote, input)
+        .expect_err("`no` is a boolean to a YAML 1.1 reader");
+    assert!(
+        violation.starts_with("yaml-1.1 value-preservation"),
+        "{violation}"
+    );
+    check_yaml_1_1_values(&|s: &str| s.replace("'x'", "x"), "k: 'x'\n")
+        .expect("`x` is a string to every reader");
 }
 
 #[test]

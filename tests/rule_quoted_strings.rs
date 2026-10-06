@@ -847,12 +847,14 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
 #[test]
 fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
     let cfg = only_when_needed();
-    let input = "%YAML 1.1\n---\nkey: 'hello'\n";
-    assert_eq!(quoted_strings::check(input, &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix(input, &cfg).as_deref(),
-        Some("%YAML 1.1\n---\nkey: hello\n"),
-    );
+    for value in ["hello", "_", "_1", "1.2.3"] {
+        let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
+        assert_eq!(quoted_strings::check(&input, &cfg).len(), 1, "{input:?}");
+        assert_eq!(
+            quoted_strings::fix(&input, &cfg),
+            Some(format!("%YAML 1.1\n---\nkey: {value}\n")),
+        );
+    }
 }
 
 #[test]
