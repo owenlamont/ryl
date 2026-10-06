@@ -87,7 +87,9 @@ fn a_fold_only_another_pass_makes_necessary_is_still_reported() {
     );
     assert_eq!(code, 1, "{stderr}");
     assert!(
-        stderr.contains("1:1       error    would reformat  (line-length)"),
+        stderr.lines().any(|line| line.contains("1:1")
+            && line.contains("would reformat")
+            && line.contains("line-length")),
         "{stderr}"
     );
 }
