@@ -28,7 +28,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(present: bool) -> Self {
+    pub const fn new(present: bool) -> Self {
         Self { present }
     }
 

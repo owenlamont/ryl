@@ -103,7 +103,7 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
         ("%YAML 1.1\n---\nk: 'no'\n", "\nk: 'no'\n"),
         ("%YAML 1.1\n---\nk: '0b101'\n", "\nk: '0b101'\n"),
     ];
-    for pass_name in ["fix/best-practice", "fix/ladder-toml"] {
+    for pass_name in ["fix/best-practice", "format/default"] {
         let pass = named_pass(pass_name);
         for (input, expected) in cases {
             check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
@@ -118,7 +118,7 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
 
 #[test]
 fn quote_ladder_escalates_to_double_only_for_escapes() {
-    let pass = named_pass("fix/ladder-toml");
+    let pass = named_pass("format/default");
     for (input, expected) in [
         ("k: \"line\\n\"\n", "\nk: \"line\\n\"\n"),
         ("k: \"tab\\there\"\n", "\nk: \"tab\\there\"\n"),
@@ -130,6 +130,32 @@ fn quote_ladder_escalates_to_double_only_for_escapes() {
             "{input:?} must emit {expected:?}, got {output:?}"
         );
     }
+}
+
+#[test]
+fn quote_ladder_applies_to_keys() {
+    let pass = named_pass("format/default");
+    for (input, expected) in [
+        ("'k': 1\n", "\nk: 1\n"),
+        ("\"k\": 1\n", "\nk: 1\n"),
+        ("\"a: b\": 1\n", "\n'a: b': 1\n"),
+        ("%YAML 1.1\n---\n'no': 1\n", "\n'no': 1\n"),
+    ] {
+        check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
+        let output = (pass.format)(input);
+        assert!(
+            output.contains(expected),
+            "{input:?} must emit {expected:?}, got {output:?}"
+        );
+    }
+}
+
+#[test]
+fn the_suite_covers_exactly_the_formatter_rules() {
+    assert_eq!(
+        BTreeSet::from(FORMAT_OWNED_RULES),
+        BTreeSet::from(ryl::format::FORMAT_RULE_IDS)
+    );
 }
 
 #[test]

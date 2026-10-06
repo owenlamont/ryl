@@ -111,7 +111,29 @@
     },
     "FormatTable": {
       "additionalProperties": false,
-      "description": "The `[format]` table.",
+      "description": "The `[format]` table: `ryl format`'s targets.",
+      "properties": {
+        "document-end": {
+          "$ref": "#/$defs/MarkerTarget",
+          "default": "preserve",
+          "description": "Whether to add a missing `...` document end marker."
+        },
+        "document-start": {
+          "$ref": "#/$defs/MarkerTarget",
+          "default": "add",
+          "description": "Whether to add a missing `---` document start marker."
+        },
+        "line-ending": {
+          "$ref": "#/$defs/LineEndingTarget",
+          "default": "lf",
+          "description": "Line ending; `native` is the platform's."
+        },
+        "quote-style": {
+          "$ref": "#/$defs/QuoteStyleTarget",
+          "default": "single",
+          "description": "Preferred quote for strings that need quoting; `preserve` leaves quoting alone."
+        }
+      },
       "type": "object"
     },
     "IndentSequencesMode": {
@@ -169,6 +191,14 @@
         "keys"
       ],
       "type": "object"
+    },
+    "LineEndingTarget": {
+      "enum": [
+        "lf",
+        "cr-lf",
+        "native"
+      ],
+      "type": "string"
     },
     "LintTable": {
       "additionalProperties": false,
@@ -251,6 +281,13 @@
         }
       },
       "type": "object"
+    },
+    "MarkerTarget": {
+      "enum": [
+        "add",
+        "preserve"
+      ],
+      "type": "string"
     },
     "NewLinesType": {
       "enum": [
@@ -384,6 +421,14 @@
         "rules"
       ],
       "type": "object"
+    },
+    "QuoteStyleTarget": {
+      "enum": [
+        "single",
+        "double",
+        "preserve"
+      ],
+      "type": "string"
     },
     "QuoteType": {
       "enum": [

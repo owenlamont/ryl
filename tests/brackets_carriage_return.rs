@@ -1,7 +1,7 @@
 use ryl::rules::brackets::{Config, Forbid, check};
 
 fn config(forbid: Forbid) -> Config {
-    Config::new_for_tests(forbid, 0, 0, -1, -1)
+    Config::new(forbid, 0, 0, -1, -1)
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn brackets_comment_newline_is_ignored() {
 
 #[test]
 fn brackets_non_scalar_marks_sequence_non_empty() {
-    let cfg = Config::new_for_tests(Forbid::NonEmpty, 0, 0, -1, -1);
+    let cfg = Config::new(Forbid::NonEmpty, 0, 0, -1, -1);
     let diagnostics = check("[ value ]", &cfg);
     assert!(
         diagnostics
@@ -47,7 +47,7 @@ fn brackets_non_scalar_marks_sequence_non_empty() {
 
 #[test]
 fn brackets_records_spacing_after_open() {
-    let cfg = Config::new_for_tests(Forbid::None, 1, 1, -1, -1);
+    let cfg = Config::new(Forbid::None, 1, 1, -1, -1);
     let diagnostics = check("[value]", &cfg);
     assert!(
         diagnostics
@@ -58,7 +58,7 @@ fn brackets_records_spacing_after_open() {
 
 #[test]
 fn brackets_records_spacing_too_many() {
-    let cfg = Config::new_for_tests(Forbid::None, -1, 0, -1, -1);
+    let cfg = Config::new(Forbid::None, -1, 0, -1, -1);
     let diagnostics = check("[  value]", &cfg);
     assert!(
         diagnostics
@@ -81,7 +81,7 @@ fn brackets_unmatched_closing_is_ignored() {
 
 #[test]
 fn brackets_plain_character_marks_sequence_non_empty() {
-    let cfg = Config::new_for_tests(Forbid::NonEmpty, 0, 0, -1, -1);
+    let cfg = Config::new(Forbid::NonEmpty, 0, 0, -1, -1);
     let diagnostics = check("[a]", &cfg);
     assert!(
         diagnostics
@@ -104,7 +104,7 @@ fn brackets_truncated_sequence_skips_spacing_checks() {
 
 #[test]
 fn brackets_brace_content_marks_sequence_non_empty() {
-    let cfg = Config::new_for_tests(Forbid::NonEmpty, 0, 0, -1, -1);
+    let cfg = Config::new(Forbid::NonEmpty, 0, 0, -1, -1);
     let diagnostics = check("[{key: 1}]", &cfg);
     assert!(
         diagnostics

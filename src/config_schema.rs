@@ -71,10 +71,53 @@ pub struct LintTable {
     pub per_line_ignores: Option<Vec<PerLineIgnore>>,
 }
 
-/// The `[format]` table.
-#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct FormatTable {}
+/// The `[format]` table: `ryl format`'s targets.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields, default, rename_all = "kebab-case")]
+pub struct FormatTable {
+    /// Preferred quote for strings that need quoting; `preserve` leaves quoting alone.
+    pub quote_style: QuoteStyleTarget,
+    /// Line ending; `native` is the platform's.
+    pub line_ending: LineEndingTarget,
+    /// Whether to add a missing `---` document start marker.
+    pub document_start: MarkerTarget,
+    /// Whether to add a missing `...` document end marker.
+    pub document_end: MarkerTarget,
+}
+
+impl Default for FormatTable {
+    fn default() -> Self {
+        Self {
+            quote_style: QuoteStyleTarget::Single,
+            line_ending: LineEndingTarget::Lf,
+            document_start: MarkerTarget::Add,
+            document_end: MarkerTarget::Preserve,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum QuoteStyleTarget {
+    Single,
+    Double,
+    Preserve,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum LineEndingTarget {
+    Lf,
+    CrLf,
+    Native,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerTarget {
+    Add,
+    Preserve,
+}
 
 pub type TomlRulesTable = RulesTable<
     TomlQuotedStringsOptions,

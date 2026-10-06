@@ -29,7 +29,7 @@ enum QuoteType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum QuoteStyle {
+pub enum QuoteStyle {
     Single,
     Double,
 }
@@ -178,9 +178,34 @@ impl Config {
     }
 
     #[must_use]
+    pub fn has_extra_required(&self) -> bool {
+        !self.extra_required.is_empty()
+    }
+
+    #[must_use]
     pub fn with_allow_double_quotes_for_escaping(mut self, value: bool) -> Self {
         self.allow_double_quotes_for_escaping = value;
         self
+    }
+
+    /// Quotes only where the plain scalar would differ, in `style` unless escapes need
+    /// double quotes; keys included.
+    #[must_use]
+    pub const fn ladder(style: QuoteStyle) -> Self {
+        let (quote_type, quote_type_label) = match style {
+            QuoteStyle::Single => (QuoteType::Single, "single"),
+            QuoteStyle::Double => (QuoteType::Double, "double"),
+        };
+        Self {
+            quote_type,
+            quote_type_label,
+            required: RequiredMode::OnlyWhenNeeded,
+            extra_required: Vec::new(),
+            extra_allowed: Vec::new(),
+            allow_quoted_quotes: false,
+            allow_double_quotes_for_escaping: true,
+            check_keys: true,
+        }
     }
 }
 
@@ -1005,7 +1030,7 @@ impl<'cfg> FixState<'cfg> {
         resolves_to_string: bool,
         span: Span,
     ) -> Option<Replacement> {
-        let facts = scalar_quote_facts(
+        let mut facts = scalar_quote_facts(
             self.config,
             self.buffer,
             self.in_flow(),
@@ -1014,6 +1039,15 @@ impl<'cfg> FixState<'cfg> {
             span,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
+        // A `:` straight after the closing quote and before a non-space (`{'k':v}`) is
+        // a value indicator only because the key is quoted.
+        if self.buffer[end.get()..]
+            .strip_prefix(':')
+            .and_then(|after| after.chars().next())
+            .is_some_and(|next| !next.is_whitespace())
+        {
+            facts.quotes_needed = Flag::new(true);
+        }
 
         match self.config.required {
             RequiredMode::Always => self.fix_required_always(value, facts, start, end),

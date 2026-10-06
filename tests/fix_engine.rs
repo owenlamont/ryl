@@ -371,3 +371,20 @@ fn fix_pipeline_converging_exactly_at_the_cap_reports_nothing() {
     assert_eq!(fixed, "a: 'b c'\n# x\nd: 'e'\n");
     assert_eq!(err, "");
 }
+
+#[test]
+fn an_unfixable_new_lines_still_sets_the_appended_final_newline() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint]\nunfixable = [\"new-lines\"]\n\n[lint.rules]\nnew-line-at-end-of-file = 'enable'\n\n[lint.rules.new-lines]\ntype = 'dos'\n",
+    )
+    .unwrap();
+    let ctx = discover_config(std::slice::from_ref(&file), &Overrides::default())
+        .expect("config discovers");
+
+    let fixed = apply_safe_fixes("a: 1\nb: 2", &ctx.config, &file, &ctx.base_dir);
+
+    assert_eq!(fixed, "a: 1\nb: 2\r\n");
+}

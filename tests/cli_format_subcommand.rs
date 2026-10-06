@@ -1,6 +1,6 @@
-//! `ryl format` runs no passes yet, so every mode must leave inputs byte-for-byte unchanged
-//! and exit 0, while still honouring the input, stdin, parse-skip and config plumbing it
-//! shares with `ryl check --fix`/`--diff`.
+//! `ryl format`'s input, stdin, parse-skip and config plumbing, shared with `ryl check
+//! --fix`/`--diff`: every mode leaves already-formatted and unparsable inputs byte-for-byte
+//! unchanged and exits 0.
 
 use std::fs;
 use std::io::Write;
@@ -58,7 +58,7 @@ fn check_and_diff_are_mutually_exclusive() {
 /// A `[format]`-only project config enables no lint rules, which `check` rejects; `format`
 /// must run regardless. The Markdown file routes through the embedded-region path.
 #[test]
-fn every_mode_leaves_files_unchanged_and_reports_parse_skips() {
+fn every_mode_leaves_formatted_files_unchanged_and_reports_parse_skips() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
@@ -66,8 +66,8 @@ fn every_mode_leaves_files_unchanged_and_reports_parse_skips() {
     )
     .unwrap();
     let inputs = [
-        ("a.yaml", "b:   1\na:  [1,2]\n"),
-        ("doc.md", "# Doc\n\n```yaml\nb:   1\n```\n"),
+        ("a.yaml", "---\nb: 1\na: [1, 2]\n"),
+        ("doc.md", "# Doc\n\n```yaml\nb: 1\n```\n"),
         ("bad.yaml", "a: [\n"),
     ];
     for (name, content) in inputs {
@@ -80,7 +80,7 @@ fn every_mode_leaves_files_unchanged_and_reports_parse_skips() {
     ] {
         let (code, stdout, stderr) =
             run(ryl(dir.path()).arg("format").args(mode).arg(dir.path()));
-        assert_eq!(code, 0, "{label}: no pass changes anything: {stderr}");
+        assert_eq!(code, 0, "{label}: nothing to reformat: {stderr}");
         assert!(stdout.is_empty(), "{label}: nothing to print: {stdout}");
         assert!(
             stderr.contains("bad.yaml:1:4")
@@ -101,15 +101,15 @@ fn every_mode_leaves_files_unchanged_and_reports_parse_skips() {
 fn stdin_is_echoed_to_stdout_and_check_prints_nothing() {
     let dir = tempdir().unwrap();
     let cases: [(&[&str], &str, &str, &str); 4] = [
-        (&[], "a:   1\n", "a:   1\n", ""),
-        (&[], "\u{feff}a: 1\n", "\u{feff}a: 1\n", ""),
+        (&[], "---\na: 1\n", "---\na: 1\n", ""),
+        (&[], "\u{feff}---\na: 1\n", "\u{feff}---\na: 1\n", ""),
         (
             &["--stdin-filename", "s.yaml"],
             "a: [\n",
             "a: [\n",
             "s.yaml:1:4 skipped by ryl format",
         ),
-        (&["--check"], "a:   1\n", "", ""),
+        (&["--check"], "---\na: 1\n", "", ""),
     ];
     for (args, input, expected_stdout, expected_notice) in cases {
         let (code, stdout, stderr) = run_with_stdin(

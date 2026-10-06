@@ -98,10 +98,13 @@ Failing inputs persist to the committed
 
 `tests/property_format.rs` proves the formatter's guarantee for every row of the pass
 table in `property_format/passes.rs`: idempotence, parse preservation,
-value preservation, and comment/anchor fidelity. Today each row is `apply_safe_fixes`
-under a config enabling only the 12 format-owned safe-fix rules (`FORMAT_OWNED_RULES`;
-`truthy` and `key-ordering` are lint-owned and stay out), one per quoted-strings variant
-plus a TOML row for the ryl-only ladder options.
+value preservation, and comment/anchor fidelity. The `format/*` rows run
+`ryl::format::format_str`: `format/default` (an empty `[format]` table),
+`format/quote-double`, and `format/non-defaults` (every non-default `[format]` value). The
+`fix/*` rows prove `ryl check --fix` on the same rules: `apply_safe_fixes` under a config
+enabling only the 12 format-owned safe-fix rules (`FORMAT_OWNED_RULES`, pinned equal to
+`format::FORMAT_RULE_IDS`; `truthy` and `key-ordering` are lint-owned and stay out), one
+per quoted-strings variant plus a TOML row for the ryl-only ladder options.
 
 - Value preservation compares granit's event stream (`property_format/representation.rs`),
   not loaded values: document count, node kinds, entry order, duplicate keys, explicit
@@ -110,8 +113,9 @@ plus a TOML row for the ryl-only ladder options.
   table, written independently of `quoted-strings`'.
 - Comment fidelity keys each trimmed comment to the data events before it and whether it
   is inline; anchor and alias names must survive in order.
-- The generator (`property_format/properties.rs`) adds anchors, aliases, tags and
-  escape-bearing quoted scalars to the fix-convergence stacked documents.
+- The generator (`property_format/properties.rs`) adds anchors, aliases, tags,
+  escape-bearing quoted scalars and quoted block-mapping keys to the fix-convergence
+  stacked documents.
 
 A new formatter pass, or a rule graduating to the formatter, adds its row to the pass table
 before it ships; widen the generator if it rewrites syntax the stacked documents lack.

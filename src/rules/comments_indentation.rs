@@ -41,7 +41,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(allow_any_open_indent: bool) -> Self {
+    pub const fn new(allow_any_open_indent: bool) -> Self {
         Self {
             allow_any_open_indent,
         }

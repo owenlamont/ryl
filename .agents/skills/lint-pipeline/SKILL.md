@@ -83,7 +83,7 @@ regions via `fix::suppressed_rules(kind)`.
 the original bytes exactly — a ragged region (no single shared prefix) is reported but
 left untouched. A Markdown file with a bare `\r` (CR not in CRLF) anywhere is skipped
 loudly (`markdown_has_unsupported_cr` guards `lint_markdown_str`/`fix_markdown_str`/
-`markdown_parse_skips`: lint error + `--fix`/`--diff` notice): `pulldown-cmark` can't
+`markdown_region_problems`: lint error + `--fix`/`--diff` notice): `pulldown-cmark` can't
 find fences in a `\r` host and the `\n`-based remap can't place a region `\r`. LF/CRLF
 embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 
@@ -132,3 +132,22 @@ sanitized and relativized to CWD (like ruff) so it applies via `git apply -p0`. 
 `\r` is rendered as diff *content* (`render_unified_diff` splits hunk lines on `\n`
 only), so a mid-line/mixed `\r` round-trips; content that *ends* in a bare `\r` is
 skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).
+
+## `ryl format`
+
+`ryl format` reuses the `--fix` engine (`fix::run_passes`: parse gate, `disable-file`,
+fixed-point loop, convergence report) over a `fix::Passes` value. `ryl check --fix`
+builds its `Passes` from the lint config (rule selection, per-rule `ignore`,
+per-file-ignores, `fixable`/`unfixable`, per-line-ignores); `ryl format` builds its own
+from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those, so a
+zero-config run formats. Inline directives are honoured by both. A YAML config gets the
+`[format]` defaults.
+
+- `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
+  checkers on the original text, kept only for rules that actually edited and lines no
+  directive disables, plus a `1:1 would reformat` line per editing rule that no checker
+  explained. `--check` sends them through config `[output]`; `--diff` keeps stdout for
+  the patch and uses the default target. A ragged Markdown region gets none.
+- `format::conflicts` formats a fixed probe and lints it under the file's config; each
+  enabled formatting rule that rejects the output is a stderr warning, deduplicated by
+  text across configs, silenced by `--no-warnings`, never printed by `ryl check`.

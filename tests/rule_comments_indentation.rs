@@ -5,7 +5,7 @@ fn run(input: &str) -> Vec<Violation> {
 }
 
 fn run_open(input: &str) -> Vec<Violation> {
-    comments_indentation::check(input, &Config::new_for_tests(true))
+    comments_indentation::check(input, &Config::new(true))
 }
 
 #[test]
@@ -372,10 +372,7 @@ fn allow_any_open_indent_accepts_compact_explicit_key() {
 #[test]
 fn allow_any_open_indent_fix_leaves_open_level_comment() {
     let input = "items:\n  - one\n# boundary\n  - two\n";
-    assert_eq!(
-        comments_indentation::fix(input, &Config::new_for_tests(true)),
-        None
-    );
+    assert_eq!(comments_indentation::fix(input, &Config::new(true)), None);
 }
 
 #[test]
@@ -383,7 +380,7 @@ fn allow_any_open_indent_fix_reindents_genuine_violation() {
     // A comment matching no open level is still re-indented to the reference indent.
     let input = "a:\n  b:\n    deep: 1\n  c: 2\n    # stale level\ne: 3\n";
     assert_eq!(
-        comments_indentation::fix(input, &Config::new_for_tests(true)),
+        comments_indentation::fix(input, &Config::new(true)),
         Some("a:\n  b:\n    deep: 1\n  c: 2\n  # stale level\ne: 3\n".to_string())
     );
 }

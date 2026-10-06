@@ -897,3 +897,14 @@ fn strips_yaml_1_1_words_under_explicit_yaml_1_2() {
         Some("%YAML 1.2\n---\nkey: no\n"),
     );
 }
+
+#[test]
+fn fix_keeps_quotes_on_a_key_its_colon_follows_directly() {
+    let cfg = build_config(
+        "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
+    );
+    assert_eq!(
+        quoted_strings::fix("a: {'no':a, 'b': c}\n", &cfg).as_deref(),
+        Some("a: {'no':a, b: c}\n")
+    );
+}
