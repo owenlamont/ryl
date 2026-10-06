@@ -1515,8 +1515,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             .first()
             .and_then(|(.., cfg, _)| cfg.output())
             .filter(|_| preview == Preview::Check);
+        let targets = config_or_default_targets(output_config);
+        reject_input_collisions(
+            &targets,
+            files.iter().map(|(path, ..)| path.as_path()),
+        )?;
         let stats = diff_files(&files, Rewrite::Format, preview.flag())?;
-        return emit_format_preview(&stats, preview, output_config);
+        return emit_format_preview(&stats, preview, &targets);
     }
     for (path, problem) in &rewrite_files(&files, Rewrite::Format)?.skipped {
         eprint_skip_notice(path, problem, Rewrite::Format.flag());
@@ -1531,27 +1536,29 @@ fn warn_format_conflicts<'a>(
     if args.lint.compatibility.no_warnings {
         return;
     }
-    let mut checked: Vec<&YamlLintConfig> = Vec::new();
-    let mut warned: Vec<String> = Vec::new();
+    let mut distinct: Vec<&YamlLintConfig> = Vec::new();
     for cfg in configs {
-        if checked.iter().any(|seen| std::ptr::eq(*seen, cfg)) {
-            continue;
+        if !distinct.iter().any(|seen| seen.source() == cfg.source()) {
+            distinct.push(cfg);
         }
-        checked.push(cfg);
-        for warning in ryl::format::conflicts(cfg) {
-            if !warned.contains(&warning) {
-                eprintln!("{warning}");
-                warned.push(warning);
+    }
+    for cfg in &distinct {
+        let prefix = match (distinct.len() > 1, cfg.source()) {
+            (true, Some(path)) => {
+                format!("{}: ", sanitize_control(&path.display().to_string()))
             }
+            _ => String::new(),
+        };
+        for warning in ryl::format::conflicts(cfg) {
+            eprintln!("warning: {prefix}{warning}");
         }
     }
 }
 
-/// `--check` reports through config `[output]`; `--diff` keeps stdout for the patch.
 fn emit_format_preview(
     stats: &DiffStats,
     preview: Preview,
-    config_output: Option<&OutputTable>,
+    targets: &[OutputTarget],
 ) -> Result<ExitCode, String> {
     let records: Vec<FileRecord> = stats
         .problems
@@ -1562,7 +1569,7 @@ fn emit_format_preview(
             error: None,
         })
         .collect();
-    emit_targets(&config_or_default_targets(config_output), &records)?;
+    emit_targets(targets, &records)?;
     Ok(emit_diff(stats, preview))
 }
 
@@ -1576,9 +1583,11 @@ fn run_stdin_format(
     let kind = resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?;
     warn_format_conflicts([&cfg], args);
     if let (Some(preview), Some(kind)) = (preview, kind) {
-        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?;
         let output_config = cfg.output().filter(|_| preview == Preview::Check);
-        return emit_format_preview(&stats, preview, output_config);
+        let targets = config_or_default_targets(output_config);
+        reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
+        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?;
+        return emit_format_preview(&stats, preview, &targets);
     }
     if preview.is_some() {
         return Ok(ExitCode::SUCCESS);

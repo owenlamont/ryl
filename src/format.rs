@@ -268,18 +268,24 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         &mut std::io::sink(),
         &mut Vec::new(),
     );
-    let rejected: BTreeSet<&str> =
+    let mut rejected: BTreeSet<&str> =
         lint_str(&formatted, Path::new(""), cfg, Path::new(""))
             .into_iter()
             .filter_map(|problem| problem.rule)
             .collect();
+    // No fixed probe can match an arbitrary `extra-required` pattern.
+    if cfg.rule_level(quoted_strings::ID).is_some()
+        && quoted_strings::Config::resolve(cfg).has_extra_required()
+    {
+        rejected.insert(quoted_strings::ID);
+    }
     FORMAT_RULE_IDS
         .into_iter()
         .filter(|rule| rejected.contains(rule))
         .filter_map(|rule| {
             target(rule, table).map(|target| {
                 format!(
-                    "warning: the {rule} lint rule's options are incompatible with the \
+                    "the {rule} lint rule's options are incompatible with the \
                      formatter's {target}. Disable {rule} when using `ryl format`, or \
                      change its options to accept the formatter's output."
                 )

@@ -154,6 +154,7 @@ pub struct YamlLintConfig {
     lint_markdown_fenced_blocks: bool,
     output: Option<OutputTable>,
     format: FormatTable,
+    source: Option<PathBuf>,
     locale: Option<String>,
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
@@ -506,6 +507,7 @@ impl Default for YamlLintConfig {
             lint_markdown_fenced_blocks: true,
             output: None,
             format: FormatTable::default(),
+            source: None,
             locale: None,
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
@@ -851,6 +853,12 @@ impl YamlLintConfig {
     #[must_use]
     pub fn format(&self) -> &FormatTable {
         &self.format
+    }
+
+    /// The config file this was loaded from, if any.
+    #[must_use]
+    pub fn source(&self) -> Option<&Path> {
+        self.source.as_deref()
     }
 
     fn from_yaml_str_with_env(
@@ -1448,6 +1456,7 @@ fn finalize_context(
 ) -> Result<ConfigContext, String> {
     let base_dir = base_dir.into();
     cfg.finalize(envx, &base_dir)?;
+    cfg.source.clone_from(&source);
     let config_path = source.as_deref().unwrap_or_else(|| Path::new("config"));
     let migrate_command =
         if ryl_user_global_dir(envx).as_deref() == config_path.parent() {

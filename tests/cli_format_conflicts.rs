@@ -1,5 +1,5 @@
-//! `ryl format` warns on stderr, once per distinct message, about each enabled lint rule
-//! whose options would reject what the formatter writes; `ryl check` never does.
+//! `ryl format` warns on stderr, once per config file, about each enabled lint rule whose
+//! options would reject what the formatter writes; `ryl check` never does.
 
 use std::fs;
 use std::process::Command;
@@ -18,15 +18,15 @@ const LADDER: &str = "[lint.rules]\nbraces = 'enable'\nbrackets = 'enable'\n\
     allow-double-quotes-for-escaping = true\n";
 
 /// The `warning: the <rule> lint rule…` lines `ryl format` prints for `config` (TOML when
-/// `toml`, else inline YAML) over two files in each of two directories.
+/// `toml`, else inline YAML) over two files in each of two directories it covers.
 fn conflicts(config: &str, toml: bool, extra: &[&str]) -> Vec<String> {
     let dir = tempdir().unwrap();
+    if toml {
+        fs::write(dir.path().join(".ryl.toml"), config).unwrap();
+    }
     for sub in ["one", "two"] {
         let sub = dir.path().join(sub);
         fs::create_dir(&sub).unwrap();
-        if toml {
-            fs::write(sub.join(".ryl.toml"), config).unwrap();
-        }
         fs::write(sub.join("a.yaml"), "---\na: 1\n").unwrap();
         fs::write(sub.join("b.yaml"), "---\nb: 1\n").unwrap();
     }
@@ -144,4 +144,35 @@ fn no_warnings_silences_them_and_check_never_prints_them() {
         .args(["check", "--fix", "-d", config])
         .arg(&file));
     assert!(!stderr.contains("warning: the"), "{stderr}");
+}
+
+#[test]
+fn an_unmatched_extra_required_pattern_still_conflicts() {
+    let config = format!("{LADDER}extra-required = ['^secret$']\n");
+    assert_eq!(warned_rules(&config, true), ["quoted-strings"]);
+}
+
+#[test]
+fn each_conflicting_config_file_warns_under_its_own_path() {
+    let dir = tempdir().unwrap();
+    for (sub, gap) in [("one", 3), ("two", 4)] {
+        let sub = dir.path().join(sub);
+        fs::create_dir(&sub).unwrap();
+        let config =
+            format!("[lint.rules.comments]\nmin-spaces-from-content = {gap}\n");
+        fs::write(sub.join(".ryl.toml"), config).unwrap();
+        fs::write(sub.join("a.yaml"), "---\na: 1  # c\n").unwrap();
+    }
+    let (code, _, stderr) = run(ryl(dir.path()).arg("format").arg(dir.path()));
+    assert_eq!(code, 0, "{stderr}");
+    let warnings: Vec<&str> = stderr
+        .lines()
+        .filter(|l| l.starts_with("warning: "))
+        .collect();
+    assert_eq!(warnings.len(), 2, "{stderr}");
+    for sub in ["one", "two"] {
+        let path = dir.path().join(sub).join(".ryl.toml");
+        let prefix = format!("warning: {}: the comments lint rule", path.display());
+        assert!(warnings.iter().any(|w| w.starts_with(&prefix)), "{stderr}");
+    }
 }

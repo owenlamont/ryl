@@ -371,3 +371,49 @@ fn stdin_formats_to_stdout_and_check_explains() {
     let (code, _, stderr) = run_stdin(&["--check"], &[0xFF, 0xFF, 0xFF]);
     assert_eq!(code, 2, "undecodable stdin is an error: {stderr}");
 }
+
+#[test]
+fn preview_refuses_an_output_file_that_is_an_input() {
+    for input in [DIRTY, FORMATTED] {
+        for mode in ["--check", "--diff"] {
+            let dir = tempdir().unwrap();
+            let file = dir.path().join("a.yaml");
+            fs::write(&file, input).unwrap();
+            let config = format!(
+                "[output]\nparsable = {{ path = '{}' }}\n",
+                file.display().to_string().replace('\\', "/")
+            );
+            let config_file = dir.path().join("cfg.toml");
+            fs::write(&config_file, config).unwrap();
+            let (code, _, stderr) = run(ryl(dir.path())
+                .args(["format", mode, "-c"])
+                .arg(&config_file)
+                .arg(&file));
+            let expected = if mode == "--check" {
+                2
+            } else {
+                u8::from(input == DIRTY).into()
+            };
+            assert_eq!(code, expected, "{mode}: {stderr}");
+            assert_eq!(fs::read_to_string(&file).unwrap(), input, "{mode}");
+        }
+    }
+    let dir = tempdir().unwrap();
+    let named = dir.path().join("s.yaml");
+    let named = named.to_str().unwrap();
+    let config_file = dir.path().join("cfg.toml");
+    let config = format!(
+        "[output]\nparsable = {{ path = '{}' }}\n",
+        named.replace('\\', "/")
+    );
+    fs::write(&config_file, config).unwrap();
+    let out = ryl(dir.path())
+        .args(["format", "--check", "--stdin-filename", named, "-c"])
+        .arg(&config_file)
+        .arg("-")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(!dir.path().join("s.yaml").exists());
+}

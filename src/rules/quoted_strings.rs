@@ -178,6 +178,11 @@ impl Config {
     }
 
     #[must_use]
+    pub fn has_extra_required(&self) -> bool {
+        !self.extra_required.is_empty()
+    }
+
+    #[must_use]
     pub fn with_allow_double_quotes_for_escaping(mut self, value: bool) -> Self {
         self.allow_double_quotes_for_escaping = value;
         self
