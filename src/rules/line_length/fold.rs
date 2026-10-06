@@ -29,8 +29,9 @@ impl Fold {
 }
 
 /// `buffer` with each over-long line of a plain or quoted scalar in block context, or of a
-/// `>` scalar at its content indent, split at single spaces; `None` when nothing folds. A line `line-length` is disabled on
-/// stays whole, as does one ending in a directive comment, which a fold would move.
+/// `>` scalar at its content indent, split at single spaces; `None` when nothing folds.
+/// A line `line-length` is disabled on stays whole, as does one ending in a directive
+/// comment, which a fold would move.
 #[must_use]
 pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
     let directives = Directives::parse(buffer);
@@ -113,8 +114,8 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
     (!edits.is_empty()).then(|| apply_replacements(buffer, edits))
 }
 
-/// The content (inside any quotes) of each block-context plain or quoted scalar that is not
-/// a key, with the column of the collection that owns it (`None` at the document root)
+/// The content (inside any quotes) of each block-context plain, quoted or `>` scalar that is
+/// not a key, with the column of the collection that owns it (`None` at the document root)
 /// and its style.
 fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>, ScalarStyle)> {
     let mut blocks = Vec::new();
