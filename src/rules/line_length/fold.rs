@@ -28,8 +28,8 @@ impl Fold {
     }
 }
 
-/// `buffer` with each over-long line of a plain or quoted scalar in block context split
-/// at single spaces, or `None` when nothing folds. A line `line-length` is disabled on
+/// `buffer` with each over-long line of a plain or quoted scalar in block context, or of a
+/// `>` scalar at its content indent, split at single spaces; `None` when nothing folds. A line `line-length` is disabled on
 /// stays whole, as does one ending in a directive comment, which a fold would move.
 #[must_use]
 pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
@@ -50,22 +50,43 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
         // granit rejects a quoted mapping value continued one column past its key.
         let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
         let (first, last) = (line_of(span.start), line_of(span.end - 1));
-        let existing = lines[first + 1..=last]
-            .iter()
-            .find(|(_, text)| !text.trim().is_empty())
-            .map(|(_, text)| text.len() - text.trim_start_matches(' ').len())
-            .filter(|spaces| *spaces > 0);
-        if existing.is_some_and(|spaces| spaces < owner.unwrap_or(0) + min_step) {
+        let folded = style == ScalarStyle::Folded;
+        let content = span.start - lines[first].0;
+        // A column-0 continuation of a root `>` scalar could start a `---` or `...` marker.
+        if folded && content == 0 {
             continue;
         }
-        let indent = existing.unwrap_or_else(|| {
-            owner.unwrap_or(0) + usize::from(cfg.indent).max(min_step)
-        });
+        let indent = if folded {
+            content
+        } else {
+            let existing = lines[first + 1..=last]
+                .iter()
+                .find(|(_, text)| !text.trim().is_empty())
+                .map(|(_, text)| text.len() - text.trim_start_matches(' ').len())
+                .filter(|spaces| *spaces > 0);
+            if existing.is_some_and(|spaces| spaces < owner.unwrap_or(0) + min_step) {
+                continue;
+            }
+            existing.unwrap_or_else(|| {
+                owner.unwrap_or(0) + usize::from(cfg.indent).max(min_step)
+            })
+        };
         let continuation = format!("{newline}{}", " ".repeat(indent));
         for (index, (start, text)) in
             lines.iter().enumerate().take(last + 1).skip(first)
         {
-            let scalar = span.start.saturating_sub(*start)..span.end - start;
+            let scalar = if folded {
+                let at_content = text
+                    .get(..indent)
+                    .is_some_and(|lead| lead.trim_start_matches(' ').is_empty())
+                    && text[indent..].starts_with(|ch| !matches!(ch, ' ' | '\t'));
+                if !at_content {
+                    continue;
+                }
+                indent..text.len()
+            } else {
+                span.start.saturating_sub(*start)..span.end - start
+            };
             let directive =
                 text.get(scalar.end..).and_then(|rest| rest.split_once('#'));
             if directives.is_disabled(ID, index + 1)
@@ -127,9 +148,12 @@ fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>, ScalarSty
                 None
             }
             TokenType::Scalar(style, _) if flow == 0 => {
-                let quotes = usize::from(style != ScalarStyle::Plain);
+                let quotes = usize::from(matches!(
+                    style,
+                    ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
+                ));
                 if let Some(owner) = owner
-                    && !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+                    && style != ScalarStyle::Literal
                 {
                     scalars.push((
                         marker_byte_offset(span.start).get() + quotes
