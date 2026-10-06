@@ -81,26 +81,31 @@ fn check_and_diff_explain_folds_and_pass_unfoldable_lines() {
 fn disabled_lines_stay_whole_and_nothing_is_duplicated() {
     let input = "---\nj: aaa bbb ccc ddd eee fff\n\
                  n: aaa bbb ccc ddd eee fff  # ryl disable-line rule:line-length\n\
+                 t: aaa bbb ccc ddd eee fff  # ryl disable-line rule:truthy\n\
                  # ryl disable rule:line-length\nm: aaa bbb ccc ddd eee fff\n";
     let expected = "---\nj: aaa bbb ccc ddd\n  eee fff\n\
                     n: aaa bbb ccc ddd eee fff  # ryl disable-line rule:line-length\n\
+                    t: aaa bbb ccc ddd eee fff  # ryl disable-line rule:truthy\n\
                     # ryl disable rule:line-length\nm: aaa bbb ccc ddd eee fff\n";
     let (code, _, stderr, after) = ryl_on(Some(FOLD), input, &["format"]);
     assert_eq!((code, after.as_str()), (0, expected), "{stderr}");
 }
 
 #[test]
-fn markdown_front_matter_folds_from_its_own_column() {
+fn markdown_regions_fold_from_their_own_column() {
     let dir = tempdir().unwrap();
     let config = format!("{FOLD}[files]\nmarkdown = ['*.md']\n");
     fs::write(dir.path().join(".ryl.toml"), config).unwrap();
     let file = dir.path().join("doc.md");
-    fs::write(&file, format!("{LONG}---\n\ntext\n")).unwrap();
+    let fence = "   ```yaml\n   k: aaa bbb ccc ddd eee fff\n   ```\n";
+    fs::write(&file, format!("{LONG}---\n\n{fence}")).unwrap();
     let (code, _, stderr) = run(ryl(dir.path()).arg("format").arg(&file));
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        format!("{FOLDED}---\n\ntext\n")
+        format!(
+            "{FOLDED}---\n\n   ```yaml\n   k: aaa bbb ccc ddd\n     eee fff\n   ```\n"
+        )
     );
 }
 

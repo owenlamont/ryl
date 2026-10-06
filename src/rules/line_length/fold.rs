@@ -3,7 +3,7 @@ use std::ops::Range;
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use super::{Config, ID};
-use crate::directives::Directives;
+use crate::directives::{Directives, directive_scope};
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
 };
@@ -29,8 +29,8 @@ impl Fold {
 }
 
 /// `buffer` with each over-long line of a block plain scalar split at single spaces, or
-/// `None` when nothing folds. Lines an inline directive disables for `line-length` are
-/// left alone.
+/// `None` when nothing folds. A line `line-length` is disabled on stays whole, as does one
+/// ending in a directive comment, which a fold would move to another line.
 #[must_use]
 pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
     let directives = Directives::parse(buffer);
@@ -58,10 +58,15 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
         for (index, (start, text)) in
             lines.iter().enumerate().take(last + 1).skip(first)
         {
-            if directives.is_disabled(ID, index + 1) {
+            let scalar = span.start.saturating_sub(*start)..span.end - start;
+            let directive =
+                text.get(scalar.end..).and_then(|rest| rest.split_once('#'));
+            if directives.is_disabled(ID, index + 1)
+                || directive
+                    .is_some_and(|(_, comment)| directive_scope(comment).is_some())
+            {
                 continue;
             }
-            let scalar = span.start.saturating_sub(*start)..span.end - start;
             for space in breaks(text, &scalar, indent, usize::from(cfg.width)) {
                 edits.push((
                     BytePos::new(start + space),
