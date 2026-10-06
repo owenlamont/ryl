@@ -85,7 +85,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(
+    pub const fn new(
         spaces: SpacesSetting,
         indent_sequences: IndentSequencesSetting,
         check_multi_line_strings: bool,
@@ -112,34 +112,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let line_starts = build_line_starts(&chars);
     let tokens = scan(buffer, &chars, &line_starts);
-    let mut analyzer = Analyzer {
-        chars: &chars,
-        line_starts: &line_starts,
-        check_multi_line_strings: cfg.check_multi_line_strings,
-        stack: vec![Parent::new(ParentKind::Root, 0)],
-        cur_line: 0,
-        cur_line_indent: 0,
-        spaces: match cfg.spaces {
-            SpacesSetting::Fixed(value) => Some(to_isize(value)),
-            SpacesSetting::Consistent => None,
-        },
-        indent_sequences: cfg.indent_sequences,
-        diagnostics: Vec::new(),
-    };
-    for (idx, token) in tokens.iter().enumerate() {
-        let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
-        let next = tokens.get(idx + 1);
-        if analyzer
-            .step(token, prev, next, tokens.get(idx + 2))
-            .is_err()
-        {
-            analyzer.diagnostics.push(Violation {
-                line: token.line + 1,
-                column: token.column + 1,
-                message: "cannot infer indentation: unexpected token".to_string(),
-            });
-        }
-    }
+    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg);
+    analyzer.run(&tokens);
     analyzer.diagnostics
 }
 
@@ -331,7 +305,42 @@ struct Analyzer<'a> {
     diagnostics: Vec<Violation>,
 }
 
-impl Analyzer<'_> {
+impl<'a> Analyzer<'a> {
+    fn new(
+        chars: &'a [(usize, char)],
+        line_starts: &'a [CharPos],
+        cfg: &Config,
+    ) -> Self {
+        Self {
+            chars,
+            line_starts,
+            check_multi_line_strings: cfg.check_multi_line_strings,
+            stack: vec![Parent::new(ParentKind::Root, 0)],
+            cur_line: 0,
+            cur_line_indent: 0,
+            spaces: match cfg.spaces {
+                SpacesSetting::Fixed(value) => Some(to_isize(value)),
+                SpacesSetting::Consistent => None,
+            },
+            indent_sequences: cfg.indent_sequences,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn run(&mut self, tokens: &[Token]) {
+        for (idx, token) in tokens.iter().enumerate() {
+            let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
+            let next = tokens.get(idx + 1);
+            if self.step(token, prev, next, tokens.get(idx + 2)).is_err() {
+                self.diagnostics.push(Violation {
+                    line: token.line + 1,
+                    column: token.column + 1,
+                    message: "cannot infer indentation: unexpected token".to_string(),
+                });
+            }
+        }
+    }
+
     fn top(&self) -> Parent {
         self.stack[self.stack.len() - 1]
     }
@@ -358,15 +367,7 @@ impl Analyzer<'_> {
         let first_in_line = visible && token.line + 1 > self.cur_line;
         let found = to_isize(token.column);
         if first_in_line {
-            let top = self.top();
-            let expected = match token.kind {
-                Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent,
-                Kind::Value => top.indent,
-                _ if top.kind == ParentKind::Key && top.explicit_key => {
-                    self.detect_indent(top.indent, found)
-                }
-                _ => top.indent,
-            };
+            let expected = self.expected(token, found);
             if found != expected {
                 let message = if expected < 0 {
                     format!("wrong indentation: expected at least {}", found + 1)
@@ -389,6 +390,18 @@ impl Analyzer<'_> {
         }
         self.update_stack(token, prev, next, nextnext)?;
         self.unwind(token, next)
+    }
+
+    fn expected(&mut self, token: &Token, found: isize) -> isize {
+        let top = self.top();
+        match token.kind {
+            Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent,
+            Kind::Value => top.indent,
+            _ if top.kind == ParentKind::Key && top.explicit_key => {
+                self.detect_indent(top.indent, found)
+            }
+            _ => top.indent,
+        }
     }
 
     fn update_stack(

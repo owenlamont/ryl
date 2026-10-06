@@ -17,7 +17,7 @@ fn toml(text: &str) -> YamlLintConfig {
 }
 
 fn spaces(spaces: SpacesSetting) -> indentation::Config {
-    indentation::Config::new_for_tests(spaces, IndentSequencesSetting::True, false)
+    indentation::Config::new(spaces, IndentSequencesSetting::True, false)
 }
 
 fn line_length_hits(cfg: &YamlLintConfig) -> Vec<String> {
