@@ -1,9 +1,12 @@
 //! `new-line-at-end-of-file`: the file must end with a newline. Mirrors yamllint's
-//! `new-line-at-end-of-file`. Safe `--fix` appends the missing newline.
+//! `new-line-at-end-of-file`. Safe `--fix` appends the missing newline, except where the
+//! file ends inside a block scalar not chomped with `-`, whose value would gain a line
+//! break.
 //!
 //! "Newline" is any YAML 1.2 line break (`\n`, `\r\n`, or a bare `\r`), so a file
 //! ending in a bare `\r` is accepted; the line/column count is CR-aware.
 
+use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
 pub const ID: &str = "new-line-at-end-of-file";
@@ -38,5 +41,7 @@ pub fn check(buffer: &str) -> Option<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, newline: &str) -> Option<String> {
-    check(buffer).map(|_| format!("{buffer}{newline}"))
+    check(buffer)?;
+    (!block_scalar_chomping::ends_in_unstripped_scalar(buffer))
+        .then(|| format!("{buffer}{newline}"))
 }

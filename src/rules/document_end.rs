@@ -8,6 +8,7 @@ use std::cmp;
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{buffer_newline, line_contents};
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
@@ -98,6 +99,9 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     // A `\r`-terminated file already ends in a break; checking `\n` only would insert a
     // spurious blank line before `...`.
     if !output.ends_with('\n') && !output.ends_with('\r') {
+        if block_scalar_chomping::ends_in_unstripped_scalar(buffer) {
+            return None;
+        }
         output.push_str(newline);
     }
     output.push_str("...");

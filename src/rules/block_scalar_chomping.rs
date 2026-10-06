@@ -33,8 +33,27 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
+    headers(buffer)
+        .into_iter()
+        .filter(|header| header.chomping.is_none())
+        .map(|header| Violation {
+            line: header.line,
+            column: header.column,
+        })
+        .collect()
+}
+
+pub(crate) struct Header {
+    /// The scanner token's start index, which identifies the scalar.
+    pub(crate) token_start: usize,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) chomping: Option<char>,
+}
+
+pub(crate) fn headers(buffer: &str) -> Vec<Header> {
     let lines = line_contents(buffer);
-    let mut violations = Vec::new();
+    let mut headers = Vec::new();
 
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
@@ -53,17 +72,17 @@ pub fn check(buffer: &str) -> Vec<Violation> {
         );
         // `marker_idx` is the byte offset of the single-byte `|`/`>`; the column counts
         // characters not bytes, so a multibyte key shifts it correctly.
-        let indicators = &header_text[marker_idx + 1..];
-        if indicators.bytes().any(|b| matches!(b, b'-' | b'+')) {
-            continue;
-        }
-        violations.push(Violation {
+        headers.push(Header {
+            token_start: span.start.index(),
             line: header_line,
             column: header_text[..marker_idx].chars().count() + 1,
+            chomping: header_text[marker_idx + 1..]
+                .chars()
+                .find(|ch| matches!(ch, '-' | '+')),
         });
     }
 
-    violations
+    headers
 }
 
 /// `token_line` is 1-based, `token_column` a 0-based character column, as granit
@@ -94,4 +113,20 @@ fn header_marker<'a>(
             })
         })
         .expect("a block scalar has a marker-bearing header")
+}
+
+/// Whether `buffer` ends inside a block scalar that keeps or clips its final line break,
+/// so a break appended after an unterminated last line joins its value.
+pub(crate) fn ends_in_unstripped_scalar(buffer: &str) -> bool {
+    let last = Scanner::new(StrInput::new(buffer))
+        .map_while(Result::ok)
+        .map(granit_parser::Token::into_parts)
+        .filter(|(_, kind)| !matches!(kind, TokenType::BlockEnd | TokenType::StreamEnd))
+        .last();
+    let Some((span, TokenType::Scalar(..))) = last else {
+        return false;
+    };
+    headers(buffer).last().is_some_and(|header| {
+        header.token_start == span.start.index() && header.chomping != Some('-')
+    })
 }
