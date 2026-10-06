@@ -1,11 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+use similar::{DiffTag, TextDiff};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::config_schema::{
     FormatTable, LineEndingTarget, MarkerTarget, QuoteStyleTarget,
 };
-use crate::directives::Directives;
 use crate::fix::{
     FIX_PIPELINE_MAX_PASSES, NewlinePolicy, Passes, region_prefix, run_passes,
     suppressed_rules,
@@ -162,12 +163,15 @@ fn region_problems(
     if format_tracked(content, table, path, skip, &mut edited) == content {
         return Vec::new();
     }
-    let directives = Directives::parse(content);
+    let mut changed: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     let mut problems: Vec<LintProblem> = checks(content, &Passes::format(table, skip))
         .into_iter()
         .filter(|problem| {
             problem.rule.is_some_and(|rule| {
-                edited.contains(&rule) && !directives.is_disabled(rule, problem.line)
+                changed
+                    .entry(rule)
+                    .or_insert_with(|| lines_changed_by(rule, content, table, path))
+                    .contains(&problem.line)
             })
         })
         .collect();
@@ -184,6 +188,37 @@ fn region_problems(
     }));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems
+}
+
+/// The 1-based lines of `content` that `rule`'s fix alone rewrites, an insertion counting
+/// against the line before it (the first line at the start).
+fn lines_changed_by(
+    rule: &str,
+    content: &str,
+    table: &FormatTable,
+    path: &Path,
+) -> BTreeSet<usize> {
+    let others: Vec<&str> = FORMAT_RULE_IDS
+        .into_iter()
+        .filter(|other| *other != rule)
+        .collect();
+    let alone = format_tracked(content, table, path, &others, &mut Vec::new());
+    let before: Vec<&str> = content.split_inclusive('\n').collect();
+    let after: Vec<&str> = alone.split_inclusive('\n').collect();
+    TextDiff::from_slices(&before, &after)
+        .ops()
+        .iter()
+        .filter(|op| op.tag() != DiffTag::Equal)
+        .flat_map(|op| {
+            let lines = op.old_range();
+            let first = if lines.is_empty() {
+                lines.start.max(1)
+            } else {
+                lines.start + 1
+            };
+            first..=lines.end.max(first)
+        })
+        .collect()
 }
 
 fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {

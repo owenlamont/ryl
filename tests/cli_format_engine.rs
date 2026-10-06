@@ -220,6 +220,13 @@ fn check_falls_back_per_rule_and_skips_directive_disabled_lines() {
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("braces"), "{stderr}");
     assert!(!stderr.contains("quoted-strings"), "{stderr}");
+    let kept_beside_fixed = "---\na: {'k':v}\nb: 'abc'\n";
+    let (code, _, stderr, _) = format_file(None, kept_beside_fixed, &["--check"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("3:4") && !stderr.contains("2:5"),
+        "only the quotes format removes are reported: {stderr}"
+    );
 }
 
 #[test]
