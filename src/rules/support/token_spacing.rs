@@ -110,16 +110,16 @@ pub(crate) fn fix(
         .filter(|site| site.fix == Fix::Safe)
         .filter_map(|site| {
             let target = usize::try_from(tolerance(&site)?).ok()?.max(site.min);
-            let spaces = " ".repeat(target);
+            let ws = &buffer[site.ws.clone()];
             let edit = match mode {
                 Mode::Lint => site.spaces > target,
-                Mode::Format => buffer[site.ws.clone()] != spaces,
+                Mode::Format => ws.len() != target || ws.contains('\t'),
             };
             edit.then(|| {
                 (
                     BytePos::new(site.ws.start),
                     BytePos::new(site.ws.end),
-                    spaces,
+                    " ".repeat(target),
                 )
             })
         })
