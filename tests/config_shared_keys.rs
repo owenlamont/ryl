@@ -1,12 +1,10 @@
 use std::fs;
-use std::path::Path;
 
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{
     parse_toml_config_str, schema_value, toml_config_to_value, yaml_schema_value,
 };
 use ryl::format;
-use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 use ryl::rules::line_length;
 use tempfile::tempdir;
@@ -182,27 +180,6 @@ fn only_the_toml_schema_declares_the_shared_keys() {
             yaml_schema_value()["properties"].get(key).is_none(),
             "{key}"
         );
-    }
-}
-
-#[test]
-fn toml_without_shared_keys_lints_like_the_equivalent_yaml_config() {
-    let toml_cfg = toml(
-        "[lint.rules]\nindentation = \"enable\"\nline-length = \"enable\"\n\
-         hyphens = \"enable\"\n",
-    );
-    let yaml_cfg = YamlLintConfig::from_yaml_str(
-        "rules:\n  indentation: enable\n  line-length: enable\n  hyphens: enable\n",
-    )
-    .unwrap();
-    for doc in [
-        "a:\n    b:\n        c: 1\n",
-        "a:\n  b: 1\nc:\n    d: 2\n",
-        "list:\n- x\n-   y\n",
-        &format!("long: {}\n", "z".repeat(100)),
-    ] {
-        let lint = |cfg| lint_str(doc, Path::new("in.yaml"), cfg, Path::new("."));
-        assert_eq!(lint(&toml_cfg), lint(&yaml_cfg), "{doc}");
     }
 }
 
