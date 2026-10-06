@@ -1005,7 +1005,7 @@ impl<'cfg> FixState<'cfg> {
         resolves_to_string: bool,
         span: Span,
     ) -> Option<Replacement> {
-        let facts = scalar_quote_facts(
+        let mut facts = scalar_quote_facts(
             self.config,
             self.buffer,
             self.in_flow(),
@@ -1014,6 +1014,15 @@ impl<'cfg> FixState<'cfg> {
             span,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
+        // A `:` straight after the closing quote and before a non-space (`{'k':v}`) is
+        // a value indicator only because the key is quoted.
+        if self.buffer[end.get()..]
+            .strip_prefix(':')
+            .and_then(|after| after.chars().next())
+            .is_some_and(|next| !next.is_whitespace())
+        {
+            facts.quotes_needed = Flag::new(true);
+        }
 
         match self.config.required {
             RequiredMode::Always => self.fix_required_always(value, facts, start, end),
