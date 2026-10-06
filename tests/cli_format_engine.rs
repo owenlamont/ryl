@@ -208,8 +208,15 @@ fn check_falls_back_per_rule_and_skips_directive_disabled_lines() {
                 .any(|l| l.contains("4:1") && l.contains("document-end")),
         "{stderr}"
     );
-    let input = "---\n# yamllint disable rule:quoted-strings\nk: 'abc'\na: { b: 1 }\n";
+    let input = "---\nk: 'abc'  # yamllint disable-line rule:quoted-strings\nj: 'x'\n";
     let (code, _, stderr, _) = format_file(None, input, &["--check"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("3:4") && !stderr.contains("2:4"),
+        "{stderr}"
+    );
+    let unedited = "---\na: {'k':v}\nb: { c: 1 }\n";
+    let (code, _, stderr, _) = format_file(None, unedited, &["--check"]);
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("braces"), "{stderr}");
     assert!(!stderr.contains("quoted-strings"), "{stderr}");

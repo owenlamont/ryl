@@ -131,8 +131,8 @@ fn format_tracked(
     )
 }
 
-/// Why `ryl format` would rewrite `content`: each formatting rule's diagnostics on the lines
-/// it would change, or a `would reformat` line for a rule that edits what its check misses.
+/// Why `ryl format` would rewrite `content`: the diagnostics of each formatting rule that
+/// would edit it, or a `would reformat` line for a rule that edits what its check misses.
 #[must_use]
 pub fn problems(
     content: &str,
