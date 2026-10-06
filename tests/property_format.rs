@@ -229,8 +229,6 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
         "Yes",
         "ON",
         "off",
-        "y",
-        "N",
         "0b101",
         "1_000",
         "1:20",
@@ -258,7 +256,7 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
                 );
             }
         }
-        for value in ["_", "1.2.3"] {
+        for value in ["y", "N", "_", "._", "1.2.3"] {
             let output = (pass.format)(&format!("{prelude}k: '{value}'\n"));
             assert!(
                 output.contains(&format!("\nk: {value}\n")),

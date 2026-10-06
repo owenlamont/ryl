@@ -4,8 +4,9 @@
 //! Loading to plain values loses tags, aliases and duplicate keys, so [`representation`]
 //! keeps granit's event stream instead, with each scalar resolved against the version its
 //! document declares (or under YAML 1.1 throughout, for [`yaml_1_1_representation`]) and
-//! every layout-only detail dropped (scalar style, the `---` marker, collection style). [`annotations`] separately records each comment, keyed to
-//! the data event it sits beside, and the anchor and alias names in source order.
+//! every layout-only detail dropped (scalar style, the `---` marker, collection style).
+//! [`annotations`] separately records each comment, keyed to the data event it sits
+//! beside, and the anchor and alias names in source order.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -223,16 +224,16 @@ pub fn annotations(content: &str) -> Option<Annotations> {
     })
 }
 
-// Written from the YAML 1.1 type repository (yaml.org/type), checked against
-// ruamel.yaml's 1.1 resolver, rather than shared with `quoted-strings`, so a gap in the
-// fixer's own 1.1 table cannot hide here too.
+// Written from PyYAML's 1.1 resolver plus the `0o` octal yamllint adds, rather than
+// shared with `quoted-strings`, so a gap in the fixer's own 1.1 table cannot hide here
+// too.
 static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"\A(?:",
-        r"y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
-        r"|[-+]?0b[01_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
+        r"yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
+        r"|[-+]?0b[01_]+|[-+]?0o?[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
         r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+",
-        r"|[-+]?(?:[0-9][0-9_]*\.[0-9_]*|\.[0-9_]+)(?:[eE][-+][0-9]+)?",
+        r"|[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?",
         r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)",
         r"|~|null|Null|NULL|",
         r"|[0-9]{4}-[0-9]{2}-[0-9]{2}",

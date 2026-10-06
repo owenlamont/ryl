@@ -520,19 +520,21 @@ fn build_violation(span: Span, message: String) -> Violation {
     }
 }
 
-/// Whether the scalar resolves to a string under the document's effective version. A
-/// value YAML 1.1 reads as a non-string (under an explicit `%YAML 1.1`, or always for
-/// the format ladder) is not a string, so a plain one is left alone and a quoted one
-/// keeps its load-bearing quotes.
+/// Whether the plain scalar is a string to every reader it must keep its value for: the
+/// document's effective version, plus YAML 1.1 for the format ladder. A non-string is
+/// left alone when plain and keeps its load-bearing quotes when quoted.
 fn resolves_to_string_for_version(
     config: &Config,
     version: Option<Version>,
     value: &str,
 ) -> bool {
-    let yaml_1_1 = matches!(config.value_readers, ValueReaders::AlsoYaml1_1)
-        || resolves_as_yaml_1_1(version);
-    value_resolves_to_string(value)
-        && !(yaml_1_1 && resolves_to_nonstring_in_yaml_1_1(value))
+    let declared_1_1 = resolves_as_yaml_1_1(version);
+    let (core_reader, yaml_1_1_reader) = match config.value_readers {
+        ValueReaders::DeclaredVersion => (!declared_1_1, declared_1_1),
+        ValueReaders::AlsoYaml1_1 => (true, true),
+    };
+    (!core_reader || value_resolves_to_string(value))
+        && !(yaml_1_1_reader && resolves_to_nonstring_in_yaml_1_1(value))
 }
 
 fn value_resolves_to_string(value: &str) -> bool {

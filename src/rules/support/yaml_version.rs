@@ -79,21 +79,18 @@ static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
         .expect("YAML 1.1 implicit-type regex is valid")
 });
 
-// The implicit `bool`/`int`/`float`/`timestamp`/`merge`/`value` types of the YAML 1.1
-// type repository (yaml.org/type) as ruamel.yaml's 1.1 resolver ports them, `y`/`n`
-// included though PyYAML omits them, except octal, where ruamel's `0?[0-7_]+` leans on a
-// first-character dispatch this regex lacks and would match `_` (`null` needs no entry:
-// its spellings are not 1.2 strings either).
+// PyYAML's 1.1 implicit-type resolvers plus the `0o` octal yamllint's quoted-strings
+// adds, so the set matches yamllint (`y`/`n`, `1e5` and `-.5` are strings).
 const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
     r"\A(?:",
-    r"y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
-    r"|[-+]?0b[0-1_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
-    r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+",
-    r"|[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+]?[0-9]+)?",
-    r"|[-+]?(?:[0-9][0-9_]*)(?:[eE][-+]?[0-9]+)|\.[0-9_]+(?:[eE][-+][0-9]+)?",
+    r"yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
+    r"|[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?",
     r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)",
+    r"|[-+]?0b[0-1_]+|[-+]?0o?[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
+    r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+",
+    r"|<<|~|null|Null|NULL|",
     r"|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
     r"|[0-9][0-9][0-9][0-9]-[0-9][0-9]?-[0-9][0-9]?(?:[Tt]|[ \t]+)[0-9][0-9]?:[0-9][0-9]:[0-9][0-9](?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?",
-    r"|<<|=",
+    r"|=",
     r")\z",
 );

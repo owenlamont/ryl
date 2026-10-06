@@ -822,16 +822,7 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
     let cfg = only_when_needed();
     // Each resolves to a non-string under YAML 1.1 but a string under 1.2 core, so
     // dropping the quotes would change the value for a consumer honouring the directive.
-    for value in [
-        "no",
-        "Yes",
-        "y",
-        "N",
-        "0b101",
-        "1_000",
-        "1:30",
-        "2002-12-14",
-    ] {
+    for value in ["no", "Yes", "0b101", "1_000", "1:30", "2002-12-14"] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert!(
             quoted_strings::check(&input, &cfg).is_empty(),
@@ -847,7 +838,7 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
 #[test]
 fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
     let cfg = only_when_needed();
-    for value in ["hello", "_", "_1", "1.2.3"] {
+    for value in ["hello", "y", "N", "_", "_1", "._", "1.2.3", "08", "-.5"] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert_eq!(quoted_strings::check(&input, &cfg).len(), 1, "{input:?}");
         assert_eq!(
