@@ -34,9 +34,14 @@ fix a byte-for-byte no-op. It runs a matrix of named configs — eight YAML
 tolerances 0 and -1) plus three TOML-backed (`best-practice-toml`, covering ryl-only
 options like `allow-double-quotes-for-escaping`, and two `comments` spacing variants
 exercising `max-spaces-from-content`). The generator's block entries vary the spacing
-around `:` (including a tab and explicit `?` keys), and `Node::BlockSeq` emits block
-sequences: varied dash spacing, block and multi-line scalars, `- !!map` bodies, and
-compact `- k: v` / `- - a` items, multi-line ones included. Deterministic siblings pin
+around `:` (including a tab and explicit `?` keys, whose value may be a compact
+collection on the `:` line), and `Node::BlockSeq` emits block sequences: varied dash
+spacing, block and multi-line scalars, `- !!map`, `- &m` and bare `-` bodies, and
+compact `- k: v` / `- - a` items, multi-line ones included. Each entry's `Layout` varies
+the indentation it nests at (width 1–5, sequences flush with their key) and its leading
+comment's column; block scalars take indicators 1–4, whitespace-only lines and a comment
+after the body; plain, quoted and flow continuations sit at random depths past their
+parent. Nesting reaches depth 2. Deterministic siblings pin
 known-dirty / production-bug inputs through the same checks (and assert the fixer clears
 them) so the property can't pass vacuously.
 

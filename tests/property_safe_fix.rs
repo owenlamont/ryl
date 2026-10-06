@@ -31,8 +31,8 @@ use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 
 use ast::{
-    BlockEntry, ColonGap, Document, FlowStyle, InlineComment, NewlineStyle, Node,
-    Scalar,
+    BlockEntry, ColonGap, Document, FlowStyle, InlineComment, Layout, NewlineStyle,
+    Node, Scalar,
 };
 use config::{
     named_config, parse_for_compare, safe_fix_configs, safe_fix_rule_diagnostics,
@@ -173,6 +173,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
                 spaces_after_hash: 0,
                 text: "trailing".to_string(),
             }),
+            layout: Layout::default(),
         }],
         newline: NewlineStyle::Crlf,
         has_final_newline: false,
