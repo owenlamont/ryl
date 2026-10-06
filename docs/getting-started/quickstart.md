@@ -139,7 +139,7 @@ nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
-`[output]`) sit at the top level; linter settings sit under `[lint]`
+`[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
 (`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` is reserved for the formatter. Copy the
 preset you want from [Configuration presets](../config-presets.md) and customise
@@ -158,6 +158,17 @@ yaml = [
 [lint.rules.line-length]
 max = 120
 allow-non-breakable-words = true
+```
+
+The top-level `line-length` (1 to 65535) and `indent-width` (1 to 255) are the
+formatter's targets and the defaults for `[lint.rules.line-length] max` and
+`[lint.rules.indentation] spaces`; an explicit rule option overrides them for
+linting only. Unset, `max` is 80 and `spaces` is `"consistent"`. A YAML config
+cannot set them.
+
+```toml
+line-length = 100
+indent-width = 4
 ```
 
 YAML configuration is also accepted for parity with yamllint and supports

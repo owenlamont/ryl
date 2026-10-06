@@ -2,6 +2,7 @@ mod serialization;
 mod validation;
 
 use std::collections::BTreeMap;
+use std::num::{NonZeroU8, NonZeroU16};
 
 use crate::yaml_dom::{MappingOwned, YamlOwned};
 use schemars::{JsonSchema, Schema, schema_for};
@@ -30,6 +31,12 @@ pub struct TomlConfig {
     pub ignore_from_file: Option<StringOrVec>,
     /// Locale identifier used by diagnostics.
     pub locale: Option<String>,
+    /// The formatter's line length, and the default for `[lint.rules.line-length] max`.
+    #[serde(rename = "line-length")]
+    pub line_length: Option<NonZeroU16>,
+    /// The formatter's indent width, and the default for `[lint.rules.indentation] spaces`.
+    #[serde(rename = "indent-width")]
+    pub indent_width: Option<NonZeroU8>,
     /// Linter settings: rule configuration, fix policy, and rule ignores.
     pub lint: Option<LintTable>,
     /// Formatter settings.
@@ -1392,6 +1399,8 @@ pub struct NormalizedConfig {
     pub markdown: Option<NormalizedMarkdown>,
     pub output: Option<OutputTable>,
     pub locale: Option<String>,
+    pub line_length: Option<NonZeroU16>,
+    pub indent_width: Option<NonZeroU8>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
 }

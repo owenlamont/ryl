@@ -161,6 +161,8 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
         markdown: config.markdown.as_ref().map(normalize_markdown_table),
         output: config.output.clone(),
         locale: config.locale.clone(),
+        line_length: config.line_length,
+        indent_width: config.indent_width,
         fix: normalize_fix_policy(&lint),
         rules: lint
             .rules
@@ -202,6 +204,8 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
         markdown: None,
         output: None,
         locale: config.locale.clone(),
+        line_length: None,
+        indent_width: None,
         fix: None,
         rules: config
             .rules
@@ -323,6 +327,8 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
         config.ignore_from_file.as_ref(),
     );
     insert_serialized(&mut table, "locale", config.locale.as_ref());
+    insert_serialized(&mut table, "line-length", config.line_length.as_ref());
+    insert_serialized(&mut table, "indent-width", config.indent_width.as_ref());
     if let Some(lint) = config.lint.as_ref() {
         table.insert("lint".to_string(), lint_table_to_value(lint));
     }
@@ -421,6 +427,9 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
     if let Some(locale) = config.locale.as_ref() {
         table.insert("locale".to_string(), toml::Value::String(locale.clone()));
     }
+
+    insert_serialized(&mut table, "line-length", config.line_length.as_ref());
+    insert_serialized(&mut table, "indent-width", config.indent_width.as_ref());
 
     let lint = normalized_lint_to_toml_table(config);
     if !lint.is_empty() {

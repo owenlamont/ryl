@@ -39,17 +39,19 @@ pub enum IndentSequencesSetting {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let spaces =
-            cfg.rule_option(ID, "spaces")
-                .map_or(SpacesSetting::Consistent, |node| {
-                    node.as_integer()
-                        .map_or(SpacesSetting::Consistent, |value| {
-                            let non_negative = value.max(0);
-                            let fixed =
-                                usize::try_from(non_negative).unwrap_or(usize::MAX);
-                            SpacesSetting::Fixed(fixed)
-                        })
-                });
+        let shared = cfg
+            .indent_width()
+            .map_or(SpacesSetting::Consistent, |width| {
+                SpacesSetting::Fixed(usize::from(width.get()))
+            });
+        let spaces = cfg.rule_option(ID, "spaces").map_or(shared, |node| {
+            node.as_integer()
+                .map_or(SpacesSetting::Consistent, |value| {
+                    let non_negative = value.max(0);
+                    let fixed = usize::try_from(non_negative).unwrap_or(usize::MAX);
+                    SpacesSetting::Fixed(fixed)
+                })
+        });
 
         let indent_sequences = cfg.rule_option(ID, "indent-sequences").map_or(
             IndentSequencesSetting::True,
@@ -92,6 +94,15 @@ impl Config {
             spaces,
             indent_sequences,
             check_multi_line_strings,
+        }
+    }
+
+    /// Whether a file indented uniformly by `width` spaces satisfies `spaces`.
+    #[must_use]
+    pub fn admits_width(&self, width: u8) -> bool {
+        match self.spaces {
+            SpacesSetting::Consistent => true,
+            SpacesSetting::Fixed(spaces) => spaces == usize::from(width),
         }
     }
 }
