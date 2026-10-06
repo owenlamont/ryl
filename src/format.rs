@@ -17,12 +17,12 @@ use crate::markdown_embed::markdown_region_problems;
 use crate::rules::braces::Forbid;
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, new_line_at_end_of_file, new_lines, quoted_strings,
-    trailing_spaces,
+    document_start, empty_lines, line_length, new_line_at_end_of_file, new_lines,
+    quoted_strings, trailing_spaces,
 };
 
 /// The rules `ryl format` applies, whatever the lint config enables.
-pub const FORMAT_RULE_IDS: [&str; 12] = [
+pub const FORMAT_RULE_IDS: [&str; 13] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
@@ -35,6 +35,7 @@ pub const FORMAT_RULE_IDS: [&str; 12] = [
     document_start::ID,
     document_end::ID,
     empty_lines::ID,
+    line_length::ID,
 ];
 
 /// Formatter output for [`conflicts`] to lint: one instance of each target's concern.
@@ -43,7 +44,8 @@ const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x
     flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\n\n\nlast: 1\n";
 
 impl Passes<'static> {
-    fn format(table: &FormatTable, skip: &[&str]) -> Self {
+    fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
+        let table = cfg.format();
         let on = |rule| !skip.contains(&rule);
         let line_ending = new_lines::Config {
             kind: match table.line_ending {
@@ -100,6 +102,12 @@ impl Passes<'static> {
                 .then_some(empty_lines::Config::new(2, 0, 0)),
             truthy: None,
             key_ordering: None,
+            line_length: (table.fold_long_lines && on(line_length::ID)).then(|| {
+                line_length::Fold {
+                    width: line_length(cfg),
+                    indent: indent_width(cfg),
+                }
+            }),
             per_line: Vec::new(),
         }
     }
@@ -113,7 +121,7 @@ pub fn format_str(
     path: &Path,
     skip: &[&str],
 ) -> String {
-    format_tracked(input, cfg.format(), path, skip, &mut Vec::new())
+    format_tracked(input, cfg, path, skip, &mut Vec::new())
 }
 
 /// The indent width `ryl format` targets: the top-level `indent-width`, else 2.
@@ -130,14 +138,14 @@ pub fn line_length(cfg: &YamlLintConfig) -> u16 {
 
 fn format_tracked(
     input: &str,
-    table: &FormatTable,
+    cfg: &YamlLintConfig,
     path: &Path,
     skip: &[&str],
     edited: &mut Vec<&'static str>,
 ) -> String {
     run_passes(
         input,
-        &Passes::format(table, skip),
+        &Passes::format(cfg, skip),
         path,
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::stderr(),
@@ -154,36 +162,35 @@ pub fn problems(
     path: &Path,
     kind: SourceKind,
 ) -> Vec<LintProblem> {
-    let table = cfg.format();
     match kind {
-        SourceKind::Yaml => region_problems(content, table, path, &[]),
+        SourceKind::Yaml => region_problems(content, cfg, path, &[]),
         SourceKind::Markdown => markdown_region_problems(content, cfg, |region| {
             if region_prefix(content, region).is_none() {
                 return Vec::new();
             }
-            region_problems(&region.content, table, path, suppressed_rules())
+            region_problems(&region.content, cfg, path, suppressed_rules())
         }),
     }
 }
 
 fn region_problems(
     content: &str,
-    table: &FormatTable,
+    cfg: &YamlLintConfig,
     path: &Path,
     skip: &[&str],
 ) -> Vec<LintProblem> {
     let mut edited = Vec::new();
-    if format_tracked(content, table, path, skip, &mut edited) == content {
+    if format_tracked(content, cfg, path, skip, &mut edited) == content {
         return Vec::new();
     }
     let mut changed: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
-    let mut problems: Vec<LintProblem> = checks(content, &Passes::format(table, skip))
+    let mut problems: Vec<LintProblem> = checks(content, &Passes::format(cfg, skip))
         .into_iter()
         .filter(|problem| {
             problem.rule.is_some_and(|rule| {
                 changed
                     .entry(rule)
-                    .or_insert_with(|| lines_changed_by(rule, content, table, path))
+                    .or_insert_with(|| lines_changed_by(rule, content, cfg, path))
                     .contains(&problem.line)
             })
         })
@@ -208,14 +215,14 @@ fn region_problems(
 fn lines_changed_by(
     rule: &str,
     content: &str,
-    table: &FormatTable,
+    cfg: &YamlLintConfig,
     path: &Path,
 ) -> BTreeSet<usize> {
     let others: Vec<&str> = FORMAT_RULE_IDS
         .into_iter()
         .filter(|other| *other != rule)
         .collect();
-    let alone = format_tracked(content, table, path, &others, &mut Vec::new());
+    let alone = format_tracked(content, cfg, path, &others, &mut Vec::new());
     let before: Vec<&str> = content.split_inclusive('\n').collect();
     let after: Vec<&str> = alone.split_inclusive('\n').collect();
     TextDiff::from_slices(&before, &after)
@@ -300,6 +307,13 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
     report!(document_start);
     report!(document_end);
     report!(empty_lines);
+    report!(
+        line_length,
+        passes
+            .line_length
+            .iter()
+            .flat_map(|fold| line_length::check(content, &fold.check_config()))
+    );
     problems
 }
 
@@ -310,7 +324,7 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let table = cfg.format();
     let formatted = run_passes(
         CONFLICT_PROBE,
-        &Passes::format(table, &[]),
+        &Passes::format(cfg, &[]),
         Path::new(""),
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::sink(),
@@ -349,6 +363,7 @@ fn target(rule: &str, table: &FormatTable) -> Option<String> {
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,
         document_start::ID if table.document_start == MarkerTarget::Preserve => None,
         document_end::ID if table.document_end == MarkerTarget::Preserve => None,
+        line_length::ID => return None,
         quoted_strings::ID => Some("quote-style"),
         new_lines::ID => Some("line-ending"),
         document_start::ID | document_end::ID => Some(rule),

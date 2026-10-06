@@ -11,9 +11,10 @@ use tempfile::TempDir;
 
 use super::config::{QUOTED_STRINGS_VARIANTS, synthetic_base_dir, synthetic_path};
 
-/// The format-owned rules with a safe fix today; the lint-owned `truthy` and
-/// `key-ordering` fixes rewrite meaning-bearing text and stay out.
-pub const FORMAT_OWNED_RULES: [&str; 12] = [
+/// The format-owned rules, each with a safe fix but `line-length`, which only `ryl format`
+/// folds; the lint-owned `truthy` and `key-ordering` fixes rewrite meaning-bearing text
+/// and stay out.
+pub const FORMAT_OWNED_RULES: [&str; 13] = [
     "braces",
     "brackets",
     "commas",
@@ -22,6 +23,7 @@ pub const FORMAT_OWNED_RULES: [&str; 12] = [
     "document-end",
     "document-start",
     "empty-lines",
+    "line-length",
     "new-line-at-end-of-file",
     "new-lines",
     "quoted-strings",
@@ -106,6 +108,26 @@ fn format(input: &str, cfg: &YamlLintConfig) -> String {
     format_str(input, cfg, synthetic_path(), &[])
 }
 
+/// The `(line-length, indent-width)` of each `format/fold-*` row.
+pub const FOLD_TARGETS: [(u16, u8); 3] = [(12, 2), (1, 2), (12, 4)];
+
+fn fold_toml(width: u16, indent: u8) -> String {
+    format!(
+        "line-length = {width}\nindent-width = {indent}\n[format]\nfold-long-lines = true\n"
+    )
+}
+
+/// `input` after `ryl format`'s fold alone, with every other formatting rule skipped.
+pub fn fold_alone(input: &str, width: u16, indent: u8) -> String {
+    let cfg = YamlLintConfig::from_toml_str(&fold_toml(width, indent))
+        .expect("fold config parses");
+    let others: Vec<&str> = ryl::format::FORMAT_RULE_IDS
+        .into_iter()
+        .filter(|rule| *rule != "line-length")
+        .collect();
+    format_str(input, &cfg, synthetic_path(), &others)
+}
+
 static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
     QUOTED_STRINGS_VARIANTS
         .iter()
@@ -125,9 +147,12 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
             toml_pass(
                 "format/non-defaults",
                 "[format]\nquote-style = 'preserve'\nline-ending = 'cr-lf'\n\
-                 document-start = 'preserve'\ndocument-end = 'add'\n",
+                 document-start = 'preserve'\ndocument-end = 'add'\nfold-long-lines = true\n",
                 format,
             ),
+            toml_pass("format/fold-narrow", &fold_toml(12, 2), format),
+            toml_pass("format/fold-1", &fold_toml(1, 2), format),
+            toml_pass("format/fold-indent-4", &fold_toml(12, 4), format),
         ])
         .collect()
 });

@@ -13,8 +13,8 @@ use crate::markdown_embed::{
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, key_ordering, new_line_at_end_of_file, new_lines,
-    quoted_strings, trailing_spaces, truthy,
+    document_start, empty_lines, key_ordering, line_length, new_line_at_end_of_file,
+    new_lines, quoted_strings, trailing_spaces, truthy,
 };
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -634,6 +634,7 @@ pub(crate) struct Passes<'a> {
     pub(crate) empty_lines: Option<empty_lines::Config>,
     pub(crate) truthy: Option<truthy::Config>,
     pub(crate) key_ordering: Option<key_ordering::Config>,
+    pub(crate) line_length: Option<line_length::Fold>,
     /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
     /// structural fixer can shift which line a regex matches.
     pub(crate) per_line: Vec<PerLineRuleApply<'a>>,
@@ -684,6 +685,7 @@ impl<'a> Passes<'a> {
             truthy: on(truthy::ID).then(|| truthy::Config::resolve(cfg)),
             key_ordering: on(key_ordering::ID)
                 .then(|| key_ordering::Config::resolve(cfg, path)),
+            line_length: None,
             per_line: cfg.per_line_applies(path),
         }
     }
@@ -790,6 +792,13 @@ impl FixContext<'_> {
         fix!(key_ordering, passes.key_ordering.as_ref(), |buffer, cfg| {
             key_ordering::fix(buffer, cfg, &passes.per_line)
         });
+        // `fold` skips disabled lines itself: `Directives::reconcile` duplicates a split line.
+        if let Some(cfg) = passes.line_length
+            && let Some(folded) = line_length::fold(&content, cfg)
+        {
+            changed_rules.push(line_length::ID);
+            content = folded;
+        }
         content
     }
 

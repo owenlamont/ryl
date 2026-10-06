@@ -2,6 +2,8 @@
 //! idempotent, parse-preserving, value-preserving at the representation level (tags,
 //! aliases, duplicate keys and entry order included, resolved against the declared YAML
 //! version), and must keep every comment beside its node and every anchor and alias name.
+//! Folding also keeps the two parser-independent properties in `fold`: only lone spaces
+//! become line breaks, and every continuation is deeper than its scalar's owner.
 //!
 //! The generator layers anchors, aliases and tags (`properties`) over the fix-convergence
 //! suite's stacked documents. Deterministic tests pin the quote ladder, show the oracle
@@ -16,6 +18,8 @@ mod ast;
     reason = "shared with the safe-fix suite, which uses every item"
 )]
 mod config;
+#[path = "property_format/fold.rs"]
+mod fold;
 #[path = "property_format/passes.rs"]
 mod passes;
 #[path = "property_format/properties.rs"]
@@ -35,8 +39,10 @@ use ryl::config::YamlLintConfig;
 use ryl::lint::lint_str;
 
 use config::{synthetic_base_dir, synthetic_path};
+use fold::{arb_fold_document, inserted_breaks, under_indented_break};
 use passes::{
-    FORMAT_OWNED_RULES, FormatPass, format_passes, named_pass, yaml_rules_for,
+    FOLD_TARGETS, FORMAT_OWNED_RULES, FormatPass, fold_alone, format_passes,
+    named_pass, yaml_rules_for,
 };
 use properties::arb_document_with_properties;
 use representation::{annotations, representation};
@@ -88,6 +94,79 @@ proptest! {
         for pass in format_passes() {
             check_pass(pass, &input).map_err(TestCaseError::fail)?;
         }
+    }
+
+    #[test]
+    fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
+        input in arb_fold_document()
+    ) {
+        for pass in format_passes() {
+            check_pass(pass, &input).map_err(TestCaseError::fail)?;
+        }
+        for (width, indent) in FOLD_TARGETS {
+            check_fold(&input, &fold_alone(&input, width, indent))
+                .map_err(|violation| TestCaseError::fail(format!(
+                    "fold at width {width}, indent {indent} on {input:?}: {violation}"
+                )))?;
+        }
+    }
+}
+
+fn check_fold(input: &str, output: &str) -> Result<(), String> {
+    let breaks = inserted_breaks(input, output)?;
+    match under_indented_break(output, &breaks) {
+        Some(at) => Err(format!(
+            "continuation at byte {at} of {output:?} is too shallow"
+        )),
+        None => Ok(()),
+    }
+}
+
+#[test]
+fn fold_checks_pass_real_folds_and_fail_broken_ones() {
+    for (input, folded) in [
+        ("- key: aaa bbb ccc\n", "- key: aaa\n    bbb\n    ccc\n"),
+        ("k:\n- aaa bbb\n", "k:\n- aaa\n  bbb\n"),
+        ("aaa bbb\r\n", "aaa\r\n  bbb\r\n"),
+    ] {
+        assert_eq!(fold_alone(input, 6, 2), folded);
+        check_fold(input, folded).unwrap_or_else(|violation| panic!("{violation}"));
+        check_invariants(&|s: &str| fold_alone(s, 6, 2), input)
+            .unwrap_or_else(|violation| panic!("{violation}"));
+    }
+    for (input, broken, what) in [
+        (
+            "k: aaa  bbb\n",
+            "k: aaa \n  bbb\n",
+            "breaks at a double space",
+        ),
+        ("k: aaa bbb\n", "k: aaa\n  bbbb\n", "changes a character"),
+        (
+            "k: aaa bbb\n",
+            "k: aaa\n            bbb\n",
+            "lengthens a line",
+        ),
+        (
+            "- key: aaa bbb\n",
+            "- key: aaa\n  bbb\n",
+            "indents to the owner",
+        ),
+        (
+            "aaa bbb\n",
+            "aaa\nbbb\n",
+            "indents a root scalar to column 0",
+        ),
+    ] {
+        assert!(
+            check_fold(input, broken).is_err(),
+            "a fold that {what} must fail the fold checks"
+        );
+    }
+    for (input, broken) in [
+        ("k: aaa  bbb\n", "k: aaa\n  bbb\n"),
+        ("- key: aaa bbb\n", "- key: aaa\n  bbb\n"),
+    ] {
+        assert!(check_invariants(&|_: &str| broken.to_string(), input).is_err());
     }
 }
 
@@ -161,7 +240,9 @@ fn the_suite_covers_exactly_the_formatter_rules() {
 #[test]
 fn every_pass_rewrites_a_document_every_format_owned_rule_flags() {
     let input = "# lead\r\n  # misindented\nseq: [ &a0 'x' ,  *a0 ]  #note\n\
-                 map: {  k: !!str 'v'  }\nq: 'yes'\n\n\n\nlast: \"plain\"   \nend: bare";
+                 map: {  k: !!str 'v'  }\nq: 'yes'\n\n\n\nlast: \"plain\"   \nend: bare\n\
+                 long: alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo \
+                 lima mike november";
     assert!(representation(input).is_some(), "dirty input must parse");
     let cfg =
         YamlLintConfig::from_yaml_str(&yaml_rules_for("  quoted-strings: enable\n"))

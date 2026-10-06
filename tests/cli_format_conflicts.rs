@@ -70,6 +70,10 @@ fn agreeing_configs_are_silent() {
             true,
         ),
         ("[lint.rules.document-end]\npresent = false\n", true),
+        (
+            "[format]\nfold-long-lines = true\n[lint.rules.line-length]\nmax = 5\n",
+            true,
+        ),
     ] {
         assert_eq!(warned_rules(config, toml), Vec::<String>::new(), "{config}");
     }
