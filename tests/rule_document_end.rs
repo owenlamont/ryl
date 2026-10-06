@@ -2,7 +2,7 @@ use ryl::rules::document_end::{self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAGE}
 
 #[test]
 fn detects_end_marker_after_multibyte_comment() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "# —\n---\nfoo: bar\n...\n";
     let hits = document_end::check(input, &cfg);
     assert!(
@@ -13,7 +13,7 @@ fn detects_end_marker_after_multibyte_comment() {
 
 #[test]
 fn reports_missing_marker_at_stream_end() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "---\nwithout:\n  document: end\n";
     let hits = document_end::check(input, &cfg);
     assert_eq!(hits.len(), 1, "expected a violation: {hits:?}");
@@ -25,7 +25,7 @@ fn reports_missing_marker_at_stream_end() {
 
 #[test]
 fn reports_missing_marker_between_documents() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "---\nfirst: document\n---\nsecond: document\n";
     let hits = document_end::check(input, &cfg);
     assert_eq!(hits.len(), 2, "expected two violations: {hits:?}");
@@ -39,7 +39,7 @@ fn reports_missing_marker_between_documents() {
 
 #[test]
 fn explicit_marker_satisfies_requirement() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "---\nwith:\n  document: end\n...\n";
     let hits = document_end::check(input, &cfg);
     assert!(hits.is_empty(), "explicit marker should pass: {hits:?}");
@@ -47,7 +47,7 @@ fn explicit_marker_satisfies_requirement() {
 
 #[test]
 fn forbidding_marker_flags_explicit_marker() {
-    let cfg = Config::new_for_tests(false);
+    let cfg = Config::new(false);
     let input = "---\nwith:\n  document: end\n...\n";
     let hits = document_end::check(input, &cfg);
     assert_eq!(hits.len(), 1, "expected a violation: {hits:?}");
@@ -59,7 +59,7 @@ fn forbidding_marker_flags_explicit_marker() {
 
 #[test]
 fn forbidding_marker_allows_absent_marker() {
-    let cfg = Config::new_for_tests(false);
+    let cfg = Config::new(false);
     let input = "---\nwith:\n  document: end\n";
     let hits = document_end::check(input, &cfg);
     assert!(
@@ -70,14 +70,14 @@ fn forbidding_marker_allows_absent_marker() {
 
 #[test]
 fn empty_stream_has_no_diagnostics() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let hits = document_end::check("", &cfg);
     assert!(hits.is_empty(), "empty stream should not warn: {hits:?}");
 }
 
 #[test]
 fn explicit_marker_with_trailing_spaces_is_still_detected() {
-    let cfg = Config::new_for_tests(false);
+    let cfg = Config::new(false);
     let input = "---\nwith:\n  document: end\n...   \n";
     let hits = document_end::check(input, &cfg);
     assert_eq!(
@@ -93,7 +93,7 @@ fn explicit_marker_with_trailing_spaces_is_still_detected() {
 
 #[test]
 fn marker_with_leading_indent_is_allowed() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "---\nwith:\n  document: end\n  ...\n";
     let hits = document_end::check(input, &cfg);
     assert!(
@@ -104,7 +104,7 @@ fn marker_with_leading_indent_is_allowed() {
 
 #[test]
 fn marker_with_inline_comment_is_allowed() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "---\nwith:\n  document: end\n... # done\n";
     let hits = document_end::check(input, &cfg);
     assert!(

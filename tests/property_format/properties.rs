@@ -1,6 +1,7 @@
-//! Adds what the safe-fix generator never emits to the stacked generator's mapping
-//! values: anchors, aliases to anchors defined earlier, core, local and non-specific
-//! tags, and quoted scalars whose content needs escaping, the quote ladder's top rung.
+//! Adds what the safe-fix generator never emits to the stacked generator's mappings:
+//! anchors, aliases to anchors defined earlier, core, local and non-specific tags, quoted
+//! scalars whose content needs escaping (the quote ladder's top rung), and quoted block
+//! mapping keys, which the ladder rewrites too.
 
 use proptest::prelude::*;
 
@@ -17,6 +18,17 @@ const ESCAPED: [(bool, &str); 5] = [
     (false, "it's"),
 ];
 
+const QUOTED_KEYS: [&str; 8] = [
+    "'quoted'",
+    "\"double\"",
+    "'a: b'",
+    "'no'",
+    "'011'",
+    "\"tab\\there\"",
+    "'it''s'",
+    "'#hash'",
+];
+
 #[derive(Debug, Clone, Copy)]
 pub enum Property {
     None,
@@ -25,6 +37,7 @@ pub enum Property {
     AnchorAndTag(usize),
     Alias,
     Escaped(usize),
+    QuotedKey(usize),
 }
 
 fn arb_property() -> impl Strategy<Value = Property> {
@@ -35,6 +48,7 @@ fn arb_property() -> impl Strategy<Value = Property> {
         1 => (0..TAGS.len()).prop_map(Property::AnchorAndTag),
         2 => Just(Property::Alias),
         2 => (0..ESCAPED.len()).prop_map(Property::Escaped),
+        2 => (0..QUOTED_KEYS.len()).prop_map(Property::QuotedKey),
     ]
 }
 
@@ -47,6 +61,12 @@ struct Decorator<'a> {
 impl Decorator<'_> {
     fn decorate(&mut self, entries: &mut [BlockEntry]) {
         for entry in entries {
+            if let Property::QuotedKey(index) =
+                self.properties[self.next % self.properties.len()]
+            {
+                self.next += 1;
+                entry.key = QUOTED_KEYS[index].to_string();
+            }
             match &mut entry.value {
                 Node::BlockMap(nested) => self.decorate(nested),
                 node => self.decorate_inline(node),
@@ -77,7 +97,7 @@ impl Decorator<'_> {
         let already_tagged =
             matches!(scalar, Scalar::Plain(text) if text.starts_with('!'));
         let prefix = match property {
-            Property::None => return scalar.clone(),
+            Property::None | Property::QuotedKey(_) => return scalar.clone(),
             Property::Escaped(index) => {
                 let (double, payload) = ESCAPED[index];
                 let payload = payload.to_string();

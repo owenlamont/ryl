@@ -51,15 +51,13 @@ pub fn lint_markdown_str(
     problems
 }
 
-/// Each embedded region's `--fix` skips from `region_skips` (its parse error, say)
-/// mapped to host coordinates, so `--fix` can report which regions its strict gate
-/// refused to rewrite. Unlike a true syntax error (which [`lint_markdown_str`] already
-/// surfaces), an undefined alias is otherwise silent.
+/// Each embedded region's problems from `region_problems` (`--fix`'s parse skips, or
+/// `ryl format --check`'s diagnostics) mapped to host coordinates.
 #[must_use]
-pub fn markdown_parse_skips(
+pub fn markdown_region_problems(
     markdown: &str,
     cfg: &YamlLintConfig,
-    region_skips: impl Fn(&str) -> Vec<LintProblem>,
+    region_problems: impl Fn(&EmbeddedRegion) -> Vec<LintProblem>,
 ) -> Vec<LintProblem> {
     if super::markdown_has_unsupported_cr(markdown) {
         return vec![super::unsupported_cr_skip()];
@@ -73,7 +71,7 @@ pub fn markdown_parse_skips(
         if region.content.trim().is_empty() {
             continue;
         }
-        let problems = region_skips(&region.content);
+        let problems = region_problems(&region);
         if problems.is_empty() {
             continue;
         }

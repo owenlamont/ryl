@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::fix::apply_safe_fixes;
+use ryl::format::format_str;
 use tempfile::TempDir;
 
 use super::config::{QUOTED_STRINGS_VARIANTS, synthetic_base_dir, synthetic_path};
@@ -72,10 +73,14 @@ pub fn yaml_rules_for(quoted_strings: &str) -> String {
     format!("rules:\n{others}{quoted_strings}")
 }
 
-fn toml_ladder_pass() -> FormatPass {
+fn toml_pass(
+    name: &str,
+    toml: &str,
+    rewrite: fn(&str, &YamlLintConfig) -> String,
+) -> FormatPass {
     let dir = TempDir::new().expect("create tempdir for TOML config");
     let path = dir.path().join(".ryl.toml");
-    fs::write(&path, TOML_LADDER).expect("write TOML config");
+    fs::write(&path, toml).expect("write TOML config");
     let overrides = Overrides {
         config_file: Some(path),
         config_data: None,
@@ -84,13 +89,21 @@ fn toml_ladder_pass() -> FormatPass {
         .expect("TOML format config loads")
         .config;
     FormatPass {
-        name: "fix/ladder-toml".to_string(),
+        name: name.to_string(),
         // The config keeps paths into the tempdir, so the closure owns it.
         format: Box::new(move |input| {
             let _backing = &dir;
-            apply_safe_fixes(input, &cfg, synthetic_path(), synthetic_base_dir())
+            rewrite(input, &cfg)
         }),
     }
+}
+
+fn fix(input: &str, cfg: &YamlLintConfig) -> String {
+    apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir())
+}
+
+fn format(input: &str, cfg: &YamlLintConfig) -> String {
+    format_str(input, cfg, synthetic_path(), &[])
 }
 
 static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
@@ -101,7 +114,21 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
                 .expect("format-owned YAML config parses");
             fix_pass(format!("fix/{name}"), cfg)
         })
-        .chain([toml_ladder_pass()])
+        .chain([
+            toml_pass("fix/ladder-toml", TOML_LADDER, fix),
+            toml_pass("format/default", "[format]\n", format),
+            toml_pass(
+                "format/quote-double",
+                "[format]\nquote-style = 'double'\n",
+                format,
+            ),
+            toml_pass(
+                "format/non-defaults",
+                "[format]\nquote-style = 'preserve'\nline-ending = 'cr-lf'\n\
+                 document-start = 'preserve'\ndocument-end = 'add'\n",
+                format,
+            ),
+        ])
         .collect()
 });
 

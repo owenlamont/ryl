@@ -49,7 +49,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(
+    pub const fn new(
         max_spaces_before: i64,
         min_spaces_after: i64,
         max_spaces_after: i64,

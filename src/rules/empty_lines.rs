@@ -29,6 +29,15 @@ impl Config {
         }
     }
 
+    #[must_use]
+    pub const fn new(max: i64, max_start: i64, max_end: i64) -> Self {
+        Self {
+            max,
+            max_start,
+            max_end,
+        }
+    }
+
     const fn max(&self) -> i64 {
         self.max
     }

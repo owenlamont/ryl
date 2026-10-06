@@ -35,6 +35,17 @@ impl Config {
         }
     }
 
+    /// A starting space and exactly `spaces` between content and an inline comment.
+    #[must_use]
+    pub const fn exact_gap(spaces: usize) -> Self {
+        Self {
+            require_starting_space: true,
+            ignore_shebangs: true,
+            min_spaces_from_content: Some(spaces),
+            max_spaces_from_content: Some(spaces),
+        }
+    }
+
     const fn require_starting_space(&self) -> bool {
         self.require_starting_space
     }

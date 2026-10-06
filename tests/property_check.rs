@@ -84,8 +84,8 @@ proptest! {
     ) {
         use ryl::rules::comments_indentation::{Config, check};
         let content = document.render();
-        let strict = check(&content, &Config::new_for_tests(false));
-        let relaxed = check(&content, &Config::new_for_tests(true));
+        let strict = check(&content, &Config::new(false));
+        let relaxed = check(&content, &Config::new(true));
         for violation in &relaxed {
             prop_assert!(
                 strict.contains(violation),

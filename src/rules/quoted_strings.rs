@@ -29,7 +29,7 @@ enum QuoteType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum QuoteStyle {
+pub enum QuoteStyle {
     Single,
     Double,
 }
@@ -181,6 +181,26 @@ impl Config {
     pub fn with_allow_double_quotes_for_escaping(mut self, value: bool) -> Self {
         self.allow_double_quotes_for_escaping = value;
         self
+    }
+
+    /// Quotes only where the plain scalar would differ, in `style` unless escapes need
+    /// double quotes; keys included.
+    #[must_use]
+    pub const fn ladder(style: QuoteStyle) -> Self {
+        let (quote_type, quote_type_label) = match style {
+            QuoteStyle::Single => (QuoteType::Single, "single"),
+            QuoteStyle::Double => (QuoteType::Double, "double"),
+        };
+        Self {
+            quote_type,
+            quote_type_label,
+            required: RequiredMode::OnlyWhenNeeded,
+            extra_required: Vec::new(),
+            extra_allowed: Vec::new(),
+            allow_quoted_quotes: false,
+            allow_double_quotes_for_escaping: true,
+            check_keys: true,
+        }
     }
 }
 

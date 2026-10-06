@@ -7,7 +7,7 @@
 
 mod lint;
 
-pub use lint::{lint_markdown_str, markdown_parse_skips};
+pub use lint::{lint_markdown_str, markdown_region_problems};
 
 use std::ops::Range;
 

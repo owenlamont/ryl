@@ -624,16 +624,20 @@ fn resolve_targets(
     if !cli_targets.is_empty() {
         return Ok(cli_targets);
     }
+    Ok(config_or_default_targets(config_output))
+}
+
+fn config_or_default_targets(config_output: Option<&OutputTable>) -> Vec<OutputTarget> {
     if let Some(config_targets) = config_output.map(config_targets_from_table)
         && !config_targets.is_empty()
     {
-        return Ok(config_targets);
+        return config_targets;
     }
     let format = detect_output_format(CliFormat::Auto);
-    Ok(vec![OutputTarget {
+    vec![OutputTarget {
         destination: default_destination(format),
         format,
-    }])
+    }]
 }
 
 /// One target per declared format, in `OutputTable::entries` order (deterministic). Table
@@ -1350,14 +1354,8 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     if args.lint.fix.diff {
-        return run_stdin_diff(
-            &path,
-            &base_dir,
-            &cfg,
-            kind,
-            Rewrite::Fix,
-            Preview::Diff,
-        );
+        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Fix)?;
+        return Ok(emit_diff(&stats, Preview::Diff));
     }
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
@@ -1427,14 +1425,13 @@ fn read_and_lint_stdin(
     })
 }
 
-fn run_stdin_diff(
+fn stdin_diff_stats(
     path: &Path,
     base_dir: &Path,
     cfg: &YamlLintConfig,
     kind: SourceKind,
     rewrite: Rewrite,
-    preview: Preview,
-) -> Result<ExitCode, String> {
+) -> Result<DiffStats, String> {
     let (content, raw) = read_stdin_decoded(path)?;
     let mut stats = DiffStats::default();
     if content.as_bytes() == raw {
@@ -1449,7 +1446,7 @@ fn run_stdin_diff(
             .skipped
             .push((path.to_path_buf(), ryl::fix::non_utf8_diff_skip()));
     }
-    Ok(emit_diff(&stats, preview))
+    Ok(stats)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1512,14 +1509,61 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         return run_stdin_format(&args, preview);
     }
     let (_, files, _) = collect_files(&args)?;
+    warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
     if let Some(preview) = preview {
+        let output_config = files
+            .first()
+            .and_then(|(.., cfg, _)| cfg.output())
+            .filter(|_| preview == Preview::Check);
         let stats = diff_files(&files, Rewrite::Format, preview.flag())?;
-        return Ok(emit_diff(&stats, preview));
+        return emit_format_preview(&stats, preview, output_config);
     }
     for (path, problem) in &rewrite_files(&files, Rewrite::Format)?.skipped {
         eprint_skip_notice(path, problem, Rewrite::Format.flag());
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn warn_format_conflicts<'a>(
+    configs: impl IntoIterator<Item = &'a YamlLintConfig>,
+    args: &LintArgs,
+) {
+    if args.lint.compatibility.no_warnings {
+        return;
+    }
+    let mut checked: Vec<&YamlLintConfig> = Vec::new();
+    let mut warned: Vec<String> = Vec::new();
+    for cfg in configs {
+        if checked.iter().any(|seen| std::ptr::eq(*seen, cfg)) {
+            continue;
+        }
+        checked.push(cfg);
+        for warning in ryl::format::conflicts(cfg) {
+            if !warned.contains(&warning) {
+                eprintln!("{warning}");
+                warned.push(warning);
+            }
+        }
+    }
+}
+
+/// `--check` reports through config `[output]`; `--diff` keeps stdout for the patch.
+fn emit_format_preview(
+    stats: &DiffStats,
+    preview: Preview,
+    config_output: Option<&OutputTable>,
+) -> Result<ExitCode, String> {
+    let records: Vec<FileRecord> = stats
+        .problems
+        .iter()
+        .map(|(path, problems)| FileRecord {
+            path,
+            kept: problems.clone(),
+            error: None,
+        })
+        .collect();
+    emit_targets(&config_or_default_targets(config_output), &records)?;
+    Ok(emit_diff(stats, preview))
 }
 
 /// `ryl format -`: the formatted text goes to stdout, an ignored `--stdin-filename` passing
@@ -1530,8 +1574,11 @@ fn run_stdin_format(
 ) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files, _) = resolve_stdin_ctx(args)?;
     let kind = resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?;
+    warn_format_conflicts([&cfg], args);
     if let (Some(preview), Some(kind)) = (preview, kind) {
-        return run_stdin_diff(&path, &base_dir, &cfg, kind, Rewrite::Format, preview);
+        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?;
+        let output_config = cfg.output().filter(|_| preview == Preview::Check);
+        return emit_format_preview(&stats, preview, output_config);
     }
     if preview.is_some() {
         return Ok(ExitCode::SUCCESS);

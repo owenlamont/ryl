@@ -7,7 +7,9 @@ use crate::cli_support::LintFile;
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
-use crate::markdown_embed::{MarkdownSources, extract_regions, markdown_parse_skips};
+use crate::markdown_embed::{
+    EmbeddedRegion, MarkdownSources, extract_regions, markdown_region_problems,
+};
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, commas, comments, comments_indentation, document_end,
@@ -34,74 +36,6 @@ const SUPPRESSED: [&str; 4] = [
 pub fn suppressed_rules() -> &'static [&'static str] {
     &SUPPRESSED
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FixSafety {
-    Safe,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RuleFix {
-    rule: &'static str,
-    safety: FixSafety,
-}
-
-const NEW_LINES_FIX: RuleFix = RuleFix {
-    rule: new_lines::ID,
-    safety: FixSafety::Safe,
-};
-const COMMENTS_FIX: RuleFix = RuleFix {
-    rule: comments::ID,
-    safety: FixSafety::Safe,
-};
-const COMMENTS_INDENTATION_FIX: RuleFix = RuleFix {
-    rule: comments_indentation::ID,
-    safety: FixSafety::Safe,
-};
-const COMMAS_FIX: RuleFix = RuleFix {
-    rule: commas::ID,
-    safety: FixSafety::Safe,
-};
-const BRACES_FIX: RuleFix = RuleFix {
-    rule: braces::ID,
-    safety: FixSafety::Safe,
-};
-const BRACKETS_FIX: RuleFix = RuleFix {
-    rule: brackets::ID,
-    safety: FixSafety::Safe,
-};
-const FINAL_NEWLINE_FIX: RuleFix = RuleFix {
-    rule: new_line_at_end_of_file::ID,
-    safety: FixSafety::Safe,
-};
-const QUOTED_STRINGS_FIX: RuleFix = RuleFix {
-    rule: quoted_strings::ID,
-    safety: FixSafety::Safe,
-};
-const TRAILING_SPACES_FIX: RuleFix = RuleFix {
-    rule: trailing_spaces::ID,
-    safety: FixSafety::Safe,
-};
-const DOCUMENT_START_FIX: RuleFix = RuleFix {
-    rule: document_start::ID,
-    safety: FixSafety::Safe,
-};
-const DOCUMENT_END_FIX: RuleFix = RuleFix {
-    rule: document_end::ID,
-    safety: FixSafety::Safe,
-};
-const EMPTY_LINES_FIX: RuleFix = RuleFix {
-    rule: empty_lines::ID,
-    safety: FixSafety::Safe,
-};
-const TRUTHY_FIX: RuleFix = RuleFix {
-    rule: truthy::ID,
-    safety: FixSafety::Safe,
-};
-const KEY_ORDERING_FIX: RuleFix = RuleFix {
-    rule: key_ordering::ID,
-    safety: FixSafety::Safe,
-};
 
 /// Every rule with a safe `--fix`, in application order; extend together with the `apply`
 /// sequence in `FixContext::pass` when adding a safe fixer. The LSP drives per-rule
@@ -167,7 +101,7 @@ impl Rewrite {
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
-            Self::Format => crate::format::format_str(input, cfg.format()),
+            Self::Format => crate::format::format_str(input, cfg, path, skip),
         }
     }
 }
@@ -239,10 +173,10 @@ pub fn rewrite_str(
             let fixed = fix_markdown_str(content, path, cfg, base_dir, rewrite);
             // Read from the *fixed* bytes (what gets written) so the reported line stays
             // correct after an earlier region's fix shifts the line count.
-            let skipped = markdown_parse_skips(
+            let skipped = markdown_region_problems(
                 fixed.as_deref().unwrap_or(content),
                 cfg,
-                |region| region_skips(region, cfg, path, base_dir, rewrite),
+                |region| region_skips(&region.content, cfg, path, base_dir, rewrite),
             );
             (fixed, skipped)
         }
@@ -270,11 +204,13 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> Result<FixStats, S
 
 /// One file's `--diff` result: the unified diff (`None` when nothing would change) plus any
 /// parse-skips: a plain YAML file contributes at most one (its whole-file parse error), a
-/// Markdown file one per region that does not parse.
+/// Markdown file one per region that does not parse. A `ryl format` preview also carries
+/// the [`crate::format::problems`] explaining the diff.
 #[derive(Debug, Default)]
 pub struct DiffOutcome {
     pub diff: Option<String>,
     pub skipped: Vec<crate::lint::LintProblem>,
+    pub problems: Vec<crate::lint::LintProblem>,
 }
 
 /// Aggregated `--diff` results across all linted files.
@@ -284,6 +220,7 @@ pub struct DiffStats {
     pub diffs: Vec<String>,
     /// Files left unchanged because they (or, for Markdown, a region) do not parse.
     pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
+    pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>)>,
 }
 
 impl DiffStats {
@@ -295,6 +232,9 @@ impl DiffStats {
         }
         for problem in outcome.skipped {
             self.skipped.push((path.to_path_buf(), problem));
+        }
+        if !outcome.problems.is_empty() {
+            self.problems.push((path.to_path_buf(), outcome.problems));
         }
     }
 }
@@ -348,6 +288,21 @@ pub fn diff_outcome(
     kind: SourceKind,
     rewrite: Rewrite,
 ) -> DiffOutcome {
+    let mut outcome = diff_and_skips(content, cfg, path, base_dir, kind, rewrite);
+    if rewrite == Rewrite::Format && outcome.diff.is_some() {
+        outcome.problems = crate::format::problems(content, cfg, path, kind);
+    }
+    outcome
+}
+
+fn diff_and_skips(
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    kind: SourceKind,
+    rewrite: Rewrite,
+) -> DiffOutcome {
     if path_unrepresentable_in_diff(path) {
         return DiffOutcome {
             diff: None,
@@ -355,6 +310,7 @@ pub fn diff_outcome(
                 "filename has non-UTF-8 bytes or control characters; no applicable \
                  diff path",
             )],
+            ..DiffOutcome::default()
         };
     }
     match kind {
@@ -363,6 +319,7 @@ pub fn diff_outcome(
                 return DiffOutcome {
                     diff: None,
                     skipped: vec![problem],
+                    ..DiffOutcome::default()
                 };
             }
             let fixed = rewrite.apply(content, cfg, path, base_dir, &[]);
@@ -370,11 +327,13 @@ pub fn diff_outcome(
                 return DiffOutcome {
                     diff: None,
                     skipped: vec![bare_cr_diff_skip()],
+                    ..DiffOutcome::default()
                 };
             }
             DiffOutcome {
                 diff: render_unified_diff(content, &fixed, path),
                 skipped: unfixed_notices(&fixed, cfg, path, base_dir, rewrite),
+                ..DiffOutcome::default()
             }
         }
         SourceKind::Markdown => {
@@ -385,8 +344,8 @@ pub fn diff_outcome(
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
             let skips = |markdown| {
-                markdown_parse_skips(markdown, cfg, |region| {
-                    region_skips(region, cfg, path, base_dir, rewrite)
+                markdown_region_problems(markdown, cfg, |region| {
+                    region_skips(&region.content, cfg, path, base_dir, rewrite)
                 })
             };
             let mut skipped = skips(content);
@@ -397,7 +356,11 @@ pub fn diff_outcome(
             }
             let diff =
                 fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
-            DiffOutcome { diff, skipped }
+            DiffOutcome {
+                diff,
+                skipped,
+                ..DiffOutcome::default()
+            }
         }
     }
 }
@@ -411,7 +374,7 @@ fn unfixed_notices(
     rewrite: Rewrite,
 ) -> Vec<crate::lint::LintProblem> {
     if rewrite == Rewrite::Format
-        || !rule_enabled(KEY_ORDERING_FIX, cfg, path, base_dir)
+        || !rule_enabled(key_ordering::ID, cfg, path, base_dir)
         || crate::directives::disables_file(content)
     {
         return Vec::new();
@@ -547,20 +510,29 @@ pub fn fix_markdown_str(
         if fixed == region.content {
             continue;
         }
-        let raw = &markdown[region.raw_span.clone()];
-        let newline = buffer_newline(raw);
-        // `raw` starts at the first content line and `col_offset` (its stripped char count)
-        // never spans a newline, so the first `col_offset` chars of `raw` are exactly the
-        // prefix the parser stripped. The guard below re-checks it against every line, so a
-        // ragged prefix still fails and is skipped.
-        let prefix: String = raw.chars().take(region.col_offset).collect();
-        if reindent(&region.content, &prefix, newline) != raw {
+        let Some((prefix, newline)) = region_prefix(markdown, region) else {
             continue;
-        }
+        };
         out.replace_range(region.raw_span.clone(), &reindent(&fixed, &prefix, newline));
         changed = true;
     }
     changed.then_some(out)
+}
+
+/// The prefix the parser stripped from each line of `region` and the host's line ending, or
+/// `None` for a ragged region, which re-applying one prefix cannot reproduce.
+pub(crate) fn region_prefix(
+    markdown: &str,
+    region: &EmbeddedRegion,
+) -> Option<(String, &'static str)> {
+    let raw = &markdown[region.raw_span.clone()];
+    let newline = buffer_newline(raw);
+    // `raw` starts at the first content line and `col_offset` (its stripped char count)
+    // never spans a newline, so the first `col_offset` chars of `raw` are exactly the
+    // prefix the parser stripped. The guard below re-checks it against every line, so a
+    // ragged prefix still fails and is skipped.
+    let prefix: String = raw.chars().take(region.col_offset).collect();
+    (reindent(&region.content, &prefix, newline) == raw).then_some((prefix, newline))
 }
 
 /// Re-encode dedented region content into its host: each non-empty line regains `prefix` and
@@ -614,9 +586,7 @@ pub fn apply_safe_fixes_filtered(
     )
 }
 
-/// [`apply_safe_fixes_filtered`] with the pass cap and error sink exposed. Like ruff, if a
-/// pass after the last allowed one would still change the text, report it to `err` and
-/// return the text as of the cap.
+/// [`apply_safe_fixes_filtered`] with the pass cap and error sink exposed.
 #[must_use]
 pub fn apply_safe_fixes_capped(
     input: &str,
@@ -627,6 +597,109 @@ pub fn apply_safe_fixes_capped(
     max_passes: usize,
     err: &mut dyn Write,
 ) -> String {
+    let passes = Passes::lint(cfg, path, base_dir, skip);
+    run_passes(input, &passes, path, max_passes, err, &mut Vec::new())
+}
+
+/// The line ending the final-newline fix appends.
+pub(crate) enum NewlinePolicy {
+    Configured(String),
+    /// Reuse the first line's ending so a `\r`-delimited file's appended final newline
+    /// stays `\r` rather than falling back to LF.
+    FirstBreak,
+}
+
+impl NewlinePolicy {
+    fn newline<'a>(&'a self, content: &'a str) -> &'a str {
+        match self {
+            Self::Configured(newline) => newline,
+            Self::FirstBreak => first_line_break(content).map_or("\n", |(_, nl)| nl),
+        }
+    }
+}
+
+/// Each fixer's resolved target, `None` (or `false`) where it does not run.
+pub(crate) struct Passes<'a> {
+    pub(crate) new_lines: Option<new_lines::Config>,
+    pub(crate) comments: Option<comments::Config>,
+    pub(crate) comments_indentation: Option<comments_indentation::Config>,
+    pub(crate) commas: Option<commas::Config>,
+    pub(crate) braces: Option<braces::Config>,
+    pub(crate) brackets: Option<brackets::Config>,
+    pub(crate) final_newline: Option<NewlinePolicy>,
+    pub(crate) quoted_strings: Option<quoted_strings::Config>,
+    pub(crate) trailing_spaces: bool,
+    pub(crate) document_start: Option<document_start::Config>,
+    pub(crate) document_end: Option<document_end::Config>,
+    pub(crate) empty_lines: Option<empty_lines::Config>,
+    pub(crate) truthy: Option<truthy::Config>,
+    pub(crate) key_ordering: Option<key_ordering::Config>,
+    /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
+    /// structural fixer can shift which line a regex matches.
+    pub(crate) per_line: Vec<PerLineRuleApply<'a>>,
+}
+
+impl<'a> Passes<'a> {
+    /// The safe fixes `cfg` enables for `path`.
+    fn lint(
+        cfg: &'a YamlLintConfig,
+        path: &Path,
+        base_dir: &Path,
+        skip: &[&str],
+    ) -> Self {
+        let on =
+            |rule| !skip.contains(&rule) && rule_enabled(rule, cfg, path, base_dir);
+        // Unlike the fixers, the ending ignores `fixable`: an unfixable `new-lines` still
+        // dictates the appended newline.
+        let newline = if cfg.rule_level(new_lines::ID).is_some()
+            && !cfg.is_rule_ignored(new_lines::ID, path, base_dir)
+        {
+            NewlinePolicy::Configured(
+                new_lines::expected_newline(
+                    new_lines::Config::resolve(cfg),
+                    new_lines::platform_newline(),
+                )
+                .into_owned(),
+            )
+        } else {
+            NewlinePolicy::FirstBreak
+        };
+        Self {
+            new_lines: on(new_lines::ID).then(|| new_lines::Config::resolve(cfg)),
+            comments: on(comments::ID).then(|| comments::Config::resolve(cfg)),
+            comments_indentation: on(comments_indentation::ID)
+                .then(|| comments_indentation::Config::resolve(cfg)),
+            commas: on(commas::ID).then(|| commas::Config::resolve(cfg)),
+            braces: on(braces::ID).then(|| braces::Config::resolve(cfg)),
+            brackets: on(brackets::ID).then(|| brackets::Config::resolve(cfg)),
+            final_newline: on(new_line_at_end_of_file::ID).then_some(newline),
+            quoted_strings: on(quoted_strings::ID)
+                .then(|| quoted_strings::Config::resolve(cfg)),
+            trailing_spaces: on(trailing_spaces::ID),
+            document_start: on(document_start::ID)
+                .then(|| document_start::Config::resolve(cfg)),
+            document_end: on(document_end::ID)
+                .then(|| document_end::Config::resolve(cfg)),
+            empty_lines: on(empty_lines::ID).then(|| empty_lines::Config::resolve(cfg)),
+            truthy: on(truthy::ID).then(|| truthy::Config::resolve(cfg)),
+            key_ordering: on(key_ordering::ID)
+                .then(|| key_ordering::Config::resolve(cfg, path)),
+            per_line: cfg.per_line_applies(path),
+        }
+    }
+}
+
+/// Run `passes` over `input` until a pass changes nothing, pushing onto `edited` each rule
+/// whose fix changed the text. Like ruff, if a pass after the last allowed one would still
+/// change the text, report it to `err` and return the text as of the cap.
+pub(crate) fn run_passes(
+    input: &str,
+    passes: &Passes,
+    path: &Path,
+    max_passes: usize,
+    err: &mut dyn Write,
+    edited: &mut Vec<&'static str>,
+) -> String {
     // Never mutate a file that does not fully parse. `parse_error` is stricter than lint's
     // `syntax_diagnostic` (it does not tolerate undefined aliases), so any granit error leaves
     // the file byte-for-byte unchanged.
@@ -635,18 +708,13 @@ pub fn apply_safe_fixes_capped(
     {
         return input.to_string();
     }
-    let per_line = cfg.per_line_applies(path);
     let ctx = FixContext {
-        cfg,
-        path,
-        base_dir,
-        skip,
-        directives: Directives::parse_with_per_line(input, &per_line),
-        per_line,
+        passes,
+        directives: Directives::parse_with_per_line(input, &passes.per_line),
     };
     let mut content = input.to_string();
     for _ in 0..max_passes {
-        let next = ctx.pass(&content, &mut Vec::new());
+        let next = ctx.pass(&content, edited);
         if next == content {
             return content;
         }
@@ -673,93 +741,69 @@ pub fn apply_safe_fixes_capped(
 /// Shared arguments for a sequence of rule fixes. `apply` is a method so it can be generic
 /// over the fix closure (a capturing closure cannot), avoiding dynamic dispatch.
 struct FixContext<'a> {
-    cfg: &'a YamlLintConfig,
-    path: &'a Path,
-    base_dir: &'a Path,
-    skip: &'a [&'a str],
+    passes: &'a Passes<'a>,
     /// Parsed once from the original input. `disables_any` is stable across fixes (no fixer
     /// adds or removes a directive comment), so the per-rule guard reads it without re-parsing.
     directives: Directives,
-    /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
-    /// structural fixer can shift which line a regex matches.
-    per_line: Vec<PerLineRuleApply<'a>>,
 }
 
 impl FixContext<'_> {
     /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix
     /// changed the text.
     fn pass(&self, input: &str, changed_rules: &mut Vec<&'static str>) -> String {
+        let passes = self.passes;
         let mut content = input.to_string();
-        content = self.apply(content, changed_rules, NEW_LINES_FIX, |buffer| {
-            new_lines::fix(
+        macro_rules! fix {
+            ($rule:ident) => {
+                fix!($rule, passes.$rule.as_ref(), $rule::fix)
+            };
+            ($rule:ident, $cfg:expr, $fix:expr) => {
+                content = self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
+            };
+        }
+        fix!(new_lines, passes.new_lines.as_ref(), |buffer, cfg| {
+            new_lines::fix(buffer, *cfg, new_lines::platform_newline())
+        });
+        fix!(comments);
+        fix!(comments_indentation);
+        fix!(commas);
+        fix!(braces);
+        fix!(brackets);
+        fix!(
+            new_line_at_end_of_file,
+            passes.final_newline.as_ref(),
+            |buffer, policy| new_line_at_end_of_file::fix(
                 buffer,
-                new_lines::Config::resolve(self.cfg),
-                new_lines::platform_newline(),
+                policy.newline(buffer)
             )
-        });
-        content = self.apply(content, changed_rules, COMMENTS_FIX, |buffer| {
-            comments::fix(buffer, &comments::Config::resolve(self.cfg))
-        });
-        content =
-            self.apply(content, changed_rules, COMMENTS_INDENTATION_FIX, |buffer| {
-                comments_indentation::fix(
-                    buffer,
-                    &comments_indentation::Config::resolve(self.cfg),
-                )
-            });
-        content = self.apply(content, changed_rules, COMMAS_FIX, |buffer| {
-            commas::fix(buffer, &commas::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, BRACES_FIX, |buffer| {
-            braces::fix(buffer, &braces::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, BRACKETS_FIX, |buffer| {
-            brackets::fix(buffer, &brackets::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, FINAL_NEWLINE_FIX, |buffer| {
-            let newline = target_newline(buffer, self.cfg, self.path, self.base_dir);
-            new_line_at_end_of_file::fix(buffer, newline.as_str())
-        });
-        content = self.apply(content, changed_rules, QUOTED_STRINGS_FIX, |buffer| {
-            quoted_strings::fix(buffer, &quoted_strings::Config::resolve(self.cfg))
-        });
-        content = self.apply(
-            content,
-            changed_rules,
-            TRAILING_SPACES_FIX,
-            trailing_spaces::fix,
         );
-        content = self.apply(content, changed_rules, DOCUMENT_START_FIX, |buffer| {
-            document_start::fix(buffer, &document_start::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, DOCUMENT_END_FIX, |buffer| {
-            document_end::fix(buffer, &document_end::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, EMPTY_LINES_FIX, |buffer| {
-            empty_lines::fix(buffer, &empty_lines::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, TRUTHY_FIX, |buffer| {
-            truthy::fix(buffer, &truthy::Config::resolve(self.cfg))
-        });
-        content = self.apply(content, changed_rules, KEY_ORDERING_FIX, |buffer| {
-            let cfg = key_ordering::Config::resolve(self.cfg, self.path);
-            key_ordering::fix(buffer, &cfg, &self.per_line)
+        fix!(quoted_strings);
+        fix!(
+            trailing_spaces,
+            passes.trailing_spaces.then_some(&()),
+            |buffer, ()| trailing_spaces::fix(buffer)
+        );
+        fix!(document_start);
+        fix!(document_end);
+        fix!(empty_lines);
+        fix!(truthy);
+        fix!(key_ordering, passes.key_ordering.as_ref(), |buffer, cfg| {
+            key_ordering::fix(buffer, cfg, &passes.per_line)
         });
         content
     }
 
-    fn apply(
+    fn apply<C>(
         &self,
         content: String,
         changed_rules: &mut Vec<&'static str>,
-        rule: RuleFix,
-        fix: impl Fn(&str) -> Option<String>,
+        rule: &'static str,
+        cfg: Option<&C>,
+        fix: impl Fn(&str, &C) -> Option<String>,
     ) -> String {
-        if self.skip.contains(&rule.rule)
-            || !rule_enabled(rule, self.cfg, self.path, self.base_dir)
-        {
+        let Some(cfg) = cfg else {
             return content;
-        }
+        };
 
         // Run the fix to a fixed point: one pass is not enough where a fix exposes a follow-up
         // diagnostic (e.g. quoted-strings double-to-single leaves a now-redundant pair to
@@ -771,20 +815,22 @@ impl FixContext<'_> {
         // Guard on an inline directive disabling this rule OR any per-line entry targeting it:
         // a content regex can newly match a line a fixer *produces*, so re-parse even if no
         // original line matched.
-        let guarded = self.directives.disables_any(rule.rule)
-            || self
-                .per_line
+        let per_line = &self.passes.per_line;
+        let guarded = self.directives.disables_any(rule)
+            || per_line
                 .iter()
-                .any(|entry| entry.rules.is_none_or(|ids| ids.contains(&rule.rule)));
+                .any(|entry| entry.rules.is_none_or(|ids| ids.contains(&rule)));
         let mut current = content;
         let mut directives = Directives::default();
         if guarded {
-            directives = Directives::parse_with_per_line(&current, &self.per_line);
+            directives = Directives::parse_with_per_line(&current, per_line);
         }
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
-            let Some(next) = fix(&current) else { break };
+            let Some(next) = fix(&current, cfg) else {
+                break;
+            };
             let next = if guarded {
-                directives.reconcile(rule.rule, &current, &next)
+                directives.reconcile(rule, &current, &next)
             } else {
                 next
             };
@@ -792,9 +838,9 @@ impl FixContext<'_> {
                 break;
             }
             current = next;
-            changed_rules.push(rule.rule);
+            changed_rules.push(rule);
             if guarded {
-                directives = Directives::parse_with_per_line(&current, &self.per_line);
+                directives = Directives::parse_with_per_line(&current, per_line);
             }
         }
         current
@@ -802,39 +848,12 @@ impl FixContext<'_> {
 }
 
 fn rule_enabled(
-    rule: RuleFix,
+    rule: &str,
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
 ) -> bool {
-    match rule.safety {
-        FixSafety::Safe => {
-            cfg.rule_level(rule.rule).is_some()
-                && !cfg.is_rule_ignored(rule.rule, path, base_dir)
-                && cfg.fix().allows_rule(rule.rule)
-        }
-    }
-}
-
-fn target_newline(
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
-) -> String {
-    if cfg.rule_level(new_lines::ID).is_some()
-        && !cfg.is_rule_ignored(new_lines::ID, path, base_dir)
-    {
-        return new_lines::expected_newline(
-            new_lines::Config::resolve(cfg),
-            new_lines::platform_newline(),
-        )
-        .into_owned();
-    }
-
-    // Reuse the first line's ending so a `\r`-delimited file's appended final newline
-    // stays `\r` rather than falling back to LF.
-    first_line_break(content)
-        .map_or("\n", |(_, nl)| nl)
-        .to_string()
+    cfg.rule_level(rule).is_some()
+        && !cfg.is_rule_ignored(rule, path, base_dir)
+        && cfg.fix().allows_rule(rule)
 }
