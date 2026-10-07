@@ -139,7 +139,7 @@ fn arb_block_scalar(base: usize) -> impl Strategy<Value = String> {
     )
         .prop_map(
             |(style, indicator, chomp, body): (_, _, &str, Vec<String>)| {
-                // `max-blank-lines` empties a blank-only keep body at the end of a document.
+                // `max-blank-lines` drops a blank-only keep body at document end (#558).
                 let blank_only = body.iter().all(|line| line.trim().is_empty());
                 let chomp = if blank_only && chomp == "+" {
                     ""
