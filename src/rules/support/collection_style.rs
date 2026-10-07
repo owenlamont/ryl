@@ -253,22 +253,47 @@ impl Restyler<'_> {
             .map_or(self.buffer.len(), |at| node.end + at);
         let rest = self.buffer[node.end..line_end].trim_matches(is_space);
         let comment = rest.starts_with('#').then_some(rest);
+        let keyed = node.parent.is_some_and(|parent| {
+            let siblings = &self.nodes[parent].children;
+            let at = siblings.iter().position(|&child| child == index);
+            self.nodes[parent].kind == Kind::Mapping
+                && at.is_some_and(|at| self.nodes[siblings[at - 1]].line == node.line)
+        });
+        if comment.is_some() && !keyed {
+            return Err("a trailing comment has no key line to move to");
+        }
         let end = if comment.is_some() {
             line_end
         } else {
             node.end
         };
-        if prefix
+        let compact = prefix
             .split(' ')
-            .all(|token| token.is_empty() || token == "-")
+            .all(|token| token.is_empty() || token == "-");
+        let dashes = prefix.trim_end_matches(' ');
+        let outer = if compact {
+            dashes.strip_suffix('-').unwrap_or(dashes)
+        } else {
+            prefix
+        };
+        if outer
+            .match_indices("-  ")
+            .any(|(at, _)| at == 0 || outer[..at].ends_with(' '))
         {
-            let col = prefix.len();
+            return Err("a dash before it has extra spaces");
+        }
+        if compact {
+            let (start, col, gap) = if dashes.is_empty() {
+                (node.start, prefix.len(), "")
+            } else {
+                (line_start + dashes.len(), dashes.len() + 1, " ")
+            };
             let body = self.block(index, node.start + 1, col)?;
-            let text = comment.map_or_else(
-                || body.clone(),
-                |comment| format!("{comment}{}{body}", self.break_to(col)),
-            );
-            return Ok((BytePos::new(node.start), BytePos::new(end), text));
+            return Ok((
+                BytePos::new(start),
+                BytePos::new(end),
+                format!("{gap}{body}"),
+            ));
         }
         let col = node
             .parent

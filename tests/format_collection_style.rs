@@ -31,7 +31,7 @@ fn restyle(input: &str, toml: &str) -> String {
     format_str(input, &config(toml), Path::new("golden.yaml"), &others)
 }
 
-const CASES: [(&str, &str, &str, &str); 37] = [
+const CASES: [(&str, &str, &str, &str); 36] = [
     (
         "issue",
         BOTH,
@@ -120,8 +120,6 @@ const CASES: [(&str, &str, &str, &str); 37] = [
         "k: &x [a]  # c\n",
         "k: &x  # c\n  - a\n",
     ),
-    ("dash-comment", BOTH, "- [a]  # c\n", "- # c\n  - a\n"),
-    ("root-comment", BOTH, "[a]  # c\n", "# c\n- a\n"),
     (
         "compact",
         BOTH,
@@ -131,6 +129,12 @@ const CASES: [(&str, &str, &str, &str); 37] = [
     ("own-line", BOTH, "k:\n  [a, b]\n", "k:\n  - a\n  - b\n"),
     ("own-line-anchor", BOTH, "k: &x\n  [a]\n", "k: &x\n  - a\n"),
     ("dash-anchor", BOTH, "- &x [a]\n", "- &x\n  - a\n"),
+    (
+        "dash-gap",
+        BOTH,
+        "-  [a, b]\n-   {c: 1}\n",
+        "- - a\n  - b\n- c: 1\n",
+    ),
     (
         "pairs",
         BOTH,
@@ -229,6 +233,21 @@ fn unsafe_collections_stay_flow_with_the_reason() {
         ("[?x, -y]\n", "an entry starts with `?`"),
         ("k: {?x: 1}\n", "an entry starts with `?`"),
         ("k: [&x ?y]\n", "an entry starts with `?`"),
+        ("-  a: [x]\n", "a dash before it has extra spaces"),
+        (
+            "- [a]  # c\n",
+            "a trailing comment has no key line to move to",
+        ),
+        (
+            "[a]  # c\n",
+            "a trailing comment has no key line to move to",
+        ),
+        (
+            "? k\n: [a]  # c\n",
+            "a trailing comment has no key line to move to",
+        ),
+        ("k:\n  -  a: [x]\n", "a dash before it has extra spaces"),
+        ("-  - [a]\n", "a dash before it has extra spaces"),
         ("k: {a: !!str ?y}\n", "an entry starts with `?`"),
         ("k: {a: \"x\n  y\"}\n", "an entry spans lines"),
         ("k: [{a: \"x\n  y\"}]\n", "an entry spans lines"),
