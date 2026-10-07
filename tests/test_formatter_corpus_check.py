@@ -27,8 +27,8 @@ CORRUPTED = b"---\na: |\n  CORRUPTED\n"
 PATH = "f.yaml"
 
 
-def _record(after: bytes, tmp_path: Path) -> gate.Result:
-    digest = hashlib.sha256(REVIEWED).hexdigest()
+def _record(after: bytes, tmp_path: Path, before: bytes = BEFORE) -> gate.Result:
+    digest = (hashlib.sha256(BEFORE).hexdigest(), hashlib.sha256(REVIEWED).hexdigest())
     repo = gate.Repo(
         url="https://example.com/o/r",
         sha="0" * 40,
@@ -36,7 +36,7 @@ def _record(after: bytes, tmp_path: Path) -> gate.Result:
         yaml12_known_errors={PATH: digest},
     )
     result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
-    gate._record_change(result, repo, PATH, BEFORE, after, pairs=[], pair_dir=tmp_path)
+    gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
     gate._assign_verdicts(
         [result], {f"{result.mode}\t{result.repo}\t{PATH}": "value-preservation"}
     )
@@ -54,6 +54,28 @@ def test_corrupting_an_allow_listed_file_fails_the_gate(tmp_path: Path) -> None:
     assert result.yaml12_unequal == [PATH]
     assert result.rust == {"value-preservation": [PATH]}
     assert gate._hard_failures(result) == 4, result.errors
+
+
+def test_corrupting_the_input_of_an_allow_listed_file_fails_the_gate(
+    tmp_path: Path,
+) -> None:
+    result = _record(REVIEWED, tmp_path, before=b"a: |\n  CORRUPTED\n  ")
+    assert gate._hard_failures(result) == 4, result.errors
+
+
+def test_a_dirty_cached_checkout_is_refused(tmp_path: Path) -> None:
+    clone = tmp_path / "o__r"
+    clone.mkdir()
+    gate._git(clone, "init", "-q")
+    (clone / "f.yaml").write_text("a: 1\n")
+    gate._git(clone, "add", ".")
+    gate._git(clone, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+    (clone / "f.yaml").write_text("a: 2\n")
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha=gate._git(clone, "rev-parse", "HEAD")
+    )
+    with pytest.raises(gate.CorpusError, match="local changes"):
+        gate._fetch(repo, tmp_path)
 
 
 def test_an_unknown_repo_selector_is_rejected() -> None:

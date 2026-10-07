@@ -103,8 +103,8 @@ class Repo:
     expected_skip: tuple[str, ...] = ()
     tally: bool = True
     modes: tuple[Mode, ...] = tuple(Mode)
-    yaml12_known_errors: Mapping[str, str] = field(default_factory=dict)
-    rust_known_errors: Mapping[str, str] = field(default_factory=dict)
+    yaml12_known_errors: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    rust_known_errors: Mapping[str, tuple[str, str]] = field(default_factory=dict)
 
     @property
     def name(self) -> str:
@@ -167,8 +167,8 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
     return [r for r in repos if not wanted or r.name in wanted]
 
 
-def _known(entries: Iterable[Mapping[str, str]]) -> dict[str, str]:
-    return {entry["path"]: entry["after-sha256"] for entry in entries}
+def _known(entries: Iterable[Mapping[str, str]]) -> dict[str, tuple[str, str]]:
+    return {e["path"]: (e["before-sha256"], e["after-sha256"]) for e in entries}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -180,6 +180,9 @@ def _git(cwd: Path, *args: str) -> str:
 def _fetch(repo: Repo, cache: Path) -> Path:
     clone = cache / repo.name.replace("/", "__")
     if (clone / ".git").is_dir() and _git(clone, "rev-parse", "HEAD") == repo.sha:
+        if dirty := _git(clone, "status", "--porcelain"):
+            msg = f"{repo.name}: cached checkout has local changes:\n{dirty}"
+            raise CorpusError(msg)
         return clone
     shutil.rmtree(clone, ignore_errors=True)
     clone.mkdir(parents=True)
@@ -348,7 +351,7 @@ def _record_change(
     stem.with_suffix(".before").write_bytes(before)
     stem.with_suffix(".after").write_bytes(after)
     pairs.append((f"{result.mode}\t{result.repo}\t{path}", stem))
-    digest = hashlib.sha256(after).hexdigest()
+    digest = (hashlib.sha256(before).hexdigest(), hashlib.sha256(after).hexdigest())
     if repo.rust_known_errors.get(path) == digest:
         result.rust_waivable.append(path)
     match _compare(_load12, before, after):
