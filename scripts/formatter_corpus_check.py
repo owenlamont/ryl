@@ -114,6 +114,7 @@ class Result:
     repo: str
     mode: Mode
     files: int = 0
+    list_error: str = ""
     changed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     unexpected_skips: list[str] = field(default_factory=list)
@@ -252,8 +253,12 @@ def _run(
 ) -> Result:
     result = Result(repo=repo.name, mode=mode)
     config = ["-c", str(pair_dir.parent / "fold.toml")] if mode is Mode.FOLD else []
-    listed = _ryl(clone, "check", "--list-files", *config, ".").stdout.splitlines()
-    files = sorted(f for f in map(_relative, listed) if (clone / f).is_file())
+    listing = _ryl(clone, "check", "--list-files", *config, ".")
+    if listing.returncode:
+        result.list_error = listing.stderr.strip()[-500:]
+    files = sorted(
+        f for f in map(_relative, listing.stdout.splitlines()) if (clone / f).is_file()
+    )
     result.files = len(files)
     before = _snapshot(clone, files)
     if tally and repo.tally:
@@ -476,6 +481,8 @@ def run(
             jsonl.flush()
             changed = len(result.changed)
             typer.echo(f"{row.name} [{mode}]: {result.files} files, {changed} changed")
+            if result.list_error:
+                typer.secho(f"  ryl found no files: {result.list_error}", err=True)
     jsonl.close()
     verdicts = _rust_oracle(pairs, work)
     for result in results:
