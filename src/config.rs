@@ -558,6 +558,21 @@ impl YamlLintConfig {
         self.ignore_from_files.clear();
     }
 
+    /// The first relative `ignore-from-file`, top-level or rule-level, read before
+    /// `finalize` resolves it.
+    pub(crate) fn relative_ignore_from_file(&self) -> Option<String> {
+        let rule_files = self
+            .rules
+            .values()
+            .filter_map(|rule| yaml_rule_filter_patterns(&rule.value))
+            .flat_map(|(_, files)| files);
+        self.ignore_from_files
+            .iter()
+            .cloned()
+            .chain(rule_files)
+            .find(|path| !Path::new(path).is_absolute())
+    }
+
     /// Whether any rule sets a *relative* rule-level `ignore-from-file`. User-global
     /// migration refuses these: the rule config is serialized verbatim, so a relative path
     /// cannot be relocated to ryl's config dir without rewriting it (an absolute path is
@@ -934,7 +949,11 @@ impl YamlLintConfig {
             .expect("serializing TOML Value should not fail")
     }
 
-    fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
+    pub(crate) fn finalize(
+        &mut self,
+        envx: &dyn Env,
+        base_dir: &Path,
+    ) -> Result<(), String> {
         // Reject unknown rule names (matching yamllint's "no such rule"): an unknown rule
         // is never dispatched by `lint_str`, so without this a typo lints nothing and a
         // config whose only entries are unknown slips past the "no rules enabled" guard.

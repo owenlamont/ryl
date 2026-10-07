@@ -20,17 +20,14 @@ impl YamlLintConfig {
     }
 }
 
-/// Read and finalize the YAML config at `path`, resolving relative paths against
-/// `base_dir` exactly as runtime discovery would.
+/// Read and parse, without finalizing, the YAML config at `path`, resolving `extends`
+/// against `base_dir` exactly as runtime discovery would.
 pub(crate) fn load(
     envx: &dyn Env,
     path: &Path,
     base_dir: &Path,
 ) -> Result<YamlLintConfig, String> {
-    let data = envx.read_to_string(path)?;
-    let mut cfg = parse(&data, Some(envx), Some(base_dir))?;
-    cfg.finalize(envx, base_dir)?;
-    Ok(cfg)
+    parse(&envx.read_to_string(path)?, Some(envx), Some(base_dir))
 }
 
 pub(super) fn parse(
@@ -125,7 +122,8 @@ fn resolve_extend_path(entry: &str, envx: &dyn Env, base_dir: &Path) -> PathBuf 
     }
 }
 
-fn builtin(name: &str) -> Option<&'static str> {
+#[must_use]
+pub fn builtin(name: &str) -> Option<&'static str> {
     match name {
         "default" => Some(DEFAULT),
         "relaxed" => Some(RELAXED),

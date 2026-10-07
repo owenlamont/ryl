@@ -345,24 +345,26 @@ fn build_entry(
         ));
         return Ok(false);
     }
-    // The user-global config resolves relative paths against the working directory at
-    // runtime, so it is loaded that way too.
     let base_dir = if user_global {
         SystemEnv.current_dir()
     } else {
         source.parent().unwrap_or(Path::new("")).to_path_buf()
     };
     let mut config = legacy_yaml::load(&SystemEnv, source, &base_dir)?;
+    // At runtime a user-global relative path resolves from each linted file's directory,
+    // which no single migrated file can express.
+    if user_global && let Some(path) = config.relative_ignore_from_file() {
+        plan.warnings.push(format!(
+            "warning: skipping migration of {}: its relative ignore-from-file `{path}` \
+             resolves against each linted file's directory, which the ryl user-global \
+             config cannot express; make the path absolute or move the setting into the \
+             project config, then re-run",
+            source.display()
+        ));
+        return Ok(false);
+    }
+    config.finalize(&SystemEnv, &base_dir)?;
     if user_global {
-        if config.has_relative_rule_level_ignore_from_file() {
-            plan.warnings.push(format!(
-                "warning: skipping migration of {}: a relative rule-level ignore-from-file \
-                 cannot be relocated to the ryl user-global config; inline the patterns or \
-                 use an absolute path, then re-run",
-                source.display()
-            ));
-            return Ok(false);
-        }
         config.inline_resolved_ignore_from_file();
     }
     if !config.enables_any_rule() {

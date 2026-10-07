@@ -385,21 +385,6 @@ fn user_config_with_ignore_files(rules_yaml: &str) -> (tempfile::TempDir, PathBu
 }
 
 #[test]
-fn migrate_user_config_resolves_relative_ignore_from_file_against_cwd() {
-    let (td, project) = user_config_with_ignore_files(
-        "rules:\n  key-duplicates: enable\nignore-from-file: ignores.txt\n",
-    );
-    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
-        .current_dir(&project)
-        .env("XDG_CONFIG_HOME", td.path().join("xdg"))
-        .args(["--migrate-user-config", "--migrate-stdout"]));
-    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
-    assert!(stdout.contains("from-cwd/"), "got: {stdout}");
-    assert!(!stdout.contains("beside-source/"), "got: {stdout}");
-    assert!(!stdout.contains("ignore-from-file"), "got: {stdout}");
-}
-
-#[test]
 fn migrate_user_config_refuses_relative_rule_level_ignore_from_file() {
     let (td, project) = user_config_with_ignore_files(
         "rules:\n  key-duplicates:\n    ignore-from-file: ignores.txt\n",
@@ -415,7 +400,7 @@ fn migrate_user_config_refuses_relative_rule_level_ignore_from_file() {
         ]));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(
-        stderr.contains("rule-level ignore-from-file"),
+        stderr.contains("relative ignore-from-file `ignores.txt`"),
         "got: {stderr}"
     );
     assert!(
