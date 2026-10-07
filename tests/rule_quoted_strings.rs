@@ -890,12 +890,28 @@ fn keeps_yaml_1_1_word_quotes_without_a_1_1_directive() {
 }
 
 #[test]
-fn fix_keeps_quotes_on_a_key_its_colon_follows_directly() {
+fn fix_keeps_quotes_on_a_key_whose_colon_needs_them() {
     let cfg = build_config(
         "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
     );
-    assert_eq!(
-        quoted_strings::fix("a: {'no':a, 'b': c}\n", &cfg).as_deref(),
-        Some("a: {'no':a, b: c}\n")
-    );
+    for (input, expected) in [
+        ("a: {'no':a, 'b': c}\n", "a: {'no':a, b: c}\n"),
+        ("{'k' :v, 'b' : c}\n", "{'k' :v, b : c}\n"),
+        ("['k' :v]\n", "['k' :v]\n"),
+        (
+            "{ \"foo\"\n  :bar, \"b\"\n  : c }\n",
+            "{ \"foo\"\n  :bar, b\n  : c }\n",
+        ),
+        (
+            "{ 'foo' # c\n  # d\n  :bar }\n",
+            "{ 'foo' # c\n  # d\n  :bar }\n",
+        ),
+        ("k: 'v' # c", "k: v # c"),
+    ] {
+        assert_eq!(
+            quoted_strings::fix(input, &cfg).unwrap_or_else(|| input.to_owned()),
+            expected,
+            "{input:?}"
+        );
+    }
 }
