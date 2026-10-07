@@ -814,6 +814,16 @@ fn has_backslash_line_ending(buffer: &str, span: Span) -> bool {
     has_unix_backslash || has_windows_backslash
 }
 
+fn next_token(mut rest: &str) -> &str {
+    loop {
+        rest = rest.trim_start_matches([' ', '\t', '\r', '\n']);
+        let Some(comment) = rest.strip_prefix('#') else {
+            return rest;
+        };
+        rest = comment.find(['\r', '\n']).map_or("", |eol| &comment[eol..]);
+    }
+}
+
 fn scalar_source_bounds(
     buffer: &str,
     style: ScalarStyle,
@@ -1126,9 +1136,9 @@ impl<'cfg> FixState<'cfg> {
             span,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
-        // A `:` straight after the closing quote and before a non-space (`{'k':v}`) is
-        // a value indicator only because the key is quoted.
-        if self.buffer[end.get()..]
+        // A `:` before a non-space (`{'k':v}`, `{'k' :v}`) is a value indicator only
+        // because the key is quoted, even with comments and line breaks in between.
+        if next_token(&self.buffer[end.get()..])
             .strip_prefix(':')
             .and_then(|after| after.chars().next())
             .is_some_and(|next| !next.is_whitespace())
