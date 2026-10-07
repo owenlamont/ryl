@@ -145,8 +145,8 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 `fold-long-lines = true` modes, and exits 1 on a hard failure: a value, comment or anchor
 change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the same
 oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
-one repo. The epic-to-main gate also passes `--proptest-cases 512000`, which then runs
-every property suite at 1000x, one after another. `rust-known-errors` and
+one repo. The epic-to-main gate also passes `--proptest-cases 5120`, which then runs
+every property suite at 20×, one after another. `rust-known-errors` and
 `yaml12-known-errors` in the manifest list files an oracle's own parser misreads; an
 entry waives that oracle's value verdict only while the original and formatted bytes
 match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the

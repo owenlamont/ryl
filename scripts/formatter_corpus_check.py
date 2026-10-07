@@ -509,7 +509,7 @@ def run(
         int,
         typer.Option(
             help="Then run every property suite at this case count, one after another "
-            "(512000 for the epic-to-main gate); 0 skips them."
+            "(5120 for the epic-to-main gate); 0 skips them."
         ),
     ] = 0,
 ) -> None:
