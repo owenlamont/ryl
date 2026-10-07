@@ -1033,8 +1033,8 @@ list of rules that support automatic fixing.
 
 yamllint has no formatter. ryl adds [`ryl format`](https://ryl-docs.pages.dev/formatter/), which applies the
 layout fixes to every file without enabling the rules. yamllint's `default` preset
-conflicts with none of its settings, so a migrated config needs no changes to run
-alongside it.
+conflicts with none of the formatter's default settings, so a migrated config needs no
+changes to run alongside it.
 
 ## Keeping both files
 
@@ -1071,9 +1071,9 @@ For configuration discovery, presets, and file selection, see
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
-Rules that auto-fix are marked with :wrench: in the **Fix** column. Sixteen layout
+Rules that auto-fix are marked with :wrench: in the **Fix** column. Most layout
 rules are also enforced by [`ryl format`](https://ryl-docs.pages.dev/formatter/); the
-[Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) page lists them and the options that
+[Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) page lists which, and the options that
 conflict with it.
 
 ## Layout and spacing
@@ -1266,7 +1266,7 @@ fold-long-lines = false
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
-| `line-ending` | `"lf"` | `"lf"`, `"crlf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
+| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
 | `document-start` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
@@ -1290,8 +1290,9 @@ The rest of the layout is fixed:
 ## Long lines
 
 With `fold-long-lines = true`, `ryl format` splits a block plain scalar line longer than
-the top-level `line-length` (default 80) at a single space. The continuation is indented
-`indent-width` past the column of the collection that owns the value:
+the top-level `line-length` (default 80) at a single space. The new line takes the
+indent of the scalar's existing continuation lines, or else sits `indent-width` past the
+column of the collection that owns the value:
 
 ```yaml
 # before
@@ -1352,7 +1353,7 @@ that rule's formatting where it applies. There is no format-only directive.
 
 ## Conflicting lint rules
 
-The formatter's layout is also checked by sixteen lint rules, and they stay lint rules:
+The formatter's layout is also checked by lint rules, and they stay lint rules:
 `ryl check` still reports them, and `ryl check --fix` still fixes the fixable ones. When
 one of them is enabled with options that reject what `ryl format` writes, every
 `ryl format` run warns on stderr, for example:
@@ -3817,7 +3818,7 @@ fixable = ["ALL"]
 unfixable = ["comments"]
 ```
 
-`ryl format` inserts the space after `#` and writes exactly two spaces before an inline comment. It conflicts with a `min-spaces-from-content` above 2 or a `max-spaces-from-content` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+`ryl format` inserts the space after `#` and writes exactly two spaces before an inline comment. It conflicts with a `min-spaces-from-content` above 2 or a non-negative `max-spaces-from-content` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 

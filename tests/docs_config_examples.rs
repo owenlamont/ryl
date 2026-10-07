@@ -599,15 +599,11 @@ fn format_markers_check_the_formatter_verdict() {
     }
 }
 
-/// Every `[format]` key in the TOML config schema has a row in the formatter page's key
-/// table, so a new key cannot ship undocumented.
-#[test]
-fn every_format_key_has_a_formatter_page_row() {
+/// The formatter page and the `[format]` keys of the TOML config schema, or `None` where
+/// docs/ is absent, as in the packaged crate.
+fn formatter_page_and_keys() -> Option<(String, Vec<String>)> {
     let page = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/formatter.md");
-    // docs/ is excluded from the packaged crate; skip there rather than fail.
-    let Ok(text) = fs::read_to_string(page) else {
-        return;
-    };
+    let text = fs::read_to_string(page).ok()?;
     let schema = ryl::config_schema::schema_value();
     let table = schema["properties"]["format"]["anyOf"]
         .as_array()
@@ -617,9 +613,22 @@ fn every_format_key_has_a_formatter_page_row() {
         .expect("`format` refers to its table's definition");
     let keys = schema["$defs"][table]["properties"]
         .as_object()
-        .expect("the `[format]` table has properties");
-    let missing: Vec<&String> = keys
+        .expect("the `[format]` table has properties")
         .keys()
+        .cloned()
+        .collect();
+    Some((text, keys))
+}
+
+/// Every `[format]` key in the TOML config schema has a row in the formatter page's key
+/// table, so a new key cannot ship undocumented.
+#[test]
+fn every_format_key_has_a_formatter_page_row() {
+    let Some((text, keys)) = formatter_page_and_keys() else {
+        return;
+    };
+    let missing: Vec<&String> = keys
+        .iter()
         .filter(|key| {
             !text
                 .lines()
@@ -629,5 +638,37 @@ fn every_format_key_has_a_formatter_page_row() {
     assert!(
         missing.is_empty(),
         "docs/formatter.md has no key-table row for: {missing:?}"
+    );
+}
+
+/// Every default and value the formatter page's key table lists for a `[format]` key
+/// loads, since prose values escape the fenced-example check.
+#[test]
+fn formatter_page_key_values_load() {
+    let Some((text, keys)) = formatter_page_and_keys() else {
+        return;
+    };
+    let rejected: Vec<String> = keys
+        .iter()
+        .flat_map(|key| {
+            let prefix = format!("| `{key}` |");
+            let row = text
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_default();
+            let cells: Vec<&str> = row.split('|').skip(2).take(2).collect();
+            cells
+                .join(" ")
+                .split('`')
+                .skip(1)
+                .step_by(2)
+                .map(|value| format!("[format]\n{key} = {value}\n"))
+                .collect::<Vec<_>>()
+        })
+        .filter(|config| validate(Kind::Toml, Marker::None, config).is_err())
+        .collect();
+    assert!(
+        rejected.is_empty(),
+        "docs/formatter.md lists values the loader rejects: {rejected:?}"
     );
 }

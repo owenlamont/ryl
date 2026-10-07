@@ -60,7 +60,7 @@ fold-long-lines = false
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
-| `line-ending` | `"lf"` | `"lf"`, `"crlf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
+| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
 | `document-start` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
@@ -84,8 +84,9 @@ The rest of the layout is fixed:
 ## Long lines
 
 With `fold-long-lines = true`, `ryl format` splits a block plain scalar line longer than
-the top-level `line-length` (default 80) at a single space. The continuation is indented
-`indent-width` past the column of the collection that owns the value:
+the top-level `line-length` (default 80) at a single space. The new line takes the
+indent of the scalar's existing continuation lines, or else sits `indent-width` past the
+column of the collection that owns the value:
 
 ```yaml
 # before
@@ -146,7 +147,7 @@ that rule's formatting where it applies. There is no format-only directive.
 
 ## Conflicting lint rules
 
-The formatter's layout is also checked by sixteen lint rules, and they stay lint rules:
+The formatter's layout is also checked by lint rules, and they stay lint rules:
 `ryl check` still reports them, and `ryl check --fix` still fixes the fixable ones. When
 one of them is enabled with options that reject what `ryl format` writes, every
 `ryl format` run warns on stderr, for example:
