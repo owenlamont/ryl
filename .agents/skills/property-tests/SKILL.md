@@ -141,9 +141,11 @@ change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the sa
 oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
 one repo. The epic-to-main gate also passes `--proptest-cases 512000`, which then runs
 every property suite at 1000x, one after another. `rust-known-errors` and
-`yaml12-known-errors` in the manifest list files an oracle's own parser misreads, each
-with a reason; an entry the run no longer hits fails the gate as stale. Minimise a failing
-file by
+`yaml12-known-errors` in the manifest list files an oracle's own parser misreads; an
+entry waives that oracle's value verdict only while the formatted bytes match its
+`after-sha256`, and one the run no longer hits fails the gate as stale. Any ryl error,
+panic or timeout fails it too. `uv run tests/test_formatter_corpus_check.py` tests this
+gate logic. Minimise a failing file by
 deleting lines while it still fails, then land it as a deterministic test that runs
 `check_invariants` over every pass-table row, and widen the generator if it could not
 have produced the shape.

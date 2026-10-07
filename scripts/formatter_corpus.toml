@@ -1,7 +1,8 @@
 # Pinned real-world repos for scripts/formatter_corpus_check.py. `sparse` replaces the
 # default `*.yaml`/`*.yml` checkout patterns (gitignore syntax), `expected-skip` globs name
-# files ryl should skip as invalid YAML, and `tally = false` skips the slow diagnostic
-# count on huge files.
+# files ryl should skip as invalid YAML, `tally = false` skips the slow diagnostic count
+# on huge files, and `modes` limits the runs. A `*-known-errors` entry waives that
+# oracle's value verdict on one file only while the formatted bytes match `after-sha256`.
 
 [[repo]]
 url = "https://github.com/kubernetes/examples"
@@ -120,7 +121,9 @@ url = "https://github.com/yaml/yaml-test-suite"
 sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
 note = "spec edge cases; invalid inputs must stay byte-identical"
 # py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
-yaml12-known-errors = ["2G84/03/in.yaml"]
+yaml12-known-errors = [
+  { path = "2G84/03/in.yaml", after-sha256 = "976c64fa2ebd83db6e3f892f2aeb068a20816cdea5ef99912bebf4b367402c60" },
+]
 
 [[repo]]
 url = "https://github.com/aristanetworks/avd"
@@ -176,14 +179,14 @@ note = "Home Assistant / IoT; yamllint: .yamllint"
 # granit and py-yaml12 both misread a block scalar ending in indent-only spaces at EOF
 # (the reference parser agrees with ryl's output).
 rust-known-errors = [
-  "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml",
-  "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml",
-  "dashboards/templates/includes/kohbo_popup_styles.yaml",
+  { path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml", after-sha256 = "41846180f577ab9bf47d97e4ce3733b189cfd28b740028fc1419ab48e12eeff2" },
+  { path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml", after-sha256 = "8f884b8200177e8b7a7e511e24dbb84995e94848c071e0d64197fcbb2d54ff83" },
+  { path = "dashboards/templates/includes/kohbo_popup_styles.yaml", after-sha256 = "ea77632ee4bef9e91e5510cfca10d9129478cc06c7a02807b576907b00328f00" },
 ]
 yaml12-known-errors = [
-  "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml",
-  "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml",
-  "dashboards/templates/includes/kohbo_popup_styles.yaml",
+  { path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml", after-sha256 = "41846180f577ab9bf47d97e4ce3733b189cfd28b740028fc1419ab48e12eeff2" },
+  { path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml", after-sha256 = "8f884b8200177e8b7a7e511e24dbb84995e94848c071e0d64197fcbb2d54ff83" },
+  { path = "dashboards/templates/includes/kohbo_popup_styles.yaml", after-sha256 = "ea77632ee4bef9e91e5510cfca10d9129478cc06c7a02807b576907b00328f00" },
 ]
 
 [[repo]]
@@ -205,9 +208,11 @@ note = "Other / application repos; yamllint: .yamllint.yml"
 url = "https://github.com/redhat-cop/agnosticd"
 sha = "0b3ab8ce56596b507d6b9cdb392588facf3ddeba"
 note = "Ansible; yamllint: ansible/configs/archive/a-base-config/.yamllint, ansible/configs/archive/aro/.yamllint"
+# A nested .yamllint extends a path one directory too high, so ryl refuses the repo config.
+modes = ["fold"]
 # py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
 yaml12-known-errors = [
-  "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml",
+  { path = "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml", after-sha256 = "30758b658e6433be4e3980e2c8492e831d15e89d77d82621868e1fb70413d37a" },
 ]
 
 [[repo]]

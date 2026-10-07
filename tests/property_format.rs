@@ -568,7 +568,9 @@ fn a_deliberately_broken_pass_fails_the_suite() {
 
 /// The corpus gate's verdict on one real-world file before and after `ryl format`:
 /// `ok`, the violated invariant, `unparsed` when the original does not parse (the script
-/// then requires identical bytes), or `unreadable` when either side is not UTF-8.
+/// then requires identical bytes), or `unreadable` when either side is not UTF-8. A value
+/// change that also breaks comments or anchors reports the latter, since the script may
+/// waive a reviewed value change.
 fn corpus_verdict(before: &[u8], after: &[u8]) -> String {
     let (Ok(before), Ok(after)) = (str::from_utf8(before), str::from_utf8(after))
     else {
@@ -577,10 +579,14 @@ fn corpus_verdict(before: &[u8], after: &[u8]) -> String {
     if representation(before).is_none() {
         return "unparsed".to_string();
     }
-    check_preserved(before, after).map_or_else(
-        |violation| violation.split(':').next().unwrap_or_default().to_string(),
-        |()| "ok".to_string(),
-    )
+    let Err(violation) = check_preserved(before, after) else {
+        return "ok".to_string();
+    };
+    let invariant = violation.split(':').next().unwrap_or_default();
+    if invariant == "value-preservation" && annotations(before) != annotations(after) {
+        return "comment/anchor fidelity".to_string();
+    }
+    invariant.to_string()
 }
 
 #[test]
@@ -608,6 +614,7 @@ fn corpus_verdict_names_the_broken_invariant() {
         ("###c\na: 1\n", "### c\na: 1\n", "ok"),
         ("## c\na: 1\n", "# c\na: 1\n", "comment/anchor fidelity"),
         ("a: 1\n", "a: '1'\n", "value-preservation"),
+        ("a: 1  # c\n", "a: '1'\n", "comment/anchor fidelity"),
         ("a: 1\n", "a: [\n", "parse-preservation"),
         ("a: 1  # c\n", "a: 1\n", "comment/anchor fidelity"),
         ("a: [\n", "a: [\n", "unparsed"),

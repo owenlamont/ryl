@@ -27,10 +27,12 @@ Rust oracle with `cargo test --release`), `git` and `uv`. Run from the repo root
 """
 
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Container, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 import fnmatch
+from functools import partial
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -73,7 +75,6 @@ _CONFIG_NAMES: Final = (
 )
 _FOLD_CONFIG: Final = "[format]\nfold-long-lines = true\n"
 _SKIP_RE: Final = re.compile(r"^(.+?):\d+:\d+ skipped by ")
-_PANIC_EXIT: Final = 101
 # `unreadable` means a side is not UTF-8, so the Rust oracle could not judge the pair.
 _RUST_PASSES: Final = frozenset({"ok", "unreadable"})
 _DEFAULT_CACHE: Final = Path(platformdirs.user_cache_dir("ryl-corpus"))
@@ -101,8 +102,9 @@ class Repo:
     sparse: tuple[str, ...] = _YAML_PATTERNS
     expected_skip: tuple[str, ...] = ()
     tally: bool = True
-    yaml12_known_errors: tuple[str, ...] = ()
-    rust_known_errors: tuple[str, ...] = ()
+    modes: tuple[Mode, ...] = tuple(Mode)
+    yaml12_known_errors: Mapping[str, str] = field(default_factory=dict)
+    rust_known_errors: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def name(self) -> str:
@@ -115,16 +117,16 @@ class Result:
     repo: str
     mode: Mode
     files: int = 0
-    list_error: str = ""
+    errors: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     unexpected_skips: list[str] = field(default_factory=list)
     seconds: float = 0.0
-    crashed: str = ""
     not_idempotent: list[str] = field(default_factory=list)
     yaml12_unequal: list[str] = field(default_factory=list)
     yaml12_unavailable: list[str] = field(default_factory=list)
     yaml12_known_errors: list[str] = field(default_factory=list)
+    rust_waivable: list[str] = field(default_factory=list)
     rust_known_errors: list[str] = field(default_factory=list)
     yaml11_drift: list[str] = field(default_factory=list)
     rust: dict[str, list[str]] = field(default_factory=dict)
@@ -140,7 +142,7 @@ def _value_failures(result: Result) -> int:
 
 
 def _hard_failures(result: Result) -> int:
-    return _value_failures(result) + len(result.not_idempotent) + bool(result.crashed)
+    return _value_failures(result) + len(result.not_idempotent) + len(result.errors)
 
 
 def _manifest(names: Iterable[str]) -> list[Repo]:
@@ -152,13 +154,21 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
             sparse=tuple(row.get("sparse", _YAML_PATTERNS)),
             expected_skip=tuple(row.get("expected-skip", ())),
             tally=row.get("tally", True),
-            yaml12_known_errors=tuple(row.get("yaml12-known-errors", ())),
-            rust_known_errors=tuple(row.get("rust-known-errors", ())),
+            modes=tuple(Mode(m) for m in row.get("modes", Mode)),
+            yaml12_known_errors=_known(row.get("yaml12-known-errors", ())),
+            rust_known_errors=_known(row.get("rust-known-errors", ())),
         )
         for row in rows
     ]
     wanted = set(names)
+    if unknown := wanted - {r.name for r in repos}:
+        msg = f"not in the manifest: {', '.join(sorted(unknown))}"
+        raise typer.BadParameter(msg, param_hint="--repo")
     return [r for r in repos if not wanted or r.name in wanted]
+
+
+def _known(entries: Iterable[Mapping[str, str]]) -> dict[str, str]:
+    return {entry["path"]: entry["after-sha256"] for entry in entries}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -187,18 +197,32 @@ def _fetch(repo: Repo, cache: Path) -> Path:
 
 
 def _ryl(
-    clone: Path, *args: str, timeout_s: float | None = None
+    clone: Path, result: Result, *args: str, timeout_s: float, ok: Container[int] = (0,)
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [str(_RYL), *args],
-        cwd=clone,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout_s,
-        check=False,
-    )
+    """Run ryl in `clone`; a timeout, panic or exit outside `ok` joins `result.errors`.
+
+    Returns:
+        The finished process, or an empty one with exit -1 after a timeout.
+    """
+    command = f"ryl {' '.join(args)}"
+    try:
+        proc = subprocess.run(
+            [str(_RYL), *args],
+            cwd=clone,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        result.errors.append(f"{command}: timeout after {timeout_s}s")
+        return subprocess.CompletedProcess(args, -1, "", "")
+    if proc.returncode not in ok or "panicked at" in proc.stderr:
+        tail = proc.stderr.strip()[-300:]
+        result.errors.append(f"{command}: exit {proc.returncode}: {tail}")
+    return proc
 
 
 def _relative(listed: str) -> str:
@@ -238,8 +262,10 @@ def _lint_args(clone: Path) -> list[str]:
     return [] if has_config else ["-d", "extends: default"]
 
 
-def _lint(clone: Path) -> Counter[str]:
-    proc = _ryl(clone, "check", "--format", "parsable", *_lint_args(clone), ".")
+def _lint(
+    ryl: Callable[..., subprocess.CompletedProcess[str]], clone: Path
+) -> Counter[str]:
+    proc = ryl("check", "--format", "parsable", *_lint_args(clone), ".", ok=(0, 1))
     return _rule_counts(proc.stdout + proc.stderr)
 
 
@@ -254,36 +280,29 @@ def _run(
     timeout_s: float,
 ) -> Result:
     result = Result(repo=repo.name, mode=mode)
+    ryl = partial(_ryl, clone, result, timeout_s=timeout_s)
     config = ["-c", str(pair_dir.parent / "fold.toml")] if mode is Mode.FOLD else []
-    listing = _ryl(clone, "check", "--list-files", *config, ".")
-    if listing.returncode:
-        result.list_error = listing.stderr.strip()[-500:]
+    listing = ryl("check", "--list-files", *config, ".")
     files = sorted(
         f for f in map(_relative, listing.stdout.splitlines()) if (clone / f).is_file()
     )
     result.files = len(files)
+    if result.errors:
+        return result
     before = _snapshot(clone, files)
     if tally and repo.tally:
-        check = _ryl(clone, "format", "--check", *config, ".")
+        check = ryl("format", "--check", *config, ".", ok=(0, 1))
         result.diagnostics = dict(sorted(_rule_counts(check.stdout).items()))
-    lint_before = _lint(clone) if mode is Mode.DEFAULT else Counter()
-    try:
-        start = time.monotonic()
-        first = _ryl(clone, "format", *config, ".", timeout_s=timeout_s)
-        result.seconds = round(time.monotonic() - start, 2)
-        after = _snapshot(clone, files)
-        second = _ryl(clone, "format", *config, ".", timeout_s=timeout_s)
-    except subprocess.TimeoutExpired:
-        result.crashed = f"timeout after {timeout_s}s"
-        _git(clone, "checkout", "--", ".")
-        return result
-    for proc in (first, second):
-        if proc.returncode == _PANIC_EXIT or "panicked at" in proc.stderr:
-            result.crashed = proc.stderr.strip()[-500:]
+    lint_before = _lint(ryl, clone) if mode is Mode.DEFAULT else Counter()
+    start = time.monotonic()
+    first = ryl("format", *config, ".")
+    result.seconds = round(time.monotonic() - start, 2)
+    after = _snapshot(clone, files)
+    ryl("format", *config, ".")
     twice = _snapshot(clone, files)
     result.not_idempotent = [f for f in files if twice[f] != after[f]]
     if mode is Mode.DEFAULT:
-        lint_after = _lint(clone)
+        lint_after = _lint(ryl, clone)
         result.lint_rose = {
             rule: [lint_before[rule], count]
             for rule, count in sorted(lint_after.items())
@@ -303,10 +322,10 @@ def _run(
         if after[path] != before[path]:
             _record_change(
                 result,
+                repo,
                 path,
                 before[path],
                 after[path],
-                known_errors=repo.yaml12_known_errors,
                 pairs=pairs,
                 pair_dir=pair_dir,
             )
@@ -315,21 +334,25 @@ def _run(
 
 def _record_change(
     result: Result,
+    repo: Repo,
     path: str,
     before: bytes,
     after: bytes,
     *,
-    known_errors: tuple[str, ...],
     pairs: list[tuple[str, Path]],
     pair_dir: Path,
 ) -> None:
+    """Record a changed file; a known-error waiver holds only for reviewed output."""
     result.changed.append(path)
     stem = pair_dir / str(len(pairs))
     stem.with_suffix(".before").write_bytes(before)
     stem.with_suffix(".after").write_bytes(after)
     pairs.append((f"{result.mode}\t{result.repo}\t{path}", stem))
+    digest = hashlib.sha256(after).hexdigest()
+    if repo.rust_known_errors.get(path) == digest:
+        result.rust_waivable.append(path)
     match _compare(_load12, before, after):
-        case Loaded.UNEQUAL if path in known_errors:
+        case Loaded.UNEQUAL if repo.yaml12_known_errors.get(path) == digest:
             result.yaml12_known_errors.append(path)
         case Loaded.UNEQUAL:
             result.yaml12_unequal.append(path)
@@ -339,6 +362,20 @@ def _record_change(
             pass
     if _compare(_load11, before, after) is Loaded.UNEQUAL:
         result.yaml11_drift.append(path)
+
+
+def _assign_verdicts(results: Iterable[Result], verdicts: Mapping[str, str]) -> None:
+    """Only a value-preservation verdict on reviewed output is waivable."""
+    for result in results:
+        prefix = f"{result.mode}\t{result.repo}\t"
+        for key, verdict in verdicts.items():
+            if not key.startswith(prefix):
+                continue
+            path = key.removeprefix(prefix)
+            if verdict == "value-preservation" and path in result.rust_waivable:
+                result.rust_known_errors.append(path)
+            else:
+                result.rust.setdefault(verdict, []).append(path)
 
 
 def _rust_oracle(pairs: list[tuple[str, Path]], work: Path) -> dict[str, str]:
@@ -417,7 +454,7 @@ def _summary(results: Iterable[Result]) -> str:
         "skipped (unexpected)",
         "value failures",
         "not idempotent",
-        "crash",
+        "ryl errors",
         "py-yaml12 unavailable (known errors)",
         "Rust known errors",
         "1.1 drift",
@@ -429,7 +466,7 @@ def _summary(results: Iterable[Result]) -> str:
         f"| {r.repo} | {r.mode} | {r.files} | {len(r.changed)} "
         f"| {len(r.skipped)} ({len(r.unexpected_skips)}) "
         f"| {_value_failures(r)} "
-        f"| {len(r.not_idempotent)} | {'yes' if r.crashed else ''} "
+        f"| {len(r.not_idempotent)} | {len(r.errors)} "
         f"| {len(r.yaml12_unavailable)} ({len(r.yaml12_known_errors)}) "
         f"| {len(r.rust_known_errors)} | {len(r.yaml11_drift)} "
         f"| {', '.join(r.lint_rose)} | {r.seconds} |\n"
@@ -478,6 +515,7 @@ def run(
     Raises:
         Exit: 1 on any hard-gate failure.
     """
+    rows = _manifest(repo or ())
     typer.echo(f"Corpus pinned on {TESTED_DATE}")
     subprocess.run(["cargo", "build", "--release"], cwd=_ROOT, check=True)
     work = cache_dir / "work"
@@ -488,9 +526,9 @@ def run(
     results: list[Result] = []
     pairs: list[tuple[str, Path]] = []
     jsonl = (work / "results.jsonl").open("w", encoding="utf-8")
-    for row in _manifest(repo or ()):
+    for row in rows:
         clone = _fetch(row, cache_dir / "repos")
-        for mode in Mode:
+        for mode in row.modes:
             result = _run(
                 row,
                 clone,
@@ -505,23 +543,12 @@ def run(
             jsonl.flush()
             changed = len(result.changed)
             typer.echo(f"{row.name} [{mode}]: {result.files} files, {changed} changed")
-            if result.list_error:
-                typer.secho(f"  ryl found no files: {result.list_error}", err=True)
+            for error in result.errors:
+                typer.secho(f"  {error}", err=True)
     jsonl.close()
     verdicts = _rust_oracle(pairs, work)
-    rows = {row.name: row for row in _manifest(repo or ())}
-    for result in results:
-        prefix = f"{result.mode}\t{result.repo}\t"
-        known = rows[result.repo].rust_known_errors
-        for key, verdict in verdicts.items():
-            if not key.startswith(prefix):
-                continue
-            path = key.removeprefix(prefix)
-            if verdict not in _RUST_PASSES and path in known:
-                result.rust_known_errors.append(path)
-            else:
-                result.rust.setdefault(verdict, []).append(path)
-    stale = _stale_known_errors(rows.values(), results)
+    _assign_verdicts(results, verdicts)
+    stale = _stale_known_errors(rows, results)
     (work / "results.json").write_text(
         json.dumps([asdict(r) for r in results], indent=1), encoding="utf-8"
     )
