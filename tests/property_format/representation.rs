@@ -3,9 +3,10 @@
 //!
 //! Loading to plain values loses tags, aliases and duplicate keys, so [`representation`]
 //! keeps granit's event stream instead, with each scalar resolved against the version its
-//! document declares and every layout-only detail dropped (scalar style, the `---`
-//! marker, collection style). [`annotations`] separately records each comment, keyed to
-//! the data event it sits beside, and the anchor and alias names in source order.
+//! document declares (or under YAML 1.1 throughout, for [`yaml_1_1_representation`]) and
+//! every layout-only detail dropped (scalar style, the `---` marker, collection style).
+//! [`annotations`] separately records each comment, keyed to the data event it sits
+//! beside, and the anchor and alias names in source order.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -80,6 +81,7 @@ struct Recorder {
     /// alias graph means.
     anchor_ordinals: BTreeMap<usize, usize>,
     yaml_1_1: bool,
+    assume_yaml_1_1: bool,
 }
 
 impl Recorder {
@@ -149,8 +151,10 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 return;
             }
             Event::DocumentStart(_, version) => {
-                self.yaml_1_1 = version
-                    .is_some_and(|version| (version.major, version.minor) <= (1, 1));
+                self.yaml_1_1 = self.assume_yaml_1_1
+                    || version.is_some_and(|version| {
+                        (version.major, version.minor) <= (1, 1)
+                    });
                 Node::DocumentStart
             }
             Event::DocumentEnd => Node::DocumentEnd,
@@ -181,8 +185,11 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
     }
 }
 
-fn record(content: &str) -> Option<Recorder> {
-    let mut recorder = Recorder::default();
+fn record(content: &str, assume_yaml_1_1: bool) -> Option<Recorder> {
+    let mut recorder = Recorder {
+        assume_yaml_1_1,
+        ..Recorder::default()
+    };
     Parser::new_from_str(content)
         .load(&mut recorder, true)
         .ok()?;
@@ -190,11 +197,17 @@ fn record(content: &str) -> Option<Recorder> {
 }
 
 pub fn representation(content: &str) -> Option<Vec<Node>> {
-    record(content).map(|recorder| recorder.nodes)
+    record(content, false).map(|recorder| recorder.nodes)
+}
+
+/// [`representation`] as a YAML 1.1 reader such as PyYAML sees it, whatever the
+/// document's `%YAML` directive.
+pub fn yaml_1_1_representation(content: &str) -> Option<Vec<Node>> {
+    record(content, true).map(|recorder| recorder.nodes)
 }
 
 pub fn annotations(content: &str) -> Option<Annotations> {
-    let recorder = record(content)?;
+    let recorder = record(content, false)?;
     let mut anchor_names = Vec::new();
     let mut alias_names = Vec::new();
     for token in Scanner::new(StrInput::new(content)) {
@@ -211,16 +224,16 @@ pub fn annotations(content: &str) -> Option<Annotations> {
     })
 }
 
-// Written from the YAML 1.1 type repository (yaml.org/type), checked against
-// ruamel.yaml's 1.1 resolver, rather than shared with `quoted-strings`, so a gap in the
-// fixer's own 1.1 table cannot hide here too.
+// Written from PyYAML's 1.1 resolver plus the `0o` octal yamllint adds, rather than
+// shared with `quoted-strings`, so a gap in the fixer's own 1.1 table cannot hide here
+// too.
 static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"\A(?:",
-        r"y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
-        r"|[-+]?0b[01_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
+        r"yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
+        r"|[-+]?0b[01_]+|[-+]?0o?[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
         r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+",
-        r"|[-+]?(?:[0-9][0-9_]*\.[0-9_]*|\.[0-9_]+)(?:[eE][-+][0-9]+)?",
+        r"|[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?",
         r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)",
         r"|~|null|Null|NULL|",
         r"|[0-9]{4}-[0-9]{2}-[0-9]{2}",

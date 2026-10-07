@@ -291,18 +291,17 @@ the directive, so the two disagree:
 
 | Input | ryl | yamllint |
 | :--- | :--- | :--- |
-| `'no'` with no directive, `quoted-strings: only-when-needed` | redundant (1.2 string) | kept (1.1 boolean) |
-| `'no'` under `%YAML 1.1`, same rule | kept (1.1 boolean) | kept |
-| `'y'` under `%YAML 1.1`, same rule | kept (`y` is a 1.1 boolean) | redundant (PyYAML omits `y`) |
+| `'+.5'` with no directive, `quoted-strings: only-when-needed` | kept (1.2 float) | redundant (1.1 string) |
+| `'no'` under any directive, same rule | kept (1.1 boolean) | kept |
 | `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
 | `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
 
 **Why ryl differs:** the spec is the authority. It assigns a directive-less
 document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
-rejecting a higher major version &mdash; and the 1.1 boolean set in the spec
-includes single `y`/`n`, which PyYAML's resolver omits. Resolving under the
-declared version also keeps `--fix` sound: it never strips the quotes from a
-scalar whose value would change under the document's own `%YAML 1.1`.
+rejecting a higher major version. `quoted-strings` uses PyYAML's own 1.1 set
+under every directive, so `'y'` and `'n'` are redundant to both, and `--fix`
+never strips quotes a 1.1 reader needs, nor, without a directive, quotes a 1.2
+reader needs.
 
 ### Comments after a block scalar header
 

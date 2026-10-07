@@ -45,20 +45,21 @@ fn arb_quoted_payload() -> impl Strategy<Value = String> {
     .prop_map(|chars| chars.into_iter().collect())
 }
 
-// Scalars YAML 1.1 resolves to a non-string but YAML 1.2 reads as a string, so quoting
-// them is redundant under 1.2 but load-bearing under an explicit `%YAML 1.1`. Generating
-// them in quoted form lets the directive prelude exercise the keep-quotes-under-1.1 path.
+// Scalars YAML 1.1 resolves to a non-string but YAML 1.2 reads as a string, generated
+// quoted too so the keep-quotes path runs.
 fn arb_yaml_1_1_ambiguous() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("no".to_string()),
         Just("yes".to_string()),
         Just("on".to_string()),
         Just("off".to_string()),
-        Just("y".to_string()),
         Just("0b101".to_string()),
         Just("1:30".to_string()),
         Just("0o17".to_string()),
         Just("2002-12-14".to_string()),
+        Just("1_000".to_string()),
+        Just("<<".to_string()),
+        Just("=".to_string()),
     ]
 }
 

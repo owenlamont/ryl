@@ -89,27 +89,16 @@ fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
 
-## YAML 1.2 caveat with `required = "only-when-needed"`
+## YAML 1.1 values with `required = "only-when-needed"`
 
-A document with no version directive is resolved per YAML 1.2 when deciding
-whether a quoted scalar is redundantly quoted. Under YAML 1.2 the barewords
-`yes`, `no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
-plain strings, whereas YAML 1.1 treats them as booleans. (`true`, `True`,
-`TRUE`, `false`, `False`, and `FALSE` are booleans under both versions, so
-they are unaffected.) yamllint uses YAML 1.1 semantics, where the longer
-list is boolean.
-
-The practical consequence is that `"yes"` (with `required:
-"only-when-needed"`, `quote-type: "double"`) is flagged by ryl as
-redundantly quoted but accepted by yamllint. To match yamllint's
-behaviour, set `required = true` so all string scalars are quoted
-regardless of type, or rely on the [`truthy`](truthy.md) rule to flag
-ambiguous barewords and keep `quoted-strings` off.
-
-A document that declares `%YAML 1.1` is resolved as YAML 1.1, so ryl keeps
-the quotes on these barewords (and on 1.1 integers, sexagesimals, and
-timestamps) and `--fix` leaves them in place &mdash; stripping them would
-change the value for a 1.1 consumer. See
+Whatever the document's `%YAML` directive, a quoted scalar that YAML 1.1
+reads as a non-string is not redundantly quoted, as in yamllint: `'no'`,
+`'on'`, `'yes'` and their case variants, 1.1 integers, floats, sexagesimals
+and timestamps keep their quotes, and `--fix` leaves them in place, since
+stripping them would change the value for a 1.1 consumer such as PyYAML.
+`'y'` and `'n'` are strings to 1.1 as well, so their quotes are still
+redundant. Without a directive, quotes a YAML 1.2 reader needs (`'+.5'`,
+`'008'`) are kept too. `ryl format` keeps the same quotes. See
 [YAML version compatibility](../yaml-version.md) for more context.
 
 ## Related rules
