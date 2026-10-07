@@ -5,7 +5,7 @@
 //! C1b, S2, S5c, C2b, D5), read differently (P2, P12b, P13, U2, S3, D7, D8, B2, B4, B5),
 //! or are folds `ryl format` never makes: in flow collections or keys, to a column-0 root
 //! continuation (P12), beside a quote (C3), with an escaped line break (D2), or to a
-//! `#`-led continuation (S5, B10), which `comments-indentation` would re-indent.
+//! `#`-led quoted continuation (S5), which `comments-indentation` would re-indent.
 
 use std::path::Path;
 
@@ -221,7 +221,7 @@ const CASES: [(&str, &str, u16, u8, &str); 77] = [
         "k: >+\n  aaa\n  bbb\n\n",
     ),
     ("B9", "k: >\n\n  aaa bbb\n", 5, 2, "k: >\n\n  aaa\n  bbb\n"),
-    ("B10", "k: >\n  aaa #bbb\n", 5, 2, "k: >\n  aaa #bbb\n"),
+    ("B10", "k: >\n  aaa #bbb\n", 5, 2, "k: >\n  aaa\n  #bbb\n"),
     (
         "B11",
         "k: >\n  aaa bbb\n\n  ccc\n",

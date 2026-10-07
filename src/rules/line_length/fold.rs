@@ -96,13 +96,7 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
             {
                 continue;
             }
-            for space in breaks(
-                text,
-                &scalar,
-                style == ScalarStyle::DoubleQuoted,
-                indent,
-                usize::from(cfg.width),
-            ) {
+            for space in breaks(text, &scalar, style, indent, usize::from(cfg.width)) {
                 edits.push((
                     BytePos::new(start + space),
                     BytePos::new(start + space + 1),
@@ -173,12 +167,12 @@ fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>, ScalarSty
 
 /// The byte offsets in `line` of the spaces to break at so each piece fits `width` chars
 /// where it can, each continuation starting at column `indent`. A break is a lone space
-/// inside `scalar` (a byte range of `line`), not escaped by an odd run of `\` when
-/// `escapes`, and must shorten the line it splits.
+/// inside `scalar` (a byte range of `line`), not escaped by an odd run of `\` in a
+/// double-quoted `style`, and must shorten the line it splits.
 fn breaks(
     line: &str,
     scalar: &Range<usize>,
-    escapes: bool,
+    style: ScalarStyle,
     indent: usize,
     width: usize,
 ) -> Vec<usize> {
@@ -191,11 +185,11 @@ fn breaks(
             window[1].1 == ' '
                 && !left.is_whitespace()
                 && !right.is_whitespace()
-                // `comments-indentation` re-indents a `#`-led line even in a quoted scalar (#525).
-                && right != '#'
+                // `comments-indentation` re-indents a `#`-led line in a quoted scalar, never in `>` (#525).
+                && (right != '#' || style == ScalarStyle::Folded)
                 && scalar.contains(&before)
                 && scalar.contains(&after)
-                && !(escapes
+                && !(style == ScalarStyle::DoubleQuoted
                     && line[..window[1].0]
                         .bytes()
                         .rev()
