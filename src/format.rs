@@ -172,16 +172,26 @@ pub fn format_str(
     format_tracked(input, cfg, path, skip, &mut Vec::new())
 }
 
-/// The indent width `ryl format` targets: the top-level `indent-width`, else 2.
+/// The indent width `ryl format` targets without a top-level `indent-width`.
+pub const DEFAULT_INDENT_WIDTH: u8 = 2;
+
+/// The line length `ryl format` targets without a top-level `line-length`.
+pub const DEFAULT_LINE_LENGTH: u16 = 80;
+
+/// The indent width `ryl format` targets: the top-level `indent-width`, else
+/// [`DEFAULT_INDENT_WIDTH`].
 #[must_use]
 pub fn indent_width(cfg: &YamlLintConfig) -> u8 {
-    cfg.indent_width().map_or(2, NonZeroU8::get)
+    cfg.indent_width()
+        .map_or(DEFAULT_INDENT_WIDTH, NonZeroU8::get)
 }
 
-/// The line length `ryl format` targets: the top-level `line-length`, else 80.
+/// The line length `ryl format` targets: the top-level `line-length`, else
+/// [`DEFAULT_LINE_LENGTH`].
 #[must_use]
 pub fn line_length(cfg: &YamlLintConfig) -> u16 {
-    cfg.line_length().map_or(80, NonZeroU16::get)
+    cfg.line_length()
+        .map_or(DEFAULT_LINE_LENGTH, NonZeroU16::get)
 }
 
 fn format_tracked(
