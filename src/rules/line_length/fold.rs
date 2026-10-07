@@ -53,8 +53,9 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
         let (first, last) = (line_of(span.start), line_of(span.end - 1));
         let folded = style == ScalarStyle::Folded;
         let content = span.start - lines[first].0;
-        // A column-0 continuation of a root `>` scalar could start a `---` or `...` marker.
-        if folded && content == 0 {
+        // An empty `>` spans the next node's line, which sits no deeper than `owner`, and a
+        // root body at column 0 could fold into a `---` or `...` marker.
+        if folded && content <= owner.unwrap_or(0) {
             continue;
         }
         let indent = if folded {

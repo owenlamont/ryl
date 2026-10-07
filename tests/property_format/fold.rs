@@ -3,8 +3,8 @@
 //! beside the multi-word keys, flow collections and explicit keys a fold must leave alone.
 //! Words after the first start with YAML indicators, `---`/`...`, escapes, `''` or
 //! multibyte characters, and are joined by spaces, double spaces, tabs or no-break spaces.
-//! `>` and `|` bodies mix content, more-indented, tab-led and blank lines, with and
-//! without an indentation indicator, under every chomping mode.
+//! `>` and `|` bodies, some empty or blank-only, mix content, more-indented, tab-led and
+//! blank lines, with and without an indentation indicator, under every chomping mode.
 //!
 //! Two oracles that need no YAML parser's leniency: `inserted_breaks` proves the output is
 //! the input with lone spaces turned into indented line breaks and no line grown, and
@@ -118,22 +118,26 @@ fn arb_comment() -> impl Strategy<Value = String> {
 fn arb_block_scalar(base: usize) -> impl Strategy<Value = String> {
     let indent =
         move |extra: usize, text: String| format!("{}{text}", " ".repeat(base + extra));
+    let blank = || prop_oneof![Just(String::new()), Just(" ".to_string())];
     let line = prop_oneof![
         4 => arb_plain().prop_map(move |text| indent(0, text)),
         1 => arb_plain().prop_map(move |text| indent(2, text)),
         1 => arb_plain().prop_map(move |text| indent(0, format!("\t{text}"))),
-        1 => prop_oneof![Just(String::new()), Just(" ".to_string())],
+        1 => blank(),
+    ];
+    let body = prop_oneof![
+        4 => (arb_plain(), prop::collection::vec(line, 0..=4)).prop_map(
+            move |(first, rest)| std::iter::once(indent(0, first)).chain(rest).collect()
+        ),
+        1 => prop::collection::vec(blank(), 0..=2),
     ];
     (
         prop_oneof![Just(">"), Just("|")],
         prop_oneof![Just(""), Just("2")],
         prop_oneof![Just(""), Just("-"), Just("+")],
-        arb_plain(),
-        prop::collection::vec(line, 0..=4),
+        body,
     )
-        .prop_map(move |(style, indicator, chomp, first, rest)| {
-            let body: Vec<String> =
-                std::iter::once(indent(0, first)).chain(rest).collect();
+        .prop_map(|(style, indicator, chomp, body): (_, _, _, Vec<String>)| {
             format!("{style}{indicator}{chomp}\n{}", body.join("\n"))
         })
 }
@@ -197,7 +201,8 @@ fn arb_sequence() -> impl Strategy<Value = String> {
                     format!("- {quote}{first}\n{}{next}{quote}\n", " ".repeat(indent))
                 }),
             arb_block_scalar(2).prop_map(|body| format!("- {body}\n")),
-            arb_block_scalar(4).prop_map(|body| format!("- key: {body}\n")),
+            (arb_block_scalar(4), arb_value())
+                .prop_map(|(body, value)| format!("- key: {body}\n  other: {value}\n")),
             (arb_flow_safe(), arb_value())
                 .prop_map(|(key, value)| format!("- ? {key}\n  : {value}\n")),
         ],

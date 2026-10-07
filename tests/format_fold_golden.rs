@@ -302,3 +302,26 @@ fn a_break_must_shorten_the_line_counted_in_chars_not_bytes() {
     );
     assert_eq!(fold(&input, 10, 101), input);
 }
+
+#[test]
+fn an_empty_folded_scalar_never_folds_the_line_after_it() {
+    let flow = "{aaaa: bbbb, cccc: dddd}";
+    for header in [">", ">4", ">-", ">+", ">\n"] {
+        for input in [
+            format!("a:\n  - {header}\n  - {flow}\n"),
+            format!("a:\n  k: {header}\n  o: {flow}\n"),
+            format!("a:\n  - {header}\n  # aaaa bbbb cccc dddd\n  - x\n"),
+        ] {
+            assert_eq!(fold(&input, 12, 2), input, "{input:?}");
+        }
+        assert_eq!(
+            fold(
+                &format!("a:\n  - {header}\n  - aaaa bbbb cccc dddd\n"),
+                12,
+                2
+            ),
+            format!("a:\n  - {header}\n  - aaaa\n    bbbb\n    cccc\n    dddd\n"),
+            "{header:?} before a plain item"
+        );
+    }
+}
