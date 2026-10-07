@@ -10,7 +10,7 @@ use crate::rules::support::span_utils::CharPos;
 
 mod rewrite;
 
-pub use rewrite::{Refusal, Reindented, fix, reindent};
+pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
 
 pub const ID: &str = "indentation";
 
@@ -26,6 +26,8 @@ pub struct Config {
     spaces: SpacesSetting,
     indent_sequences: IndentSequencesSetting,
     check_multi_line_strings: bool,
+    /// Where [`reindent`] puts a block mapping in a block sequence; `None` leaves it.
+    dash_on_own_line: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +89,7 @@ impl Config {
             spaces,
             indent_sequences,
             check_multi_line_strings,
+            dash_on_own_line: None,
         }
     }
 
@@ -100,7 +103,14 @@ impl Config {
             spaces,
             indent_sequences,
             check_multi_line_strings,
+            dash_on_own_line: None,
         }
+    }
+
+    #[must_use]
+    pub const fn with_dash_on_own_line(mut self, value: bool) -> Self {
+        self.dash_on_own_line = Some(value);
+        self
     }
 
     /// Whether a file indented uniformly by `width` spaces satisfies `spaces`.
@@ -322,6 +332,16 @@ struct Analyzer<'a> {
     diagnostics: Vec<Violation>,
     mode: Mode,
     shifts: Vec<Option<Shift>>,
+    gaps: Vec<Vec<Gap>>,
+}
+
+/// The spaces after an indicator that `ryl format` closes to one, with the rule that owns
+/// them.
+#[derive(Debug, Clone, Copy)]
+struct Gap {
+    column: usize,
+    removed: usize,
+    rule: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -362,6 +382,7 @@ impl<'a> Analyzer<'a> {
             diagnostics: Vec::new(),
             mode,
             shifts: vec![None; line_starts.len()],
+            gaps: vec![Vec::new(); line_starts.len()],
         }
     }
 
@@ -370,7 +391,36 @@ impl<'a> Analyzer<'a> {
     }
 
     fn column(&self, token: &Token) -> isize {
-        to_isize(token.column) + self.delta(token.line)
+        let closed: usize = self.gaps[token.line]
+            .iter()
+            .filter(|gap| gap.column < token.column)
+            .map(|gap| gap.removed)
+            .sum();
+        to_isize(token.column) + self.delta(token.line) - to_isize(closed)
+    }
+
+    /// Records the gap after `token` when it is an indicator whose content follows on its
+    /// line past more than one space.
+    fn close_gap(&mut self, token: &Token, next: Option<&Token>, first_in_line: bool) {
+        let rule = match token.kind {
+            Kind::BlockEntry => crate::rules::hyphens::ID,
+            Kind::Key { explicit: true } => crate::rules::colons::ID,
+            Kind::Value if first_in_line => crate::rules::colons::ID,
+            _ => return,
+        };
+        let Some(next) = next.filter(|next| {
+            next.line == token.line && !matches!(next.kind, Kind::BlockEnd)
+        }) else {
+            return;
+        };
+        let gap = next.column - token.column - 1;
+        if gap > 1 && count_spaces(self.chars, token.start + 1) == gap {
+            self.gaps[token.line].push(Gap {
+                column: token.column,
+                removed: gap - 1,
+                rule,
+            });
+        }
     }
 
     fn run(&mut self, tokens: &[Token]) {
@@ -418,6 +468,9 @@ impl<'a> Analyzer<'a> {
                 found,
                 delta: expected - found,
             });
+        }
+        if self.mode == Mode::Target {
+            self.close_gap(token, next, first_in_line);
         } else if first_in_line {
             let expected = self.expected(token, found);
             if found != expected {
@@ -485,7 +538,7 @@ impl<'a> Analyzer<'a> {
                     return Err(UnexpectedToken);
                 }
                 self.stack.push(Parent {
-                    shift: self.delta(token.line),
+                    shift: column - to_isize(token.column),
                     ..Parent::new(kind, column)
                 });
             }
@@ -509,7 +562,7 @@ impl<'a> Analyzer<'a> {
                 if self.top().kind != ParentKind::BlockSequence {
                     self.stack.push(Parent {
                         implicit_block_seq: true,
-                        shift: self.delta(token.line),
+                        shift: column - to_isize(token.column),
                         ..Parent::new(ParentKind::BlockSequence, column)
                     });
                 }
@@ -678,7 +731,7 @@ impl<'a> Analyzer<'a> {
                 })
                 .map_or(0, |parent| parent.shift)
         } else {
-            self.delta(token.line)
+            self.column(token) - to_isize(token.column)
         };
         for line in token.line + 1..=last_line(token) {
             self.shifts[line] = Some(Shift::Carried(delta));

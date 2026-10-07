@@ -72,8 +72,15 @@ parent:
 
 ## Automatic fixing
 
-This rule does not auto-fix; indentation changes can shift values into
-different parents, so corrections need human review.
+`ryl check --fix` does not fix this rule; indentation changes can shift values into
+different parents.
+
+`ryl format` re-indents each block level to the top-level `indent-width` (default 2),
+with block sequences indented past their key unless `[format] indent-sequences = false`.
+Block scalar bodies, continuation lines and comments move with the line they belong to,
+and lines inside a flow collection go where this rule expects them. A document is left
+as it is, and reported, when a tab indents it or when re-indenting it would change what
+it parses to; an inline `disable` for this rule leaves it unreported.
 
 ## Related rules
 

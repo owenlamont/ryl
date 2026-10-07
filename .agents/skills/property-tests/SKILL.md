@@ -124,9 +124,6 @@ TOML row for the ryl-only ladder options.
   table, written independently of `quoted-strings`'.
 - Comment fidelity keys each trimmed comment to the data events before it and whether it
   is inline; anchor and alias names must survive in order.
-- Left-alone fidelity: the count of `colons`/`hyphens` `unfixed` sites (compact block
-  collections whose indicator spacing is their indentation) must not change. A pass that
-  re-indents those collections breaks it and must drop the invariant.
 - Re-indent (`reindent_places_each_line_or_leaves_its_document`) calls
   `indentation::reindent` at widths 1–4: each line keeps its trimmed text and the line
   count holds, a refused document is byte-identical, and `indentation::check` passes on

@@ -75,6 +75,8 @@ mapping-style = "preserve"
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
 | `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
+| `indent-sequences` | `true` | `true`, `false` | Whether a block sequence under a mapping key is indented past the key; `false` keeps it flush. |
+| `dash-on-own-line` | `false` | `true`, `false` | Whether a block mapping in a block sequence starts on the line after its `-`; `false` joins them as `- name: web`. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 | `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
 | `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
@@ -82,7 +84,8 @@ mapping-style = "preserve"
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
 [Quick start](getting-started/quickstart.md#configure-for-your-project)). `ryl format`
-uses both as the fold width and continuation indent under `fold-long-lines`.
+re-indents every block level to `indent-width`, and uses both as the fold width and
+continuation indent under `fold-long-lines`.
 
 The rest of the layout is fixed:
 
@@ -92,8 +95,10 @@ The rest of the layout is fixed:
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
 | Blank lines | None at the start or end of the file |
 | Line ends | No trailing whitespace; exactly one newline at the end of the file |
+| After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
-`ryl format` does not yet rewrite colon or hyphen spacing or indentation.
+A document that a tab indents, or that re-indenting would parse differently, is left as
+it is and named on stderr.
 
 ## Long lines
 
@@ -233,7 +238,9 @@ says so.
 | [`new-lines`](rules/new-lines.md) | `type` resolves to a different ending from `[format] line-ending` |
 | [`quoted-strings`](rules/quoted-strings.md) | See below; never under `quote-style = "preserve"` |
 | [`trailing-spaces`](rules/trailing-spaces.md) | Never |
-| [`colons`](rules/colons.md), [`hyphens`](rules/hyphens.md), [`indentation`](rules/indentation.md) | Never, because `ryl format` does not rewrite their concerns yet |
+| [`colons`](rules/colons.md) | `max-spaces-after` is 0 |
+| [`hyphens`](rules/hyphens.md) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
+| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](rules/line-length.md) | Never; folding is opt-in and leaves lines it cannot break |
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`

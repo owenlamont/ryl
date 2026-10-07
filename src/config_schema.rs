@@ -81,6 +81,10 @@ pub struct LintTable {
 /// The `[format]` table: `ryl format`'s targets.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields, default, rename_all = "kebab-case")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent `[format]` key"
+)]
 pub struct FormatTable {
     /// Preferred quote for strings that need quoting; `preserve` leaves quoting alone.
     pub quote_style: QuoteStyleTarget,
@@ -106,6 +110,10 @@ pub struct FormatTable {
     pub sequence_style: CollectionStyleTarget,
     /// Collection style for mappings; `preserve` leaves each as written.
     pub mapping_style: CollectionStyleTarget,
+    /// Whether a block sequence under a mapping key is indented past the key.
+    pub indent_sequences: bool,
+    /// Whether a block mapping in a block sequence starts on the line after its `-`.
+    pub dash_on_own_line: bool,
 }
 
 impl Default for FormatTable {
@@ -123,6 +131,8 @@ impl Default for FormatTable {
             max_blank_lines: 2,
             sequence_style: CollectionStyleTarget::Preserve,
             mapping_style: CollectionStyleTarget::Preserve,
+            indent_sequences: true,
+            dash_on_own_line: false,
         }
     }
 }

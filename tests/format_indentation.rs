@@ -5,7 +5,7 @@
 use std::ops::RangeInclusive;
 
 use ryl::rules::indentation::{
-    Config, IndentSequencesSetting, Refusal, SpacesSetting, check, fix, reindent,
+    Cause, Config, IndentSequencesSetting, Refusal, SpacesSetting, check, fix, reindent,
 };
 
 fn target(width: usize) -> Config {
@@ -16,8 +16,8 @@ fn target(width: usize) -> Config {
     )
 }
 
-fn refusal(lines: RangeInclusive<usize>, disabled: bool) -> Vec<Refusal> {
-    vec![Refusal { lines, disabled }]
+fn refusal(lines: RangeInclusive<usize>, cause: Cause) -> Vec<Refusal> {
+    vec![Refusal { lines, cause }]
 }
 
 fn assert_reindents(width: usize, cases: &[(&str, &str)]) {
@@ -112,27 +112,27 @@ fn an_unsafe_document_is_refused_and_the_rest_still_move() {
         (
             "k:\n    - a\n    -\tb\n",
             "k:\n    - a\n    -\tb\n",
-            refusal(1..=3, false),
+            refusal(1..=3, Cause::Tab),
         ),
         (
             "k:\n    a: 1\n \t\n    b: 2\n",
             "k:\n    a: 1\n \t\n    b: 2\n",
-            refusal(1..=4, false),
+            refusal(1..=4, Cause::Tab),
         ),
         (
             ": value\n---\nk:\n    a: 1\n",
             ": value\n---\nk:\n  a: 1\n",
-            refusal(1..=1, false),
+            refusal(1..=1, Cause::Unfollowable),
         ),
         (
             "k:\n    a: 1\n---\n: v\n---\nj:\n    b: 1\n",
             "k:\n  a: 1\n---\n: v\n---\nj:\n  b: 1\n",
-            refusal(3..=4, false),
+            refusal(3..=4, Cause::Unfollowable),
         ),
         (
             "k:\n    a: 1  # yamllint disable-line rule:indentation\n---\nj:\n    b: 1\n",
             "k:\n    a: 1  # yamllint disable-line rule:indentation\n---\nj:\n  b: 1\n",
-            refusal(1..=2, true),
+            refusal(1..=2, Cause::Disabled),
         ),
     ] {
         let out = reindent(input, &target(2));
@@ -153,4 +153,84 @@ fn nothing_to_move_is_no_fix() {
         fix("k:\n    a: 1\n", &target(2)).as_deref(),
         Some("k:\n  a: 1\n")
     );
+}
+
+#[test]
+fn indicator_gaps_close_and_what_hangs_on_them_follows() {
+    assert_reindents(
+        2,
+        &[
+            ("-   a: 1\n    b: 2\n", "- a: 1\n  b: 2\n"),
+            ("- -   a: 1\n      b: 2\n", "- - a: 1\n    b: 2\n"),
+            (
+                "-   a: |2\n          lead\n        x\n",
+                "- a: |2\n        lead\n      x\n",
+            ),
+            ("-   a: \"x\n      y\"\n", "- a: \"x\n    y\"\n"),
+            ("?   k1: 1\n    k2: 2\n: v\n", "? k1: 1\n  k2: 2\n: v\n"),
+            ("? a\n:   - x\n    - y\n", "? a\n: - x\n  - y\n"),
+        ],
+    );
+}
+
+#[test]
+fn a_directive_on_the_rule_owning_a_gap_refuses_its_document() {
+    for (input, lines) in [
+        (
+            "-   a: 1  # yamllint disable-line rule:hyphens\n    b: 2\n",
+            1..=2,
+        ),
+        (
+            "# yamllint disable rule:colons\n? a\n:   - x\n    - y\n",
+            1..=4,
+        ),
+    ] {
+        let out = reindent(input, &target(2));
+        assert_eq!(
+            (out.text.as_str(), out.refused),
+            (input, refusal(lines, Cause::Disabled))
+        );
+    }
+}
+
+#[test]
+fn sequences_can_sit_flush_with_their_key() {
+    let flush = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    let out = reindent("k:\n  - a\n  - b:\n      - c\n", &flush);
+    assert_eq!(out.text, "k:\n- a\n- b:\n  - c\n");
+    assert_eq!(check(&out.text, &flush), []);
+}
+
+#[test]
+fn a_block_mapping_joins_its_dash_or_breaks_from_it() {
+    let joined = target(2).with_dash_on_own_line(false);
+    let broken = target(2).with_dash_on_own_line(true);
+    for (cfg, input, expected) in [
+        (
+            joined,
+            "items:\n-\n    name: web\n    port: 80\n",
+            "items:\n  - name: web\n    port: 80\n",
+        ),
+        (joined, "- &x\n  a: 1\n", "- &x\n  a: 1\n"),
+        (joined, "- # c\n  a: 1\n", "- # c\n  a: 1\n"),
+        (joined, "-\n a: 1\n b: 2\n", "-\n  a: 1\n  b: 2\n"),
+        (broken, "- a: 1\n  b: 2\n", "-\n  a: 1\n  b: 2\n"),
+        (broken, "k:\r- a: 1", "k:\r  -\r    a: 1"),
+        (
+            broken,
+            "- a: 1  # yamllint disable-line rule:hyphens\n",
+            "- a: 1  # yamllint disable-line rule:hyphens\n",
+        ),
+    ] {
+        let out = reindent(input, &cfg);
+        assert_eq!(
+            (out.text.as_str(), out.refused),
+            (expected, vec![]),
+            "{input:?}"
+        );
+    }
 }

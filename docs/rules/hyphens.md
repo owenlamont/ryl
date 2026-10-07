@@ -80,19 +80,19 @@ items:
 ## Automatic fixing
 
 `ryl check --fix` trims the spaces after `-` to `max-spaces-after`, never below one.
-`ryl format` leaves exactly one. Both leave a `-` alone when the block mapping or
-sequence it opens continues on later lines, and `ryl format` reports it: the spaces set
-that collection's indentation, so trimming them alone would re-indent or break it:
+`ryl format` leaves exactly one. `ryl check --fix` leaves a `-` alone when the block
+mapping or sequence it opens continues on later lines, because the spaces set that
+collection's indentation; `ryl format` closes the gap and re-indents the collection
+with it:
 
 ```yaml
--   name: web    # left alone: `port` is aligned under `name`
+-   name: web    # ryl format: `- name: web`, with `port` under `name`
     port: 80
--   - a          # left alone
-    - b
 ```
 
-`dash-on-own-line` has no automatic fix: breaking the mapping onto the line below the
-`-` re-indents its body.
+`ryl check --fix` does not fix `dash-on-own-line`. `ryl format` joins `-` and its block
+mapping onto one line, or with `[format] dash-on-own-line = true` breaks the mapping
+onto the line below; a dash line carrying an anchor, tag or comment is left as it is.
 
 ## Related rules
 

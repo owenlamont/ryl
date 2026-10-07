@@ -9,7 +9,6 @@ use crate::config_schema::{
     CollectionStyleTarget, FormatTable, LineEndingTarget, MarkerTarget,
     QuoteStyleTarget,
 };
-use crate::directives::Directives;
 use crate::fix::{
     FIX_PIPELINE_MAX_PASSES, NewlinePolicy, Passes, region_prefix, run_passes,
     suppressed_rules,
@@ -49,7 +48,7 @@ pub const FORMAT_RULE_IDS: [&str; 16] = [
 const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     necessary: 'a: b'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
-    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\n";
+    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\npairs:\n- k: v\n";
 
 impl Passes<'static> {
     fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
@@ -74,13 +73,7 @@ impl Passes<'static> {
                 usize::from(table.comment_spacing.get()),
                 table.comment_starting_space == MarkerTarget::Add,
             )),
-            indentation: on(indentation::ID).then(|| {
-                indentation::Config::new(
-                    indentation::SpacesSetting::Fixed(usize::from(indent_width(cfg))),
-                    indentation::IndentSequencesSetting::True,
-                    false,
-                )
-            }),
+            indentation: on(indentation::ID).then(|| indentation_target(cfg)),
             comments_indentation: on(comments_indentation::ID)
                 .then_some(comments_indentation::Config::new(false)),
             commas: on(commas::ID).then_some(commas::Config::new(0, 1, 1)),
@@ -319,29 +312,36 @@ fn lines_changed_by(
         .collect()
 }
 
-/// Each `colons` and `hyphens` finding and collection-style refusal `ryl format` leaves in
-/// `content`, with why.
+/// The `indentation` config `ryl format` re-indents to.
+fn indentation_target(cfg: &YamlLintConfig) -> indentation::Config {
+    indentation::Config::new(
+        indentation::SpacesSetting::Fixed(usize::from(indent_width(cfg))),
+        if cfg.format().indent_sequences {
+            indentation::IndentSequencesSetting::True
+        } else {
+            indentation::IndentSequencesSetting::False
+        },
+        false,
+    )
+    .with_dash_on_own_line(cfg.format().dash_on_own_line)
+}
+
+/// Each document `ryl format` leaves un-re-indented in `content` for a reason other than an
+/// inline directive, at its first line, and each collection-style refusal.
 pub(crate) fn unfixed(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
-    let directives = Directives::parse(content);
-    let colons = colons::unfixed(content, &colons::Config::format())
-        .into_iter()
-        .map(|hit| (colons::ID, hit.line, hit.column, hit.message));
-    let hyphens = hyphens::unfixed(content, &hyphens::Config::format())
-        .into_iter()
-        .map(|hit| (hyphens::ID, hit.line, hit.column, hit.message));
-    let mut problems: Vec<LintProblem> = colons
-        .chain(hyphens)
-        .filter(|&(rule, line, ..)| !directives.is_disabled(rule, line))
-        .map(|(rule, line, column, message)| LintProblem {
-            line,
-            column,
-            level: Severity::Error,
-            message: format!(
-                "{message}; respacing would re-indent the block collection after it"
-            ),
-            rule: Some(rule),
-        })
-        .collect();
+    let mut problems: Vec<LintProblem> =
+        indentation::reindent(content, &indentation_target(cfg))
+            .refused
+            .into_iter()
+            .filter(|refusal| refusal.cause != indentation::Cause::Disabled)
+            .map(|refusal| LintProblem {
+                line: *refusal.lines.start(),
+                column: 1,
+                level: Severity::Error,
+                message: "cannot re-indent this document safely".to_string(),
+                rule: Some(indentation::ID),
+            })
+            .collect();
     problems.extend(refusals(content, cfg));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems
@@ -459,11 +459,17 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     {
         rejected.insert(quoted_strings::ID);
     }
+    // A flush-sequence target nests nothing in the probe for `spaces` to measure.
+    if cfg.rule_level(indentation::ID).is_some()
+        && !indentation::Config::resolve(cfg).admits_width(indent_width(cfg))
+    {
+        rejected.insert(indentation::ID);
+    }
     FORMAT_RULE_IDS
         .into_iter()
         .filter(|rule| rejected.contains(rule))
         .filter_map(|rule| {
-            target(rule, table).map(|target| {
+            target(rule, cfg).map(|target| {
                 format!(
                     "the {rule} lint rule's options are incompatible with the \
                      formatter's {target}. Disable {rule} when using `ryl format`, or \
@@ -489,10 +495,20 @@ fn remedy(rule: &str, table: &FormatTable) -> &'static str {
     }
 }
 
-/// How a warning names the formatter's target for `rule`, or `None` where `table` leaves
-/// that rule's concern alone.
-fn target(rule: &str, table: &FormatTable) -> Option<String> {
+/// How a warning names the formatter's target for `rule`, or `None` where the `[format]`
+/// table leaves that rule's concern alone.
+fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
+    let table = cfg.format();
     let key = match rule {
+        indentation::ID
+            if !indentation::Config::resolve(cfg).admits_width(indent_width(cfg)) =>
+        {
+            return Some(format!("`indent-width = {}`", indent_width(cfg)));
+        }
+        hyphens::ID if cfg.rule_option_bool(hyphens::ID, "dash-on-own-line", false) => {
+            Some("dash-on-own-line")
+        }
+        indentation::ID => Some("indent-sequences"),
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,
         document_start::ID if table.document_start == MarkerTarget::Preserve => None,
         document_end::ID if table.document_end == MarkerTarget::Preserve => None,

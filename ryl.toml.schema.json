@@ -143,6 +143,11 @@
           "default": "add",
           "description": "Whether to add a missing space after a comment's `#`."
         },
+        "dash-on-own-line": {
+          "default": false,
+          "description": "Whether a block mapping in a block sequence starts on the line after its `-`.",
+          "type": "boolean"
+        },
         "document-end": {
           "$ref": "#/$defs/MarkerTarget",
           "default": "preserve",
@@ -156,6 +161,11 @@
         "fold-long-lines": {
           "default": false,
           "description": "Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.",
+          "type": "boolean"
+        },
+        "indent-sequences": {
+          "default": true,
+          "description": "Whether a block sequence under a mapping key is indented past the key.",
           "type": "boolean"
         },
         "line-ending": {

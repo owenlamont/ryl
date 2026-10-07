@@ -80,12 +80,12 @@ is left to [`commas`](commas.md), [`braces`](braces.md) and [`brackets`](bracket
 
 `ryl format` writes no space before `:` (one for those keys) and exactly one after `:`
 and `?`, turning a tab into a space. An explicit `?` or `:` that opens a block
-collection continuing below is reported and left alone, because its spaces set the
-collection's indentation:
+collection continuing below has its spaces set that collection's indentation, so
+`ryl check --fix` leaves it alone and `ryl format` re-indents the collection with it:
 
 ```yaml
 ? key
-:   - a      # left alone: re-spacing re-indents the sequence
+:   - a      # ryl format: `: - a`, with `- b` under `- a`
     - b
 ```
 
