@@ -411,6 +411,7 @@ fn block_collections_flow_cannot_hold_stay_block() {
         "k:\n  - |\n    text\n",
         "k:\n  - :b\n",
         "k:\n  - ?x\n",
+        "k:\n  - &x ?y\n",
         "k:\n  - a\n    b\n",
         "k:\n  - [a]\n",
         "k:  # c\n  - a\n",

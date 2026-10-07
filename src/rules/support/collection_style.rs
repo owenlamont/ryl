@@ -323,8 +323,8 @@ impl Restyler<'_> {
     }
 
     /// Entry `index`'s text from byte `pos`, if it reads the same in flow context: an
-    /// alias, a quoted scalar, or a plain one with no flow indicator and no leading `:` or `?`,
-    /// on one line.
+    /// alias, a quoted scalar, or a one-line plain one with no flow indicator and no
+    /// leading `:` or `?`.
     fn flow_entry(&self, index: usize, pos: usize) -> Option<&str> {
         let node = &self.nodes[index];
         let written = &self.buffer[node.start..node.end];
