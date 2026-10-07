@@ -10,8 +10,9 @@ config files) into a cache dir, formatted in place twice per mode, then reset. M
 (`fold-long-lines = true`, no repo config). Hard gates, any of which exits 1:
 
   - value: per changed file, the property suite's Rust oracle (`representation` and
-    `annotations` in tests/property_format.rs) and py-yaml12 must both find the values,
-    tags, anchors and comments unchanged; a file that did not parse must not change;
+    `annotations` in tests/property_format.rs) must find the values, tags, anchors and
+    comments unchanged, and py-yaml12 the loaded values; a file that did not parse must
+    not change;
   - idempotence: a second `ryl format` changes nothing;
   - panic or timeout.
 
@@ -97,7 +98,6 @@ class Loaded(StrEnum):
 class Repo:
     url: str
     sha: str
-    note: str
     sparse: tuple[str, ...] = _YAML_PATTERNS
     expected_skip: tuple[str, ...] = ()
     tally: bool = True
@@ -147,7 +147,6 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
         Repo(
             url=row["url"],
             sha=row["sha"],
-            note=row["note"],
             sparse=tuple(row.get("sparse", _YAML_PATTERNS)),
             expected_skip=tuple(row.get("expected-skip", ())),
             tally=row.get("tally", True),
@@ -455,6 +454,7 @@ def run(
     Raises:
         Exit: 1 on any hard-gate failure.
     """
+    typer.echo(f"Corpus pinned on {TESTED_DATE}")
     subprocess.run(["cargo", "build", "--release"], cwd=_ROOT, check=True)
     work = cache_dir / "work"
     shutil.rmtree(work, ignore_errors=True)
