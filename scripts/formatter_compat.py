@@ -277,7 +277,7 @@ MAX_ITERS = 6
 # regardless of env. Auto-detect would emit the GitHub "[rule]" format under GITHUB_* or an
 # ESC-reset-terminated colored line under FORCE_COLOR, either of which this trailing-parens
 # regex silently misses, making a complaint look clean.
-_RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
+RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 
 
 class Runner:
@@ -352,11 +352,11 @@ class Runner:
         return [
             m.group(1)
             for ln in (proc.stdout + proc.stderr).splitlines()
-            if (m := _RULE_RE.search(ln))
+            if (m := RULE_RE.search(ln))
         ]
 
 
-def _values_equal(a: object, b: object) -> bool:
+def values_equal(a: object, b: object) -> bool:
     """Deep equality that treats two NaNs as equal (Python's `nan != nan` would otherwise
     make any file containing `.nan` look changed) and keeps int/bool/str distinct.
     """
@@ -365,9 +365,9 @@ def _values_equal(a: object, b: object) -> bool:
     if type(a) is not type(b):
         return False
     if isinstance(a, dict):
-        return a.keys() == b.keys() and all(_values_equal(a[k], b[k]) for k in a)
+        return a.keys() == b.keys() and all(values_equal(a[k], b[k]) for k in a)
     if isinstance(a, list):
-        return len(a) == len(b) and all(starmap(_values_equal, zip(a, b, strict=False)))
+        return len(a) == len(b) and all(starmap(values_equal, zip(a, b, strict=False)))
     return a == b
 
 
@@ -380,7 +380,7 @@ def value_preserved(before: str, after: str) -> bool | None:
     formatter output. Genuinely invalid output is still caught by the ryl_lint syntax check.
     """
     try:
-        return _values_equal(parse_yaml(before), parse_yaml(after))
+        return values_equal(parse_yaml(before), parse_yaml(after))
     except Exception:
         return None
 
