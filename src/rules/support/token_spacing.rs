@@ -5,7 +5,7 @@
 
 use std::ops::Range;
 
-use granit_parser::{Scanner, Span, StrInput, TokenType};
+use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
 
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::{BytePos, CharPos, apply_replacements};
@@ -208,7 +208,7 @@ impl Walk<'_> {
     }
 
     /// Whether the node after token `idx` is a block collection opening on `line` with
-    /// content on a later one.
+    /// a token starting on a later one, or a block scalar whose body runs onto one.
     fn opens_multiline_collection(&self, idx: usize, line: usize) -> bool {
         let mut rest = self.tokens[idx + 1..].iter();
         let opens = rest.next().is_some_and(|(span, token)| {
@@ -232,9 +232,13 @@ impl Walk<'_> {
                     }
                     depth > 0
                 })
-                .any(|(span, token)| {
-                    !matches!(token, TokenType::Comment(_) | TokenType::BlockEnd)
-                        && span.end.line() > line
+                .any(|(span, token)| match token {
+                    TokenType::Comment(_) | TokenType::BlockEnd => false,
+                    TokenType::Scalar(
+                        ScalarStyle::Literal | ScalarStyle::Folded,
+                        _,
+                    ) => span.end.line() > line,
+                    _ => span.start.line() > line,
                 })
     }
 }

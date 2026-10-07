@@ -311,6 +311,7 @@ fn dirty_stacked_document() -> StackedDocument {
         colon: ColonGap::default(),
         value,
         trailing_inline_comment: comment,
+        layout: ast::Layout::default(),
     };
     let dirty_flow = FlowStyle {
         inner_padding: 1,

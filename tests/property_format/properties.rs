@@ -102,7 +102,7 @@ impl Decorator<'_> {
     fn decorate_item(&mut self, body: &mut SeqBody) {
         match body {
             SeqBody::Inline(node) => self.decorate_inline(node),
-            SeqBody::TaggedMap(nested) | SeqBody::CompactMap(nested) => {
+            SeqBody::TaggedMap(_, nested) | SeqBody::CompactMap(nested) => {
                 self.decorate(nested)
             }
             SeqBody::CompactSeq(nodes) => nodes
@@ -126,6 +126,13 @@ impl Decorator<'_> {
                 pairs
                     .iter_mut()
                     .for_each(|(_, value)| self.decorate_inline(value));
+            }
+            Node::MultilineFlowSeq(spec) => {
+                for (_, scalar) in &mut spec.items {
+                    let property = self.properties[self.next % self.properties.len()];
+                    self.next += 1;
+                    *scalar = self.apply(property, scalar);
+                }
             }
             _ => {}
         }

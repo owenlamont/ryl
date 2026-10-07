@@ -58,7 +58,9 @@ pub(crate) fn first_line_break(buffer: &str) -> Option<(usize, &'static str)> {
 
 /// 1-based line numbers of every `Scalar` event whose `style`/span satisfy `filter`.
 /// A block-scalar span ends at `(end.line, col=0)`, one past the last body line; that
-/// trailing line is dropped so callers don't protect content outside the scalar.
+/// trailing line is dropped so callers don't protect content outside the scalar. Its
+/// span starts at the first content line, so its body is taken from the line after the
+/// previous event instead, which keeps leading and blank-only body lines.
 /// `None` (unparsable buffer) means bail, not fix on a partial view.
 pub(crate) fn protected_scalar_lines<F>(
     buffer: &str,
@@ -70,13 +72,21 @@ where
     struct Collector<G> {
         protected: HashSet<usize>,
         filter: G,
+        previous_end: usize,
     }
     impl<G: FnMut(ScalarStyle, Span) -> bool> SpannedEventReceiver<'_> for Collector<G> {
         fn on_event(&mut self, event: Event<'_>, span: Span) {
+            let previous_end =
+                std::mem::replace(&mut self.previous_end, span.end.line());
             if let Event::Scalar(_, style, _, _) = event
                 && (self.filter)(style, span)
             {
-                let start = span.start.line();
+                let start =
+                    if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+                        span.start.line().min(previous_end + 1)
+                    } else {
+                        span.start.line()
+                    };
                 let end = span.end.line();
                 let last = if span.end.col() == 0 && end > start {
                     end - 1
@@ -93,6 +103,7 @@ where
     let mut collector = Collector {
         protected: HashSet::new(),
         filter,
+        previous_end: 0,
     };
     parser.load(&mut collector, true).ok()?;
     Some(collector.protected)
