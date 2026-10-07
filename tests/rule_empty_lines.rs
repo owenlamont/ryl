@@ -107,6 +107,12 @@ fn fix_keeps_blank_lines_that_belong_to_a_block_scalar() {
         "- |+\n\n\n- y\n",
         "|+\n\n\n",
         "a: |+\n\n\n",
+        "a: |+\n\n# c\nb: 1\n",
+        "|\n\n  x\n",
+        ">-\n\n\n  x\n",
+        "--- |\n\n  x\n",
+        "--- !!str >+\n\n\n",
+        "|\n\n  x\n...\n--- |\n\n  y\n",
     ] {
         for newline in ["\n", "\r\n"] {
             let input = input.replace('\n', newline);
@@ -120,6 +126,14 @@ fn fix_keeps_blank_lines_that_belong_to_a_block_scalar() {
     assert_eq!(
         empty_lines::fix("\n\n|+\n\n", &cfg),
         Some("|+\n\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("a: |+\n\n# c\n\nb: 1\n", &cfg),
+        Some("a: |+\n\n# c\nb: 1\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("\n\n|\n\n  x\n", &cfg),
+        Some("|\n\n  x\n".to_string())
     );
     assert_eq!(
         empty_lines::fix("a:\n\n  x\n", &cfg),
