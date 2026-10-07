@@ -1,9 +1,9 @@
 # Formatter
 
-`ryl format` rewrites YAML files in place to a consistent layout. It edits only the
-spans that are off-style rather than reprinting the document, so the first run on an
-existing project produces a small diff, and every later run on formatted files changes
-nothing.
+`ryl format` rewrites YAML files in place to a consistent layout. The formatter edits
+only the spans that are off-style rather than reprinting the document, so the first run
+on an existing project produces a small diff, and every later run on formatted files
+changes nothing.
 
 ## `ryl format`
 
@@ -186,7 +186,7 @@ defaults (`required = true`) conflict:
 quoted-strings = "enable"
 ```
 
-These accept the formatter's output:
+These quoted-strings configs accept the formatter's output:
 
 <!-- ryl-config-check: format-clean -->
 ```toml
