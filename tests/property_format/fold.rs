@@ -7,9 +7,9 @@
 //! Two oracles that need no YAML parser's leniency: `inserted_breaks` proves the output is
 //! the input with lone spaces turned into indented line breaks and no line grown, and
 //! `under_indented_break` proves each inserted continuation is deeper than the block
-//! collection owning its scalar.
+//! collection owning its scalar, and at least two columns deeper under a quoted one.
 
-use granit_parser::{Scanner, StrInput, TokenType};
+use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use proptest::prelude::*;
 
 const FIRST_WORDS: [&str; 4] = ["aaa", "b", "世界", "é"];
@@ -161,6 +161,15 @@ fn arb_sequence() -> impl Strategy<Value = String> {
                 .prop_map(|(value, comment)| format!("- {value}{comment}\n")),
             arb_value().prop_map(|value| format!("- key: {value}\n  other: x\n")),
             arb_value().prop_map(|value| format!("- - {value}\n")),
+            (
+                arb_flow_safe(),
+                arb_flow_safe(),
+                prop_oneof![Just("'"), Just("\"")],
+                1..=3usize
+            )
+                .prop_map(|(first, next, quote, indent)| {
+                    format!("- {quote}{first}\n{}{next}{quote}\n", " ".repeat(indent))
+                }),
             (arb_flow_safe(), arb_value())
                 .prop_map(|(key, value)| format!("- ? {key}\n  : {value}\n")),
         ],
@@ -254,7 +263,8 @@ pub fn inserted_breaks(
 }
 
 /// The first inserted continuation (by byte offset in `output`) no deeper than the block
-/// collection owning its scalar, or at column 0 under a root scalar.
+/// collection owning its scalar (column 0 at the root), or under a quoted scalar less
+/// than two columns past it.
 pub fn under_indented_break(output: &str, breaks: &[(usize, usize)]) -> Option<usize> {
     let mut blocks = Vec::new();
     let mut owners = Vec::new();
@@ -267,26 +277,22 @@ pub fn under_indented_break(output: &str, breaks: &[(usize, usize)]) -> Option<u
             TokenType::BlockEnd => {
                 blocks.pop();
             }
-            TokenType::Scalar(..) => owners.push((
+            TokenType::Scalar(style, _) => owners.push((
                 span.start
                     .byte_offset()
                     .expect("str input has byte offsets")
                     ..span.end.byte_offset().expect("str input has byte offsets"),
                 blocks.last().copied(),
+                if style == ScalarStyle::Plain { 1 } else { 2 },
             )),
             _ => {}
         }
     }
     breaks.iter().find_map(|&(at, indent)| {
-        let owner = owners
+        let deep_enough = owners
             .iter()
-            .find(|(span, _)| span.contains(&at))
-            .map(|(_, owner)| *owner);
-        let deep_enough = match owner {
-            Some(Some(column)) => indent > column,
-            Some(None) => indent > 0,
-            None => false,
-        };
+            .find(|(span, ..)| span.contains(&at))
+            .is_some_and(|(_, owner, step)| indent >= owner.unwrap_or(0) + step);
         (!deep_enough).then_some(at)
     })
 }

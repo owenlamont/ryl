@@ -50,14 +50,17 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
         // granit rejects a quoted mapping value continued one column past its key.
         let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
         let (first, last) = (line_of(span.start), line_of(span.end - 1));
-        let indent = lines[first + 1..=last]
+        let existing = lines[first + 1..=last]
             .iter()
             .find(|(_, text)| !text.trim().is_empty())
             .map(|(_, text)| text.len() - text.trim_start_matches(' ').len())
-            .filter(|spaces| *spaces > 0)
-            .unwrap_or_else(|| {
-                owner.unwrap_or(0) + usize::from(cfg.indent).max(min_step)
-            });
+            .filter(|spaces| *spaces > 0);
+        if existing.is_some_and(|spaces| spaces < owner.unwrap_or(0) + min_step) {
+            continue;
+        }
+        let indent = existing.unwrap_or_else(|| {
+            owner.unwrap_or(0) + usize::from(cfg.indent).max(min_step)
+        });
         let continuation = format!("{newline}{}", " ".repeat(indent));
         for (index, (start, text)) in
             lines.iter().enumerate().take(last + 1).skip(first)

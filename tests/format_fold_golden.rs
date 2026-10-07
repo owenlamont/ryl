@@ -24,7 +24,7 @@ fn fold(input: &str, width: u16, indent: u8) -> String {
     format_str(input, &cfg, Path::new("golden.yaml"), &others)
 }
 
-const CASES: [(&str, &str, u16, u8, &str); 58] = [
+const CASES: [(&str, &str, u16, u8, &str); 62] = [
     ("P1", "key: aaa bbb ccc\n", 12, 2, "key: aaa bbb\n  ccc\n"),
     ("P2", "key: aaa  bbb\n", 8, 2, "key: aaa  bbb\n"),
     ("P4p", "key: aaa --- bbb\n", 9, 2, "key: aaa\n  --- bbb\n"),
@@ -143,6 +143,34 @@ const CASES: [(&str, &str, u16, u8, &str); 58] = [
         8,
         2,
         "key: 'aaa\n   bbb\n   ccc'\n",
+    ),
+    (
+        "S-multiline-seq",
+        "- 'aaa\n  bbb ccc ddd'\n",
+        9,
+        2,
+        "- 'aaa\n  bbb ccc\n  ddd'\n",
+    ),
+    (
+        "S-multiline-seq-1",
+        "- 'aaa\n bbb ccc ddd'\n",
+        9,
+        2,
+        "- 'aaa\n bbb ccc ddd'\n",
+    ),
+    (
+        "S-multiline-root-1",
+        "'aaa\n bbb ccc ddd'\n",
+        9,
+        2,
+        "'aaa\n bbb ccc ddd'\n",
+    ),
+    (
+        "D-multiline-seq-1",
+        "- \"aaa\\\n bbb ccc ddd\"\n",
+        9,
+        2,
+        "- \"aaa\\\n bbb ccc ddd\"\n",
     ),
     ("D1", "key: \"aaa bbb\"\n", 9, 2, "key: \"aaa\n  bbb\"\n"),
     ("D2", "key: \"aaabbb\"\n", 9, 2, "key: \"aaabbb\"\n"),
