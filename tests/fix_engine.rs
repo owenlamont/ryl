@@ -330,14 +330,14 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     assert!(!ctx.config.fix().allows_rule("quoted-strings"));
 }
 
-/// Runs the two-pass repro (quoted-strings joins a continuation line, stranding a comment
-/// for comments-indentation) under `max_passes`, returning the output and the error text.
+/// Runs the two-pass repro (key-ordering moves a block scalar's whitespace-only last line
+/// out of the scalar, after trailing-spaces has run) under `max_passes`, returning the
+/// output and the error text.
 fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
-    let cfg =
-        config("rules:\n  comments-indentation: enable\n  quoted-strings: enable\n");
+    let cfg = config("rules:\n  key-ordering: enable\n  trailing-spaces: enable\n");
     let mut err = Vec::new();
     let fixed = apply_safe_fixes_capped(
-        "a: b\n  c\n  # x\nd: e\n",
+        "b: |\n  x\n \na: 1\n",
         &cfg,
         std::path::Path::new("input.yaml"),
         std::path::Path::new("."),
@@ -352,13 +352,13 @@ fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
 fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
     let (fixed, err) = fix_two_pass_repro(1);
 
-    assert_eq!(fixed, "a: 'b c'\n  # x\nd: 'e'\n");
+    assert_eq!(fixed, "a: 1\n \nb: |\n  x\n");
     for expected in [
         "error: Failed to converge after 1 iterations.",
         "This indicates a bug in ryl.",
         "https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D",
         "`input.yaml`",
-        "the rule ids comments-indentation,",
+        "the rule ids trailing-spaces,",
     ] {
         assert!(err.contains(expected), "missing {expected:?} in {err:?}");
     }
@@ -368,7 +368,7 @@ fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
 fn fix_pipeline_converging_exactly_at_the_cap_reports_nothing() {
     let (fixed, err) = fix_two_pass_repro(2);
 
-    assert_eq!(fixed, "a: 'b c'\n# x\nd: 'e'\n");
+    assert_eq!(fixed, "a: 1\n\nb: |\n  x\n");
     assert_eq!(err, "");
 }
 

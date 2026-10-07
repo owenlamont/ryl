@@ -138,45 +138,6 @@ pub(crate) fn comment_start_preserving_quotes(content: &str) -> Option<usize> {
     None
 }
 
-pub(crate) fn block_scalar_marker_index(content: &str) -> Option<usize> {
-    let marker_idx = block_scalar_header_marker_index(content)?;
-    let bytes = content.as_bytes();
-
-    let mut cursor = marker_idx;
-    let mut consumed_whitespace = false;
-    while cursor > 0 && matches!(bytes[cursor - 1], b' ' | b'\t') {
-        cursor -= 1;
-        consumed_whitespace = true;
-    }
-    if cursor == 0 {
-        return Some(marker_idx);
-    }
-    if !consumed_whitespace {
-        return None;
-    }
-    loop {
-        let mut token_start = cursor;
-        while token_start > 0 && !matches!(bytes[token_start - 1], b' ' | b'\t') {
-            token_start -= 1;
-        }
-        if !matches!(bytes[token_start], b'!' | b'&') {
-            break;
-        }
-        let mut next_cursor = token_start;
-        while next_cursor > 0 && matches!(bytes[next_cursor - 1], b' ' | b'\t') {
-            next_cursor -= 1;
-        }
-        if next_cursor == 0 {
-            return Some(marker_idx);
-        }
-        cursor = next_cursor;
-    }
-    match bytes[cursor - 1] {
-        b':' | b'-' | b'?' => Some(marker_idx),
-        _ => None,
-    }
-}
-
 pub(crate) fn block_scalar_header_marker_index(content: &str) -> Option<usize> {
     let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
     let bytes = trimmed.as_bytes();

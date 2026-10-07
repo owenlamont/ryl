@@ -285,7 +285,7 @@ fn stacked_input_engages_several_fixers_and_converges() {
 }
 
 #[test]
-fn comment_left_by_joined_plain_scalar_is_fixed_in_one_call() {
+fn comment_under_joined_plain_scalar_is_fixed_in_one_pass() {
     let passes = assert_converges(
         "a: b\n  c\n  # x\nd: e\n",
         named_config("yamllint-default"),
@@ -293,9 +293,9 @@ fn comment_left_by_joined_plain_scalar_is_fixed_in_one_call() {
     )
     .unwrap_or_else(|err| panic!("{err}"));
     assert_eq!(
-        passes, 2,
-        "quoted-strings joins the scalar after comments-indentation has run, so the \
-         comment is only re-indented on a second pass"
+        passes, 1,
+        "comments-indentation skips the continuation line quoted-strings joins, so the \
+         comment is re-indented in the same pass"
     );
 }
 

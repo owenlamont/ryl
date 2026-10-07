@@ -510,6 +510,8 @@ fn arb_block_scalar_header() -> impl Strategy<Value = String> {
         Just("|+2".to_string()),
         Just("| # chomp".to_string()),
         Just("!<tag:example.com,2000:app/foo#bar> |".to_string()),
+        Just("!!str |".to_string()),
+        Just("&blk >".to_string()),
     ]
 }
 
@@ -525,33 +527,36 @@ fn arb_block_scalar_block() -> impl Strategy<Value = Vec<Line>> {
         any::<bool>(),
         any::<bool>(),
         any::<bool>(),
+        prop_oneof![Just("block content"), Just("#block content")],
     )
-        .prop_map(|(key, header, header_on_own_line, blank_gap, blank_only)| {
-            let content = Line::Raw {
-                indent: 4,
-                text: if blank_only {
-                    String::new()
-                } else {
-                    "block content".to_string()
-                },
-            };
-            if header_on_own_line {
-                return vec![
-                    merge_entry(0, &key, String::new()),
-                    Line::Raw {
-                        indent: 2,
-                        text: header,
+        .prop_map(
+            |(key, header, header_on_own_line, blank_gap, blank_only, text)| {
+                let content = Line::Raw {
+                    indent: 4,
+                    text: if blank_only {
+                        String::new()
+                    } else {
+                        text.to_string()
                     },
-                    content,
-                ];
-            }
-            let mut lines = vec![merge_entry(0, &key, header)];
-            if blank_gap {
-                lines.push(Line::Blank { spaces: 0 });
-            }
-            lines.push(content);
-            lines
-        })
+                };
+                if header_on_own_line {
+                    return vec![
+                        merge_entry(0, &key, String::new()),
+                        Line::Raw {
+                            indent: 2,
+                            text: header,
+                        },
+                        content,
+                    ];
+                }
+                let mut lines = vec![merge_entry(0, &key, header)];
+                if blank_gap {
+                    lines.push(Line::Blank { spaces: 0 });
+                }
+                lines.push(content);
+                lines
+            },
+        )
 }
 
 fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {

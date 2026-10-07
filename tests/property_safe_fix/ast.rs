@@ -48,6 +48,7 @@ pub struct MultilinePlainSpec {
 
 #[derive(Debug, Clone)]
 pub struct BlockScalarSpec {
+    pub properties: &'static str,
     pub style: char,
     pub chomp: Option<char>,
     pub explicit_indent: Option<u8>,
@@ -236,6 +237,7 @@ impl BlockScalarSpec {
     /// Renders the body `explicit_indent` (or 2) columns past `base`, the parent's
     /// indentation.
     fn render(&self, buffer: &mut String, line_term: &str, base: usize) {
+        buffer.push_str(self.properties);
         buffer.push(self.style);
         if let Some(n) = self.explicit_indent {
             buffer.push((b'0' + n) as char);

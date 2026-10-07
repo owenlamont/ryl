@@ -454,3 +454,21 @@ fn check_says_when_the_quotes_change_to_avoid_an_escape() {
     }
     assert!(!stderr.contains("4:4"), "{stderr}");
 }
+
+#[test]
+fn keeps_hash_led_lines_of_a_block_scalar_in_place() {
+    for input in [
+        "k: |\n  |--- |--- |\n  |PUT|x|\n    ### S\n",
+        "|\n  literal\n # c\n",
+    ] {
+        let expected = format!("---\n{input}");
+        let (code, _, stderr, formatted) = format_file(None, input, &[]);
+        assert_eq!(
+            (code, formatted.as_str()),
+            (0, expected.as_str()),
+            "{stderr}"
+        );
+        let (code, _, stderr, again) = format_file(None, &expected, &[]);
+        assert_eq!((code, again.as_str()), (0, expected.as_str()), "{stderr}");
+    }
+}

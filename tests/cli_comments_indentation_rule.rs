@@ -108,3 +108,22 @@ fn comments_indentation_allows_aligned_comment() {
     assert!(stdout.is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.is_empty(), "expected no stderr: {stderr}");
 }
+
+#[test]
+fn fix_leaves_hash_led_quoted_continuation_untouched() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("quoted.yaml");
+    let original = "key: 'aaa\n  #bbb'\n";
+    fs::write(&file, original).unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("--fix")
+        .arg("-d")
+        .arg("{rules: {comments-indentation: enable}}")
+        .arg(&file));
+
+    assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+}

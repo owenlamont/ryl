@@ -196,7 +196,7 @@ fn arb_top_level_node() -> impl Strategy<Value = Node> {
 fn arb_multiline_plain_spec() -> impl Strategy<Value = MultilinePlainSpec> {
     (
         "[a-z][a-z0-9]{0,5}",
-        prop::collection::vec(arb_multiline_line(), 1..=3),
+        prop::collection::vec(arb_multiline_line("[a-z][a-z0-9]{0,5}"), 1..=3),
     )
         .prop_map(|(first, continuations)| MultilinePlainSpec {
             first,
@@ -206,16 +206,18 @@ fn arb_multiline_plain_spec() -> impl Strategy<Value = MultilinePlainSpec> {
 
 fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
     (
+        prop_oneof![Just(""), Just("!!str "), Just("&blk ")],
         prop_oneof![Just('|'), Just('>')],
         prop::option::of(prop_oneof![Just('-'), Just('+')]),
         prop::option::of(2u8..=4u8),
         arb_block_body_content(),
         prop::collection::vec(arb_block_body_line(), 0..=3),
     )
-        .prop_map(|(style, chomp, explicit_indent, first, rest)| {
+        .prop_map(|(properties, style, chomp, explicit_indent, first, rest)| {
             let mut body = vec![first];
             body.extend(rest);
             BlockScalarSpec {
+                properties,
                 style,
                 chomp,
                 explicit_indent,
@@ -225,7 +227,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
 }
 
 fn arb_block_body_content() -> impl Strategy<Value = BlockBodyLine> {
-    ("[a-z][a-z0-9]{0,6}", 0u8..=3)
+    ("#?[a-z][a-z0-9]{0,6}", 0u8..=3)
         .prop_map(|(text, trailing_ws)| BlockBodyLine::Content { text, trailing_ws })
 }
 
@@ -242,14 +244,14 @@ fn arb_multiline_quoted_spec() -> impl Strategy<Value = MultilineQuotedSpec> {
             Just(MultilineQuoteStyle::Single),
             Just(MultilineQuoteStyle::Double),
         ],
-        prop::collection::vec(arb_multiline_line(), 1..=4),
+        prop::collection::vec(arb_multiline_line("#?[a-z][a-z0-9]{0,5}"), 1..=4),
     )
         .prop_map(|(style, lines)| MultilineQuotedSpec { style, lines })
 }
 
-fn arb_multiline_line() -> impl Strategy<Value = MultilineLine> {
+fn arb_multiline_line(content: &'static str) -> impl Strategy<Value = MultilineLine> {
     prop_oneof![
-        3 => "[a-z][a-z0-9]{0,5}".prop_map(MultilineLine::Content),
+        3 => content.prop_map(MultilineLine::Content),
         1 => Just(MultilineLine::Blank),
     ]
 }
