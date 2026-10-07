@@ -256,7 +256,7 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
         "<<",
         "=",
     ];
-    for prelude in ["", "%YAML 1.2\n---\n"] {
+    for prelude in ["", "%YAML 1.2\n---\n", "%YAML 1.1\n---\n"] {
         for value in kept {
             for (input, expected) in [
                 (
@@ -280,6 +280,40 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
             assert!(
                 output.contains(&format!("\nk: {value}\n")),
                 "'{value}' is a string to every reader, got {output:?}"
+            );
+        }
+    }
+}
+
+/// Under `%YAML 1.1` the ladder drops quotes only a YAML 1.2 reader needs, as
+/// `quoted-strings` does, so formatted output passes that rule.
+#[test]
+fn format_ladder_follows_a_declared_yaml_1_1_as_quoted_strings_does() {
+    for (pass_name, quote_type) in [
+        ("format/default", "single"),
+        ("format/quote-double", "double"),
+    ] {
+        let pass = named_pass(pass_name);
+        let cfg = YamlLintConfig::from_yaml_str(&format!(
+            "rules:\n  quoted-strings:\n    quote-type: {quote_type}\n    \
+             required: only-when-needed\n    check-keys: true\n"
+        ))
+        .expect("quoted-strings config parses");
+        for value in ["1e3", "-1E+3", "008", "+.5", "-.5"] {
+            let input = format!("%YAML 1.1\n---\nk: \"{value}\"\n\"{value}\": 1\n");
+            check_pass(pass, &input).unwrap_or_else(|violation| panic!("{violation}"));
+            let output = (pass.format)(&input);
+            assert!(
+                output.contains(&format!("\nk: {value}\n{value}: 1\n")),
+                "pass '{pass_name}' must unquote {value:?} under YAML 1.1, got {output:?}"
+            );
+            let problems =
+                lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+            assert!(problems.is_empty(), "{output:?} fails lint: {problems:?}");
+            let output = (pass.format)(&format!("k: \"{value}\"\n"));
+            assert!(
+                !output.contains(&format!("\nk: {value}\n")),
+                "{value:?} is not a string to a YAML 1.2 reader, got {output:?}"
             );
         }
     }
