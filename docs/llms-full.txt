@@ -1271,6 +1271,9 @@ document-start = "add"
 document-end = "preserve"
 fold-long-lines = false
 brace-spacing = false
+comment-spacing = 2
+comment-starting-space = "add"
+max-blank-lines = 2
 preview = false
 ```
 
@@ -1282,6 +1285,9 @@ preview = false
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
+| `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
+| `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
+| `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
@@ -1293,9 +1299,9 @@ The rest of the layout is fixed:
 
 | Concern | `ryl format` writes |
 | :--- | :--- |
-| Inline comments | Two spaces before `#`; own-line comments aligned with the content they precede |
+| Own-line comments | Aligned with the content they precede |
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
-| Blank lines | At most two in a row; none at the start or end of the file |
+| Blank lines | None at the start or end of the file |
 | Line ends | No trailing whitespace; exactly one newline at the end of the file |
 
 `ryl format` does not yet rewrite colon or hyphen spacing or indentation.
@@ -1397,11 +1403,11 @@ says so.
 | [`braces`](https://ryl-docs.pages.dev/rules/braces/) | `forbid` is set, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
 | [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
 | [`commas`](https://ryl-docs.pages.dev/rules/commas/) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
-| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above 2, or `max-spaces-from-content` is below 2 (`-1`, the default, is unlimited) |
+| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited) |
 | [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) | Never |
 | [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | `present = false`, unless `[format] document-start = "preserve"` |
 | [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | `present = false` with `[format] document-end = "add"` |
-| [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | `max` is below 2 |
+| [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | Never |
 | [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | `type` resolves to a different ending from `[format] line-ending` |
 | [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | See below; never under `quote-style = "preserve"` |
