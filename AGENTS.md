@@ -109,7 +109,7 @@ Working on the codebase:
 
 Verifying a change:
 
-- `.agents/skills/property-tests/SKILL.md` — the property suites and the ~1000×
+- `.agents/skills/property-tests/SKILL.md` — the property suites and the 5–10 minute
   pre-commit run.
 - `.agents/skills/testing-traps/SKILL.md` — traps that make a test pass vacuously, plus
   regenerating committed schemas and snapshots.
@@ -188,10 +188,11 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   the "zero missed regions" guarantee enforced by CI. Add new coverage via CLI/system
   tests in `tests/` instead.
 - When implementing a new rule or changing an existing one, extend the relevant
-  property-test generator(s) so the new/updated syntax is actually exercised, then do a
-  one-off **~1000× thorough run** before committing (e.g.
-  `PROPTEST_CASES=512000 cargo test --release --test property_check`, built `--release`
-  in the background). See the `property-tests` dev skill.
+  property-test generator(s) so the new/updated syntax is actually exercised. Before
+  committing, run every suite at its default count, plus a **20× run of the suites the
+  change touches** (`PROPTEST_CASES=5120 cargo test --release --test property_check`),
+  keeping the whole step within 5–10 minutes. Release gates run every suite at that 20×
+  count. See the `property-tests` dev skill.
 - Several traps make a test pass vacuously or fail only in CI — config discovery walking
   out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
   `testing-traps` dev skill before writing a test that drives the binary.

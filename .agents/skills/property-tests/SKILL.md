@@ -4,7 +4,7 @@ description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
   editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
   rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
-  each generator must be extended with, the ~1000x pre-commit run, the real-world
+  each generator must be extended with, the 5–10 minute pre-commit run, the real-world
   corpus gate, and which rules intentionally have no safe `--fix`.
 ---
 
@@ -12,15 +12,16 @@ description: >-
 
 When implementing a new rule or changing an existing one, extend the relevant
 property-test generator(s) so the new/updated syntax is actually exercised (each suite
-below lists exactly what to extend and the deterministic guard to add), then do a
-one-off **~1000× thorough run** before committing: e.g.
-`PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites run
-proptest's default 256 cases in CI unless they pin `cases` themselves — tuned for
-speed, not exhaustiveness; `PROPTEST_CASES` still overrides a pinned `cases`, so no
-edit is needed). Build `--release`
-and run it in the background; it routinely flushes rare interleavings the small count
-misses. Commit only once it is green, and keep any newly-persisted seeds in
-`tests/proptest-regressions/`.
+below lists exactly what to extend and the deterministic guard to add), then
+before committing run every suite at its default count, plus a **20× run of the suites
+the change touches**: e.g. `PROPTEST_CASES=5120 cargo test --release --test
+property_check`. The suites run proptest's default 256 cases in CI unless they pin
+`cases` themselves; `PROPTEST_CASES` still overrides a pinned `cases`. Keep the whole
+step within **5–10 minutes**. Commit only once it is green, and keep any newly-persisted
+seeds in `tests/proptest-regressions/`.
+
+**A release gate, or an integration branch's tip, runs every suite at 20×**, not only the
+touched ones. A seed it finds becomes a regression test plus a fix.
 
 ## Property Tests For Safe Fixes
 
@@ -144,8 +145,8 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 `fold-long-lines = true` modes, and exits 1 on a hard failure: a value, comment or anchor
 change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the same
 oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
-one repo. The epic-to-main gate also passes `--proptest-cases 512000`, which then runs
-every property suite at 1000x, one after another. `rust-known-errors` and
+one repo. The epic-to-main gate also passes `--proptest-cases 5120`, which then runs
+every property suite at 20×, one after another. `rust-known-errors` and
 `yaml12-known-errors` in the manifest list files an oracle's own parser misreads; an
 entry waives that oracle's value verdict only while the original and formatted bytes
 match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
