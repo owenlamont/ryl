@@ -96,11 +96,18 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
         // (1-based granit line numbers). When the document does NOT parse we cannot tell
         // which lines are scalar content, so no disable-line is offered; disable-file (a
         // line-0 prepend) is always safe.
+        // A line inserted where a blank-only block scalar's empty span sits would be the
+        // first line of its body, and so its content.
+        let mut empty_bodies = Vec::new();
         let scalar_lines = protected_scalar_lines(input.text, |style, span| {
-            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-                || span.start.line() != span.end.line()
+            let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+            if block && span.is_empty() {
+                empty_bodies.push(span.end.line());
+            }
+            block || span.start.line() != span.end.line()
         });
-        if let Some(scalar_lines) = scalar_lines {
+        if let Some(mut scalar_lines) = scalar_lines {
+            scalar_lines.extend(empty_bodies);
             for (rule, line) in disable_targets(&context.diagnostics) {
                 if let Some(action) =
                     disable_line_action(input, &rule, line, &scalar_lines)
