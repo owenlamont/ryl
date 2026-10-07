@@ -211,7 +211,8 @@ pub enum LegacyYamlSource {
     UserGlobal,
 }
 
-/// How to replace one [`LegacyYamlSource`]; `{path}` in `replacement` names its file.
+/// How to replace one [`LegacyYamlSource`]; `{path}` in `replacement` is its file, as one
+/// shell word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LegacyYamlDeprecation {
     pub source: LegacyYamlSource,
@@ -225,14 +226,15 @@ const LEGACY_YAML_SINCE: &str = LINT_TABLE_SINCE;
 pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
     LegacyYamlDeprecation {
         source: LegacyYamlSource::Project,
-        replacement: "run `ryl --migrate-configs` to convert it to .ryl.toml",
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` to \
+                      convert it to .ryl.toml",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
     },
     LegacyYamlDeprecation {
         source: LegacyYamlSource::ConfigFile,
-        replacement: "run `ryl --migrate-configs --migrate-root {path}` and pass the TOML \
-                      it writes to `-c`",
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` and \
+                      pass the TOML it writes to `-c`",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
     },
@@ -245,7 +247,8 @@ pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
     LegacyYamlDeprecation {
         source: LegacyYamlSource::EnvVar,
         replacement: "YAMLLINT_CONFIG_FILE is deprecated too: run `ryl --migrate-configs \
-                      --migrate-root {path}` and pass the TOML it writes to `-c`",
+                      --migrate-write --migrate-root {path}` and pass the TOML it writes to \
+                      `-c`",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
     },

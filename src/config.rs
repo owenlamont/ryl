@@ -1430,8 +1430,20 @@ fn legacy_yaml_notice(source: LegacyYamlSource, path: Option<&Path>) -> String {
     );
     format!(
         "warning: {label}: yamllint YAML config is deprecated; {}",
-        row.replacement.replace("{path}", &label)
+        row.replacement.replace("{path}", &shell_word(&label))
     )
+}
+
+/// `text` as one shell word: single-quoted, POSIX-style, unless every character is inert.
+fn shell_word(text: &str) -> String {
+    if text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+:,=@".contains(c))
+    {
+        text.to_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
 }
 
 /// Whether `-d` text is a ryl TOML config rather than yamllint YAML. A yamllint config is

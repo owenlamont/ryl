@@ -122,8 +122,9 @@ fn project_pyproject_without_tool_ryl_falls_back_to_yaml() {
     assert_eq!(
         ctx.notices,
         [
-            "warning: /repo/.yamllint: yamllint YAML config is deprecated; run \
-          `ryl --migrate-configs` to convert it to .ryl.toml"
+            "warning: /repo/.yamllint: yamllint YAML config is deprecated; run `ryl \
+             --migrate-configs --migrate-write --migrate-root /repo/.yamllint` to convert \
+             it to .ryl.toml"
         ]
     );
 }

@@ -10,7 +10,7 @@ pub mod encoding;
 pub mod hover;
 pub mod rename;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -969,6 +969,10 @@ impl Server {
     }
 
     fn finish_scan(&mut self, connection: &Connection, result: ScanResult) {
+        if let Some(scan) = &result.scan {
+            let notices: Vec<String> = scan.notices.iter().cloned().collect();
+            self.report_config_notices(connection, &notices);
+        }
         let Some(pull) = self.pull.take() else {
             return;
         };
@@ -1187,38 +1191,44 @@ pub fn previous_by_path(previous: &[PreviousResultId]) -> PreviousIds {
         .collect()
 }
 
-/// Lint one workspace file for a pull report, preferring the open buffer's text. `None`
-/// skips a non-linted/ignored/unreadable file; a config failure becomes an error report,
-/// not a silent omit (a pull client would read absence as clean).
+/// Lint one workspace file for a pull report, preferring the open buffer's text, plus
+/// its config's notices. `None` skips a non-linted/ignored/unreadable file; a config
+/// failure becomes an error report, not a silent omit (a pull client would read absence
+/// as clean).
 fn file_report(
     path: &Path,
     settings: &Settings,
     encoding: PositionEncoding,
     open: &OpenText,
     previous: &PreviousIds,
-) -> Option<WorkspaceDocumentDiagnosticReport> {
+) -> (Option<WorkspaceDocumentDiagnosticReport>, Vec<String>) {
     let previous_id = previous.get(path).map(|(_, id)| id.as_str());
     let target = match resolve_for_path(path.to_path_buf(), true, true, settings) {
         Ok(Some(target)) => target,
-        Ok(None) => return None,
+        Ok(None) => return (None, Vec::new()),
         Err(error) => {
             let items = vec![config_error_diagnostic(&error)];
-            return file_pull_report(path, None, items, previous_id);
+            return (file_pull_report(path, None, items, previous_id), Vec::new());
         }
     };
-    let (text, version) = match open.get(path) {
-        Some((text, version)) => (text.clone(), Some(i64::from(*version))),
-        None => (crate::decoder::read_file(path).ok()?, None),
+    let text_and_version = match open.get(path) {
+        Some((text, version)) => Some((text.clone(), Some(i64::from(*version)))),
+        None => crate::decoder::read_file(path)
+            .ok()
+            .map(|text| (text, None)),
     };
-    let items = analysis::diagnostics(
-        &text,
-        &target.path,
-        &target.context.config,
-        &target.context.base_dir,
-        target.kind,
-        encoding,
-    );
-    file_pull_report(path, version, items, previous_id)
+    let report = text_and_version.and_then(|(text, version)| {
+        let items = analysis::diagnostics(
+            &text,
+            &target.path,
+            &target.context.config,
+            &target.context.base_dir,
+            target.kind,
+            encoding,
+        );
+        file_pull_report(path, version, items, previous_id)
+    });
+    (report, target.context.notices)
 }
 
 /// One file's entry in a workspace pull. `None` for an untracked clean file: nothing to
@@ -1257,6 +1267,7 @@ const STREAM_INTERVAL: Duration = Duration::from_millis(50);
 pub struct ScanOutcome {
     pub items: Vec<WorkspaceDocumentDiagnosticReport>,
     pub streamed: bool,
+    pub notices: BTreeSet<String>,
 }
 
 impl ScanOutcome {
@@ -1341,6 +1352,7 @@ impl ReportSink {
         ScanOutcome {
             items: self.held,
             streamed: self.streamed,
+            notices: BTreeSet::new(),
         }
     }
 }
@@ -1384,20 +1396,21 @@ pub fn workspace_scan(
         }
     }
     let mut covered: HashSet<&PathBuf> = HashSet::new();
+    let mut notices = BTreeSet::new();
     for batch in files.chunks(SCAN_BATCH) {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        let reports: Vec<(&PathBuf, WorkspaceDocumentDiagnosticReport)> = batch
+        let reports: Vec<_> = batch
             .par_iter()
-            .filter_map(|path| {
-                file_report(path, settings, encoding, open, previous)
-                    .map(|report| (path, report))
-            })
+            .map(|path| (path, file_report(path, settings, encoding, open, previous)))
             .collect();
-        for (path, report) in reports {
-            covered.insert(path);
-            sink.push(report);
+        for (path, (report, file_notices)) in reports {
+            notices.extend(file_notices);
+            if let Some(report) = report {
+                covered.insert(path);
+                sink.push(report);
+            }
         }
         sink.flush_batch();
     }
@@ -1409,7 +1422,10 @@ pub fn workspace_scan(
     {
         sink.push(workspace_report(uri.clone(), None, None, Vec::new()));
     }
-    Some(sink.finish())
+    Some(ScanOutcome {
+        notices,
+        ..sink.finish()
+    })
 }
 
 fn request_id(id: NumberOrString) -> RequestId {

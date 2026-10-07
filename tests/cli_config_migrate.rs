@@ -490,3 +490,53 @@ fn legacy_notice_beside_toml_is_reported_once_per_directory_walk() {
         "{stderr}"
     );
 }
+
+#[test]
+fn a_dotdot_spelling_of_one_project_config_warns_once() {
+    let td = tempdir().unwrap();
+    let other = td.path().join("other");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(
+        other.join(".yamllint.yaml"),
+        "rules: { trailing-spaces: enable }\n",
+    )
+    .unwrap();
+    fs::write(other.join("x.yaml"), "x: 1\n").unwrap();
+    fs::write(other.join("y.yaml"), "y: 1\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .current_dir(&other)
+        .env("HOME", td.path())
+        .args(["check", "x.yaml", "../other/y.yaml"]));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert_eq!(
+        stderr.matches("yamllint YAML config is deprecated").count(),
+        1,
+        "{stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_config_file_hint_runs_as_written_for_a_path_with_a_space() {
+    let td = tempdir().unwrap();
+    let dir = td.path().join("space dir");
+    fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("lint.yaml");
+    fs::write(&config, "rules: { trailing-spaces: enable }\n").unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_, _, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
+    let hint = stderr
+        .split('`')
+        .find(|part| part.starts_with("ryl --migrate-configs"))
+        .unwrap_or_else(|| panic!("no migrate command in: {stderr}"));
+    let script = format!("'{exe}'{}", hint.strip_prefix("ryl").unwrap());
+    let (code, stdout, stderr) = run(Command::new("sh").arg("-c").arg(&script));
+    assert_eq!(code, 0, "{script}: stdout={stdout} stderr={stderr}");
+    assert!(dir.join("lint.toml").exists(), "{script}: {stdout}");
+}

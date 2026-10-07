@@ -46,8 +46,8 @@ fn config_file_yaml_names_the_file_migration() {
         notices(&env, &overrides),
         [
             "warning: /proj/ci/lint.yaml: yamllint YAML config is deprecated; run `ryl \
-             --migrate-configs --migrate-root /proj/ci/lint.yaml` and pass the TOML it \
-             writes to `-c`"
+             --migrate-configs --migrate-write --migrate-root /proj/ci/lint.yaml` and pass \
+             the TOML it writes to `-c`"
         ]
     );
 }
@@ -91,7 +91,8 @@ fn env_var_yaml_names_the_variable() {
         [
             "warning: /cfg/lint.yml: yamllint YAML config is deprecated; \
              YAMLLINT_CONFIG_FILE is deprecated too: run `ryl --migrate-configs \
-             --migrate-root /cfg/lint.yml` and pass the TOML it writes to `-c`"
+             --migrate-write --migrate-root /cfg/lint.yml` and pass the TOML it writes to \
+             `-c`"
         ]
     );
 }

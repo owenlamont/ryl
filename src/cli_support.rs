@@ -139,13 +139,15 @@ pub fn resolve_ctx(
             cfg_path,
             mut notices,
         } => {
-            if let Some(entry) = cache.by_config.get(&cfg_path) {
+            // Keyed by file identity, so a `..` spelling of a loaded config reuses it.
+            let key = std::fs::canonicalize(&cfg_path).unwrap_or(cfg_path.clone());
+            if let Some(entry) = cache.by_config.get(&key) {
                 (entry.clone(), notices)
             } else {
                 let ctx = load_project_config(&cfg_path)?;
                 notices.extend(ctx.notices.iter().cloned());
                 let entry = resolved(ctx, flags);
-                cache.by_config.insert(cfg_path, entry.clone());
+                cache.by_config.insert(key, entry.clone());
                 (entry, notices)
             }
         }
