@@ -1,8 +1,8 @@
 //! Adds what the safe-fix generator never emits to the stacked generator's mappings:
-//! anchors, aliases to anchors defined earlier, core, local and non-specific tags, quoted
-//! scalars whose content needs escaping (the quote ladder's top rung), quoted block
-//! mapping keys, which the ladder rewrites too, and alias keys and anchored or tagged empty
-//! keys, whose space before `:` is required.
+//! anchors, aliases to anchors defined earlier, core, local and non-specific tags on
+//! scalars and flow collections, quoted scalars whose content needs escaping (the quote
+//! ladder's top rung), quoted block mapping keys, which the ladder rewrites too, and alias
+//! keys and anchored or tagged empty keys, whose space before `:` is required.
 
 use proptest::prelude::*;
 
@@ -120,12 +120,14 @@ impl Decorator<'_> {
                 *scalar = self.apply(property, scalar);
             }
             Node::FlowSeq(items, _) => {
-                items.iter_mut().for_each(|item| self.decorate_inline(item))
+                items.iter_mut().for_each(|item| self.decorate_inline(item));
+                self.decorate_collection(node);
             }
             Node::FlowMap(pairs, _) => {
                 pairs
                     .iter_mut()
                     .for_each(|(_, value)| self.decorate_inline(value));
+                self.decorate_collection(node);
             }
             Node::MultilineFlowSeq(spec) => {
                 for (_, scalar) in &mut spec.items {
@@ -136,6 +138,19 @@ impl Decorator<'_> {
             }
             _ => {}
         }
+    }
+
+    /// Puts an anchor or tag on flow collection `node`, which then renders as raw text.
+    fn decorate_collection(&mut self, node: &mut Node) {
+        let mut text = match self.properties[self.next % self.properties.len()] {
+            Property::Anchor => self.anchor(),
+            Property::Tag(tag) => format!("{} ", TAGS[tag]),
+            Property::AnchorAndTag(tag) => format!("{}{} ", self.anchor(), TAGS[tag]),
+            _ => return,
+        };
+        self.next += 1;
+        node.render(&mut text);
+        *node = Node::Scalar(Scalar::Plain(text));
     }
 
     fn apply(&mut self, property: Property, scalar: &Scalar) -> Scalar {

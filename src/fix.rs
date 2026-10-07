@@ -11,6 +11,7 @@ use crate::format::FormatCache;
 use crate::markdown_embed::{
     EmbeddedRegion, MarkdownSources, extract_regions, markdown_region_problems,
 };
+use crate::rules::support::collection_style;
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
@@ -404,7 +405,7 @@ fn unfixed_notices(
         return Vec::new();
     }
     if rewrite == Rewrite::Format {
-        return crate::format::unfixed(content);
+        return crate::format::unfixed(content, cfg);
     }
     if !rule_enabled(key_ordering::ID, cfg, path, base_dir) {
         return Vec::new();
@@ -693,6 +694,7 @@ pub(crate) struct Passes<'a> {
     pub(crate) truthy: Option<truthy::Config>,
     pub(crate) key_ordering: Option<key_ordering::Config>,
     pub(crate) line_length: Option<line_length::Fold>,
+    pub(crate) collection_style: Option<collection_style::Config>,
     /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
     /// structural fixer can shift which line a regex matches.
     pub(crate) per_line: Vec<PerLineRuleApply<'a>>,
@@ -747,6 +749,7 @@ impl<'a> Passes<'a> {
             key_ordering: on(key_ordering::ID)
                 .then(|| key_ordering::Config::resolve(cfg, path)),
             line_length: None,
+            collection_style: None,
             per_line: cfg.per_line_applies(path),
         }
     }
@@ -830,6 +833,12 @@ impl FixContext<'_> {
         fix!(comments);
         fix!(comments_indentation);
         fix!(commas);
+        if let Some(cfg) = passes.collection_style
+            && let Some((restyled, rules)) = collection_style::restyle(&content, cfg)
+        {
+            changed_rules.extend(rules);
+            content = restyled;
+        }
         fix!(braces);
         fix!(brackets);
         fix!(colons);

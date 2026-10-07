@@ -102,6 +102,10 @@ pub struct FormatTable {
     pub comment_starting_space: MarkerTarget,
     /// Most consecutive blank lines kept between content lines.
     pub max_blank_lines: u8,
+    /// Collection style for sequences; `preserve` leaves each as written.
+    pub sequence_style: CollectionStyleTarget,
+    /// Collection style for mappings; `preserve` leaves each as written.
+    pub mapping_style: CollectionStyleTarget,
 }
 
 impl Default for FormatTable {
@@ -117,6 +121,8 @@ impl Default for FormatTable {
             comment_spacing: NonZeroU8::new(2).expect("2 is non-zero"),
             comment_starting_space: MarkerTarget::Add,
             max_blank_lines: 2,
+            sequence_style: CollectionStyleTarget::Preserve,
+            mapping_style: CollectionStyleTarget::Preserve,
         }
     }
 }
@@ -142,6 +148,13 @@ pub enum LineEndingTarget {
 pub enum MarkerTarget {
     Add,
     Preserve,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum CollectionStyleTarget {
+    Preserve,
+    Block,
 }
 
 pub type TomlRulesTable = RulesTable<

@@ -1,5 +1,12 @@
 {
   "$defs": {
+    "CollectionStyleTarget": {
+      "enum": [
+        "preserve",
+        "block"
+      ],
+      "type": "string"
+    },
     "FilesTable": {
       "additionalProperties": false,
       "description": "File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which\nfiles are linted as that kind. A file matching more than one kind is an error.",
@@ -155,6 +162,11 @@
           "default": "lf",
           "description": "Line ending; `native` is the platform's."
         },
+        "mapping-style": {
+          "$ref": "#/$defs/CollectionStyleTarget",
+          "default": "preserve",
+          "description": "Collection style for mappings; `preserve` leaves each as written."
+        },
         "max-blank-lines": {
           "default": 2,
           "description": "Most consecutive blank lines kept between content lines.",
@@ -172,6 +184,11 @@
           "$ref": "#/$defs/QuoteStyleTarget",
           "default": "single",
           "description": "Preferred quote for strings that need quoting; `preserve` leaves quoting alone."
+        },
+        "sequence-style": {
+          "$ref": "#/$defs/CollectionStyleTarget",
+          "default": "preserve",
+          "description": "Collection style for sequences; `preserve` leaves each as written."
         }
       },
       "type": "object"

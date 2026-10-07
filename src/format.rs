@@ -6,7 +6,8 @@ use similar::{DiffTag, TextDiff};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::config_schema::{
-    FormatTable, LineEndingTarget, MarkerTarget, QuoteStyleTarget,
+    CollectionStyleTarget, FormatTable, LineEndingTarget, MarkerTarget,
+    QuoteStyleTarget,
 };
 use crate::directives::Directives;
 use crate::fix::{
@@ -16,6 +17,7 @@ use crate::fix::{
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
 use crate::rules::braces::Forbid;
+use crate::rules::support::collection_style;
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, line_length,
@@ -130,9 +132,39 @@ impl Passes<'static> {
                     indent: indent_width(cfg),
                 }
             }),
+            collection_style: Some(collection_style_config(cfg, skip)),
             per_line: Vec::new(),
         }
     }
+}
+
+fn collection_style_config(
+    cfg: &YamlLintConfig,
+    skip: &[&str],
+) -> collection_style::Config {
+    let table = cfg.format();
+    let style = |target, rule| {
+        if skip.contains(&rule) {
+            CollectionStyleTarget::Preserve
+        } else {
+            target
+        }
+    };
+    collection_style::Config {
+        sequences: style(table.sequence_style, brackets::ID),
+        mappings: style(table.mapping_style, braces::ID),
+        indent: indent_width(cfg),
+    }
+}
+
+/// Each collection `ryl format` would restyle under `cfg` but leaves alone, as a notice.
+#[must_use]
+pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
+    collection_style::findings(content, collection_style_config(cfg, &[]))
+        .into_iter()
+        .filter(|finding| finding.refused.is_some())
+        .map(collection_style::Finding::into_problem)
+        .collect()
 }
 
 /// `input` formatted per `cfg`'s `[format]` table, skipping any rule in `skip`.
@@ -286,8 +318,9 @@ fn lines_changed_by(
         .collect()
 }
 
-/// Each `colons` and `hyphens` finding `ryl format` leaves in `content`, with why.
-pub(crate) fn unfixed(content: &str) -> Vec<LintProblem> {
+/// Each `colons` and `hyphens` finding and collection-style refusal `ryl format` leaves in
+/// `content`, with why.
+pub(crate) fn unfixed(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
     let directives = Directives::parse(content);
     let colons = colons::unfixed(content, &colons::Config::format())
         .into_iter()
@@ -308,6 +341,7 @@ pub(crate) fn unfixed(content: &str) -> Vec<LintProblem> {
             rule: Some(rule),
         })
         .collect();
+    problems.extend(refusals(content, cfg));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems
 }
@@ -355,6 +389,14 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
         |_| comments_indentation::MESSAGE.to_string()
     );
     report!(commas);
+    problems.extend(
+        passes
+            .collection_style
+            .iter()
+            .flat_map(|cfg| collection_style::findings(content, *cfg))
+            .filter(|finding| finding.refused.is_none())
+            .map(collection_style::Finding::into_problem),
+    );
     report!(braces);
     report!(brackets);
     report!(colons);

@@ -160,7 +160,7 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
                 "[format]\nquote-style = 'preserve'\nline-ending = 'cr-lf'\n\
                  document-start = 'preserve'\ndocument-end = 'add'\nfold-long-lines = true\n\
                  comment-spacing = 1\ncomment-starting-space = 'preserve'\n\
-                 max-blank-lines = 0\n",
+                 max-blank-lines = 0\nsequence-style = 'block'\nmapping-style = 'block'\n",
                 format,
             ),
             toml_pass(
@@ -172,6 +172,16 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
             toml_pass("format/fold-1", &fold_toml(1, 2), format),
             toml_pass("format/fold-indent-4", &fold_toml(12, 4), format),
             toml_pass("format/fold-indent-1", &fold_toml(12, 1), format),
+            toml_pass(
+                "format/sequence-block",
+                "[format]\nsequence-style = 'block'\n",
+                format,
+            ),
+            toml_pass(
+                "format/mapping-block",
+                "indent-width = 4\n[format]\nmapping-style = 'block'\n",
+                format,
+            ),
         ])
         .collect()
 });

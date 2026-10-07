@@ -58,7 +58,10 @@ pub enum Node {
 pub struct Comment {
     /// Data events before it, so a comment that moves to another node differs. A
     /// `DocumentStart` is not counted: `document-start` may insert `---` above a leading
-    /// comment, which stays at the head of its document.
+    /// comment, which stays at the head of its document. Collection ends are not counted
+    /// either, since block ones come after a comment their flow form precedes. An inline
+    /// comment counts only those before the first node on the line of the node it trails,
+    /// so a flow collection turned block may keep its trailing comment on its key's line.
     pub after_events: usize,
     pub inline: bool,
     /// Payload with whitespace trimmed around it and after its leading `#` run: the
@@ -76,6 +79,10 @@ pub struct Annotations {
 #[derive(Default)]
 struct Recorder {
     nodes: Vec<Node>,
+    /// Nodes `Comment::after_events` counts so far.
+    counted: usize,
+    /// The line each counted node but a document end starts on, and `counted` before it.
+    starts: Vec<(usize, usize)>,
     comments: Vec<Comment>,
     /// granit numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
@@ -141,16 +148,22 @@ fn tag_text(tag: Option<&Cow<'_, Tag>>) -> Option<String> {
 }
 
 impl<'input> SpannedEventReceiver<'input> for Recorder {
-    fn on_event(&mut self, event: Event<'input>, _span: Span) {
+    fn on_event(&mut self, event: Event<'input>, span: Span) {
+        let line = span.start.line();
         let node = match event {
             Event::Comment(text, placement) => {
-                self.comments.push(Comment {
-                    after_events: self
-                        .nodes
+                let inline = placement == Placement::Right;
+                let trailed = self.starts.last().filter(|_| inline);
+                let after_events = trailed.map_or(self.counted, |(last, _)| {
+                    self.starts
                         .iter()
-                        .filter(|node| **node != Node::DocumentStart)
-                        .count(),
-                    inline: placement == Placement::Right,
+                        .find(|(start, _)| start == last)
+                        .map(|(_, before)| *before)
+                        .expect("the trailed node is among the starts")
+                });
+                self.comments.push(Comment {
+                    after_events,
+                    inline,
                     text: comment_text(text.trim()),
                 });
                 return;
@@ -186,6 +199,15 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
             ),
             _ => return,
         };
+        if !matches!(
+            node,
+            Node::DocumentStart | Node::SequenceEnd | Node::MappingEnd
+        ) {
+            if node != Node::DocumentEnd {
+                self.starts.push((line, self.counted));
+            }
+            self.counted += 1;
+        }
         self.nodes.push(node);
     }
 }
