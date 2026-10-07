@@ -55,9 +55,6 @@ allow-double-quotes-for-escaping = true
 pub struct FormatPass {
     pub name: String,
     pub format: Box<dyn Fn(&str) -> String + Send + Sync>,
-    /// `ryl format` also preserves values for a YAML 1.1 reader; `--fix` follows the
-    /// document's version.
-    pub keeps_yaml_1_1_values: bool,
 }
 
 fn fix_pass(name: String, cfg: YamlLintConfig) -> FormatPass {
@@ -66,7 +63,6 @@ fn fix_pass(name: String, cfg: YamlLintConfig) -> FormatPass {
         format: Box::new(move |input| {
             apply_safe_fixes(input, &cfg, synthetic_path(), synthetic_base_dir())
         }),
-        keeps_yaml_1_1_values: false,
     }
 }
 
@@ -101,7 +97,6 @@ fn toml_pass(
             let _backing = &dir;
             rewrite(input, &cfg)
         }),
-        keeps_yaml_1_1_values: name.starts_with("format/"),
     }
 }
 

@@ -1,7 +1,7 @@
 //! The formatter's guarantee as properties: every pass in `passes::format_passes` must be
 //! idempotent, parse-preserving, value-preserving at the representation level (tags,
 //! aliases, duplicate keys and entry order included, resolved against the declared YAML
-//! version, and for `ryl format` under YAML 1.1 too), and must keep every comment beside
+//! version and under YAML 1.1 too), and must keep every comment beside
 //! its node and every anchor and alias name. Folding also keeps the two
 //! parser-independent properties in `fold`: only lone spaces become line breaks, and
 //! every continuation is deeper than its scalar's owner.
@@ -95,13 +95,7 @@ fn check_yaml_1_1_values(
 
 fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
     check_invariants(&pass.format, input)
-        .and_then(|()| {
-            if pass.keeps_yaml_1_1_values {
-                check_yaml_1_1_values(&pass.format, input)
-            } else {
-                Ok(())
-            }
-        })
+        .and_then(|()| check_yaml_1_1_values(&pass.format, input))
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
@@ -219,8 +213,8 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
     }
 }
 
-/// Unlike `--fix`, which follows the document's version, the formatter keeps quotes any
-/// YAML 1.1 reader needs, so its output means the same to PyYAML and Docker Compose.
+/// The formatter keeps quotes any YAML 1.1 reader needs, so its output means the same to
+/// PyYAML and Docker Compose.
 #[test]
 fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
     let pass = named_pass("format/default");

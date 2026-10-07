@@ -859,36 +859,34 @@ fn required_true_does_not_quote_a_yaml_1_1_boolean_under_explicit_1_1() {
 }
 
 #[test]
-fn required_true_quotes_a_yaml_1_1_word_without_a_directive() {
+fn required_true_leaves_a_yaml_1_1_boolean_plain_without_a_directive() {
+    // As in yamllint, a word YAML 1.1 reads as a boolean is not a string to quote, but
+    // `y` is a string to 1.1 as well.
     let cfg = build_config("rules:\n  quoted-strings:\n    required: true\n");
-    assert_eq!(quoted_strings::check("flag: no\n", &cfg).len(), 1);
+    assert!(quoted_strings::check("flag: no\n", &cfg).is_empty());
     assert_eq!(
-        quoted_strings::fix("flag: no\n", &cfg).as_deref(),
-        Some("flag: 'no'\n"),
+        quoted_strings::fix("flag: y\n", &cfg).as_deref(),
+        Some("flag: 'y'\n"),
     );
 }
 
 #[test]
-fn strips_yaml_1_1_words_without_a_directive() {
+fn keeps_yaml_1_1_word_quotes_without_a_1_1_directive() {
     let cfg = only_when_needed();
-    // Absent a directive ryl resolves under the 1.2 core schema, where `no` is a string,
-    // so the quotes are genuinely redundant.
-    assert_eq!(quoted_strings::check("key: 'no'\n", &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix("key: 'no'\n", &cfg).as_deref(),
-        Some("key: no\n"),
-    );
-}
-
-#[test]
-fn strips_yaml_1_1_words_under_explicit_yaml_1_2() {
-    let cfg = only_when_needed();
-    let input = "%YAML 1.2\n---\nkey: 'no'\n";
-    assert_eq!(quoted_strings::check(input, &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix(input, &cfg).as_deref(),
-        Some("%YAML 1.2\n---\nkey: no\n"),
-    );
+    // Dropping these quotes would turn the value into a boolean for a YAML 1.1 reader
+    // such as yamllint's, so they are kept whatever the directive.
+    for prefix in ["", "%YAML 1.2\n---\n"] {
+        for value in ["no", "on", "yes"] {
+            let input = format!("{prefix}key: '{value}'\n");
+            assert!(quoted_strings::check(&input, &cfg).is_empty(), "{input:?}");
+            assert!(quoted_strings::fix(&input, &cfg).is_none(), "{input:?}");
+        }
+        let input = format!("{prefix}key: 'y'\n");
+        assert_eq!(
+            quoted_strings::fix(&input, &cfg),
+            Some(format!("{prefix}key: y\n")),
+        );
+    }
 }
 
 #[test]

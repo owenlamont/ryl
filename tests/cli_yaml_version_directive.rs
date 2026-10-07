@@ -123,15 +123,11 @@ fn directive_like_block_scalar_content_is_not_a_directive() {
 #[test]
 fn a_directive_does_not_leak_into_a_later_document() {
     // The `%YAML 1.1` is block-scalar content in document 1, so document 2 resolves as
-    // 1.2 and its `'no'` is genuinely redundantly quoted.
+    // 1.2, where `1e5` is a float and its quotes are needed; 1.1 would read a string.
     let config = "rules:\n  quoted-strings:\n    required: only-when-needed\n";
     let (code, output) =
-        run_with_config(config, "first: |\n  %YAML 1.1\n---\nkey: 'no'\n", &[]);
-    assert_eq!(code, 1, "document 2 must resolve as 1.2: {output}");
-    assert!(
-        output.contains("redundantly quoted"),
-        "expected redundant-quote: {output}"
-    );
+        run_with_config(config, "first: |\n  %YAML 1.1\n---\nkey: '1e5'\n", &[]);
+    assert_eq!(code, 0, "document 2 must resolve as 1.2: {output}");
 }
 
 #[test]

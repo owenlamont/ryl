@@ -46,7 +46,7 @@ fn arb_quoted_payload() -> impl Strategy<Value = String> {
 }
 
 // Scalars YAML 1.1 resolves to a non-string but YAML 1.2 reads as a string, generated
-// quoted too so both keep-quotes paths run: an explicit `%YAML 1.1`, and the formatter.
+// quoted too so the keep-quotes path runs.
 fn arb_yaml_1_1_ambiguous() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("no".to_string()),

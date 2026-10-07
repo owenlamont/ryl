@@ -90,16 +90,17 @@ pub struct Config {
     allow_quoted_quotes: bool,
     allow_double_quotes_for_escaping: bool,
     pub check_keys: bool,
-    value_readers: ValueReaders,
+    core_schema: CoreSchema,
 }
 
-/// The readers for whom unquoting must preserve a scalar's value.
+/// When unquoting must also preserve a scalar's YAML 1.2 core-schema value; the YAML 1.1
+/// value is preserved whatever the directive, as yamllint does.
 #[derive(Debug, Clone, Copy)]
-enum ValueReaders {
-    /// Those honouring the document's `%YAML` directive (1.2 core when absent).
-    DeclaredVersion,
-    /// YAML 1.1 readers such as `PyYAML` too, whatever the directive.
-    AlsoYaml1_1,
+enum CoreSchema {
+    /// Unless the document declares `%YAML 1.1`, matching yamllint there.
+    UnlessDeclaredYaml1_1,
+    /// Whatever the directive, so formatted output reads the same to either version.
+    Always,
 }
 
 impl Config {
@@ -184,7 +185,7 @@ impl Config {
             allow_quoted_quotes,
             allow_double_quotes_for_escaping,
             check_keys,
-            value_readers: ValueReaders::DeclaredVersion,
+            core_schema: CoreSchema::UnlessDeclaredYaml1_1,
         }
     }
 
@@ -216,7 +217,7 @@ impl Config {
             allow_quoted_quotes: false,
             allow_double_quotes_for_escaping: true,
             check_keys: true,
-            value_readers: ValueReaders::AlsoYaml1_1,
+            core_schema: CoreSchema::Always,
         }
     }
 }
@@ -520,21 +521,20 @@ fn build_violation(span: Span, message: String) -> Violation {
     }
 }
 
-/// Whether the plain scalar is a string to every reader it must keep its value for: the
-/// document's effective version, plus YAML 1.1 for the format ladder. A non-string is
-/// left alone when plain and keeps its load-bearing quotes when quoted.
+/// Whether the plain scalar is a string to every reader it must keep its value for: YAML
+/// 1.1, plus the 1.2 core schema per `config.core_schema`. A non-string is left alone
+/// when plain and keeps its load-bearing quotes when quoted.
 fn resolves_to_string_for_version(
     config: &Config,
     version: Option<Version>,
     value: &str,
 ) -> bool {
-    let declared_1_1 = resolves_as_yaml_1_1(version);
-    let (core_reader, yaml_1_1_reader) = match config.value_readers {
-        ValueReaders::DeclaredVersion => (!declared_1_1, declared_1_1),
-        ValueReaders::AlsoYaml1_1 => (true, true),
+    let core_reader = match config.core_schema {
+        CoreSchema::UnlessDeclaredYaml1_1 => !resolves_as_yaml_1_1(version),
+        CoreSchema::Always => true,
     };
     (!core_reader || value_resolves_to_string(value))
-        && !(yaml_1_1_reader && resolves_to_nonstring_in_yaml_1_1(value))
+        && !resolves_to_nonstring_in_yaml_1_1(value)
 }
 
 fn value_resolves_to_string(value: &str) -> bool {

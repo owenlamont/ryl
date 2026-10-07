@@ -234,10 +234,7 @@ Notes:
 
 - Keep `document-end` off: it would loop. ryl's `document-end` fix adds `...`, yamlfix
   strips it back out on the next pass, and the two never settle.
-- Leave `quoted-strings` off. yamlfix already normalises quotes, and pairing ryl's
-  `quoted-strings` with it is unsafe: ryl (YAML 1.2) treats `'no'`/`'yes'`/`'on'` as
-  redundantly-quoted strings and strips the quotes, after which yamlfix's truthy pass
-  rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
+- Leave `quoted-strings` off: yamlfix already normalises quotes.
 - yamlfix canonicalises truthy words only in **block** style (`key: yes`, `- yes`); it
   leaves them untouched inside a pre-existing flow collection (`flags: [yes, no]`) or
   before a trailing comment (`x: yes  # ...`). ryl's `truthy` fix only re-cases `True`
