@@ -101,6 +101,7 @@ class Repo:
     sha: str
     sparse: tuple[str, ...] = _YAML_PATTERNS
     expected_skip: tuple[str, ...] = ()
+    expected_skip_marker: Mapping[str, str] = field(default_factory=dict)
     tally: bool = True
     modes: tuple[Mode, ...] = tuple(Mode)
     yaml12_known_errors: Mapping[str, tuple[str, str]] = field(default_factory=dict)
@@ -153,6 +154,7 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
             sha=row["sha"],
             sparse=tuple(row.get("sparse", _YAML_PATTERNS)),
             expected_skip=tuple(row.get("expected-skip", ())),
+            expected_skip_marker=row.get("expected-skip-marker", {}),
             tally=row.get("tally", True),
             modes=tuple(Mode(m) for m in row.get("modes", Mode)),
             yaml12_known_errors=_known(row.get("yaml12-known-errors", ())),
@@ -189,7 +191,7 @@ def _fetch(repo: Repo, cache: Path) -> Path:
     _git(clone, "init", "-q")
     _git(clone, "config", "core.sparseCheckout", "true")
     _git(clone, "config", "core.sparseCheckoutCone", "false")
-    patterns = "\n".join((*repo.sparse, *_ALWAYS_CHECKED_OUT))
+    patterns = "\n".join((*_ALWAYS_CHECKED_OUT, *repo.sparse))
     (clone / ".git" / "info" / "sparse-checkout").write_text(f"{patterns}\n")
     _git(clone, "fetch", "-q", "--depth", "1", "--filter=blob:none", repo.url, repo.sha)
     _git(clone, "checkout", "-q", "FETCH_HEAD")
@@ -312,15 +314,9 @@ def _run(
             if count > lint_before[rule]
         }
     _git(clone, "checkout", "--", ".")
-    skips = (
-        m.group(1) for line in first.stderr.splitlines() if (m := _SKIP_RE.match(line))
+    result.skipped, result.unexpected_skips = _unexpected_skips(
+        repo, clone, first.stderr
     )
-    result.skipped = sorted(set(map(_relative, skips)))
-    result.unexpected_skips = [
-        f
-        for f in result.skipped
-        if not any(fnmatch.fnmatch(f, glob) for glob in repo.expected_skip)
-    ]
     for path in files:
         if after[path] != before[path]:
             _record_change(
@@ -333,6 +329,24 @@ def _run(
                 pair_dir=pair_dir,
             )
     return result
+
+
+def _unexpected_skips(
+    repo: Repo, clone: Path, stderr: str
+) -> tuple[list[str], list[str]]:
+    skips = (m.group(1) for line in stderr.splitlines() if (m := _SKIP_RE.match(line)))
+    skipped = sorted(set(map(_relative, skips)))
+    marker = repo.expected_skip_marker
+    return skipped, [
+        f
+        for f in skipped
+        if not any(fnmatch.fnmatch(f, glob) for glob in repo.expected_skip)
+        and not (
+            marker
+            and Path(f).name == marker["file"]
+            and (clone / f).with_name(marker["marker"]).is_file()
+        )
+    ]
 
 
 def _record_change(
