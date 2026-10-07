@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::{NonZeroU8, NonZeroU16};
 use std::path::Path;
 
@@ -167,22 +167,43 @@ fn format_tracked(
     )
 }
 
+/// Formatter output and edited rules by input text, so a preview that both diffs and
+/// explains a file formats each region once. Only valid for one `cfg`, `path` and `skip`.
+#[derive(Default)]
+pub(crate) struct FormatCache(HashMap<String, (String, Vec<&'static str>)>);
+
+impl FormatCache {
+    pub(crate) fn format(
+        &mut self,
+        input: &str,
+        cfg: &YamlLintConfig,
+        path: &Path,
+        skip: &[&str],
+    ) -> &(String, Vec<&'static str>) {
+        self.0.entry(input.to_string()).or_insert_with(|| {
+            let mut edited = Vec::new();
+            let formatted = format_tracked(input, cfg, path, skip, &mut edited);
+            (formatted, edited)
+        })
+    }
+}
+
 /// Why `ryl format` would rewrite `content`: the diagnostics of each formatting rule that
 /// would edit it, or a `would reformat` line for a rule that edits what its check misses.
-#[must_use]
-pub fn problems(
+pub(crate) fn problems(
     content: &str,
     cfg: &YamlLintConfig,
     path: &Path,
     kind: SourceKind,
+    cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
     match kind {
-        SourceKind::Yaml => region_problems(content, cfg, path, &[]),
+        SourceKind::Yaml => region_problems(content, cfg, path, &[], cache),
         SourceKind::Markdown => markdown_region_problems(content, cfg, |region| {
             if region_prefix(content, region).is_none() {
                 return Vec::new();
             }
-            region_problems(&region.content, cfg, path, suppressed_rules())
+            region_problems(&region.content, cfg, path, suppressed_rules(), cache)
         }),
     }
 }
@@ -192,9 +213,10 @@ fn region_problems(
     cfg: &YamlLintConfig,
     path: &Path,
     skip: &[&str],
+    cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    let mut edited = Vec::new();
-    if format_tracked(content, cfg, path, skip, &mut edited) == content {
+    let (formatted, edited) = cache.format(content, cfg, path, skip);
+    if formatted == content {
         return Vec::new();
     }
     let mut changed: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
@@ -210,7 +232,8 @@ fn region_problems(
         })
         .collect();
     let unexplained: BTreeSet<&'static str> = edited
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|rule| !problems.iter().any(|problem| problem.rule == Some(rule)))
         .collect();
     problems.extend(unexplained.into_iter().map(|rule| LintProblem {

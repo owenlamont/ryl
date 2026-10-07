@@ -57,7 +57,7 @@ pub fn lint_markdown_str(
 pub fn markdown_region_problems(
     markdown: &str,
     cfg: &YamlLintConfig,
-    region_problems: impl Fn(&EmbeddedRegion) -> Vec<LintProblem>,
+    mut region_problems: impl FnMut(&EmbeddedRegion) -> Vec<LintProblem>,
 ) -> Vec<LintProblem> {
     if super::markdown_has_unsupported_cr(markdown) {
         return vec![super::unsupported_cr_skip()];
