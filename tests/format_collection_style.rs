@@ -227,6 +227,12 @@ fn unsafe_collections_stay_flow_with_the_reason() {
         ("[a]: b\n", "it is a mapping key"),
         ("k: {a:, b: 2}\n", "a plain key's `:` has no space after it"),
         ("[?x, -y]\n", "an entry starts with `?`"),
+        ("k: {?x: 1}\n", "an entry starts with `?`"),
+        ("k: {a: \"x\n  y\"}\n", "an entry spans lines"),
+        ("k: [{a: \"x\n  y\"}]\n", "an entry spans lines"),
+        ("k: {a: {b: \"x\n  y\"}}\n", "an entry spans lines"),
+        ("k: [&x\n  !!map {a: 1}]\n", "an entry spans lines"),
+        ("k: {a: &x\n  !!map {b: 1}}\n", "an entry spans lines"),
     ] {
         assert_eq!(restyle(input, BOTH), input, "{input:?}");
         let found: Vec<String> = refusals(input, &config(BOTH))
@@ -239,8 +245,12 @@ fn unsafe_collections_stay_flow_with_the_reason() {
             "{input:?}"
         );
     }
-    let long = format!("k: {{{}: v}}\n", "a".repeat(1025));
+    let long = format!("k: {{? {} : v}}\n", "a".repeat(1025));
     assert_eq!(restyle(&long, BOTH), long);
+    assert_eq!(
+        refusals(&long, &config(BOTH))[0].message,
+        "cannot convert to block safely: a key is longer than 1024 characters"
+    );
 }
 
 #[test]
