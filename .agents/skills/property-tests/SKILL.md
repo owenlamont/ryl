@@ -19,10 +19,9 @@ property_check`. The suites run proptest's default 256 cases in CI unless they p
 step within **5–10 minutes**. Commit only once it is green, and keep any newly-persisted
 seeds in `tests/proptest-regressions/`.
 
-**A 1000× run (`PROPTEST_CASES=512000`) is a release-gate step, not a per-change one.**
-It takes 40–80 minutes per suite. Run it on an integration branch's tip when the machine
-is idle, or before a release. It does flush rare interleavings the small count misses, so
-a seed it finds becomes a regression test plus a fix.
+**A release gate, or an integration branch's tip, runs every suite at 20×**, not only the
+touched ones. A seed it finds becomes a regression test plus a fix. Don't run 1000×
+(`PROPTEST_CASES=512000`): at 40–80 minutes per suite, a full matrix takes hours.
 
 ## Property Tests For Safe Fixes
 
