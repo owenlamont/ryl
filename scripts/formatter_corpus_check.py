@@ -101,6 +101,7 @@ class Repo:
     sparse: tuple[str, ...] = _YAML_PATTERNS
     expected_skip: tuple[str, ...] = ()
     tally: bool = True
+    yaml12_known_errors: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -121,6 +122,7 @@ class Result:
     not_idempotent: list[str] = field(default_factory=list)
     yaml12_unequal: list[str] = field(default_factory=list)
     yaml12_unavailable: list[str] = field(default_factory=list)
+    yaml12_known_errors: list[str] = field(default_factory=list)
     yaml11_drift: list[str] = field(default_factory=list)
     rust: dict[str, list[str]] = field(default_factory=dict)
     lint_rose: dict[str, list[int]] = field(default_factory=dict)
@@ -148,6 +150,7 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
             sparse=tuple(row.get("sparse", _YAML_PATTERNS)),
             expected_skip=tuple(row.get("expected-skip", ())),
             tally=row.get("tally", True),
+            yaml12_known_errors=tuple(row.get("yaml12-known-errors", ())),
         )
         for row in rows
     ]
@@ -292,7 +295,13 @@ def _run(
     for path in files:
         if after[path] != before[path]:
             _record_change(
-                result, path, before[path], after[path], pairs=pairs, pair_dir=pair_dir
+                result,
+                path,
+                before[path],
+                after[path],
+                known_errors=repo.yaml12_known_errors,
+                pairs=pairs,
+                pair_dir=pair_dir,
             )
     return result
 
@@ -303,6 +312,7 @@ def _record_change(
     before: bytes,
     after: bytes,
     *,
+    known_errors: tuple[str, ...],
     pairs: list[tuple[str, Path]],
     pair_dir: Path,
 ) -> None:
@@ -312,6 +322,8 @@ def _record_change(
     stem.with_suffix(".after").write_bytes(after)
     pairs.append((f"{result.mode}\t{result.repo}\t{path}", stem))
     match _compare(_load12, before, after):
+        case Loaded.UNEQUAL if path in known_errors:
+            result.yaml12_known_errors.append(path)
         case Loaded.UNEQUAL:
             result.yaml12_unequal.append(path)
         case Loaded.UNAVAILABLE:
@@ -355,6 +367,20 @@ def _rust_oracle(pairs: list[tuple[str, Path]], work: Path) -> dict[str, str]:
     return {key: verdict for (key, _), verdict in zip(pairs, verdicts, strict=True)}
 
 
+def _property_failures(cases: int) -> list[str]:
+    suites = sorted(path.stem for path in (_ROOT / "tests").glob("property_*.rs"))
+    return [
+        suite
+        for suite in suites
+        if subprocess.run(
+            ["cargo", "test", "--release", "--test", suite],
+            cwd=_ROOT,
+            env=os.environ | {"PROPTEST_CASES": str(cases)},
+            check=False,
+        ).returncode
+    ]
+
+
 def _summary(results: Iterable[Result]) -> str:
     columns = (
         "repo",
@@ -365,7 +391,7 @@ def _summary(results: Iterable[Result]) -> str:
         "value failures",
         "not idempotent",
         "crash",
-        "py-yaml12 unavailable",
+        "py-yaml12 unavailable (known errors)",
         "1.1 drift",
         "lint rose",
         "seconds",
@@ -376,7 +402,8 @@ def _summary(results: Iterable[Result]) -> str:
         f"| {len(r.skipped)} ({len(r.unexpected_skips)}) "
         f"| {_value_failures(r)} "
         f"| {len(r.not_idempotent)} | {'yes' if r.crashed else ''} "
-        f"| {len(r.yaml12_unavailable)} | {len(r.yaml11_drift)} "
+        f"| {len(r.yaml12_unavailable)} ({len(r.yaml12_known_errors)}) "
+        f"| {len(r.yaml11_drift)} "
         f"| {', '.join(r.lint_rose)} | {r.seconds} |\n"
         for r in sorted(results, key=lambda r: (r.repo.lower(), r.mode))
     )
@@ -410,6 +437,13 @@ def run(
         ),
     ] = True,
     timeout_s: Annotated[float, typer.Option(help="Per `ryl format` run.")] = 900.0,
+    proptest_cases: Annotated[
+        int,
+        typer.Option(
+            help="Then run every property suite at this case count, one after another "
+            "(512000 for the epic-to-main gate); 0 skips them."
+        ),
+    ] = 0,
 ) -> None:
     """Format every pinned repo in each mode and gate the result.
 
@@ -455,7 +489,14 @@ def run(
     summary = _summary(results)
     (work / "summary.md").write_text(summary, encoding="utf-8")
     typer.echo(f"\n{summary}\nReport: {work}")
-    if failures := sum(_hard_failures(r) for r in results):
+    failures = sum(_hard_failures(r) for r in results)
+    if proptest_cases:
+        failed_suites = _property_failures(proptest_cases)
+        typer.echo(
+            f"Property suites failing at {proptest_cases} cases: {failed_suites}"
+        )
+        failures += len(failed_suites)
+    if failures:
         typer.secho(f"{failures} hard-gate failure(s)", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 

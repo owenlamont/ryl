@@ -605,6 +605,8 @@ fn corpus_pairs_keep_the_guarantee() {
 fn corpus_verdict_names_the_broken_invariant() {
     for (before, after, verdict) in [
         ("a: 'x'  #c\n", "---\na: x  # c\n", "ok"),
+        ("###c\na: 1\n", "### c\na: 1\n", "ok"),
+        ("## c\na: 1\n", "# c\na: 1\n", "comment/anchor fidelity"),
         ("a: 1\n", "a: '1'\n", "value-preservation"),
         ("a: 1\n", "a: [\n", "parse-preservation"),
         ("a: 1  # c\n", "a: 1\n", "comment/anchor fidelity"),

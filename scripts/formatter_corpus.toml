@@ -119,6 +119,8 @@ sparse = ["/doc/"]
 url = "https://github.com/yaml/yaml-test-suite"
 sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
 note = "spec edge cases; invalid inputs must stay byte-identical"
+# py-yaml12 0.2.0 reads an empty block scalar followed by a final newline as "\n".
+yaml12-known-errors = ["2G84/03/in.yaml"]
 
 [[repo]]
 url = "https://github.com/aristanetworks/avd"
@@ -191,6 +193,10 @@ note = "Other / application repos; yamllint: .yamllint.yml"
 url = "https://github.com/redhat-cop/agnosticd"
 sha = "0b3ab8ce56596b507d6b9cdb392588facf3ddeba"
 note = "Ansible; yamllint: ansible/configs/archive/a-base-config/.yamllint, ansible/configs/archive/aro/.yamllint"
+# py-yaml12 0.2.0 reads an empty block scalar followed by a final newline as "\n".
+yaml12-known-errors = [
+  "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml",
+]
 
 [[repo]]
 url = "https://github.com/samip5/k8s-cluster"
