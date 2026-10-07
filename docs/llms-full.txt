@@ -4223,10 +4223,10 @@ title: example
 
 `ryl check --fix` adds a `---` start marker to every document that lacks one when
 `present: true`: at the top of the file for the first document, and after the
-`...` that ends the previous document for a later one. A leading UTF-8 BOM stays at
-byte 0, and a line-1 `#!` shebang or cloud-init `#cloud-config` header stays first,
-with the `---` inserted after it, since the interpreter or cloud-init reads it from
-byte 0.
+`...` that ends the previous document for a later one. A UTF-8 BOM, leading the
+file or a later document, stays before the `---`. A line-1 `#!` shebang or
+cloud-init `#cloud-config` header stays first, with the `---` inserted after it,
+since the interpreter or cloud-init reads it from byte 0.
 
 The `present: false` case (removing existing `---` markers) is never auto-fixed
 because removal can collide with multi-document boundaries.

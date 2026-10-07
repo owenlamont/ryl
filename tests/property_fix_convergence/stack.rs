@@ -1,7 +1,8 @@
 //! Stacks file-shape issues around the safe-fix generator's entries so several fixers
 //! act on the same lines and must agree: indented comments, whitespace-only blank lines,
-//! trailing spaces after a flow value or inline comment, `---`/`...` markers and extra
-//! end-of-file blanks, on top of the flow spacing and quoting `arb_document` emits.
+//! trailing spaces after a flow value or inline comment, `---`/`...` markers, later
+//! documents (implicit after `...`, optionally behind a BOM prefix line, or explicit) and
+//! extra end-of-file blanks, on top of the flow spacing and quoting `arb_document` emits.
 
 use proptest::prelude::*;
 
@@ -27,11 +28,20 @@ pub struct Decoration {
 }
 
 #[derive(Debug, Clone)]
+pub struct FollowOn {
+    pub explicit: bool,
+    pub comment: bool,
+    pub bom: bool,
+    pub key: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct StackedDocument {
     pub document: Document,
     pub decorations: Vec<Decoration>,
     pub start_marker: bool,
     pub end_marker: bool,
+    pub follow_ons: Vec<FollowOn>,
     pub trailing_blank_lines: u8,
 }
 
@@ -101,6 +111,9 @@ impl StackedDocument {
             buffer.push_str("...");
             buffer.push_str(terminator);
         }
+        for follow_on in &self.follow_ons {
+            follow_on.render(&mut buffer, terminator);
+        }
         for _ in 0..self.trailing_blank_lines {
             buffer.push_str(terminator);
         }
@@ -109,6 +122,37 @@ impl StackedDocument {
         }
         buffer
     }
+}
+
+impl FollowOn {
+    fn render(&self, buffer: &mut String, terminator: &str) {
+        let marker = if self.explicit { "---" } else { "..." };
+        buffer.push_str(marker);
+        buffer.push_str(terminator);
+        if self.comment {
+            buffer.push_str("# gap");
+            buffer.push_str(terminator);
+        }
+        // A BOM may only prefix a document that follows a `...`.
+        if self.bom && !self.explicit {
+            buffer.push('\u{feff}');
+            buffer.push_str(terminator);
+        }
+        buffer.push_str(&self.key);
+        buffer.push_str(": 1");
+        buffer.push_str(terminator);
+    }
+}
+
+fn arb_follow_on() -> impl Strategy<Value = FollowOn> {
+    (any::<bool>(), any::<bool>(), any::<bool>(), "[a-z]{1,3}").prop_map(
+        |(explicit, comment, bom, key)| FollowOn {
+            explicit,
+            comment,
+            bom,
+            key,
+        },
+    )
 }
 
 fn arb_filler() -> impl Strategy<Value = Filler> {
@@ -141,6 +185,7 @@ pub fn arb_stacked_document() -> impl Strategy<Value = StackedDocument> {
             prop::collection::vec(arb_decoration(), entries),
             any::<bool>(),
             any::<bool>(),
+            prop::collection::vec(arb_follow_on(), 0..=2),
             0u8..=3,
         )
             .prop_map(
@@ -149,6 +194,7 @@ pub fn arb_stacked_document() -> impl Strategy<Value = StackedDocument> {
                     decorations,
                     start_marker,
                     end_marker,
+                    follow_ons,
                     trailing_blank_lines,
                 )| {
                     StackedDocument {
@@ -156,6 +202,7 @@ pub fn arb_stacked_document() -> impl Strategy<Value = StackedDocument> {
                         decorations,
                         start_marker,
                         end_marker,
+                        follow_ons,
                         trailing_blank_lines,
                     }
                 },

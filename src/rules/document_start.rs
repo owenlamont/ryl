@@ -60,48 +60,63 @@ fn scan<'cfg>(buffer: &str, cfg: &'cfg Config) -> DocumentStartReceiver<'cfg> {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let (bom, rest) = buffer
-        .strip_prefix('\u{feff}')
-        .map_or(("", buffer), |rest| ("\u{feff}", rest));
-    let content_lines = scan(rest, cfg).implicit_starts;
+    let content_lines = scan(buffer, cfg).implicit_starts;
     if content_lines.is_empty() {
         return None;
     }
-    let lines: Vec<(&str, &str)> = split_lines_preserve_endings(rest)
+    let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
         .map(|(_, content, ending)| (content, ending))
         .collect();
-    let first_line = if is_magic_first_line(lines[0].0) {
+    let first_line = if is_magic_first_line(split_bom(lines[0].0).1) {
         2
     } else {
         1
     };
     let mut marker_lines = content_lines
         .iter()
-        .map(|&content_line| {
-            (1..content_line)
-                .rev()
-                .find(|&line| is_document_end_line(lines[line - 1].0))
-                .map_or(first_line, |line| line + 1)
-        })
+        .map(|&content_line| marker_line(&lines, first_line, content_line))
         .peekable();
-    let newline = buffer_newline(rest);
+    let newline = buffer_newline(buffer);
     let mut output = String::with_capacity(buffer.len() + 4 * content_lines.len());
-    output.push_str(bom);
     for (idx, (content, ending)) in lines.iter().enumerate() {
         if marker_lines.next_if_eq(&(idx + 1)).is_some() {
+            let (bom, rest) = split_bom(content);
+            output.push_str(bom);
             output.push_str("---");
             output.push_str(newline);
+            output.push_str(rest);
+        } else {
+            output.push_str(content);
         }
-        output.push_str(content);
         output.push_str(ending);
     }
     Some(output)
 }
 
-/// Whether a line is a `...` end marker; the nearest one above an implicit document is
-/// the line between documents it follows, even when granit emits no event for it.
-fn is_document_end_line(line: &str) -> bool {
-    line.split_whitespace().next() == Some("...")
+/// The 1-based line that takes the `---` for the document whose content starts on
+/// `content_line`: below the nearest `...` above it, or after a document-prefix BOM, since
+/// a BOM inside a document is a syntax error.
+fn marker_line(
+    lines: &[(&str, &str)],
+    first_line: usize,
+    content_line: usize,
+) -> usize {
+    (first_line..=content_line)
+        .rev()
+        .find_map(|line| {
+            let (bom, text) = split_bom(lines[line - 1].0);
+            if text.split_whitespace().next() == Some("...") {
+                Some(line + 1)
+            } else {
+                (!bom.is_empty()).then_some(line)
+            }
+        })
+        .unwrap_or(first_line)
+}
+
+fn split_bom(line: &str) -> (&str, &str) {
+    line.strip_prefix('\u{feff}')
+        .map_or(("", line), |rest| ("\u{feff}", rest))
 }
 
 struct DocumentStartReceiver<'cfg> {

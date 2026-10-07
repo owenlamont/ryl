@@ -1,12 +1,13 @@
 use std::io::Write;
-use std::process::Stdio;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
 use ryl::rules::document_start::{self, Config};
 
 mod common;
-use common::cli::ryl;
+use common::cli::{run, ryl};
 
 #[test]
 fn fix_adds_a_marker_to_every_implicit_document() {
@@ -46,6 +47,20 @@ fn fix_adds_a_marker_to_every_implicit_document() {
             "%YAML 1.2\n---\na: 1\n...\nb: 2\n",
             "%YAML 1.2\n---\na: 1\n...\n---\nb: 2\n",
         ),
+        (
+            "a: 1\n...\n\u{feff}\nb: 2\n",
+            "---\na: 1\n...\n\u{feff}---\n\nb: 2\n",
+        ),
+        (
+            "a: 1\n...\n# c\n\u{feff}b: 2\n",
+            "---\na: 1\n...\n# c\n\u{feff}---\nb: 2\n",
+        ),
+        (
+            "a: 1\n...\n\u{feff}# c\nb: 2\n",
+            "---\na: 1\n...\n\u{feff}---\n# c\nb: 2\n",
+        ),
+        ("\u{feff}#!x\na: 1\n", "\u{feff}#!x\n---\na: 1\n"),
+        ("\u{feff}# c\na: 1\n", "\u{feff}---\n# c\na: 1\n"),
     ];
     let cfg = Config::new(true);
     for (input, expected) in cases {
@@ -75,10 +90,34 @@ fn fix_leaves_explicit_or_forbidden_markers_alone() {
 }
 
 #[test]
+fn fix_and_format_keep_a_later_document_bom_outside_the_document() {
+    let input = "a: 1\n...\n\u{feff}b: 2\n";
+    let expected = "---\na: 1\n...\n\u{feff}---\nb: 2\n";
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    std::fs::write(&file, input).unwrap();
+    let config = "[lint.rules]\ndocument-start = 'enable'\n";
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _, stderr) = run(Command::new(exe)
+        .args(["check", "--fix", "-d", config])
+        .arg(&file));
+    assert_eq!(code, 0, "fixed output must parse and lint clean: {stderr}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), expected);
+    assert_eq!(format_stdin(dir.path(), input), expected);
+}
+
+#[test]
 fn format_adds_a_marker_to_the_first_of_several_documents() {
     let dir = tempdir().unwrap();
-    let mut child = ryl(dir.path())
-        .current_dir(dir.path())
+    assert_eq!(
+        format_stdin(dir.path(), "a: 1\n---\nb: 2\n...\nc: 3\n"),
+        "---\na: 1\n---\nb: 2\n...\n---\nc: 3\n"
+    );
+}
+
+fn format_stdin(home: &Path, input: &str) -> String {
+    let mut child = ryl(home)
+        .current_dir(home)
         .args(["format", "--stdin-filename", "s.yaml", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -89,11 +128,7 @@ fn format_adds_a_marker_to_the_first_of_several_documents() {
         .stdin
         .take()
         .unwrap()
-        .write_all(b"a: 1\n---\nb: 2\n...\nc: 3\n")
+        .write_all(input.as_bytes())
         .unwrap();
-    let out = child.wait_with_output().unwrap();
-    assert_eq!(
-        String::from_utf8(out.stdout).unwrap(),
-        "---\na: 1\n---\nb: 2\n...\n---\nc: 3\n"
-    );
+    String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
 }

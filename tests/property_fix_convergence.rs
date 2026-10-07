@@ -42,7 +42,7 @@ use config::{
     SAFE_FIX_RULES, named_config, parse_for_compare, safe_fix_configs,
     synthetic_base_dir, synthetic_path,
 };
-use stack::{Decoration, Filler, StackedDocument, arb_stacked_document};
+use stack::{Decoration, Filler, FollowOn, StackedDocument, arb_stacked_document};
 
 type RuleFix = (&'static str, Box<dyn Fn(&str) -> Option<String>>);
 
@@ -196,6 +196,15 @@ fn assert_converges(
                 cfg_name,
                 input
             );
+            if let Some(before) = parse_for_compare(input) {
+                prop_assert_eq!(
+                    Some(before),
+                    parse_for_compare(&fixed),
+                    "safe fixes changed the loaded value under config '{}'; input {:?}",
+                    cfg_name,
+                    input
+                );
+            }
             let refixed =
                 apply_safe_fixes(&fixed, cfg, synthetic_path(), synthetic_base_dir());
             prop_assert_eq!(
@@ -363,6 +372,20 @@ fn dirty_stacked_document() -> StackedDocument {
         ],
         start_marker: false,
         end_marker: false,
+        follow_ons: vec![
+            FollowOn {
+                explicit: false,
+                comment: true,
+                bom: true,
+                key: "k".to_string(),
+            },
+            FollowOn {
+                explicit: true,
+                comment: false,
+                bom: false,
+                key: "m".to_string(),
+            },
+        ],
         trailing_blank_lines: 2,
     }
 }
