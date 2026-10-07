@@ -38,6 +38,7 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::lint::lint_str;
+use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 use ryl::rules::{colons, hyphens};
 
 use config::{synthetic_base_dir, synthetic_path};
@@ -141,6 +142,14 @@ proptest! {
     }
 
     #[test]
+    fn reindent_places_each_line_or_leaves_its_document(
+        document in arb_document_with_properties(),
+        width in 1usize..=4,
+    ) {
+        check_reindent(&document.render(), width).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
     fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
         input in arb_fold_document()
     ) {
@@ -153,6 +162,53 @@ proptest! {
                     "fold at width {width}, indent {indent} on {input:?}: {violation}"
                 )))?;
         }
+    }
+}
+
+fn lines(text: &str) -> Vec<&str> {
+    text.split("\r\n")
+        .flat_map(|part| part.split(['\r', '\n']))
+        .collect()
+}
+
+/// Re-indent's own guarantee on top of the pipeline's: only leading spaces change, a
+/// refused document keeps its bytes, and every other line is where `indentation` expects.
+/// An input granit cannot parse is left to the parse-preservation check.
+fn check_reindent(input: &str, width: usize) -> Result<(), String> {
+    if representation(input).is_none() {
+        return Ok(());
+    }
+    let cfg = indentation::Config::new(
+        SpacesSetting::Fixed(width),
+        IndentSequencesSetting::True,
+        false,
+    );
+    let out = indentation::reindent(input, &cfg);
+    let (before, after) = (lines(input), lines(&out.text));
+    let refused = |line: usize| out.refused.iter().any(|doc| doc.lines.contains(&line));
+    if before.len() != after.len() {
+        return Err(format!(
+            "surgical: width {width}, {input:?} -> {:?}",
+            out.text
+        ));
+    }
+    for (line, (old, new)) in (1..).zip(before.iter().zip(&after)) {
+        if old.trim_start() != new.trim_start() || (refused(line) && old != new) {
+            return Err(format!(
+                "surgical: line {line}, width {width}, {input:?} -> {:?}",
+                out.text
+            ));
+        }
+    }
+    match indentation::check(&out.text, &cfg)
+        .into_iter()
+        .find(|hit| !refused(hit.line))
+    {
+        Some(hit) => Err(format!(
+            "completeness: {hit:?}, width {width}, {input:?} -> {:?}",
+            out.text
+        )),
+        None => Ok(()),
     }
 }
 
@@ -566,7 +622,15 @@ fn a_deliberately_broken_pass_fails_the_suite() {
             "renames an anchor",
         ),
     ];
-    let broken_spacing: [(&str, (&str, Broken, &str)); 2] = [
+    let broken_spacing: [(&str, (&str, Broken, &str)); 3] = [
+        (
+            "k:\n    s: |2\n          lead\n        x\n",
+            (
+                "value-preservation",
+                |s| s.replace("    s: |2", "  s: |2"),
+                "re-indents a key but not its block scalar's body",
+            ),
+        ),
         (
             "-   a:\n    b: 1\n",
             (

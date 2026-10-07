@@ -18,12 +18,12 @@ use crate::markdown_embed::markdown_region_problems;
 use crate::rules::braces::Forbid;
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, hyphens, line_length, new_line_at_end_of_file,
-    new_lines, quoted_strings, trailing_spaces,
+    document_start, empty_lines, hyphens, indentation, line_length,
+    new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces,
 };
 
 /// The rules `ryl format` applies, whatever the lint config enables.
-pub const FORMAT_RULE_IDS: [&str; 15] = [
+pub const FORMAT_RULE_IDS: [&str; 16] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
@@ -32,6 +32,7 @@ pub const FORMAT_RULE_IDS: [&str; 15] = [
     brackets::ID,
     colons::ID,
     hyphens::ID,
+    indentation::ID,
     new_line_at_end_of_file::ID,
     quoted_strings::ID,
     trailing_spaces::ID,
@@ -71,6 +72,13 @@ impl Passes<'static> {
                 usize::from(table.comment_spacing.get()),
                 table.comment_starting_space == MarkerTarget::Add,
             )),
+            indentation: on(indentation::ID).then(|| {
+                indentation::Config::new(
+                    indentation::SpacesSetting::Fixed(usize::from(indent_width(cfg))),
+                    indentation::IndentSequencesSetting::True,
+                    false,
+                )
+            }),
             comments_indentation: on(comments_indentation::ID)
                 .then_some(comments_indentation::Config::new(false)),
             commas: on(commas::ID).then_some(commas::Config::new(0, 1, 1)),
@@ -351,6 +359,7 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
     report!(brackets);
     report!(colons);
     report!(hyphens);
+    report!(indentation);
     report!(
         new_line_at_end_of_file,
         passes
