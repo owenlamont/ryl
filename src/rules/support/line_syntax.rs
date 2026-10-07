@@ -2,6 +2,13 @@ use std::collections::HashSet;
 
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
+/// Whether a line-1 comment, given as its text after the first `#`, is one another
+/// tool reads verbatim: a `#!` shebang or a cloud-init `#cloud-config` header.
+pub(crate) fn is_magic_first_line_comment(after_hash: &str) -> bool {
+    after_hash.trim_start_matches('#').starts_with('!')
+        || after_hash.starts_with("cloud-config")
+}
+
 pub(crate) fn leading_whitespace_width(line: &str) -> usize {
     line.chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))

@@ -1,14 +1,17 @@
 //! `document-start` rule: require (or forbid) the `---` start marker.
 //!
 //! `--fix` rewrites only `present: true` on a single-document buffer with no
-//! `---`/`...` markers and no leading `%YAML`/`%TAG` directive: inserting `---` at the
-//! buffer start cannot repair a later document's missing marker (it would create an
-//! extra empty leading document), and removing `---` (`present: false`) can collide
+//! `---`/`...` markers and no leading `%YAML`/`%TAG` directive, inserting `---` at the
+//! buffer start or after a line-1 shebang or `#cloud-config`. A buffer-start `---`
+//! cannot repair a later document's missing marker (it would create an extra empty
+//! leading document), and removing `---` (`present: false`) can collide
 //! with document boundaries, so neither is fixed.
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{buffer_newline, line_contents};
+use crate::rules::support::line_syntax::{
+    buffer_newline, first_line_break, is_magic_first_line_comment, line_contents,
+};
 
 pub const ID: &str = "document-start";
 pub const MISSING_MESSAGE: &str = "missing document start \"---\"";
@@ -67,13 +70,30 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     if check(buffer, cfg).is_empty() {
         return None;
     }
+    let (head, tail) = rest.split_at(magic_first_line_len(rest));
     let newline = buffer_newline(rest);
     let mut output = String::with_capacity(buffer.len() + 4);
     output.push_str(bom);
+    output.push_str(head);
     output.push_str("---");
     output.push_str(newline);
-    output.push_str(rest);
+    output.push_str(tail);
     Some(output)
+}
+
+/// Byte length of `buffer`'s first line, break included, when that line is a shebang or
+/// `#cloud-config` that must stay first; else 0.
+fn magic_first_line_len(buffer: &str) -> usize {
+    match first_line_break(buffer) {
+        Some((idx, style))
+            if buffer[..idx]
+                .strip_prefix('#')
+                .is_some_and(is_magic_first_line_comment) =>
+        {
+            idx + style.len()
+        }
+        _ => 0,
+    }
 }
 
 fn starts_with_directive(buffer: &str) -> bool {
