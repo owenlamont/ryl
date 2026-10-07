@@ -27,14 +27,41 @@
 //! A `<!-- ryl-config-check: skip -->` comment on the line before a fence overrides
 //! detection for an intentional counter-example (e.g. the YAML-1.1 config in
 //! `yaml-version.md` whose prose says it "will fail to parse in ryl").
+//! `<!-- ryl-config-check: format-clean -->` additionally requires the config to draw no
+//! `ryl format` conflict warning and to lint [`FORMAT_SAMPLE`] clean once formatted, and
+//! `<!-- ryl-config-check: format-conflict -->` requires at least one warning.
 
-use ryl::config::{Overrides, discover_config};
+use ryl::config::{Overrides, YamlLintConfig, discover_config};
+use ryl::{format, lint_str};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
-const SKIP_MARKER: &str = "<!-- ryl-config-check: skip -->";
+const MARKERS: [(&str, Marker); 3] = [
+    ("<!-- ryl-config-check: skip -->", Marker::Skip),
+    (
+        "<!-- ryl-config-check: format-clean -->",
+        Marker::FormatClean,
+    ),
+    (
+        "<!-- ryl-config-check: format-conflict -->",
+        Marker::FormatConflict,
+    ),
+];
+
+/// Formatter input whose output a `format-clean` config must lint clean: the quoted
+/// strings are ones YAML 1.1 would read as booleans.
+const FORMAT_SAMPLE: &str = "country: \"NO\"\nenabled: \"yes\"\nswitch: \"on\"\n\
+    base: &base {a: 1,b: [ 1,2 ]}\nchild: *base\nplain: \"x\"   #note\n\n\n\nlast: 'it''s'\n";
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Marker {
+    None,
+    Skip,
+    FormatClean,
+    FormatConflict,
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Kind {
@@ -51,7 +78,7 @@ enum Kind {
 struct Block {
     lang: String,
     content: String,
-    skip: bool,
+    marker: Marker,
 }
 
 /// Top-level property names of a config schema produced by
@@ -110,9 +137,12 @@ fn extract_blocks(markdown: &str) -> Vec<Block> {
         }
         let trimmed = lines[i].trim_start();
         let indent = lines[i].len() - trimmed.len();
-        let skip = i
+        let marker = i
             .checked_sub(1)
-            .is_some_and(|prev| lines[prev].trim() == SKIP_MARKER);
+            .and_then(|prev| {
+                MARKERS.iter().find(|(text, _)| lines[prev].trim() == *text)
+            })
+            .map_or(Marker::None, |(_, marker)| *marker);
         let mut content = String::new();
         let mut j = i + 1;
         while j < lines.len() && !is_closing_fence(lines[j], open_len) {
@@ -123,7 +153,7 @@ fn extract_blocks(markdown: &str) -> Vec<Block> {
         blocks.push(Block {
             lang: trimmed[open_len..].trim().to_string(),
             content,
-            skip,
+            marker,
         });
         // Resume past the closing fence (or at end-of-input when unterminated).
         i = j + 1;
@@ -184,7 +214,7 @@ fn classify(
     toml_keys: &BTreeSet<String>,
     yaml_keys: &BTreeSet<String>,
 ) -> Kind {
-    if block.skip {
+    if block.marker == Marker::Skip {
         return Kind::NotConfig;
     }
     match block.lang.as_str() {
@@ -200,13 +230,16 @@ fn classify(
 /// misspelled rule names are caught) without the "no rules enabled" gate (so
 /// fragments pass). A config notice (a deprecated key) is a failure too, so the docs
 /// teach only the current shape. `-c` bypasses project/env/user-global discovery, so no
-/// `HOME` isolation is needed.
-fn validate(kind: Kind, content: &str) -> Result<(), String> {
-    let name = match kind {
-        Kind::Toml => "config.toml",
-        Kind::Pyproject => "pyproject.toml",
-        Kind::Yaml => "config.yaml",
-        Kind::NotConfig => return Ok(()),
+/// `HOME` isolation is needed. A format marker then checks the formatter's verdict too.
+fn validate(kind: Kind, marker: Marker, content: &str) -> Result<(), String> {
+    let name = match (kind, marker) {
+        (Kind::Toml, _) => "config.toml",
+        (Kind::Pyproject, _) => "pyproject.toml",
+        (Kind::Yaml, _) => "config.yaml",
+        (Kind::NotConfig, Marker::FormatClean | Marker::FormatConflict) => {
+            return Err("a format marker sits on a block that is not ryl config".into());
+        }
+        (Kind::NotConfig, _) => return Ok(()),
     };
     let dir = tempdir().expect("create temp dir for config validation");
     let cfg = dir.path().join(name);
@@ -218,10 +251,34 @@ fn validate(kind: Kind, content: &str) -> Result<(), String> {
             config_data: None,
         },
     )?;
-    if ctx.notices.is_empty() {
+    if !ctx.notices.is_empty() {
+        return Err(ctx.notices.join("; "));
+    }
+    let conflicts = format::conflicts(&ctx.config);
+    match marker {
+        Marker::FormatClean if !conflicts.is_empty() => Err(conflicts.join("; ")),
+        Marker::FormatClean => lint_formatted_sample(&ctx.config, dir.path()),
+        Marker::FormatConflict if conflicts.is_empty() => {
+            Err("marked format-conflict, but `ryl format` warns about nothing".into())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn lint_formatted_sample(cfg: &YamlLintConfig, dir: &Path) -> Result<(), String> {
+    let path = dir.join("sample.yaml");
+    let formatted = format::format_str(FORMAT_SAMPLE, cfg, &path, &[]);
+    let problems: Vec<String> = lint_str(&formatted, &path, cfg, dir)
+        .into_iter()
+        .map(|p| format!("{}:{} {}", p.line, p.column, p.message))
+        .collect();
+    if problems.is_empty() {
         Ok(())
     } else {
-        Err(ctx.notices.join("; "))
+        Err(format!(
+            "ryl check rejects ryl format's output: {}",
+            problems.join("; ")
+        ))
     }
 }
 
@@ -260,15 +317,17 @@ fn docs_config_examples_are_valid() {
                 .enumerate()
                 .filter_map(|(idx, block)| {
                     let kind = classify(&block, &toml_keys, &yaml_keys);
-                    validate(kind, &block.content).err().map(|err| {
-                        format!(
-                            "{}: block {} ({:?}): {}",
-                            file.display(),
-                            idx + 1,
-                            kind,
-                            err.replace('\n', " ")
-                        )
-                    })
+                    validate(kind, block.marker, &block.content)
+                        .err()
+                        .map(|err| {
+                            format!(
+                                "{}: block {} ({:?}): {}",
+                                file.display(),
+                                idx + 1,
+                                kind,
+                                err.replace('\n', " ")
+                            )
+                        })
                 })
                 .collect::<Vec<_>>()
         })
@@ -288,10 +347,10 @@ fn classify_routes_each_block_kind() {
     let toml_keys = schema_top_level_keys(ryl::config_schema::schema_value());
     let yaml_keys = schema_top_level_keys(ryl::config_schema::yaml_schema_value());
 
-    let block = |lang: &str, content: &str, skip: bool| Block {
+    let block = |lang: &str, content: &str, marker: Marker| Block {
         lang: lang.to_string(),
         content: content.to_string(),
-        skip,
+        marker,
     };
     let kind = |b: &Block| classify(b, &toml_keys, &yaml_keys);
 
@@ -299,7 +358,7 @@ fn classify_routes_each_block_kind() {
         kind(&block(
             "toml",
             "[lint.rules.commas]\nlevel = \"error\"\n",
-            false
+            Marker::None
         )),
         Kind::Toml,
     );
@@ -307,7 +366,7 @@ fn classify_routes_each_block_kind() {
         kind(&block(
             "toml",
             "[tool.ryl.lint.rules.commas]\nlevel = \"error\"\n",
-            false
+            Marker::None
         )),
         Kind::Pyproject,
     );
@@ -315,52 +374,64 @@ fn classify_routes_each_block_kind() {
         kind(&block(
             "toml",
             "[[lint.per-line-ignores]]\nregex = 'x'\n",
-            false
+            Marker::None
         )),
         Kind::Toml,
         "an array-of-tables header is recognised by its top-level name",
     );
     assert_eq!(
-        kind(&block("toml", "line-length = 100\n", false)),
+        kind(&block("toml", "line-length = 100\n", Marker::None)),
         Kind::Toml,
         "a top-level key before any header is recognised",
     );
     assert_eq!(
-        kind(&block("toml", "[package]\nname = \"demo\"\n", false)),
+        kind(&block("toml", "[package]\nname = \"demo\"\n", Marker::None)),
         Kind::NotConfig,
         "another tool's TOML is not ryl config",
     );
     assert_eq!(
-        kind(&block("toml", "[tool.ruff]\nline-length = 100\n", false)),
+        kind(&block(
+            "toml",
+            "[tool.ruff]\nline-length = 100\n",
+            Marker::None
+        )),
         Kind::NotConfig,
         "a schema key under another table is not ryl config",
     );
     assert_eq!(
-        kind(&block("toml", "this = is = not = toml", false)),
+        kind(&block("toml", "this = is = not = toml", Marker::None)),
         Kind::NotConfig,
         "a block with no ryl table header is not config",
     );
     assert_eq!(
-        kind(&block("toml", "[lint.rules.commas]\nlevel =\n", false)),
+        kind(&block(
+            "toml",
+            "[lint.rules.commas]\nlevel =\n",
+            Marker::None
+        )),
         Kind::Toml,
         "a malformed config example is recognised by its header, not skipped",
     );
     assert_eq!(
-        kind(&block("yaml", "rules:\n  commas: enable\n", false)),
+        kind(&block("yaml", "rules:\n  commas: enable\n", Marker::None)),
         Kind::Yaml,
     );
     assert_eq!(
-        kind(&block("yaml", "build:\n  steps:\n    - run: make\n", false)),
+        kind(&block(
+            "yaml",
+            "build:\n  steps:\n    - run: make\n",
+            Marker::None
+        )),
         Kind::NotConfig,
         "a rule-input example is not config",
     );
     assert_eq!(
-        kind(&block("yml", "extends: default\n", false)),
+        kind(&block("yml", "extends: default\n", Marker::None)),
         Kind::Yaml,
         "the .yml language tag is recognised",
     );
     assert_eq!(
-        kind(&block("bash", "echo hi\n", false)),
+        kind(&block("bash", "echo hi\n", Marker::None)),
         Kind::NotConfig,
         "a non-config language is skipped",
     );
@@ -368,7 +439,7 @@ fn classify_routes_each_block_kind() {
         kind(&block(
             "toml",
             "[lint.rules.commas]\nlevel = \"error\"\n",
-            true
+            Marker::Skip
         )),
         Kind::NotConfig,
         "the skip marker overrides detection",
@@ -394,7 +465,7 @@ fn validate_reports_loader_verdict() {
     ];
     for (kind, content) in accepted {
         assert!(
-            validate(kind, content).is_ok(),
+            validate(kind, Marker::None, content).is_ok(),
             "{kind:?} should be accepted: {content:?}",
         );
     }
@@ -415,7 +486,7 @@ fn validate_reports_loader_verdict() {
     ];
     for (kind, content) in rejected {
         assert!(
-            validate(kind, content).is_err(),
+            validate(kind, Marker::None, content).is_err(),
             "{kind:?} should be rejected: {content:?}",
         );
     }
@@ -431,12 +502,12 @@ fn malformed_toml_config_example_is_caught() {
     let block = Block {
         lang: "toml".to_string(),
         content: "[lint.rules.commas]\nlevel =\n".to_string(),
-        skip: false,
+        marker: Marker::None,
     };
     let kind = classify(&block, &toml_keys, &yaml_keys);
     assert_eq!(kind, Kind::Toml, "the header marks it as ryl config");
     assert!(
-        validate(kind, &block.content).is_err(),
+        validate(kind, block.marker, &block.content).is_err(),
         "the loader must reject the malformed example",
     );
 }
@@ -474,11 +545,16 @@ nested: true
     let blocks = extract_blocks(markdown);
     assert_eq!(blocks.len(), 4, "four fenced blocks should be found");
 
-    assert!(!blocks[0].skip, "first block has no preceding marker line");
+    assert_eq!(
+        blocks[0].marker,
+        Marker::None,
+        "first block has no preceding marker line"
+    );
     assert_eq!(blocks[0].content, "top = 1\n");
 
-    assert!(
-        blocks[1].skip,
+    assert_eq!(
+        blocks[1].marker,
+        Marker::Skip,
         "the skip marker on the prior line is recorded"
     );
 
@@ -494,5 +570,64 @@ nested: true
     assert_eq!(
         blocks[3].content, "```yaml\nnested: true\n```\n",
         "the nested fence is captured as content of the outer block",
+    );
+}
+
+/// Each format marker rejects the config that contradicts it, and a format marker on a
+/// block that is not ryl config fails rather than passing unchecked.
+#[test]
+fn format_markers_check_the_formatter_verdict() {
+    let conflicting = "[lint.rules]\nquoted-strings = \"enable\"\n";
+    let compatible =
+        "[lint.rules.quoted-strings]\nquote-type = \"any\"\nrequired = false\n";
+    let rejects_output = "[format]\ndocument-end = \"preserve\"\n\n\
+        [lint.rules.document-end]\npresent = true\n";
+    let cases = [
+        (Kind::Toml, Marker::FormatConflict, conflicting, true),
+        (Kind::Toml, Marker::FormatClean, conflicting, false),
+        (Kind::Toml, Marker::FormatClean, compatible, true),
+        (Kind::Toml, Marker::FormatConflict, compatible, false),
+        (Kind::Toml, Marker::FormatClean, rejects_output, false),
+        (Kind::NotConfig, Marker::FormatClean, "echo hi\n", false),
+    ];
+    for (kind, marker, content, accepted) in cases {
+        assert_eq!(
+            validate(kind, marker, content).is_ok(),
+            accepted,
+            "{marker:?} on {content:?}",
+        );
+    }
+}
+
+/// Every `[format]` key in the TOML config schema has a row in the formatter page's key
+/// table, so a new key cannot ship undocumented.
+#[test]
+fn every_format_key_has_a_formatter_page_row() {
+    let page = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/formatter.md");
+    // docs/ is excluded from the packaged crate; skip there rather than fail.
+    let Ok(text) = fs::read_to_string(page) else {
+        return;
+    };
+    let schema = ryl::config_schema::schema_value();
+    let table = schema["properties"]["format"]["anyOf"]
+        .as_array()
+        .expect("`format` is an optional table")
+        .iter()
+        .find_map(|branch| branch["$ref"].as_str()?.strip_prefix("#/$defs/"))
+        .expect("`format` refers to its table's definition");
+    let keys = schema["$defs"][table]["properties"]
+        .as_object()
+        .expect("the `[format]` table has properties");
+    let missing: Vec<&String> = keys
+        .keys()
+        .filter(|key| {
+            !text
+                .lines()
+                .any(|line| line.starts_with(&format!("| `{key}` |")))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "docs/formatter.md has no key-table row for: {missing:?}"
     );
 }
