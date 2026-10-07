@@ -55,6 +55,7 @@ line-ending = "lf"
 document-start = "add"
 document-end = "preserve"
 fold-long-lines = false
+brace-spacing = false
 preview = false
 ```
 
@@ -65,6 +66,7 @@ preview = false
 | `document-start` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+| `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
@@ -77,7 +79,7 @@ The rest of the layout is fixed:
 | Concern | `ryl format` writes |
 | :--- | :--- |
 | Inline comments | Two spaces before `#`; own-line comments aligned with the content they precede |
-| Flow collections | No spaces inside `{}` or `[]`; no space before a comma, one after |
+| Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
 | Blank lines | At most two in a row; none at the start or end of the file |
 | Line ends | No trailing whitespace; exactly one newline at the end of the file |
 
@@ -177,7 +179,8 @@ says so.
 
 | Rule | Conflicts with `ryl format` when |
 | :--- | :--- |
-| [`braces`](rules/braces.md), [`brackets`](rules/brackets.md) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
+| [`braces`](rules/braces.md) | `forbid` is set, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
+| [`brackets`](rules/brackets.md) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
 | [`commas`](rules/commas.md) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
 | [`comments`](rules/comments.md) | `min-spaces-from-content` is above 2, or `max-spaces-from-content` is below 2 (`-1`, the default, is unlimited) |
 | [`comments-indentation`](rules/comments-indentation.md) | Never |
@@ -259,6 +262,18 @@ document-start = "preserve"
 
 [lint.rules.document-start]
 present = false
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[format]
+brace-spacing = true
+
+[lint.rules.braces]
+min-spaces-inside = 1
+max-spaces-inside = 1
+min-spaces-inside-empty = 0
+max-spaces-inside-empty = 0
 ```
 
 <!-- ryl-config-check: format-clean -->

@@ -58,6 +58,7 @@ impl Passes<'static> {
                 LineEndingTarget::Native => new_lines::LineKind::Platform,
             },
         };
+        let brace_padding = i64::from(table.brace_spacing);
         let quote_style = match table.quote_style {
             QuoteStyleTarget::Single => Some(quoted_strings::QuoteStyle::Single),
             QuoteStyleTarget::Double => Some(quoted_strings::QuoteStyle::Double),
@@ -71,10 +72,10 @@ impl Passes<'static> {
             commas: on(commas::ID).then_some(commas::Config::new(0, 1, 1)),
             braces: on(braces::ID).then_some(braces::Config::new(
                 Forbid::None,
+                brace_padding,
+                brace_padding,
                 0,
                 0,
-                -1,
-                -1,
             )),
             brackets: on(brackets::ID).then_some(brackets::Config::new(
                 Forbid::None,
@@ -415,6 +416,7 @@ fn target(rule: &str, table: &FormatTable) -> Option<String> {
         line_length::ID => return None,
         quoted_strings::ID => Some("quote-style"),
         new_lines::ID => Some("line-ending"),
+        braces::ID => Some("brace-spacing"),
         document_start::ID | document_end::ID => Some(rule),
         _ => return Some(format!("built-in {rule} style")),
     }?;
