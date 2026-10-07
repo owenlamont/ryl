@@ -96,6 +96,17 @@ since its rule config cannot be relocated safely. Project migration keeps a
 relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
 directory.
 
+Migration also keeps [`ryl format`](../formatter.md) from enforcing what the
+yamllint config left unchecked, by writing `"preserve"` for these `[format]`
+targets:
+
+| Target | When the yamllint config |
+| :--- | :--- |
+| `document-start` | disables `document-start` or sets its `present: false` |
+| `document-end` | disables `document-end` or sets its `present: false` |
+| `quote-style` | disables `quoted-strings` |
+| `comment-starting-space` | disables `comments` or sets its `require-starting-space: false` |
+
 After migration, run `ryl check .` to confirm diagnostics match what yamllint
 produced.
 
