@@ -24,7 +24,7 @@ fn fold(input: &str, width: u16, indent: u8) -> String {
     format_str(input, &cfg, Path::new("golden.yaml"), &others)
 }
 
-const CASES: [(&str, &str, u16, u8, &str); 57] = [
+const CASES: [(&str, &str, u16, u8, &str); 58] = [
     ("P1", "key: aaa bbb ccc\n", 12, 2, "key: aaa bbb\n  ccc\n"),
     ("P2", "key: aaa  bbb\n", 8, 2, "key: aaa  bbb\n"),
     ("P4p", "key: aaa --- bbb\n", 9, 2, "key: aaa\n  --- bbb\n"),
@@ -134,6 +134,7 @@ const CASES: [(&str, &str, u16, u8, &str); 57] = [
         2,
         "key: 'aaa\n  bbb' # n\n",
     ),
+    ("S8", "key: 'a\\ b'\n", 8, 2, "key: 'a\\\n  b'\n"),
     ("S-seq", "- 'aaa bbb'\n", 6, 1, "- 'aaa\n  bbb'\n"),
     ("S-flow", "k: ['aaa bbb']\n", 4, 2, "k: ['aaa bbb']\n"),
     (
