@@ -78,6 +78,21 @@ def test_a_dirty_cached_checkout_is_refused(tmp_path: Path) -> None:
         gate._fetch(repo, tmp_path)
 
 
+def test_a_skip_beside_the_marker_file_is_expected(tmp_path: Path) -> None:
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "error").touch()
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha="0" * 40, expected_skip_marker="error"
+    )
+    stderr = "".join(
+        f"{d}/in.yaml:1:1 skipped by ryl format: x\n" for d in ("bad", "good")
+    )
+    assert gate._unexpected_skips(repo, tmp_path, stderr) == (
+        ["bad/in.yaml", "good/in.yaml"],
+        ["good/in.yaml"],
+    )
+
+
 def test_an_unknown_repo_selector_is_rejected() -> None:
     with pytest.raises(typer.BadParameter, match="nope/nope"):
         gate._manifest(["nope/nope"])

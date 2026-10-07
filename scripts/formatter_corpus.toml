@@ -53,11 +53,24 @@ note = "Ansible: Jinja quoting, YAML 1.1 consumer"
 url = "https://github.com/ansible-collections/community.general"
 sha = "77a9d526aaacdd1d16bcd8c28eb63f5a5d134b21"
 note = "Ansible at scale, committed .yamllint"
+expected-skip = [
+  # A multiline quoted scalar continued at or below its parent's indent (spec-invalid).
+  "tests/integration/targets/scaleway_user_data/defaults/main.yml",
+]
 
 [[repo]]
 url = "https://github.com/ansible/ansible-lint"
 sha = "97b5358f62dc2bb1d686895472abce8338917b29"
 note = "committed .yamllint, deliberately odd example playbooks"
+# A deliberately non-UTF-8 fixture (ryl exits 2, as ruff does), and two `{}` fixture configs
+# that enable no lint rules, which ryl refuses.
+sparse = [
+  "*.yaml",
+  "*.yml",
+  "!/examples/broken/encoding.yml",
+  "!/test/fixtures/verbosity-tests/.yamllint",
+  "!/test/fixtures/list-rules-tests/.yamllint",
+]
 
 [[repo]]
 url = "https://github.com/github/rest-api-description"
@@ -70,6 +83,10 @@ tally = false
 url = "https://github.com/samber/awesome-prometheus-alerts"
 sha = "822af1e59938844e9f32c9c2ff7cbe63e8438655"
 note = "Prometheus rules, {{ $labels }}, block scalars"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "dist/template.yml",
+]
 
 [[repo]]
 url = "https://github.com/prometheus/prometheus"
@@ -81,6 +98,12 @@ sparse = ["/documentation/", "/.github/"]
 url = "https://github.com/microsoft/azure-pipelines-yaml"
 sha = "5d433fcad43a32789a968179469c1e6271cb2fc7"
 note = "Azure Pipelines ${{ }} template expressions"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "templates/deploy-to-existing-kubernetes-cluster.yml",
+  "templates/resources/k8s/deployment.yml",
+  "templates/resources/k8s/service.yml",
+]
 
 [[repo]]
 url = "https://gitlab.com/gitlab-org/gitlab"
@@ -120,10 +143,9 @@ sparse = ["/doc/"]
 url = "https://github.com/yaml/yaml-test-suite"
 sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
 note = "spec edge cases; invalid inputs must stay byte-identical"
-# py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
-yaml12-known-errors = [
-  { path = "2G84/03/in.yaml", before-sha256 = "1a63a8d03de92e5ed240d8e4854161d80e05f87b38c67baed2e926397d8d055a", after-sha256 = "976c64fa2ebd83db6e3f892f2aeb068a20816cdea5ef99912bebf4b367402c60" },
-]
+sparse = ["*.yaml", "*.yml", "error"]
+# A case directory holding an `error` file is invalid YAML by the suite's own verdict.
+expected-skip-marker = "error"
 
 [[repo]]
 url = "https://github.com/aristanetworks/avd"
@@ -134,7 +156,12 @@ note = "Ansible; yamllint: ansible_collections/arista/avd/.yamllint"
 url = "https://github.com/bioconda/bioconda-recipes"
 sha = "274a4e376c00c7438c55df174a946e6e4e787791"
 note = "Conda / packaging recipes; bioconda-utils: .circleci/config.yml"
-expected-skip = ["**/meta.yaml"]
+expected-skip = [
+  "**/meta.yaml",
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "scripts/ucsc/template-meta-with-python.yaml",
+  "scripts/ucsc/template-meta.yaml",
+]
 
 [[repo]]
 url = "https://github.com/bjw-s-labs/helm-charts"
@@ -146,6 +173,65 @@ expected-skip = ["**/templates/**"]
 url = "https://github.com/conda/conda-build"
 sha = "1e9bb5c435772e33a5b4c6e58c928ded4f07c0a3"
 note = "Conda / packaging recipes; yamlfmt: .pre-commit-config.yaml"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "conda_build/templates/npm.yaml",
+  "conda_build/templates/setuptools.yaml",
+  "docs/click/meta.yaml",
+  "docs/source/user-guide/tutorials/meta.yaml",
+  "recipe/meta.yaml",
+  "tests/test-recipes/metadata/_blas_pins/meta.yaml",
+  "tests/test-recipes/metadata/_checkout_tool_as_dependency/meta.yaml",
+  "tests/test-recipes/metadata/_git_describe_number_branch/meta.yaml",
+  "tests/test-recipes/metadata/_jinja_outputs/meta.yaml",
+  "tests/test-recipes/metadata/_overdepending_detection/meta.yaml",
+  "tests/test-recipes/metadata/_pyyaml_find_header/meta.yaml",
+  "tests/test-recipes/metadata/_render_recipe/meta.yaml",
+  "tests/test-recipes/metadata/_resolved_packages_host_build/meta.yaml",
+  "tests/test-recipes/metadata/_rpath_symlink/meta.yaml",
+  "tests/test-recipes/metadata/_run_constrained_error/meta.yaml",
+  "tests/test-recipes/metadata/_setup_py_data_in_env/meta.yaml",
+  "tests/test-recipes/metadata/_source_git_jinja2_relative_git_url/meta.yaml",
+  "tests/test-recipes/metadata/_source_git_jinja2_relative_path/meta.yaml",
+  "tests/test-recipes/metadata/_source_setuptools/meta.yaml",
+  "tests/test-recipes/metadata/_source_setuptools_env_var/meta.yaml",
+  "tests/test-recipes/metadata/_sysroot_detection/meta.yaml",
+  "tests/test-recipes/metadata/_transitive_pin_variants/meta.yaml",
+  "tests/test-recipes/metadata/_transitive_pin_variants_cross/meta.yaml",
+  "tests/test-recipes/metadata/entry_points_have_prefix/meta.yaml",
+  "tests/test-recipes/metadata/entry_points_have_prefix_noarch_has_prefix_files/meta.yaml",
+  "tests/test-recipes/metadata/gh-5342/meta.yaml",
+  "tests/test-recipes/metadata/jinja2_build_str/meta.yaml",
+  "tests/test-recipes/metadata/jinja_load_setuptools/meta.yaml",
+  "tests/test-recipes/metadata/jinja_load_toml/meta.yaml",
+  "tests/test-recipes/metadata/jinja_load_toml_from_source/meta.yaml",
+  "tests/test-recipes/metadata/jinja_load_yaml/meta.yaml",
+  "tests/test-recipes/metadata/jinja_vars/meta.yaml",
+  "tests/test-recipes/metadata/outputs_overwrite_base_file/meta.yaml",
+  "tests/test-recipes/metadata/selectors_in_imported_templates/meta.yaml",
+  "tests/test-recipes/metadata/source_git_jinja2/meta.yaml",
+  "tests/test-recipes/metadata/source_regex/meta.yaml",
+  "tests/test-recipes/metadata/source_regex_from_recipe_dir/meta.yaml",
+  "tests/test-recipes/metadata/source_setup_py_data/meta.yaml",
+  "tests/test-recipes/metadata/source_setup_py_data_subdir/meta.yaml",
+  "tests/test-recipes/metadata/state_variables/meta.yaml",
+  "tests/test-recipes/metadata/unicode_all_over/love-feedstock/meta.yaml",
+  "tests/test-recipes/metadata/unicode_in_meta/meta.yaml",
+  "tests/test-recipes/published_code/building_jinja2_environ/meta.yaml",
+  "tests/test-recipes/published_code/building_jinja2_setup_py_data/meta.yaml",
+  "tests/test-recipes/split-packages/_build_string_with_variant/meta.yaml",
+  "tests/test-recipes/split-packages/_circular_deps_cross/meta.yaml",
+  "tests/test-recipes/split-packages/_output_named_same_as_top_level/meta.yaml",
+  "tests/test-recipes/split-packages/_xgboost_example/meta.yaml",
+  "tests/test-recipes/split-packages/jinja2_subpackage_name/meta.yaml",
+  "tests/test-recipes/split-packages/outputs_using_vars_defined_in_meta/meta.yaml",
+  "tests/test-recipes/variants/12_variant_versions/meta.yaml",
+  "tests/test-recipes/variants/21_conditional_sections/meta.yaml",
+  "tests/test-recipes/variants/jinja2_used_variables/meta.yaml",
+  "tests/test-recipes/variants/numpy_used/meta.yaml",
+  "tests/test-recipes/variants/python_in_build_only/meta.yaml",
+  "tests/test-recipes/variants/test_python_as_subpackage_loop/meta.yaml",
+]
 
 [[repo]]
 url = "https://github.com/digitalocean/openapi"
@@ -156,6 +242,15 @@ note = "OpenAPI / API specs; spectral: .spectral.yml, spectral/bundled.spectral.
 url = "https://github.com/gdsfactory/gdsfactory"
 sha = "dc09520145ae2185b1fd1da53d0829eab6e66a67"
 note = "ML / scientific config; yamlfmt: .github/.yamlfmt.yaml"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "docs/notebooks/yaml_pics/aar_bundles01.pic.yml",
+  "docs/notebooks/yaml_pics/aar_bundles02.pic.yml",
+  "docs/notebooks/yaml_pics/aar_bundles03.pic.yml",
+  "gdsfactory/samples/all_angle_routing/aar_bundles.pic.yml",
+  "gdsfactory/samples/all_angle_routing/aar_slalom.pic.yml",
+  "gdsfactory/samples/all_angle_routing/all_angle_routes.pic.yml",
+]
 
 [[repo]]
 url = "https://github.com/GoMudEngine/GoMud"
@@ -166,33 +261,45 @@ note = "Game / app content; yamllint: .github/workflows/ci.yml"
 url = "https://github.com/GoogleCloudPlatform/ops-agent"
 sha = "9870316209a165ad0f58e0a6f0d5d8ba4a1e7920"
 note = "Infra / cloud / network; yamlfmt: .yamlfmt"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "confgenerator/testdata/goldens/invalid-all-not_in_yaml_format/input.yaml",
+  "confgenerator/testdata/goldens/logging-processor_exclude_logs_contains/input.yaml",
+]
 
 [[repo]]
 url = "https://github.com/harvard-edge/cs249r_book"
 sha = "8a9df95ea5c871780e7d50cb31ba91abca3ead53"
 note = "Data-in-YAML / content; yamllint: .yamllint"
+expected-skip = [
+  # A multiline quoted scalar continued at or below its parent's indent (spec-invalid).
+  ".github/ISSUE_TEMPLATE/new_challenge.yml",
+]
 
 [[repo]]
 url = "https://github.com/johnkoht/hassio-config"
 sha = "9bbd50a0c130b30475357ad390ca424ea845409a"
 note = "Home Assistant / IoT; yamllint: .yamllint"
-# granit and py-yaml12 both misread a block scalar ending in indent-only spaces at EOF
-# (the reference parser agrees with ryl's output).
-rust-known-errors = [
-  { path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml", before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b", after-sha256 = "41846180f577ab9bf47d97e4ce3733b189cfd28b740028fc1419ab48e12eeff2" },
-  { path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml", before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15", after-sha256 = "8f884b8200177e8b7a7e511e24dbb84995e94848c071e0d64197fcbb2d54ff83" },
-  { path = "dashboards/templates/includes/kohbo_popup_styles.yaml", before-sha256 = "f376fe42ba3af9903cbdb5900db213500d1bcee1e81cdd42ac44933c00192649", after-sha256 = "ea77632ee4bef9e91e5510cfca10d9129478cc06c7a02807b576907b00328f00" },
-]
-yaml12-known-errors = [
-  { path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml", before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b", after-sha256 = "41846180f577ab9bf47d97e4ce3733b189cfd28b740028fc1419ab48e12eeff2" },
-  { path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml", before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15", after-sha256 = "8f884b8200177e8b7a7e511e24dbb84995e94848c071e0d64197fcbb2d54ff83" },
-  { path = "dashboards/templates/includes/kohbo_popup_styles.yaml", before-sha256 = "f376fe42ba3af9903cbdb5900db213500d1bcee1e81cdd42ac44933c00192649", after-sha256 = "ea77632ee4bef9e91e5510cfca10d9129478cc06c7a02807b576907b00328f00" },
-]
 
 [[repo]]
 url = "https://github.com/kgateway-dev/kgateway"
 sha = "d084f70aab8ddc19a11e6b4e3de9d0aff55db047"
 note = "Kubernetes / operators; yamlfmt: .yamlfmt.yml"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "install/helm/kgateway/templates/deployment.yaml",
+  "install/helm/kgateway/templates/horizontalpodautoscaler.yaml",
+  "install/helm/kgateway/templates/poddisruptionbudget.yaml",
+  "install/helm/kgateway/templates/role.yaml",
+  "install/helm/kgateway/templates/service.yaml",
+  "install/helm/kgateway/templates/serviceaccount.yaml",
+  "install/helm/kgateway/templates/servicemonitor.yaml",
+  "install/helm/kgateway/templates/verticalpodautoscaler.yaml",
+  "pkg/kgateway/helm/envoy/templates/configmap.yaml",
+  "pkg/kgateway/helm/envoy/templates/deployment.yaml",
+  "pkg/kgateway/helm/envoy/templates/service.yaml",
+  "pkg/kgateway/helm/envoy/templates/serviceaccount.yaml",
+]
 
 [[repo]]
 url = "https://github.com/netbox-community/devicetype-library"
@@ -210,15 +317,45 @@ sha = "0b3ab8ce56596b507d6b9cdb392588facf3ddeba"
 note = "Ansible; yamllint: ansible/configs/archive/a-base-config/.yamllint, ansible/configs/archive/aro/.yamllint"
 # A nested .yamllint extends a path one directory too high, so ryl refuses the repo config.
 modes = ["fold"]
-# py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
-yaml12-known-errors = [
-  { path = "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml", before-sha256 = "a2876dba90a3f1a525e893221d46977b9154f4cdd46056b51b199834f3ee0643", after-sha256 = "30758b658e6433be4e3980e2c8492e831d15e89d77d82621868e1fb70413d37a" },
+expected-skip = [
+  # A multiline quoted scalar continued at or below its parent's indent (spec-invalid).
+  "ansible/configs/ent-demo-ate-binder/create_workflow.yaml",
+  "ansible/roles-infra/infra-openshift-cnv-resources/tasks/create_instance.yaml",
+  "ansible/roles-infra/infra-openshift-cnv-resources/tasks/create_routes.yaml",
+  "ansible/roles/host-ocp4-assisted-installer/tasks/kubevirt/create_masters_etcd.yaml",
+  "ansible/roles/host-ocp4-assisted-installer/tasks/kubevirt/create_workers.yaml",
+  "ansible/roles/host-ocp4-assisted-scale/tasks/kubevirt/create_workers.yaml",
+  "ansible/roles/ocp-workload-rhte-mw-op-intel/tasks/spark_workload.yml",
+  "ansible/roles/ocp4-workload-pam-fraudmanagement-workshop/tasks/workload_per_project_gitea.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_gitops_gitlab/tasks/workload.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_mad_roadshow/tasks/rhdh-main.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_mad_roadshow/tasks/rhdh-setup-variables.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_mad_roadshow_v2/tasks/rhdh-main.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_mad_roadshow_v2/tasks/rhdh-setup-variables.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_project_dance/tasks/workload.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_redhat_developer_hub/tasks/setup_backstage.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_redhat_developer_hub/tasks/workload.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_redhat_developer_hub_bootstrap/tasks/setup_orchestrator.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_rhsso_authentication/tasks/workload.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_trusted_application_pipeline/tasks/setup_gitlab_runner.yml",
+  "ansible/roles_ocp_workloads/ocp4_workload_trusted_application_pipeline/tasks/workload.yml",
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "ansible/configs/sap-hana-rhel9/templates/aap_postinstall/aap_workflows.yml",
+  "ansible/roles/host-ocp4-hcp-cnv-install/templates/hostedcluster.yaml",
+  "ansible/roles/host-ocp4-hcp-cnv-install/templates/nodepool.yaml",
+  "ansible/roles/host-ocp4-hcp-cnv-install/templates/secret-htpasswd.yaml",
+  "ansible/roles/ocp4-workload-ai-spam-demo-apps/files/workshop-resources.yaml",
+  "ansible/roles/ocp4-workload-rhte-keynote-ai-apps/files/workshop-resources.yaml",
 ]
 
 [[repo]]
 url = "https://github.com/samip5/k8s-cluster"
 sha = "1ebda1ab2fe16e1e669ab31fee19981e1bccfb07"
 note = "GitOps / homelab k8s; yamllint: .pre-commit-config.yaml"
+expected-skip = [
+  # A multiline quoted scalar continued at or below its parent's indent (spec-invalid).
+  "provision/ansible/playbooks/cilium-fix-addresses.yaml",
+]
 
 [[repo]]
 url = "https://github.com/shopware/shopware"
@@ -229,6 +366,10 @@ note = "i18n / localisation; yamlfmt: .yamlfmt"
 url = "https://github.com/splunk/security_content"
 sha = "2dc3668424cad95cc86da387a44e466ff181c190"
 note = "Security / compliance content; yamlfmt: .yamlfmt; yamllint: .yamllint"
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "deprecated/yaml-spec/stories_spec.yml",
+]
 
 [[repo]]
 url = "https://github.com/stevehipwell/helm-charts"
