@@ -1,4 +1,4 @@
-use ryl::rules::{document_end, new_line_at_end_of_file};
+use ryl::rules::{document_end, empty_lines, new_line_at_end_of_file, trailing_spaces};
 
 // Verified against ruamel.yaml and PyYAML, which follow the spec here: a break after an
 // unterminated last line joins a `+` or clipped scalar's value, and not a `-` one's.
@@ -41,4 +41,14 @@ fn the_final_newline_fixes_still_end_other_files() {
         );
         assert_eq!(document_end::fix(input, &marker).as_deref(), Some(ended));
     }
+}
+
+#[test]
+fn blank_lines_before_a_block_scalars_content_stay() {
+    // PyYAML: `a: |+\n\n\n\nb: 1` is "\n\n\n" and `a: |\n\n\n\n  x` is "\n\n\nx\n".
+    let collapse = empty_lines::Config::new(1, 0, 0);
+    for input in ["a: |+\n\n\n\nb: 1\n", "a: |\n\n\n\n  x\nb: 1\n"] {
+        assert_eq!(empty_lines::fix(input, &collapse), None, "{input:?}");
+    }
+    assert_eq!(trailing_spaces::fix("a:\n  - |\n    \n    a\n"), None);
 }
