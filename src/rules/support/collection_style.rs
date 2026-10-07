@@ -327,8 +327,8 @@ impl Restyler<'_> {
             .map_or(0, |at| at + 1);
         let width =
             self.buffer[line_start..start].chars().count() + text.chars().count();
-        let owner = &self.buffer[line_start..start];
-        (width <= self.width && !widened_indicator(owner)).then_some((
+        let owner = self.buffer[line_start..].split(['\n', '\r']).next();
+        (width <= self.width && !owner.is_some_and(widened_indicator)).then_some((
             BytePos::new(start),
             BytePos::new(last),
             text,
