@@ -75,9 +75,9 @@ fn notices_count_lines_in_the_file_each_mode_leaves() {
         "{stderr}"
     );
     let (_, stderr, formatted) = run_on(input, &["format"]);
-    assert_eq!(formatted, "k: 1\n\n\n---\n: v\n");
+    assert_eq!(formatted, "---\nk: 1\n\n\n---\n: v\n");
     assert!(
-        stderr.contains("a.yaml:4:1 indentation not fixed"),
+        stderr.contains("a.yaml:5:1 indentation not fixed"),
         "{stderr}"
     );
 }
@@ -111,7 +111,7 @@ fn a_dash_join_never_crosses_an_indentation_disable() {
         (disabled.to_string(), format!("---\n{disabled}\n")),
         (
             format!("a: 1\n---\n{disabled}\n"),
-            format!("a: 1\n---\n{disabled}\n"),
+            format!("---\na: 1\n---\n{disabled}\n"),
         ),
     ] {
         let (code, stderr, formatted) = run_on(&input, &["format"]);
