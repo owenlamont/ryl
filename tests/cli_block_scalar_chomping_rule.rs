@@ -331,3 +331,25 @@ fn disabled_by_default() {
         "rule must not fire unless enabled: {output}"
     );
 }
+
+#[test]
+fn finds_the_header_past_quote_like_plain_scalars_and_comments() {
+    // A plain key holding `'` once hid its own header and panicked or flagged an
+    // earlier one; a `|` in a comment before the header is not the header.
+    for (content, positions) in [
+        ("z': | # c\n  text\n", vec!["1:5"]),
+        ("a: |-\n  old\nz': | # c\n  new\n", vec!["3:5"]),
+        ("a: # x | y\n  |\n  text\n", vec!["2:3"]),
+    ] {
+        let (code, output) = lint_with_toml_config(content, ENABLE);
+        assert_eq!(code, 1, "{content:?}: {output}");
+        assert_eq!(
+            output.matches("block-scalar-chomping").count(),
+            positions.len(),
+            "{content:?}: {output}"
+        );
+        for position in positions {
+            assert!(output.contains(position), "{content:?}: {output}");
+        }
+    }
+}
