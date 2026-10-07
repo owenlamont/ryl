@@ -3,6 +3,8 @@
 //! beside the multi-word keys, flow collections and explicit keys a fold must leave alone.
 //! Words after the first start with YAML indicators, `---`/`...`, escapes, `''` or
 //! multibyte characters, and are joined by spaces, double spaces, tabs or no-break spaces.
+//! `>` and `|` bodies mix content, more-indented, tab-led and blank lines, with and
+//! without an indentation indicator, under every chomping mode.
 //!
 //! Two oracles that need no YAML parser's leniency: `inserted_breaks` proves the output is
 //! the input with lone spaces turned into indented line breaks and no line grown, and
@@ -113,6 +115,29 @@ fn arb_comment() -> impl Strategy<Value = String> {
     })
 }
 
+fn arb_block_scalar(base: usize) -> impl Strategy<Value = String> {
+    let indent =
+        move |extra: usize, text: String| format!("{}{text}", " ".repeat(base + extra));
+    let line = prop_oneof![
+        4 => arb_plain().prop_map(move |text| indent(0, text)),
+        1 => arb_plain().prop_map(move |text| indent(2, text)),
+        1 => arb_plain().prop_map(move |text| indent(0, format!("\t{text}"))),
+        1 => prop_oneof![Just(String::new()), Just(" ".to_string())],
+    ];
+    (
+        prop_oneof![Just(">"), Just("|")],
+        prop_oneof![Just(""), Just("2")],
+        prop_oneof![Just(""), Just("-"), Just("+")],
+        arb_plain(),
+        prop::collection::vec(line, 0..=4),
+    )
+        .prop_map(move |(style, indicator, chomp, first, rest)| {
+            let body: Vec<String> =
+                std::iter::once(indent(0, first)).chain(rest).collect();
+            format!("{style}{indicator}{chomp}\n{}", body.join("\n"))
+        })
+}
+
 fn arb_entry() -> impl Strategy<Value = String> {
     prop_oneof![
         4 => (arb_value(), arb_comment()).prop_map(|(value, comment)| format!(": {value}{comment}")),
@@ -127,6 +152,7 @@ fn arb_entry() -> impl Strategy<Value = String> {
         1 => (arb_flow_safe(), arb_flow_safe())
             .prop_map(|(a, b)| format!(": [{a}, '{b}']")),
         1 => arb_flow_safe().prop_map(|a| format!(": {{x: {a}}}")),
+        2 => arb_block_scalar(2).prop_map(|body| format!(": {body}")),
     ]
 }
 
@@ -170,6 +196,8 @@ fn arb_sequence() -> impl Strategy<Value = String> {
                 .prop_map(|(first, next, quote, indent)| {
                     format!("- {quote}{first}\n{}{next}{quote}\n", " ".repeat(indent))
                 }),
+            arb_block_scalar(2).prop_map(|body| format!("- {body}\n")),
+            arb_block_scalar(4).prop_map(|body| format!("- key: {body}\n")),
             (arb_flow_safe(), arb_value())
                 .prop_map(|(key, value)| format!("- ? {key}\n  : {value}\n")),
         ],

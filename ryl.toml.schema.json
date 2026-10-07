@@ -129,7 +129,7 @@
         },
         "fold-long-lines": {
           "default": false,
-          "description": "Whether to split plain and quoted scalar lines longer than `line-length` at single spaces.",
+          "description": "Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.",
           "type": "boolean"
         },
         "line-ending": {

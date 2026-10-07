@@ -2,10 +2,10 @@
 //! to its input's value. Where `expected` is the corpus's folded candidate, play.yaml.com's
 //! reference parser also read it as the input's events (U1 unchecked: the playground
 //! mangles UTF-8). The other rows' candidates the reference parser rejected (P6, P7, P12c,
-//! C1b, S2, S5c, C2b, D5), read differently (P2, P12b, P13, U2, S3, D7, D8), or are folds
-//! `ryl format` never makes: in flow collections or keys, to a column-0 root continuation
-//! (P12), beside a quote (C3), with an escaped line break (D2), or to a `#`-led
-//! continuation (S5), which `comments-indentation` would re-indent.
+//! C1b, S2, S5c, C2b, D5), read differently (P2, P12b, P13, U2, S3, D7, D8, B2, B4),
+//! or are folds `ryl format` never makes: in flow collections or keys, to a column-0 root
+//! continuation (P12), beside a quote (C3), with an escaped line break (D2), or to a
+//! `#`-led quoted continuation (S5), which `comments-indentation` would re-indent.
 
 use std::path::Path;
 
@@ -24,7 +24,7 @@ fn fold(input: &str, width: u16, indent: u8) -> String {
     format_str(input, &cfg, Path::new("golden.yaml"), &others)
 }
 
-const CASES: [(&str, &str, u16, u8, &str); 62] = [
+const CASES: [(&str, &str, u16, u8, &str); 77] = [
     ("P1", "key: aaa bbb ccc\n", 12, 2, "key: aaa bbb\n  ccc\n"),
     ("P2", "key: aaa  bbb\n", 8, 2, "key: aaa  bbb\n"),
     ("P4p", "key: aaa --- bbb\n", 9, 2, "key: aaa\n  --- bbb\n"),
@@ -189,6 +189,81 @@ const CASES: [(&str, &str, u16, u8, &str); 62] = [
     ("C2", "- key: 'aaa bbb'\n", 11, 2, "- key: 'aaa\n    bbb'\n"),
     ("C3", "key: 'aaa '\n", 9, 2, "key: 'aaa '\n"),
     ("C4", "key: \"a \\tb\"\n", 7, 2, "key: \"a\n  \\tb\"\n"),
+    ("B1", "k: >\n  aaa bbb\n", 5, 2, "k: >\n  aaa\n  bbb\n"),
+    (
+        "B2",
+        "k: >\n  x\n    aaa bbb\n",
+        5,
+        2,
+        "k: >\n  x\n    aaa bbb\n",
+    ),
+    (
+        "B3",
+        "k: >\n  aaa bbb\n    ind\n",
+        5,
+        2,
+        "k: >\n  aaa\n  bbb\n    ind\n",
+    ),
+    ("B4", "k: >\n  aaa  bbb\n", 5, 2, "k: >\n  aaa  bbb\n"),
+    (
+        "B6",
+        "k: >2\n   lead\n  aaa bbb\n",
+        5,
+        2,
+        "k: >2\n   lead\n  aaa\n  bbb\n",
+    ),
+    ("B7", "k: >-\n  aaa bbb\n", 5, 2, "k: >-\n  aaa\n  bbb\n"),
+    (
+        "B8",
+        "k: >+\n  aaa bbb\n\n",
+        5,
+        2,
+        "k: >+\n  aaa\n  bbb\n\n",
+    ),
+    ("B9", "k: >\n\n  aaa bbb\n", 5, 2, "k: >\n\n  aaa\n  bbb\n"),
+    ("B10", "k: >\n  aaa #bbb\n", 5, 2, "k: >\n  aaa\n  #bbb\n"),
+    (
+        "B11",
+        "k: >\n  aaa bbb\n\n  ccc\n",
+        5,
+        2,
+        "k: >\n  aaa\n  bbb\n\n  ccc\n",
+    ),
+    (
+        "C6",
+        "- key: >\n    aaa bbb\n",
+        8,
+        2,
+        "- key: >\n    aaa\n    bbb\n",
+    ),
+    (
+        "B-tab",
+        "k: >\n  normal\n  \taaa bbb ccc\n  end\n",
+        10,
+        2,
+        "k: >\n  normal\n  \taaa bbb ccc\n  end\n",
+    ),
+    (
+        "B-root-0",
+        "--- >\naaa --- bbb\n",
+        4,
+        2,
+        "--- >\naaa --- bbb\n",
+    ),
+    (
+        "B-root-2",
+        "--- >\n  aaa bbb\n",
+        5,
+        2,
+        "--- >\n  aaa\n  bbb\n",
+    ),
+    (
+        "B-header",
+        "k: >-  # a b c\n  x\n",
+        4,
+        2,
+        "k: >-  # a b c\n  x\n",
+    ),
 ];
 
 const CONTINUATION_WORDS: [&str; 17] = [
