@@ -2696,6 +2696,7 @@ fn disable_line_is_not_offered_on_a_blank_line_of_a_block_scalar() {
         ("key: |+\n\n\n\nmore: 1\n", 2),
         ("key: |\n\n\n  x\n", 1),
         ("a: |+\n\n\n\n...\n", 2),
+        ("|\n\n  x\n", 1),
     ] {
         let doc = file_uri(dir.path(), &format!("x{line}.yaml"));
         client.did_open(doc.clone(), text);
