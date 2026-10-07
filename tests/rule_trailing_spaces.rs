@@ -39,3 +39,15 @@ fn handles_crlf_lines() {
         }]
     );
 }
+
+#[test]
+fn fix_trims_the_line_after_a_blank_only_block_scalar() {
+    assert_eq!(
+        trailing_spaces::fix("a: |+\n\nb: 1   \n"),
+        Some("a: |+\n\nb: 1\n".to_string())
+    );
+    assert_eq!(
+        trailing_spaces::fix("a: |+\nb: 1   \n"),
+        Some("a: |+\nb: 1\n".to_string())
+    );
+}

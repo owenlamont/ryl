@@ -2689,6 +2689,84 @@ fn disable_line_is_not_offered_inside_a_block_scalar() {
 }
 
 #[test]
+fn disable_line_is_not_offered_on_a_blank_line_of_a_block_scalar() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    for (text, line) in [
+        ("key: |+\n\n\n\nmore: 1\n", 2),
+        ("key: |\n\n\n  x\n", 1),
+        ("a: |+\n\n\n\n...\n", 2),
+        ("|\n\n  x\n", 1),
+    ] {
+        let doc = file_uri(dir.path(), &format!("x{line}.yaml"));
+        client.did_open(doc.clone(), text);
+        let _ = client.diagnostics();
+        let actions = client
+            .code_action_with_diagnostics(doc, vec![diag("empty-lines", line, 0)])
+            .expect("disable-file is still offered");
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .collect();
+        assert!(
+            !titles
+                .iter()
+                .any(|title| title.starts_with("Disable empty-lines for this line")),
+            "no disable-line on a blank scalar line of {text:?}: {titles:?}"
+        );
+    }
+}
+
+#[test]
+fn disable_line_is_not_offered_where_it_would_extend_a_blank_only_root_scalar() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    // Inserted before `...`, the directive would be the scalar's first content line.
+    for (index, text) in ["|+\n\n\n...   \n", ">+\n\n\n...   \n"]
+        .into_iter()
+        .enumerate()
+    {
+        let doc = file_uri(dir.path(), &format!("root{index}.yaml"));
+        client.did_open(doc.clone(), text);
+        let diagnostics = client.diagnostics();
+        assert!(!diagnostics.is_empty(), "trailing-spaces flags {text:?}");
+        let actions = client
+            .code_action_with_diagnostics(doc, diagnostics)
+            .expect("disable-file is still offered");
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .collect();
+        assert!(
+            !titles
+                .iter()
+                .any(|title| title.starts_with("Disable trailing-spaces for this line")),
+            "no disable-line before the marker of {text:?}: {titles:?}"
+        );
+    }
+    let doc = file_uri(dir.path(), "after.yaml");
+    client.did_open(doc.clone(), "a: |\n  x\nb: 1   \n");
+    let diagnostics = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, diagnostics)
+        .expect("actions are offered");
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            CodeActionOrCommand::CodeAction(action)
+                if action.title == "Disable trailing-spaces for this line"
+        )),
+        "disable-line is offered after a scalar with content: {actions:?}"
+    );
+}
+
+#[test]
 fn disable_line_is_not_offered_inside_a_multiline_quoted_scalar() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
