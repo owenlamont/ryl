@@ -2,7 +2,7 @@
 //! to its input's value. Where `expected` is the corpus's folded candidate, play.yaml.com's
 //! reference parser also read it as the input's events (U1 unchecked: the playground
 //! mangles UTF-8). The other rows' candidates the reference parser rejected (P6, P7, P12c,
-//! C1b, S2, S5c, C2b, D5), read differently (P2, P12b, P13, U2, S3, D7, D8, B2, B4, B5),
+//! C1b, S2, S5c, C2b, D5), read differently (P2, P12b, P13, U2, S3, D7, D8, B2, B4),
 //! or are folds `ryl format` never makes: in flow collections or keys, to a column-0 root
 //! continuation (P12), beside a quote (C3), with an escaped line break (D2), or to a
 //! `#`-led quoted continuation (S5), which `comments-indentation` would re-indent.

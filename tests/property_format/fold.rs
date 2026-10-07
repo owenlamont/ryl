@@ -3,8 +3,8 @@
 //! beside the multi-word keys, flow collections and explicit keys a fold must leave alone.
 //! Words after the first start with YAML indicators, `---`/`...`, escapes, `''` or
 //! multibyte characters, and are joined by spaces, double spaces, tabs or no-break spaces.
-//! `>` and `|` bodies mix content, more-indented, tab-led and blank lines under every
-//! indentation indicator and chomping mode.
+//! `>` and `|` bodies mix content, more-indented, tab-led and blank lines, with and
+//! without an indentation indicator, under every chomping mode.
 //!
 //! Two oracles that need no YAML parser's leniency: `inserted_breaks` proves the output is
 //! the input with lone spaces turned into indented line breaks and no line grown, and
