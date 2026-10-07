@@ -14,9 +14,9 @@ use tempfile::tempdir;
 mod common;
 use common::cli::{command_output, run, ryl};
 
-/// A yamllint-compatible YAML config (carried via `-d`, so config discovery is bypassed and the
-/// tests need no `HOME` isolation) enabling one deterministic error-level rule.
-const CFG: &str = "rules: {trailing-spaces: enable}";
+/// An inline TOML config (carried via `-d`, so config discovery is bypassed and the tests need
+/// no `HOME` isolation) enabling one deterministic error-level rule.
+const CFG: &str = "lint.rules.trailing-spaces = \"enable\"";
 
 fn exe() -> Command {
     Command::new(env!("CARGO_BIN_EXE_ryl"))

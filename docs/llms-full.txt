@@ -406,15 +406,14 @@ can set personal defaults once. It reads its own TOML config first &mdash;
 convention where `<config-dir>` is `$XDG_CONFIG_HOME` if set, else the
 platform-native config dir (`~/.config/ryl` on Linux, `~/Library/Application
 Support/ryl` on macOS, `%APPDATA%\ryl` on Windows) &mdash; then falls back to
-yamllint's `<config-dir>/yamllint/config` for compatibility. A project config,
+yamllint's `<config-dir>/yamllint/config`, which is deprecated and warns. A project config,
 `-c`/`-d`, or `YAMLLINT_CONFIG_FILE` all take precedence over the user-global
-config. `YAMLLINT_CONFIG_FILE` accepts only a yamllint YAML config (pointing it
-at a `.toml` errors); use `-c`/`-d` or project discovery for ryl-native TOML.
+config. `YAMLLINT_CONFIG_FILE` is deprecated and accepts only a yamllint YAML
+config (pointing it at a `.toml` errors); use `-c` for ryl-native TOML.
 
 If you have a yamllint user-global config, `ryl --migrate-user-config
 --migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from
-yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/)). Migration is optional, since ryl also
-reads the yamllint location directly.
+yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/)).
 
 ## Configuration precedence
 
@@ -428,18 +427,18 @@ governing its own subtree. The winning config must enable at least one rule, or
 ```mermaid
 flowchart TD
     Start([resolve config]) --> D{"-d / --config-data?"}
-    D -->|yes| UseInline["use inline YAML"] --> Done([config resolved])
+    D -->|yes| UseInline["use inline TOML,<br/>or YAML (deprecated)"] --> Done([config resolved])
     D -->|no| C{"-c / --config-file?"}
-    C -->|yes| UseFile["load file: TOML or YAML by extension"] --> Done
+    C -->|yes| UseFile["load file: TOML, or YAML<br/>(deprecated) by extension"] --> Done
     C -->|no| P{"project config?<br/>walk up from inputs to HOME"}
     P -->|"TOML up-tree"| UseProjToml["nearest TOML:<br/>.ryl.toml &gt; ryl.toml<br/>&gt; .config/.ryl.toml &gt; .config/ryl.toml<br/>&gt; pyproject.toml [tool.ryl]"] --> Done
-    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml"] --> Done
+    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml<br/>(deprecated)"] --> Done
     P -->|none| E{"YAMLLINT_CONFIG_FILE set?"}
     E -->|"points at .toml"| Err1["error: use -c / project discovery<br/>for ryl TOML (exit 2)"]
-    E -->|"YAML and exists"| UseEnv["load as yamllint YAML"] --> Done
+    E -->|"YAML and exists"| UseEnv["load as yamllint YAML<br/>(deprecated)"] --> Done
     E -->|"missing or unset"| G{"user-global config?"}
     G -->|"ryl TOML"| UseRyl["config-dir/ryl/.ryl.toml &gt; ryl.toml"] --> Done
-    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config"] --> Done
+    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config<br/>(deprecated)"] --> Done
     G -->|none| N{"--enable?"}
     N -->|yes| UseEmpty["empty config"] --> Done
     N -->|no| Err2["error: no configuration found (exit 2)"]
@@ -504,21 +503,23 @@ Source: https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/
 
 # Migrating from yamllint
 
-ryl is designed as a drop-in replacement for yamllint's existing rule set.
-If you are coming from yamllint you have two paths:
-
-- **Keep your existing YAML configuration.** ryl reads `.yamllint`,
-  `.yamllint.yml`, and `.yamllint.yaml` with the same semantics as upstream.
-  No changes needed to get started.
-- **Migrate to TOML.** TOML is the recommended format for ryl-specific
-  features that have no upstream equivalent &mdash; for example the
-  [`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes) controlling auto-fix
-  selection.
+ryl implements yamllint's rule set, and its own configuration is TOML.
+ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
+`.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
+user-global config) with the same semantics as upstream, but that support is
+deprecated: each one prints a warning naming the command that converts it, and
+a later release will stop reading YAML config. Migrate with
+[`ryl --migrate-configs`](#automatic-migration); TOML also carries the
+ryl-only features, such as
+[`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes).
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
 flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
+`-d` also takes a whole ryl config as inline TOML, such as
+`ryl check -d 'lint.rules.anchors = "enable"' .`, which avoids the YAML
+deprecation warning.
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
@@ -555,9 +556,8 @@ ryl --migrate-user-config --migrate-write
 ryl --migrate-configs --migrate-user-config --migrate-write
 ```
 
-Migrating the user-global config is optional: ryl still reads
-`<config-dir>/yamllint/config` directly, so an unmigrated yamllint user-global
-config keeps working.
+Until YAML config is removed, ryl still reads `<config-dir>/yamllint/config`
+directly, with a deprecation warning naming `ryl --migrate-user-config`.
 
 Useful flags:
 

@@ -4,8 +4,16 @@ pub fn run(cmd: &mut Command) -> (i32, String, String) {
     let out = cmd.output().expect("process");
     let code = out.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy_owned(out.stdout);
-    let stderr = String::from_utf8_lossy_owned(out.stderr);
+    let stderr = without_legacy_yaml_notice(&String::from_utf8_lossy_owned(out.stderr));
     (code, stdout, stderr)
+}
+
+/// yamllint has no counterpart to ryl's warning that its YAML config is deprecated.
+fn without_legacy_yaml_notice(stderr: &str) -> String {
+    stderr
+        .split_inclusive('\n')
+        .filter(|line| !line.contains("yamllint YAML config is deprecated"))
+        .collect()
 }
 
 pub fn ensure_yamllint_installed() {

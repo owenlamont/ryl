@@ -51,10 +51,10 @@ fn indentation_sequences_false_skips() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ok.yaml");
     fs::write(&file, "root:\n- item\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  indentation:\n    indent-sequences: false\n",
+        "[lint.rules]\nindentation = { indent-sequences = false }\n",
     )
     .unwrap();
 

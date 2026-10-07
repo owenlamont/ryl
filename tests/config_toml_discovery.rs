@@ -119,7 +119,13 @@ fn project_pyproject_without_tool_ryl_falls_back_to_yaml() {
     .expect("yaml fallback should load");
     assert_eq!(ctx.source.as_deref(), Some(Path::new("/repo/.yamllint")));
     assert_eq!(ctx.config.locale(), Some("en_US.UTF-8"));
-    assert!(ctx.notices.is_empty());
+    assert_eq!(
+        ctx.notices,
+        [
+            "warning: /repo/.yamllint: yamllint YAML config is deprecated; run \
+          `ryl --migrate-configs` to convert it to .ryl.toml"
+        ]
+    );
 }
 
 #[test]

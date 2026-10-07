@@ -90,10 +90,10 @@ fn comments_indentation_allows_aligned_comment() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ok.yaml");
     fs::write(&file, "obj:\n  # ok\n  value: 1\n").unwrap();
-    let config = dir.path().join("config.yaml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  comments-indentation: enable\n",
+        "[lint.rules]\ndocument-start = \"disable\"\ncomments-indentation = \"enable\"\n",
     )
     .unwrap();
 

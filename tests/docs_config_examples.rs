@@ -251,8 +251,19 @@ fn validate(kind: Kind, marker: Marker, content: &str) -> Result<(), String> {
             config_data: None,
         },
     )?;
-    if !ctx.notices.is_empty() {
-        return Err(ctx.notices.join("; "));
+    let notices: Vec<_> = ctx
+        .notices
+        .iter()
+        .filter(|notice| {
+            kind != Kind::Yaml || !notice.contains("yamllint YAML config is deprecated")
+        })
+        .collect();
+    if !notices.is_empty() {
+        return Err(notices
+            .iter()
+            .map(|n| n.as_str())
+            .collect::<Vec<_>>()
+            .join("; "));
     }
     let conflicts = format::conflicts(&ctx.config);
     match marker {

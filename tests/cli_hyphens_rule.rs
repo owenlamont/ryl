@@ -64,10 +64,10 @@ fn rule_ignore_skips_file() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "---\n-  item\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  hyphens:\n    ignore:\n      - ignored.yaml\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nhyphens = { ignore = [\"ignored.yaml\"] }\n",
     )
     .unwrap();
 
@@ -160,10 +160,10 @@ fn custom_max_allows_extra_spacing() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("custom.yaml");
     fs::write(&file, "---\n-   item\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  hyphens:\n    max-spaces-after: 3\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nhyphens = { max-spaces-after = 3 }\n",
     )
     .unwrap();
 

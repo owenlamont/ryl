@@ -11,9 +11,9 @@ description: >-
 
 ## Precedence
 
-`config::discover_config_with`, high→low: `-d` (inline YAML) > `-c` (file: TOML/YAML by
-extension) > project config > `YAMLLINT_CONFIG_FILE` > user-global. Precedence diagram in
-`docs/getting-started/quickstart.md`.
+`config::discover_config_with`, high→low: `-d` (inline TOML when `is_inline_toml`, else
+YAML) > `-c` (file: TOML/YAML by extension) > project config > `YAMLLINT_CONFIG_FILE` >
+user-global. Precedence diagram in `docs/getting-started/quickstart.md`.
 
 `-d`/`-c`/a present `YAMLLINT_CONFIG_FILE` trigger run-wide resolution
 (`main::build_global_cfg`); otherwise project + user-global discovery is per file
@@ -49,6 +49,11 @@ in place; the warning names whichever of the two applies to its file).
 deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
 `merged_lint`. The legacy YAML config stays flat.
 
+Every yamllint YAML config source adds one notice from its `LEGACY_YAML_SOURCES` row
+(`legacy_yaml_notice`): `ctx_from_config_path_core` for project/`-c`/env by its
+`LegacyYamlSource` origin, and the `-d` and yamllint user-global loaders directly. YAML
+parsing lives in `config::legacy_yaml`, whose `load` is the migrator's only reader.
+
 The top-level `line-length`/`indent-width` are TOML-only and never deprecated: an
 explicit `[lint.rules.<rule>]` option beats them, and they beat the rule's built-in
 default (`indentation.spaces` stays `consistent` when `indent-width` is unset).
@@ -66,8 +71,10 @@ cases exit `2`, both stricter than yamllint:
   reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently lints nothing.
 
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
-the message. The `default`/`relaxed`/`empty` presets stay available via `extends:` (YAML
-only). `--migrate-configs` (warns instead) and `--list-files` are exempt.
+the message. The `default`/`relaxed`/`empty` presets stay available via `extends:`
+(deprecated YAML only); both errors point at their TOML copies in
+`docs/config-presets.md`. `--migrate-configs` (warns instead) and `--list-files` are
+exempt.
 
 `--enable <RULES>` counts as explicitly turning rules on: `CliConfigFlags::apply` runs
 `YamlLintConfig::restrict_rules` on every resolved config (global, per-file before

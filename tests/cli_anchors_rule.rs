@@ -144,10 +144,10 @@ fn rule_ignore_skips_file() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "---\n- *missing\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  anchors:\n    ignore:\n      - ignored.yaml\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nanchors = { ignore = [\"ignored.yaml\"] }\n",
     )
     .unwrap();
 
@@ -231,7 +231,7 @@ fn alias_value_with_only_indent_prefix_is_supported() {
     let (code, stdout, stderr) = run(Command::new(exe)
         .arg("check")
         .arg("-d")
-        .arg("rules:\n  anchors: enable\n")
+        .arg("lint.rules.anchors = \"enable\"")
         .arg(&file));
     assert_eq!(
         code, 0,

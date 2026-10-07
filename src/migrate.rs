@@ -370,7 +370,7 @@ fn build_entry(
     if !config.enables_any_rule() {
         plan.warnings.push(format!(
             "warning: migrated config {} enables no rules; ryl will not lint with it \
-             \u{2014} enable at least one rule, or use 'extends: default' for the standard rule set",
+             \u{2014} enable at least one rule, or copy a preset from https://ryl-docs.pages.dev/config-presets/",
             target.display()
         ));
     }

@@ -122,8 +122,11 @@ fn fix_spaces_line_one_shebang_after_content() {
 
 #[test]
 fn check_reports_only_document_start_at_line_two() {
+    let config = "[lint.rules]\ncomments = { level = \"warning\" }\n\
+                  comments-indentation = { level = \"warning\" }\n\
+                  document-start = { level = \"warning\" }\n";
     for input in ["#!/usr/bin/env yq\na: 1\n", "#cloud-config\na: 1\n"] {
-        let output = check(DEFAULT, input);
+        let output = check(config, input);
         assert_eq!(
             output.lines().count(),
             1,

@@ -48,10 +48,10 @@ fn comments_rule_ignores_shebang_when_enabled() {
     let file = dir.path().join("shebang.yaml");
     fs::write(&file, "#!/usr/bin/env foo\n").unwrap();
 
-    let config = dir.path().join("config.yaml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  comments:\n    require-starting-space: true\n    ignore-shebangs: true\n",
+        "[lint.rules]\ndocument-start = \"disable\"\ncomments = { require-starting-space = true, ignore-shebangs = true }\n",
     )
     .unwrap();
 

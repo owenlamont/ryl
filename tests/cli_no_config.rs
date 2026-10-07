@@ -39,7 +39,7 @@ fn no_config_found_is_rejected_with_escape_hatch() {
     );
     assert!(
         err.contains("no configuration found")
-            && err.contains("extends: default")
+            && err.contains("config-presets")
             && err.contains("--enable ALL"),
         "expected the no-config error naming both escape hatches: {err}"
     );

@@ -68,10 +68,10 @@ fn rule_ignore_skips_file() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, format!("{}\n", "Z".repeat(120))).unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  line-length:\n    ignore:\n      - ignored.yaml\n",
+        "[lint.rules]\nline-length = { ignore = [\"ignored.yaml\"] }\n",
     )
     .unwrap();
 

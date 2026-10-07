@@ -40,10 +40,10 @@ fn ignored_keys_skip_enforcement() {
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "name: zed\nfirst-name: zed\na: 1\n").unwrap();
 
-    let cfg = dir.path().join("config.yml");
+    let cfg = dir.path().join("config.toml");
     fs::write(
         &cfg,
-        "rules:\n  document-start: disable\n  key-ordering:\n    ignored-keys: [\"name\", \"first-name\"]\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nkey-ordering = { ignored-keys = [\"name\", \"first-name\"] }\n",
     )
     .unwrap();
 

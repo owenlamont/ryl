@@ -1,20 +1,22 @@
 # Migrating from yamllint
 
-ryl is designed as a drop-in replacement for yamllint's existing rule set.
-If you are coming from yamllint you have two paths:
-
-- **Keep your existing YAML configuration.** ryl reads `.yamllint`,
-  `.yamllint.yml`, and `.yamllint.yaml` with the same semantics as upstream.
-  No changes needed to get started.
-- **Migrate to TOML.** TOML is the recommended format for ryl-specific
-  features that have no upstream equivalent &mdash; for example the
-  [`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes) controlling auto-fix
-  selection.
+ryl implements yamllint's rule set, and its own configuration is TOML.
+ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
+`.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
+user-global config) with the same semantics as upstream, but that support is
+deprecated: each one prints a warning naming the command that converts it, and
+a later release will stop reading YAML config. Migrate with
+[`ryl --migrate-configs`](#automatic-migration); TOML also carries the
+ryl-only features, such as
+[`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes).
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
 flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
+`-d` also takes a whole ryl config as inline TOML, such as
+`ryl check -d 'lint.rules.anchors = "enable"' .`, which avoids the YAML
+deprecation warning.
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
@@ -51,9 +53,8 @@ ryl --migrate-user-config --migrate-write
 ryl --migrate-configs --migrate-user-config --migrate-write
 ```
 
-Migrating the user-global config is optional: ryl still reads
-`<config-dir>/yamllint/config` directly, so an unmigrated yamllint user-global
-config keeps working.
+Until YAML config is removed, ryl still reads `<config-dir>/yamllint/config`
+directly, with a deprecation warning naming `ryl --migrate-user-config`.
 
 Useful flags:
 

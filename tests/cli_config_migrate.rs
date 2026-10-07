@@ -412,3 +412,81 @@ fn migrate_user_config_refuses_relative_rule_level_ignore_from_file() {
         "a refused source is kept, even with --delete-old"
     );
 }
+
+#[test]
+fn legacy_yaml_check_warns_unless_no_warnings() {
+    let td = tempdir().unwrap();
+    let config = td.path().join("lint.yaml");
+    fs::write(&config, "rules: { trailing-spaces: enable }\n").unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let check = |extra: &[&str]| {
+        run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .arg("check")
+            .args(extra)
+            .arg("-c")
+            .arg(&config)
+            .arg(&file))
+    };
+    let (code, _, stderr) = check(&[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("yamllint YAML config is deprecated"),
+        "{stderr}"
+    );
+    let (code, _, stderr) = check(&["--no-warnings"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "--no-warnings silences it: {stderr}");
+}
+
+#[test]
+fn config_data_preset_shorthand_still_loads() {
+    let td = tempdir().unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d", "relaxed"])
+        .arg(&file));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stderr.contains("yamllint YAML config is deprecated"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn migrate_configs_does_not_warn_about_its_own_source() {
+    let td = tempdir().unwrap();
+    fs::write(td.path().join(".yamllint"), "rules: { anchors: enable }\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("--migrate-configs")
+        .arg("--migrate-root")
+        .arg(td.path()));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(!stderr.contains("deprecated"), "{stderr}");
+}
+
+#[test]
+fn legacy_notice_beside_toml_is_reported_once_per_directory_walk() {
+    let td = tempdir().unwrap();
+    let project = td.path().join("p");
+    fs::create_dir_all(project.join("sub")).unwrap();
+    fs::write(
+        project.join(".ryl.toml"),
+        "[lint.rules]\nanchors = \"enable\"\n",
+    )
+    .unwrap();
+    fs::write(project.join(".yamllint"), "rules: { anchors: enable }\n").unwrap();
+    fs::write(project.join("a.yaml"), "a: 1\n").unwrap();
+    fs::write(project.join("sub").join("b.yaml"), "b: 1\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .current_dir(&project)
+        .env("HOME", td.path())
+        .args(["check", "."]));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert_eq!(
+        stderr.matches("ignoring legacy YAML config").count(),
+        1,
+        "{stderr}"
+    );
+}
