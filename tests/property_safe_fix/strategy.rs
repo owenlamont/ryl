@@ -277,8 +277,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
             )| {
                 let mut body = vec![first];
                 body.extend(rest);
-                // Folded blank-only bodies wait on the fold fix for an empty `- >` (#553).
-                if blank_only && style == '|' {
+                if blank_only {
                     body.retain(|line| !matches!(line, BlockBodyLine::Content { .. }));
                     body.push(BlockBodyLine::Spaces(2));
                 }

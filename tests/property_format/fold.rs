@@ -137,18 +137,9 @@ fn arb_block_scalar(base: usize) -> impl Strategy<Value = String> {
         prop_oneof![Just(""), Just("-"), Just("+")],
         body,
     )
-        .prop_map(
-            |(style, indicator, chomp, body): (_, _, &str, Vec<String>)| {
-                // `max-blank-lines` drops a blank-only keep body at document end (#558).
-                let blank_only = body.iter().all(|line| line.trim().is_empty());
-                let chomp = if blank_only && chomp == "+" {
-                    ""
-                } else {
-                    chomp
-                };
-                format!("{style}{indicator}{chomp}\n{}", body.join("\n"))
-            },
-        )
+        .prop_map(|(style, indicator, chomp, body): (_, _, _, Vec<String>)| {
+            format!("{style}{indicator}{chomp}\n{}", body.join("\n"))
+        })
 }
 
 fn arb_entry() -> impl Strategy<Value = String> {
