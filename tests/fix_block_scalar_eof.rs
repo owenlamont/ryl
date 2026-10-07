@@ -2,8 +2,14 @@ use ryl::rules::{document_end, empty_lines, new_line_at_end_of_file, trailing_sp
 
 // Verified against ruamel.yaml and PyYAML, which follow the spec here: a break after an
 // unterminated last line joins a `+` or clipped scalar's value, and not a `-` one's.
-const UNSTRIPPED: [&str; 4] =
-    ["a: |+\n  a\n ", "a: |+\n  a", "a: |\n  a", "a: >\n  a\n  b"];
+const UNSTRIPPED: [&str; 6] = [
+    "a: |+\n  a\n ",
+    "a: |+\n  a",
+    "a: |\n  a",
+    "a: >\n  a\n  b",
+    "k: | # | >\n  text",
+    "k: | # c\n  text",
+];
 
 #[test]
 fn the_final_newline_fixes_leave_an_unstripped_scalar_at_the_end_of_file() {
@@ -24,6 +30,11 @@ fn the_final_newline_fixes_still_end_other_files() {
     let marker = document_end::Config::new(true);
     for (input, newline, ended) in [
         ("a: |-\n  a", "a: |-\n  a\n", "a: |-\n  a\n...\n"),
+        (
+            "k: |\n  a\n# c",
+            "k: |\n  a\n# c\n",
+            "k: |\n  a\n# c\n...\n",
+        ),
         (
             "a: |+\n  a\n# c",
             "a: |+\n  a\n# c\n",

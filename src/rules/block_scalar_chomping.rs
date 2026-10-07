@@ -92,15 +92,25 @@ fn header_marker(chars: &[char], from: usize) -> usize {
 /// Whether `buffer` ends inside a block scalar that keeps or clips its final line break,
 /// so a break appended after an unterminated last line joins its value.
 pub(crate) fn ends_in_unstripped_scalar(buffer: &str) -> bool {
-    let last = Scanner::new(StrInput::new(buffer))
+    let tokens: Vec<_> = Scanner::new(StrInput::new(buffer))
         .map_while(Result::ok)
         .map(granit_parser::Token::into_parts)
         .filter(|(_, kind)| !matches!(kind, TokenType::BlockEnd | TokenType::StreamEnd))
-        .last();
-    let Some((span, TokenType::Scalar(..))) = last else {
+        .collect();
+    // granit emits a header's comment after its scalar, so a comment counts only past it.
+    let Some((span, TokenType::Scalar(..))) = tokens
+        .iter()
+        .rev()
+        .find(|(_, kind)| !matches!(kind, TokenType::Comment(_)))
+    else {
         return false;
     };
-    headers(buffer).last().is_some_and(|header| {
-        header.token_start == span.start.index() && header.chomping != Some('-')
-    })
+    let commented_after = tokens.iter().any(|(comment, kind)| {
+        matches!(kind, TokenType::Comment(_))
+            && comment.start.index() >= span.end.index()
+    });
+    !commented_after
+        && headers(buffer).last().is_some_and(|header| {
+            header.token_start == span.start.index() && header.chomping != Some('-')
+        })
 }
