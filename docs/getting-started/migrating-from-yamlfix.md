@@ -47,13 +47,13 @@ comment-spacing = 1
 | `indent_mapping` (2) | top-level `indent-width` |
 | `indent_sequence` (4), `indent_offset` (2) | planned in [#383](https://github.com/owenlamont/ryl/issues/383) |
 | `line_length` (80) | top-level `line-length` with `[format] fold-long-lines = true` |
-| `preserve_quotes` (false) | `true` maps to `[format] quote-style = "preserve"` |
-| `quote_representation` (`'`) | `[format] quote-style = "single"` or `"double"` |
+| `preserve_quotes` (false) | `true` maps to `[format] quote-style = "preserve"`; for `false`, `quote-style = "single"` or `"double"` is the closest match, see [forcing quotes](#forcing-quotes) |
+| `quote_representation` (`'`) | `[lint.rules.quoted-strings] quote-type = "single"` or `"double"`, see [forcing quotes](#forcing-quotes) |
 | `quote_basic_values`, `quote_keys_and_basic_values` (false) | see [forcing quotes](#forcing-quotes) |
 | `none_representation` (`""`) | none: ryl keeps each null as written |
 | `sequence_style` (`flow_style`) | planned in [#446](https://github.com/owenlamont/ryl/issues/446) |
 | `allow_duplicate_keys` (false) | none: not a formatting concern; the `key-duplicates` lint rule reports them |
-| `config_path` | `-c` |
+| `config_path` | none: ryl discovers its own config, or `-c` takes a translated config file |
 
 ## Differences in behaviour
 
@@ -83,7 +83,8 @@ the documents of a multi-document stream. ryl never removes `---`;
 ryl's formatter quotes only where a value needs quotes. To quote every plain
 string, as yamlfix's `quote_basic_values` does, enable the `quoted-strings`
 lint rule with `required = true` and fix with `ryl check --fix`, and set
-`[format] quote-style = "preserve"` so `ryl format` keeps the quotes:
+`[format] quote-style = "preserve"` so `ryl format` keeps the quotes. The
+rule's `quote-type` picks the quote, as `quote_representation` does:
 
 ```toml
 [format]
@@ -91,7 +92,12 @@ quote-style = "preserve"
 
 [lint.rules.quoted-strings]
 required = true
+quote-type = "single"
 ```
+
+`quote_representation` only applies when force-quoting. ryl's
+`[format] quote-style` instead sets the quote for every string that needs one,
+so it approximates yamlfix's quoting rather than matching it.
 
 Add `check-keys = true` to quote keys too, as `quote_keys_and_basic_values`
 does.
