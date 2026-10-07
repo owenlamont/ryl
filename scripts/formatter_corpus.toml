@@ -119,7 +119,7 @@ sparse = ["/doc/"]
 url = "https://github.com/yaml/yaml-test-suite"
 sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
 note = "spec edge cases; invalid inputs must stay byte-identical"
-# py-yaml12 0.2.0 reads an empty block scalar followed by a final newline as "\n".
+# py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
 yaml12-known-errors = ["2G84/03/in.yaml"]
 
 [[repo]]
@@ -173,6 +173,18 @@ note = "Data-in-YAML / content; yamllint: .yamllint"
 url = "https://github.com/johnkoht/hassio-config"
 sha = "9bbd50a0c130b30475357ad390ca424ea845409a"
 note = "Home Assistant / IoT; yamllint: .yamllint"
+# granit and py-yaml12 both misread a block scalar ending in indent-only spaces at EOF
+# (the reference parser agrees with ryl's output).
+rust-known-errors = [
+  "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml",
+  "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml",
+  "dashboards/templates/includes/kohbo_popup_styles.yaml",
+]
+yaml12-known-errors = [
+  "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml",
+  "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml",
+  "dashboards/templates/includes/kohbo_popup_styles.yaml",
+]
 
 [[repo]]
 url = "https://github.com/kgateway-dev/kgateway"
@@ -193,7 +205,7 @@ note = "Other / application repos; yamllint: .yamllint.yml"
 url = "https://github.com/redhat-cop/agnosticd"
 sha = "0b3ab8ce56596b507d6b9cdb392588facf3ddeba"
 note = "Ansible; yamllint: ansible/configs/archive/a-base-config/.yamllint, ansible/configs/archive/aro/.yamllint"
-# py-yaml12 0.2.0 reads an empty block scalar followed by a final newline as "\n".
+# py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
 yaml12-known-errors = [
   "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml",
 ]

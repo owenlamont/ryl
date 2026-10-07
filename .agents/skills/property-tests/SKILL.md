@@ -140,8 +140,10 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the same
 oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
 one repo. The epic-to-main gate also passes `--proptest-cases 512000`, which then runs
-every property suite at 1000x, one after another. `yaml12-known-errors` in the manifest
-lists files where py-yaml12 itself misreads the original. Minimise a failing file by
+every property suite at 1000x, one after another. `rust-known-errors` and
+`yaml12-known-errors` in the manifest list files an oracle's own parser misreads, each
+with a reason; an entry the run no longer hits fails the gate as stale. Minimise a failing
+file by
 deleting lines while it still fails, then land it as a deterministic test that runs
 `check_invariants` over every pass-table row, and widen the generator if it could not
 have produced the shape.
