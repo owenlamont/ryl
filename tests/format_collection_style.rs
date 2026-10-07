@@ -420,6 +420,7 @@ fn block_collections_flow_cannot_hold_stay_block() {
         "? - a\n: b\n",
         "-   a:\n      - x\n",
         "a:\n  -  - a\n     - b\n",
+        "? a\n:  b:\n     - x\n",
     ] {
         assert_eq!(restyle(input, FLOW), input, "{input:?}");
     }
