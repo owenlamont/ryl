@@ -1,10 +1,9 @@
-# Using ryl with a YAML formatter
+# Using ryl with another YAML formatter
 
-The boundary between linting and formatting YAML is blurry. Many of ryl's rules are about
-layout (spacing, indentation, quote style, blank lines), and ryl already applies safe
-`--fix` edits to a good number of them, so it does some formatting today. What ryl does
-not do, for now, is reflow a whole document into one canonical layout the way a dedicated
-formatter does. Some projects therefore run ryl alongside a formatter such as
+ryl has its own formatter, [`ryl format`](formatter.md), which edits files in place
+rather than reprinting them. Start there unless you already use another formatter. ryl
+does not reflow a whole document into one canonical layout the way a reprinting formatter
+does, so some projects instead run ryl alongside a formatter such as
 [google/yamlfmt](https://github.com/google/yamlfmt),
 [Prettier](https://prettier.io/), or [yamlfix](https://lyz-code.github.io/yamlfix/) for
 that canonical layout, and rely on ryl for the broader checks (and safe fixes) it adds on

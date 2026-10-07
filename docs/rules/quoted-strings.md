@@ -89,6 +89,8 @@ fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
 
+`ryl format` quotes strings by its own [quote style](../formatter.md#quote-style), set by `[format] quote-style`. This rule's defaults conflict with it; [Conflicting lint rules](../formatter.md#conflicting-lint-rules) lists the options that accept its output.
+
 ## YAML 1.1 values with `required = "only-when-needed"`
 
 Whatever the document's `%YAML` directive, a quoted scalar that YAML 1.1

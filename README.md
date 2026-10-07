@@ -30,8 +30,8 @@ a one-off run, and `--enable <RULES>` runs just the named rules; for a project,
 drop a `.ryl.toml` at the root (see
 [Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
 
-`ryl check` is the lint subcommand (a `ryl format` formatter is coming) and the
-recommended form. Bare `ryl <paths>` still lints identically but is deprecated: it
+`ryl check` is the lint subcommand and the recommended form; `ryl format` is the
+formatter. Bare `ryl <paths>` still lints identically but is deprecated: it
 prints a warning to stderr (silenced by `--no-warnings`) and a later release will
 remove it, so prefer `ryl check`.
 
@@ -41,6 +41,10 @@ uvx ryl check -d 'extends: default' .
 
 # Using npx (Node.js)
 npx @owenlamont/ryl check -d 'extends: default' .
+
+# Format in place, or check formatting in CI
+uvx ryl format .
+uvx ryl format --check .
 ```
 
 For `prek` / `pre-commit` integration, see

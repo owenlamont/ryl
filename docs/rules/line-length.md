@@ -56,8 +56,12 @@ allow-non-breakable-inline-mappings = false
 
 ## Automatic fixing
 
-This rule does not currently auto-fix; long lines need to be reflowed by
+`ryl check --fix` does not fix this rule; long lines need to be reflowed by
 hand or wrapped with a block scalar.
+
+With `[format] fold-long-lines = true`, `ryl format` folds long plain scalars to the
+top-level `line-length`; see [Long lines](../formatter.md#long-lines). No option of this
+rule conflicts with it.
 
 ## Related rules
 

@@ -145,8 +145,8 @@ Source: https://ryl-docs.pages.dev/getting-started/quickstart/
 
 ## The `ryl check` subcommand
 
-ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated
-`ryl format` formatter is coming). `ryl check <paths>` is the recommended form and
+ryl's CLI is moving to subcommands: `ryl check` is the lint pass and `ryl format` is
+the [formatter](https://ryl-docs.pages.dev/formatter/). `ryl check <paths>` is the recommended form and
 is used throughout these docs. Bare `ryl <paths>` still lints identically, but it is
 deprecated — it prints a warning to stderr (silenced by `--no-warnings`) and a later
 release will remove it, so adopt `ryl check` now.
@@ -239,6 +239,17 @@ stderr), so a symlink in an untrusted tree cannot redirect a write to a
 file outside it. This mirrors directory scanning, which does not follow
 symlinks.
 
+## Format
+
+`ryl format` rewrites files to a consistent layout, and needs no config:
+
+```bash
+ryl format .
+ryl format --check .
+```
+
+See [Formatter](https://ryl-docs.pages.dev/formatter/) for what it changes and how to configure it.
+
 ## Preview fixes as a diff
 
 `--diff` runs the same safe fixes as `--fix` but, instead of writing,
@@ -284,7 +295,8 @@ Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
 `[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
 (`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
-`[[lint.per-line-ignores]]`); `[format]` is reserved for the formatter. Copy the
+`[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](https://ryl-docs.pages.dev/formatter/)
+settings. Copy the
 preset you want from [Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise
 from there:
 
@@ -354,6 +366,37 @@ one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
 `ryl --migrate-user-config --migrate-write` does the same for the user-global
 config. For `pyproject.toml` it only prints the keys to move, since rewriting
 would drop the rest of the file's comments and layout.
+
+## Lint alongside `ryl format`
+
+If you run `ryl format`, let it own layout and lint only what it never touches. This
+starter config enables the rules that catch YAML that loads to something other than
+what the author meant, and conflicts with no `[format]` setting:
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules]
+anchors = "enable"
+key-duplicates = "enable"
+truthy = "enable"
+
+[lint.per-file-ignores]
+".github/workflows/*" = ["truthy"]
+```
+
+Gate CI on both:
+
+```bash
+ryl format --check .
+ryl check .
+```
+
+The `truthy` ignore keeps GitHub Actions' `on:` key from being reported (see
+[`truthy`](https://ryl-docs.pages.dev/rules/truthy/)). Add any other rule from the
+[Rules reference](https://ryl-docs.pages.dev/rules/) as you need it; the [Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules)
+page lists the layout rules and the options that conflict with `ryl format`. If you do
+not run `ryl format`, start from a [preset](https://ryl-docs.pages.dev/config-presets/) instead, which keeps
+the layout rules.
 
 ## Configure across projects (user-global)
 
@@ -988,6 +1031,11 @@ unfixable = ["comments"]
 This is a ryl-only feature. See the [Rules reference](https://ryl-docs.pages.dev/rules/) for the
 list of rules that support automatic fixing.
 
+yamllint has no formatter. ryl adds [`ryl format`](https://ryl-docs.pages.dev/formatter/), which applies the
+layout fixes to every file without enabling the rules. yamllint's `default` preset
+conflicts with none of its settings, so a migrated config needs no changes to run
+alongside it.
+
 ## Keeping both files
 
 `.yamllint` and `.ryl.toml` can coexist. ryl prefers TOML when both are
@@ -1023,7 +1071,10 @@ For configuration discovery, presets, and file selection, see
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
-Rules that auto-fix are marked with :wrench: in the **Fix** column.
+Rules that auto-fix are marked with :wrench: in the **Fix** column. Sixteen layout
+rules are also enforced by [`ryl format`](https://ryl-docs.pages.dev/formatter/); the
+[Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) page lists them and the options that
+conflict with it.
 
 ## Layout and spacing
 
@@ -1148,6 +1199,289 @@ Control which rules apply fixes with `fixable`/`unfixable` in the `[lint]` table
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
+
+---
+
+Source: https://ryl-docs.pages.dev/formatter/
+
+# Formatter
+
+`ryl format` rewrites YAML files in place to a consistent layout. It edits only the
+spans that are off-style rather than reprinting the document, so the first run on an
+existing project produces a small diff, and every later run on formatted files changes
+nothing.
+
+## `ryl format`
+
+```bash
+# Format every YAML file under the current directory, in place
+ryl format .
+
+# Write nothing; exit 1 if any file would change, listing why
+ryl format --check .
+
+# Write nothing; print a unified diff of the changes
+ryl format --diff path/to/file.yaml
+
+# Read stdin, write the formatted text to stdout
+cat file.yaml | ryl format - --stdin-filename file.yaml
+```
+
+Inputs, file discovery, `.gitignore` handling and config discovery are the same as
+`ryl check`. Unlike `ryl check`, `ryl format` needs no config: with none it formats
+with the defaults below.
+
+`--check` reports each line `ryl format` would change as a diagnostic from the rule
+whose fix changes it, through the same reporters as `ryl check`, so it honours
+[`[output]`](output-formats.md) and picks the GitHub format in GitHub Actions.
+
+## Guarantees
+
+Every edit `ryl format` makes is checked by property tests to be:
+
+- **Value-preserving.** The document loads to the same data, with the same tags,
+  anchors, aliases, key order and duplicate keys, resolved under the document's YAML
+  version.
+- **Comment-safe.** Every comment stays beside the node it annotates.
+- **Idempotent.** Formatting formatted output changes nothing.
+
+A file that does not parse is left alone and reported on stderr as
+`skipped by ryl format`.
+
+## Configuration
+
+`ryl format` reads the `[format]` table of the same `.ryl.toml`, `ryl.toml` or
+`pyproject.toml` (`[tool.ryl.format]`) that `ryl check` uses. A yamllint-style YAML
+config cannot set it, so YAML-configured projects get the defaults.
+
+```toml
+[format]
+quote-style = "single"
+line-ending = "lf"
+document-start = "add"
+document-end = "preserve"
+fold-long-lines = false
+```
+
+| Key | Default | Values | What it sets |
+| :--- | :--- | :--- | :--- |
+| `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
+| `line-ending` | `"lf"` | `"lf"`, `"crlf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
+| `document-start` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
+| `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
+| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+
+The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
+they set the defaults for the `line-length` and `indentation` rules (see
+[Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/#configure-for-your-project)). `ryl format`
+uses both as the fold width and continuation indent under `fold-long-lines`.
+
+The rest of the layout is fixed:
+
+| Concern | `ryl format` writes |
+| :--- | :--- |
+| Inline comments | Two spaces before `#`; own-line comments aligned with the content they precede |
+| Flow collections | No spaces inside `{}` or `[]`; no space before a comma, one after |
+| Blank lines | At most two in a row; none at the start or end of the file |
+| Line ends | No trailing whitespace; exactly one newline at the end of the file |
+
+`ryl format` does not yet rewrite colon or hyphen spacing or indentation.
+
+## Long lines
+
+With `fold-long-lines = true`, `ryl format` splits a block plain scalar line longer than
+the top-level `line-length` (default 80) at a single space. The continuation is indented
+`indent-width` past the column of the collection that owns the value:
+
+```yaml
+# before
+items:
+  - description: This single line is well over eighty characters wide and so the formatter should fold it.
+```
+
+```yaml
+# after, with fold-long-lines = true
+---
+items:
+  - description: This single line is well over eighty characters wide and so the
+      formatter should fold it.
+```
+
+Keys, flow collections, quoted and block scalars, and words with no space to break at
+stay as they are. A line ending in an inline directive comment stays whole. Folding
+ignores the `line-length` rule's own options, and `ryl check --fix` never folds.
+
+## Quote style
+
+`ryl format` quotes a string only where its plain form would load as something else,
+using `quote-style`:
+
+```yaml
+# before
+a: "x"
+b: "123"
+c: "it's"
+d: "tab\there"
+```
+
+```yaml
+# after, with quote-style = "single"
+---
+a: x
+b: '123'
+c: it's
+d: "tab\there"
+```
+
+A string that needs escape sequences stays double-quoted. A string that YAML 1.1 loads
+as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
+clean. Mapping keys follow the same rules.
+
+## YAML in Markdown
+
+`ryl format` formats YAML front matter and fenced YAML blocks in Markdown files matched
+by `[files].markdown`, as described in [YAML in Markdown](https://ryl-docs.pages.dev/markdown/). There is no
+`--markdown` flag on `ryl format`; set `[files].markdown` instead.
+
+## Suppression
+
+`ryl format` honours the same [inline directives](https://ryl-docs.pages.dev/directives/) as `ryl check`: a
+`# yamllint disable-file` comment leaves the file alone, and
+`# yamllint disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
+that rule's formatting where it applies. There is no format-only directive.
+
+## Conflicting lint rules
+
+The formatter's layout is also checked by sixteen lint rules, and they stay lint rules:
+`ryl check` still reports them, and `ryl check --fix` still fixes the fixable ones. When
+one of them is enabled with options that reject what `ryl format` writes, every
+`ryl format` run warns on stderr, for example:
+
+```text
+warning: the quoted-strings lint rule's options are incompatible with the formatter's `[format] quote-style = "single"`. Disable quoted-strings when using `ryl format`, or change its options to accept the formatter's output.
+```
+
+`--no-warnings` silences it. A rule left at its defaults conflicts only where the table
+says so.
+
+| Rule | Conflicts with `ryl format` when |
+| :--- | :--- |
+| [`braces`](https://ryl-docs.pages.dev/rules/braces/), [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
+| [`commas`](https://ryl-docs.pages.dev/rules/commas/) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
+| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above 2, or `max-spaces-from-content` is below 2 (`-1`, the default, is unlimited) |
+| [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) | Never |
+| [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | `present = false`, unless `[format] document-start = "preserve"` |
+| [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | `present = false` with `[format] document-end = "add"` |
+| [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | `max` is below 2 |
+| [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | Never |
+| [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | `type` resolves to a different ending from `[format] line-ending` |
+| [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | See below; never under `quote-style = "preserve"` |
+| [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Never |
+| [`colons`](https://ryl-docs.pages.dev/rules/colons/), [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/), [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | Never, because `ryl format` does not rewrite their concerns yet |
+| [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Never; folding is opt-in and leaves lines it cannot break |
+
+`quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
+or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
+`quote-style`. A `quote-type` of `"single"` also needs
+`allow-double-quotes-for-escaping = true`, for the strings that need escapes. The rule's
+defaults (`required = true`) conflict:
+
+<!-- ryl-config-check: format-conflict -->
+```toml
+[lint.rules]
+quoted-strings = "enable"
+```
+
+These accept the formatter's output:
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.quoted-strings]
+quote-type = "any"
+required = "only-when-needed"
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.quoted-strings]
+quote-type = "single"
+required = "only-when-needed"
+allow-double-quotes-for-escaping = true
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[format]
+quote-style = "double"
+
+[lint.rules.quoted-strings]
+quote-type = "double"
+required = "only-when-needed"
+```
+
+A YAML config cannot set `allow-double-quotes-for-escaping`, so there use
+`quote-type: any`:
+
+<!-- ryl-config-check: format-clean -->
+```yaml
+rules:
+  quoted-strings:
+    quote-type: any
+    required: only-when-needed
+```
+
+The other conflicts follow the table:
+
+<!-- ryl-config-check: format-conflict -->
+```toml
+[lint.rules.document-start]
+present = false
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[format]
+document-start = "preserve"
+
+[lint.rules.document-start]
+present = false
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.commas]
+max-spaces-after = -1
+
+[lint.rules.comments]
+max-spaces-from-content = -1
+```
+
+The other eleven rules check things `ryl format` never changes, so they never conflict
+with it: [`anchors`](https://ryl-docs.pages.dev/rules/anchors/),
+[`block-scalar-chomping`](https://ryl-docs.pages.dev/rules/block-scalar-chomping/),
+[`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/), [`float-values`](https://ryl-docs.pages.dev/rules/float-values/),
+[`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/), [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/),
+[`merge-keys`](https://ryl-docs.pages.dev/rules/merge-keys/), [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/),
+[`tags`](https://ryl-docs.pages.dev/rules/tags/), [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) and
+[`unicode-line-breaks`](https://ryl-docs.pages.dev/rules/unicode-line-breaks/). `truthy` and `key-ordering` keep
+their `ryl check --fix` fixes.
+
+## Recommended lint config
+
+To lint alongside `ryl format`, start from the
+[recommended starter config](https://ryl-docs.pages.dev/getting-started/quickstart/#lint-alongside-ryl-format),
+which enables only rules the formatter never touches and leaves layout to
+`ryl format --check`.
+
+## Exit codes
+
+| Code | `ryl format` | `ryl format --check` / `--diff` |
+| :--- | :--- | :--- |
+| `0` | Files formatted, or nothing to do | No file would change |
+| `1` | Not used | At least one file would change |
+| `2` | A usage or config error, an unreadable file, or a file no `[files]` glob matches | Same |
+
+A file skipped for a syntax error does not change the exit code.
 
 ---
 
@@ -1923,13 +2257,12 @@ with no separate flag to set.
 
 Source: https://ryl-docs.pages.dev/using-with-formatters/
 
-# Using ryl with a YAML formatter
+# Using ryl with another YAML formatter
 
-The boundary between linting and formatting YAML is blurry. Many of ryl's rules are about
-layout (spacing, indentation, quote style, blank lines), and ryl already applies safe
-`--fix` edits to a good number of them, so it does some formatting today. What ryl does
-not do, for now, is reflow a whole document into one canonical layout the way a dedicated
-formatter does. Some projects therefore run ryl alongside a formatter such as
+ryl has its own formatter, [`ryl format`](https://ryl-docs.pages.dev/formatter/), which edits files in place
+rather than reprinting them. Start there unless you already use another formatter. ryl
+does not reflow a whole document into one canonical layout the way a reprinting formatter
+does, so some projects instead run ryl alongside a formatter such as
 [google/yamlfmt](https://github.com/google/yamlfmt),
 [Prettier](https://prettier.io/), or [yamlfix](https://lyz-code.github.io/yamlfix/) for
 that canonical layout, and rely on ryl for the broader checks (and safe fixes) it adds on
@@ -2513,8 +2846,9 @@ already have ryl on your `PATH` or in a project environment, it uses that instea
 
 It surfaces the language-server features described above - live diagnostics, fix-all (and
 per-rule fix-all), the disable-rule quick fixes, hover, and anchor/alias rename - and adds a
-`ryl.fixAll` command and a fix-on-save option. To make ryl your YAML formatter and apply
-safe fixes on save:
+`ryl.fixAll` command and a fix-on-save option. The editor's Format Document runs the same
+safe fixes as `ryl check --fix`, not [`ryl format`](https://ryl-docs.pages.dev/formatter/). To make ryl your YAML
+formatter and apply safe fixes on save:
 
 ```json
 {
@@ -2763,6 +3097,7 @@ resolved value, comments and anchors. That rules out:
   have meant the string. One would only ever sit behind an explicit opt-in.
 - **Whole-document reprinting**, the way Prettier formats YAML. Use a
   reprinting formatter if that is what you want; ryl won't become one.
+  [`ryl format`](https://ryl-docs.pages.dev/formatter/) edits in place under the same guarantees.
 
 ## Not decided yet
 
@@ -3049,6 +3384,8 @@ is not auto-fixed because converting flow to block style requires
 re-flowing the surrounding document. A minimum above its maximum cannot be
 satisfied, so `--fix` leaves that spacing as it is.
 
+`ryl format` writes no spaces inside braces, `{}` included, and never converts flow style to block. It conflicts with `forbid`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+
 ## Related rules
 
 - [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) &mdash; the equivalent rule for flow
@@ -3120,6 +3457,8 @@ object: [1, 2, abc]
 bounds. The `forbid` constraint is not auto-fixed because converting flow
 sequences to block style requires re-flowing the document. A minimum above its
 maximum cannot be satisfied, so `--fix` leaves that spacing as it is.
+
+`ryl format` writes no spaces inside brackets, `[]` included, and never converts flow style to block. It conflicts with `forbid`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3280,6 +3619,8 @@ fixable = ["ALL"]
 unfixable = ["commas"]
 ```
 
+`ryl format` writes no space before a comma and one after. It conflicts with a `min-spaces-after` above 1 or `max-spaces-after = 0`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+
 ## Related rules
 
 - [`braces`](https://ryl-docs.pages.dev/rules/braces/) and [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) &mdash; spacing
@@ -3371,6 +3712,8 @@ follows them. Disable with:
 fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 
@@ -3474,6 +3817,8 @@ fixable = ["ALL"]
 unfixable = ["comments"]
 ```
 
+`ryl format` inserts the space after `#` and writes exactly two spaces before an inline comment. It conflicts with a `min-spaces-from-content` above 2 or a `max-spaces-from-content` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+
 ## Related rules
 
 - [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) &mdash; controls the
@@ -3566,6 +3911,8 @@ fixable = ["ALL"]
 unfixable = ["document-end"]
 ```
 
+`ryl format` adds `...` under the same limits only when `[format] document-end` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+
 ## Related rules
 
 - [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) &mdash; the matching rule for the
@@ -3657,6 +4004,8 @@ Disable with:
 fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
+
+`ryl format` adds `---` under the same limits while `[format] document-start` is `"add"`, the default. It conflicts with `present = false` unless that key is `"preserve"`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3751,6 +4100,8 @@ Disable with:
 fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```
+
+`ryl format` trims runs of empty lines to two and removes them at the start and end of the file, under the same limits. It conflicts with a `max` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -4459,8 +4810,12 @@ allow-non-breakable-inline-mappings = false
 
 ## Automatic fixing
 
-This rule does not currently auto-fix; long lines need to be reflowed by
+`ryl check --fix` does not fix this rule; long lines need to be reflowed by
 hand or wrapped with a block scalar.
+
+With `[format] fold-long-lines = true`, `ryl format` folds long plain scalars to the
+top-level `line-length`; see [Long lines](https://ryl-docs.pages.dev/formatter/#long-lines). No option of this
+rule conflicts with it.
 
 ## Related rules
 
@@ -4632,6 +4987,8 @@ fixable = ["ALL"]
 unfixable = ["new-line-at-end-of-file"]
 ```
 
+`ryl format` applies the same fix, ending the file with the `[format] line-ending`, and no option of this rule conflicts with it.
+
 ## Related rules
 
 - [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) &mdash; controls multiple empty lines
@@ -4708,6 +5065,8 @@ the behaviour is identical. See
 fixable = ["ALL"]
 unfixable = ["new-lines"]
 ```
+
+`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -4876,6 +5235,8 @@ Disable the fix for this rule by adding it to `lint.unfixable`:
 fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
+
+`ryl format` quotes strings by its own [quote style](https://ryl-docs.pages.dev/formatter/#quote-style), set by `[format] quote-style`. This rule's defaults conflict with it; [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) lists the options that accept its output.
 
 ## YAML 1.1 values with `required = "only-when-needed"`
 
@@ -5078,6 +5439,8 @@ Disable with:
 fixable = ["ALL"]
 unfixable = ["trailing-spaces"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 

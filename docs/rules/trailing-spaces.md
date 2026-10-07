@@ -71,6 +71,8 @@ fixable = ["ALL"]
 unfixable = ["trailing-spaces"]
 ```
 
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
+
 ## Related rules
 
 - [`new-line-at-end-of-file`](new-line-at-end-of-file.md) &mdash; controls

@@ -527,6 +527,11 @@ unfixable = ["comments"]
 This is a ryl-only feature. See the [Rules reference](../rules.md) for the
 list of rules that support automatic fixing.
 
+yamllint has no formatter. ryl adds [`ryl format`](../formatter.md), which applies the
+layout fixes to every file without enabling the rules. yamllint's `default` preset
+conflicts with none of its settings, so a migrated config needs no changes to run
+alongside it.
+
 ## Keeping both files
 
 `.yamllint` and `.ryl.toml` can coexist. ryl prefers TOML when both are

@@ -59,6 +59,8 @@ fixable = ["ALL"]
 unfixable = ["commas"]
 ```
 
+`ryl format` writes no space before a comma and one after. It conflicts with a `min-spaces-after` above 1 or `max-spaces-after = 0`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+
 ## Related rules
 
 - [`braces`](braces.md) and [`brackets`](brackets.md) &mdash; spacing
