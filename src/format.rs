@@ -41,11 +41,12 @@ pub const FORMAT_RULE_IDS: [&str; 15] = [
     line_length::ID,
 ];
 
-/// Formatter output for [`conflicts`] to lint: one instance of each target's concern.
+/// Formatter input for [`conflicts`] to lint: one instance of each target's concern, bar
+/// the blank-line run, which `conflicts` sizes to `max-blank-lines`.
 const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     necessary: 'a: b'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
-    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\n\n\nlast: 1\n";
+    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\n";
 
 impl Passes<'static> {
     fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
@@ -66,7 +67,10 @@ impl Passes<'static> {
         };
         Self {
             new_lines: on(new_lines::ID).then_some(line_ending),
-            comments: on(comments::ID).then_some(comments::Config::exact_gap(2)),
+            comments: on(comments::ID).then_some(comments::Config::exact_gap(
+                usize::from(table.comment_spacing.get()),
+                table.comment_starting_space == MarkerTarget::Add,
+            )),
             comments_indentation: on(comments_indentation::ID)
                 .then_some(comments_indentation::Config::new(false)),
             commas: on(commas::ID).then_some(commas::Config::new(0, 1, 1)),
@@ -105,8 +109,11 @@ impl Passes<'static> {
             document_end: (table.document_end == MarkerTarget::Add
                 && on(document_end::ID))
             .then_some(document_end::Config::new(true)),
-            empty_lines: on(empty_lines::ID)
-                .then_some(empty_lines::Config::new(2, 0, 0)),
+            empty_lines: on(empty_lines::ID).then_some(empty_lines::Config::new(
+                i64::from(table.max_blank_lines),
+                0,
+                0,
+            )),
             truthy: None,
             key_ordering: None,
             line_length: (table.fold_long_lines && on(line_length::ID)).then(|| {
@@ -357,8 +364,9 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
 #[must_use]
 pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let table = cfg.format();
+    let blanks = "\n".repeat(usize::from(table.max_blank_lines) + 1);
     let formatted = run_passes(
-        CONFLICT_PROBE,
+        &format!("{CONFLICT_PROBE}{blanks}last: 1\n"),
         &Passes::format(cfg, &[]),
         Path::new(""),
         FIX_PIPELINE_MAX_PASSES,
@@ -417,6 +425,8 @@ fn target(rule: &str, table: &FormatTable) -> Option<String> {
         quoted_strings::ID => Some("quote-style"),
         new_lines::ID => Some("line-ending"),
         braces::ID => Some("brace-spacing"),
+        comments::ID => Some("comment-spacing"),
+        empty_lines::ID => Some("max-blank-lines"),
         document_start::ID | document_end::ID => Some(rule),
         _ => return Some(format!("built-in {rule} style")),
     }?;

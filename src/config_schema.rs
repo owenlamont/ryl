@@ -96,6 +96,12 @@ pub struct FormatTable {
     pub brace_spacing: bool,
     /// Opt in to unstable style changes before a minor release promotes them to stable.
     pub preview: bool,
+    /// Exact number of spaces between content and an inline comment.
+    pub comment_spacing: NonZeroU8,
+    /// Whether to add a missing space after a comment's `#`.
+    pub comment_starting_space: MarkerTarget,
+    /// Most consecutive blank lines kept between content lines.
+    pub max_blank_lines: u8,
 }
 
 impl Default for FormatTable {
@@ -108,6 +114,9 @@ impl Default for FormatTable {
             fold_long_lines: false,
             brace_spacing: false,
             preview: false,
+            comment_spacing: NonZeroU8::new(2).expect("2 is non-zero"),
+            comment_starting_space: MarkerTarget::Add,
+            max_blank_lines: 2,
         }
     }
 }

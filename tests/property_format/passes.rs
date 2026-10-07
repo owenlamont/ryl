@@ -157,7 +157,14 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
             toml_pass(
                 "format/non-defaults",
                 "[format]\nquote-style = 'preserve'\nline-ending = 'cr-lf'\n\
-                 document-start = 'preserve'\ndocument-end = 'add'\nfold-long-lines = true\n",
+                 document-start = 'preserve'\ndocument-end = 'add'\nfold-long-lines = true\n\
+                 comment-spacing = 1\ncomment-starting-space = 'preserve'\n\
+                 max-blank-lines = 0\n",
+                format,
+            ),
+            toml_pass(
+                "format/wide-spacing",
+                "[format]\ncomment-spacing = 3\nmax-blank-lines = 1\n",
                 format,
             ),
             toml_pass("format/fold-narrow", &fold_toml(12, 2), format),

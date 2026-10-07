@@ -206,3 +206,19 @@ fn check_applies_shared_keys_from_a_project_config() {
         "{output}"
     );
 }
+
+#[test]
+fn migration_keeps_the_format_keys() {
+    let legacy = parse_toml_config_str(
+        "[format]\ncomment-spacing = 3\ncomment-starting-space = 'preserve'\n\
+         max-blank-lines = 0\n[rules]\ntruthy = \"enable\"\n",
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    let migrated = toml_config_to_value(&legacy.to_nested());
+    let format = &migrated["format"];
+    assert_eq!(format["comment-spacing"].as_integer(), Some(3));
+    assert_eq!(format["comment-starting-space"].as_str(), Some("preserve"));
+    assert_eq!(format["max-blank-lines"].as_integer(), Some(0));
+}
