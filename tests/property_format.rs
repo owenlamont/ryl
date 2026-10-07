@@ -577,10 +577,22 @@ fn representation_ignores_layout() {
 }
 
 #[test]
+fn a_trailing_comment_keeps_its_node_on_the_key_line() {
+    assert_eq!(
+        annotations("k: [a, b]  # c\nj: 1\n"),
+        annotations("k:  # c\n  - a\n  - b\nj: 1\n")
+    );
+    assert_ne!(
+        annotations("k: [a, b]  # c\nj: 1\n"),
+        annotations("k:\n  - a\n  - b  # c\nj: 1\n")
+    );
+}
+
+#[test]
 fn a_deliberately_broken_pass_fails_the_suite() {
     let input = "%YAML 1.1\n---\n# lead\na: &x 'no'  # note\nb: *x\nc: 1\n";
     type Broken = fn(&str) -> String;
-    let broken: [(&str, Broken, &str); 7] = [
+    let broken: [(&str, Broken, &str); 8] = [
         (
             "idempotence",
             |s| format!("{s}\n"),
@@ -615,6 +627,11 @@ fn a_deliberately_broken_pass_fails_the_suite() {
                 )
             },
             "moves a comment to another node",
+        ),
+        (
+            "comment/anchor fidelity",
+            |s| s.replace("  # note\nb: *x", "\nb: *x  # note"),
+            "moves an inline comment to the next line",
         ),
         (
             "comment/anchor fidelity",

@@ -236,7 +236,7 @@ impl Scalar {
 }
 
 impl Node {
-    fn render(&self, buffer: &mut String) {
+    pub fn render(&self, buffer: &mut String) {
         match self {
             Self::Scalar(scalar) => scalar.render(buffer),
             Self::FlowSeq(items, style) => {
