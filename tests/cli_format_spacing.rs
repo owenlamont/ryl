@@ -137,3 +137,25 @@ fn each_refused_document_is_named_in_line_order() {
         "{stderr}"
     );
 }
+
+#[test]
+fn a_comment_keeping_a_mapping_beside_its_dash_is_named() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[format]\ndash-on-own-line = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "---\nseq:\n  - k: v  # note\n    j: x\n").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).arg("format").arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("a.yaml:3:3 hyphens not fixed: cannot move this mapping below"),
+        "{stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "---\nseq:\n  - k: v  # note\n    j: x\n"
+    );
+}

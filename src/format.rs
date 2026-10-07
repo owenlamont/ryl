@@ -327,21 +327,35 @@ fn indentation_target(cfg: &YamlLintConfig) -> indentation::Config {
 }
 
 /// Each document `ryl format` leaves un-re-indented in `content` for a reason other than an
-/// inline directive, at its first line, and each collection-style refusal.
+/// inline directive, at its first line, each `-` a comment keeps its mapping beside, and
+/// each collection-style refusal.
 pub(crate) fn unfixed(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
-    let mut problems: Vec<LintProblem> =
-        indentation::reindent(content, &indentation_target(cfg))
-            .refused
-            .into_iter()
-            .filter(|refusal| refusal.cause != indentation::Cause::Disabled)
-            .map(|refusal| LintProblem {
-                line: *refusal.lines.start(),
-                column: 1,
-                level: Severity::Error,
-                message: "cannot re-indent this document safely".to_string(),
-                rule: Some(indentation::ID),
-            })
-            .collect();
+    let reindented = indentation::reindent(content, &indentation_target(cfg));
+    let kept = reindented
+        .kept_dash_lines
+        .iter()
+        .map(|&(line, column)| LintProblem {
+            line,
+            column,
+            level: Severity::Error,
+            message:
+                "cannot move this mapping below its `-`: a comment follows the `-`"
+                    .to_string(),
+            rule: Some(hyphens::ID),
+        });
+    let mut problems: Vec<LintProblem> = reindented
+        .refused
+        .iter()
+        .filter(|refusal| refusal.cause != indentation::Cause::Disabled)
+        .map(|refusal| LintProblem {
+            line: *refusal.lines.start(),
+            column: 1,
+            level: Severity::Error,
+            message: "cannot re-indent this document safely".to_string(),
+            rule: Some(indentation::ID),
+        })
+        .chain(kept)
+        .collect();
     problems.extend(refusals(content, cfg));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems

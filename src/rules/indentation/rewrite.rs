@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate, scan};
 use crate::directives::Directives;
 use crate::rules::hyphens;
-use crate::rules::support::event_compare::documents;
+use crate::rules::support::event_compare::{Document, documents};
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
     strip_trailing_comment_preserving_quotes,
@@ -15,6 +15,9 @@ pub struct Reindented {
     pub text: String,
     /// Each document left as it was.
     pub refused: Vec<Refusal>,
+    /// The 1-based line and column of each `-` whose mapping stays on its line because a
+    /// comment follows, though `cfg` asks for it on the next.
+    pub kept_dash_lines: Vec<(usize, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,24 +50,18 @@ pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
         return Reindented {
             text: buffer.to_string(),
             refused: Vec::new(),
+            kept_dash_lines: Vec::new(),
         };
     }
     let directives = Directives::parse(buffer);
     let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
         .map(|(_, content, ending)| (content, ending))
         .collect();
-    let mut starts: Vec<usize> = {
-        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-        let line_starts = build_line_starts(&chars);
-        original
-            .iter()
-            .map(|document| locate(&line_starts, document.start).0)
-            .collect()
-    };
-    starts[0] = 0;
+    let starts = document_starts(buffer, &original);
     let document_of = |line: usize| starts.partition_point(|&start| start <= line) - 1;
 
-    let (shaped, origin) = reshape(buffer, &lines, cfg.dash_on_own_line, &directives);
+    let (shaped, origin, kept_dash_lines) =
+        reshape(buffer, &lines, cfg.dash_on_own_line, &directives);
     let chars: Vec<(usize, char)> = shaped.char_indices().collect();
     let line_starts = build_line_starts(&chars);
     let tokens = scan(&shaped, &chars, &line_starts);
@@ -135,6 +132,7 @@ pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
     }
     Reindented {
         text: render(&refused),
+        kept_dash_lines,
         refused: (0..starts.len())
             .filter_map(|index| {
                 refused[index].map(|cause| Refusal {
@@ -144,6 +142,18 @@ pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
             })
             .collect(),
     }
+}
+
+/// The 0-based line each of `documents` starts on, the first taking any lines before it.
+fn document_starts(buffer: &str, documents: &[Document<'_>]) -> Vec<usize> {
+    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let line_starts = build_line_starts(&chars);
+    let mut starts: Vec<usize> = documents
+        .iter()
+        .map(|document| locate(&line_starts, document.start).0)
+        .collect();
+    starts[0] = 0;
+    starts
 }
 
 /// Pushes `line` moved by `delta`, with `gaps` closed.
@@ -177,9 +187,10 @@ fn reshape(
     lines: &[(&str, &str)],
     dash_on_own_line: Option<bool>,
     directives: &Directives,
-) -> (String, Vec<usize>) {
+) -> (String, Vec<usize>, Vec<(usize, usize)>) {
     let mut joins = vec![None; lines.len()];
     let mut breaks = vec![None; lines.len()];
+    let mut kept = Vec::new();
     if let Some(own_line) = dash_on_own_line {
         let chars: Vec<(usize, char)> = buffer.char_indices().collect();
         let line_starts = build_line_starts(&chars);
@@ -193,12 +204,15 @@ fn reshape(
             {
                 continue;
             }
-            if own_line
-                && start.line == entry.line
-                && strip_trailing_comment_preserving_quotes(lines[entry.line].0).len()
-                    == lines[entry.line].0.trim_end().len()
-            {
-                breaks[entry.line] = Some((entry.column, start.column));
+            if own_line && start.line == entry.line {
+                let content = lines[entry.line].0;
+                if strip_trailing_comment_preserving_quotes(content).len()
+                    == content.trim_end().len()
+                {
+                    breaks[entry.line] = Some((entry.column, start.column));
+                } else {
+                    kept.push((entry.line + 1, entry.column + 1));
+                }
             } else if !own_line
                 && start.line == entry.line + 1
                 && start.column > entry.column + 1
@@ -238,7 +252,7 @@ fn reshape(
         text.push_str(ending);
         line += 1;
     }
-    (text, origin)
+    (text, origin, kept)
 }
 
 /// The re-indent `ryl format` applies, or `None` where nothing moves.
