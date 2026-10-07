@@ -152,8 +152,8 @@ url = "https://github.com/yaml/yaml-test-suite"
 sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
 note = "spec edge cases; invalid inputs must stay byte-identical"
 sparse = ["*.yaml", "*.yml", "error"]
-# A case directory holding an `error` file is invalid YAML by the suite's own verdict.
-expected-skip-marker = "error"
+# A case's in.yaml beside an `error` file is invalid YAML by the suite's own verdict.
+expected-skip-marker = { file = "in.yaml", marker = "error" }
 
 [[repo]]
 url = "https://github.com/aristanetworks/avd"

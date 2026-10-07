@@ -101,7 +101,7 @@ class Repo:
     sha: str
     sparse: tuple[str, ...] = _YAML_PATTERNS
     expected_skip: tuple[str, ...] = ()
-    expected_skip_marker: str = ""
+    expected_skip_marker: Mapping[str, str] = field(default_factory=dict)
     tally: bool = True
     modes: tuple[Mode, ...] = tuple(Mode)
     yaml12_known_errors: Mapping[str, tuple[str, str]] = field(default_factory=dict)
@@ -154,7 +154,7 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
             sha=row["sha"],
             sparse=tuple(row.get("sparse", _YAML_PATTERNS)),
             expected_skip=tuple(row.get("expected-skip", ())),
-            expected_skip_marker=row.get("expected-skip-marker", ""),
+            expected_skip_marker=row.get("expected-skip-marker", {}),
             tally=row.get("tally", True),
             modes=tuple(Mode(m) for m in row.get("modes", Mode)),
             yaml12_known_errors=_known(row.get("yaml12-known-errors", ())),
@@ -341,7 +341,11 @@ def _unexpected_skips(
         f
         for f in skipped
         if not any(fnmatch.fnmatch(f, glob) for glob in repo.expected_skip)
-        and not (marker and (clone / f).with_name(marker).is_file())
+        and not (
+            marker
+            and Path(f).name == marker["file"]
+            and (clone / f).with_name(marker["marker"]).is_file()
+        )
     ]
 
 
