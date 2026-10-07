@@ -606,10 +606,10 @@ targets:
 
 | Target | When the yamllint config |
 | :--- | :--- |
-| `document-start` | disables `document-start` or sets its `present: false` |
-| `document-end` | disables `document-end` or sets its `present: false` |
-| `quote-style` | disables `quoted-strings` |
-| `comment-starting-space` | disables `comments` or sets its `require-starting-space: false` |
+| `document-start` | leaves `document-start` off, or sets its `present: false` |
+| `document-end` | leaves `document-end` off, or sets its `present: false` |
+| `quote-style` | leaves `quoted-strings` off, as `extends: default` does |
+| `comment-starting-space` | leaves `comments` off, or sets its `require-starting-space: false` |
 
 After migration, run `ryl check .` to confirm diagnostics match what yamllint
 produced.
