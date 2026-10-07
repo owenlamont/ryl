@@ -17,6 +17,10 @@ const LADDER: &str = "[lint.rules]\nbraces = 'enable'\nbrackets = 'enable'\n\
     [lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n\
     allow-double-quotes-for-escaping = true\nallow-quoted-quotes = true\n";
 
+const PADDED_BRACES: &str = "[format]\nbrace-spacing = true\n[lint.rules.braces]\n\
+    min-spaces-inside = 1\nmax-spaces-inside = 1\nmin-spaces-inside-empty = 0\n\
+    max-spaces-inside-empty = 0\n";
+
 const DOUBLE_LADDER: &str = "[format]\nquote-style = 'double'\n\
     [lint.rules.quoted-strings]\nquote-type = 'double'\nrequired = 'only-when-needed'\n\
     allow-quoted-quotes = true\n";
@@ -66,6 +70,7 @@ fn agreeing_configs_are_silent() {
         ),
         (LADDER, true),
         (DOUBLE_LADDER, true),
+        (PADDED_BRACES, true),
         (
             "[format]\nquote-style = 'preserve'\n[lint.rules]\nquoted-strings = 'enable'\n",
             true,
@@ -170,6 +175,27 @@ fn the_quoted_strings_warning_names_the_options_for_the_quote_style() {
         "{}",
         warnings[0]
     );
+}
+
+#[test]
+fn braces_warnings_name_brace_spacing() {
+    let inherited_empty = PADDED_BRACES.replace("min-spaces-inside-empty = 0\n", "");
+    for (config, value) in [
+        (inherited_empty.as_str(), "true"),
+        (
+            "[format]\nbrace-spacing = true\n[lint.rules]\nbraces = 'enable'\n",
+            "true",
+        ),
+        ("[lint.rules.braces]\nmin-spaces-inside = 1\n", "false"),
+    ] {
+        let warnings = conflicts(config, true, &[]);
+        assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");
+        assert!(
+            warnings[0].contains(&format!("`[format] brace-spacing = {value}`")),
+            "{}",
+            warnings[0]
+        );
+    }
 }
 
 #[test]

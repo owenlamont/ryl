@@ -78,6 +78,11 @@ fn each_format_key_changes_the_output() {
             "a: 1\n",
             "---\na: 1\n...\n".to_string(),
         ),
+        (
+            "brace-spacing = true",
+            "a: {b: 1}\ne: {}\nf: { }\nl: [1, 2]\nm: {\n  x: 1\n}\n",
+            "---\na: { b: 1 }\ne: {}\nf: {}\nl: [1, 2]\nm: {\n  x: 1\n}\n".to_string(),
+        ),
     ];
     for (key, input, expected) in cases {
         let config = format!("[format]\n{key}\n");

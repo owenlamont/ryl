@@ -117,6 +117,11 @@
       "additionalProperties": false,
       "description": "The `[format]` table: `ryl format`'s targets.",
       "properties": {
+        "brace-spacing": {
+          "default": false,
+          "description": "Whether to pad the inside of a non-empty flow mapping's braces with one space.",
+          "type": "boolean"
+        },
         "document-end": {
           "$ref": "#/$defs/MarkerTarget",
           "default": "preserve",

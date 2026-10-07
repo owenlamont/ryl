@@ -92,6 +92,8 @@ pub struct FormatTable {
     pub document_end: MarkerTarget,
     /// Whether to split plain and quoted scalar lines longer than `line-length` at single spaces.
     pub fold_long_lines: bool,
+    /// Whether to pad the inside of a non-empty flow mapping's braces with one space.
+    pub brace_spacing: bool,
     /// Opt in to unstable style changes before a minor release promotes them to stable.
     pub preview: bool,
 }
@@ -104,6 +106,7 @@ impl Default for FormatTable {
             document_start: MarkerTarget::Add,
             document_end: MarkerTarget::Preserve,
             fold_long_lines: false,
+            brace_spacing: false,
             preview: false,
         }
     }
