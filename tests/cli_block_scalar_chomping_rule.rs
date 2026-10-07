@@ -202,6 +202,19 @@ fn preserves_hash_characters_that_do_not_start_comments() {
 }
 
 #[test]
+fn keeps_spaced_hash_inside_double_quoted_key_with_escaped_quote() {
+    let (code, output) = lint_with_toml_config("\"a\\\" #b\": | # c\n  body\n", ENABLE);
+    assert_eq!(
+        code, 1,
+        "bare header after a quoted key should fail: {output}"
+    );
+    assert!(
+        output.contains("1:11"),
+        "expected the marker at 1:11: {output}"
+    );
+}
+
+#[test]
 fn preserves_plain_key_fragments_that_resemble_node_properties() {
     // `!` and `&` may appear after the first character of a plain scalar. The
     // scanner confirms these are keys, so header recovery must not reinterpret
