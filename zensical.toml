@@ -19,6 +19,7 @@ nav = [
     { "Quick Start" = "getting-started/quickstart.md" },
     { "Using ryl with AI agents" = "using-ryl-with-ai-agents.md" },
     { "Migrating from yamllint" = "getting-started/migrating-from-yamllint.md" },
+    { "Migrating from yamlfix" = "getting-started/migrating-from-yamlfix.md" },
   ]},
   { "Rules" = "rules.md" },
   { "Formatter" = "formatter.md" },
