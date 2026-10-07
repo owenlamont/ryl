@@ -83,6 +83,31 @@ fn each_format_key_changes_the_output() {
             "a: {b: 1}\ne: {}\nf: { }\nl: [1, 2]\nm: {\n  x: 1\n}\n",
             "---\na: { b: 1 }\ne: {}\nf: {}\nl: [1, 2]\nm: {\n  x: 1\n}\n".to_string(),
         ),
+        (
+            "comment-spacing = 1",
+            "a: 1   # c\n",
+            "---\na: 1 # c\n".to_string(),
+        ),
+        (
+            "comment-spacing = 3",
+            "a: 1 # c\n",
+            "---\na: 1   # c\n".to_string(),
+        ),
+        (
+            "comment-starting-space = 'preserve'",
+            "#c\na: 1  #c\n",
+            "---\n#c\na: 1  #c\n".to_string(),
+        ),
+        (
+            "max-blank-lines = 0",
+            "a: 1\n\nb: 2\n",
+            "---\na: 1\nb: 2\n".to_string(),
+        ),
+        (
+            "max-blank-lines = 1",
+            "a: 1\n\n\nb: 2\n",
+            "---\na: 1\n\nb: 2\n".to_string(),
+        ),
     ];
     for (key, input, expected) in cases {
         let config = format!("[format]\n{key}\n");
@@ -100,6 +125,8 @@ fn format_table_rejects_unknown_keys_and_values() {
     for config in [
         "[format]\nindent = 2\n",
         "[format]\nquote-style = 'backtick'\n",
+        "[format]\ncomment-spacing = 0\n",
+        "[format]\nmax-blank-lines = 256\n",
     ] {
         let (code, _, stderr, formatted) = format_file(Some(config), DIRTY, &[]);
         assert_eq!((code, formatted.as_str()), (2, DIRTY), "{config}: {stderr}");

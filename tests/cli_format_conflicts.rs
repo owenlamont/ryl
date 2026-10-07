@@ -76,6 +76,12 @@ fn agreeing_configs_are_silent() {
             true,
         ),
         (
+            "[format]\ncomment-spacing = 3\ncomment-starting-space = 'preserve'\n\
+             max-blank-lines = 1\n[lint.rules.comments]\nmin-spaces-from-content = 3\n\
+             [lint.rules.empty-lines]\nmax = 1\n",
+            true,
+        ),
+        (
             "[format]\ndocument-start = 'preserve'\n[lint.rules.document-start]\npresent = true\n",
             true,
         ),
@@ -124,9 +130,17 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
         warnings[0]
     );
     assert!(
-        warnings[1].contains("built-in comments style"),
+        warnings[1].contains("`[format] comment-spacing = 2`"),
         "{}",
         warnings[1]
+    );
+    let toml = "[format]\nmax-blank-lines = 4\n[lint.rules.empty-lines]\nmax = 3\n";
+    let warnings = conflicts(toml, true, &[]);
+    assert_eq!(warnings.len(), 1, "{warnings:#?}");
+    assert!(
+        warnings[0].contains("`[format] max-blank-lines = 4`"),
+        "{}",
+        warnings[0]
     );
     let toml = "[format]\ndocument-end = 'add'\nquote-style = 'double'\n\
                 [lint.rules.document-end]\npresent = false\n\

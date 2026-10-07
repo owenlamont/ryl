@@ -56,6 +56,9 @@ document-start = "add"
 document-end = "preserve"
 fold-long-lines = false
 brace-spacing = false
+comment-spacing = 2
+comment-starting-space = "add"
+max-blank-lines = 2
 preview = false
 ```
 
@@ -67,6 +70,9 @@ preview = false
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
+| `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
+| `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
+| `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
@@ -78,9 +84,9 @@ The rest of the layout is fixed:
 
 | Concern | `ryl format` writes |
 | :--- | :--- |
-| Inline comments | Two spaces before `#`; own-line comments aligned with the content they precede |
+| Own-line comments | Aligned with the content they precede |
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
-| Blank lines | At most two in a row; none at the start or end of the file |
+| Blank lines | None at the start or end of the file |
 | Line ends | No trailing whitespace; exactly one newline at the end of the file |
 
 `ryl format` does not yet rewrite colon or hyphen spacing or indentation.
@@ -182,11 +188,11 @@ says so.
 | [`braces`](rules/braces.md) | `forbid` is set, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
 | [`brackets`](rules/brackets.md) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
 | [`commas`](rules/commas.md) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
-| [`comments`](rules/comments.md) | `min-spaces-from-content` is above 2, or `max-spaces-from-content` is below 2 (`-1`, the default, is unlimited) |
+| [`comments`](rules/comments.md) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited) |
 | [`comments-indentation`](rules/comments-indentation.md) | Never |
 | [`document-start`](rules/document-start.md) | `present = false`, unless `[format] document-start = "preserve"` |
 | [`document-end`](rules/document-end.md) | `present = false` with `[format] document-end = "add"` |
-| [`empty-lines`](rules/empty-lines.md) | `max` is below 2 |
+| [`empty-lines`](rules/empty-lines.md) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | Never |
 | [`new-lines`](rules/new-lines.md) | `type` resolves to a different ending from `[format] line-ending` |
 | [`quoted-strings`](rules/quoted-strings.md) | See below; never under `quote-style = "preserve"` |
