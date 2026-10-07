@@ -269,12 +269,12 @@ fn alias_mapping_key_matches_yamllint() {
     )
     .unwrap();
 
-    // Alias used as a mapping key: the required single space before `:` must be allowed,
-    // an extra space before is flagged, and spacing after `:` is still checked.
+    // Alias used as a mapping key: the required single space before `:` must be allowed
+    // and an extra space before is flagged.
     let yaml_path = dir.path().join("alias.yaml");
     fs::write(
         &yaml_path,
-        "---\na: &foo 42\nok:\n  *foo : 1\nextra:\n  *foo  : 2\nafter:\n  *foo:  3\n",
+        "---\na: &foo 42\nok:\n  *foo : 1\nextra:\n  *foo  : 2\n",
     )
     .unwrap();
 

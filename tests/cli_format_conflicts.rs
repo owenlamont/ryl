@@ -84,7 +84,9 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
     let config = "rules: {quoted-strings: enable, new-lines: {type: dos}, \
                   document-start: {present: false}, braces: {min-spaces-inside: 1}, \
                   brackets: {forbid: true}, commas: {min-spaces-after: 2}, \
-                  comments: {min-spaces-from-content: 3}, empty-lines: {max: 1}}";
+                  comments: {min-spaces-from-content: 3}, empty-lines: {max: 1}, \
+                  colons: {max-spaces-before: 0, max-spaces-after: 0}, \
+                  hyphens: {max-spaces-after: 0}}";
     let warnings = conflicts(config, false, &[]);
     let rules: Vec<&str> = warnings
         .iter()
@@ -98,6 +100,8 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
             "commas",
             "braces",
             "brackets",
+            "colons",
+            "hyphens",
             "quoted-strings",
             "document-start",
             "empty-lines"

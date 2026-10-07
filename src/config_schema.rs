@@ -446,6 +446,8 @@ pub enum FixableRuleSelector {
     Braces,
     #[serde(rename = "brackets")]
     Brackets,
+    #[serde(rename = "colons")]
+    Colons,
     #[serde(rename = "commas")]
     Commas,
     #[serde(rename = "comments")]
@@ -458,6 +460,8 @@ pub enum FixableRuleSelector {
     DocumentStart,
     #[serde(rename = "empty-lines")]
     EmptyLines,
+    #[serde(rename = "hyphens")]
+    Hyphens,
     #[serde(rename = "key-ordering")]
     KeyOrdering,
     #[serde(rename = "new-line-at-end-of-file")]
@@ -479,6 +483,8 @@ pub enum FixRuleName {
     Braces,
     #[serde(rename = "brackets")]
     Brackets,
+    #[serde(rename = "colons")]
+    Colons,
     #[serde(rename = "commas")]
     Commas,
     #[serde(rename = "comments")]
@@ -491,6 +497,8 @@ pub enum FixRuleName {
     DocumentStart,
     #[serde(rename = "empty-lines")]
     EmptyLines,
+    #[serde(rename = "hyphens")]
+    Hyphens,
     #[serde(rename = "key-ordering")]
     KeyOrdering,
     #[serde(rename = "new-line-at-end-of-file")]

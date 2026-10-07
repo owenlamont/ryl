@@ -103,9 +103,9 @@ proptest! {
     fn dash_on_own_line_only_adds_hyphens_violations(document in arb_document()) {
         use ryl::rules::hyphens::{Config, check};
         let content = document.render();
-        let base = check(&content, &Config::new_for_tests(1));
+        let base = check(&content, &Config::new(1));
         let enhanced =
-            check(&content, &Config::new_for_tests(1).with_dash_on_own_line(true));
+            check(&content, &Config::new(1).with_dash_on_own_line(true));
         for violation in &base {
             prop_assert!(
                 enhanced.contains(violation),
@@ -133,7 +133,7 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("empty-lines", "a: 1\n\n\n\nb: 2\n"),
     ("empty-values", "a:\n"),
     ("float-values", "a: .5\n"),
-    ("hyphens", "a:\n  -  x\n"),
+    ("hyphens", "a:\n  - -   x\n"),
     ("indentation", "a:\n   b: 1\n"),
     ("key-duplicates", "a: 1\na: 2\n"),
     ("key-ordering", "b: 1\na: 2\n"),

@@ -14,15 +14,17 @@ use super::config::{QUOTED_STRINGS_VARIANTS, synthetic_base_dir, synthetic_path}
 /// The format-owned rules, each with a safe fix but `line-length`, which only `ryl format`
 /// folds; the lint-owned `truthy` and `key-ordering` fixes rewrite meaning-bearing text
 /// and stay out.
-pub const FORMAT_OWNED_RULES: [&str; 13] = [
+pub const FORMAT_OWNED_RULES: [&str; 15] = [
     "braces",
     "brackets",
+    "colons",
     "commas",
     "comments",
     "comments-indentation",
     "document-end",
     "document-start",
     "empty-lines",
+    "hyphens",
     "line-length",
     "new-line-at-end-of-file",
     "new-lines",
@@ -33,11 +35,13 @@ pub const FORMAT_OWNED_RULES: [&str; 13] = [
 const TOML_LADDER: &str = "[lint.rules]
 braces = 'enable'
 brackets = 'enable'
+colons = 'enable'
 commas = 'enable'
 comments-indentation = 'enable'
 document-end = 'enable'
 document-start = 'enable'
 empty-lines = 'enable'
+hyphens = 'enable'
 new-line-at-end-of-file = 'enable'
 new-lines = 'enable'
 trailing-spaces = 'enable'

@@ -8,6 +8,7 @@ use crate::config::{SourceKind, YamlLintConfig};
 use crate::config_schema::{
     FormatTable, LineEndingTarget, MarkerTarget, QuoteStyleTarget,
 };
+use crate::directives::Directives;
 use crate::fix::{
     FIX_PIPELINE_MAX_PASSES, NewlinePolicy, Passes, region_prefix, run_passes,
     suppressed_rules,
@@ -16,19 +17,21 @@ use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
 use crate::rules::braces::Forbid;
 use crate::rules::{
-    braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, line_length, new_line_at_end_of_file, new_lines,
-    quoted_strings, trailing_spaces,
+    braces, brackets, colons, commas, comments, comments_indentation, document_end,
+    document_start, empty_lines, hyphens, line_length, new_line_at_end_of_file,
+    new_lines, quoted_strings, trailing_spaces,
 };
 
 /// The rules `ryl format` applies, whatever the lint config enables.
-pub const FORMAT_RULE_IDS: [&str; 13] = [
+pub const FORMAT_RULE_IDS: [&str; 15] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
     commas::ID,
     braces::ID,
     brackets::ID,
+    colons::ID,
+    hyphens::ID,
     new_line_at_end_of_file::ID,
     quoted_strings::ID,
     trailing_spaces::ID,
@@ -41,7 +44,7 @@ pub const FORMAT_RULE_IDS: [&str; 13] = [
 /// Formatter output for [`conflicts`] to lint: one instance of each target's concern.
 const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
-    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\n\n\nlast: 1\n";
+    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\n\n\nlast: 1\n";
 
 impl Passes<'static> {
     fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
@@ -79,6 +82,8 @@ impl Passes<'static> {
                 -1,
                 -1,
             )),
+            colons: on(colons::ID).then_some(colons::Config::format()),
+            hyphens: on(hyphens::ID).then_some(hyphens::Config::format()),
             final_newline: on(new_line_at_end_of_file::ID).then(|| {
                 NewlinePolicy::Configured(
                     new_lines::expected_newline(
@@ -241,6 +246,32 @@ fn lines_changed_by(
         .collect()
 }
 
+/// Each `colons` and `hyphens` finding `ryl format` leaves in `content`, with why.
+pub(crate) fn unfixed(content: &str) -> Vec<LintProblem> {
+    let directives = Directives::parse(content);
+    let colons = colons::unfixed(content, &colons::Config::format())
+        .into_iter()
+        .map(|hit| (colons::ID, hit.line, hit.column, hit.message));
+    let hyphens = hyphens::unfixed(content, &hyphens::Config::format())
+        .into_iter()
+        .map(|hit| (hyphens::ID, hit.line, hit.column, hit.message));
+    let mut problems: Vec<LintProblem> = colons
+        .chain(hyphens)
+        .filter(|&(rule, line, ..)| !directives.is_disabled(rule, line))
+        .map(|(rule, line, column, message)| LintProblem {
+            line,
+            column,
+            level: Severity::Error,
+            message: format!(
+                "{message}; respacing would re-indent the block collection after it"
+            ),
+            rule: Some(rule),
+        })
+        .collect();
+    problems.sort_by_key(|problem| (problem.line, problem.column));
+    problems
+}
+
 fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
     let mut problems = Vec::new();
     macro_rules! report {
@@ -286,6 +317,8 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
     report!(commas);
     report!(braces);
     report!(brackets);
+    report!(colons);
+    report!(hyphens);
     report!(
         new_line_at_end_of_file,
         passes

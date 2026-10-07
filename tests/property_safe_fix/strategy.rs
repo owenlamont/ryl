@@ -3,9 +3,9 @@
 use proptest::prelude::*;
 
 use super::ast::{
-    BlockBodyLine, BlockEntry, BlockScalarSpec, Document, FlowStyle, InlineComment,
-    MultilineLine, MultilinePlainSpec, MultilineQuoteStyle, MultilineQuotedSpec,
-    NewlineStyle, Node, Scalar,
+    BlockBodyLine, BlockEntry, BlockScalarSpec, ColonGap, Document, FlowStyle,
+    InlineComment, MultilineLine, MultilinePlainSpec, MultilineQuoteStyle,
+    MultilineQuotedSpec, NewlineStyle, Node, Scalar, SeqBody, SeqItem,
 };
 
 fn arb_plain_identifier() -> impl Strategy<Value = String> {
@@ -113,21 +113,55 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
 }
 
 fn arb_flow_style() -> impl Strategy<Value = FlowStyle> {
-    (0u8..=2, 0u8..=2, 0u8..=2, any::<bool>()).prop_map(
+    (0u8..=2, 0u8..=2, 0u8..=2, 0u8..=2, 0u8..=2).prop_map(
         |(
             inner_padding,
             spaces_before_comma,
             spaces_after_comma,
-            space_after_colon,
+            spaces_before_colon,
+            spaces_after_colon,
         )| {
             FlowStyle {
                 inner_padding,
                 spaces_before_comma,
                 spaces_after_comma,
-                space_after_colon,
+                spaces_before_colon,
+                spaces_after_colon,
             }
         },
     )
+}
+
+fn arb_colon_gap() -> impl Strategy<Value = ColonGap> {
+    prop_oneof![
+        3 => Just(ColonGap::default()),
+        2 => (
+            0u8..=2,
+            0u8..=2,
+            prop::bool::weighted(0.2),
+            prop::option::weighted(0.3, 1u8..=3),
+        )
+            .prop_map(|(extra_before, extra_after, tab, explicit)| ColonGap {
+                extra_before,
+                extra_after,
+                tab,
+                explicit,
+            }),
+    ]
+}
+
+fn arb_seq_item() -> impl Strategy<Value = SeqItem> {
+    let body = prop_oneof![
+        4 => arb_node().prop_map(SeqBody::Inline),
+        1 => arb_block_scalar_spec().prop_map(SeqBody::BlockScalar),
+        1 => arb_multiline_quoted_spec().prop_map(SeqBody::MultilineQuoted),
+        1 => arb_multiline_plain_spec().prop_map(SeqBody::MultilinePlain),
+        1 => prop::collection::vec(arb_nested_entry(), 1..=2).prop_map(SeqBody::TaggedMap),
+        2 => prop::collection::vec(arb_nested_entry(), 1..=3).prop_map(SeqBody::CompactMap),
+        2 => prop::collection::vec((1u8..=3, arb_node()), 1..=3)
+            .prop_map(SeqBody::CompactSeq),
+    ];
+    (1u8..=3, body).prop_map(|(dash_spaces, body)| SeqItem { dash_spaces, body })
 }
 
 fn arb_node() -> impl Strategy<Value = Node> {
@@ -155,6 +189,7 @@ fn arb_top_level_node() -> impl Strategy<Value = Node> {
         3 => arb_block_scalar_spec().prop_map(Node::BlockScalar),
         3 => arb_multiline_quoted_spec().prop_map(Node::MultilineQuoted),
         3 => arb_multiline_plain_spec().prop_map(Node::MultilinePlain),
+        4 => prop::collection::vec(arb_seq_item(), 1..=3).prop_map(Node::BlockSeq),
     ]
 }
 
@@ -250,17 +285,21 @@ fn arb_nested_entry() -> impl Strategy<Value = BlockEntry> {
     (
         arb_leading_comment(),
         prop_oneof![arb_plain_identifier(), "[ab]"],
+        arb_colon_gap(),
         arb_node(),
         prop::option::of(arb_inline_comment()),
     )
-        .prop_map(|(leading_comment, key, value, trailing_inline_comment)| {
-            BlockEntry {
-                leading_comment,
-                key,
-                value,
-                trailing_inline_comment,
-            }
-        })
+        .prop_map(
+            |(leading_comment, key, colon, value, trailing_inline_comment)| {
+                BlockEntry {
+                    leading_comment,
+                    key,
+                    colon,
+                    value,
+                    trailing_inline_comment,
+                }
+            },
+        )
 }
 
 fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
@@ -271,17 +310,21 @@ fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
             1 => arb_bool_spelling(),
             1 => arb_core_int_edge(),
         ],
+        arb_colon_gap(),
         arb_top_level_node(),
         prop::option::of(arb_inline_comment()),
     )
-        .prop_map(|(leading_comment, key, value, trailing_inline_comment)| {
-            BlockEntry {
-                leading_comment,
-                key,
-                value,
-                trailing_inline_comment,
-            }
-        })
+        .prop_map(
+            |(leading_comment, key, colon, value, trailing_inline_comment)| {
+                BlockEntry {
+                    leading_comment,
+                    key,
+                    colon,
+                    value,
+                    trailing_inline_comment,
+                }
+            },
+        )
 }
 
 pub fn arb_document() -> impl Strategy<Value = Document> {

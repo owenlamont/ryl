@@ -28,13 +28,17 @@ misses. Commit only once it is green, and keep any newly-persisted seeds in
 three *soundness* invariants (a safe fix must never change meaning, but need not be
 complete — so it does *not* assert "no diagnostics remain"): idempotence, parse
 preservation (parses to an equal `YamlOwned`), and a leading `# ryl disable` making the
-fix a byte-for-byte no-op. It runs a matrix of named configs — six YAML
+fix a byte-for-byte no-op. It runs a matrix of named configs — eight YAML
 (`yamllint-default`, `best-practice`, `strict-single`, `strict-double`, `consistent`,
-`truthy-title-case`) plus three TOML-backed (`best-practice-toml`, covering ryl-only
+`truthy-title-case`, and `spacing-zero`/`spacing-disabled` for the `colons`/`hyphens`
+tolerances 0 and -1) plus three TOML-backed (`best-practice-toml`, covering ryl-only
 options like `allow-double-quotes-for-escaping`, and two `comments` spacing variants
-exercising `max-spaces-from-content`). Deterministic siblings pin known-dirty /
-production-bug inputs through the same checks (and assert the fixer clears them) so the
-property can't pass vacuously.
+exercising `max-spaces-from-content`). The generator's block entries vary the spacing
+around `:` (including a tab and explicit `?` keys), and `Node::BlockSeq` emits block
+sequences: varied dash spacing, block and multi-line scalars, `- !!map` bodies, and
+compact `- k: v` / `- - a` items, multi-line ones included. Deterministic siblings pin
+known-dirty / production-bug inputs through the same checks (and assert the fixer clears
+them) so the property can't pass vacuously.
 
 When you add a new `FixSafety::Safe` rule:
 
@@ -102,7 +106,7 @@ value preservation, and comment/anchor fidelity. The `format/*` rows run
 `ryl::format::format_str`: `format/default` (an empty `[format]` table),
 `format/quote-double`, and `format/non-defaults` (every non-default `[format]` value). The
 `fix/*` rows prove `ryl check --fix` on the same rules: `apply_safe_fixes` under a config
-enabling only the 12 format-owned safe-fix rules (`FORMAT_OWNED_RULES`, pinned equal to
+enabling only the 14 format-owned safe-fix rules (`FORMAT_OWNED_RULES`, pinned equal to
 `format::FORMAT_RULE_IDS`; `truthy` and `key-ordering` are lint-owned and stay out), one
 per quoted-strings variant plus a TOML row for the ryl-only ladder options.
 
@@ -113,6 +117,9 @@ per quoted-strings variant plus a TOML row for the ryl-only ladder options.
   table, written independently of `quoted-strings`'.
 - Comment fidelity keys each trimmed comment to the data events before it and whether it
   is inline; anchor and alias names must survive in order.
+- Left-alone fidelity: the count of `colons`/`hyphens` `unfixed` sites (compact block
+  collections whose indicator spacing is their indentation) must not change. A pass that
+  re-indents those collections breaks it and must drop the invariant.
 - The generator (`property_format/properties.rs`) adds anchors, aliases, tags,
   escape-bearing quoted scalars and quoted block-mapping keys to the fix-convergence
   stacked documents.
@@ -197,20 +204,12 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   strip and `+` keep exist), so a bare `|`/`>` cannot be annotated without
   switching it to strip or keep, which changes the scalar's trailing newlines
   and resolved value; the choice is the author's intent.
-- `colons` — Collapsing extra space around colons safely needs precise parser
-  context tracking (plain scalars, alias keys, explicit `?`/`:` mappings)
-  equivalent to re-implementing the YAML mapping scanner.
 - `empty-values` — The rule's intent is to force the user to choose between
   `~`, `null`, or restructuring; auto-inserting a literal contradicts the
   rule's purpose and would silently change downstream behaviour.
 - `float-values` — Rewrites such as `0.5 → .5`, `.5 → 0.5`, expanding
   `1e3 → 1000`, or replacing `.nan`/`.inf` all change the scalar's string
   representation and, in tagged or string-typed consumers, its semantic value.
-- `hyphens` — Collapsing trailing spaces after `-` in a block sequence
-  changes the indent of any nested block mapping/sequence that follows on
-  subsequent lines and so can change the parsed structure; the `dash-on-own-line`
-  option is likewise no-fix, since breaking the `-` onto its own line re-indents
-  the mapping body.
 - `indentation` — Re-indenting alters the block-structure boundaries the
   YAML grammar uses to delimit mappings, sequences, and scalars; any
   non-trivial fix risks changing the parsed value.

@@ -27,6 +27,31 @@ const COMMON_SAFE_FIX_RULES_YAML: &str = "rules:
 
 const TRUTHY_DEFAULT: &str = "  truthy: enable\n";
 
+const SPACING_DEFAULT: &str = "  colons: enable\n  hyphens: enable\n";
+
+/// Zero tolerance, where a lint fix stops at the grammar's one space, and every check
+/// disabled, where it fixes nothing.
+const SPACING_VARIANTS: &[(&str, &str)] = &[
+    (
+        "spacing-zero",
+        "  colons:
+    max-spaces-before: 0
+    max-spaces-after: 0
+  hyphens:
+    max-spaces-after: 0
+",
+    ),
+    (
+        "spacing-disabled",
+        "  colons:
+    max-spaces-before: -1
+    max-spaces-after: -1
+  hyphens:
+    max-spaces-after: -1
+",
+    ),
+];
+
 const TRUTHY_TITLE_CASE: &str = "  quoted-strings: enable
   truthy:
     allowed-values: ['True', 'False']
@@ -72,6 +97,8 @@ pub const SAFE_FIX_RULES: &[&str] = &[
     "commas",
     "braces",
     "brackets",
+    "colons",
+    "hyphens",
     "new-line-at-end-of-file",
     "quoted-strings",
     "trailing-spaces",
@@ -90,6 +117,8 @@ comments-indentation = 'enable'
 commas = 'enable'
 braces = 'enable'
 brackets = 'enable'
+colons = 'enable'
+hyphens = 'enable'
 new-line-at-end-of-file = 'enable'
 trailing-spaces = 'enable'
 document-start = 'enable'
@@ -130,8 +159,17 @@ pub struct PreparedConfig {
 static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
     let mut configs: Vec<PreparedConfig> = QUOTED_STRINGS_VARIANTS
         .iter()
-        .map(|(name, suffix)| (*name, format!("{suffix}{TRUTHY_DEFAULT}")))
-        .chain([("truthy-title-case", TRUTHY_TITLE_CASE.to_owned())])
+        .map(|(name, suffix)| {
+            (*name, format!("{suffix}{TRUTHY_DEFAULT}{SPACING_DEFAULT}"))
+        })
+        .chain([(
+            "truthy-title-case",
+            format!("{TRUTHY_TITLE_CASE}{SPACING_DEFAULT}"),
+        )])
+        .chain(SPACING_VARIANTS.iter().map(|(name, spacing)| {
+            let quoted = QUOTED_STRINGS_VARIANTS[1].1;
+            (*name, format!("{quoted}{TRUTHY_DEFAULT}{spacing}"))
+        }))
         .map(|(name, suffix)| {
             let yaml = format!("{COMMON_SAFE_FIX_RULES_YAML}{suffix}");
             let cfg = YamlLintConfig::from_yaml_str(&yaml)

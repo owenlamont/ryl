@@ -203,6 +203,15 @@ The *unused* note in row 1 and the *duplicated* report in row 2 require the matc
 non-default `anchors` options (`forbid-unused-anchors`, `forbid-duplicated-anchors`); the
 colon-in-name parsing divergence the table illustrates is independent of them.
 
+The `colons` rule follows the same reading. It checks the colons the parser sees as
+mapping indicators:
+
+| Input | ryl | yamllint |
+| :--- | :--- | :--- |
+| `&a : v`, `!t : v` | the space before `:` is required: `&a: v` is the scalar `v` anchored `a:` | too many spaces before colon |
+| `*a :  v` | too many spaces after colon | nothing: an alias key exempts both sides |
+| `*a:  v` | a syntax error: `:` is part of the alias name | too many spaces after colon |
+
 **Why ryl differs:** the YAML specification and its reference parser are the
 authority, and PyYAML's narrowing at `:` is non-conformant (see
 [adrienverge/yamllint#686](https://github.com/adrienverge/yamllint/issues/686) and

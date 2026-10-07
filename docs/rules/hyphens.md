@@ -79,9 +79,20 @@ items:
 
 ## Automatic fixing
 
-This rule does not auto-fix. Trim the extra spaces (`max-spaces-after`) or break the
-mapping onto the line below the `-` (`dash-on-own-line`) manually: re-indenting the
-mapping body is a structural change ryl will not make automatically.
+`ryl check --fix` trims the spaces after `-` to `max-spaces-after`, never below one.
+`ryl format` leaves exactly one. Both leave a `-` alone when the block mapping or
+sequence it opens continues on later lines, and `ryl format` reports it: the spaces set
+that collection's indentation, so trimming them alone would re-indent or break it:
+
+```yaml
+-   name: web    # left alone: `port` is aligned under `name`
+    port: 80
+-   - a          # left alone
+    - b
+```
+
+`dash-on-own-line` has no automatic fix: breaking the mapping onto the line below the
+`-` re-indents its body.
 
 ## Related rules
 
