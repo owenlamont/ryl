@@ -9,6 +9,12 @@ pub(crate) fn is_magic_first_line_comment(after_hash: &str) -> bool {
         || after_hash.starts_with("cloud-config")
 }
 
+/// Whether line 1, without its break, is such a comment starting at column 1.
+pub(crate) fn is_magic_first_line(line: &str) -> bool {
+    line.strip_prefix('#')
+        .is_some_and(is_magic_first_line_comment)
+}
+
 pub(crate) fn leading_whitespace_width(line: &str) -> usize {
     line.chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))

@@ -10,7 +10,7 @@ use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    buffer_newline, first_line_break, is_magic_first_line_comment, line_contents,
+    buffer_newline, first_line_break, is_magic_first_line, line_contents,
 };
 
 pub const ID: &str = "document-start";
@@ -85,13 +85,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 /// `#cloud-config` that must stay first; else 0.
 fn magic_first_line_len(buffer: &str) -> usize {
     match first_line_break(buffer) {
-        Some((idx, style))
-            if buffer[..idx]
-                .strip_prefix('#')
-                .is_some_and(is_magic_first_line_comment) =>
-        {
-            idx + style.len()
-        }
+        Some((idx, style)) if is_magic_first_line(&buffer[..idx]) => idx + style.len(),
         _ => 0,
     }
 }

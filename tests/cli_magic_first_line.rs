@@ -92,6 +92,25 @@ fn fix_spaces_cloud_config_when_shebangs_are_not_ignored() {
 }
 
 #[test]
+fn magic_first_line_keeps_column_one_before_indented_content() {
+    let config = "extends: default\nrules:\n  indentation: disable\n";
+    for magic in ["#!/usr/bin/env yq", "#cloud-config"] {
+        let input = format!("{magic}\n  a: 1\n");
+        assert_eq!(check_fix(config, &input), format!("{magic}\n---\n  a: 1\n"));
+        let output = check(config, &input);
+        assert!(
+            !output.contains("comments-indentation"),
+            "line 1 is exempt: {output}"
+        );
+    }
+    let output = check(config, "---\na:\n  b: 1\n#cloud-config\n  c: 2\n");
+    assert!(
+        output.contains(":4:1: [warning] comment not indented like content"),
+        "only line 1 is exempt: {output}"
+    );
+}
+
+#[test]
 fn fix_spaces_line_one_shebang_after_content() {
     let config = "extends: default\nrules:\n  document-start: disable\n";
     assert_eq!(check_fix(config, "a: 1  #!x\n"), "a: 1  # !x\n");
