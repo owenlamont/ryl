@@ -1,8 +1,8 @@
-//! `[format] sequence-style` / `mapping-style = 'block'` from the collection-style probe
-//! corpus. PyYAML, ruamel, the `yaml` npm package and granit load each row's `expected`
-//! to its input's events, collection style aside; every input left unchanged is one
-//! where one of those parsers reads the block form differently or the rewrite would
-//! lose a comment or a line break.
+//! `[format] sequence-style` / `mapping-style` from the collection-style probe corpus.
+//! PyYAML, ruamel, the `yaml` npm package and granit load each row's `expected` to its
+//! input's events, collection style aside; every input left unchanged is one where one
+//! of those parsers reads the other style differently, or the rewrite would lose a
+//! comment or a line break or, under `flow`, outgrow `line-length`.
 
 use std::fs;
 use std::path::Path;
@@ -353,5 +353,94 @@ fn check_attributes_each_conversion_and_write_mode_reports_refusals() {
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "---\nk:\n  - a\nm:\n  b: 1\nr: [c,  # note\n    d]\n"
+    );
+}
+
+const FLOW: &str = "[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n";
+
+#[test]
+fn leaf_block_collections_become_flow() {
+    for (toml, input, expected) in [
+        (
+            FLOW,
+            "x: &x v\nk:\n  - a\n  - \"b\"\n  - *x\nm:\n  a: 1\n  \"b\": c\n",
+            "x: &x v\nk: [a, \"b\", *x]\nm: {a: 1, \"b\": c}\n",
+        ),
+        (FLOW, "k: &x !!seq\n  - a\n", "k: &x !!seq [a]\n"),
+        (
+            FLOW,
+            "- - a\n  - -1\n- c: 1\n  d: 2\n",
+            "- [a, -1]\n- {c: 1, d: 2}\n",
+        ),
+        (FLOW, "x: &a k\ny:\n  *a : 1\n", "x: &a k\ny: {*a : 1}\n"),
+        (FLOW, "k:\n  ? a\n  : b\n", "k: {a: b}\n"),
+        (
+            FLOW,
+            "k:\n  - &z c\n\n  - !!str 1\n",
+            "k: [&z c, !!str 1]\n",
+        ),
+        (
+            FLOW,
+            "k:\n  - a\n# after\nj: 1\n",
+            "k: [a]\n# after\nj: 1\n",
+        ),
+        (
+            "[format]\nsequence-style = 'flow'\nmapping-style = 'block'\n",
+            "k: {a: [b]}\nj:\n  - x: 1\n",
+            "k:\n  a: [b]\nj:\n  - x: 1\n",
+        ),
+        (
+            "[format]\nsequence-style = 'block'\nmapping-style = 'flow'\n",
+            "k: [a: 1]\n",
+            "k:\n  - {a: 1}\n",
+        ),
+    ] {
+        assert_eq!(restyle(input, toml), expected, "{input:?}");
+    }
+}
+
+#[test]
+fn block_collections_flow_cannot_hold_stay_block() {
+    for input in [
+        "- a\n- b\n",
+        "k:\n  - a,b\n",
+        "k:\n  - c]\n",
+        "k:\n  a{b: 1\n",
+        "k:\n  - a\n  -\n  - b\n",
+        "k:\n  a:\n  b: 2\n",
+        "k:\n  - |\n    text\n",
+        "k:\n  - :b\n",
+        "k:\n  - ?x\n",
+        "k:\n  - a\n    b\n",
+        "k:\n  - [a]\n",
+        "k:  # c\n  - a\n",
+        "k: # c\n  - a\n",
+        "k:\n  - a  # c\n",
+        "? - a\n: b\n",
+    ] {
+        assert_eq!(restyle(input, FLOW), input, "{input:?}");
+    }
+    let long = "key:\n  - aaaa\n  - bbbb\n";
+    let narrow = format!("line-length = 16\n{FLOW}");
+    assert_eq!(restyle(long, &narrow), long);
+    assert_eq!(
+        restyle(long, &format!("line-length = 17\n{FLOW}")),
+        "key: [aaaa, bbbb]\n"
+    );
+}
+
+#[test]
+fn check_reports_a_block_collection_that_would_become_flow() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), FLOW).unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "---\nk:\n  - a\n").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.lines().any(|line| line.contains("3:3")
+            && line.contains("block sequence would become flow")
+            && line.contains("brackets")),
+        "{stderr}"
     );
 }

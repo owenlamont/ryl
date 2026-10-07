@@ -255,3 +255,19 @@ fn each_conflicting_config_file_warns_under_its_own_path() {
         assert!(warnings.iter().any(|w| w.starts_with(&prefix)), "{stderr}");
     }
 }
+
+#[test]
+fn a_forbidden_flow_style_names_the_collection_key() {
+    let toml = "[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n\
+                [lint.rules.brackets]\nforbid = true\n[lint.rules.braces]\nforbid = true\n";
+    let warnings = conflicts(toml, true, &[]);
+    assert_eq!(warnings.len(), 2, "{warnings:#?}");
+    assert!(
+        warnings[0].contains("`[format] mapping-style = \"flow\"`"),
+        "{warnings:#?}"
+    );
+    assert!(
+        warnings[1].contains("`[format] sequence-style = \"flow\"`"),
+        "{warnings:#?}"
+    );
+}

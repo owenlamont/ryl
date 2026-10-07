@@ -3,7 +3,8 @@
     "CollectionStyleTarget": {
       "enum": [
         "preserve",
-        "block"
+        "block",
+        "flow"
       ],
       "type": "string"
     },
