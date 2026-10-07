@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -139,15 +139,18 @@ pub fn resolve_ctx(
             cfg_path,
             mut notices,
         } => {
-            // Keyed by file identity, so a `..` spelling of a loaded config reuses it.
-            let key = std::fs::canonicalize(&cfg_path).unwrap_or(cfg_path.clone());
-            if let Some(entry) = cache.by_config.get(&key) {
+            if let Some(entry) = cache.by_config.get(&cfg_path) {
                 (entry.clone(), notices)
             } else {
                 let ctx = load_project_config(&cfg_path)?;
-                notices.extend(ctx.notices.iter().cloned());
+                // Each spelling keeps its own base dir, but one file warns once.
+                let identity =
+                    std::fs::canonicalize(&cfg_path).unwrap_or(cfg_path.clone());
+                if cache.warned.insert(identity) {
+                    notices.extend(ctx.notices.iter().cloned());
+                }
                 let entry = resolved(ctx, flags);
-                cache.by_config.insert(key, entry.clone());
+                cache.by_config.insert(cfg_path, entry.clone());
                 (entry, notices)
             }
         }
@@ -161,11 +164,13 @@ pub fn resolve_ctx(
 }
 
 /// Resolved configs keyed by input directory, and project configs by their file, so
-/// directories sharing one config file share one loaded config.
+/// directories sharing one config file share one loaded config; `warned` holds the config
+/// files whose notices were already reported.
 #[derive(Default)]
 pub struct ConfigCache {
     by_dir: HashMap<PathBuf, ResolvedConfig>,
     by_config: HashMap<PathBuf, ResolvedConfig>,
+    warned: HashSet<PathBuf>,
 }
 
 /// The `--markdown` and `--enable` overrides, applied to every resolved config.

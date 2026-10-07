@@ -540,3 +540,53 @@ fn the_config_file_hint_runs_as_written_for_a_path_with_a_space() {
     assert_eq!(code, 0, "{script}: stdout={stdout} stderr={stderr}");
     assert!(dir.join("lint.toml").exists(), "{script}: {stdout}");
 }
+
+/// Two projects whose `.yamllint` symlinks to one shared file anchored at `/nested/`.
+#[cfg(unix)]
+fn symlinked_projects() -> tempfile::TempDir {
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join("shared.yaml"),
+        "ignore: /nested/skip.yaml\nrules: { trailing-spaces: enable }\n",
+    )
+    .unwrap();
+    for project in ["a", "b"] {
+        let nested = td.path().join(project).join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("skip.yaml"), "a: 1 \n").unwrap();
+        std::os::unix::fs::symlink(
+            "../shared.yaml",
+            td.path().join(project).join(".yamllint"),
+        )
+        .unwrap();
+    }
+    td
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_shared_config_anchors_at_each_project() {
+    let td = symlinked_projects();
+    let check = |inputs: &[&str]| {
+        run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .current_dir(td.path())
+            .env("HOME", td.path())
+            .arg("check")
+            .args(inputs))
+    };
+    let (code, stdout, stderr) = check(&["b/nested/skip.yaml"]);
+    assert_eq!(
+        code, 0,
+        "ignored when checked alone: stdout={stdout} stderr={stderr}"
+    );
+    let (code, stdout, stderr) = check(&["a/nested/skip.yaml", "b/nested/skip.yaml"]);
+    assert_eq!(
+        code, 0,
+        "ignored in both projects: stdout={stdout} stderr={stderr}"
+    );
+    assert_eq!(
+        stderr.matches("yamllint YAML config is deprecated").count(),
+        1,
+        "one shared file warns once: {stderr}"
+    );
+}
