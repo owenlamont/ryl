@@ -1,4 +1,7 @@
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
+
+use granit_parser::{Scanner, StrInput, Token, TokenType};
 
 use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate, scan};
 use crate::directives::Directives;
@@ -6,7 +9,6 @@ use crate::rules::hyphens;
 use crate::rules::support::event_compare::{Document, documents};
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
-    strip_trailing_comment_preserving_quotes,
 };
 use crate::rules::support::punctuation::build_line_starts;
 
@@ -195,6 +197,12 @@ fn reshape(
         let chars: Vec<(usize, char)> = buffer.char_indices().collect();
         let line_starts = build_line_starts(&chars);
         let tokens = scan(buffer, &chars, &line_starts);
+        let commented: HashSet<usize> = Scanner::new(StrInput::new(buffer))
+            .map_while(Result::ok)
+            .map(Token::into_parts)
+            .filter(|(_, token)| matches!(token, TokenType::Comment(_)))
+            .map(|(span, _)| locate(&line_starts, span.start.index()).0)
+            .collect();
         for pair in tokens.windows(2) {
             let (entry, start) = (pair[0], pair[1]);
             if entry.kind != Kind::BlockEntry
@@ -205,13 +213,10 @@ fn reshape(
                 continue;
             }
             if own_line && start.line == entry.line {
-                let content = lines[entry.line].0;
-                if strip_trailing_comment_preserving_quotes(content).len()
-                    == content.trim_end().len()
-                {
-                    breaks[entry.line] = Some((entry.column, start.column));
-                } else {
+                if commented.contains(&entry.line) {
                     kept.push((entry.line + 1, entry.column + 1));
+                } else {
+                    breaks[entry.line] = Some((entry.column, start.column));
                 }
             } else if !own_line
                 && start.line == entry.line + 1
