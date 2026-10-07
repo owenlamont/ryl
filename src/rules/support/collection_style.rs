@@ -1,5 +1,6 @@
 //! `ryl format`'s `[format] sequence-style` and `mapping-style`: flow collections
-//! rewritten in block style, each entry's text copied as written.
+//! rewritten in block style and leaf block ones in flow style, each entry's text copied
+//! as written.
 
 use granit_parser::{Event, Parser, ScalarStyle, StructureStyle};
 
@@ -17,15 +18,17 @@ pub struct Config {
     pub sequences: CollectionStyleTarget,
     pub mappings: CollectionStyleTarget,
     pub indent: u8,
+    pub width: u16,
 }
 
-/// A flow collection the pass rewrites, or leaves alone for `refused`.
+/// A collection the pass rewrites, or leaves alone for `refused`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub line: usize,
     pub column: usize,
     pub rule: &'static str,
     pub refused: Option<&'static str>,
+    pub to_flow: bool,
 }
 
 impl Finding {
@@ -36,12 +39,17 @@ impl Finding {
         } else {
             "sequence"
         };
+        let (from, to) = if self.to_flow {
+            ("block", "flow")
+        } else {
+            ("flow", "block")
+        };
         LintProblem {
             line: self.line,
             column: self.column,
             level: Severity::Error,
             message: self.refused.map_or_else(
-                || format!("flow {kind} would become block"),
+                || format!("{from} {kind} would become {to}"),
                 |reason| format!("cannot convert to block safely: {reason}"),
             ),
             rule: Some(self.rule),
@@ -74,31 +82,23 @@ type Edit = (BytePos, BytePos, String);
 
 fn plan(buffer: &str, cfg: Config) -> (Vec<Edit>, Vec<Finding>) {
     let directives = Directives::parse(buffer);
-    let to_block = |target, rule| {
-        target == CollectionStyleTarget::Block
-            && !directives.disables_any(rule)
-            && !disables_file(buffer)
+    let style = |target, rule| {
+        (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)
     };
     let restyler = Restyler {
         buffer,
         nodes: tree(buffer),
-        sequences: to_block(cfg.sequences, brackets::ID),
-        mappings: to_block(cfg.mappings, braces::ID),
+        comments: comments(buffer),
+        sequences: style(cfg.sequences, brackets::ID),
+        mappings: style(cfg.mappings, braces::ID),
         indent: usize::from(cfg.indent),
+        width: usize::from(cfg.width),
         newline: buffer_newline(buffer),
     };
     let mut edits = Vec::new();
     let mut findings = Vec::new();
     for (index, node) in restyler.nodes.iter().enumerate() {
-        if !restyler.converts(index)
-            || node
-                .parent
-                .is_some_and(|parent| restyler.nodes[parent].flow)
-        {
-            continue;
-        }
-        let outcome = restyler.outermost(index);
-        findings.push(Finding {
+        let finding = |refused, to_flow| Finding {
             line: node.line,
             column: node.column + 1,
             rule: if node.kind == Kind::Mapping {
@@ -106,8 +106,22 @@ fn plan(buffer: &str, cfg: Config) -> (Vec<Edit>, Vec<Finding>) {
             } else {
                 brackets::ID
             },
-            refused: outcome.as_ref().err().copied(),
-        });
+            refused,
+            to_flow,
+        };
+        if let Some(edit) = restyler.flowed(index) {
+            findings.push(finding(None, true));
+            edits.push(edit);
+        }
+        if !restyler.to_block(index)
+            || node
+                .parent
+                .is_some_and(|parent| restyler.nodes[parent].flow)
+        {
+            continue;
+        }
+        let outcome = restyler.outermost(index);
+        findings.push(finding(outcome.as_ref().err().copied(), false));
         edits.extend(outcome.ok());
     }
     (edits, findings)
@@ -115,7 +129,7 @@ fn plan(buffer: &str, cfg: Config) -> (Vec<Edit>, Vec<Finding>) {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    Scalar { plain: bool },
+    Scalar(ScalarStyle),
     Alias,
     Sequence,
     Mapping,
@@ -133,7 +147,6 @@ struct Node {
     column: usize,
     parent: Option<usize>,
     children: Vec<usize>,
-    comment: bool,
 }
 
 fn tree(buffer: &str) -> Vec<Node> {
@@ -145,12 +158,7 @@ fn tree(buffer: &str) -> Vec<Node> {
             marker_byte_offset(span.end).get(),
         );
         let (kind, flow) = match event {
-            Event::Scalar(_, style, ..) => (
-                Kind::Scalar {
-                    plain: style == ScalarStyle::Plain,
-                },
-                false,
-            ),
+            Event::Scalar(_, style, ..) => (Kind::Scalar(style), false),
             Event::Alias(_) => (Kind::Alias, false),
             Event::SequenceStart(style, ..) => {
                 (Kind::Sequence, style == StructureStyle::Flow)
@@ -167,16 +175,6 @@ fn tree(buffer: &str) -> Vec<Node> {
                 } else {
                     last.unwrap_or(node.start)
                 };
-                let comment = node.comment;
-                if let Some(&parent) = open.last() {
-                    nodes[parent].comment |= comment;
-                }
-                continue;
-            }
-            Event::Comment(..) => {
-                if let Some(&index) = open.last() {
-                    nodes[index].comment = true;
-                }
                 continue;
             }
             _ => continue,
@@ -196,7 +194,6 @@ fn tree(buffer: &str) -> Vec<Node> {
             column: span.start.col(),
             parent,
             children: Vec::new(),
-            comment: false,
         });
         if matches!(kind, Kind::Sequence | Kind::Mapping) {
             open.push(index);
@@ -205,43 +202,162 @@ fn tree(buffer: &str) -> Vec<Node> {
     nodes
 }
 
+/// The byte span of each comment in `buffer`.
+fn comments(buffer: &str) -> Vec<(usize, usize)> {
+    Parser::new_from_str(buffer)
+        .map_while(Result::ok)
+        .filter(|(event, _)| matches!(event, Event::Comment(..)))
+        .map(|(_, span)| {
+            (
+                marker_byte_offset(span.start).get(),
+                marker_byte_offset(span.end).get(),
+            )
+        })
+        .collect()
+}
+
 fn is_space(ch: char) -> bool {
     matches!(ch, ' ' | '\t' | '\n' | '\r')
+}
+
+/// Whether `text` has a `-`, `?` or `:` indicator followed by more than one space, which
+/// `hyphens` and `colons` leave alone only while the entry after it spans lines.
+fn widened_indicator(text: &str) -> bool {
+    text.match_indices(['-', '?', ':']).any(|(at, _)| {
+        text[at + 1..].starts_with("  ") && (at == 0 || text[..at].ends_with(' '))
+    })
 }
 
 struct Restyler<'a> {
     buffer: &'a str,
     nodes: Vec<Node>,
-    sequences: bool,
-    mappings: bool,
+    comments: Vec<(usize, usize)>,
+    sequences: Option<CollectionStyleTarget>,
+    mappings: Option<CollectionStyleTarget>,
     indent: usize,
+    width: usize,
     newline: &'static str,
 }
 
 impl Restyler<'_> {
-    fn converts(&self, index: usize) -> bool {
+    fn target(&self, kind: Kind) -> Option<CollectionStyleTarget> {
+        if kind == Kind::Sequence {
+            self.sequences
+        } else {
+            self.mappings
+        }
+    }
+
+    fn to_block(&self, index: usize) -> bool {
         let node = &self.nodes[index];
         node.braced
             && !node.children.is_empty()
-            && match node.kind {
-                Kind::Sequence => self.sequences,
-                _ => self.mappings,
+            && self.target(node.kind) == Some(CollectionStyleTarget::Block)
+    }
+
+    fn is_key(&self, index: usize) -> bool {
+        self.nodes[index].parent.is_some_and(|parent| {
+            self.nodes[parent].kind == Kind::Mapping
+                && self.nodes[parent]
+                    .children
+                    .iter()
+                    .position(|&child| child == index)
+                    .expect("a node is among its parent's children")
+                    % 2
+                    == 0
+        })
+    }
+
+    fn has_comment(&self, from: usize, to: usize) -> bool {
+        self.comments
+            .iter()
+            .any(|(start, _)| (from..to).contains(start))
+    }
+
+    /// The edit rewriting leaf block collection `index` in flow style, if it holds no
+    /// comment, fits on its owner's line, and every entry reads the same in flow context.
+    fn flowed(&self, index: usize) -> Option<Edit> {
+        let node = &self.nodes[index];
+        if node.flow
+            || node.parent.is_none()
+            || self.target(node.kind) != Some(CollectionStyleTarget::Flow)
+            || self.is_key(index)
+        {
+            return None;
+        }
+        let last = self.nodes[*node.children.last()?].end;
+        let line_end = self.buffer[last..]
+            .find(['\n', '\r'])
+            .map_or(self.buffer.len(), |at| last + at);
+        let start = self.buffer[..node.start].trim_end_matches(is_space).len();
+        if self.has_comment(start, line_end)
+            || self.comments.iter().any(|(_, end)| *end == start)
+        {
+            return None;
+        }
+        let mut pos = node.start;
+        let mut entries = Vec::new();
+        if node.kind == Kind::Sequence {
+            for &child in &node.children {
+                entries.push(self.flow_entry(child, pos)?.to_string());
+                pos = self.nodes[child].end;
             }
+        } else {
+            for &[key, value] in node.children.as_chunks::<2>().0 {
+                let key_text = self.flow_entry(key, pos)?;
+                let colon = self.skip_space(self.nodes[key].end);
+                let value_text = self.flow_entry(value, colon + 1)?;
+                let separator = if self.nodes[key].kind == Kind::Alias {
+                    " :"
+                } else {
+                    ":"
+                };
+                entries.push(format!("{key_text}{separator} {value_text}"));
+                pos = self.nodes[value].end;
+            }
+        }
+        let (open, close) = if node.kind == Kind::Sequence {
+            ('[', ']')
+        } else {
+            ('{', '}')
+        };
+        let text = format!(" {open}{}{close}", entries.join(", "));
+        let line_start = self.buffer[..start]
+            .rfind(['\n', '\r'])
+            .map_or(0, |at| at + 1);
+        let width =
+            self.buffer[line_start..start].chars().count() + text.chars().count();
+        let owner = self.buffer[line_start..].split(['\n', '\r']).next();
+        (width <= self.width && !owner.is_some_and(widened_indicator)).then_some((
+            BytePos::new(start),
+            BytePos::new(last),
+            text,
+        ))
+    }
+
+    /// Entry `index`'s text from byte `pos`, if it reads the same in flow context: an
+    /// alias, a quoted scalar, or a one-line plain one with no flow indicator and no
+    /// leading `:` or `?`.
+    fn flow_entry(&self, index: usize, pos: usize) -> Option<&str> {
+        let node = &self.nodes[index];
+        let written = &self.buffer[node.start..node.end];
+        let fits = match node.kind {
+            Kind::Scalar(ScalarStyle::Plain) => {
+                !written.is_empty()
+                    && !written.contains([',', '[', ']', '{', '}'])
+                    && !written.starts_with([':', '?'])
+            }
+            Kind::Scalar(ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
+            | Kind::Alias => true,
+            _ => false,
+        };
+        fits.then(|| self.text(pos, node.end).ok()).flatten()
     }
 
     /// The edit rewriting collection `index`, whose parent is block or the document.
     fn outermost(&self, index: usize) -> Result<Edit, &'static str> {
         let node = &self.nodes[index];
-        if let Some(parent) = node.parent
-            && self.nodes[parent].kind == Kind::Mapping
-            && self.nodes[parent]
-                .children
-                .iter()
-                .position(|&child| child == index)
-                .expect("a node is among its parent's children")
-                % 2
-                == 0
-        {
+        if self.is_key(index) {
             return Err("it is a mapping key");
         }
         let line_start = self.buffer[..node.start]
@@ -277,9 +393,7 @@ impl Restyler<'_> {
         } else {
             prefix
         };
-        if outer.match_indices(['-', '?', ':']).any(|(at, _)| {
-            outer[at + 1..].starts_with("  ") && (at == 0 || outer[..at].ends_with(' '))
-        }) {
+        if widened_indicator(outer) {
             return Err("an indicator before it has extra spaces");
         }
         if compact {
@@ -317,7 +431,7 @@ impl Restyler<'_> {
         col: usize,
     ) -> Result<String, &'static str> {
         let node = &self.nodes[index];
-        if node.comment {
+        if self.has_comment(node.start, node.end) {
             return Err("it holds a comment");
         }
         let mut lines = Vec::new();
@@ -341,7 +455,7 @@ impl Restyler<'_> {
                 }
                 let colon = self.skip_space(key.end);
                 let has_colon = self.buffer[colon..].starts_with(':');
-                if key.kind == (Kind::Scalar { plain: true })
+                if key.kind == Kind::Scalar(ScalarStyle::Plain)
                     && has_colon
                     && !self.buffer[colon + 1..].starts_with(is_space)
                 {
@@ -368,7 +482,7 @@ impl Restyler<'_> {
         if node.flow && !node.braced {
             return self.block(index, pos, col);
         }
-        if !self.converts(index) {
+        if !self.to_block(index) {
             return self.copy(index, pos).map(str::to_string);
         }
         let properties = self.text(pos, node.start)?;
@@ -388,7 +502,7 @@ impl Restyler<'_> {
         col: usize,
     ) -> Result<String, &'static str> {
         let node = &self.nodes[index];
-        if !self.converts(index) {
+        if !self.to_block(index) {
             let text = self.copy(index, pos)?;
             return Ok(if text.is_empty() {
                 String::new()
@@ -410,7 +524,7 @@ impl Restyler<'_> {
     /// Node `index`'s text from byte `pos`; `PyYAML` reads a plain `?x` in flow as a key.
     fn copy(&self, index: usize, pos: usize) -> Result<&str, &'static str> {
         let node = &self.nodes[index];
-        if node.kind == (Kind::Scalar { plain: true })
+        if node.kind == Kind::Scalar(ScalarStyle::Plain)
             && self.buffer[node.start..].starts_with('?')
         {
             return Err("an entry starts with `?`");
@@ -418,10 +532,11 @@ impl Restyler<'_> {
         self.text(pos, node.end)
     }
 
+    /// The text from byte `from` to `to` without its `?` or `-` indicator.
     fn text(&self, from: usize, to: usize) -> Result<&str, &'static str> {
         let written = self.buffer[from..to.max(from)].trim_matches(is_space);
         let text = written
-            .strip_prefix('?')
+            .strip_prefix(['?', '-'])
             .filter(|rest| rest.starts_with(is_space))
             .map_or(written, |rest| rest.trim_start_matches(is_space));
         if text.contains(['\n', '\r']) {

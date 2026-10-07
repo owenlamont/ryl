@@ -182,6 +182,11 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
                 "indent-width = 4\n[format]\nmapping-style = 'block'\n",
                 format,
             ),
+            toml_pass(
+                "format/both-flow",
+                "line-length = 30\n[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n",
+                format,
+            ),
         ])
         .collect()
 });

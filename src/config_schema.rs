@@ -155,6 +155,7 @@ pub enum MarkerTarget {
 pub enum CollectionStyleTarget {
     Preserve,
     Block,
+    Flow,
 }
 
 pub type TomlRulesTable = RulesTable<

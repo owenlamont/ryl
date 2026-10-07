@@ -154,6 +154,7 @@ fn collection_style_config(
         sequences: style(table.sequence_style, brackets::ID),
         mappings: style(table.mapping_style, braces::ID),
         indent: indent_width(cfg),
+        width: line_length(cfg),
     }
 }
 
@@ -496,6 +497,12 @@ fn target(rule: &str, table: &FormatTable) -> Option<String> {
         document_start::ID if table.document_start == MarkerTarget::Preserve => None,
         document_end::ID if table.document_end == MarkerTarget::Preserve => None,
         line_length::ID => return None,
+        braces::ID if table.mapping_style == CollectionStyleTarget::Flow => {
+            Some("mapping-style")
+        }
+        brackets::ID if table.sequence_style == CollectionStyleTarget::Flow => {
+            Some("sequence-style")
+        }
         quoted_strings::ID => Some("quote-style"),
         new_lines::ID => Some("line-ending"),
         braces::ID => Some("brace-spacing"),

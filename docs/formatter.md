@@ -76,8 +76,8 @@ mapping-style = "preserve"
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
 | `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
-| `sequence-style` | `"preserve"` | `"preserve"`, `"block"` | Collection style for sequences. See [Collection style](#collection-style). |
-| `mapping-style` | `"preserve"` | `"preserve"`, `"block"` | Collection style for mappings. See [Collection style](#collection-style). |
+| `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
+| `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
@@ -145,6 +145,12 @@ metadata:
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style
 stays as written, and `ryl format` says why on stderr.
+
+With `"flow"`, a block collection of scalars and aliases that is not the document root
+becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
+line fits `line-length`. Block scalars, multi-line or empty entries, and plain scalars
+holding `,[]{}` or starting with `:` or `?` keep it block. Flow collections already
+written are left alone, even long ones.
 
 ## Quote style
 
