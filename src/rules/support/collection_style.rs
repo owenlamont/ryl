@@ -310,7 +310,7 @@ impl Restyler<'_> {
                 if key.start == key.end {
                     return Err("a key is empty");
                 }
-                let key_text = self.text(pos, key.end)?;
+                let key_text = self.copy(pair[0], pos)?;
                 if key_text.chars().count() > 1024 {
                     return Err("a key is longer than 1024 characters");
                 }
@@ -344,7 +344,7 @@ impl Restyler<'_> {
             return self.block(index, pos, col);
         }
         if !self.converts(index) {
-            return self.text(pos, node.end).map(str::to_string);
+            return self.copy(index, pos).map(str::to_string);
         }
         let properties = self.text(pos, node.start)?;
         let body = self.block(index, node.start + 1, col)?;
@@ -364,7 +364,7 @@ impl Restyler<'_> {
     ) -> Result<String, &'static str> {
         let node = &self.nodes[index];
         if !self.converts(index) {
-            let text = self.text(pos, node.end)?;
+            let text = self.copy(index, pos)?;
             return Ok(if text.is_empty() {
                 String::new()
             } else {
@@ -382,6 +382,17 @@ impl Restyler<'_> {
         Ok(format!("{properties}{}{body}", self.break_to(inner)))
     }
 
+    /// Node `index`'s text from byte `pos`; `PyYAML` reads a plain `?x` in flow as a key.
+    fn copy(&self, index: usize, pos: usize) -> Result<&str, &'static str> {
+        let node = &self.nodes[index];
+        if node.kind == (Kind::Scalar { plain: true })
+            && self.buffer[node.start..].starts_with('?')
+        {
+            return Err("an entry starts with `?`");
+        }
+        self.text(pos, node.end)
+    }
+
     fn text(&self, from: usize, to: usize) -> Result<&str, &'static str> {
         let written = self.buffer[from..to.max(from)].trim_matches(is_space);
         let text = written
@@ -390,9 +401,6 @@ impl Restyler<'_> {
             .map_or(written, |rest| rest.trim_start_matches(is_space));
         if text.contains(['\n', '\r']) {
             return Err("an entry spans lines");
-        }
-        if text.starts_with('?') {
-            return Err("an entry starts with `?`");
         }
         Ok(text)
     }

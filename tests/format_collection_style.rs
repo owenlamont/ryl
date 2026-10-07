@@ -228,6 +228,8 @@ fn unsafe_collections_stay_flow_with_the_reason() {
         ("k: {a:, b: 2}\n", "a plain key's `:` has no space after it"),
         ("[?x, -y]\n", "an entry starts with `?`"),
         ("k: {?x: 1}\n", "an entry starts with `?`"),
+        ("k: [&x ?y]\n", "an entry starts with `?`"),
+        ("k: {a: !!str ?y}\n", "an entry starts with `?`"),
         ("k: {a: \"x\n  y\"}\n", "an entry spans lines"),
         ("k: [{a: \"x\n  y\"}]\n", "an entry spans lines"),
         ("k: {a: {b: \"x\n  y\"}}\n", "an entry spans lines"),
