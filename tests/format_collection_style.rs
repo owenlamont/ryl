@@ -352,6 +352,6 @@ fn check_attributes_each_conversion_and_write_mode_reports_refusals() {
     );
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        "---\nk:\n  - a\nm:\n  b: 1\nr: [c,  # note\n  d]\n"
+        "---\nk:\n  - a\nm:\n  b: 1\nr: [c,  # note\n    d]\n"
     );
 }
