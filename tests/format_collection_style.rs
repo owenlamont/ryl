@@ -233,7 +233,7 @@ fn unsafe_collections_stay_flow_with_the_reason() {
         ("[?x, -y]\n", "an entry starts with `?`"),
         ("k: {?x: 1}\n", "an entry starts with `?`"),
         ("k: [&x ?y]\n", "an entry starts with `?`"),
-        ("-  a: [x]\n", "a dash before it has extra spaces"),
+        ("-  a: [x]\n", "an indicator before it has extra spaces"),
         (
             "- [a]  # c\n",
             "a trailing comment has no key line to move to",
@@ -250,8 +250,15 @@ fn unsafe_collections_stay_flow_with_the_reason() {
             "k: [a,\n  b]  # c\n",
             "a trailing comment has no key line to move to",
         ),
-        ("k:\n  -  a: [x]\n", "a dash before it has extra spaces"),
-        ("-  - [a]\n", "a dash before it has extra spaces"),
+        (
+            "k:\n  -  a: [x]\n",
+            "an indicator before it has extra spaces",
+        ),
+        ("-  - [a]\n", "an indicator before it has extra spaces"),
+        (
+            "? a\n:  b: [x]\n",
+            "an indicator before it has extra spaces",
+        ),
         ("k: {a: !!str ?y}\n", "an entry starts with `?`"),
         ("k: {a: \"x\n  y\"}\n", "an entry spans lines"),
         ("k: [{a: \"x\n  y\"}]\n", "an entry spans lines"),

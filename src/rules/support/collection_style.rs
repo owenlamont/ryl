@@ -277,11 +277,10 @@ impl Restyler<'_> {
         } else {
             prefix
         };
-        if outer
-            .match_indices("-  ")
-            .any(|(at, _)| at == 0 || outer[..at].ends_with(' '))
-        {
-            return Err("a dash before it has extra spaces");
+        if outer.match_indices(['-', '?', ':']).any(|(at, _)| {
+            outer[at + 1..].starts_with("  ") && (at == 0 || outer[..at].ends_with(' '))
+        }) {
+            return Err("an indicator before it has extra spaces");
         }
         if compact {
             let (start, col, gap) = if dashes.is_empty() {
