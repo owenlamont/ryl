@@ -199,6 +199,13 @@ fn build_lines(buffer: &str) -> Vec<LineInfo> {
         .collect();
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, kind) = token.into_parts();
+        // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
+        // line content again, as yamllint indents by each token's start line.
+        if let Some(line) = lines.get_mut(span.start.line() - 1)
+            && line.kind == LineKind::ScalarBody
+        {
+            line.kind = LineKind::Other;
+        }
         let TokenType::Scalar(style, _) = kind else {
             continue;
         };

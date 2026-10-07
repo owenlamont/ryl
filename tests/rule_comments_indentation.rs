@@ -434,6 +434,32 @@ fn scalar_continuation_lines_are_not_content() {
 }
 
 #[test]
+fn flow_syntax_after_a_quoted_scalar_keeps_its_line_as_content() {
+    for (scalar, rest) in [("'x", "y']"), ("\"x", "y\"]"), ("'x", "y', z]")] {
+        for newline in ["\n", "\r\n"] {
+            let doc = |comment_indent: usize| {
+                [
+                    "a:".to_string(),
+                    format!("  b: [{scalar}"),
+                    format!("        {rest}"),
+                    format!("{}# c", " ".repeat(comment_indent)),
+                    "c: 1".to_string(),
+                    String::new(),
+                ]
+                .join(newline)
+            };
+            assert_eq!(run(&doc(8)), vec![], "{:?}", doc(8));
+            assert_eq!(
+                run(&doc(2)),
+                vec![Violation { line: 4, column: 3 }],
+                "{:?}",
+                doc(2)
+            );
+        }
+    }
+}
+
+#[test]
 fn line_after_a_block_scalar_is_content() {
     let input = "- key: |\n    a\n  next: 1\n  # c\n- z\n";
     assert_eq!(
