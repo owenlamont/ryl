@@ -29,7 +29,7 @@ max-spaces-from-content = -1
 | Option | Default | Description |
 | :--- | :--- | :--- |
 | `require-starting-space` | `true` | Require at least one space between `#` and the comment text. |
-| `ignore-shebangs` | `true` | Skip `#!` shebang lines when `require-starting-space` is on. |
+| `ignore-shebangs` | `true` | Skip a line-1 `#!` shebang or `#cloud-config` header when `require-starting-space` is on. yamllint skips only the shebang. |
 | `min-spaces-from-content` | `2` | Minimum spaces between code and an inline `#` comment. Use `-1` to disable. |
 | `max-spaces-from-content` | `-1` | Maximum spaces between code and an inline `#` comment; `-1` (the default) disables it. Must be at least 1 and at least `min-spaces-from-content`. TOML only. |
 

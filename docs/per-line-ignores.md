@@ -10,8 +10,9 @@ machine-managed markers that legitimately break a rule everywhere they appear.
 
 Two common cases:
 
-- `#cloud-config` directives must keep their exact spelling, so they trip
-  [`comments`](rules/comments.md) (`require-starting-space`).
+- `#cloud-config` directives must keep their exact spelling, so below line 1 (under a
+  `## template: jinja` header) they trip [`comments`](rules/comments.md)
+  (`require-starting-space`).
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](rules/line-length.md).
 

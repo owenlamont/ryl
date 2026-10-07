@@ -65,6 +65,9 @@ it only runs when
 - a leading UTF-8 BOM, if any, stays at byte 0 with the new `---`
   inserted after it.
 
+A line-1 `#!` shebang or cloud-init `#cloud-config` header stays first, with the
+`---` inserted after it, since the interpreter or cloud-init reads it from byte 0.
+
 Multi-document streams and files with directives are left for manual
 intervention, because the correct marker placement there depends on
 context the rule does not record. The `present: false` case (removing

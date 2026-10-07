@@ -1449,8 +1449,9 @@ machine-managed markers that legitimately break a rule everywhere they appear.
 
 Two common cases:
 
-- `#cloud-config` directives must keep their exact spelling, so they trip
-  [`comments`](https://ryl-docs.pages.dev/rules/comments/) (`require-starting-space`).
+- `#cloud-config` directives must keep their exact spelling, so below line 1 (under a
+  `## template: jinja` header) they trip [`comments`](https://ryl-docs.pages.dev/rules/comments/)
+  (`require-starting-space`).
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](https://ryl-docs.pages.dev/rules/line-length/).
 
@@ -3429,7 +3430,7 @@ max-spaces-from-content = -1
 | Option | Default | Description |
 | :--- | :--- | :--- |
 | `require-starting-space` | `true` | Require at least one space between `#` and the comment text. |
-| `ignore-shebangs` | `true` | Skip `#!` shebang lines when `require-starting-space` is on. |
+| `ignore-shebangs` | `true` | Skip a line-1 `#!` shebang or `#cloud-config` header when `require-starting-space` is on. yamllint skips only the shebang. |
 | `min-spaces-from-content` | `2` | Minimum spaces between code and an inline `#` comment. Use `-1` to disable. |
 | `max-spaces-from-content` | `-1` | Maximum spaces between code and an inline `#` comment; `-1` (the default) disables it. Must be at least 1 and at least `min-spaces-from-content`. TOML only. |
 
@@ -3658,6 +3659,9 @@ it only runs when
   with a `%YAML`/`%TAG` directive, and
 - a leading UTF-8 BOM, if any, stays at byte 0 with the new `---`
   inserted after it.
+
+A line-1 `#!` shebang or cloud-init `#cloud-config` header stays first, with the
+`---` inserted after it, since the interpreter or cloud-init reads it from byte 0.
 
 Multi-document streams and files with directives are left for manual
 intervention, because the correct marker placement there depends on
