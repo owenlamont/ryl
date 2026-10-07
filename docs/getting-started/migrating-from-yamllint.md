@@ -61,7 +61,7 @@ Useful flags:
 | :--- | :--- |
 | `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` |
-| `--migrate-root <DIR>` | Project search root (defaults to `.`) |
+| `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |
 | `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
@@ -72,6 +72,10 @@ The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 (`--migrate-configs`, `--migrate-user-config`, or both) is set; `--migrate-root`
 applies to project migration only. Migration takes no positional paths: `ryl
 --migrate-configs sub/` exits 2, so scope it with `--migrate-root sub/` instead.
+
+A config passed to `-c` under any other name migrates by naming the file:
+`--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes
+in its place. Only an existing `ci/lint.toml` blocks that migration.
 
 Migration never overwrites or deletes through surprises: it skips (with a
 warning, leaving the source untouched) any config whose target directory already

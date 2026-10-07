@@ -211,3 +211,9 @@ fn extend_relative_entry_uses_base_directory() {
     .expect("relative extends should resolve using config directory");
     assert!(ctx.config.rule_names().iter().any(|r| r == "hyphens"));
 }
+
+#[test]
+fn extends_empty_preset_enables_no_rules() {
+    let cfg = YamlLintConfig::from_yaml_str("extends: empty\n").expect("empty preset");
+    assert!(!cfg.enables_any_rule());
+}

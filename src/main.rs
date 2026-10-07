@@ -143,7 +143,7 @@ fn run_output_config(
 fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     if !cli.lint_args.source.inputs.is_empty() {
         return Err(
-            "error: migration takes no input paths; use --migrate-root <DIR> to \
+            "error: migration takes no input paths; use --migrate-root <PATH> to \
              choose where --migrate-configs searches"
                 .to_string(),
         );
@@ -464,10 +464,10 @@ struct CompatibilityLintFlags {
 
 #[derive(clap::Args, Debug, Default)]
 struct MigrateFlags {
-    /// Root path to search for legacy YAML config files (default: .)
+    /// Directory to search for legacy YAML config files, or one config file (default: .)
     #[arg(
         long = "migrate-root",
-        value_name = "DIR",
+        value_name = "PATH",
         requires = "migrate_configs"
     )]
     root: Option<PathBuf>,

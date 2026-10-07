@@ -30,8 +30,7 @@ the scenes:
   design.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
-`relaxed`, `empty`) from
-[src/conf/mod.rs](https://github.com/owenlamont/ryl/blob/main/src/conf/mod.rs).
+`relaxed`, `empty`) in `src/config/legacy_yaml.rs`.
 
 ## `default` (TOML equivalent)
 

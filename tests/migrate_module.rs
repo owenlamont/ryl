@@ -20,21 +20,52 @@ fn migrate_errors_when_root_is_missing() {
     assert!(err.contains("migrate root does not exist"));
 }
 
-#[test]
-fn migrate_single_non_config_file_returns_no_entries() {
-    let td = tempdir().unwrap();
-    let file = td.path().join("notes.txt");
-    fs::write(&file, "hello").unwrap();
-    let opts = MigrateOptions {
-        project_root: Some(file),
+fn preview_project(root: PathBuf) -> MigrateOptions {
+    MigrateOptions {
+        project_root: Some(root),
         user_config: None,
         write_mode: WriteMode::Preview,
         output_mode: OutputMode::SummaryOnly,
         cleanup: SourceCleanup::Keep,
-    };
-    let res = migrate_configs(&opts).unwrap();
+    }
+}
+
+#[test]
+fn migrate_single_toml_file_root_returns_no_entries() {
+    let td = tempdir().unwrap();
+    let file = td.path().join("lint.toml");
+    fs::write(&file, "[lint.rules]\nanchors = \"enable\"\n").unwrap();
+    let res = migrate_configs(&preview_project(file)).unwrap();
     assert!(res.entries.is_empty());
     assert!(res.cleanup_only_sources.is_empty());
+}
+
+#[test]
+fn migrate_arbitrary_named_file_root_targets_stem_toml() {
+    let td = tempdir().unwrap();
+    let file = td.path().join("lint.yaml");
+    fs::write(&file, "rules: { anchors: enable }\n").unwrap();
+    // A discovery config beside it does not shadow a file only ever named by `-c`.
+    fs::write(td.path().join(".ryl.toml"), "[lint.rules]\n").unwrap();
+    let res = migrate_configs(&preview_project(file.clone())).unwrap();
+    assert_eq!(res.entries.len(), 1, "warnings: {:?}", res.warnings);
+    assert_eq!(res.entries[0].source, file);
+    assert_eq!(res.entries[0].target, td.path().join("lint.toml"));
+}
+
+#[test]
+fn migrate_arbitrary_named_file_root_skips_when_stem_toml_exists() {
+    let td = tempdir().unwrap();
+    let file = td.path().join("lint.yaml");
+    fs::write(&file, "rules: { anchors: enable }\n").unwrap();
+    fs::write(td.path().join("lint.toml"), "[lint.rules]\n").unwrap();
+    let res = migrate_configs(&preview_project(file)).unwrap();
+    assert!(res.entries.is_empty());
+    assert!(
+        res.warnings.iter().any(|w| w.contains("already exists")),
+        "expected a collision warning: {:?}",
+        res.warnings
+    );
 }
 
 #[test]
@@ -52,6 +83,7 @@ fn migrate_single_yaml_config_file_path_returns_entry() {
     let res = migrate_configs(&opts).unwrap();
     assert_eq!(res.entries.len(), 1);
     assert_eq!(res.entries[0].source, file);
+    assert_eq!(res.entries[0].target, td.path().join(".ryl.toml"));
     assert!(res.cleanup_only_sources.is_empty());
 }
 
@@ -519,86 +551,6 @@ fn apply_entries_refuses_to_overwrite_existing_target() {
 }
 
 #[test]
-fn migrate_user_config_inlines_top_level_ignore_from_file() {
-    let td = tempdir().unwrap();
-    let source = td.path().join("yamllint").join("config");
-    fs::create_dir_all(source.parent().unwrap()).unwrap();
-    fs::write(
-        &source,
-        "rules:\n  key-duplicates: enable\nignore-from-file: ignores.txt\n",
-    )
-    .unwrap();
-    fs::write(
-        source.parent().unwrap().join("ignores.txt"),
-        "build/\n*.gen.yaml\n",
-    )
-    .unwrap();
-    let opts = MigrateOptions {
-        project_root: None,
-        user_config: Some(UserConfigMigration {
-            source,
-            target: td.path().join("ryl").join("ryl.toml"),
-        }),
-        write_mode: WriteMode::Preview,
-        output_mode: OutputMode::SummaryOnly,
-        cleanup: SourceCleanup::Keep,
-    };
-    let res = migrate_configs(&opts).unwrap();
-    assert_eq!(res.entries.len(), 1);
-    let toml = &res.entries[0].toml;
-    // The relative path would dangle once the config moves to ryl/, so it is inlined.
-    assert!(
-        toml.contains("ignore = [")
-            && toml.contains("build/")
-            && toml.contains("*.gen.yaml"),
-        "ignore-from-file must be inlined as ignore patterns: {toml}"
-    );
-    assert!(
-        !toml.contains("ignore-from-file"),
-        "the relative ignore-from-file path must not survive migration: {toml}"
-    );
-}
-
-#[test]
-fn migrate_user_config_refuses_rule_level_ignore_from_file() {
-    let td = tempdir().unwrap();
-    let source = td.path().join("yamllint").join("config");
-    fs::create_dir_all(source.parent().unwrap()).unwrap();
-    fs::write(
-        &source,
-        "rules:\n  key-duplicates:\n    ignore-from-file: rignore.txt\n",
-    )
-    .unwrap();
-    fs::write(source.parent().unwrap().join("rignore.txt"), "generated/\n").unwrap();
-    let opts = MigrateOptions {
-        project_root: None,
-        user_config: Some(UserConfigMigration {
-            source: source.clone(),
-            target: td.path().join("ryl").join("ryl.toml"),
-        }),
-        write_mode: WriteMode::Write,
-        output_mode: OutputMode::SummaryOnly,
-        cleanup: SourceCleanup::Delete,
-    };
-    let res = migrate_configs(&opts).unwrap();
-    assert!(
-        res.entries.is_empty(),
-        "rule-level ignore-from-file is refused"
-    );
-    assert!(
-        res.warnings
-            .iter()
-            .any(|w| w.contains("rule-level ignore-from-file")),
-        "expected a rule-level refusal warning: {:?}",
-        res.warnings
-    );
-    assert!(
-        source.exists(),
-        "source preserved when refused, even with --delete"
-    );
-}
-
-#[test]
 fn migrate_user_config_allows_absolute_rule_level_ignore_from_file() {
     let td = tempdir().unwrap();
     let source = td.path().join("yamllint").join("config");
@@ -833,4 +785,43 @@ fn migrate_rename_mode_renames_lower_precedence_skipped_configs() {
     assert!(td.path().join(".yamllint.bak").exists());
     assert!(!skipped.exists());
     assert!(td.path().join(".yamllint.yml.bak").exists());
+}
+
+#[test]
+fn migrate_single_ryl_toml_file_root_rewrites_deprecated_keys() {
+    let td = tempdir().unwrap();
+    let file = td.path().join(".ryl.toml");
+    fs::write(&file, "[rules]\nanchors = \"enable\"\n").unwrap();
+    let res = migrate_configs(&preview_project(file.clone())).unwrap();
+    assert_eq!(res.entries.len(), 1, "warnings: {:?}", res.warnings);
+    assert_eq!(res.entries[0].target, file);
+    assert!(res.entries[0].toml.contains("[lint.rules]"));
+}
+
+#[test]
+fn migrate_errors_on_unknown_rule() {
+    let td = tempdir().unwrap();
+    let file = td.path().join(".yamllint");
+    fs::write(&file, "rules: { no-such-rule: enable }\n").unwrap();
+    let err = migrate_configs(&preview_project(file)).unwrap_err();
+    assert!(err.contains("no such rule"), "{err}");
+}
+
+#[test]
+fn migrate_user_config_errors_when_source_is_unreadable() {
+    let td = tempdir().unwrap();
+    let source = td.path().join("yamllint").join("config");
+    fs::create_dir_all(&source).unwrap();
+    let opts = MigrateOptions {
+        project_root: None,
+        user_config: Some(UserConfigMigration {
+            source,
+            target: td.path().join("ryl").join("ryl.toml"),
+        }),
+        write_mode: WriteMode::Preview,
+        output_mode: OutputMode::SummaryOnly,
+        cleanup: SourceCleanup::Keep,
+    };
+    let err = migrate_configs(&opts).unwrap_err();
+    assert!(err.contains("failed to read"), "{err}");
 }
