@@ -3,23 +3,26 @@ name: property-tests
 description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
   editing any property-test suite (safe-fix / fix-convergence / rule-checker /
-  markdown-fix / config). Covers what each generator must be extended with, the ~1000x
-  pre-commit run, and which rules intentionally have no safe `--fix`.
+  markdown-fix / config). Covers what each generator must be extended with, the 5–10
+  minute pre-commit run, and which rules intentionally have no safe `--fix`.
 ---
 
 # Property Tests
 
 When implementing a new rule or changing an existing one, extend the relevant
 property-test generator(s) so the new/updated syntax is actually exercised (each suite
-below lists exactly what to extend and the deterministic guard to add), then do a
-one-off **~1000× thorough run** before committing: e.g.
-`PROPTEST_CASES=512000 cargo test --release --test property_check` (the suites run
-proptest's default 256 cases in CI unless they pin `cases` themselves — tuned for
-speed, not exhaustiveness; `PROPTEST_CASES` still overrides a pinned `cases`, so no
-edit is needed). Build `--release`
-and run it in the background; it routinely flushes rare interleavings the small count
-misses. Commit only once it is green, and keep any newly-persisted seeds in
-`tests/proptest-regressions/`.
+below lists exactly what to extend and the deterministic guard to add), then
+before committing run every suite at its default count, plus a **20× run of the suites
+the change touches**: e.g. `PROPTEST_CASES=5120 cargo test --release --test
+property_check`. The suites run proptest's default 256 cases in CI unless they pin
+`cases` themselves; `PROPTEST_CASES` still overrides a pinned `cases`. Keep the whole
+step within **5–10 minutes**. Commit only once it is green, and keep any newly-persisted
+seeds in `tests/proptest-regressions/`.
+
+**A 1000× run (`PROPTEST_CASES=512000`) is a release-gate step, not a per-change one.**
+It takes 40–80 minutes per suite. Run it on an integration branch's tip when the machine
+is idle, or before a release. It does flush rare interleavings the small count misses, so
+a seed it finds becomes a regression test plus a fix.
 
 ## Property Tests For Safe Fixes
 
