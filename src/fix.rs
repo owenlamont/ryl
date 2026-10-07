@@ -7,6 +7,7 @@ use crate::cli_support::LintFile;
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
+use crate::format::FormatCache;
 use crate::markdown_embed::{
     EmbeddedRegion, MarkdownSources, extract_regions, markdown_region_problems,
 };
@@ -100,10 +101,11 @@ impl Rewrite {
         path: &Path,
         base_dir: &Path,
         skip: &[&str],
+        cache: &mut FormatCache,
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
-            Self::Format => crate::format::format_str(input, cfg, path, skip),
+            Self::Format => cache.format(input, cfg, path, skip).0.clone(),
         }
     }
 }
@@ -167,7 +169,14 @@ pub fn rewrite_str(
             if let Some(problem) = crate::lint::parse_error(content) {
                 return (None, vec![problem]);
             }
-            let fixed = rewrite.apply(content, cfg, path, base_dir, &[]);
+            let fixed = rewrite.apply(
+                content,
+                cfg,
+                path,
+                base_dir,
+                &[],
+                &mut FormatCache::default(),
+            );
             let skipped = unfixed_notices(&fixed, cfg, path, base_dir, rewrite);
             ((fixed != content).then_some(fixed), skipped)
         }
@@ -290,9 +299,12 @@ pub fn diff_outcome(
     kind: SourceKind,
     rewrite: Rewrite,
 ) -> DiffOutcome {
-    let mut outcome = diff_and_skips(content, cfg, path, base_dir, kind, rewrite);
+    let mut cache = FormatCache::default();
+    let mut outcome =
+        diff_and_skips(content, cfg, path, base_dir, kind, rewrite, &mut cache);
     if rewrite == Rewrite::Format && outcome.diff.is_some() {
-        outcome.problems = crate::format::problems(content, cfg, path, kind);
+        outcome.problems =
+            crate::format::problems(content, cfg, path, kind, &mut cache);
     }
     outcome
 }
@@ -304,6 +316,7 @@ fn diff_and_skips(
     base_dir: &Path,
     kind: SourceKind,
     rewrite: Rewrite,
+    cache: &mut FormatCache,
 ) -> DiffOutcome {
     if path_unrepresentable_in_diff(path) {
         return DiffOutcome {
@@ -324,7 +337,7 @@ fn diff_and_skips(
                     ..DiffOutcome::default()
                 };
             }
-            let fixed = rewrite.apply(content, cfg, path, base_dir, &[]);
+            let fixed = rewrite.apply(content, cfg, path, base_dir, &[], cache);
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
                     diff: None,
@@ -351,7 +364,8 @@ fn diff_and_skips(
         SourceKind::Markdown => {
             // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
             // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
-            let fixed = fix_markdown_str(content, path, cfg, base_dir, rewrite);
+            let fixed =
+                fix_markdown_cached(content, path, cfg, base_dir, rewrite, cache);
             // Report skips against the *original* content: `--diff` never writes, so the file
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
@@ -505,6 +519,24 @@ pub fn fix_markdown_str(
     base_dir: &Path,
     rewrite: Rewrite,
 ) -> Option<String> {
+    fix_markdown_cached(
+        markdown,
+        path,
+        cfg,
+        base_dir,
+        rewrite,
+        &mut FormatCache::default(),
+    )
+}
+
+fn fix_markdown_cached(
+    markdown: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    rewrite: Rewrite,
+    cache: &mut FormatCache,
+) -> Option<String> {
     if crate::markdown_embed::markdown_has_unsupported_cr(markdown) {
         return None;
     }
@@ -521,8 +553,14 @@ pub fn fix_markdown_str(
         if region.content.trim().is_empty() {
             continue;
         }
-        let fixed =
-            rewrite.apply(&region.content, cfg, path, base_dir, suppressed_rules());
+        let fixed = rewrite.apply(
+            &region.content,
+            cfg,
+            path,
+            base_dir,
+            suppressed_rules(),
+            cache,
+        );
         if fixed == region.content {
             continue;
         }
