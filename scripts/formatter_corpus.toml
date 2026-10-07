@@ -71,6 +71,14 @@ sparse = [
   "!/test/fixtures/verbosity-tests/.yamllint",
   "!/test/fixtures/list-rules-tests/.yamllint",
 ]
+expected-skip = [
+  # Templated or broken: PyYAML and ruamel.yaml reject it too.
+  "examples/broken/load-failure-invalid.yml",
+  "examples/broken/yaml-with-tabs/invalid-due-tabs.yaml",
+  "examples/other/some.j2.yaml",
+  "examples/playbooks/invalid-transform.yml",
+  "examples/playbooks/templates/not-valid.yaml",
+]
 
 [[repo]]
 url = "https://github.com/github/rest-api-description"
