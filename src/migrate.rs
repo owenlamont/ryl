@@ -5,8 +5,11 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
-use crate::config::{Overrides, RYL_USER_GLOBAL_CONFIG_CANDIDATES, discover_config};
+use crate::config::{
+    Overrides, RYL_USER_GLOBAL_CONFIG_CANDIDATES, YamlLintConfig, discover_config,
+};
 use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
+use crate::rules::{comments, document_end, document_start, quoted_strings};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteMode {
@@ -363,13 +366,41 @@ fn build_entry(
         ));
     }
     let rendered = ctx.config.to_toml_string();
-    let toml = format!("{}\n", rendered.trim_end());
+    let mut toml = format!("{}\n", rendered.trim_end());
+    let targets = preserve_targets(&ctx.config);
+    if !targets.is_empty() {
+        let table = toml::Table::from_iter([("format".to_owned(), targets.into())]);
+        toml.push('\n');
+        toml.push_str(&toml::to_string(&table).expect("a string table serializes"));
+    }
     plan.entries.push(MigrationEntry {
         source: source.to_path_buf(),
         target,
         toml,
     });
     Ok(true)
+}
+
+/// `preserve` for each `[format]` target whose rule `cfg` disables, or whose enforcing
+/// option it turns off, so `ryl format` leaves alone what the legacy config never enforced.
+fn preserve_targets(cfg: &YamlLintConfig) -> toml::Table {
+    [
+        (document_start::ID, Some("present"), "document-start"),
+        (document_end::ID, Some("present"), "document-end"),
+        (quoted_strings::ID, None, "quote-style"),
+        (
+            comments::ID,
+            Some("require-starting-space"),
+            "comment-starting-space",
+        ),
+    ]
+    .into_iter()
+    .filter(|(rule, option, _)| {
+        cfg.rule_level(rule).is_none()
+            || option.is_some_and(|option| !cfg.rule_option_bool(rule, option, true))
+    })
+    .map(|(_, _, key)| (key.to_owned(), "preserve".into()))
+    .collect()
 }
 
 fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), String> {
