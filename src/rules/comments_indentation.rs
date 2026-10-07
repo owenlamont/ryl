@@ -15,8 +15,8 @@ use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,
-    strip_trailing_comment_preserving_quotes,
+    block_scalar_marker_index, is_magic_first_line, leading_whitespace_width,
+    split_lines_preserve_endings, strip_trailing_comment_preserving_quotes,
 };
 use crate::rules::support::span_utils::marker_byte_offset;
 
@@ -180,13 +180,15 @@ fn comment_is_aligned(
 fn build_lines(buffer: &str) -> Vec<LineInfo> {
     let mut block_tracker = BlockScalarTracker::default();
     let mut lines: Vec<LineInfo> = Vec::new();
-    for (_, line, _) in split_lines_preserve_endings(buffer) {
+    for (idx, line, _) in split_lines_preserve_endings(buffer) {
         let indent = leading_whitespace_width(line);
         let content = &line[indent..];
 
         let consumed = block_tracker.consume_line(indent, content);
         let kind = if consumed {
             LineKind::BlockScalarContent
+        } else if idx == 0 && is_magic_first_line(line) {
+            LineKind::DirectiveComment
         } else {
             classify_line_kind(content)
         };
