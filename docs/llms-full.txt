@@ -4221,25 +4221,15 @@ title: example
 
 ## Automatic fixing
 
-`ryl check --fix` prepends a `---` start marker when `present: true` and the
-document does not already have one. The fix is **partial** by design:
-it only runs when
+`ryl check --fix` adds a `---` start marker to every document that lacks one when
+`present: true`: at the top of the file for the first document, and after the
+`...` that ends the previous document for a later one. A leading UTF-8 BOM stays at
+byte 0, and a line-1 `#!` shebang or cloud-init `#cloud-config` header stays first,
+with the `---` inserted after it, since the interpreter or cloud-init reads it from
+byte 0.
 
-- the buffer is a single document (no inner `---`/`...` markers anywhere
-  in the file),
-- the buffer does not begin (after leading comments and blank lines)
-  with a `%YAML`/`%TAG` directive, and
-- a leading UTF-8 BOM, if any, stays at byte 0 with the new `---`
-  inserted after it.
-
-A line-1 `#!` shebang or cloud-init `#cloud-config` header stays first, with the
-`---` inserted after it, since the interpreter or cloud-init reads it from byte 0.
-
-Multi-document streams and files with directives are left for manual
-intervention, because the correct marker placement there depends on
-context the rule does not record. The `present: false` case (removing
-existing `---` markers) is never auto-fixed because removal can collide
-with multi-document boundaries.
+The `present: false` case (removing existing `---` markers) is never auto-fixed
+because removal can collide with multi-document boundaries.
 
 Disable with:
 
@@ -4249,7 +4239,7 @@ fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
 
-`ryl format` adds `---` under the same limits while `[format] document-start` is `"add"`, the default. It conflicts with `present = false` unless that key is `"preserve"`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+`ryl format` adds `---` the same way while `[format] document-start` is `"add"`, the default. It conflicts with `present = false` unless that key is `"preserve"`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
