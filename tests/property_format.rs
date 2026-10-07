@@ -39,7 +39,6 @@ use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
-use ryl::rules::{colons, hyphens};
 
 use config::{synthetic_base_dir, synthetic_path};
 use fold::{arb_fold_document, inserted_breaks, under_indented_break};
@@ -76,13 +75,6 @@ fn check_invariants(
 ) -> Result<(), String> {
     let once = format(input);
     check_preserved(input, &once)?;
-    let left_alone = |text: &str| {
-        colons::unfixed(text, &colons::Config::format()).len()
-            + hyphens::unfixed(text, &hyphens::Config::format()).len()
-    };
-    if left_alone(input) != left_alone(&once) {
-        return Err(format!("left-alone fidelity: output {once:?}"));
-    }
     let twice = format(&once);
     if twice != once {
         return Err(format!("idempotence: once {once:?}; twice {twice:?}"));
@@ -165,15 +157,31 @@ proptest! {
     }
 }
 
+/// `line` past its indentation and the `-`, `?` and `:` indicators leading it, with the
+/// indicators: what closing the gaps after them leaves alone.
+fn past_indicators(line: &str) -> (String, &str) {
+    let mut indicators = String::new();
+    let mut rest = line.trim_start();
+    while let Some(after) = rest
+        .strip_prefix(['-', '?', ':'])
+        .filter(|after| after.is_empty() || after.starts_with(' '))
+    {
+        indicators.push_str(&rest[..1]);
+        rest = after.trim_start();
+    }
+    (indicators, rest)
+}
+
 fn lines(text: &str) -> Vec<&str> {
     text.split("\r\n")
         .flat_map(|part| part.split(['\r', '\n']))
         .collect()
 }
 
-/// Re-indent's own guarantee on top of the pipeline's: only leading spaces change, a
-/// refused document keeps its bytes, and every other line is where `indentation` expects.
-/// An input granit cannot parse is left to the parse-preservation check.
+/// Re-indent's own guarantee on top of the pipeline's: only leading spaces and the gaps
+/// after indicators change, a refused document keeps its bytes, and every other line is
+/// where `indentation` expects. An input granit cannot parse is left to the
+/// parse-preservation check.
 fn check_reindent(input: &str, width: usize) -> Result<(), String> {
     if representation(input).is_none() {
         return Ok(());
@@ -193,7 +201,8 @@ fn check_reindent(input: &str, width: usize) -> Result<(), String> {
         ));
     }
     for (line, (old, new)) in (1..).zip(before.iter().zip(&after)) {
-        if old.trim_start() != new.trim_start() || (refused(line) && old != new) {
+        if past_indicators(old) != past_indicators(new) || (refused(line) && old != new)
+        {
             return Err(format!(
                 "surgical: line {line}, width {width}, {input:?} -> {:?}",
                 out.text
@@ -639,7 +648,7 @@ fn a_deliberately_broken_pass_fails_the_suite() {
             "renames an anchor",
         ),
     ];
-    let broken_spacing: [(&str, (&str, Broken, &str)); 3] = [
+    let broken_spacing: [(&str, (&str, Broken, &str)); 2] = [
         (
             "k:\n    s: |2\n          lead\n        x\n",
             (
@@ -654,14 +663,6 @@ fn a_deliberately_broken_pass_fails_the_suite() {
                 "value-preservation",
                 |s| s.replace("-   ", "- "),
                 "collapses a dash's spaces",
-            ),
-        ),
-        (
-            "-   a: 1\n    b: 2\n",
-            (
-                "left-alone fidelity",
-                |s| s.replace("-   a: 1\n    b: 2", "- a: 1\n  b: 2"),
-                "re-indents a compact mapping",
             ),
         ),
     ];

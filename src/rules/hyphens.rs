@@ -12,7 +12,8 @@
 //!
 //! Safe `--fix` collapses the spaces to the tolerance, never below one, except after a
 //! dash opening a compact block collection that continues below, whose indentation the
-//! spaces set. `dash-on-own-line` has no fix.
+//! spaces set. `dash-on-own-line` has no fix. `ryl format` closes those gaps and joins or
+//! breaks dash-line mappings as part of re-indenting (`indentation::reindent`).
 //!
 //! Sources: YAML 1.2.2 block-sequence grammar; adrienverge/yamllint#527.
 

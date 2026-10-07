@@ -1,6 +1,7 @@
-//! `ryl format` respaces `colons` and `hyphens` in place, and names each compact
-//! collection it leaves alone on stderr without failing the run or `--check`; `ryl check
-//! --fix` respaces to the lint tolerance.
+//! `ryl format` respaces `colons` and `hyphens` in place, closing the gap a compact
+//! collection's indentation hangs on by re-indenting it, and names each document it cannot
+//! re-indent on stderr without failing the run or `--check`; `ryl check --fix` respaces to
+//! the lint tolerance.
 
 use std::fs;
 
@@ -11,6 +12,7 @@ use common::cli::{run, ryl};
 
 const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
 const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
+const UNFOLLOWABLE: &str = "k:\n    a: 1\n---\n: v\n";
 
 fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();
@@ -21,7 +23,7 @@ fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
 }
 
 #[test]
-fn format_respaces_and_reports_what_it_leaves() {
+fn format_respaces_and_reindents_compact_collections() {
     let (code, stderr, formatted) = run_on(DIRTY, &["format"]);
     assert_eq!(
         (code, formatted.as_str()),
@@ -29,34 +31,25 @@ fn format_respaces_and_reports_what_it_leaves() {
         "{stderr}"
     );
     let (code, stderr, formatted) = run_on(COMPACT, &["format"]);
-    assert_eq!((code, formatted.as_str()), (0, COMPACT), "{stderr}");
-    let notices: Vec<&str> = stderr
-        .lines()
-        .filter_map(|line| line.split_once("a.yaml:").map(|(_, notice)| notice))
-        .collect();
     assert_eq!(
-        notices,
-        [
-            "3:6 hyphens not fixed: too many spaces after hyphen; respacing would \
-             re-indent the block collection after it",
-            "6:4 colons not fixed: too many spaces after colon; respacing would \
-             re-indent the block collection after it",
-        ],
-        "{stderr}"
+        (code, formatted.as_str(), stderr.as_str()),
+        (0, "---\nseq:\n  - a: 1\n    b: 2\n? k\n: - x\n  - y\n", "")
     );
 }
 
 #[test]
 fn format_check_fails_only_on_what_it_would_change() {
-    let (code, stderr, _) = run_on(COMPACT, &["format", "--check"]);
-    assert_eq!(code, 0, "{stderr}");
-    assert!(stderr.contains("hyphens not fixed"), "{stderr}");
-    let (code, stderr, _) = run_on(DIRTY, &["format", "--check"]);
-    assert_eq!(code, 1, "{stderr}");
+    let (code, stderr, _) = run_on(UNFOLLOWABLE, &["format", "--check"]);
+    assert!(
+        stderr.contains("cannot re-indent this document"),
+        "{stderr}"
+    );
+    let (code_after, ..) = run_on(DIRTY, &["format", "--check"]);
+    assert_eq!((code, code_after), (1, 1), "{stderr}");
     let disabled =
         COMPACT.replace("a: 1", "a: 1  # yamllint disable-line rule:hyphens");
-    let (_, stderr, _) = run_on(&disabled, &["format", "--check"]);
-    assert!(!stderr.contains("hyphens not fixed"), "{stderr}");
+    let (code, stderr, _) = run_on(&disabled, &["format", "--check"]);
+    assert_eq!((code, stderr.as_str()), (0, ""));
 }
 
 #[test]
@@ -75,12 +68,18 @@ fn check_fix_respaces_to_the_tolerance() {
 
 #[test]
 fn notices_count_lines_in_the_file_each_mode_leaves() {
-    let input = "-   a: 1\n    b: 2\n";
+    let input = "k: 1\n\n\n\n\n---\n: v\n";
     let (_, stderr, _) = run_on(input, &["format", "--check"]);
-    assert!(stderr.contains("a.yaml:1:4 hyphens not fixed"), "{stderr}");
+    assert!(
+        stderr.contains("a.yaml:6:1 indentation not fixed"),
+        "{stderr}"
+    );
     let (_, stderr, formatted) = run_on(input, &["format"]);
-    assert_eq!(formatted, format!("---\n{input}"));
-    assert!(stderr.contains("a.yaml:2:4 hyphens not fixed"), "{stderr}");
+    assert_eq!(formatted, "k: 1\n\n\n---\n: v\n");
+    assert!(
+        stderr.contains("a.yaml:4:1 indentation not fixed"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -92,7 +91,71 @@ fn markdown_notices_count_lines_in_the_unchanged_host() {
     )
     .unwrap();
     let file = dir.path().join("doc.md");
-    fs::write(&file, "```yaml\nk:\n\n\n\n-   x: 1\n    y: 2\n```\n").unwrap();
+    fs::write(&file, "```yaml\nk: 1\n\n\n\n---\n: v\n```\n").unwrap();
     let (_, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
-    assert!(stderr.contains("doc.md:6:4 hyphens not fixed"), "{stderr}");
+    assert!(
+        stderr.contains("doc.md:6:1 indentation not fixed"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_dash_join_never_crosses_an_indentation_disable() {
+    let disabled = "-\n  k: v  # ryl disable-line rule:indentation";
+    for (input, expected) in [
+        (format!("{disabled}\n"), format!("---\n{disabled}\n")),
+        (
+            format!("{disabled}\n  j: x\n"),
+            format!("---\n{disabled}\n  j: x\n"),
+        ),
+        (disabled.to_string(), format!("---\n{disabled}\n")),
+        (
+            format!("a: 1\n---\n{disabled}\n"),
+            format!("a: 1\n---\n{disabled}\n"),
+        ),
+    ] {
+        let (code, stderr, formatted) = run_on(&input, &["format"]);
+        assert_eq!(
+            (code, formatted.as_str()),
+            (0, expected.as_str()),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn each_refused_document_is_named_in_line_order() {
+    let (_, stderr, _) = run_on(": a\n---\n: b\n", &["format", "--check"]);
+    let lines: Vec<&str> = stderr
+        .lines()
+        .filter_map(|line| line.split_once("a.yaml:").map(|(_, notice)| notice))
+        .filter(|notice| notice.contains("indentation not fixed"))
+        .collect();
+    assert_eq!(lines.len(), 2, "{stderr}");
+    assert!(
+        lines[0].starts_with("1:1") && lines[1].starts_with("2:1"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_comment_keeping_a_mapping_beside_its_dash_is_named() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[format]\ndash-on-own-line = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "---\nseq:\n  - k: v  # note\n    j: x\n").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).arg("format").arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("a.yaml:3:3 hyphens not fixed: cannot move this mapping below"),
+        "{stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "---\nseq:\n  - k: v  # note\n    j: x\n"
+    );
 }

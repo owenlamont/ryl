@@ -90,6 +90,17 @@ fn agreeing_configs_are_silent() {
             "[format]\nfold-long-lines = true\n[lint.rules.line-length]\nmax = 5\n",
             true,
         ),
+        (
+            "rules: {indentation: {spaces: 2, indent-sequences: whatever, \
+             check-multi-line-strings: true}}",
+            false,
+        ),
+        (
+            "indent-width = 4\n[format]\nindent-sequences = false\n\
+             dash-on-own-line = true\n[lint.rules.indentation]\nspaces = 4\n\
+             indent-sequences = false\n[lint.rules.hyphens]\ndash-on-own-line = true\n",
+            true,
+        ),
     ] {
         assert_eq!(warned_rules(config, toml), Vec::<String>::new(), "{config}");
     }
@@ -270,4 +281,36 @@ fn a_forbidden_flow_style_names_the_collection_key() {
         warnings[1].contains("`[format] sequence-style = \"flow\"`"),
         "{warnings:#?}"
     );
+}
+
+#[test]
+fn indentation_and_hyphens_name_the_layout_key_they_disagree_with() {
+    for (config, expected) in [
+        (
+            "[lint.rules.indentation]\nspaces = 4\n",
+            "`indent-width = 2`",
+        ),
+        (
+            "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 4\n\
+             indent-sequences = false\n",
+            "`indent-width = 2`",
+        ),
+        (
+            "[lint.rules.indentation]\nindent-sequences = false\n",
+            "`[format] indent-sequences = true`",
+        ),
+        (
+            "[lint.rules.hyphens]\ndash-on-own-line = true\n",
+            "`[format] dash-on-own-line = false`",
+        ),
+        (
+            "[format]\ndash-on-own-line = true\n[lint.rules.hyphens]\n\
+             dash-on-own-line = true\nmax-spaces-after = 0\n",
+            "built-in hyphens style",
+        ),
+    ] {
+        let warnings = conflicts(config, true, &[]);
+        assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");
+        assert!(warnings[0].contains(expected), "{config}: {}", warnings[0]);
+    }
 }

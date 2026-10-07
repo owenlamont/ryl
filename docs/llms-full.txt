@@ -1421,6 +1421,8 @@ mapping-style = "preserve"
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
 | `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
+| `indent-sequences` | `true` | `true`, `false` | Whether a block sequence under a mapping key is indented past the key; `false` keeps it flush. |
+| `dash-on-own-line` | `false` | `true`, `false` | Whether a block mapping in a block sequence starts on the line after its `-`; `false` joins them as `- name: web`. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 | `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
 | `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
@@ -1428,7 +1430,8 @@ mapping-style = "preserve"
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
 [Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/#configure-for-your-project)). `ryl format`
-uses both as the fold width and continuation indent under `fold-long-lines`.
+re-indents every block level to `indent-width`, and uses both as the fold width and
+continuation indent under `fold-long-lines`.
 
 The rest of the layout is fixed:
 
@@ -1438,8 +1441,10 @@ The rest of the layout is fixed:
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
 | Blank lines | None at the start or end of the file |
 | Line ends | No trailing whitespace; exactly one newline at the end of the file |
+| After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
-`ryl format` does not yet rewrite colon or hyphen spacing or indentation.
+A document that a tab indents, or that re-indenting would parse differently, is left as
+it is and named on stderr.
 
 ## Long lines
 
@@ -1579,7 +1584,9 @@ says so.
 | [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | `type` resolves to a different ending from `[format] line-ending` |
 | [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | See below; never under `quote-style = "preserve"` |
 | [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Never |
-| [`colons`](https://ryl-docs.pages.dev/rules/colons/), [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/), [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | Never, because `ryl format` does not rewrite their concerns yet |
+| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | `max-spaces-after` is 0 |
+| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
+| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Never; folding is opt-in and leaves lines it cannot break |
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
@@ -3771,12 +3778,12 @@ is left to [`commas`](https://ryl-docs.pages.dev/rules/commas/), [`braces`](http
 
 `ryl format` writes no space before `:` (one for those keys) and exactly one after `:`
 and `?`, turning a tab into a space. An explicit `?` or `:` that opens a block
-collection continuing below is reported and left alone, because its spaces set the
-collection's indentation:
+collection continuing below has its spaces set that collection's indentation, so
+`ryl check --fix` leaves it alone and `ryl format` re-indents the collection with it:
 
 ```yaml
 ? key
-:   - a      # left alone: re-spacing re-indents the sequence
+:   - a      # ryl format: `: - a`, with `- b` under `- a`
     - b
 ```
 
@@ -4585,19 +4592,19 @@ items:
 ## Automatic fixing
 
 `ryl check --fix` trims the spaces after `-` to `max-spaces-after`, never below one.
-`ryl format` leaves exactly one. Both leave a `-` alone when the block mapping or
-sequence it opens continues on later lines, and `ryl format` reports it: the spaces set
-that collection's indentation, so trimming them alone would re-indent or break it:
+`ryl format` leaves exactly one. `ryl check --fix` leaves a `-` alone when the block
+mapping or sequence it opens continues on later lines, because the spaces set that
+collection's indentation; `ryl format` closes the gap and re-indents the collection
+with it:
 
 ```yaml
--   name: web    # left alone: `port` is aligned under `name`
+-   name: web    # ryl format: `- name: web`, with `port` under `name`
     port: 80
--   - a          # left alone
-    - b
 ```
 
-`dash-on-own-line` has no automatic fix: breaking the mapping onto the line below the
-`-` re-indents its body.
+`ryl check --fix` does not fix `dash-on-own-line`. `ryl format` joins `-` and its block
+mapping onto one line, or with `[format] dash-on-own-line = true` breaks the mapping
+onto the line below; a dash line carrying an anchor, tag or comment is left as it is.
 
 ## Related rules
 
@@ -4684,8 +4691,15 @@ parent:
 
 ## Automatic fixing
 
-This rule does not auto-fix; indentation changes can shift values into
-different parents, so corrections need human review.
+`ryl check --fix` does not fix this rule; indentation changes can shift values into
+different parents.
+
+`ryl format` re-indents each block level to the top-level `indent-width` (default 2),
+with block sequences indented past their key unless `[format] indent-sequences = false`.
+Block scalar bodies, continuation lines and comments move with the line they belong to,
+and lines inside a flow collection go where this rule expects them. A document is left
+as it is, and reported, when a tab indents it or when re-indenting it would change what
+it parses to; an inline `disable` for this rule leaves it unreported.
 
 ## Related rules
 
