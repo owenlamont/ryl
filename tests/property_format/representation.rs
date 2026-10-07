@@ -61,8 +61,8 @@ pub struct Comment {
     /// comment, which stays at the head of its document.
     pub after_events: usize,
     pub inline: bool,
-    /// Payload with surrounding whitespace trimmed: the `comments` rule may add the
-    /// space after `#`, and trailing whitespace is not content.
+    /// Payload with whitespace trimmed around it and after its leading `#` run: the
+    /// `comments` rule may add the space after `###`, and trailing whitespace is not content.
     pub text: String,
 }
 
@@ -131,6 +131,11 @@ impl Recorder {
     }
 }
 
+fn comment_text(text: &str) -> String {
+    let body = text.trim_start_matches('#');
+    format!("{}{}", &text[..text.len() - body.len()], body.trim_start())
+}
+
 fn tag_text(tag: Option<&Cow<'_, Tag>>) -> Option<String> {
     tag.map(|tag| tag.to_string())
 }
@@ -146,7 +151,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                         .filter(|node| **node != Node::DocumentStart)
                         .count(),
                     inline: placement == Placement::Right,
-                    text: text.trim().to_string(),
+                    text: comment_text(text.trim()),
                 });
                 return;
             }

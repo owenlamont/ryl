@@ -1,0 +1,242 @@
+# Pinned real-world repos for scripts/formatter_corpus_check.py. `sparse` replaces the
+# default `*.yaml`/`*.yml` checkout patterns (gitignore syntax), `expected-skip` globs name
+# files ryl should skip as invalid YAML, `tally = false` skips the slow diagnostic count
+# on huge files, and `modes` limits the runs. A `*-known-errors` entry waives that
+# oracle's value verdict on one file only while its bytes match both pinned hashes.
+
+[[repo]]
+url = "https://github.com/kubernetes/examples"
+sha = "d6b8cd27eacb51e651a1aa6f7c190a28713eff6e"
+note = "plain k8s manifests, multi-document files"
+
+[[repo]]
+url = "https://github.com/prometheus-community/helm-charts"
+sha = "ab41ba85f05b872f075f98ca1436d06fda68fc6a"
+note = "Helm: template skip rate, comment-heavy values.yaml, large CRDs"
+expected-skip = ["**/templates/**"]
+
+[[repo]]
+url = "https://github.com/bitnami/charts"
+sha = "bb5e98a6e3c5ca196420d2414769b681c9284101"
+note = "Helm: '## @param' comment-dense values files"
+sparse = ["/bitnami/postgresql/", "/bitnami/redis/", "/bitnami/kafka/", "/bitnami/nginx/"]
+expected-skip = ["**/templates/**"]
+
+[[repo]]
+url = "https://github.com/argoproj/argo-cd"
+sha = "c3be9637c75f912be1207a973150125b7907bbb9"
+note = "large generated multi-document install.yaml"
+sparse = ["/manifests/"]
+
+[[repo]]
+url = "https://github.com/kubernetes-sigs/kustomize"
+sha = "0b060a1ff5d6356673765b614b2fe434a4c4cb72"
+note = "kustomization files, patches"
+sparse = ["/examples/"]
+
+[[repo]]
+url = "https://github.com/actions/starter-workflows"
+sha = "e3c451d60f119b71caebf13c98ac45da6e15b4b7"
+note = "GitHub Actions: 'on:' key, many small files"
+
+[[repo]]
+url = "https://github.com/docker/awesome-compose"
+sha = "30f4b7f6a6c3b0c0ecf4d4efb0de203c48d11562"
+note = "compose: quoted ports, 'no', x- anchors"
+
+[[repo]]
+url = "https://github.com/geerlingguy/ansible-for-devops"
+sha = "86e1bf80098239cd995d54217585e8d61117d2e7"
+note = "Ansible: Jinja quoting, YAML 1.1 consumer"
+
+[[repo]]
+url = "https://github.com/ansible-collections/community.general"
+sha = "77a9d526aaacdd1d16bcd8c28eb63f5a5d134b21"
+note = "Ansible at scale, committed .yamllint"
+
+[[repo]]
+url = "https://github.com/ansible/ansible-lint"
+sha = "97b5358f62dc2bb1d686895472abce8338917b29"
+note = "committed .yamllint, deliberately odd example playbooks"
+
+[[repo]]
+url = "https://github.com/github/rest-api-description"
+sha = "836ce198db13a6fb194547e53eea99c6ddae495b"
+note = "OpenAPI at scale: one 9.9 MB spec"
+sparse = ["/descriptions/api.github.com/api.github.com.yaml"]
+tally = false
+
+[[repo]]
+url = "https://github.com/samber/awesome-prometheus-alerts"
+sha = "822af1e59938844e9f32c9c2ff7cbe63e8438655"
+note = "Prometheus rules, {{ $labels }}, block scalars"
+
+[[repo]]
+url = "https://github.com/prometheus/prometheus"
+sha = "770ca8fb8f8e0765318910f2c43107261f9b875d"
+note = "committed .yamllint that disables format rules"
+sparse = ["/documentation/", "/.github/"]
+
+[[repo]]
+url = "https://github.com/microsoft/azure-pipelines-yaml"
+sha = "5d433fcad43a32789a968179469c1e6271cb2fc7"
+note = "Azure Pipelines ${{ }} template expressions"
+
+[[repo]]
+url = "https://gitlab.com/gitlab-org/gitlab"
+sha = "1e65c450cf6dc9924a8660a4e0eef82d819b0dd8"
+note = "GitLab CI: anchors, << merge keys, !reference tags"
+sparse = ["/lib/gitlab/ci/templates/"]
+
+[[repo]]
+url = "https://github.com/squidfunk/mkdocs-material"
+sha = "6d3dc570d51064a3f55d189bd22c2390b07d46fe"
+note = "!!python/name: and !ENV tags in mkdocs.yml"
+
+[[repo]]
+url = "https://github.com/frenck/home-assistant-config"
+sha = "5609b76edd798cce82efe96d1e1067c6b866813a"
+note = "Home Assistant !include/!secret tags, .yamllint"
+
+[[repo]]
+url = "https://github.com/esphome/esphome"
+sha = "718b6651fec7607e016fb106f1e671d39f0164fb"
+note = "!secret/!lambda tags, block-scalar C++"
+sparse = ["/tests/"]
+
+[[repo]]
+url = "https://github.com/conda-forge/numpy-feedstock"
+sha = "3930a443740f0ce2954c8670e5cabbc45306c205"
+note = "Jinja meta.yaml, .ci_support"
+expected-skip = ["recipe/meta.yaml"]
+
+[[repo]]
+url = "https://github.com/canonical/cloud-init"
+sha = "632f2494db8c591741c725798ea25fae6ad64666"
+note = "#cloud-config first lines"
+sparse = ["/doc/"]
+
+[[repo]]
+url = "https://github.com/yaml/yaml-test-suite"
+sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
+note = "spec edge cases; invalid inputs must stay byte-identical"
+# py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
+yaml12-known-errors = [
+  { path = "2G84/03/in.yaml", before-sha256 = "1a63a8d03de92e5ed240d8e4854161d80e05f87b38c67baed2e926397d8d055a", after-sha256 = "976c64fa2ebd83db6e3f892f2aeb068a20816cdea5ef99912bebf4b367402c60" },
+]
+
+[[repo]]
+url = "https://github.com/aristanetworks/avd"
+sha = "02775d9295564b74e95f662107bca651c09cec78"
+note = "Ansible; yamllint: ansible_collections/arista/avd/.yamllint"
+
+[[repo]]
+url = "https://github.com/bioconda/bioconda-recipes"
+sha = "274a4e376c00c7438c55df174a946e6e4e787791"
+note = "Conda / packaging recipes; bioconda-utils: .circleci/config.yml"
+expected-skip = ["**/meta.yaml"]
+
+[[repo]]
+url = "https://github.com/bjw-s-labs/helm-charts"
+sha = "20258d931593ffcf399c2e6bd64b8e059e84dd7e"
+note = "Helm charts; yamlfmt: .yamlfmt.yaml; yamllint: .yamllint.yml"
+expected-skip = ["**/templates/**"]
+
+[[repo]]
+url = "https://github.com/conda/conda-build"
+sha = "1e9bb5c435772e33a5b4c6e58c928ded4f07c0a3"
+note = "Conda / packaging recipes; yamlfmt: .pre-commit-config.yaml"
+
+[[repo]]
+url = "https://github.com/digitalocean/openapi"
+sha = "e6e052975c1a09fa82af981ddfc17af14966092a"
+note = "OpenAPI / API specs; spectral: .spectral.yml, spectral/bundled.spectral.yml"
+
+[[repo]]
+url = "https://github.com/gdsfactory/gdsfactory"
+sha = "dc09520145ae2185b1fd1da53d0829eab6e66a67"
+note = "ML / scientific config; yamlfmt: .github/.yamlfmt.yaml"
+
+[[repo]]
+url = "https://github.com/GoMudEngine/GoMud"
+sha = "b3f55cc236ea67ac8827a62c68de7980474f0757"
+note = "Game / app content; yamllint: .github/workflows/ci.yml"
+
+[[repo]]
+url = "https://github.com/GoogleCloudPlatform/ops-agent"
+sha = "9870316209a165ad0f58e0a6f0d5d8ba4a1e7920"
+note = "Infra / cloud / network; yamlfmt: .yamlfmt"
+
+[[repo]]
+url = "https://github.com/harvard-edge/cs249r_book"
+sha = "8a9df95ea5c871780e7d50cb31ba91abca3ead53"
+note = "Data-in-YAML / content; yamllint: .yamllint"
+
+[[repo]]
+url = "https://github.com/johnkoht/hassio-config"
+sha = "9bbd50a0c130b30475357ad390ca424ea845409a"
+note = "Home Assistant / IoT; yamllint: .yamllint"
+# granit and py-yaml12 both misread a block scalar ending in indent-only spaces at EOF
+# (the reference parser agrees with ryl's output).
+rust-known-errors = [
+  { path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml", before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b", after-sha256 = "41846180f577ab9bf47d97e4ce3733b189cfd28b740028fc1419ab48e12eeff2" },
+  { path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml", before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15", after-sha256 = "8f884b8200177e8b7a7e511e24dbb84995e94848c071e0d64197fcbb2d54ff83" },
+  { path = "dashboards/templates/includes/kohbo_popup_styles.yaml", before-sha256 = "f376fe42ba3af9903cbdb5900db213500d1bcee1e81cdd42ac44933c00192649", after-sha256 = "ea77632ee4bef9e91e5510cfca10d9129478cc06c7a02807b576907b00328f00" },
+]
+yaml12-known-errors = [
+  { path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml", before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b", after-sha256 = "41846180f577ab9bf47d97e4ce3733b189cfd28b740028fc1419ab48e12eeff2" },
+  { path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml", before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15", after-sha256 = "8f884b8200177e8b7a7e511e24dbb84995e94848c071e0d64197fcbb2d54ff83" },
+  { path = "dashboards/templates/includes/kohbo_popup_styles.yaml", before-sha256 = "f376fe42ba3af9903cbdb5900db213500d1bcee1e81cdd42ac44933c00192649", after-sha256 = "ea77632ee4bef9e91e5510cfca10d9129478cc06c7a02807b576907b00328f00" },
+]
+
+[[repo]]
+url = "https://github.com/kgateway-dev/kgateway"
+sha = "d084f70aab8ddc19a11e6b4e3de9d0aff55db047"
+note = "Kubernetes / operators; yamlfmt: .yamlfmt.yml"
+
+[[repo]]
+url = "https://github.com/netbox-community/devicetype-library"
+sha = "a7cbb2790dbbf9a5929602af88cd2c747977ab4e"
+note = "Data-in-YAML / content; yamlfmt: .pre-commit-config.yaml; yamllint: .pre-commit-config.yaml, .yamllint.yaml"
+
+[[repo]]
+url = "https://github.com/NomicFoundation/slang"
+sha = "d460dbea0d44b3aecafe71609126de8c2661574f"
+note = "Other / application repos; yamllint: .yamllint.yml"
+
+[[repo]]
+url = "https://github.com/redhat-cop/agnosticd"
+sha = "0b3ab8ce56596b507d6b9cdb392588facf3ddeba"
+note = "Ansible; yamllint: ansible/configs/archive/a-base-config/.yamllint, ansible/configs/archive/aro/.yamllint"
+# A nested .yamllint extends a path one directory too high, so ryl refuses the repo config.
+modes = ["fold"]
+# py-yaml12 0.2.0 reads an empty block scalar plus final newline as "\n" (PyYAML: "").
+yaml12-known-errors = [
+  { path = "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml", before-sha256 = "a2876dba90a3f1a525e893221d46977b9154f4cdd46056b51b199834f3ee0643", after-sha256 = "30758b658e6433be4e3980e2c8492e831d15e89d77d82621868e1fb70413d37a" },
+]
+
+[[repo]]
+url = "https://github.com/samip5/k8s-cluster"
+sha = "1ebda1ab2fe16e1e669ab31fee19981e1bccfb07"
+note = "GitOps / homelab k8s; yamllint: .pre-commit-config.yaml"
+
+[[repo]]
+url = "https://github.com/shopware/shopware"
+sha = "9ee3c4c9b10fba021dd9bfa38863807d47b4615e"
+note = "i18n / localisation; yamlfmt: .yamlfmt"
+
+[[repo]]
+url = "https://github.com/splunk/security_content"
+sha = "2dc3668424cad95cc86da387a44e466ff181c190"
+note = "Security / compliance content; yamlfmt: .yamlfmt; yamllint: .yamllint"
+
+[[repo]]
+url = "https://github.com/stevehipwell/helm-charts"
+sha = "8252617c8afb8261eca84c5399ad9bc4ae689c13"
+note = "Helm charts; yamlfmt: .yamlfmt.yaml"
+expected-skip = ["**/templates/**"]
+
+[[repo]]
+url = "https://github.com/xunholy/k8s-gitops"
+sha = "620849ffade918858d3f7e3f54cd15597ab73119"
+note = "GitOps / homelab k8s; yamllint: .yamllint.yaml"

@@ -4,8 +4,8 @@ description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
   editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
   rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
-  each generator must be extended with, the ~1000x pre-commit run, and which rules
-  intentionally have no safe `--fix`.
+  each generator must be extended with, the ~1000x pre-commit run, the real-world
+  corpus gate, and which rules intentionally have no safe `--fix`.
 ---
 
 # Property Tests
@@ -131,6 +131,24 @@ and `representation_tells_apart_what_value_preservation_forbids` pins the oracle
 resolution; extend both when an invariant changes. Failing inputs persist to
 `tests/proptest-regressions/property_format.txt`; run with
 `cargo test --test property_format`.
+
+### Corpus gate
+
+`uv run scripts/formatter_corpus_check.py run` formats the pinned repos in
+`scripts/formatter_corpus.toml` with the release build, in the default and
+`fold-long-lines = true` modes, and exits 1 on a hard failure: a value, comment or anchor
+change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the same
+oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
+one repo. The epic-to-main gate also passes `--proptest-cases 512000`, which then runs
+every property suite at 1000x, one after another. `rust-known-errors` and
+`yaml12-known-errors` in the manifest list files an oracle's own parser misreads; an
+entry waives that oracle's value verdict only while the original and formatted bytes
+match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
+gate as stale. Any ryl error, panic or timeout fails it too.
+`uv run tests/test_formatter_corpus_check.py` tests this gate logic. Minimise a failing
+file by deleting lines while it still fails, then land it as a deterministic test that
+runs `check_invariants` over every pass-table row, and widen the generator if it could
+not have produced the shape.
 
 ## Property Tests For Rule Checkers
 

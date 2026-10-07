@@ -87,6 +87,8 @@ preview = true
 ]
 # Shells out to `tokei` for the comment-to-code metrics: relax the subprocess checks.
 "scripts/source_size.py" = ["S404", "S603", "S607"]
+# Shells out to git, cargo and ryl over pinned clones: relax the subprocess checks.
+"scripts/formatter_corpus_check.py" = ["S404", "S603", "S607"]
 
 fixable = ["ALL"]
 unfixable = [
