@@ -259,7 +259,8 @@ impl Restyler<'_> {
             self.nodes[parent].kind == Kind::Mapping
                 && at.is_some_and(|at| self.nodes[siblings[at - 1]].line == node.line)
         });
-        if comment.is_some() && !keyed {
+        let one_line = !self.buffer[node.start..node.end].contains(['\n', '\r']);
+        if comment.is_some() && !(keyed && one_line) {
             return Err("a trailing comment has no key line to move to");
         }
         let end = if comment.is_some() {

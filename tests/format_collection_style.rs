@@ -246,6 +246,10 @@ fn unsafe_collections_stay_flow_with_the_reason() {
             "? k\n: [a]  # c\n",
             "a trailing comment has no key line to move to",
         ),
+        (
+            "k: [a,\n  b]  # c\n",
+            "a trailing comment has no key line to move to",
+        ),
         ("k:\n  -  a: [x]\n", "a dash before it has extra spaces"),
         ("-  - [a]\n", "a dash before it has extra spaces"),
         ("k: {a: !!str ?y}\n", "an entry starts with `?`"),
