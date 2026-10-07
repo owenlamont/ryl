@@ -96,8 +96,9 @@ already have ryl on your `PATH` or in a project environment, it uses that instea
 
 It surfaces the language-server features described above - live diagnostics, fix-all (and
 per-rule fix-all), the disable-rule quick fixes, hover, and anchor/alias rename - and adds a
-`ryl.fixAll` command and a fix-on-save option. To make ryl your YAML formatter and apply
-safe fixes on save:
+`ryl.fixAll` command and a fix-on-save option. The editor's Format Document runs the same
+safe fixes as `ryl check --fix`, not [`ryl format`](formatter.md). To make ryl your YAML
+formatter and apply safe fixes on save:
 
 ```json
 {

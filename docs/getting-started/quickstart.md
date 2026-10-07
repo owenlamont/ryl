@@ -2,8 +2,8 @@
 
 ## The `ryl check` subcommand
 
-ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated
-`ryl format` formatter is coming). `ryl check <paths>` is the recommended form and
+ryl's CLI is moving to subcommands: `ryl check` is the lint pass and `ryl format` is
+the [formatter](../formatter.md). `ryl check <paths>` is the recommended form and
 is used throughout these docs. Bare `ryl <paths>` still lints identically, but it is
 deprecated — it prints a warning to stderr (silenced by `--no-warnings`) and a later
 release will remove it, so adopt `ryl check` now.
@@ -96,6 +96,17 @@ stderr), so a symlink in an untrusted tree cannot redirect a write to a
 file outside it. This mirrors directory scanning, which does not follow
 symlinks.
 
+## Format
+
+`ryl format` rewrites files to a consistent layout, and needs no config:
+
+```bash
+ryl format .
+ryl format --check .
+```
+
+See [Formatter](../formatter.md) for what it changes and how to configure it.
+
 ## Preview fixes as a diff
 
 `--diff` runs the same safe fixes as `--fix` but, instead of writing,
@@ -141,7 +152,8 @@ Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
 `[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
 (`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
-`[[lint.per-line-ignores]]`); `[format]` is reserved for the formatter. Copy the
+`[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](../formatter.md)
+settings. Copy the
 preset you want from [Configuration presets](../config-presets.md) and customise
 from there:
 
@@ -211,6 +223,37 @@ one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
 `ryl --migrate-user-config --migrate-write` does the same for the user-global
 config. For `pyproject.toml` it only prints the keys to move, since rewriting
 would drop the rest of the file's comments and layout.
+
+## Lint alongside `ryl format`
+
+If you run `ryl format`, let it own layout and lint only what it never touches. This
+starter config enables the rules that catch YAML that loads to something other than
+what the author meant, and conflicts with no `[format]` setting:
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules]
+anchors = "enable"
+key-duplicates = "enable"
+truthy = "enable"
+
+[lint.per-file-ignores]
+".github/workflows/*" = ["truthy"]
+```
+
+Gate CI on both:
+
+```bash
+ryl format --check .
+ryl check .
+```
+
+The `truthy` ignore keeps GitHub Actions' `on:` key from being reported (see
+[`truthy`](../rules/truthy.md)). Add any other rule from the
+[Rules reference](../rules.md) as you need it; the [Formatter](../formatter.md#conflicting-lint-rules)
+page lists the layout rules and the options that conflict with `ryl format`. If you do
+not run `ryl format`, start from a [preset](../config-presets.md) instead, which keeps
+the layout rules.
 
 ## Configure across projects (user-global)
 

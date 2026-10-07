@@ -80,6 +80,8 @@ fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```
 
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
+
 ## Related rules
 
 - [`comments`](comments.md) &mdash; controls the formatting of comment

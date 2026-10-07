@@ -61,6 +61,8 @@ is not auto-fixed because converting flow to block style requires
 re-flowing the surrounding document. A minimum above its maximum cannot be
 satisfied, so `--fix` leaves that spacing as it is.
 
+`ryl format` writes no spaces inside braces, `{}` included, and never converts flow style to block. It conflicts with `forbid`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+
 ## Related rules
 
 - [`brackets`](brackets.md) &mdash; the equivalent rule for flow

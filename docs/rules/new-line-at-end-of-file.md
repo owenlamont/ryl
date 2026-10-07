@@ -52,6 +52,8 @@ fixable = ["ALL"]
 unfixable = ["new-line-at-end-of-file"]
 ```
 
+`ryl format` applies the same fix, ending the file with the `[format] line-ending`, and no option of this rule conflicts with it.
+
 ## Related rules
 
 - [`empty-lines`](empty-lines.md) &mdash; controls multiple empty lines

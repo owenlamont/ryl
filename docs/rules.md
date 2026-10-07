@@ -22,7 +22,10 @@ For configuration discovery, presets, and file selection, see
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
-Rules that auto-fix are marked with :wrench: in the **Fix** column.
+Rules that auto-fix are marked with :wrench: in the **Fix** column. Most layout
+rules are also enforced by [`ryl format`](formatter.md); the
+[Formatter](formatter.md#conflicting-lint-rules) page lists which, and the options that
+conflict with it.
 
 ## Layout and spacing
 

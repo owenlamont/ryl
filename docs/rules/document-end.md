@@ -81,6 +81,8 @@ fixable = ["ALL"]
 unfixable = ["document-end"]
 ```
 
+`ryl format` adds `...` under the same limits only when `[format] document-end` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+
 ## Related rules
 
 - [`document-start`](document-start.md) &mdash; the matching rule for the
