@@ -92,6 +92,8 @@ pub struct FormatTable {
     pub document_end: MarkerTarget,
     /// Whether to split plain and quoted scalar lines longer than `line-length` at single spaces.
     pub fold_long_lines: bool,
+    /// Opt in to unstable style changes before a minor release promotes them to stable.
+    pub preview: bool,
 }
 
 impl Default for FormatTable {
@@ -102,6 +104,7 @@ impl Default for FormatTable {
             document_start: MarkerTarget::Add,
             document_end: MarkerTarget::Preserve,
             fold_long_lines: false,
+            preview: false,
         }
     }
 }

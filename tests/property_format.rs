@@ -123,6 +123,18 @@ proptest! {
         }
     }
 
+    /// Narrow or delete this property once a preview style exists.
+    #[test]
+    fn preview_matches_stable_while_no_preview_style_exists(
+        document in arb_document_with_properties()
+    ) {
+        let input = document.render();
+        prop_assert_eq!(
+            (named_pass("format/preview").format)(&input),
+            (named_pass("format/default").format)(&input)
+        );
+    }
+
     #[test]
     fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
         input in arb_fold_document()

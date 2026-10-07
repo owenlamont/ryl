@@ -148,6 +148,7 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
                 "[format]\nquote-style = 'double'\n",
                 format,
             ),
+            toml_pass("format/preview", "[format]\npreview = true\n", format),
             toml_pass(
                 "format/non-defaults",
                 "[format]\nquote-style = 'preserve'\nline-ending = 'cr-lf'\n\

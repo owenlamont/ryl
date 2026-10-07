@@ -137,6 +137,11 @@
           "default": "lf",
           "description": "Line ending; `native` is the platform's."
         },
+        "preview": {
+          "default": false,
+          "description": "Opt in to unstable style changes before a minor release promotes them to stable.",
+          "type": "boolean"
+        },
         "quote-style": {
           "$ref": "#/$defs/QuoteStyleTarget",
           "default": "single",
