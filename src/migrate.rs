@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use ignore::WalkBuilder;
 
 use crate::config::{
-    Overrides, RYL_USER_GLOBAL_CONFIG_CANDIDATES, YamlLintConfig, discover_config,
+    Env, RYL_USER_GLOBAL_CONFIG_CANDIDATES, SystemEnv, YamlLintConfig, is_toml_path,
+    legacy_yaml,
 };
 use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
 use crate::rules::{comments, document_end, document_start, quoted_strings};
@@ -284,11 +285,16 @@ fn rename_destination(source: &Path, suffix: &str) -> PathBuf {
     source.with_file_name(format!("{name}{suffix}"))
 }
 
-/// An existing ryl-native TOML config *file* in `target`'s directory that a migration into
-/// `target` would overwrite or be shadowed by: the root names (`.ryl.toml`/`ryl.toml`) and
-/// the `.config/` candidates, which a written `<dir>/.ryl.toml` would silently outrank. A
-/// non-file (e.g. a directory) is not a collision, leaving the write path to report it.
+/// An existing ryl-native TOML config *file* that a migration into `target` would
+/// overwrite or be shadowed by. For a discovery name (`.ryl.toml`/`ryl.toml`) that is any
+/// root name or `.config/` candidate in its directory, which a written `<dir>/.ryl.toml`
+/// would silently outrank; any other target is only ever named by `-c`, so only the
+/// target itself collides. A non-file (e.g. a directory) is not a collision, leaving the
+/// write path to report it.
 fn existing_ryl_native_config(target: &Path) -> Option<PathBuf> {
+    if !is_ryl_toml_config_path(target) {
+        return target.is_file().then(|| target.to_path_buf());
+    }
     target
         .parent()
         .into_iter()
@@ -339,35 +345,38 @@ fn build_entry(
         ));
         return Ok(false);
     }
-    let mut ctx = discover_config(
-        &[],
-        &Overrides {
-            config_file: Some(source.to_path_buf()),
-            config_data: None,
-        },
-    )?;
-    if user_global {
-        if ctx.config.has_relative_rule_level_ignore_from_file() {
-            plan.warnings.push(format!(
-                "warning: skipping migration of {}: a relative rule-level ignore-from-file \
-                 cannot be relocated to the ryl user-global config; inline the patterns or \
-                 use an absolute path, then re-run",
-                source.display()
-            ));
-            return Ok(false);
-        }
-        ctx.config.inline_resolved_ignore_from_file();
+    let base_dir = if user_global {
+        SystemEnv.current_dir()
+    } else {
+        source.parent().unwrap_or(Path::new("")).to_path_buf()
+    };
+    let mut config = legacy_yaml::load(&SystemEnv, source, &base_dir)?;
+    // At runtime a user-global relative path resolves from each linted file's directory,
+    // which no single migrated file can express.
+    if user_global && let Some(path) = config.relative_ignore_from_file() {
+        plan.warnings.push(format!(
+            "warning: skipping migration of {}: its relative ignore-from-file `{path}` \
+             resolves against each linted file's directory, which the ryl user-global \
+             config cannot express; make the path absolute or move the setting into the \
+             project config, then re-run",
+            source.display()
+        ));
+        return Ok(false);
     }
-    if !ctx.config.enables_any_rule() {
+    config.finalize(&SystemEnv, &base_dir)?;
+    if user_global {
+        config.inline_resolved_ignore_from_file();
+    }
+    if !config.enables_any_rule() {
         plan.warnings.push(format!(
             "warning: migrated config {} enables no rules; ryl will not lint with it \
              \u{2014} enable at least one rule, or use 'extends: default' for the standard rule set",
             target.display()
         ));
     }
-    let rendered = ctx.config.to_toml_string();
+    let rendered = config.to_toml_string();
     let mut toml = format!("{}\n", rendered.trim_end());
-    let targets = preserve_targets(&ctx.config);
+    let targets = preserve_targets(&config);
     if !targets.is_empty() {
         let table = toml::Table::from_iter([("format".to_owned(), targets.into())]);
         toml.push('\n');
@@ -403,9 +412,21 @@ fn preserve_targets(cfg: &YamlLintConfig) -> toml::Table {
     .collect()
 }
 
+/// The legacy configs under `root`. A file root is taken whatever its name, unless it is
+/// TOML, because `-c` loads any such file as yamllint config.
+fn legacy_yaml_sources(root: &Path) -> Vec<PathBuf> {
+    if root.is_file() {
+        return (!is_toml_path(root))
+            .then(|| root.to_path_buf())
+            .into_iter()
+            .collect();
+    }
+    discover_configs(root, is_legacy_yaml_config_path)
+}
+
 fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), String> {
     let mut grouped: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    for path in discover_configs(root, is_legacy_yaml_config_path) {
+    for path in legacy_yaml_sources(root) {
         let parent = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         grouped.entry(parent).or_default().push(path);
     }
@@ -428,7 +449,12 @@ fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), St
             .expect("at least one config path should exist per grouped directory");
         // Enqueue lower-precedence siblings for cleanup only once the primary migrated,
         // else a skipped directory would still delete/rename them with --delete-old/--rename-old.
-        if build_entry(&primary, dir.join(".ryl.toml"), plan, false)? {
+        let target = if is_legacy_yaml_config_path(&primary) {
+            dir.join(".ryl.toml")
+        } else {
+            primary.with_extension("toml")
+        };
+        if build_entry(&primary, target, plan, false)? {
             for ignored in paths.iter().skip(1) {
                 plan.cleanup_only_sources.push(ignored.clone());
                 plan.warnings.push(format!(

@@ -104,3 +104,22 @@ fn cwd_relative_base_anchors_ignore_for_absolute_paths() {
         "a path outside the cwd matches on its file name alone"
     );
 }
+
+#[test]
+fn relative_rule_level_ignore_from_file_is_reported() {
+    let env = FakeEnv::new()
+        .with_cwd("/proj")
+        .with_file(
+            "/proj/.yamllint",
+            "rules:\n  key-duplicates:\n    ignore-from-file: skip.txt\n",
+        )
+        .with_file("/proj/skip.txt", "a.yaml\n")
+        .with_exists("/proj/a.yaml");
+    let ctx = discover_config_with(
+        &[PathBuf::from("/proj/a.yaml")],
+        &Overrides::default(),
+        &env,
+    )
+    .expect("config loads");
+    assert!(ctx.config.has_relative_rule_level_ignore_from_file());
+}

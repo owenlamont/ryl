@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 use tempfile::tempdir;
@@ -369,4 +370,45 @@ fn migrate_rejects_positional_path() {
         );
     }
     assert!(!td.path().join("sub/.ryl.toml").exists());
+}
+
+fn user_config_with_ignore_files(rules_yaml: &str) -> (tempfile::TempDir, PathBuf) {
+    let td = tempdir().unwrap();
+    let yamllint_dir = td.path().join("xdg").join("yamllint");
+    let project = td.path().join("project");
+    fs::create_dir_all(&yamllint_dir).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    fs::write(yamllint_dir.join("config"), rules_yaml).unwrap();
+    fs::write(yamllint_dir.join("ignores.txt"), "beside-source/\n").unwrap();
+    fs::write(project.join("ignores.txt"), "from-cwd/\n").unwrap();
+    (td, project)
+}
+
+#[test]
+fn migrate_user_config_refuses_relative_rule_level_ignore_from_file() {
+    let (td, project) = user_config_with_ignore_files(
+        "rules:\n  key-duplicates:\n    ignore-from-file: ignores.txt\n",
+    );
+    let source = td.path().join("xdg").join("yamllint").join("config");
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .current_dir(&project)
+        .env("XDG_CONFIG_HOME", td.path().join("xdg"))
+        .args([
+            "--migrate-user-config",
+            "--migrate-write",
+            "--migrate-delete-old",
+        ]));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stderr.contains("relative ignore-from-file `ignores.txt`"),
+        "got: {stderr}"
+    );
+    assert!(
+        stdout.contains("No user-global config migrated."),
+        "got: {stdout}"
+    );
+    assert!(
+        source.exists(),
+        "a refused source is kept, even with --delete-old"
+    );
 }

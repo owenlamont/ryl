@@ -19,15 +19,14 @@ use crate::config_schema::{
     FixableRuleSelector as TomlFixableRuleSelector, FormatTable, NormalizedConfig,
     NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore, OutputTable,
     TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
-    parse_toml_config_str, parse_yaml_config, validate_toml_config,
-    yaml_rule_filter_patterns, yaml_rule_level,
+    parse_toml_config_str, validate_toml_config, yaml_rule_filter_patterns,
+    yaml_rule_level,
 };
-use crate::{conf, decoder};
+use crate::decoder;
+
+pub(crate) mod legacy_yaml;
 
 pub use crate::config_schema::RuleLevel;
-
-/// Bounds `extends` recursion: a cyclic `extends` would otherwise overflow the stack.
-const MAX_EXTENDS_DEPTH: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -531,14 +530,6 @@ pub struct Overrides {
 }
 
 impl YamlLintConfig {
-    /// Parse configuration data without filesystem access.
-    ///
-    /// # Errors
-    /// Returns an error when `extends` is used and the config requires filesystem access.
-    pub fn from_yaml_str(s: &str) -> Result<Self, String> {
-        Self::from_yaml_str_with_env(s, None, None)
-    }
-
     /// Parse standalone TOML config text without filesystem access (like
     /// [`Self::from_yaml_str`]). Does not run [`Self::finalize`], so path-based matchers
     /// are not built here; the lint-ready config comes from `discover_config`.
@@ -554,53 +545,6 @@ impl YamlLintConfig {
             .map(|config| config.expect("standalone TOML config is never absent"))
     }
 
-    fn extend_from_entry(
-        &mut self,
-        entry: &str,
-        envx: Option<&dyn Env>,
-        base_dir: &Path,
-        depth: usize,
-    ) -> Result<(), String> {
-        if let Some(builtin) = conf::builtin(entry) {
-            let base = Self::from_yaml_str(builtin).expect("builtin preset must parse");
-            self.merge_from(base);
-            return Ok(());
-        }
-
-        let Some(envx) = envx else {
-            return Err(format!(
-                "invalid config: extends '{entry}' requires filesystem access for resolution"
-            ));
-        };
-
-        let resolved = resolve_extend_path(entry, envx, Some(base_dir));
-        if is_toml_path(&resolved) {
-            return Err(format!(
-                "invalid config: extends cannot reference TOML configuration {}",
-                resolved.display()
-            ));
-        }
-        let data = match envx.read_to_string(&resolved) {
-            Ok(text) => text,
-            Err(err) => {
-                return Err(format!(
-                    "failed to read extended config {}: {err}",
-                    resolved.display()
-                ));
-            }
-        };
-        let parent_dir = resolved
-            .parent()
-            .map_or_else(|| base_dir.to_path_buf(), Path::to_path_buf);
-        let base = Self::from_yaml_str_with_env_depth(
-            &data,
-            Some(envx),
-            Some(&parent_dir),
-            depth + 1,
-        )?;
-        self.merge_from(base);
-        Ok(())
-    }
     #[must_use]
     pub fn ignore_patterns(&self) -> &[String] {
         &self.ignore_patterns
@@ -612,6 +556,21 @@ impl YamlLintConfig {
     /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
         self.ignore_from_files.clear();
+    }
+
+    /// The first relative `ignore-from-file`, top-level or rule-level, read before
+    /// `finalize` resolves it.
+    pub(crate) fn relative_ignore_from_file(&self) -> Option<String> {
+        let rule_files = self
+            .rules
+            .values()
+            .filter_map(|rule| yaml_rule_filter_patterns(&rule.value))
+            .flat_map(|(_, files)| files);
+        self.ignore_from_files
+            .iter()
+            .cloned()
+            .chain(rule_files)
+            .find(|path| !Path::new(path).is_absolute())
     }
 
     /// Whether any rule sets a *relative* rule-level `ignore-from-file`. User-global
@@ -880,41 +839,6 @@ impl YamlLintConfig {
         self.indent_width
     }
 
-    fn from_yaml_str_with_env(
-        s: &str,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-    ) -> Result<Self, String> {
-        Self::from_yaml_str_with_env_depth(s, envx, base_dir, 0)
-    }
-
-    /// `depth` tracks `extends` recursion so a cycle is rejected (see
-    /// [`MAX_EXTENDS_DEPTH`]) rather than overflowing the stack.
-    fn from_yaml_str_with_env_depth(
-        s: &str,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-        depth: usize,
-    ) -> Result<Self, String> {
-        if depth > MAX_EXTENDS_DEPTH {
-            return Err(
-                "invalid config: extends nested too deeply (possible cyclic extends)"
-                    .to_string(),
-            );
-        }
-        let docs = YamlOwned::load_from_str(s)
-            .map_err(|e| format!("failed to parse config data: {e}"))?;
-        // An empty document stream yields no docs; treat it as a non-mapping so it reports
-        // "invalid config: not a mapping" (matching yamllint) instead of panicking on
-        // `docs[0]`.
-        Self::from_doc_with_env(
-            docs.first().unwrap_or(&YamlOwned::BadValue),
-            envx,
-            base_dir,
-            depth,
-        )
-    }
-
     fn from_toml_str_with_env(
         s: &str,
         envx: Option<&dyn Env>,
@@ -938,23 +862,6 @@ impl YamlLintConfig {
         };
         cfg.apply_normalized_config(normalized);
         cfg
-    }
-
-    fn from_doc_with_env(
-        doc: &YamlOwned,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-        depth: usize,
-    ) -> Result<Self, String> {
-        let parsed = parse_yaml_config(doc)?;
-        let mut cfg = Self::default();
-        let base_path = base_dir.unwrap_or_else(|| Path::new(""));
-        for entry in &parsed.extends {
-            cfg.extend_from_entry(entry, envx, base_path, depth)?;
-        }
-        cfg.apply_normalized_config(parsed.normalized);
-
-        Ok(cfg)
     }
 
     fn merge_from(&mut self, mut other: Self) {
@@ -1042,7 +949,11 @@ impl YamlLintConfig {
             .expect("serializing TOML Value should not fail")
     }
 
-    fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
+    pub(crate) fn finalize(
+        &mut self,
+        envx: &dyn Env,
+        base_dir: &Path,
+    ) -> Result<(), String> {
         // Reject unknown rule names (matching yamllint's "no such rule"): an unknown rule
         // is never dispatched by `lint_str`, so without this a typo lints nothing and a
         // config whose only entries are unknown slips past the "no rules enabled" guard.
@@ -1237,30 +1148,6 @@ fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> boo
         return true;
     }
     matcher.matched_path_or_any_parents(rel, false).is_ignore()
-}
-
-fn resolve_extend_path(
-    entry: &str,
-    envx: &dyn Env,
-    base_dir: Option<&Path>,
-) -> PathBuf {
-    let candidate = PathBuf::from(entry);
-    if candidate.is_absolute() {
-        return candidate;
-    }
-    if let Some(joined) = base_dir
-        .map(|base| base.join(&candidate))
-        .filter(|candidate| envx.path_exists(candidate))
-    {
-        return joined;
-    }
-    let cwd = envx.current_dir();
-    let fallback = cwd.join(&candidate);
-    if envx.path_exists(&fallback) {
-        fallback
-    } else {
-        candidate
-    }
 }
 
 fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
@@ -1559,8 +1446,7 @@ pub fn discover_config_with(
 ) -> Result<ConfigContext, String> {
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
-        let cfg =
-            YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
+        let cfg = legacy_yaml::parse(data, Some(envx), Some(&base_dir))?;
         return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
     }
     if let Some(ref file) = overrides.config_file {
@@ -1838,11 +1724,7 @@ fn try_yamllint_user_global_core(
         .filter(|p| envx.path_exists(p))
         .map(|p| {
             let data = envx.read_to_string(&p)?;
-            let cfg = YamlLintConfig::from_yaml_str_with_env(
-                &data,
-                Some(envx),
-                Some(base_dir),
-            )?;
+            let cfg = legacy_yaml::parse(&data, Some(envx), Some(base_dir))?;
             finalize_context(
                 envx,
                 cfg,
@@ -1912,12 +1794,11 @@ fn load_config_from_path_core(
         )?;
         return Ok(cfg);
     }
-    let cfg =
-        YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
+    let cfg = legacy_yaml::parse(&data, Some(envx), Some(base_dir))?;
     Ok(Some(cfg))
 }
 
-fn is_toml_path(path: &Path) -> bool {
+pub(crate) fn is_toml_path(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "toml")
 }
 
