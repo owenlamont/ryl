@@ -220,6 +220,14 @@ fn is_space(ch: char) -> bool {
     matches!(ch, ' ' | '\t' | '\n' | '\r')
 }
 
+/// Whether `text` has a `-`, `?` or `:` indicator followed by more than one space, which
+/// `hyphens` and `colons` leave alone only while the entry after it spans lines.
+fn widened_indicator(text: &str) -> bool {
+    text.match_indices(['-', '?', ':']).any(|(at, _)| {
+        text[at + 1..].starts_with("  ") && (at == 0 || text[..at].ends_with(' '))
+    })
+}
+
 struct Restyler<'a> {
     buffer: &'a str,
     nodes: Vec<Node>,
@@ -319,7 +327,12 @@ impl Restyler<'_> {
             .map_or(0, |at| at + 1);
         let width =
             self.buffer[line_start..start].chars().count() + text.chars().count();
-        (width <= self.width).then_some((BytePos::new(start), BytePos::new(last), text))
+        let owner = &self.buffer[line_start..start];
+        (width <= self.width && !widened_indicator(owner)).then_some((
+            BytePos::new(start),
+            BytePos::new(last),
+            text,
+        ))
     }
 
     /// Entry `index`'s text from byte `pos`, if it reads the same in flow context: an
@@ -380,9 +393,7 @@ impl Restyler<'_> {
         } else {
             prefix
         };
-        if outer.match_indices(['-', '?', ':']).any(|(at, _)| {
-            outer[at + 1..].starts_with("  ") && (at == 0 || outer[..at].ends_with(' '))
-        }) {
+        if widened_indicator(outer) {
             return Err("an indicator before it has extra spaces");
         }
         if compact {
