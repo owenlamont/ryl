@@ -60,6 +60,8 @@ comment-spacing = 2
 comment-starting-space = "add"
 max-blank-lines = 2
 preview = false
+sequence-style = "preserve"
+mapping-style = "preserve"
 ```
 
 | Key | Default | Values | What it sets |
@@ -74,6 +76,8 @@ preview = false
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
 | `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
+| `sequence-style` | `"preserve"` | `"preserve"`, `"block"` | Collection style for sequences. See [Collection style](#collection-style). |
+| `mapping-style` | `"preserve"` | `"preserve"`, `"block"` | Collection style for mappings. See [Collection style](#collection-style). |
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
@@ -115,6 +119,32 @@ items:
 Keys, flow collections, quoted and block scalars, and words with no space to break at
 stay as they are. A line ending in an inline directive comment stays whole. Folding
 ignores the `line-length` rule's own options, and `ryl check --fix` never folds.
+
+## Collection style
+
+With `sequence-style` or `mapping-style` set to `"block"`, `ryl format` rewrites flow
+collections of that kind in block style, indented by `indent-width`, copying each
+entry's text. An inline comment after the collection moves to its key's line:
+
+```yaml
+# before
+items: [one, two]  # shopping
+metadata: {name: example}
+```
+
+```yaml
+# after, with both set to "block"
+---
+items:  # shopping
+  - one
+  - two
+metadata:
+  name: example
+```
+
+Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
+collection or empty key, or an entry some loaders would read differently in block style
+stays as written, and `ryl format` says why on stderr.
 
 ## Quote style
 
