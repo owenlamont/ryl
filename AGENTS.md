@@ -192,8 +192,7 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   committing, run every suite at its default count, plus a **20× run of the suites the
   change touches** (`PROPTEST_CASES=5120 cargo test --release --test property_check`),
   keeping the whole step within 5–10 minutes. Release gates run every suite at that 20×
-  count. Don't run 1000× (`PROPTEST_CASES=512000`): it takes 40–80 minutes per suite. See
-  the `property-tests` dev skill.
+  count. See the `property-tests` dev skill.
 - Several traps make a test pass vacuously or fail only in CI — config discovery walking
   out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
   `testing-traps` dev skill before writing a test that drives the binary.

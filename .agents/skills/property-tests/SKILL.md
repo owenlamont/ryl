@@ -20,8 +20,7 @@ step within **5–10 minutes**. Commit only once it is green, and keep any newly
 seeds in `tests/proptest-regressions/`.
 
 **A release gate, or an integration branch's tip, runs every suite at 20×**, not only the
-touched ones. A seed it finds becomes a regression test plus a fix. Don't run 1000×
-(`PROPTEST_CASES=512000`): at 40–80 minutes per suite, a full matrix takes hours.
+touched ones. A seed it finds becomes a regression test plus a fix.
 
 ## Property Tests For Safe Fixes
 
