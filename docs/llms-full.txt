@@ -1270,6 +1270,7 @@ line-ending = "lf"
 document-start = "add"
 document-end = "preserve"
 fold-long-lines = false
+preview = false
 ```
 
 | Key | Default | Values | What it sets |
@@ -1279,6 +1280,7 @@ fold-long-lines = false
 | `document-start` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+| `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
@@ -1346,6 +1348,14 @@ d: "tab\there"
 A string that needs escape sequences stays double-quoted. A string that YAML 1.1 loads
 as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
 clean. Mapping keys follow the same rules.
+
+## Preview style
+
+`preview = true` opts in to style changes before they become stable. As in ruff, the
+stable style changes only in a minor release, by promoting a preview style, while a
+preview style can change in any release. A fix for invalid output, a changed value or a
+lost comment can ship in any release. No preview styles exist yet, so `preview` changes
+nothing today.
 
 ## YAML in Markdown
 
