@@ -3093,3 +3093,46 @@ fn pull_client_is_shown_deprecated_config_key_warning() {
         "a pull for an unopened file still surfaces the deprecation"
     );
 }
+
+#[test]
+fn legacy_yaml_config_data_is_shown_as_a_deprecation_warning() {
+    let root = tempdir().expect("tempdir");
+    let options = json!({ "configData": "rules:\n  trailing-spaces: enable\n" });
+    let (client, _init) =
+        Client::launch_with(None, Some(root.path()), true, None, false, Some(options));
+    client.did_open(uri("untitled:Untitled-legacy"), "a: 1\n");
+    let warnings: Vec<String> = client
+        .drain_to_publish()
+        .iter()
+        .filter_map(warning_text)
+        .collect();
+    assert!(
+        warnings
+            .iter()
+            .any(|text| text.contains("yamllint YAML config is deprecated")),
+        "the YAML deprecation reaches the editor: {warnings:?}"
+    );
+}
+
+#[test]
+fn workspace_pull_without_open_documents_shows_the_yaml_deprecation() {
+    let root = tempdir().expect("tempdir");
+    let config = root.path().join("lint.yaml");
+    std::fs::write(&config, "rules:\n  trailing-spaces: enable\n")
+        .expect("write config");
+    std::fs::write(root.path().join("a.yaml"), "a: 1 \n").expect("write yaml");
+    let options = json!({ "configPath": config });
+    let (mut client, _init) =
+        Client::launch_with(None, Some(root.path()), true, None, false, Some(options));
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    let (messages, _) = client.messages_until_response(&id);
+    let warnings: Vec<String> = messages.iter().filter_map(warning_text).collect();
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|text| text.contains("yamllint YAML config is deprecated"))
+            .count(),
+        1,
+        "{warnings:?}"
+    );
+}

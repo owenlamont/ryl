@@ -1,8 +1,9 @@
 # ryl
 
-ryl - the Rust YAML linter - is intended to ultimately be a drop-in
-replacement for [yamllint](https://github.com/adrienverge/yamllint). It is
-usable today, but parity and edge-case behaviour are still maturing.
+ryl - the Rust YAML linter - implements the rules of
+[yamllint](https://github.com/adrienverge/yamllint) and converts yamllint
+configs to its own TOML. It is usable today, but parity and edge-case behaviour
+are still maturing.
 
 Full documentation lives at <https://ryl-docs.pages.dev/>.
 
@@ -25,8 +26,8 @@ Full documentation lives at <https://ryl-docs.pages.dev/>.
 ## Quick start
 
 ryl enables no rules by default, so it needs a configuration or `--enable` that
-turns rules on. `-d 'extends: default'` opts into yamllint's standard rule set for
-a one-off run, and `--enable <RULES>` runs just the named rules; for a project,
+turns rules on. `--enable ALL` runs every rule for a one-off run, and
+`--enable <RULES>` runs just the named rules; for a project,
 drop a `.ryl.toml` at the root (see
 [Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
 
@@ -93,10 +94,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   to the Markdown file. It is off by default; `--fix` writes safe fixes back into
   the embedded blocks and `--diff` previews them at the host-file level. See
   <https://ryl-docs.pages.dev/markdown/>.
-- yamllint-style YAML configuration is also accepted (`.yamllint`,
-  `.yamllint.yml`, `.yamllint.yaml`) for drop-in compatibility, including
-  the built-in `default`, `relaxed`, and `empty` presets via `extends`.
-  An existing yamllint configuration can be converted with
+- yamllint-style YAML configuration (`.yamllint`, `.yamllint.yml`,
+  `.yamllint.yaml`, including the `default`, `relaxed`, and `empty` presets via
+  `extends`) still works but is deprecated and warns; convert it with
   `ryl --migrate-configs --migrate-write`.
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`

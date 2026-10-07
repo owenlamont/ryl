@@ -755,10 +755,10 @@ fn merge_keys_allowed_by_default() {
     )
     .unwrap();
 
-    let config = dir.path().join("config.yaml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  key-duplicates: enable\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nkey-duplicates = \"enable\"\n",
     )
     .unwrap();
 

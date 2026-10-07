@@ -22,7 +22,7 @@ use ryl::cli_support::{
 };
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
-    user_config_migration_paths,
+    is_inline_toml, user_config_migration_paths,
 };
 use ryl::config_schema::{
     OutputDestination, OutputTable, schema_string_pretty, yaml_schema_string_pretty,
@@ -51,10 +51,10 @@ const OUTPUT_INFALLIBLE: &str =
     "writing diagnostics to an in-memory buffer cannot fail";
 
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
-     least one rule, use 'extends: default' for the standard rule set, or pass '--enable ALL'";
+     least one rule, copy a preset from https://ryl-docs.pages.dev/config-presets/, or pass '--enable ALL'";
 
 const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
-     config that enables rules, use 'extends: default' for the standard rule set, or pass '--enable ALL'";
+     config that enables rules, copy a preset from https://ryl-docs.pages.dev/config-presets/, or pass '--enable ALL'";
 
 fn no_rules_error(config_found: bool) -> String {
     if config_found {
@@ -94,7 +94,7 @@ fn cli_overrides(args: &LintArgs) -> Overrides {
     Overrides {
         config_file: args.source.config_file.clone(),
         config_data: args.source.config_data.as_ref().map(|raw| {
-            if !raw.is_empty() && !raw.contains(':') {
+            if !raw.is_empty() && !raw.contains(':') && !is_inline_toml(raw) {
                 format!("extends: {raw}")
             } else {
                 raw.clone()
@@ -276,7 +276,7 @@ struct Cli {
     )]
     print_toml_config_schema: bool,
 
-    /// Print the JSON Schema for yamllint-compatible YAML config and exit
+    /// Print the JSON Schema for yamllint-compatible YAML config and exit (deprecated)
     #[arg(
         long = "print-yaml-config-schema",
         default_value_t = false,
@@ -361,12 +361,12 @@ struct SourceArgs {
     #[arg(long = "stdin-filename", value_name = "FILE")]
     stdin_filename: Option<PathBuf>,
 
-    /// Path to configuration file (YAML or TOML)
+    /// Path to configuration file (TOML, or deprecated yamllint YAML)
     #[arg(short = 'c', long = "config-file", value_name = "FILE")]
     config_file: Option<PathBuf>,
 
-    /// Inline configuration data (yaml)
-    #[arg(short = 'd', long = "config-data", value_name = "YAML")]
+    /// Inline configuration data (TOML, or deprecated yamllint YAML)
+    #[arg(short = 'd', long = "config-data", value_name = "DATA")]
     config_data: Option<String>,
 }
 

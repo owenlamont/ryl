@@ -16,11 +16,11 @@ use regex::Regex;
 
 use crate::config_schema::{
     DeprecatedKey, DeprecatedKeyUse, FixRuleName as TomlFixRuleName,
-    FixableRuleSelector as TomlFixableRuleSelector, FormatTable, NormalizedConfig,
-    NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore, OutputTable,
-    TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
-    parse_toml_config_str, validate_toml_config, yaml_rule_filter_patterns,
-    yaml_rule_level,
+    FixableRuleSelector as TomlFixableRuleSelector, FormatTable, LEGACY_YAML_SOURCES,
+    LegacyYamlSource, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
+    NormalizedPerLineIgnore, OutputTable, TomlConfig, normalize_toml_config,
+    normalized_config_to_toml_value, parse_toml_config_str, validate_toml_config,
+    yaml_rule_filter_patterns, yaml_rule_level,
 };
 use crate::decoder;
 
@@ -1419,6 +1419,40 @@ fn deprecation_notice(
     }
 }
 
+fn legacy_yaml_notice(source: LegacyYamlSource, path: Option<&Path>) -> String {
+    let row = LEGACY_YAML_SOURCES
+        .iter()
+        .find(|row| row.source == source)
+        .expect("every legacy YAML source has a deprecation row");
+    let label = path.map_or_else(
+        || "-d/--config-data".to_string(),
+        |path| path.display().to_string(),
+    );
+    format!(
+        "warning: {label}: yamllint YAML config is deprecated; {}",
+        row.replacement.replace("{path}", &shell_word(&label))
+    )
+}
+
+/// `text` as one shell word: single-quoted, POSIX-style, unless every character is inert.
+fn shell_word(text: &str) -> String {
+    if text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+:,=@".contains(c))
+    {
+        text.to_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
+/// Whether `-d` text is a ryl TOML config rather than yamllint YAML. A yamllint config is
+/// a YAML mapping, which never parses as a non-empty TOML table.
+#[must_use]
+pub fn is_inline_toml(data: &str) -> bool {
+    toml::from_str::<toml::Table>(data).is_ok_and(|table| !table.is_empty())
+}
+
 /// Discover configuration with precedence:
 /// config-data > config-file > project (TOML-first, YAML fallback) > env var >
 /// ryl user-global (TOML) > yamllint user-global (YAML) > defaults.
@@ -1446,18 +1480,28 @@ pub fn discover_config_with(
 ) -> Result<ConfigContext, String> {
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
+        if is_inline_toml(data) {
+            let cfg = YamlLintConfig::from_toml_str(data)?;
+            return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
+        }
         let cfg = legacy_yaml::parse(data, Some(envx), Some(&base_dir))?;
-        return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
+        let notices = vec![legacy_yaml_notice(LegacyYamlSource::ConfigData, None)];
+        return finalize_context(envx, cfg, base_dir, None, notices, true);
     }
     if let Some(ref file) = overrides.config_file {
-        return ctx_from_config_path_core(envx, file, false, Vec::new());
+        return ctx_from_config_path_core(
+            envx,
+            file,
+            LegacyYamlSource::ConfigFile,
+            Vec::new(),
+        );
     }
     let discovered = find_project_config_core(envx, inputs)?;
     if let Some(discovered) = discovered {
         return ctx_from_config_path_core(
             envx,
             &discovered.cfg_path,
-            true,
+            LegacyYamlSource::Project,
             discovered.notices,
         );
     }
@@ -1523,9 +1567,12 @@ pub fn discover_per_file_with(
     envx: &dyn Env,
 ) -> Result<ConfigContext, String> {
     match locate_per_file(path, envx)? {
-        PerFileConfig::Project { cfg_path, notices } => {
-            ctx_from_config_path_core(envx, &cfg_path, true, notices)
-        }
+        PerFileConfig::Project { cfg_path, notices } => ctx_from_config_path_core(
+            envx,
+            &cfg_path,
+            LegacyYamlSource::Project,
+            notices,
+        ),
         PerFileConfig::Fallback(ctx) => Ok(*ctx),
     }
 }
@@ -1540,7 +1587,12 @@ pub(crate) enum PerFileConfig {
 }
 
 pub(crate) fn load_project_config(cfg_path: &Path) -> Result<ConfigContext, String> {
-    ctx_from_config_path_core(&SystemEnv, cfg_path, true, Vec::new())
+    ctx_from_config_path_core(
+        &SystemEnv,
+        cfg_path,
+        LegacyYamlSource::Project,
+        Vec::new(),
+    )
 }
 
 pub(crate) fn locate_per_file(
@@ -1607,10 +1659,14 @@ fn config_base_dir(envx: &dyn Env, p: &Path) -> PathBuf {
 fn ctx_from_config_path_core(
     envx: &dyn Env,
     p: &Path,
-    allow_missing_pyproject: bool,
-    notices: Vec<String>,
+    origin: LegacyYamlSource,
+    mut notices: Vec<String>,
 ) -> Result<ConfigContext, String> {
     let base = config_base_dir(envx, p);
+    if !is_toml_path(p) {
+        notices.push(legacy_yaml_notice(origin, Some(p)));
+    }
+    let allow_missing_pyproject = origin == LegacyYamlSource::Project;
     let cfg = load_config_from_path_core(envx, p, &base, allow_missing_pyproject)?
         .expect("missing [tool.ryl] should be filtered or returned as an error before this point");
     finalize_context(envx, cfg, base, Some(p.to_path_buf()), notices, true)
@@ -1644,7 +1700,8 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
     if !envx.path_exists(&path) {
         return Ok(None);
     }
-    ctx_from_config_path_core(envx, &path, false, Vec::new()).map(Some)
+    ctx_from_config_path_core(envx, &path, LegacyYamlSource::EnvVar, Vec::new())
+        .map(Some)
 }
 
 /// Checks ryl's own location first, then the yamllint-compatible path so migrators keep
@@ -1725,14 +1782,9 @@ fn try_yamllint_user_global_core(
         .map(|p| {
             let data = envx.read_to_string(&p)?;
             let cfg = legacy_yaml::parse(&data, Some(envx), Some(base_dir))?;
-            finalize_context(
-                envx,
-                cfg,
-                base_dir.to_path_buf(),
-                Some(p),
-                Vec::new(),
-                true,
-            )
+            let notices =
+                vec![legacy_yaml_notice(LegacyYamlSource::UserGlobal, Some(&p))];
+            finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p), notices, true)
         })
         .transpose()
 }
@@ -1822,11 +1874,14 @@ fn build_project_search_starts(envx: &dyn Env, inputs: &[PathBuf]) -> Vec<PathBu
         } else {
             path.parent().map_or_else(|| cwd.clone(), Path::to_path_buf)
         };
-        let abs = if start.is_absolute() {
+        // Dropping `.` components keeps one config from being reported under two paths.
+        let abs: PathBuf = if start.is_absolute() {
             start
         } else {
             cwd.join(start)
-        };
+        }
+        .components()
+        .collect();
         if !starts.iter().any(|existing| existing == &abs) {
             starts.push(abs);
         }

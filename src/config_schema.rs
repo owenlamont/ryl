@@ -215,6 +215,65 @@ pub const DEPRECATED_TOML_KEYS: [DeprecatedKey; 5] = [
     },
 ];
 
+/// A way of supplying yamllint YAML config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyYamlSource {
+    Project,
+    ConfigFile,
+    ConfigData,
+    EnvVar,
+    UserGlobal,
+}
+
+/// How to replace one [`LegacyYamlSource`]; `{path}` in `replacement` is its file, as one
+/// shell word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LegacyYamlDeprecation {
+    pub source: LegacyYamlSource,
+    pub replacement: &'static str,
+    pub deprecated_since: &'static str,
+    pub removed_in: Option<&'static str>,
+}
+
+const LEGACY_YAML_SINCE: &str = LINT_TABLE_SINCE;
+
+pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::Project,
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` to \
+                      convert it to .ryl.toml",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::ConfigFile,
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` and \
+                      pass the TOML it writes to `-c`",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::ConfigData,
+        replacement: "pass inline TOML to `-d` instead",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::EnvVar,
+        replacement: "YAMLLINT_CONFIG_FILE is deprecated too: run `ryl --migrate-configs \
+                      --migrate-write --migrate-root {path}` and pass the TOML it writes to \
+                      `-c`",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::UserGlobal,
+        replacement: "run `ryl --migrate-user-config` to convert it to ryl's own user config",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+];
+
 /// A deprecated key found in a config; `overridden` when its replacement is also set,
 /// so the deprecated value is ignored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

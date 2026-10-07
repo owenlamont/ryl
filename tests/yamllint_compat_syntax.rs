@@ -4,13 +4,10 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-fn run_cmd(cmd: &mut Command) -> (i32, String, String) {
-    let out = cmd.output().expect("failed to spawn process");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy_owned(out.stdout);
-    let stderr = String::from_utf8_lossy_owned(out.stderr);
-    (code, stdout, stderr)
-}
+#[path = "common/compat.rs"]
+#[allow(dead_code, reason = "this suite shares only `run`")]
+mod compat;
+use compat::run as run_cmd;
 
 fn run_with_env(
     mut cmd: Command,

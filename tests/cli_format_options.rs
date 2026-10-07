@@ -12,10 +12,10 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 }
 
 fn disable_doc_start_config(dir: &std::path::Path) -> std::path::PathBuf {
-    let cfg = dir.join("config.yml");
+    let cfg = dir.join("config.toml");
     fs::write(
         &cfg,
-        "rules:\n  document-start: disable\n  new-line-at-end-of-file: enable\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nnew-line-at-end-of-file = \"enable\"\n",
     )
     .unwrap();
     cfg
@@ -52,10 +52,10 @@ fn parsable_format_outputs_expected_diagnostic() {
         "unexpected diagnostic payload: {line}"
     );
 
-    let warn_cfg = dir.path().join("config-warning.yml");
+    let warn_cfg = dir.path().join("config-warning.toml");
     fs::write(
         &warn_cfg,
-        "rules:\n  document-start: disable\n  new-line-at-end-of-file:\n    level: warning\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nnew-line-at-end-of-file = { level = \"warning\" }\n",
     )
     .unwrap();
     let (warn_code, warn_stdout, warn_stderr) = run(Command::new(exe)
@@ -307,10 +307,10 @@ fn colored_format_uses_ansi_sequences() {
         "expected ANSI sequences in colored output: {stderr}"
     );
 
-    let warn_cfg = dir.path().join("config-warning.yml");
+    let warn_cfg = dir.path().join("config-warning.toml");
     fs::write(
         &warn_cfg,
-        "rules:\n  document-start: disable\n  new-line-at-end-of-file:\n    level: warning\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nnew-line-at-end-of-file = { level = \"warning\" }\n",
     )
     .unwrap();
     let (warn_code, warn_stdout, warn_stderr) = run(Command::new(exe)
@@ -380,7 +380,7 @@ fn colored_format_matches_reference_layout() {
         .arg("--format")
         .arg("colored")
         .arg("-d")
-        .arg("extends: default")
+        .arg("[lint.rules]\ncommas = \"enable\"\ndocument-start = { level = \"warning\" }\n")
         .arg(&file));
     assert_eq!(code, 1, "colored format should exit 1 when errors occur");
     assert!(

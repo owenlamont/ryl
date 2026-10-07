@@ -263,15 +263,14 @@ can set personal defaults once. It reads its own TOML config first &mdash;
 convention where `<config-dir>` is `$XDG_CONFIG_HOME` if set, else the
 platform-native config dir (`~/.config/ryl` on Linux, `~/Library/Application
 Support/ryl` on macOS, `%APPDATA%\ryl` on Windows) &mdash; then falls back to
-yamllint's `<config-dir>/yamllint/config` for compatibility. A project config,
+yamllint's `<config-dir>/yamllint/config`, which is deprecated and warns. A project config,
 `-c`/`-d`, or `YAMLLINT_CONFIG_FILE` all take precedence over the user-global
-config. `YAMLLINT_CONFIG_FILE` accepts only a yamllint YAML config (pointing it
-at a `.toml` errors); use `-c`/`-d` or project discovery for ryl-native TOML.
+config. `YAMLLINT_CONFIG_FILE` is deprecated and accepts only a yamllint YAML
+config (pointing it at a `.toml` errors); use `-c` for ryl-native TOML.
 
 If you have a yamllint user-global config, `ryl --migrate-user-config
 --migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from
-yamllint](migrating-from-yamllint.md)). Migration is optional, since ryl also
-reads the yamllint location directly.
+yamllint](migrating-from-yamllint.md)).
 
 ## Configuration precedence
 
@@ -285,18 +284,18 @@ governing its own subtree. The winning config must enable at least one rule, or
 ```mermaid
 flowchart TD
     Start([resolve config]) --> D{"-d / --config-data?"}
-    D -->|yes| UseInline["use inline YAML"] --> Done([config resolved])
+    D -->|yes| UseInline["use inline TOML,<br/>or YAML (deprecated)"] --> Done([config resolved])
     D -->|no| C{"-c / --config-file?"}
-    C -->|yes| UseFile["load file: TOML or YAML by extension"] --> Done
+    C -->|yes| UseFile["load file: TOML, or YAML<br/>(deprecated) by extension"] --> Done
     C -->|no| P{"project config?<br/>walk up from inputs to HOME"}
     P -->|"TOML up-tree"| UseProjToml["nearest TOML:<br/>.ryl.toml &gt; ryl.toml<br/>&gt; .config/.ryl.toml &gt; .config/ryl.toml<br/>&gt; pyproject.toml [tool.ryl]"] --> Done
-    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml"] --> Done
+    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml<br/>(deprecated)"] --> Done
     P -->|none| E{"YAMLLINT_CONFIG_FILE set?"}
     E -->|"points at .toml"| Err1["error: use -c / project discovery<br/>for ryl TOML (exit 2)"]
-    E -->|"YAML and exists"| UseEnv["load as yamllint YAML"] --> Done
+    E -->|"YAML and exists"| UseEnv["load as yamllint YAML<br/>(deprecated)"] --> Done
     E -->|"missing or unset"| G{"user-global config?"}
     G -->|"ryl TOML"| UseRyl["config-dir/ryl/.ryl.toml &gt; ryl.toml"] --> Done
-    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config"] --> Done
+    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config<br/>(deprecated)"] --> Done
     G -->|none| N{"--enable?"}
     N -->|yes| UseEmpty["empty config"] --> Done
     N -->|no| Err2["error: no configuration found (exit 2)"]
