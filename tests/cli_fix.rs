@@ -500,7 +500,7 @@ fn fix_inserts_document_start_marker_when_required() {
 }
 
 #[test]
-fn fix_skips_document_start_when_buffer_already_uses_document_markers() {
+fn fix_adds_document_start_after_an_end_marker_not_above_explicit_start() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
     fs::write(&file, "---\na: b\n...\nb: c\n").unwrap();
@@ -515,8 +515,8 @@ fn fix_skips_document_start_when_buffer_already_uses_document_markers() {
 
     let fixed = fs::read_to_string(&file).unwrap();
     assert_eq!(
-        fixed, "---\na: b\n...\nb: c\n",
-        "must not prepend `---` when stream already contains document markers: {fixed:?}"
+        fixed, "---\na: b\n...\n---\nb: c\n",
+        "`---` goes after the `...`, not above the explicit start: {fixed:?}"
     );
 }
 
