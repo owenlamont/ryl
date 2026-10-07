@@ -124,6 +124,24 @@
       "additionalProperties": false,
       "description": "The `[format]` table: `ryl format`'s targets.",
       "properties": {
+        "brace-spacing": {
+          "default": false,
+          "description": "Whether to pad the inside of a non-empty flow mapping's braces with one space.",
+          "type": "boolean"
+        },
+        "comment-spacing": {
+          "default": 2,
+          "description": "Exact number of spaces between content and an inline comment.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "comment-starting-space": {
+          "$ref": "#/$defs/MarkerTarget",
+          "default": "add",
+          "description": "Whether to add a missing space after a comment's `#`."
+        },
         "document-end": {
           "$ref": "#/$defs/MarkerTarget",
           "default": "preserve",
@@ -148,6 +166,14 @@
           "$ref": "#/$defs/CollectionStyleTarget",
           "default": "preserve",
           "description": "Collection style for mappings; `preserve` leaves each as written."
+        },
+        "max-blank-lines": {
+          "default": 2,
+          "description": "Most consecutive blank lines kept between content lines.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
         },
         "preview": {
           "default": false,
