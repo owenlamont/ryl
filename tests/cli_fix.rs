@@ -344,7 +344,7 @@ fn fix_under_best_practice_converges_in_one_invocation_for_escape_sequences() {
 }
 
 #[test]
-fn fix_reindents_comment_left_by_joined_plain_scalar_in_one_invocation() {
+fn fix_reindents_comment_under_joined_plain_scalar_in_one_invocation() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("t.yaml");
     fs::write(&file, "a: b\n  c\n  # x\nd: e\n").unwrap();
@@ -357,7 +357,7 @@ fn fix_reindents_comment_left_by_joined_plain_scalar_in_one_invocation() {
     let (code, _, stderr) = run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
     assert_eq!(code, 0, "fix should succeed: {stderr}");
     assert!(
-        stderr.contains("(2 fixed, 0 remaining)"),
+        stderr.contains("(3 fixed, 0 remaining)"),
         "expected nothing left for a second --fix: {stderr}"
     );
     assert_eq!(
