@@ -37,6 +37,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
+use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 
@@ -48,6 +49,26 @@ use passes::{
 };
 use properties::arb_document_with_properties;
 use representation::{annotations, representation, yaml_1_1_representation};
+
+/// yamllint's `default` preset, bar the lint-owned `truthy`, and the quoted-strings options
+/// the formatter page documents as accepting zero-config output.
+fn profile_anchor_configs() -> &'static [YamlLintConfig; 2] {
+    static CONFIGS: std::sync::LazyLock<[YamlLintConfig; 2]> = std::sync::LazyLock::new(
+        || {
+            [
+                YamlLintConfig::from_yaml_str("extends: default\nrules:\n  truthy: disable\n")
+                    .expect("the default preset loads"),
+                YamlLintConfig::from_toml_str(
+                    "[lint.rules.quoted-strings]\nquote-type = 'single'\n\
+                     required = 'only-when-needed'\n\
+                     allow-double-quotes-for-escaping = true\nallow-quoted-quotes = true\n",
+                )
+                .expect("the quoted-strings config loads"),
+            ]
+        },
+    );
+    &CONFIGS
+}
 
 fn check_preserved(input: &str, output: &str) -> Result<(), String> {
     let before = representation(input);
@@ -112,6 +133,17 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn zero_config_output_is_what_the_yamllint_default_preset_asks_for(
+        document in arb_document_with_properties()
+    ) {
+        let output = (named_pass("format/default").format)(&document.render());
+        for cfg in profile_anchor_configs() {
+            let fixed = apply_safe_fixes(&output, cfg, synthetic_path(), synthetic_base_dir());
+            prop_assert_eq!(&fixed, &output, "the preset's fixes still change the output");
+        }
+    }
 
     #[test]
     fn every_format_pass_keeps_the_guarantee(document in arb_document_with_properties()) {
@@ -382,6 +414,20 @@ fn format_ladder_follows_a_declared_yaml_1_1_as_quoted_strings_does() {
             );
         }
     }
+}
+
+#[test]
+fn zero_config_indentation_is_what_the_yamllint_default_preset_asks_for() {
+    let input = "k:\n    - a\n    - b:\n         c: 1\nm:\n     n: 2\n";
+    let output = (named_pass("format/default").format)(input);
+    assert_ne!(output, input, "the input must need re-indenting");
+    let problems = lint_str(
+        &output,
+        synthetic_path(),
+        &profile_anchor_configs()[0],
+        synthetic_base_dir(),
+    );
+    assert!(problems.is_empty(), "{output:?}: {problems:?}");
 }
 
 #[test]

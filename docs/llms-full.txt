@@ -1408,6 +1408,8 @@ max-blank-lines = 2
 preview = false
 sequence-style = "preserve"
 mapping-style = "preserve"
+indent-sequences = true
+dash-on-own-line = false
 ```
 
 | Key | Default | Values | What it sets |
@@ -1445,6 +1447,32 @@ The rest of the layout is fixed:
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.
+
+## Default profile
+
+With no `[format]` table, `ryl format` writes the profile below. Every default agrees
+with yamllint's `default` preset: `ryl check --fix` under that preset changes nothing in
+the output.
+
+| Default | Why |
+| :--- | :--- |
+| `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
+| `line-ending = "lf"` | The default of biome, prettier and yamllint's `new-lines` |
+| `document-start = "add"` | yamllint's `default` preset requires `---`; yamlfix adds it |
+| `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
+| `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
+| `brace-spacing = false` | yamllint's `braces` defaults and yamlfix; prettier and biome pad |
+| `comment-spacing = 2` | yamllint's `comments`, ruff and yamlfix |
+| `comment-starting-space = "add"` | yamllint's `comments` requires the space |
+| `max-blank-lines = 2` | yamllint's `empty-lines` and ruff |
+| `sequence-style = "preserve"` | Restyling a collection is opt-in |
+| `mapping-style = "preserve"` | Restyling a collection is opt-in |
+| `indent-sequences = true` | yamllint's `indentation` default; prettier indents them too |
+| `dash-on-own-line = false` | prettier writes `- name: web` |
+| `preview = false` | Preview styles are opt-in, as in ruff |
+| `line-length = 80` | The default of prettier, biome and yamllint's `line-length` |
+| `indent-width = 2` | The default of prettier, biome and yamlfix |
+| Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
 
