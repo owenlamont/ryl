@@ -1,4 +1,5 @@
 pub(crate) mod comments_scan;
+pub(crate) mod event_compare;
 pub(crate) mod flow_collection;
 pub(crate) mod key_path;
 pub(crate) mod line_syntax;

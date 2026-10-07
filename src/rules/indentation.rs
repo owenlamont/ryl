@@ -1,10 +1,16 @@
-//! `indentation`: yamllint's token-driven rule on granit's scanner. No safe `--fix`.
+//! `indentation`: yamllint's token-driven rule on granit's scanner. No safe `--fix`;
+//! `ryl format` re-indents through [`reindent`], which places each line where the check
+//! expects it.
 
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
+
+mod rewrite;
+
+pub use rewrite::{Refusal, Reindented, fix, reindent};
 
 pub const ID: &str = "indentation";
 
@@ -112,9 +118,17 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let line_starts = build_line_starts(&chars);
     let tokens = scan(buffer, &chars, &line_starts);
-    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg);
+    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, Mode::Check);
     analyzer.run(&tokens);
     analyzer.diagnostics
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Check,
+    /// Record each line's shift to where the check expects it, and expect what follows
+    /// from the shifted columns.
+    Target,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +291,8 @@ struct Parent {
     line_indent: isize,
     explicit_key: bool,
     implicit_block_seq: bool,
+    /// How far a block collection moves, which its block scalars' bodies move with.
+    shift: isize,
 }
 
 impl Parent {
@@ -287,6 +303,7 @@ impl Parent {
             line_indent: indent,
             explicit_key: false,
             implicit_block_seq: false,
+            shift: 0,
         }
     }
 }
@@ -303,6 +320,24 @@ struct Analyzer<'a> {
     spaces: Option<isize>,
     indent_sequences: IndentSequencesSetting,
     diagnostics: Vec<Violation>,
+    mode: Mode,
+    shifts: Vec<Option<Shift>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Shift {
+    /// A line led by a token found at `found`.
+    Token { found: isize, delta: isize },
+    /// A line inside a multi-line scalar.
+    Carried(isize),
+}
+
+impl Shift {
+    const fn delta(self) -> isize {
+        match self {
+            Self::Token { delta, .. } | Self::Carried(delta) => delta,
+        }
+    }
 }
 
 impl<'a> Analyzer<'a> {
@@ -310,6 +345,7 @@ impl<'a> Analyzer<'a> {
         chars: &'a [(usize, char)],
         line_starts: &'a [CharPos],
         cfg: &Config,
+        mode: Mode,
     ) -> Self {
         Self {
             chars,
@@ -324,7 +360,17 @@ impl<'a> Analyzer<'a> {
             },
             indent_sequences: cfg.indent_sequences,
             diagnostics: Vec::new(),
+            mode,
+            shifts: vec![None; line_starts.len()],
         }
+    }
+
+    fn delta(&self, line: usize) -> isize {
+        self.shifts[line].map_or(0, Shift::delta)
+    }
+
+    fn column(&self, token: &Token) -> isize {
+        to_isize(token.column) + self.delta(token.line)
     }
 
     fn run(&mut self, tokens: &[Token]) {
@@ -366,7 +412,13 @@ impl<'a> Analyzer<'a> {
         );
         let first_in_line = visible && token.line + 1 > self.cur_line;
         let found = to_isize(token.column);
-        if first_in_line {
+        if first_in_line && self.mode == Mode::Target {
+            let expected = self.expected(token, found);
+            self.shifts[token.line] = Some(Shift::Token {
+                found,
+                delta: expected - found,
+            });
+        } else if first_in_line {
             let expected = self.expected(token, found);
             if found != expected {
                 let message = if expected < 0 {
@@ -377,15 +429,18 @@ impl<'a> Analyzer<'a> {
                 self.push(token.line + 1, token.column, message);
             }
         }
-        if let Kind::Scalar { style, .. } = token.kind
-            && self.check_multi_line_strings
-        {
-            self.check_scalar(token, style);
+        if let Kind::Scalar { style, .. } = token.kind {
+            if self.check_multi_line_strings {
+                self.check_scalar(token, style);
+            }
+            if self.mode == Mode::Target {
+                self.carry_scalar_lines(token, style);
+            }
         }
         if visible {
             self.cur_line = self.real_end_line(token);
             if first_in_line {
-                self.cur_line_indent = found;
+                self.cur_line_indent = self.column(token);
             }
         }
         self.update_stack(token, prev, next, nextnext)?;
@@ -411,11 +466,11 @@ impl<'a> Analyzer<'a> {
         next: Option<&Token>,
         nextnext: Option<&Token>,
     ) -> Result<(), UnexpectedToken> {
-        let column = to_isize(token.column);
+        let column = self.column(token);
         let Some(next) = next else {
             return Ok(());
         };
-        let next_column = to_isize(next.column);
+        let next_column = self.column(next);
         match token.kind {
             Kind::BlockMappingStart | Kind::BlockSequenceStart => {
                 let (child, kind) = if token.kind == Kind::BlockMappingStart {
@@ -429,7 +484,10 @@ impl<'a> Analyzer<'a> {
                 if !child || next.line != token.line {
                     return Err(UnexpectedToken);
                 }
-                self.stack.push(Parent::new(kind, column));
+                self.stack.push(Parent {
+                    shift: self.delta(token.line),
+                    ..Parent::new(kind, column)
+                });
             }
             Kind::FlowMappingStart | Kind::FlowSequenceStart => {
                 let indent = if next.line == token.line {
@@ -451,6 +509,7 @@ impl<'a> Analyzer<'a> {
                 if self.top().kind != ParentKind::BlockSequence {
                     self.stack.push(Parent {
                         implicit_block_seq: true,
+                        shift: self.delta(token.line),
                         ..Parent::new(ParentKind::BlockSequence, column)
                     });
                 }
@@ -500,7 +559,7 @@ impl<'a> Analyzer<'a> {
         {
             return Ok(());
         }
-        let next_column = to_isize(next.column);
+        let next_column = self.column(next);
         let indent = if key.explicit_key {
             self.detect_indent(key.indent, next_column)
         } else if next.line == prev_line {
@@ -603,12 +662,31 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
-        let last_line = if token.end_column > 0 {
-            token.end_line
+    /// Moves a scalar's later lines: a block body with the collection it is indented
+    /// against, so an indentation indicator keeps its meaning, and a continuation with the
+    /// line it starts on.
+    fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
+        let delta = if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+            self.stack
+                .iter()
+                .rev()
+                .find(|parent| {
+                    matches!(
+                        parent.kind,
+                        ParentKind::BlockMapping | ParentKind::BlockSequence
+                    )
+                })
+                .map_or(0, |parent| parent.shift)
         } else {
-            token.end_line.saturating_sub(1)
+            self.delta(token.line)
         };
+        for line in token.line + 1..=last_line(token) {
+            self.shifts[line] = Some(Shift::Carried(delta));
+        }
+    }
+
+    fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
+        let last_line = last_line(token);
         let mut expected = None;
         for line in token.line + 1..=last_line {
             let line_start = self.line_starts[line].get();
@@ -677,6 +755,15 @@ impl<'a> Analyzer<'a> {
             column: found + 1,
             message,
         });
+    }
+}
+
+/// The last line holding a character of `token`.
+const fn last_line(token: &Token) -> usize {
+    if token.end_column > 0 {
+        token.end_line
+    } else {
+        token.end_line.saturating_sub(1)
     }
 }
 

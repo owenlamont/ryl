@@ -11,10 +11,10 @@ use tempfile::TempDir;
 
 use super::config::{QUOTED_STRINGS_VARIANTS, synthetic_base_dir, synthetic_path};
 
-/// The format-owned rules, each with a safe fix but `line-length`, which only `ryl format`
-/// folds; the lint-owned `truthy` and `key-ordering` fixes rewrite meaning-bearing text
+/// The format-owned rules, each with a safe fix but `line-length` and `indentation`, which
+/// only `ryl format` folds and re-indents; the lint-owned `truthy` and `key-ordering` fixes rewrite meaning-bearing text
 /// and stay out.
-pub const FORMAT_OWNED_RULES: [&str; 15] = [
+pub const FORMAT_OWNED_RULES: [&str; 16] = [
     "braces",
     "brackets",
     "colons",
@@ -25,6 +25,7 @@ pub const FORMAT_OWNED_RULES: [&str; 15] = [
     "document-start",
     "empty-lines",
     "hyphens",
+    "indentation",
     "line-length",
     "new-line-at-end-of-file",
     "new-lines",

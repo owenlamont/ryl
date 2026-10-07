@@ -14,7 +14,7 @@ use crate::markdown_embed::{
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, hyphens, key_ordering, line_length,
+    document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
 };
 
@@ -676,6 +676,8 @@ impl NewlinePolicy {
 pub(crate) struct Passes<'a> {
     pub(crate) new_lines: Option<new_lines::Config>,
     pub(crate) comments: Option<comments::Config>,
+    /// Only `ryl format` re-indents: `indentation` has no safe lint fix.
+    pub(crate) indentation: Option<indentation::Config>,
     pub(crate) comments_indentation: Option<comments_indentation::Config>,
     pub(crate) commas: Option<commas::Config>,
     pub(crate) braces: Option<braces::Config>,
@@ -724,6 +726,7 @@ impl<'a> Passes<'a> {
         Self {
             new_lines: on(new_lines::ID).then(|| new_lines::Config::resolve(cfg)),
             comments: on(comments::ID).then(|| comments::Config::resolve(cfg)),
+            indentation: None,
             comments_indentation: on(comments_indentation::ID)
                 .then(|| comments_indentation::Config::resolve(cfg)),
             commas: on(commas::ID).then(|| commas::Config::resolve(cfg)),
@@ -831,6 +834,7 @@ impl FixContext<'_> {
         fix!(brackets);
         fix!(colons);
         fix!(hyphens);
+        fix!(indentation);
         fix!(
             new_line_at_end_of_file,
             passes.final_newline.as_ref(),

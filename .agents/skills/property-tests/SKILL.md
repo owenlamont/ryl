@@ -112,9 +112,10 @@ value preservation, and comment/anchor fidelity. The `format/*` rows run
 `ryl::format::format_str`: `format/default` (an empty `[format]` table),
 `format/quote-double`, and `format/non-defaults` (every non-default `[format]` value). The
 `fix/*` rows prove `ryl check --fix` on the same rules: `apply_safe_fixes` under a config
-enabling only the 14 format-owned safe-fix rules (`FORMAT_OWNED_RULES`, pinned equal to
-`format::FORMAT_RULE_IDS`; `truthy` and `key-ordering` are lint-owned and stay out), one
-per quoted-strings variant plus a TOML row for the ryl-only ladder options.
+enabling the format-owned rules (`FORMAT_OWNED_RULES`, pinned equal to
+`format::FORMAT_RULE_IDS`; `line-length` and `indentation` have no safe fix; `truthy`
+and `key-ordering` are lint-owned and stay out), one per quoted-strings variant plus a
+TOML row for the ryl-only ladder options.
 
 - Value preservation compares granit's event stream (`property_format/representation.rs`),
   not loaded values: document count, node kinds, entry order, duplicate keys, explicit
@@ -126,6 +127,10 @@ per quoted-strings variant plus a TOML row for the ryl-only ladder options.
 - Left-alone fidelity: the count of `colons`/`hyphens` `unfixed` sites (compact block
   collections whose indicator spacing is their indentation) must not change. A pass that
   re-indents those collections breaks it and must drop the invariant.
+- Re-indent (`reindent_places_each_line_or_leaves_its_document`) calls
+  `indentation::reindent` at widths 1–4: each line keeps its trimmed text and the line
+  count holds, a refused document is byte-identical, and `indentation::check` passes on
+  every line outside a refused document.
 - The generator (`property_format/properties.rs`) adds anchors, aliases, tags,
   escape-bearing quoted scalars and quoted block-mapping keys to the fix-convergence
   stacked documents.
@@ -236,7 +241,8 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   representation and, in tagged or string-typed consumers, its semantic value.
 - `indentation` — Re-indenting alters the block-structure boundaries the
   YAML grammar uses to delimit mappings, sequences, and scalars; any
-  non-trivial fix risks changing the parsed value.
+  non-trivial fix risks changing the parsed value. `ryl format` re-indents
+  instead, refusing a document whose events would change (#383).
 - `key-duplicates` — Resolving a duplicate requires deciding which key (and
   value) to keep; both choices alter the parsed mapping and need user intent.
 - `line-length` — Splitting an over-long line requires line-folding decisions

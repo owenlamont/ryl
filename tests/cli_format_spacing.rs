@@ -10,7 +10,7 @@ mod common;
 use common::cli::{run, ryl};
 
 const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
-const COMPACT: &str = "---\nseq:\n-   a: 1\n    b: 2\n? k\n:   - x\n    - y\n";
+const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
 
 fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();
@@ -37,7 +37,7 @@ fn format_respaces_and_reports_what_it_leaves() {
     assert_eq!(
         notices,
         [
-            "3:4 hyphens not fixed: too many spaces after hyphen; respacing would \
+            "3:6 hyphens not fixed: too many spaces after hyphen; respacing would \
              re-indent the block collection after it",
             "6:4 colons not fixed: too many spaces after colon; respacing would \
              re-indent the block collection after it",
