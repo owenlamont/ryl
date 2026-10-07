@@ -286,6 +286,7 @@ fn quote_ladder_escalates_to_double_only_for_escapes() {
     for (input, expected) in [
         ("k: \"line\\n\"\n", "\nk: \"line\\n\"\n"),
         ("k: \"tab\\there\"\n", "\nk: \"tab\\there\"\n"),
+        ("k: \"say \\\"hi\\\": x\"\n", "\nk: 'say \"hi\": x'\n"),
     ] {
         check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
         let output = (pass.format)(input);
@@ -293,6 +294,62 @@ fn quote_ladder_escalates_to_double_only_for_escapes() {
             output.contains(expected),
             "{input:?} must emit {expected:?}, got {output:?}"
         );
+    }
+}
+
+#[test]
+fn quote_ladder_avoids_escapes() {
+    for (input, single, double) in [
+        ("k: \"it's: x\"\n", "k: \"it's: x\"\n", "k: \"it's: x\"\n"),
+        ("k: 'it''s: x'\n", "k: \"it's: x\"\n", "k: \"it's: x\"\n"),
+        (
+            "k: 'say \"hi\": x'\n",
+            "k: 'say \"hi\": x'\n",
+            "k: 'say \"hi\": x'\n",
+        ),
+        (
+            "k: \"say \\\"hi\\\": x\"\n",
+            "k: 'say \"hi\": x'\n",
+            "k: 'say \"hi\": x'\n",
+        ),
+        (
+            "k: \"it's \\\"x\\\": y\"\n",
+            "k: 'it''s \"x\": y'\n",
+            "k: 'it''s \"x\": y'\n",
+        ),
+        (
+            "k: \"back\\\\slash: x\"\n",
+            "k: \"back\\\\slash: x\"\n",
+            "k: \"back\\\\slash: x\"\n",
+        ),
+        (
+            "k: 'back\\slash: x'\n",
+            "k: 'back\\slash: x'\n",
+            "k: \"back\\\\slash: x\"\n",
+        ),
+        (
+            "k: 'it''s \\ x: y'\n",
+            "k: 'it''s \\ x: y'\n",
+            "k: \"it's \\\\ x: y\"\n",
+        ),
+        ("k: \"a: b\"\n", "k: 'a: b'\n", "k: \"a: b\"\n"),
+        (
+            "k: 'it''s\n\n  x'\n",
+            "k: 'it''s\n\n  x'\n",
+            "k: \"it's\\nx\"\n",
+        ),
+    ] {
+        for (pass_name, expected) in
+            [("format/default", single), ("format/quote-double", double)]
+        {
+            let pass = named_pass(pass_name);
+            check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
+            let output = (pass.format)(input);
+            assert!(
+                output.ends_with(expected),
+                "{pass_name}: {input:?} must emit {expected:?}, got {output:?}"
+            );
+        }
     }
 }
 

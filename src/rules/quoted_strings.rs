@@ -89,6 +89,7 @@ pub struct Config {
     extra_allowed: Vec<Regex>,
     allow_quoted_quotes: bool,
     allow_double_quotes_for_escaping: bool,
+    avoid_escapes: Option<QuoteStyle>,
     pub check_keys: bool,
     core_schema: CoreSchema,
 }
@@ -184,6 +185,7 @@ impl Config {
             extra_allowed,
             allow_quoted_quotes,
             allow_double_quotes_for_escaping,
+            avoid_escapes: None,
             check_keys,
             core_schema: CoreSchema::UnlessDeclaredYaml1_1,
         }
@@ -201,7 +203,7 @@ impl Config {
     }
 
     /// Quotes only where the plain scalar would differ under YAML 1.2 core or YAML 1.1,
-    /// in `style` unless escapes need double quotes; keys included.
+    /// in whichever quotes avoid an escape, else in `style`; keys included.
     #[must_use]
     pub const fn ladder(style: QuoteStyle) -> Self {
         let (quote_type, quote_type_label) = match style {
@@ -216,6 +218,7 @@ impl Config {
             extra_allowed: Vec::new(),
             allow_quoted_quotes: false,
             allow_double_quotes_for_escaping: true,
+            avoid_escapes: Some(style),
             check_keys: true,
             core_schema: CoreSchema::Always,
         }
@@ -454,6 +457,11 @@ impl<'cfg> QuotedStringsState<'cfg> {
                 {
                     return self.redundant_quote_message(node_label, style_kind, facts);
                 }
+                if let Some(preferred) = self.config.avoid_escapes {
+                    return self.ladder_message(
+                        node_label, preferred, style_kind, value, facts,
+                    );
+                }
                 self.mismatched_quote(
                     style_kind,
                     facts.has_quoted_quotes.get(),
@@ -462,6 +470,23 @@ impl<'cfg> QuotedStringsState<'cfg> {
                 .then(|| self.not_quoted_with_message(node_label))
             },
         )
+    }
+
+    fn ladder_message(
+        &self,
+        node_label: &str,
+        preferred: QuoteStyle,
+        current: QuoteStyle,
+        value: &str,
+        facts: ScalarQuoteFacts,
+    ) -> Option<String> {
+        match ladder_target(preferred, current, value, facts) {
+            target if target == current => None,
+            target if target == preferred => {
+                Some(self.not_quoted_with_message(node_label))
+            }
+            _ => Some("change outer quotes to avoid escaping inner quotes".to_owned()),
+        }
     }
 
     fn redundant_quote_message(
@@ -582,9 +607,11 @@ fn scalar_quote_facts(
         has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
             style, value,
         )),
-        has_double_quote_escape: Flag::new(has_escaping_in_double_quotes(
-            buffer, style, span,
-        )),
+        has_double_quote_escape: Flag::new(if config.avoid_escapes.is_some() {
+            has_escape_besides_quote(buffer, style, span)
+        } else {
+            has_escaping_in_double_quotes(buffer, style, span)
+        }),
         extra_required: Flag::new(
             config.extra_required.iter().any(|re| re.is_match(value)),
         ),
@@ -631,6 +658,44 @@ fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -
 
     let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
     inner_quoted_content(buffer, scalar_start, scalar_end).contains('\\')
+}
+
+fn has_escape_besides_quote(buffer: &str, style: ScalarStyle, span: Span) -> bool {
+    if !matches!(style, ScalarStyle::DoubleQuoted) {
+        return false;
+    }
+    let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
+    let mut chars = inner_quoted_content(buffer, scalar_start, scalar_end).chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.next() != Some('"') {
+            return true;
+        }
+    }
+    false
+}
+
+/// The quotes the formatter's ladder keeps a quoted scalar in, after prettier's YAML rule.
+fn ladder_target(
+    preferred: QuoteStyle,
+    current: QuoteStyle,
+    value: &str,
+    facts: ScalarQuoteFacts,
+) -> QuoteStyle {
+    if current == QuoteStyle::Double
+        && (facts.has_double_quote_escape.get()
+            || value_needs_double_quotes_for_content(value))
+    {
+        QuoteStyle::Double
+    } else if value.contains('"') {
+        QuoteStyle::Single
+    } else if value.contains('\'')
+        && !value.contains('\\')
+        && !value_needs_double_quotes_for_content(value)
+    {
+        QuoteStyle::Double
+    } else {
+        preferred
+    }
 }
 
 fn inner_quoted_content(buffer: &str, start: BytePos, end: BytePos) -> &str {
@@ -1154,6 +1219,12 @@ impl<'cfg> FixState<'cfg> {
                     && !self.redundant_quote_allowed(style_kind, facts)
                 {
                     return Some((start, end, value.to_owned()));
+                }
+                if let Some(preferred) = self.config.avoid_escapes {
+                    let target = ladder_target(preferred, style_kind, value, facts);
+                    return (target != style_kind)
+                        .then(|| replacement_for_target(value, start, end, target))
+                        .flatten();
                 }
                 if self.mismatched_quote(style_kind, facts) {
                     let target = self.target_quote_style(style_kind);

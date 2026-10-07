@@ -53,7 +53,7 @@ const MARKERS: [(&str, Marker); 3] = [
 /// Formatter input whose output a `format-clean` config must lint clean: the quoted
 /// strings are ones YAML 1.1 would read as booleans.
 const FORMAT_SAMPLE: &str = "country: \"NO\"\nenabled: \"yes\"\nswitch: \"on\"\n\
-    base: &base {a: 1,b: [ 1,2 ]}\nchild: *base\nplain: \"x\"   #note\n\n\n\nlast: 'it''s'\n";
+    base: &base {a: 1,b: [ 1,2 ]}\nchild: *base\nplain: \"x\"   #note\n\n\n\nlast: 'it''s'\nsaid: 'it''s: x'\n";
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Marker {

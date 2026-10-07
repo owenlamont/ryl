@@ -15,7 +15,11 @@ const LADDER: &str = "[lint.rules]\nbraces = 'enable'\nbrackets = 'enable'\n\
     new-lines = 'enable'\ntrailing-spaces = 'enable'\n\
     [lint.rules.comments]\nmin-spaces-from-content = 2\nmax-spaces-from-content = 2\n\
     [lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n\
-    allow-double-quotes-for-escaping = true\n";
+    allow-double-quotes-for-escaping = true\nallow-quoted-quotes = true\n";
+
+const DOUBLE_LADDER: &str = "[format]\nquote-style = 'double'\n\
+    [lint.rules.quoted-strings]\nquote-type = 'double'\nrequired = 'only-when-needed'\n\
+    allow-quoted-quotes = true\n";
 
 /// The `warning: the <rule> lint rule…` lines `ryl format` prints for `config` (TOML when
 /// `toml`, else inline YAML) over two files in each of two directories it covers.
@@ -61,6 +65,7 @@ fn agreeing_configs_are_silent() {
             false,
         ),
         (LADDER, true),
+        (DOUBLE_LADDER, true),
         (
             "[format]\nquote-style = 'preserve'\n[lint.rules]\nquoted-strings = 'enable'\n",
             true,
@@ -139,6 +144,32 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
 fn the_escape_exception_must_be_allowed() {
     let without = LADDER.replace("allow-double-quotes-for-escaping = true\n", "");
     assert_eq!(warned_rules(&without, true), ["quoted-strings"]);
+}
+
+#[test]
+fn the_quoted_strings_warning_names_the_options_for_the_quote_style() {
+    let without = LADDER.replace("allow-quoted-quotes = true\n", "");
+    let warnings = conflicts(&without, true, &[]);
+    assert_eq!(warnings.len(), 1, "{warnings:#?}");
+    assert!(
+        warnings[0].contains(
+            "set its options `quote-type = \"single\"`, `required = \"only-when-needed\"`, \
+             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`."
+        ),
+        "{}",
+        warnings[0]
+    );
+    let mismatched = format!("[format]\nquote-style = 'double'\n{LADDER}");
+    let warnings = conflicts(&mismatched, true, &[]);
+    assert_eq!(warnings.len(), 1, "{warnings:#?}");
+    assert!(
+        warnings[0].contains(
+            "set its options `quote-type = \"double\"`, `required = \"only-when-needed\"`, \
+             `allow-quoted-quotes = true`."
+        ),
+        "{}",
+        warnings[0]
+    );
 }
 
 #[test]
