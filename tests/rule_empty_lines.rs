@@ -94,3 +94,35 @@ fn space_only_lines_are_not_blank() {
         "space-only lines should not be treated as blank"
     );
 }
+
+#[test]
+fn fix_keeps_blank_lines_that_belong_to_a_block_scalar() {
+    let cfg = resolve("rules:\n  empty-lines: {max: 0, max-start: 0, max-end: 0}\n");
+    for input in [
+        "a: |+\n\n\n\nb: 1\n",
+        "a: |\n\n\n\n  x\n",
+        "a: >-\n\n\n  x\n",
+        "a: >+\n\n\nb: 1\n",
+        "a: !!str |+\n\n\nb: 1\n",
+        "- |+\n\n\n- y\n",
+        "|+\n\n\n",
+        "a: |+\n\n\n",
+    ] {
+        for newline in ["\n", "\r\n"] {
+            let input = input.replace('\n', newline);
+            assert_eq!(empty_lines::fix(&input, &cfg), None, "{input:?}");
+        }
+    }
+    assert_eq!(
+        empty_lines::fix("a: |\n\n  x\nb: 1\n\nc: 2\n", &cfg),
+        Some("a: |\n\n  x\nb: 1\nc: 2\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("\n\n|+\n\n", &cfg),
+        Some("|+\n\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("a:\n\n  x\n", &cfg),
+        Some("a:\n  x\n".to_string())
+    );
+}

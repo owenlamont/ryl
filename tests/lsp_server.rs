@@ -2689,6 +2689,33 @@ fn disable_line_is_not_offered_inside_a_block_scalar() {
 }
 
 #[test]
+fn disable_line_is_not_offered_on_a_blank_line_of_a_block_scalar() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    for (text, line) in [("key: |+\n\n\n\nmore: 1\n", 2), ("key: |\n\n\n  x\n", 1)] {
+        let doc = file_uri(dir.path(), &format!("x{line}.yaml"));
+        client.did_open(doc.clone(), text);
+        let _ = client.diagnostics();
+        let actions = client
+            .code_action_with_diagnostics(doc, vec![diag("empty-lines", line, 0)])
+            .expect("disable-file is still offered");
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .collect();
+        assert!(
+            !titles
+                .iter()
+                .any(|title| title.starts_with("Disable empty-lines for this line")),
+            "no disable-line on a blank scalar line of {text:?}: {titles:?}"
+        );
+    }
+}
+
+#[test]
 fn disable_line_is_not_offered_inside_a_multiline_quoted_scalar() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
