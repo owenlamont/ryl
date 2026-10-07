@@ -113,7 +113,7 @@ fn format(input: &str, cfg: &YamlLintConfig) -> String {
 }
 
 /// The `(line-length, indent-width)` of each `format/fold-*` row.
-pub const FOLD_TARGETS: [(u16, u8); 3] = [(12, 2), (1, 2), (12, 4)];
+pub const FOLD_TARGETS: [(u16, u8); 4] = [(12, 2), (1, 2), (12, 4), (12, 1)];
 
 fn fold_toml(width: u16, indent: u8) -> String {
     format!(
@@ -157,6 +157,7 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
             toml_pass("format/fold-narrow", &fold_toml(12, 2), format),
             toml_pass("format/fold-1", &fold_toml(1, 2), format),
             toml_pass("format/fold-indent-4", &fold_toml(12, 4), format),
+            toml_pass("format/fold-indent-1", &fold_toml(12, 1), format),
         ])
         .collect()
 });

@@ -90,7 +90,7 @@ pub struct FormatTable {
     pub document_start: MarkerTarget,
     /// Whether to add a missing `...` document end marker.
     pub document_end: MarkerTarget,
-    /// Whether to split plain scalar lines longer than `line-length` at single spaces.
+    /// Whether to split plain and quoted scalar lines longer than `line-length` at single spaces.
     pub fold_long_lines: bool,
 }
 
