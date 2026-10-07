@@ -1334,6 +1334,8 @@ a: "x"
 b: "123"
 c: "it's"
 d: "tab\there"
+e: 'it''s: x'
+f: "say \"hi\": x"
 ```
 
 ```yaml
@@ -1343,9 +1345,13 @@ a: x
 b: '123'
 c: it's
 d: "tab\there"
+e: "it's: x"
+f: 'say "hi": x'
 ```
 
-A string that needs escape sequences stays double-quoted. A string that YAML 1.1 loads
+A string that needs quoting takes whichever quotes avoid an escape: single when it
+contains `"`, double when it contains only `'`, else `quote-style`. A string that needs
+escape sequences stays double-quoted. A string that YAML 1.1 loads
 as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
 clean. Mapping keys follow the same rules.
 
@@ -1378,7 +1384,7 @@ one of them is enabled with options that reject what `ryl format` writes, every
 `ryl format` run warns on stderr, for example:
 
 ```text
-warning: the quoted-strings lint rule's options are incompatible with the formatter's `[format] quote-style = "single"`. Disable quoted-strings when using `ryl format`, or change its options to accept the formatter's output.
+warning: the quoted-strings lint rule's options are incompatible with the formatter's `[format] quote-style = "single"`. Disable quoted-strings when using `ryl format`, or set its options `quote-type = "single"`, `required = "only-when-needed"`, `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`.
 ```
 
 `--no-warnings` silences it. A rule left at its defaults conflicts only where the table
@@ -1402,8 +1408,9 @@ says so.
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
 or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
-`quote-style`. A `quote-type` of `"single"` also needs
-`allow-double-quotes-for-escaping = true`, for the strings that need escapes. The rule's
+`quote-style`. A `quote-type` of `"single"` or `"double"` also needs
+`allow-quoted-quotes = true`, for strings quoted to avoid an escape, and `"single"`
+needs `allow-double-quotes-for-escaping = true`, for the strings that need escapes. The rule's
 defaults (`required = true`) conflict:
 
 <!-- ryl-config-check: format-conflict -->
@@ -1427,6 +1434,7 @@ required = "only-when-needed"
 quote-type = "single"
 required = "only-when-needed"
 allow-double-quotes-for-escaping = true
+allow-quoted-quotes = true
 ```
 
 <!-- ryl-config-check: format-clean -->
@@ -1437,6 +1445,7 @@ quote-style = "double"
 [lint.rules.quoted-strings]
 quote-type = "double"
 required = "only-when-needed"
+allow-quoted-quotes = true
 ```
 
 A YAML config cannot set `allow-double-quotes-for-escaping`, so there use

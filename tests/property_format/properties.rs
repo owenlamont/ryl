@@ -11,12 +11,17 @@ use super::stack::{StackedDocument, arb_stacked_document};
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
 
-const ESCAPED: [(bool, &str); 5] = [
+const ESCAPED: [(bool, &str); 10] = [
     (true, "line\nbreak"),
     (true, "tab\there"),
     (true, "back\\slash"),
     (true, "say \"hi\""),
     (false, "it's"),
+    (true, "it's: x"),
+    (false, "say \"hi\": x"),
+    (false, "it's \\ x: y"),
+    (true, "it's \"x\": y"),
+    (false, "it's \"x\": y"),
 ];
 
 const QUOTED_KEYS: [&str; 8] = [

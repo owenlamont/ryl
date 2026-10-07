@@ -431,3 +431,21 @@ fn preview_refuses_an_output_file_that_is_an_input() {
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     assert!(!dir.path().join("s.yaml").exists());
 }
+
+#[test]
+fn check_says_when_the_quotes_change_to_avoid_an_escape() {
+    let input = "---\na: 'it''s: x'\nb: \"say \\\"hi\\\": x\"\nc: \"it's: x\"\n";
+    let (code, _, stderr, _) = format_file(None, input, &["--check"]);
+    assert_eq!(code, 1, "{stderr}");
+    for (position, message) in [
+        ("2:4", "change outer quotes to avoid escaping inner quotes"),
+        ("3:4", "string value is not quoted with single quotes"),
+    ] {
+        let line = stderr.lines().find(|line| line.contains(position));
+        assert!(
+            line.is_some_and(|line| line.contains(message)),
+            "{message} at {position}: {stderr}"
+        );
+    }
+    assert!(!stderr.contains("4:4"), "{stderr}");
+}

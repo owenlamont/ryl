@@ -43,6 +43,7 @@ pub const FORMAT_RULE_IDS: [&str; 15] = [
 
 /// Formatter output for [`conflicts`] to lint: one instance of each target's concern.
 const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
+    necessary: 'a: b'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
     flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\n\n\nlast: 1\n";
 
@@ -382,11 +383,26 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
                 format!(
                     "the {rule} lint rule's options are incompatible with the \
                      formatter's {target}. Disable {rule} when using `ryl format`, or \
-                     change its options to accept the formatter's output."
+                     {}.",
+                    remedy(rule, table)
                 )
             })
         })
         .collect()
+}
+
+fn remedy(rule: &str, table: &FormatTable) -> &'static str {
+    match (rule, table.quote_style) {
+        (quoted_strings::ID, QuoteStyleTarget::Double) => {
+            "set its options `quote-type = \"double\"`, `required = \"only-when-needed\"`, \
+             `allow-quoted-quotes = true`"
+        }
+        (quoted_strings::ID, _) => {
+            "set its options `quote-type = \"single\"`, `required = \"only-when-needed\"`, \
+             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`"
+        }
+        _ => "change its options to accept the formatter's output",
+    }
 }
 
 /// How a warning names the formatter's target for `rule`, or `None` where `table` leaves
