@@ -98,3 +98,42 @@ fn markdown_notices_count_lines_in_the_unchanged_host() {
         "{stderr}"
     );
 }
+
+#[test]
+fn a_dash_join_never_crosses_an_indentation_disable() {
+    let disabled = "-\n  k: v  # ryl disable-line rule:indentation";
+    for (input, expected) in [
+        (format!("{disabled}\n"), format!("---\n{disabled}\n")),
+        (
+            format!("{disabled}\n  j: x\n"),
+            format!("---\n{disabled}\n  j: x\n"),
+        ),
+        (disabled.to_string(), format!("---\n{disabled}\n")),
+        (
+            format!("a: 1\n---\n{disabled}\n"),
+            format!("a: 1\n---\n{disabled}\n"),
+        ),
+    ] {
+        let (code, stderr, formatted) = run_on(&input, &["format"]);
+        assert_eq!(
+            (code, formatted.as_str()),
+            (0, expected.as_str()),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn each_refused_document_is_named_in_line_order() {
+    let (_, stderr, _) = run_on(": a\n---\n: b\n", &["format", "--check"]);
+    let lines: Vec<&str> = stderr
+        .lines()
+        .filter_map(|line| line.split_once("a.yaml:").map(|(_, notice)| notice))
+        .filter(|notice| notice.contains("indentation not fixed"))
+        .collect();
+    assert_eq!(lines.len(), 2, "{stderr}");
+    assert!(
+        lines[0].starts_with("1:1") && lines[1].starts_with("2:1"),
+        "{stderr}"
+    );
+}

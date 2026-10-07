@@ -505,7 +505,10 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
         {
             return Some(format!("`indent-width = {}`", indent_width(cfg)));
         }
-        hyphens::ID if cfg.rule_option_bool(hyphens::ID, "dash-on-own-line", false) => {
+        hyphens::ID
+            if !table.dash_on_own_line
+                && cfg.rule_option_bool(hyphens::ID, "dash-on-own-line", false) =>
+        {
             Some("dash-on-own-line")
         }
         indentation::ID => Some("indent-sequences"),

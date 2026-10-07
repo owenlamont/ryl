@@ -6,6 +6,7 @@ use crate::rules::hyphens;
 use crate::rules::support::event_compare::documents;
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
+    strip_trailing_comment_preserving_quotes,
 };
 use crate::rules::support::punctuation::build_line_starts;
 
@@ -78,10 +79,15 @@ pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
     let mut refuse = |line: usize, cause: Cause| {
         refused[document_of(line)].get_or_insert(cause);
     };
+    for line in 0..lines.len() {
+        if directives.is_disabled(ID, line + 1) {
+            refuse(line, Cause::Disabled);
+        }
+    }
     for (line, gaps) in analyzer.gaps.iter().enumerate().take(origin.len()) {
-        let at = origin[line] + 1;
-        if directives.is_disabled(ID, at)
-            || gaps.iter().any(|gap| directives.is_disabled(gap.rule, at))
+        if gaps
+            .iter()
+            .any(|gap| directives.is_disabled(gap.rule, origin[line] + 1))
         {
             refuse(origin[line], Cause::Disabled);
         }
@@ -183,10 +189,15 @@ fn reshape(
             if entry.kind != Kind::BlockEntry
                 || start.kind != Kind::BlockMappingStart
                 || directives.is_disabled(hyphens::ID, entry.line + 1)
+                || directives.is_disabled(hyphens::ID, start.line + 1)
             {
                 continue;
             }
-            if own_line && start.line == entry.line {
+            if own_line
+                && start.line == entry.line
+                && strip_trailing_comment_preserving_quotes(lines[entry.line].0).len()
+                    == lines[entry.line].0.trim_end().len()
+            {
                 breaks[entry.line] = Some((entry.column, start.column));
             } else if !own_line
                 && start.line == entry.line + 1

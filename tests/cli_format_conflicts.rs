@@ -303,6 +303,11 @@ fn indentation_and_hyphens_name_the_layout_key_they_disagree_with() {
             "[lint.rules.hyphens]\ndash-on-own-line = true\n",
             "`[format] dash-on-own-line = false`",
         ),
+        (
+            "[format]\ndash-on-own-line = true\n[lint.rules.hyphens]\n\
+             dash-on-own-line = true\nmax-spaces-after = 0\n",
+            "built-in hyphens style",
+        ),
     ] {
         let warnings = conflicts(config, true, &[]);
         assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");

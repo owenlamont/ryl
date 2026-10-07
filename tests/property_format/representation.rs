@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 
 use granit_parser::{
     Event, Parser, Placement, ScalarStyle, Scanner, Span, SpannedEventReceiver,
-    StrInput, Tag, TokenType,
+    StrInput, StructureStyle, Tag, TokenType,
 };
 use regex::Regex;
 use ryl::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
@@ -61,7 +61,9 @@ pub struct Comment {
     /// comment, which stays at the head of its document. Collection ends are not counted
     /// either, since block ones come after a comment their flow form precedes. An inline
     /// comment counts only those before the first node on the line of the node it trails,
-    /// so a flow collection turned block may keep its trailing comment on its key's line.
+    /// so a flow collection turned block may keep its trailing comment on its key's line;
+    /// a block collection's start counts as first only alone, since joining or breaking a
+    /// `-` line moves it.
     pub after_events: usize,
     pub inline: bool,
     /// Payload with whitespace trimmed around it and after its leading `#` run: the
@@ -81,8 +83,9 @@ struct Recorder {
     nodes: Vec<Node>,
     /// Nodes `Comment::after_events` counts so far.
     counted: usize,
-    /// The line each counted node but a document end starts on, and `counted` before it.
-    starts: Vec<(usize, usize)>,
+    /// The line each counted node but a document end starts on, `counted` before it, and
+    /// whether it is a block collection's start.
+    starts: Vec<(usize, usize, bool)>,
     comments: Vec<Comment>,
     /// granit numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
@@ -150,15 +153,22 @@ fn tag_text(tag: Option<&Cow<'_, Tag>>) -> Option<String> {
 impl<'input> SpannedEventReceiver<'input> for Recorder {
     fn on_event(&mut self, event: Event<'input>, span: Span) {
         let line = span.start.line();
+        let block = matches!(
+            event,
+            Event::SequenceStart(StructureStyle::Block, ..)
+                | Event::MappingStart(StructureStyle::Block, ..)
+        );
         let node = match event {
             Event::Comment(text, placement) => {
                 let inline = placement == Placement::Right;
                 let trailed = self.starts.last().filter(|_| inline);
-                let after_events = trailed.map_or(self.counted, |(last, _)| {
-                    self.starts
-                        .iter()
-                        .find(|(start, _)| start == last)
-                        .map(|(_, before)| *before)
+                let after_events = trailed.map_or(self.counted, |&(last, ..)| {
+                    let on_line =
+                        || self.starts.iter().filter(|(start, ..)| *start == last);
+                    on_line()
+                        .find(|(.., block)| !block)
+                        .or_else(|| on_line().next())
+                        .map(|&(_, before, _)| before)
                         .expect("the trailed node is among the starts")
                 });
                 self.comments.push(Comment {
@@ -204,7 +214,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
             Node::DocumentStart | Node::SequenceEnd | Node::MappingEnd
         ) {
             if node != Node::DocumentEnd {
-                self.starts.push((line, self.counted));
+                self.starts.push((line, self.counted, block));
             }
             self.counted += 1;
         }

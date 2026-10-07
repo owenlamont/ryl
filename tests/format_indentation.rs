@@ -219,6 +219,7 @@ fn a_block_mapping_joins_its_dash_or_breaks_from_it() {
         (joined, "- # c\n  a: 1\n", "- # c\n  a: 1\n"),
         (joined, "-\n a: 1\n b: 2\n", "-\n  a: 1\n  b: 2\n"),
         (broken, "- a: 1\n  b: 2\n", "-\n  a: 1\n  b: 2\n"),
+        (broken, "- a: \"b\"  # c\n", "- a: \"b\"  # c\n"),
         (broken, "k:\r- a: 1", "k:\r  -\r    a: 1"),
         (
             broken,
