@@ -49,27 +49,32 @@ use passes::{
 use properties::arb_document_with_properties;
 use representation::{annotations, representation, yaml_1_1_representation};
 
+fn check_preserved(input: &str, output: &str) -> Result<(), String> {
+    let before = representation(input);
+    let after = representation(output);
+    if before.is_some() != after.is_some() {
+        return Err(format!("parse-preservation: output {output:?}"));
+    }
+    if before != after {
+        return Err(format!(
+            "value-preservation: output {output:?}; before {before:?}; after {after:?}"
+        ));
+    }
+    let (before, after) = (annotations(input), annotations(output));
+    if before != after {
+        return Err(format!(
+            "comment/anchor fidelity: output {output:?}; before {before:?}; after {after:?}"
+        ));
+    }
+    Ok(())
+}
+
 fn check_invariants(
     format: &dyn Fn(&str) -> String,
     input: &str,
 ) -> Result<(), String> {
     let once = format(input);
-    let before = representation(input);
-    let after = representation(&once);
-    if before.is_some() != after.is_some() {
-        return Err(format!("parse-preservation: output {once:?}"));
-    }
-    if before != after {
-        return Err(format!(
-            "value-preservation: output {once:?}; before {before:?}; after {after:?}"
-        ));
-    }
-    let (before, after) = (annotations(input), annotations(&once));
-    if before != after {
-        return Err(format!(
-            "comment/anchor fidelity: output {once:?}; before {before:?}; after {after:?}"
-        ));
-    }
+    check_preserved(input, &once)?;
     let left_alone = |text: &str| {
         colons::unfixed(text, &colons::Config::format()).len()
             + hyphens::unfixed(text, &hyphens::Config::format()).len()
@@ -559,4 +564,57 @@ fn a_deliberately_broken_pass_fails_the_suite() {
             "a pass that {what} must break {invariant}, got {violation}"
         );
     }
+}
+
+/// The corpus gate's verdict on one real-world file before and after `ryl format`:
+/// `ok`, the violated invariant, `unparsed` when the original does not parse (the script
+/// then requires identical bytes), or `unreadable` when either side is not UTF-8.
+fn corpus_verdict(before: &[u8], after: &[u8]) -> String {
+    let (Ok(before), Ok(after)) = (str::from_utf8(before), str::from_utf8(after))
+    else {
+        return "unreadable".to_string();
+    };
+    if representation(before).is_none() {
+        return "unparsed".to_string();
+    }
+    check_preserved(before, after).map_or_else(
+        |violation| violation.split(':').next().unwrap_or_default().to_string(),
+        |()| "ok".to_string(),
+    )
+}
+
+#[test]
+#[ignore = "driven by scripts/formatter_corpus_check.py over cloned real-world repos"]
+fn corpus_pairs_keep_the_guarantee() {
+    let pairs = std::env::var("RYL_CORPUS_PAIRS").expect("RYL_CORPUS_PAIRS is set");
+    let verdicts =
+        std::env::var("RYL_CORPUS_VERDICTS").expect("RYL_CORPUS_VERDICTS is set");
+    let pairs = std::fs::read_to_string(pairs).expect("read the pairs file");
+    let lines: String = pairs
+        .lines()
+        .map(|pair| {
+            let (before, after) = pair.split_once('\t').expect("a tab-separated pair");
+            let read = |path| std::fs::read(path).expect("read a corpus file");
+            format!("{}\n", corpus_verdict(&read(before), &read(after)))
+        })
+        .collect();
+    std::fs::write(verdicts, lines).expect("write the verdicts file");
+}
+
+#[test]
+fn corpus_verdict_names_the_broken_invariant() {
+    for (before, after, verdict) in [
+        ("a: 'x'  #c\n", "---\na: x  # c\n", "ok"),
+        ("a: 1\n", "a: '1'\n", "value-preservation"),
+        ("a: 1\n", "a: [\n", "parse-preservation"),
+        ("a: 1  # c\n", "a: 1\n", "comment/anchor fidelity"),
+        ("a: [\n", "a: [\n", "unparsed"),
+    ] {
+        assert_eq!(
+            corpus_verdict(before.as_bytes(), after.as_bytes()),
+            verdict,
+            "{before:?} -> {after:?}"
+        );
+    }
+    assert_eq!(corpus_verdict(b"a: \xff\n", b"a: 1\n"), "unreadable");
 }
