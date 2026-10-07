@@ -46,7 +46,8 @@ any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
 `'1_000'`), as yamllint does, so the output means the same to a 1.1 consumer
 such as PyYAML. The set is PyYAML's 1.1 resolver plus yamllint's `0o` octal;
 `y`, `Y`, `n` and `N` are strings to it, so their quotes are still redundant.
-Without a directive, quotes a 1.2 reader needs (`'+.5'`, `'008'`) are kept too.
+Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
+`'008'`) are kept too.
 
 ## What is different in YAML 1.2
 
