@@ -257,7 +257,7 @@ says so.
 | [`braces`](rules/braces.md) | `forbid` is set, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
 | [`brackets`](rules/brackets.md) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
 | [`commas`](rules/commas.md) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
-| [`comments`](rules/comments.md) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited) |
+| [`comments`](rules/comments.md) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true`, since a shebang keeps its `#!` |
 | [`comments-indentation`](rules/comments-indentation.md) | Never |
 | [`document-start`](rules/document-start.md) | `present = false` with `[format] document-start = "add"` |
 | [`document-end`](rules/document-end.md) | `present = false` with `[format] document-end = "add"` |
@@ -268,7 +268,7 @@ says so.
 | [`trailing-spaces`](rules/trailing-spaces.md) | Never |
 | [`colons`](rules/colons.md) | `max-spaces-after` is 0 |
 | [`hyphens`](rules/hyphens.md) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
-| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences` |
+| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences`, or `check-multi-line-strings = true` with an `indent-width` other than 2, since block scalar bodies keep their indent |
 | [`line-length`](rules/line-length.md) | Never; folding is opt-in and leaves lines it cannot break |
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`

@@ -51,6 +51,12 @@ const CONFLICTING: &[(&str, &str, &str, &str)] = &[
     ),
     ("", "comments", "", "ignore-shebangs = false"),
     (
+        "",
+        "comments",
+        "ignore-shebangs = false\nrequire-starting-space = false\n",
+        "require-starting-space = true",
+    ),
+    (
         "[format]\ncomment-spacing = 3\n",
         "comments",
         "min-spaces-from-content = 1\n",
@@ -127,64 +133,85 @@ const CONFLICTING: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
-/// Options no value of which rejects the formatter's output, with the reason.
-const UNCONFLICTABLE: &[(&str, &str, &str)] = &[
+/// Options no value of which rejects the formatter's output: rule, agreeing options, the
+/// option at its strictest, and the reason.
+const UNCONFLICTABLE: &[(&str, &str, &str, &str)] = &[
     (
         "braces",
-        "max-spaces-inside-empty",
+        "",
+        "max-spaces-inside-empty = 0",
         "empty braces are written `{}`",
     ),
-    ("brackets", "max-spaces-inside", "brackets are never padded"),
     (
         "brackets",
-        "max-spaces-inside-empty",
+        "",
+        "max-spaces-inside = 0",
+        "brackets are never padded",
+    ),
+    (
+        "brackets",
+        "",
+        "max-spaces-inside-empty = 0",
         "empty brackets are written `[]`",
     ),
     (
         "colons",
-        "max-spaces-before",
+        "",
+        "max-spaces-before = 0",
         "no space is written before `:`",
     ),
     (
         "commas",
-        "max-spaces-before",
+        "",
+        "max-spaces-before = 0",
         "no space is written before `,`",
     ),
     (
-        "comments",
-        "require-starting-space",
-        "`add` writes the space and `preserve` waives the rule",
-    ),
-    (
         "comments-indentation",
-        "allow-any-open-indent",
+        "",
+        "allow-any-open-indent = false",
         "only admits more placements",
     ),
     (
         "empty-lines",
-        "max-start",
+        "",
+        "max-start = 0",
         "leading blank lines are dropped",
     ),
-    ("empty-lines", "max-end", "trailing blank lines are dropped"),
-    ("line-length", "max", "line-length is never reported"),
+    (
+        "empty-lines",
+        "",
+        "max-end = 0",
+        "trailing blank lines are dropped",
+    ),
     (
         "line-length",
-        "allow-non-breakable-words",
+        "",
+        "max = 5",
         "line-length is never reported",
     ),
     (
         "line-length",
-        "allow-non-breakable-inline-mappings",
+        "max = 5\n",
+        "allow-non-breakable-words = false",
+        "line-length is never reported",
+    ),
+    (
+        "line-length",
+        "max = 5\n",
+        "allow-non-breakable-inline-mappings = false",
         "line-length is never reported",
     ),
     (
         "quoted-strings",
-        "check-keys",
+        QUOTED,
+        "check-keys = true",
         "keys are quoted as values are, so a value conflicts first",
     ),
     (
         "quoted-strings",
-        "extra-allowed",
+        QUOTED,
+        "extra-allowed = ['.*']",
         "only admits more quoting",
     ),
 ];
@@ -237,7 +264,7 @@ fn every_formatting_rule_option_is_conflicting_or_unconflictable() {
         .chain(
             UNCONFLICTABLE
                 .iter()
-                .map(|(rule, option, _)| (*rule, *option)),
+                .map(|(rule, _, line, _)| (*rule, line.split(" =").next().unwrap())),
         )
         .map(|(rule, option)| (rule.to_string(), option.to_string()))
         .collect();
@@ -263,6 +290,15 @@ fn each_conflicting_option_is_reported_and_its_baseline_is_not() {
         }
     }
     assert!(missed.is_empty(), "{}", missed.join("\n"));
+}
+
+#[test]
+fn each_unconflictable_option_is_silent_at_its_strictest() {
+    for (rule, agreeing, line, reason) in UNCONFLICTABLE {
+        let config =
+            format!("[lint.rules.{rule}]\nlevel = 'error'\n{agreeing}{line}\n");
+        assert_eq!(warned(&config), Vec::<String>::new(), "{reason}: {config}");
+    }
 }
 
 #[test]
