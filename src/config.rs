@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::num::{NonZeroU8, NonZeroU16};
@@ -16,13 +16,14 @@ use regex::Regex;
 
 use crate::config_schema::{
     DeprecatedKey, DeprecatedKeyUse, FixRuleName as TomlFixRuleName,
-    FixableRuleSelector as TomlFixableRuleSelector, FormatTable, LEGACY_YAML_SOURCES,
+    FixableRuleSelector as TomlFixableRuleSelector, LEGACY_YAML_SOURCES,
     LegacyYamlSource, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
-    NormalizedPerLineIgnore, OutputTable, TomlConfig, normalize_toml_config,
-    normalized_config_to_toml_value, parse_toml_config_str, validate_toml_config,
-    yaml_rule_filter_patterns, yaml_rule_level,
+    NormalizedPerLineIgnore, OutputTable, TomlConfig, format_keys,
+    normalize_toml_config, normalized_config_to_toml_value, parse_toml_config_str,
+    validate_toml_config, yaml_rule_filter_patterns, yaml_rule_level,
 };
 use crate::decoder;
+use crate::format::FormatSettings;
 
 pub(crate) mod legacy_yaml;
 
@@ -153,7 +154,7 @@ pub struct YamlLintConfig {
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
     output: Option<OutputTable>,
-    format: FormatTable,
+    format: FormatSettings,
     source: Option<PathBuf>,
     line_length: Option<NonZeroU16>,
     indent_width: Option<NonZeroU8>,
@@ -512,7 +513,7 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
-            format: FormatTable::default(),
+            format: FormatSettings::default(),
             source: None,
             line_length: None,
             indent_width: None,
@@ -817,9 +818,9 @@ impl YamlLintConfig {
         self.output.as_ref()
     }
 
-    /// The TOML `[format]` table (empty when the config declared none).
+    /// The resolved `[format]` settings (the defaults when the config declared none).
     #[must_use]
-    pub fn format(&self) -> &FormatTable {
+    pub fn format(&self) -> &FormatSettings {
         &self.format
     }
 
@@ -850,14 +851,23 @@ impl YamlLintConfig {
         };
         validate_toml_config(&typed)?;
         let _ = (envx, base_dir);
-        Ok(Some(Self::from_typed_toml_config_with_env(&typed)))
+        let explicit = format_keys(s, pyproject);
+        Ok(Some(Self::from_typed_toml_config_with_env(
+            &typed, explicit,
+        )))
     }
 
-    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
+    fn from_typed_toml_config_with_env(
+        config: &TomlConfig,
+        explicit: BTreeSet<String>,
+    ) -> Self {
         let normalized = normalize_toml_config(config);
         let mut cfg = Self {
             deprecated_keys: config.deprecated_keys(),
-            format: config.format.clone().unwrap_or_default(),
+            format: FormatSettings::new(
+                config.format.clone().unwrap_or_default(),
+                explicit,
+            ),
             ..Self::default()
         };
         cfg.apply_normalized_config(normalized);
