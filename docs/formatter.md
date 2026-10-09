@@ -268,7 +268,7 @@ says so.
 | [`trailing-spaces`](rules/trailing-spaces.md) | Never |
 | [`colons`](rules/colons.md) | `max-spaces-after` is 0 |
 | [`hyphens`](rules/hyphens.md) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
-| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences`, or `check-multi-line-strings = true` with an `indent-width` other than 2, since block scalar bodies keep their indent |
+| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](rules/line-length.md) | Never; folding is opt-in and leaves lines it cannot break |
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`

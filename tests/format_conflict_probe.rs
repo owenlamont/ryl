@@ -105,12 +105,6 @@ const CONFLICTING: &[(&str, &str, &str, &str)] = &[
         "indent-sequences = false\n",
         "indent-sequences = true",
     ),
-    (
-        "indent-width = 4\n",
-        "indentation",
-        "spaces = 4\n",
-        "check-multi-line-strings = true",
-    ),
     ("", "new-lines", "", "type = 'dos'"),
     (
         "[format]\nline-ending = 'cr-lf'\n",
@@ -191,6 +185,12 @@ const UNCONFLICTABLE: &[(&str, &str, &str, &str)] = &[
         "",
         "max-end = 0",
         "trailing blank lines are dropped",
+    ),
+    (
+        "indentation",
+        "",
+        "check-multi-line-strings = true",
+        "block scalar bodies move to where the check expects them",
     ),
     (
         "line-length",
@@ -310,23 +310,18 @@ fn each_unconflictable_option_is_silent_at_its_strictest() {
 }
 
 #[test]
-fn options_without_a_format_key_name_the_built_in_style() {
-    for (config, style) in [
-        (
-            "[lint.rules.comments]\nignore-shebangs = false\n",
-            "built-in comments style",
-        ),
-        (
-            "indent-width = 4\n[lint.rules.indentation]\nspaces = 4\n\
-             check-multi-line-strings = true\n",
-            "built-in indentation style",
-        ),
-    ] {
-        let cfg = YamlLintConfig::from_toml_str(config).unwrap();
-        let warnings = conflicts(&cfg);
-        assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");
-        assert!(warnings[0].contains(style), "{}", warnings[0]);
-    }
+fn an_option_without_a_format_key_names_the_built_in_style() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.comments]\nignore-shebangs = false\n",
+    )
+    .unwrap();
+    let warnings = conflicts(&cfg);
+    assert_eq!(warnings.len(), 1, "{warnings:#?}");
+    assert!(
+        warnings[0].contains("built-in comments style"),
+        "{}",
+        warnings[0]
+    );
 }
 
 #[test]

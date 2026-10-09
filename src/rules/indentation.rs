@@ -301,7 +301,8 @@ struct Parent {
     line_indent: isize,
     explicit_key: bool,
     implicit_block_seq: bool,
-    /// How far a block collection moves, which its block scalars' bodies move with.
+    /// How far a block collection moves, which its block scalars' bodies with an
+    /// indentation indicator move with.
     shift: isize,
 }
 
@@ -715,11 +716,18 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    /// Moves a scalar's later lines: a block body with the collection it is indented
-    /// against, so an indentation indicator keeps its meaning, and a continuation with the
-    /// line it starts on.
+    /// Moves a scalar's later lines: a block body to where [`Self::check_scalar`] expects
+    /// it, or with the collection it is indented against where an indentation indicator
+    /// fixes its column, and a continuation with the line it starts on.
     fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
-        let delta = if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        let delta = if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+            self.column(token) - to_isize(token.column)
+        } else if let Some((_, indent)) = self.body_indents(token).next()
+            && !self.has_indentation_indicator(token)
+        {
+            let found = to_isize(indent);
+            self.expected_scalar_indent(token, style, found) - found
+        } else {
             self.stack
                 .iter()
                 .rev()
@@ -730,27 +738,42 @@ impl<'a> Analyzer<'a> {
                     )
                 })
                 .map_or(0, |parent| parent.shift)
-        } else {
-            self.column(token) - to_isize(token.column)
         };
         for line in token.line + 1..=last_line(token) {
             self.shifts[line] = Some(Shift::Carried(delta));
         }
     }
 
+    fn has_indentation_indicator(&self, token: &Token) -> bool {
+        self.chars[token.start + 1..]
+            .iter()
+            .map(|&(_, ch)| ch)
+            .take_while(|&ch| ch.is_ascii_digit() || matches!(ch, '+' | '-'))
+            .any(|ch| ch.is_ascii_digit())
+    }
+
+    /// Each later line of `token` that is not blank, with its indent.
+    fn body_indents(
+        &self,
+        token: &Token,
+    ) -> impl Iterator<Item = (usize, usize)> + use<'a> {
+        let (chars, line_starts) = (self.chars, self.line_starts);
+        (token.line + 1..=last_line(token)).filter_map(move |line| {
+            let line_start = line_starts[line].get();
+            let indent = count_spaces(chars, line_start);
+            (!char_at(chars, line_start + indent).is_some_and(is_break))
+                .then_some((line, indent))
+        })
+    }
+
     fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
-        let last_line = last_line(token);
-        let mut expected = None;
-        for line in token.line + 1..=last_line {
-            let line_start = self.line_starts[line].get();
-            let indent = count_spaces(self.chars, line_start);
-            if char_at(self.chars, line_start + indent).is_some_and(is_break) {
-                continue;
-            }
+        let lines: Vec<(usize, usize)> = self.body_indents(token).collect();
+        let Some(&(_, first)) = lines.first() else {
+            return;
+        };
+        let expected = self.expected_scalar_indent(token, style, to_isize(first));
+        for (line, indent) in lines {
             let found = to_isize(indent);
-            let expected = *expected.get_or_insert_with(|| {
-                self.expected_scalar_indent(token, style, found)
-            });
             if found != expected {
                 self.push(line + 1, indent, wrong_indent_message(expected, found));
             }
@@ -763,7 +786,7 @@ impl<'a> Analyzer<'a> {
         style: ScalarStyle,
         found: isize,
     ) -> isize {
-        let column = to_isize(token.column);
+        let column = self.column(token);
         let top = self.top();
         match style {
             ScalarStyle::Plain => column,
