@@ -1200,6 +1200,28 @@ fn formatting_formats_embedded_markdown_yaml() {
 }
 
 #[test]
+fn formatting_keeps_a_bom_and_formats_markdown_front_matter_after_it() {
+    let dir = project("[files]\nmarkdown = [\"*.md\"]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.md");
+    client.did_open(doc.clone(), "\u{feff}---\na:   1\n---\n");
+    let edits = client.formatting(doc).expect("the front matter formats");
+    assert_eq!(edits[0].new_text, "\u{feff}---\na: 1\n---\n");
+}
+
+#[test]
+fn formatting_honours_a_disable_file_directive_after_a_bom() {
+    let dir = project("[format]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "\u{feff}# ryl disable-file\na:   1\n");
+    assert!(
+        client.formatting(doc).is_none(),
+        "`ryl format` skips a disabled file whatever its encoding"
+    );
+}
+
+#[test]
 fn formatting_an_unparsable_document_is_null() {
     let dir = project("[format]\n");
     let (mut client, _init) = Client::launch(None, None);

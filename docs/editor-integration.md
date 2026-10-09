@@ -19,7 +19,7 @@ hover only explains ryl's own diagnostics.
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
 | Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
-| Formatting | `textDocument/formatting` | Runs [`ryl format`](formatter.md) on the document, under the `[format]` table; YAML in Markdown is formatted too |
+| Formatting | `textDocument/formatting` | Runs [`ryl format`](formatter.md) on the document, under the `[format]` table; each YAML region of a Markdown file is formatted on its own |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
 | File watching | `workspace/didChangeWatchedFiles` | Watches ryl/yamllint config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
@@ -28,8 +28,9 @@ The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrenc
 this one" action, because its fix engine operates per file (the per-rule fix-all is the
 finest grain available, and applies only to YAML, not Markdown). Formatting needs no enabled
 rule, as with the CLI, and ignores the editor's tab size: the `[format]` table decides. Only
-whole-document formatting is offered, not a selected range. Neither fixing nor formatting
-modifies a document that does not parse.
+whole-document formatting is offered, not a selected range. As with the CLI, YAML that does
+not parse is left as it is: a whole YAML file, or one region of a Markdown file while its
+other regions are still fixed or formatted.
 
 ## Running it
 

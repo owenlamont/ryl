@@ -248,6 +248,7 @@ proptest! {
                 enc,
                 *rewrite,
             ) else {
+                prop_assert_eq!(&text, expected, "no {:?} edit means no change", rewrite);
                 continue;
             };
             let start =

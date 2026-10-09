@@ -70,10 +70,16 @@ pub fn rewrite_edit(
     enc: PositionEncoding,
     rewrite: Rewrite,
 ) -> Option<TextEdit> {
-    let (rewritten, _) = rewrite_str(text, cfg, path, base_dir, kind, rewrite);
+    // The CLI's decoder strips a UTF-8 BOM before rewriting and restores it on write.
+    let (bom, body) = text
+        .strip_prefix('\u{feff}')
+        .map_or(("", text), |body| ("\u{feff}", body));
+    let (rewritten, _) = rewrite_str(body, cfg, path, base_dir, kind, rewrite);
     rewritten
-        .filter(|rewritten| rewritten != text)
-        .map(|rewritten| TextEdit::new(full_range(text, enc), rewritten))
+        .filter(|rewritten| rewritten != body)
+        .map(|rewritten| {
+            TextEdit::new(full_range(text, enc), format!("{bom}{rewritten}"))
+        })
 }
 
 /// The whole-document edit applying only `rule`'s safe fix, or `None` when nothing
