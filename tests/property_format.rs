@@ -647,6 +647,23 @@ fn a_trailing_comment_keeps_its_node_on_the_key_line() {
 }
 
 #[test]
+fn an_empty_block_scalar_leaves_the_next_line_s_comment_to_its_node() {
+    for (spread, joined) in [
+        (
+            "k:\n- |\n-\n  a: {x: 1}  #c\n",
+            "k:\n  - |\n  - a: {x: 1}  # c\n",
+        ),
+        ("- >-\n-\n  a  # c\n", "- >-\n- a  # c\n"),
+    ] {
+        assert_eq!(annotations(spread), annotations(joined), "{joined:?}");
+    }
+    assert_ne!(
+        annotations("- |  # c\n- a\n"),
+        annotations("- |\n- a  # c\n")
+    );
+}
+
+#[test]
 fn a_deliberately_broken_pass_fails_the_suite() {
     let input = "%YAML 1.1\n---\n# lead\na: &x 'no'  # note\nb: *x\nc: 1\n";
     type Broken = fn(&str) -> String;

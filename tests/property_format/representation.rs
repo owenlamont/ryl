@@ -62,8 +62,9 @@ pub struct Comment {
     /// either, since block ones come after a comment their flow form precedes. An inline
     /// comment counts only those before the first node on the line of the node it trails,
     /// so a flow collection turned block may keep its trailing comment on its key's line;
-    /// a block collection's start counts as first only alone, since joining or breaking a
-    /// `-` line moves it.
+    /// a block node's start counts as first only alone, since joining or breaking a `-`
+    /// line moves a collection's, and granit starts an empty block scalar on the line
+    /// after its header.
     pub after_events: usize,
     pub inline: bool,
     /// Payload with whitespace trimmed around it and after its leading `#` run: the
@@ -84,7 +85,7 @@ struct Recorder {
     /// Nodes `Comment::after_events` counts so far.
     counted: usize,
     /// The line each counted node but a document end starts on, `counted` before it, and
-    /// whether it is a block collection's start.
+    /// whether it is a block node's start.
     starts: Vec<(usize, usize, bool)>,
     comments: Vec<Comment>,
     /// granit numbers anchors internally; ordinals of first definition are what the
@@ -157,6 +158,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
             event,
             Event::SequenceStart(StructureStyle::Block, ..)
                 | Event::MappingStart(StructureStyle::Block, ..)
+                | Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
         );
         let node = match event {
             Event::Comment(text, placement) => {
