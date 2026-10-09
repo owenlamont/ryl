@@ -1,12 +1,12 @@
 use std::io::Write;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
 use ryl::rules::document_end::{self, Config};
 
 mod common;
-use common::cli::ryl;
+use common::cli::{run, ryl};
 
 #[test]
 fn fix_ends_every_implicitly_ended_document() {
@@ -38,6 +38,10 @@ fn fix_ends_every_implicitly_ended_document() {
             "a: 1\r\n# c\r\n...\r\n---\r\nb\r\n...\r\n",
         ),
         ("a: 1\r# c\r\r---\rb\r", "a: 1\r# c\r\r...\r---\rb\r...\r"),
+        ("--- a\r--- b\r", "--- a\r...\r--- b\r...\r"),
+        ("---\r---\r", "---\r...\r---\r...\r"),
+        ("a\n# c\n---\nb\n...\n", "a\n# c\n...\n---\nb\n...\n"),
+        ("[a]\n# c\n---\nb\n", "[a]\n# c\n...\n---\nb\n...\n"),
     ];
     let cfg = Config::new(true);
     for (input, expected) in cases {
@@ -95,5 +99,28 @@ fn format_adds_an_end_to_every_document_of_a_stream() {
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "a: 1\n...\n---\nb: 2\n...\nc: 3\n...\n"
+    );
+}
+
+#[test]
+fn fix_converges_on_bare_cr_inline_documents() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    std::fs::write(&file, "--- a\r--- b\r").unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args([
+            "check",
+            "--fix",
+            "-d",
+            "[lint.rules]\ndocument-end = 'enable'\n",
+        ])
+        .arg(&file));
+    assert_eq!(
+        code, 0,
+        "fixed output must converge and lint clean: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "--- a\r...\r--- b\r...\r"
     );
 }

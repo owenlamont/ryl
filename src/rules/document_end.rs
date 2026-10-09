@@ -12,31 +12,11 @@ use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
 };
-use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
+use crate::rules::support::span_utils::marker_byte_offset;
 
 pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
 pub const FORBIDDEN_MESSAGE: &str = "found forbidden document end \"...\"";
-
-/// The line of the next document's `---` when one opens at `offset`. granit points a
-/// zero-width document end either at the marker or at the break before it, so the skip
-/// is also what makes `line` the marker's rather than the point's. An explicit `...`
-/// always arrives spanned, so only `---` reaches here. Content must be separated from
-/// the marker (YAML 1.2.2 rule 203), so `--- foo` opens a document but `---foo` is a
-/// plain scalar.
-fn next_document_marker_line(
-    source: &str,
-    offset: BytePos,
-    line: usize,
-) -> Option<usize> {
-    let rest = source.get(offset.get()..).unwrap_or_default();
-    let marker = rest.trim_start_matches([' ', '\t', '\r', '\n']);
-    let opens_document = marker.strip_prefix("---").is_some_and(|tail| {
-        tail.is_empty() || tail.starts_with([' ', '\t', '\r', '\n'])
-    });
-    let skipped = rest.len() - marker.len();
-    opens_document.then(|| line + rest[..skipped].matches('\n').count())
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
@@ -69,28 +49,14 @@ pub struct Violation {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Marker {
-    ExplicitEnd,
-    /// Carries the marker's own line, which is not the event's where granit points the
-    /// zero-width end at the break before the marker.
-    DocumentStart {
-        line: usize,
-    },
-    Other,
-}
-
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     scan(buffer, cfg).violations
 }
 
-fn scan<'src, 'cfg>(
-    buffer: &'src str,
-    cfg: &'cfg Config,
-) -> DocumentEndReceiver<'src, 'cfg> {
+fn scan<'cfg>(buffer: &str, cfg: &'cfg Config) -> DocumentEndReceiver<'cfg> {
     let mut parser = Parser::new_from_str(buffer);
-    let mut receiver = DocumentEndReceiver::new(buffer, cfg);
+    let mut receiver = DocumentEndReceiver::new(cfg);
     let _ = parser.load(&mut receiver, true);
     receiver
 }
@@ -125,96 +91,66 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     (output != buffer).then_some(output)
 }
 
-struct DocumentEndReceiver<'src, 'cfg> {
-    source: &'src str,
+struct DocumentEndReceiver<'cfg> {
     config: &'cfg Config,
     violations: Vec<Violation>,
-    pending_stream_end_violation: bool,
+    /// The last document ended implicitly and no `---` or stream end has followed yet.
+    pending: bool,
     /// 1-based lines of each `---` that follows an implicitly ended document.
     unended_before: Vec<usize>,
     unended_at_stream_end: bool,
 }
 
-impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
-    const fn new(source: &'src str, config: &'cfg Config) -> Self {
+impl<'cfg> DocumentEndReceiver<'cfg> {
+    const fn new(config: &'cfg Config) -> Self {
         Self {
-            source,
             config,
             violations: Vec::new(),
-            pending_stream_end_violation: false,
+            pending: false,
             unended_before: Vec::new(),
             unended_at_stream_end: false,
         }
     }
 
     fn handle_document_end(&mut self, span: Span) {
-        let marker = self.marker(span);
-
-        if !self.config.requires_marker() {
-            self.pending_stream_end_violation = false;
-            if matches!(marker, Marker::ExplicitEnd) {
-                self.violations.push(Violation {
-                    line: span.start.line(),
-                    column: span.start.col() + 1,
-                    message: FORBIDDEN_MESSAGE.to_string(),
-                });
-            }
-            return;
-        }
-
-        match marker {
-            Marker::ExplicitEnd => {
-                self.pending_stream_end_violation = false;
-            }
-            Marker::DocumentStart { line } => {
-                self.pending_stream_end_violation = false;
-                self.unended_before.push(line);
-                self.violations.push(Violation {
-                    line,
-                    column: 1,
-                    message: MISSING_MESSAGE.to_string(),
-                });
-            }
-            Marker::Other => {
-                self.pending_stream_end_violation = true;
-            }
+        // granit spans the explicit `...` and nothing else, reporting an implicit end
+        // as a zero-width point.
+        let explicit = marker_byte_offset(span.start) < marker_byte_offset(span.end);
+        self.pending = !explicit && self.config.requires_marker();
+        if explicit && !self.config.requires_marker() {
+            self.violations.push(Violation {
+                line: span.start.line(),
+                column: span.start.col() + 1,
+                message: FORBIDDEN_MESSAGE.to_string(),
+            });
         }
     }
 
-    fn handle_stream_end(&mut self, span: Span) {
-        if !self.config.requires_marker() || !self.pending_stream_end_violation {
-            return;
-        }
-
-        self.unended_at_stream_end = true;
-        let raw_line = span.start.line();
-        let line = cmp::max(1, raw_line.saturating_sub(1));
+    fn report_missing(&mut self, line: usize) {
+        self.pending = false;
         self.violations.push(Violation {
             line,
             column: 1,
             message: MISSING_MESSAGE.to_string(),
         });
-        self.pending_stream_end_violation = false;
-    }
-
-    fn marker(&self, span: Span) -> Marker {
-        let start = marker_byte_offset(span.start);
-        // granit spans the explicit `...` and nothing else, reporting an implicit end
-        // as a zero-width point that carries no marker text to inspect.
-        if start < marker_byte_offset(span.end) {
-            return Marker::ExplicitEnd;
-        }
-        next_document_marker_line(self.source, start, span.start.line())
-            .map_or(Marker::Other, |line| Marker::DocumentStart { line })
     }
 }
 
-impl SpannedEventReceiver<'_> for DocumentEndReceiver<'_, '_> {
+impl SpannedEventReceiver<'_> for DocumentEndReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
-        match event {
-            Event::DocumentEnd => self.handle_document_end(span),
-            Event::StreamEnd => self.handle_stream_end(span),
-            _ => {}
+        if !self.pending {
+            if matches!(event, Event::DocumentEnd) {
+                self.handle_document_end(span);
+            }
+            return;
+        }
+        // An implicit end is followed only by the next `---` or by the stream end.
+        if matches!(event, Event::StreamEnd) {
+            self.unended_at_stream_end = true;
+            self.report_missing(cmp::max(1, span.start.line().saturating_sub(1)));
+        } else {
+            self.unended_before.push(span.start.line());
+            self.report_missing(span.start.line());
         }
     }
 }
