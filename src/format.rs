@@ -44,11 +44,11 @@ pub const FORMAT_RULE_IDS: [&str; 16] = [
 ];
 
 /// Formatter input for [`conflicts`] to lint: one instance of each target's concern, bar
-/// the blank-line run, which `conflicts` sizes to `max-blank-lines`.
+/// the shebang and blank-line run, which `conflicts` adds per the `[format]` table.
 const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     necessary: 'a: b'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
-    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\npairs:\n- k: v\n";
+    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nblock: |\n  text\nlist:\n- item\npairs:\n- k: v\n";
 
 impl Passes<'static> {
     fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
@@ -464,17 +464,33 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
 pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let table = cfg.format();
     let blanks = "\n".repeat(usize::from(table.max_blank_lines) + 1);
+    let shebang = match table.comment_starting_space {
+        MarkerTarget::Add => "#!probe\n",
+        MarkerTarget::Preserve => "",
+    };
     let formatted = run_passes(
-        &format!("{CONFLICT_PROBE}{blanks}last: 1\n"),
+        &format!("{shebang}{CONFLICT_PROBE}{blanks}last: 1\n"),
         &Passes::format(cfg, &[]),
         Path::new(""),
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::sink(),
         &mut Vec::new(),
     );
+    let preserved_forbid = |problem: &LintProblem| match problem.rule {
+        Some(braces::ID) => {
+            table.mapping_style == CollectionStyleTarget::Preserve
+                && problem.message == braces::FORBID_MESSAGE
+        }
+        Some(brackets::ID) => {
+            table.sequence_style == CollectionStyleTarget::Preserve
+                && problem.message == brackets::FORBID_MESSAGE
+        }
+        _ => false,
+    };
     let mut rejected: BTreeSet<&str> =
         lint_str(&formatted, Path::new(""), cfg, Path::new(""))
             .into_iter()
+            .filter(|problem| !preserved_forbid(problem))
             .filter_map(|problem| problem.rule)
             .collect();
     // No fixed probe can match an arbitrary `extra-required` pattern.
@@ -534,6 +550,21 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
                 && cfg.rule_option_bool(hyphens::ID, "dash-on-own-line", false) =>
         {
             Some("dash-on-own-line")
+        }
+        indentation::ID
+            if cfg.rule_option_bool(
+                indentation::ID,
+                "check-multi-line-strings",
+                false,
+            ) =>
+        {
+            return Some(format!("built-in {rule} style"));
+        }
+        comments::ID
+            if table.comment_starting_space == MarkerTarget::Add
+                && !cfg.rule_option_bool(comments::ID, "ignore-shebangs", true) =>
+        {
+            return Some(format!("built-in {rule} style"));
         }
         indentation::ID => Some("indent-sequences"),
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,

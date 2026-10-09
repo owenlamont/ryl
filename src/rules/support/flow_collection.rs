@@ -29,12 +29,14 @@ macro_rules! define_rule {
 
         pub const ID: &str = $rule_id;
 
+        pub const FORBID_MESSAGE: &str = $forbid_message;
+
         const DESCRIPTOR:
             $crate::rules::support::flow_collection::FlowCollectionDescriptor =
             $crate::rules::support::flow_collection::FlowCollectionDescriptor {
                 open: $open,
                 close: $close,
-                forbid_message: $forbid_message,
+                forbid_message: FORBID_MESSAGE,
                 min_message: $min_message,
                 max_message: $max_message,
                 min_empty_message: $min_empty_message,
