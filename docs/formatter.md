@@ -254,8 +254,8 @@ says so.
 
 | Rule | Conflicts with `ryl format` when |
 | :--- | :--- |
-| [`braces`](rules/braces.md) | `forbid` is set with `[format] mapping-style = "flow"`, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
-| [`brackets`](rules/brackets.md) | `forbid` is set with `[format] sequence-style = "flow"`, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
+| [`braces`](rules/braces.md) | `forbid` is set and `[format] mapping-style` is not `"preserve"`, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
+| [`brackets`](rules/brackets.md) | `forbid` is set and `[format] sequence-style` is not `"preserve"`, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
 | [`commas`](rules/commas.md) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
 | [`comments`](rules/comments.md) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true` under `[format] comment-starting-space = "add"`, since a shebang keeps its `#!` |
 | [`comments-indentation`](rules/comments-indentation.md) | Never |

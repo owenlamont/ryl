@@ -59,7 +59,7 @@ bounds. The `forbid` constraint is not auto-fixed because converting flow
 sequences to block style requires re-flowing the document. A minimum above its
 maximum cannot be satisfied, so `--fix` leaves that spacing as it is.
 
-`ryl format` writes no spaces inside brackets, `[]` included, and never converts flow style to block. It conflicts with `forbid`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` writes no spaces inside brackets, `[]` included, and keeps flow style under the default `[format] sequence-style = "preserve"`. It conflicts with `forbid` when `sequence-style` is not `"preserve"`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 
