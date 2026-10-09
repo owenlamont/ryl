@@ -45,10 +45,10 @@ pub const FORMAT_RULE_IDS: [&str; 16] = [
 
 /// Formatter input for [`conflicts`] to lint: one instance of each target's concern, bar
 /// the blank-line run, which `conflicts` sizes to `max-blank-lines`.
-const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
+const CONFLICT_PROBE: &str = "#!probe\n# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     necessary: 'a: b'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
-    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nlist:\n- item\npairs:\n- k: v\n";
+    flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nblock: |\n  text\nlist:\n- item\npairs:\n- k: v\n";
 
 impl Passes<'static> {
     fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
@@ -534,6 +534,20 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
                 && cfg.rule_option_bool(hyphens::ID, "dash-on-own-line", false) =>
         {
             Some("dash-on-own-line")
+        }
+        indentation::ID
+            if cfg.rule_option_bool(
+                indentation::ID,
+                "check-multi-line-strings",
+                false,
+            ) =>
+        {
+            return Some(format!("built-in {rule} style"));
+        }
+        comments::ID
+            if !cfg.rule_option_bool(comments::ID, "ignore-shebangs", true) =>
+        {
+            return Some(format!("built-in {rule} style"));
         }
         indentation::ID => Some("indent-sequences"),
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,
