@@ -1,7 +1,7 @@
 mod serialization;
 mod validation;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::{NonZeroU8, NonZeroU16};
 
 use crate::yaml_dom::{MappingOwned, YamlOwned};
@@ -1367,19 +1367,29 @@ fn toml_error_text(mut err: toml::de::Error, input: Option<&str>) -> String {
 /// config, or the `[tool.ryl]` subtable for `pyproject.toml`. A document that fails to
 /// parse is not empty (so the real parse error surfaces); an absent `[tool.ryl]` likewise.
 fn toml_document_is_empty(input: &str, pyproject: bool) -> bool {
-    let Ok(table) = input.parse::<toml::Table>() else {
-        return false;
-    };
-    let config = if pyproject {
-        table
-            .get("tool")
-            .and_then(toml::Value::as_table)
-            .and_then(|tool| tool.get("ryl"))
-            .and_then(toml::Value::as_table)
-    } else {
-        Some(&table)
-    };
-    config.is_some_and(toml::map::Map::is_empty)
+    ryl_table(input, pyproject).is_some_and(|table| table.is_empty())
+}
+
+fn ryl_table(input: &str, pyproject: bool) -> Option<toml::Table> {
+    let table = input.parse::<toml::Table>().ok()?;
+    if !pyproject {
+        return Some(table);
+    }
+    table
+        .get("tool")
+        .and_then(|tool| tool.get("ryl"))
+        .and_then(toml::Value::as_table)
+        .cloned()
+}
+
+/// The `[format]` keys a TOML config sets explicitly.
+pub(crate) fn format_keys(input: &str, pyproject: bool) -> BTreeSet<String> {
+    ryl_table(input, pyproject)
+        .as_ref()
+        .and_then(|table| table.get("format"))
+        .and_then(toml::Value::as_table)
+        .map(|format| format.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// # Errors

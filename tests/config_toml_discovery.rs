@@ -52,6 +52,49 @@ fn explicit_pyproject_with_tool_ryl_section_loads() {
 }
 
 #[test]
+fn format_settings_record_the_keys_a_config_sets_even_at_their_default() {
+    for (file, text, explicit) in [
+        (
+            ".ryl.toml",
+            "[format]\nquote-style = 'single'\n",
+            vec!["quote-style"],
+        ),
+        (
+            "pyproject.toml",
+            "[tool.ryl.format]\npreview = false\nmax-blank-lines = 2\n",
+            vec!["max-blank-lines", "preview"],
+        ),
+        (".ryl.toml", "locale = 'en_GB.UTF-8'\n", vec![]),
+    ] {
+        let path = PathBuf::from("/repo").join(file);
+        let env = FakeEnv::new()
+            .with_cwd(PathBuf::from("/repo"))
+            .with_file(path.clone(), text);
+        let ctx = discover_config_with(
+            &[],
+            &Overrides {
+                config_file: Some(path),
+                config_data: None,
+            },
+            &env,
+        )
+        .expect("valid TOML config");
+        let format = ctx.config.format();
+        let set: Vec<&str> = [
+            "document-start",
+            "max-blank-lines",
+            "preview",
+            "quote-style",
+        ]
+        .into_iter()
+        .filter(|key| format.is_explicit(key))
+        .collect();
+        assert_eq!(set, explicit, "{text}");
+        assert_eq!(format.targets().max_blank_lines, 2, "{text}");
+    }
+}
+
+#[test]
 fn exact_typed_toml_preserves_runtime_matchers_and_rule_settings() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(

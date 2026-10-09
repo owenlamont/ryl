@@ -52,7 +52,7 @@ const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x
 
 impl Passes<'static> {
     fn format(cfg: &YamlLintConfig, skip: &[&str]) -> Self {
-        let table = cfg.format();
+        let table = cfg.format().targets();
         let on = |rule| !skip.contains(&rule);
         let line_ending = new_lines::Config {
             kind: match table.line_ending {
@@ -135,7 +135,7 @@ fn collection_style_config(
     cfg: &YamlLintConfig,
     skip: &[&str],
 ) -> collection_style::Config {
-    let table = cfg.format();
+    let table = cfg.format().targets();
     let style = |target, rule| {
         if skip.contains(&rule) {
             CollectionStyleTarget::Preserve
@@ -170,6 +170,30 @@ pub fn format_str(
     skip: &[&str],
 ) -> String {
     format_tracked(input, cfg, path, skip, &mut Vec::new())
+}
+
+/// The `[format]` table resolved once, with the keys the config set explicitly.
+#[derive(Debug, Clone, Default)]
+pub struct FormatSettings {
+    targets: FormatTable,
+    explicit: BTreeSet<String>,
+}
+
+impl FormatSettings {
+    pub(crate) const fn new(targets: FormatTable, explicit: BTreeSet<String>) -> Self {
+        Self { targets, explicit }
+    }
+
+    #[must_use]
+    pub const fn targets(&self) -> &FormatTable {
+        &self.targets
+    }
+
+    /// Whether the config set the `[format]` key `key` (kebab-case) itself.
+    #[must_use]
+    pub fn is_explicit(&self, key: &str) -> bool {
+        self.explicit.contains(key)
+    }
 }
 
 /// The indent width `ryl format` targets without a top-level `indent-width`.
@@ -326,14 +350,14 @@ fn lines_changed_by(
 fn indentation_target(cfg: &YamlLintConfig) -> indentation::Config {
     indentation::Config::new(
         indentation::SpacesSetting::Fixed(usize::from(indent_width(cfg))),
-        if cfg.format().indent_sequences {
+        if cfg.format().targets().indent_sequences {
             indentation::IndentSequencesSetting::True
         } else {
             indentation::IndentSequencesSetting::False
         },
         false,
     )
-    .with_dash_on_own_line(cfg.format().dash_on_own_line)
+    .with_dash_on_own_line(cfg.format().targets().dash_on_own_line)
 }
 
 /// Each document `ryl format` leaves un-re-indented in `content` for a reason other than an
@@ -462,7 +486,7 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
 /// writes under `cfg`'s `[format]` table.
 #[must_use]
 pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
-    let table = cfg.format();
+    let table = cfg.format().targets();
     let blanks = "\n".repeat(usize::from(table.max_blank_lines) + 1);
     let shebang = match table.comment_starting_space {
         MarkerTarget::Add => "#!probe\n",
@@ -538,7 +562,7 @@ fn remedy(rule: &str, table: &FormatTable) -> &'static str {
 /// How a warning names the formatter's target for `rule`, or `None` where the `[format]`
 /// table leaves that rule's concern alone.
 fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
-    let table = cfg.format();
+    let table = cfg.format().targets();
     let key = match rule {
         indentation::ID
             if !indentation::Config::resolve(cfg).admits_width(indent_width(cfg)) =>
