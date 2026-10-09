@@ -10,8 +10,9 @@
 //! - diagnostics are identical across encodings except for the (consistently
 //!   ordered) column, and every range is well-formed.
 //! - `uri_to_path` is total (never panics, whatever the input).
-//! - the fix-all edit, applied via an *independent* position->byte converter,
-//!   reproduces `apply_safe_fixes` exactly (so `full_range` covers the document).
+//! - the fix-all and format edits, applied via an *independent* position->byte
+//!   converter, reproduce `apply_safe_fixes` and `ryl format` exactly (so
+//!   `full_range` covers the document).
 //! - `offset_at` (the inverse converter for incremental sync) is bounded, lands on a
 //!   char boundary, and is monotone in the column.
 //! - renaming an anchor rewrites every same-name occurrence in its document.
@@ -29,8 +30,8 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 
 use ryl::config::SourceKind;
-use ryl::fix::apply_safe_fixes;
-use ryl::lsp::analysis::{diagnostics, fix_all_edit};
+use ryl::fix::{Rewrite, apply_safe_fixes, rewrite_str};
+use ryl::lsp::analysis::{diagnostics, rewrite_edit};
 use ryl::lsp::encoding::{PositionEncoding, offset_at, problem_range, uri_to_path};
 use ryl::lsp::rename::rename_edits;
 
@@ -222,18 +223,30 @@ proptest! {
     }
 
     #[test]
-    fn fix_all_edit_round_trips(document in arb_document()) {
+    fn rewrite_edit_round_trips(document in arb_document()) {
         let text = document.render();
-        let expected =
-            apply_safe_fixes(&text, trigger_all_config(), lint_path(), base());
-        for enc in ENCODINGS {
-            let Some(edit) = fix_all_edit(
+        let fixed = apply_safe_fixes(&text, trigger_all_config(), lint_path(), base());
+        let formatted = rewrite_str(
+            &text,
+            trigger_all_config(),
+            lint_path(),
+            base(),
+            SourceKind::Yaml,
+            Rewrite::Format,
+        )
+        .0
+        .unwrap_or_else(|| text.clone());
+        let cases = [(Rewrite::Fix, fixed), (Rewrite::Format, formatted)];
+        let runs = cases.iter().flat_map(|case| ENCODINGS.map(|enc| (case, enc)));
+        for ((rewrite, expected), enc) in runs {
+            let Some(edit) = rewrite_edit(
                 &text,
                 lint_path(),
                 trigger_all_config(),
                 base(),
                 SourceKind::Yaml,
                 enc,
+                *rewrite,
             ) else {
                 continue;
             };
@@ -244,9 +257,10 @@ proptest! {
             let mut applied = text.clone();
             applied.replace_range(start..end, &edit.new_text);
             prop_assert_eq!(
-                applied,
-                expected.clone(),
-                "applying the fix-all edit must reproduce apply_safe_fixes"
+                &applied,
+                expected,
+                "applying the {:?} edit must reproduce the CLI's output",
+                rewrite
             );
         }
     }

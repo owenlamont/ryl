@@ -1,5 +1,6 @@
 //! Maps the lint/fix engine results into LSP types. No lint/fix logic lives here: it
-//! reuses `lint_str` / `lint_markdown_str` and `apply_safe_fixes` / `fix_markdown_str`.
+//! reuses `lint_str` / `lint_markdown_str` and the CLI's `rewrite_str` /
+//! `apply_safe_fixes_filtered`.
 
 use std::path::Path;
 
@@ -7,10 +8,7 @@ use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, TextEdit};
 use sha2::{Digest, Sha256};
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::{
-    Rewrite, SAFE_FIX_RULE_IDS, apply_safe_fixes, apply_safe_fixes_filtered,
-    fix_markdown_str,
-};
+use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS, apply_safe_fixes_filtered, rewrite_str};
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::lsp::encoding::{PositionEncoding, full_range, problem_range};
 use crate::markdown_embed::lint_markdown_str;
@@ -60,25 +58,22 @@ pub fn diagnostics(
         .collect()
 }
 
-/// The whole-document edit applying every safe fix, or `None` when nothing changes
-/// (the fix engine returns the input unchanged for an unparsable file; markdown with
-/// an unsupported bare CR yields `None`).
+/// The whole-document edit applying `rewrite` as the CLI does, or `None` when nothing
+/// changes or the document is refused (it does not parse, or is markdown with a bare CR).
 #[must_use]
-pub fn fix_all_edit(
+pub fn rewrite_edit(
     text: &str,
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
     kind: SourceKind,
     enc: PositionEncoding,
+    rewrite: Rewrite,
 ) -> Option<TextEdit> {
-    let fixed = match kind {
-        SourceKind::Markdown => {
-            fix_markdown_str(text, path, cfg, base_dir, Rewrite::Fix)?
-        }
-        SourceKind::Yaml => apply_safe_fixes(text, cfg, path, base_dir),
-    };
-    (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
+    let (rewritten, _) = rewrite_str(text, cfg, path, base_dir, kind, rewrite);
+    rewritten
+        .filter(|rewritten| rewritten != text)
+        .map(|rewritten| TextEdit::new(full_range(text, enc), rewritten))
 }
 
 /// The whole-document edit applying only `rule`'s safe fix, or `None` when nothing

@@ -19,15 +19,17 @@ hover only explains ryl's own diagnostics.
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
 | Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
-| Formatting | `textDocument/formatting` | Same as "fix all": formatting *is* applying safe fixes |
+| Formatting | `textDocument/formatting` | Runs [`ryl format`](formatter.md) on the document, under the `[format]` table; YAML in Markdown is formatted too |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
 | File watching | `workspace/didChangeWatchedFiles` | Watches ryl/yamllint config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
-The fix-all action and formatting both apply ryl's whole-file safe fixes; ryl has no
-per-occurrence "fix just this one" action, because its fix engine operates per file (the
-per-rule fix-all is the finest grain available, and applies only to YAML, not Markdown). A
-document that does not parse is never modified (the same guarantee as `ryl check --fix`).
+The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrence "fix just
+this one" action, because its fix engine operates per file (the per-rule fix-all is the
+finest grain available, and applies only to YAML, not Markdown). Formatting needs no enabled
+rule, as with the CLI, and ignores the editor's tab size: the `[format]` table decides. Only
+whole-document formatting is offered, not a selected range. Neither fixing nor formatting
+modifies a document that does not parse.
 
 ## Running it
 
@@ -96,9 +98,8 @@ already have ryl on your `PATH` or in a project environment, it uses that instea
 
 It surfaces the language-server features described above - live diagnostics, fix-all (and
 per-rule fix-all), the disable-rule quick fixes, hover, and anchor/alias rename - and adds a
-`ryl.fixAll` command and a fix-on-save option. The editor's Format Document runs the same
-safe fixes as `ryl check --fix`, not [`ryl format`](formatter.md). To make ryl your YAML
-formatter and apply safe fixes on save:
+`ryl.fixAll` command and a fix-on-save option. The editor's Format Document runs
+[`ryl format`](formatter.md). To make ryl your YAML formatter and apply safe fixes on save:
 
 ```json
 {

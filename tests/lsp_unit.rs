@@ -14,7 +14,8 @@ use lsp_types::{
 use tempfile::tempdir;
 
 use ryl::config::{SourceKind, YamlLintConfig};
-use ryl::lsp::analysis::{diagnostics, fix_all_edit, fix_rule_edit};
+use ryl::fix::Rewrite;
+use ryl::lsp::analysis::{diagnostics, fix_rule_edit, rewrite_edit};
 use ryl::lsp::encoding::{
     PositionEncoding, full_range, negotiate, offset_at, path_to_uri, problem_range,
     range_contains, uri_to_path,
@@ -336,15 +337,16 @@ fn diagnostics_lint_embedded_yaml_in_markdown() {
 }
 
 #[test]
-fn fix_all_edit_replaces_the_whole_document_when_fixable() {
+fn rewrite_edit_fix_replaces_the_whole_document_when_fixable() {
     let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
-    let edit = fix_all_edit(
+    let edit = rewrite_edit(
         "a: 1 \n",
         Path::new("/proj/x.yaml"),
         &cfg,
         Path::new("/proj"),
         SourceKind::Yaml,
         PositionEncoding::Utf16,
+        Rewrite::Fix,
     )
     .expect("a fixable document yields an edit");
     assert_eq!(edit.new_text, "a: 1\n", "the trailing space is removed");
@@ -356,16 +358,17 @@ fn fix_all_edit_replaces_the_whole_document_when_fixable() {
 }
 
 #[test]
-fn fix_all_edit_is_none_when_already_clean() {
+fn rewrite_edit_fix_is_none_when_already_clean() {
     let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     assert!(
-        fix_all_edit(
+        rewrite_edit(
             "a: 1\n",
             Path::new("/proj/x.yaml"),
             &cfg,
             Path::new("/proj"),
             SourceKind::Yaml,
             PositionEncoding::Utf16,
+            Rewrite::Fix,
         )
         .is_none(),
         "a conforming document needs no edit"
@@ -373,15 +376,16 @@ fn fix_all_edit_is_none_when_already_clean() {
 }
 
 #[test]
-fn fix_all_edit_fixes_embedded_markdown_yaml() {
+fn rewrite_edit_fix_fixes_embedded_markdown_yaml() {
     let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
-    let edit = fix_all_edit(
+    let edit = rewrite_edit(
         "```yaml\na: 1 \n```\n",
         Path::new("/proj/x.md"),
         &cfg,
         Path::new("/proj"),
         SourceKind::Markdown,
         PositionEncoding::Utf16,
+        Rewrite::Fix,
     )
     .expect("the fenced block is fixable");
     assert!(
@@ -391,20 +395,55 @@ fn fix_all_edit_fixes_embedded_markdown_yaml() {
 }
 
 #[test]
-fn fix_all_edit_skips_markdown_with_an_unsupported_bare_cr() {
+fn rewrite_edit_fix_skips_markdown_with_an_unsupported_bare_cr() {
     let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     // A lone CR (not part of CRLF) makes the markdown host unfixable.
     assert!(
-        fix_all_edit(
+        rewrite_edit(
             "# h\rmore\n\n```yaml\na: 1 \n```\n",
             Path::new("/proj/x.md"),
             &cfg,
             Path::new("/proj"),
             SourceKind::Markdown,
             PositionEncoding::Utf16,
+            Rewrite::Fix,
         )
         .is_none(),
         "a bare CR markdown host is left untouched"
+    );
+}
+
+#[test]
+fn rewrite_edit_format_runs_the_formatter_under_the_format_table() {
+    let cfg =
+        yaml_cfg("[format]\nquote-style = \"double\"\ndocument-start = \"preserve\"\n");
+    let edit = rewrite_edit(
+        "a:   'x: y'\n",
+        Path::new("/proj/x.yaml"),
+        &cfg,
+        Path::new("/proj"),
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+        Rewrite::Format,
+    )
+    .expect("the formatter changes the spacing and quotes");
+    assert_eq!(edit.new_text, "a: \"x: y\"\n");
+}
+
+#[test]
+fn rewrite_edit_format_refuses_an_unparsable_document() {
+    assert!(
+        rewrite_edit(
+            "a:   [1\n",
+            Path::new("/proj/x.yaml"),
+            &yaml_cfg("[format]\n"),
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+            Rewrite::Format,
+        )
+        .is_none(),
+        "a document that does not parse is left untouched"
     );
 }
 
