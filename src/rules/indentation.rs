@@ -745,10 +745,11 @@ impl<'a> Analyzer<'a> {
     }
 
     fn has_indentation_indicator(&self, token: &Token) -> bool {
-        (1..=2).any(|offset| {
-            char_at(self.chars, token.start + offset)
-                .is_some_and(|ch| ch.is_ascii_digit())
-        })
+        self.chars[token.start + 1..]
+            .iter()
+            .map(|&(_, ch)| ch)
+            .take_while(|&ch| ch.is_ascii_digit() || matches!(ch, '+' | '-'))
+            .any(|ch| ch.is_ascii_digit())
     }
 
     /// Each later line of `token` that is not blank, with its indent.

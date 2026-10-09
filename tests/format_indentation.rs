@@ -80,6 +80,7 @@ fn block_scalar_bodies_move_to_where_multi_line_checks_expect_them() {
             "a: |+\n    x\n\n     \nb: 1\n",
         ),
         (2, "a: !!str |\n          deep\n", "a: !!str |\n  deep\n"),
+        (4, "|\n2\n", "|\n    2\n"),
     ] {
         let out = reindent(input, &target(width));
         assert_eq!(
