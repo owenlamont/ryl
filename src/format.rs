@@ -476,9 +476,21 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         &mut std::io::sink(),
         &mut Vec::new(),
     );
+    let preserved_forbid = |problem: &LintProblem| match problem.rule {
+        Some(braces::ID) => {
+            table.mapping_style == CollectionStyleTarget::Preserve
+                && problem.message == braces::FORBID_MESSAGE
+        }
+        Some(brackets::ID) => {
+            table.sequence_style == CollectionStyleTarget::Preserve
+                && problem.message == brackets::FORBID_MESSAGE
+        }
+        _ => false,
+    };
     let mut rejected: BTreeSet<&str> =
         lint_str(&formatted, Path::new(""), cfg, Path::new(""))
             .into_iter()
+            .filter(|problem| !preserved_forbid(problem))
             .filter_map(|problem| problem.rule)
             .collect();
     // No fixed probe can match an arbitrary `extra-required` pattern.

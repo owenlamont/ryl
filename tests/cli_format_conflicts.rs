@@ -107,7 +107,7 @@ fn agreeing_configs_are_silent() {
 fn each_rejecting_rule_warns_once_naming_the_target() {
     let config = "rules: {quoted-strings: enable, new-lines: {type: dos}, \
                   braces: {min-spaces-inside: 1}, \
-                  brackets: {forbid: true}, commas: {min-spaces-after: 2}, \
+                  brackets: {min-spaces-inside: 1}, commas: {min-spaces-after: 2}, \
                   comments: {min-spaces-from-content: 3}, empty-lines: {max: 1}, \
                   colons: {max-spaces-before: 0, max-spaces-after: 0}, \
                   hyphens: {max-spaces-after: 0}}";

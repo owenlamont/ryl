@@ -13,8 +13,12 @@ const QUOTED: &str = "quote-type = 'single'\nrequired = 'only-when-needed'\n\
 
 /// `[format]` prelude, rule, agreeing options, then the option line that must conflict.
 const CONFLICTING: &[(&str, &str, &str, &str)] = &[
-    ("", "braces", "", "forbid = true"),
-    ("", "braces", "", "forbid = 'non-empty'"),
+    (
+        "[format]\nmapping-style = 'flow'\n",
+        "braces",
+        "",
+        "forbid = 'non-empty'",
+    ),
     ("", "braces", "", "min-spaces-inside = 1"),
     ("", "braces", "", "min-spaces-inside-empty = 1"),
     (
@@ -29,8 +33,12 @@ const CONFLICTING: &[(&str, &str, &str, &str)] = &[
         "",
         "forbid = true",
     ),
-    ("", "brackets", "", "forbid = true"),
-    ("", "brackets", "", "forbid = 'non-empty'"),
+    (
+        "[format]\nsequence-style = 'flow'\n",
+        "brackets",
+        "",
+        "forbid = 'non-empty'",
+    ),
     ("", "brackets", "", "min-spaces-inside = 1"),
     ("", "brackets", "", "min-spaces-inside-empty = 1"),
     (
@@ -338,4 +346,21 @@ fn a_preserved_starting_space_waives_the_shebang_but_not_the_spacing() {
         "{}",
         warnings[0]
     );
+}
+
+#[test]
+fn a_preserved_collection_style_waives_forbid_but_not_the_spacing() {
+    for (style, rule, spacing) in [
+        ("mapping-style", "braces", "brace-spacing"),
+        ("sequence-style", "brackets", "built-in brackets style"),
+    ] {
+        let forbid = format!(
+            "[format]\n{style} = 'preserve'\n[lint.rules.{rule}]\nforbid = 'non-empty'\n"
+        );
+        assert_eq!(warned(&forbid), Vec::<String>::new(), "{forbid}");
+        let config = format!("{forbid}min-spaces-inside = 1\n");
+        let warnings = conflicts(&YamlLintConfig::from_toml_str(&config).unwrap());
+        assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");
+        assert!(warnings[0].contains(spacing), "{}", warnings[0]);
+    }
 }
