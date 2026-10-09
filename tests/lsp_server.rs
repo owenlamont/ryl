@@ -1169,7 +1169,7 @@ fn formatting_runs_the_formatter_not_the_safe_fixes() {
     );
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.yaml");
-    client.did_open(doc.clone(), "a:   'x: y'\n");
+    client.did_open(doc.clone(), "---\na:   'x: y'\n");
     let _ = client.diagnostics();
     let edits = client
         .formatting(doc)
@@ -1182,7 +1182,7 @@ fn formatting_needs_no_enabled_rule() {
     let dir = project("[format]\n");
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.yaml");
-    client.did_open(doc.clone(), "a:   1\n");
+    client.did_open(doc.clone(), "---\na:   1\n");
     let edits = client
         .formatting(doc)
         .expect("a config enabling no rule still formats, as `ryl format` does");
