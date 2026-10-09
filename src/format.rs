@@ -44,8 +44,8 @@ pub const FORMAT_RULE_IDS: [&str; 16] = [
 ];
 
 /// Formatter input for [`conflicts`] to lint: one instance of each target's concern, bar
-/// the blank-line run, which `conflicts` sizes to `max-blank-lines`.
-const CONFLICT_PROBE: &str = "#!probe\n# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
+/// the shebang and blank-line run, which `conflicts` adds per the `[format]` table.
+const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     necessary: 'a: b'\n\
     escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
     flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nblock: |\n  text\nlist:\n- item\npairs:\n- k: v\n";
@@ -464,8 +464,12 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
 pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let table = cfg.format();
     let blanks = "\n".repeat(usize::from(table.max_blank_lines) + 1);
+    let shebang = match table.comment_starting_space {
+        MarkerTarget::Add => "#!probe\n",
+        MarkerTarget::Preserve => "",
+    };
     let formatted = run_passes(
-        &format!("{CONFLICT_PROBE}{blanks}last: 1\n"),
+        &format!("{shebang}{CONFLICT_PROBE}{blanks}last: 1\n"),
         &Passes::format(cfg, &[]),
         Path::new(""),
         FIX_PIPELINE_MAX_PASSES,
@@ -545,7 +549,8 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
             return Some(format!("built-in {rule} style"));
         }
         comments::ID
-            if !cfg.rule_option_bool(comments::ID, "ignore-shebangs", true) =>
+            if table.comment_starting_space == MarkerTarget::Add
+                && !cfg.rule_option_bool(comments::ID, "ignore-shebangs", true) =>
         {
             return Some(format!("built-in {rule} style"));
         }

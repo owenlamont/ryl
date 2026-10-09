@@ -211,7 +211,7 @@ const UNCONFLICTABLE: &[(&str, &str, &str, &str)] = &[
     (
         "quoted-strings",
         QUOTED,
-        "extra-allowed = ['.*']",
+        "extra-allowed = []",
         "only admits more quoting",
     ),
 ];
@@ -319,4 +319,23 @@ fn options_without_a_format_key_name_the_built_in_style() {
         assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");
         assert!(warnings[0].contains(style), "{}", warnings[0]);
     }
+}
+
+#[test]
+fn a_preserved_starting_space_waives_the_shebang_but_not_the_spacing() {
+    let preserve = "[format]\ncomment-starting-space = 'preserve'\n\
+                    [lint.rules.comments]\nignore-shebangs = false\n\
+                    require-starting-space = true\n";
+    assert_eq!(warned(preserve), Vec::<String>::new());
+    let cfg = YamlLintConfig::from_toml_str(&format!(
+        "{preserve}min-spaces-from-content = 3\n"
+    ))
+    .unwrap();
+    let warnings = conflicts(&cfg);
+    assert_eq!(warnings.len(), 1, "{warnings:#?}");
+    assert!(
+        warnings[0].contains("`[format] comment-spacing = 2`"),
+        "{}",
+        warnings[0]
+    );
 }

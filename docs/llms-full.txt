@@ -1601,7 +1601,7 @@ says so.
 | [`braces`](https://ryl-docs.pages.dev/rules/braces/) | `forbid` is set, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
 | [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | `forbid` is set, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
 | [`commas`](https://ryl-docs.pages.dev/rules/commas/) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
-| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true`, since a shebang keeps its `#!` |
+| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true` under `[format] comment-starting-space = "add"`, since a shebang keeps its `#!` |
 | [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) | Never |
 | [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | `present = false` with `[format] document-start = "add"` |
 | [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | `present = false` with `[format] document-end = "add"` |
