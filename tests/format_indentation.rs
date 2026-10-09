@@ -1,6 +1,7 @@
 //! `ryl format`'s re-indent: each line moves to where `indentation` expects it at the
-//! target width, block bodies and continuations move with their owners, and a document
-//! that cannot be moved safely is left byte-identical.
+//! target width, a block body moves as a whole to where `check-multi-line-strings` expects
+//! it, continuations move with their owners, and a document that cannot be moved safely is
+//! left byte-identical.
 
 use std::ops::RangeInclusive;
 
@@ -13,6 +14,14 @@ fn target(width: usize) -> Config {
         SpacesSetting::Fixed(width),
         IndentSequencesSetting::True,
         false,
+    )
+}
+
+fn multi_line_target(width: usize) -> Config {
+    Config::new(
+        SpacesSetting::Fixed(width),
+        IndentSequencesSetting::True,
+        true,
     )
 }
 
@@ -57,6 +66,50 @@ fn collections_move_to_the_target_width() {
 }
 
 #[test]
+fn block_scalar_bodies_move_to_where_multi_line_checks_expect_them() {
+    for (width, input, expected) in [
+        (4, "block: |\n  text\n", "block: |\n    text\n"),
+        (4, "- |\n  text\n", "- |\n      text\n"),
+        (4, "? |\n  k\n: v\n", "? |\n      k\n: v\n"),
+        (4, "a:\n  |\n  x\n", "a:\n    |\n        x\n"),
+        (4, "a: |\n\n  x\n", "a: |\n\n    x\n"),
+        (4, "a: |\n  x\n   \n  y\n", "a: |\n    x\n     \n    y\n"),
+        (
+            4,
+            "a: |+\n  x\n\n   \nb: 1\n",
+            "a: |+\n    x\n\n     \nb: 1\n",
+        ),
+        (2, "a: !!str |\n          deep\n", "a: !!str |\n  deep\n"),
+    ] {
+        let out = reindent(input, &target(width));
+        assert_eq!(
+            (out.text.as_str(), out.refused),
+            (expected, vec![]),
+            "{input:?}"
+        );
+        assert_eq!(check(&out.text, &multi_line_target(width)), [], "{input:?}");
+    }
+}
+
+#[test]
+fn a_block_body_keeps_its_relative_indents_and_indicator() {
+    assert_reindents(
+        4,
+        &[
+            (
+                "a: >\n  folded\n    more\n  back\n",
+                "a: >\n    folded\n      more\n    back\n",
+            ),
+            ("a: |2\n    lead\n  x\n", "a: |2\n    lead\n  x\n"),
+            (
+                "k:\n  s: |-2\n     lead\n    x\n",
+                "k:\n    s: |-2\n       lead\n      x\n",
+            ),
+        ],
+    );
+}
+
+#[test]
 fn block_scalar_bodies_move_with_their_owner() {
     assert_reindents(
         2,
@@ -71,7 +124,7 @@ fn block_scalar_bodies_move_with_their_owner() {
             ),
             (
                 "k:\n    s: |\n        text\n      # c\n    b: 1\n",
-                "k:\n  s: |\n      text\n  # c\n  b: 1\n",
+                "k:\n  s: |\n    text\n  # c\n  b: 1\n",
             ),
         ],
     );
