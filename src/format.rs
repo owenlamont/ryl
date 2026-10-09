@@ -551,15 +551,6 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
         {
             Some("dash-on-own-line")
         }
-        indentation::ID
-            if cfg.rule_option_bool(
-                indentation::ID,
-                "check-multi-line-strings",
-                false,
-            ) =>
-        {
-            return Some(format!("built-in {rule} style"));
-        }
         comments::ID
             if table.comment_starting_space == MarkerTarget::Add
                 && !cfg.rule_option_bool(comments::ID, "ignore-shebangs", true) =>
