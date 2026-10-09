@@ -9,6 +9,7 @@
 //!   >= code points), and monotone in the column.
 //! - diagnostics are identical across encodings except for the (consistently
 //!   ordered) column, and every range is well-formed.
+//! - a leading BOM leaves every diagnostic on the same character of the buffer.
 //! - `uri_to_path` is total (never panics, whatever the input).
 //! - the fix-all and format edits, applied via an *independent* position->byte
 //!   converter, reproduce `apply_safe_fixes` and `ryl format` exactly (so
@@ -183,6 +184,38 @@ proptest! {
             prop_assert!(a.range.start.character >= b.range.start.character);
             prop_assert!(b.range.start.character >= c.range.start.character);
             prop_assert!(a.range.start.character <= a.range.end.character);
+        }
+    }
+
+    #[test]
+    fn a_bom_leaves_every_diagnostic_on_the_same_character(
+        document in arb_document(),
+        markdown in any::<bool>(),
+    ) {
+        let content = document.render();
+        let (text, path, kind) = if markdown {
+            (format!("---\n{content}\n---\n"), Path::new("in.md"), SourceKind::Markdown)
+        } else {
+            (content, lint_path(), SourceKind::Yaml)
+        };
+        let with_bom = format!("\u{feff}{text}");
+        for enc in ENCODINGS {
+            let plain = diagnostics(&text, path, trigger_all_config(), base(), kind, enc);
+            let shifted = diagnostics(&with_bom, path, trigger_all_config(), base(), kind, enc);
+            prop_assert_eq!(plain.len(), shifted.len());
+            for (a, b) in plain.iter().zip(&shifted) {
+                prop_assert_eq!(&a.code, &b.code);
+                prop_assert_eq!(&a.message, &b.message);
+                for (pa, pb) in [(a.range.start, b.range.start), (a.range.end, b.range.end)] {
+                    prop_assert_eq!(pa.line, pb.line);
+                    prop_assert_eq!(
+                        position_to_byte(&text, pa.line, pa.character, enc) + '\u{feff}'.len_utf8(),
+                        position_to_byte(&with_bom, pb.line, pb.character, enc),
+                        "{:?}: a BOM moves no diagnostic off its character",
+                        enc
+                    );
+                }
+            }
         }
     }
 

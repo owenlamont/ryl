@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 69a6b2803ae1f28ea1c5bde8c8c2c35a4d39c3ed3b39c5f3c6eefa18edc40f22 # shrinks to document = Document { lines: [(Entry { indent: 0, key: "b0", spaces_before_colon: 0, spaces_after_colon: 1, value: "&m0 {dup: }", comment: None, trailing_spaces: 0 }, Cr), (Entry { indent: 0, key: "b1", spaces_before_colon: 0, spaces_after_colon: 1, value: "&m1 {dup: }", comment: None, trailing_spaces: 0 }, Cr), (Entry { indent: 0, key: "h", spaces_before_colon: 0, spaces_after_colon: 1, value: "", comment: None, trailing_spaces: 0 }, Cr), (Entry { indent: 2, key: "<<", spaces_before_colon: 0, spaces_after_colon: 1, value: "[*m0, *m0]", comment: None, trailing_spaces: 0 }, Cr), (Entry { indent: 2, key: "dup", spaces_before_colon: 0, spaces_after_colon: 1, value: "", comment: None, trailing_spaces: 0 }, Cr)], has_final_newline: false }, markdown = true

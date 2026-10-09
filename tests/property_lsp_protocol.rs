@@ -279,6 +279,14 @@ fn doc_uri(dir: &Path, index: u8) -> Uri {
     Uri::from_str(&format!("file://{path}")).expect("valid URI")
 }
 
+/// A generated document, sometimes behind a UTF-8 BOM, which an editor may keep in the
+/// buffer it sends.
+fn arb_buffer() -> impl Strategy<Value = String> {
+    (prop::bool::weighted(0.25), arb_document()).prop_map(|(bom, document)| {
+        format!("{}{}", if bom { "\u{feff}" } else { "" }, document.render())
+    })
+}
+
 #[derive(Debug, Clone)]
 enum Op {
     Open(u8, String),
@@ -294,16 +302,13 @@ fn arb_op() -> impl Strategy<Value = Op> {
     let index = 0u8..DOC_POOL;
     prop_oneof![
         // didOpen and didChange share server handling; one bool picks which.
-        (
-            index.clone(),
-            any::<bool>(),
-            arb_document().prop_map(|d| d.render())
-        )
-            .prop_map(|(i, is_open, text)| if is_open {
+        (index.clone(), any::<bool>(), arb_buffer()).prop_map(|(i, is_open, text)| {
+            if is_open {
                 Op::Open(i, text)
             } else {
                 Op::Change(i, text)
-            }),
+            }
+        }),
         index.clone().prop_map(Op::Close),
         index.clone().prop_map(Op::CodeAction),
         index.clone().prop_map(Op::Hover),
@@ -335,16 +340,13 @@ impl DocOp {
 fn arb_doc_op() -> impl Strategy<Value = DocOp> {
     let index = 0u8..DOC_POOL;
     prop_oneof![
-        (
-            index.clone(),
-            any::<bool>(),
-            arb_document().prop_map(|document| document.render())
-        )
-            .prop_map(|(index, is_open, text)| if is_open {
+        (index.clone(), any::<bool>(), arb_buffer()).prop_map(
+            |(index, is_open, text)| if is_open {
                 DocOp::Open(index, text)
             } else {
                 DocOp::Change(index, text)
-            }),
+            }
+        ),
         index.prop_map(DocOp::Close),
     ]
 }
