@@ -8,13 +8,16 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use lsp_types::{
-    Diagnostic, NumberOrString, Position, PositionEncodingKind, PrepareRenameResponse,
-    PreviousResultId, Range, Uri, WorkspaceDocumentDiagnosticReport,
+    CodeActionContext, CodeActionKind, CodeActionOrCommand, Diagnostic,
+    DocumentChanges, NumberOrString, OneOf, Position, PositionEncodingKind,
+    PrepareRenameResponse, PreviousResultId, Range, Uri,
+    WorkspaceDocumentDiagnosticReport,
 };
 use tempfile::tempdir;
 
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::fix::Rewrite;
+use ryl::lsp::actions::{Input, build};
 use ryl::lsp::analysis::{diagnostics, fix_rule_edit, rewrite_edit};
 use ryl::lsp::encoding::{
     PositionEncoding, full_range, negotiate, offset_at, path_to_uri, problem_range,
@@ -713,6 +716,76 @@ fn fix_rule_edit_keeps_a_bom_and_honours_a_disable_file_directive_after_it() {
         edit("\u{feff}# ryl disable-file\na:   1\n").is_none(),
         "`ryl check --fix` leaves a disabled file alone"
     );
+}
+
+#[test]
+fn disable_actions_insert_after_a_leading_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let (text, path) = ("\u{feff}a:   1\n", Path::new("/proj/x.yaml"));
+    let uri = path_to_uri(path);
+    // Before the BOM, YAML loaders read it as part of the key: `{"\u{feff}a": 1}`.
+    for (enc, after_bom) in [
+        (PositionEncoding::Utf8, 3),
+        (PositionEncoding::Utf16, 1),
+        (PositionEncoding::Utf32, 1),
+    ] {
+        let input = Input {
+            uri: &uri,
+            text,
+            version: 1,
+            path,
+            cfg: &cfg,
+            base_dir: Path::new("/proj"),
+            kind: SourceKind::Yaml,
+            enc,
+            supports_document_changes: true,
+        };
+        let context = CodeActionContext {
+            diagnostics: diagnostics(
+                text,
+                path,
+                &cfg,
+                Path::new("/proj"),
+                SourceKind::Yaml,
+                enc,
+            ),
+            only: Some(vec![CodeActionKind::QUICKFIX]),
+            trigger_kind: None,
+        };
+        let starts: Vec<(String, Position)> = build(&input, &context)
+            .expect("disable actions are offered")
+            .into_iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .flat_map(|action| {
+                let Some(DocumentChanges::Edits(edits)) =
+                    action.edit.and_then(|edit| edit.document_changes)
+                else {
+                    panic!("a versioned edit");
+                };
+                let title = action.title;
+                edits.into_iter().flat_map(|edit| edit.edits).map(
+                    move |edit| match edit {
+                        OneOf::Left(edit) => (title.clone(), edit.range.start),
+                        OneOf::Right(edit) => {
+                            (title.clone(), edit.text_edit.range.start)
+                        }
+                    },
+                )
+            })
+            .collect();
+        let expected = Position::new(0, after_bom);
+        assert_eq!(
+            starts,
+            [
+                ("Disable colons for this line".to_string(), expected),
+                ("Disable ryl for this file".to_string(), expected),
+            ],
+            "{enc:?}"
+        );
+    }
 }
 
 #[test]

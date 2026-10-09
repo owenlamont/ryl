@@ -19,7 +19,7 @@ use lsp_types::{
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS};
 use crate::lsp::analysis::{fix_rule_edit, rewrite_edit};
-use crate::lsp::encoding::PositionEncoding;
+use crate::lsp::encoding::{PositionEncoding, position_at};
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, protected_scalar_lines,
@@ -209,7 +209,7 @@ fn disable_line_action(
         .collect();
     let newline = buffer_newline(input.text);
     let insert = format!("{indent}# ryl disable-line rule:{rule}{newline}");
-    let edit = TextEdit::new(at_line_start(line), insert);
+    let edit = TextEdit::new(at_line_start(input, line), insert);
     Some(entry(
         format!("Disable {rule} for this line"),
         CodeActionKind::QUICKFIX.as_str(),
@@ -222,7 +222,7 @@ fn disable_line_action(
 /// [`crate::directives`]).
 fn disable_file_action(input: &Input) -> CodeActionOrCommand {
     let insert = format!("# ryl disable-file{}", buffer_newline(input.text));
-    let edit = TextEdit::new(at_line_start(0), insert);
+    let edit = TextEdit::new(at_line_start(input, 0), insert);
     entry(
         "Disable ryl for this file".to_string(),
         CodeActionKind::QUICKFIX.as_str(),
@@ -231,11 +231,15 @@ fn disable_file_action(input: &Input) -> CodeActionOrCommand {
     )
 }
 
-fn at_line_start(line: u32) -> Range {
-    Range {
-        start: Position::new(line, 0),
-        end: Position::new(line, 0),
-    }
+/// The empty range at `line`'s start, past a leading BOM so an insert keeps the BOM
+/// first (before it, the BOM would load as part of the first key).
+fn at_line_start(input: &Input, line: u32) -> Range {
+    let bom = usize::from(line == 0 && input.text.starts_with('\u{feff}'));
+    let start = Position::new(
+        line,
+        position_at(&[input.text], 1, 1 + bom, input.enc).character,
+    );
+    Range::new(start, start)
 }
 
 fn entry(
