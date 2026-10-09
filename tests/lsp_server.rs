@@ -1174,7 +1174,7 @@ fn formatting_runs_the_formatter_not_the_safe_fixes() {
     let edits = client
         .formatting(doc)
         .expect("the formatter changes the document");
-    assert_eq!(edits[0].new_text, "---\na: \"x: y\"\n");
+    assert_eq!(edits[0].new_text, "a: \"x: y\"\n");
 }
 
 #[test]
@@ -1186,7 +1186,7 @@ fn formatting_needs_no_enabled_rule() {
     let edits = client
         .formatting(doc)
         .expect("a config enabling no rule still formats, as `ryl format` does");
-    assert_eq!(edits[0].new_text, "---\na: 1\n");
+    assert_eq!(edits[0].new_text, "a: 1\n");
 }
 
 #[test]
