@@ -17,8 +17,8 @@ use lsp_types::{
 };
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::SAFE_FIX_RULE_IDS;
-use crate::lsp::analysis::{fix_all_edit, fix_rule_edit};
+use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS};
+use crate::lsp::analysis::{fix_rule_edit, rewrite_edit};
 use crate::lsp::encoding::PositionEncoding;
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::line_syntax::{
@@ -46,13 +46,14 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
     let mut actions = Vec::new();
 
     if admits(context.only.as_deref(), FIX_ALL_KIND)
-        && let Some(edit) = fix_all_edit(
+        && let Some(edit) = rewrite_edit(
             input.text,
             input.path,
             input.cfg,
             input.base_dir,
             input.kind,
             input.enc,
+            Rewrite::Fix,
         )
     {
         actions.push(entry(

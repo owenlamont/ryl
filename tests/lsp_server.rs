@@ -1162,14 +1162,75 @@ fn code_action_with_unresolvable_config_is_null() {
 }
 
 #[test]
-fn formatting_returns_fix_edits() {
-    let dir = project(TRAILING);
+fn formatting_runs_the_formatter_not_the_safe_fixes() {
+    // No enabled rule fixes the colon spacing or the quotes; only `ryl format` does.
+    let dir = project(
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n[format]\nquote-style = \"double\"\n",
+    );
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.yaml");
-    client.did_open(doc.clone(), "a: 1 \n");
+    client.did_open(doc.clone(), "a:   'x: y'\n");
     let _ = client.diagnostics();
-    let edits = client.formatting(doc).expect("a fixable document formats");
-    assert_eq!(edits[0].new_text, "a: 1\n");
+    let edits = client
+        .formatting(doc)
+        .expect("the formatter changes the document");
+    assert_eq!(edits[0].new_text, "---\na: \"x: y\"\n");
+}
+
+#[test]
+fn formatting_needs_no_enabled_rule() {
+    let dir = project("[format]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a:   1\n");
+    let edits = client
+        .formatting(doc)
+        .expect("a config enabling no rule still formats, as `ryl format` does");
+    assert_eq!(edits[0].new_text, "---\na: 1\n");
+}
+
+#[test]
+fn formatting_formats_embedded_markdown_yaml() {
+    let dir = project("[files]\nmarkdown = [\"*.md\"]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.md");
+    client.did_open(doc.clone(), "# t\n\n```yaml\na:   1\n```\n");
+    let edits = client.formatting(doc).expect("the fenced block formats");
+    assert_eq!(edits[0].new_text, "# t\n\n```yaml\na: 1\n```\n");
+}
+
+#[test]
+fn formatting_keeps_a_bom_and_formats_markdown_front_matter_after_it() {
+    let dir = project("[files]\nmarkdown = [\"*.md\"]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.md");
+    client.did_open(doc.clone(), "\u{feff}---\na:   1\n---\n");
+    let edits = client.formatting(doc).expect("the front matter formats");
+    assert_eq!(edits[0].new_text, "\u{feff}---\na: 1\n---\n");
+}
+
+#[test]
+fn formatting_honours_a_disable_file_directive_after_a_bom() {
+    let dir = project("[format]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "\u{feff}# ryl disable-file\na:   1\n");
+    assert!(
+        client.formatting(doc).is_none(),
+        "`ryl format` skips a disabled file whatever its encoding"
+    );
+}
+
+#[test]
+fn formatting_an_unparsable_document_is_null() {
+    let dir = project("[format]\n");
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "x.yaml");
+    client.did_open(doc.clone(), "a:   [1\n");
+    assert!(
+        client.formatting(doc).is_none(),
+        "a document that does not parse is left untouched"
+    );
 }
 
 #[test]
@@ -1177,7 +1238,7 @@ fn formatting_a_clean_document_is_null() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
     let doc = file_uri(dir.path(), "x.yaml");
-    client.did_open(doc.clone(), "a: 1\n");
+    client.did_open(doc.clone(), "---\na: 1\n");
     let _ = client.diagnostics();
     assert!(
         client.formatting(doc).is_none(),

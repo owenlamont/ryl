@@ -48,6 +48,7 @@ use lsp_types::{
 
 use crate::config::{ConfigContext, Overrides, SourceKind, discover_config};
 use crate::discover::gather_yaml_from_dir_cancellable;
+use crate::fix::Rewrite;
 use crate::lsp::encoding::{
     PositionEncoding, negotiate, offset_at, path_to_uri, uri_to_path,
 };
@@ -773,17 +774,20 @@ impl Server {
         actions::build(&input, &params.context)
     }
 
+    /// `ryl format` on the document. Like the CLI, it needs no enabled rule.
     fn formatting(&self, params: &DocumentFormattingParams) -> Option<Vec<TextEdit>> {
         let uri = params.text_document.uri.as_str();
         let document = self.documents.get(uri)?;
-        let target = self.resolve(uri).ok().flatten()?;
-        Some(vec![analysis::fix_all_edit(
+        let (path, is_file) = self.uri_path(uri);
+        let target = self.resolve_path(path, is_file, false).ok().flatten()?;
+        Some(vec![analysis::rewrite_edit(
             &document.text,
             &target.path,
             &target.context.config,
             &target.context.base_dir,
             target.kind,
             self.encoding,
+            Rewrite::Format,
         )?])
     }
 
@@ -1089,8 +1093,8 @@ impl Server {
     }
 
     /// As [`Self::resolve`] but from an already-decoded path. `require_rules` gates on the
-    /// config enabling at least one rule (true for linting/fixing; false for rename, which
-    /// works regardless of lint config).
+    /// config enabling at least one rule (true for linting/fixing; false for rename and
+    /// formatting, which work regardless of lint config).
     fn resolve_path(
         &self,
         path: PathBuf,
@@ -1137,8 +1141,8 @@ struct Target {
 
 /// Resolve config + source kind for an already-decoded path, layering `settings` onto
 /// CLI-precedence discovery. `require_rules` gates on the config enabling at least one rule
-/// (true for linting/fixing; false for rename). Free (no `&self`) so a worker thread can
-/// call it too.
+/// (true for linting/fixing; false for rename and formatting). Free (no `&self`) so a
+/// worker thread can call it too.
 fn resolve_for_path(
     path: PathBuf,
     is_file: bool,
