@@ -81,10 +81,7 @@ fn agreeing_configs_are_silent() {
              [lint.rules.empty-lines]\nmax = 1\n",
             true,
         ),
-        (
-            "[format]\ndocument-start = 'preserve'\n[lint.rules.document-start]\npresent = true\n",
-            true,
-        ),
+        ("[lint.rules.document-start]\npresent = false\n", true),
         ("[lint.rules.document-end]\npresent = false\n", true),
         (
             "[format]\nfold-long-lines = true\n[lint.rules.line-length]\nmax = 5\n",
@@ -109,7 +106,7 @@ fn agreeing_configs_are_silent() {
 #[test]
 fn each_rejecting_rule_warns_once_naming_the_target() {
     let config = "rules: {quoted-strings: enable, new-lines: {type: dos}, \
-                  document-start: {present: false}, braces: {min-spaces-inside: 1}, \
+                  braces: {min-spaces-inside: 1}, \
                   brackets: {forbid: true}, commas: {min-spaces-after: 2}, \
                   comments: {min-spaces-from-content: 3}, empty-lines: {max: 1}, \
                   colons: {max-spaces-before: 0, max-spaces-after: 0}, \
@@ -130,7 +127,6 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
             "colons",
             "hyphens",
             "quoted-strings",
-            "document-start",
             "empty-lines"
         ],
         "{warnings:#?}"
@@ -153,21 +149,19 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
         "{}",
         warnings[0]
     );
-    let toml = "[format]\ndocument-end = 'add'\nquote-style = 'double'\n\
+    let toml = "[format]\ndocument-start = 'add'\ndocument-end = 'add'\n\
+                quote-style = 'double'\n[lint.rules.document-start]\npresent = false\n\
                 [lint.rules.document-end]\npresent = false\n\
                 [lint.rules.quoted-strings]\nquote-type = 'single'\n";
     let warnings = conflicts(toml, true, &[]);
-    assert_eq!(warnings.len(), 2, "{warnings:#?}");
-    assert!(
-        warnings[0].contains("quote-style = \"double\""),
-        "{}",
-        warnings[0]
-    );
-    assert!(
-        warnings[1].contains("document-end = \"add\""),
-        "{}",
-        warnings[1]
-    );
+    assert_eq!(warnings.len(), 3, "{warnings:#?}");
+    for (warning, target) in warnings.iter().zip([
+        "quote-style = \"double\"",
+        "document-start = \"add\"",
+        "document-end = \"add\"",
+    ]) {
+        assert!(warning.contains(target), "{warning}");
+    }
 }
 
 #[test]

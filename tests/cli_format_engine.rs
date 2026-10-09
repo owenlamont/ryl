@@ -10,12 +10,12 @@ use tempfile::tempdir;
 mod common;
 use common::cli::{run, ryl};
 
-/// Dirty for eleven of the fourteen formatting rules (not `new-lines` or
-/// `comments-indentation`), the eleventh being its missing final newline.
+/// Dirty for ten of the fourteen formatting rules (not `new-lines`, `comments-indentation`
+/// or `document-start`), the tenth being its missing final newline.
 const DIRTY: &str =
     "k: 'abc'\nm: {  a: 1 ,b: 2  }\nq: \"a: b\"\n'key': x   \nn: 1 # c\n\n\n\n\nz: [ ]";
 const FORMATTED: &str =
-    "---\nk: abc\nm: {a: 1, b: 2}\nq: 'a: b'\nkey: x\nn: 1  # c\n\n\nz: []\n";
+    "k: abc\nm: {a: 1, b: 2}\nq: 'a: b'\nkey: x\nn: 1  # c\n\n\nz: []\n";
 
 /// Run `ryl format <args> a.yaml` beside a `.ryl.toml` holding `config` (none when
 /// `None`), returning the exit code, stdout, stderr and the file afterwards.
@@ -51,62 +51,58 @@ fn each_format_key_changes_the_output() {
         (
             "quote-style = 'double'",
             "q: 'a: b'\n",
-            "---\nq: \"a: b\"\n".to_string(),
+            "q: \"a: b\"\n".to_string(),
         ),
         (
             "quote-style = 'preserve'",
             "k: 'abc'\n",
-            "---\nk: 'abc'\n".to_string(),
+            "k: 'abc'\n".to_string(),
         ),
         (
             "line-ending = 'cr-lf'",
             "a: 1\nb: 2",
-            "---\r\na: 1\r\nb: 2\r\n".to_string(),
+            "a: 1\r\nb: 2\r\n".to_string(),
         ),
         (
             "line-ending = 'native'",
             "a: 1\r\n",
-            format!("---{native}a: 1{native}"),
+            format!("a: 1{native}"),
         ),
         (
-            "document-start = 'preserve'",
+            "document-start = 'add'",
             "a: 1\n",
-            "a: 1\n".to_string(),
+            "---\na: 1\n".to_string(),
         ),
-        (
-            "document-end = 'add'",
-            "a: 1\n",
-            "---\na: 1\n...\n".to_string(),
-        ),
+        ("document-end = 'add'", "a: 1\n", "a: 1\n...\n".to_string()),
         (
             "brace-spacing = true",
             "a: {b: 1}\ne: {}\nf: { }\nl: [1, 2]\nm: {\n  x: 1\n}\n",
-            "---\na: { b: 1 }\ne: {}\nf: {}\nl: [1, 2]\nm: {\n  x: 1\n}\n".to_string(),
+            "a: { b: 1 }\ne: {}\nf: {}\nl: [1, 2]\nm: {\n  x: 1\n}\n".to_string(),
         ),
         (
             "comment-spacing = 1",
             "a: 1   # c\n",
-            "---\na: 1 # c\n".to_string(),
+            "a: 1 # c\n".to_string(),
         ),
         (
             "comment-spacing = 3",
             "a: 1 # c\n",
-            "---\na: 1   # c\n".to_string(),
+            "a: 1   # c\n".to_string(),
         ),
         (
             "comment-starting-space = 'preserve'",
             "#c\na: 1  #c\n",
-            "---\n#c\na: 1  #c\n".to_string(),
+            "#c\na: 1  #c\n".to_string(),
         ),
         (
             "max-blank-lines = 0",
             "a: 1\n\nb: 2\n",
-            "---\na: 1\nb: 2\n".to_string(),
+            "a: 1\nb: 2\n".to_string(),
         ),
         (
             "max-blank-lines = 1",
             "a: 1\n\n\nb: 2\n",
-            "---\na: 1\n\nb: 2\n".to_string(),
+            "a: 1\n\nb: 2\n".to_string(),
         ),
     ];
     for (key, input, expected) in cases {
@@ -176,7 +172,6 @@ fn inline_directives_are_honoured() {
 #[test]
 fn check_and_diff_name_the_rule_behind_each_change() {
     let expected = [
-        ("1:1", "document-start"),
         ("1:4", "quoted-strings"),
         ("2:6", "braces"),
         ("2:11", "commas"),
@@ -360,7 +355,7 @@ fn symlinks_and_unparsable_files_are_skipped_and_utf16_keeps_its_encoding() {
         "{stderr}"
     );
     assert_eq!(fs::read_to_string(&bad).unwrap(), "k: 'a'\nb: [\n");
-    assert_eq!(fs::read(&wide).unwrap(), utf16("---\nk: abc\n"));
+    assert_eq!(fs::read(&wide).unwrap(), utf16("k: abc\n"));
     assert_eq!(fs::read_to_string(&target).unwrap(), DIRTY);
     let (code, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&wide));
     assert_eq!(code, 0, "{stderr}");
@@ -488,14 +483,7 @@ fn keeps_hash_led_lines_of_a_block_scalar_in_place() {
         "k: |\n  |--- |--- |\n  |PUT|x|\n    ### S\n",
         "|\n  literal\n # c\n",
     ] {
-        let expected = format!("---\n{input}");
         let (code, _, stderr, formatted) = format_file(None, input, &[]);
-        assert_eq!(
-            (code, formatted.as_str()),
-            (0, expected.as_str()),
-            "{stderr}"
-        );
-        let (code, _, stderr, again) = format_file(None, &expected, &[]);
-        assert_eq!((code, again.as_str()), (0, expected.as_str()), "{stderr}");
+        assert_eq!((code, formatted.as_str()), (0, input), "{stderr}");
     }
 }

@@ -52,7 +52,7 @@ config cannot set it, so YAML-configured projects get the defaults.
 [format]
 quote-style = "single"
 line-ending = "lf"
-document-start = "add"
+document-start = "preserve"
 document-end = "preserve"
 fold-long-lines = false
 brace-spacing = false
@@ -70,7 +70,7 @@ dash-on-own-line = false
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
-| `document-start` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
+| `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
@@ -104,15 +104,15 @@ it is and named on stderr.
 
 ## Default profile
 
-With no `[format]` table, `ryl format` writes the profile below. Every default agrees
-with yamllint's `default` preset: `ryl check --fix` under that preset changes nothing in
-the output.
+With no `[format]` table, `ryl format` writes the profile below. Every default but
+`document-start` agrees with yamllint's `default` preset: `ryl check --fix` under that
+preset only adds a missing `---` to the output.
 
 | Default | Why |
 | :--- | :--- |
 | `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
 | `line-ending = "lf"` | The default of biome, prettier and yamllint's `new-lines` |
-| `document-start = "add"` | yamllint's `default` preset requires `---`; yamlfix adds it |
+| `document-start = "preserve"` | prettier keeps a file's markers as written |
 | `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
 | `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
 | `brace-spacing = false` | yamllint's `braces` defaults and yamlfix; prettier and biome pad |
@@ -259,7 +259,7 @@ says so.
 | [`commas`](rules/commas.md) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
 | [`comments`](rules/comments.md) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited) |
 | [`comments-indentation`](rules/comments-indentation.md) | Never |
-| [`document-start`](rules/document-start.md) | `present = false`, unless `[format] document-start = "preserve"` |
+| [`document-start`](rules/document-start.md) | `present = false` with `[format] document-start = "add"` |
 | [`document-end`](rules/document-end.md) | `present = false` with `[format] document-end = "add"` |
 | [`empty-lines`](rules/empty-lines.md) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | Never |
@@ -328,15 +328,15 @@ The other conflicts follow the table:
 
 <!-- ryl-config-check: format-conflict -->
 ```toml
+[format]
+document-start = "add"
+
 [lint.rules.document-start]
 present = false
 ```
 
 <!-- ryl-config-check: format-clean -->
 ```toml
-[format]
-document-start = "preserve"
-
 [lint.rules.document-start]
 present = false
 ```

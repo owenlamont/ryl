@@ -118,7 +118,8 @@ fn format_adds_a_marker_to_the_first_of_several_documents() {
 fn format_stdin(home: &Path, input: &str) -> String {
     let mut child = ryl(home)
         .current_dir(home)
-        .args(["format", "--stdin-filename", "s.yaml", "-"])
+        .args(["format", "-d", "[format]\ndocument-start = 'add'\n"])
+        .args(["--stdin-filename", "s.yaml", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
