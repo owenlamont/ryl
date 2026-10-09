@@ -331,7 +331,7 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
             check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
             let output = (pass.format)(input);
             assert!(
-                output.contains(expected),
+                format!("\n{output}").contains(expected),
                 "pass '{pass_name}' on {input:?} must emit {expected:?}, got {output:?}"
             );
         }
@@ -370,7 +370,7 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
             ] {
                 let output = (pass.format)(&input);
                 assert!(
-                    output.contains(&expected),
+                    format!("\n{output}").contains(&expected),
                     "{input:?} must emit {expected:?}, got {output:?}"
                 );
             }
@@ -378,7 +378,7 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
         for value in ["y", "N", "_", "._", "1.2.3"] {
             let output = (pass.format)(&format!("{prelude}k: '{value}'\n"));
             assert!(
-                output.contains(&format!("\nk: {value}\n")),
+                format!("\n{output}").contains(&format!("\nk: {value}\n")),
                 "'{value}' is a string to every reader, got {output:?}"
             );
         }
@@ -404,7 +404,7 @@ fn format_ladder_follows_a_declared_yaml_1_1_as_quoted_strings_does() {
             check_pass(pass, &input).unwrap_or_else(|violation| panic!("{violation}"));
             let output = (pass.format)(&input);
             assert!(
-                output.contains(&format!("\nk: {value}\n{value}: 1\n")),
+                format!("\n{output}").contains(&format!("\nk: {value}\n{value}: 1\n")),
                 "pass '{pass_name}' must unquote {value:?} under YAML 1.1, got {output:?}"
             );
             let problems =
@@ -412,7 +412,7 @@ fn format_ladder_follows_a_declared_yaml_1_1_as_quoted_strings_does() {
             assert!(problems.is_empty(), "{output:?} fails lint: {problems:?}");
             let output = (pass.format)(&format!("k: \"{value}\"\n"));
             assert!(
-                !output.contains(&format!("\nk: {value}\n")),
+                !format!("\n{output}").contains(&format!("\nk: {value}\n")),
                 "{value:?} is not a string to a YAML 1.2 reader, got {output:?}"
             );
         }
@@ -444,7 +444,7 @@ fn quote_ladder_escalates_to_double_only_for_escapes() {
         check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
         let output = (pass.format)(input);
         assert!(
-            output.contains(expected),
+            format!("\n{output}").contains(expected),
             "{input:?} must emit {expected:?}, got {output:?}"
         );
     }
@@ -518,7 +518,7 @@ fn quote_ladder_applies_to_keys() {
         check_pass(pass, input).unwrap_or_else(|violation| panic!("{violation}"));
         let output = (pass.format)(input);
         assert!(
-            output.contains(expected),
+            format!("\n{output}").contains(expected),
             "{input:?} must emit {expected:?}, got {output:?}"
         );
     }
