@@ -123,6 +123,22 @@ fn stdin_is_echoed_to_stdout_and_check_prints_nothing() {
 }
 
 #[test]
+fn document_start_is_added_only_when_configured() {
+    let dir = tempdir().unwrap();
+    let add = "[format]\ndocument-start = \"add\"\n";
+    for (config, expected) in [(None, "a: 1\n"), (Some(add), "---\na: 1\n")] {
+        let mut cmd = ryl(dir.path());
+        cmd.arg("format");
+        if let Some(config) = config {
+            cmd.args(["-d", config]);
+        }
+        let (code, stdout, stderr) = run_with_stdin(cmd.arg("-"), b"a: 1\n");
+        assert_eq!(code, 0, "{config:?}: {stderr}");
+        assert_eq!(stdout, expected, "{config:?}");
+    }
+}
+
+#[test]
 fn ignored_stdin_filename_passes_through() {
     let ignore = [
         "-d",

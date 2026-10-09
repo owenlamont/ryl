@@ -107,8 +107,6 @@ targets:
 
 | Target | When the yamllint config |
 | :--- | :--- |
-| `document-start` | leaves `document-start` off, or sets its `present: false` |
-| `document-end` | leaves `document-end` off, or sets its `present: false` |
 | `quote-style` | leaves `quoted-strings` off, as `extends: default` does |
 | `comment-starting-space` | leaves `comments` off, or sets its `require-starting-space: false` |
 

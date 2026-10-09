@@ -72,7 +72,7 @@ fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
 
-`ryl format` adds `---` the same way while `[format] document-start` is `"add"`, the default. It conflicts with `present = false` unless that key is `"preserve"`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` adds `---` the same way only when `[format] document-start` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

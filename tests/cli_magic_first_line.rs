@@ -144,7 +144,8 @@ fn format_keeps_cloud_config_first() {
     let dir = tempdir().unwrap();
     let mut child = ryl(dir.path())
         .current_dir(dir.path())
-        .args(["format", "--stdin-filename", "u.yaml", "-"])
+        .args(["format", "-d", "[format]\ndocument-start = 'add'\n"])
+        .args(["--stdin-filename", "u.yaml", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

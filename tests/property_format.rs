@@ -50,14 +50,17 @@ use passes::{
 use properties::arb_document_with_properties;
 use representation::{annotations, representation, yaml_1_1_representation};
 
-/// yamllint's `default` preset, bar the lint-owned `truthy`, and the quoted-strings options
-/// the formatter page documents as accepting zero-config output.
+/// yamllint's `default` preset, bar the lint-owned `truthy` and the preserved
+/// `document-start`, and the quoted-strings options the formatter page documents as
+/// accepting zero-config output.
 fn profile_anchor_configs() -> &'static [YamlLintConfig; 2] {
     static CONFIGS: std::sync::LazyLock<[YamlLintConfig; 2]> = std::sync::LazyLock::new(
         || {
             [
-                YamlLintConfig::from_yaml_str("extends: default\nrules:\n  truthy: disable\n")
-                    .expect("the default preset loads"),
+                YamlLintConfig::from_yaml_str(
+                    "extends: default\nrules:\n  truthy: disable\n  document-start: disable\n",
+                )
+                .expect("the default preset loads"),
                 YamlLintConfig::from_toml_str(
                     "[lint.rules.quoted-strings]\nquote-type = 'single'\n\
                      required = 'only-when-needed'\n\

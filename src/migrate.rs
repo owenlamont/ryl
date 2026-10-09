@@ -10,7 +10,7 @@ use crate::config::{
     legacy_yaml,
 };
 use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
-use crate::rules::{comments, document_end, document_start, quoted_strings};
+use crate::rules::{comments, quoted_strings};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteMode {
@@ -394,8 +394,6 @@ fn build_entry(
 /// option it turns off, so `ryl format` leaves alone what the legacy config never enforced.
 fn preserve_targets(cfg: &YamlLintConfig) -> toml::Table {
     [
-        (document_start::ID, Some("present"), "document-start"),
-        (document_end::ID, Some("present"), "document-end"),
         (quoted_strings::ID, None, "quote-style"),
         (
             comments::ID,

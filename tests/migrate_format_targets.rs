@@ -42,6 +42,13 @@ fn migrated_disabled_rules_stop_format_enforcing_them() {
     assert_eq!(cfg.format().document_start, MarkerTarget::Preserve);
     assert_eq!(cfg.format().quote_style, QuoteStyleTarget::Preserve);
     assert_eq!(cfg.format().document_end, MarkerTarget::Preserve);
+    let toml = fs::read_to_string(td.path().join(".ryl.toml")).unwrap();
+    let format = toml::from_str::<toml::Table>(&toml).unwrap()["format"].clone();
+    assert_eq!(
+        format,
+        toml::toml! { quote-style = "preserve" }.into(),
+        "{toml}"
+    );
 
     fs::write(td.path().join("a.yaml"), "a: \"x\"\n").unwrap();
     let (code, stdout, stderr) =

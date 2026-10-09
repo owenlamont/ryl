@@ -121,7 +121,7 @@ impl Default for FormatTable {
         Self {
             quote_style: QuoteStyleTarget::Single,
             line_ending: LineEndingTarget::Lf,
-            document_start: MarkerTarget::Add,
+            document_start: MarkerTarget::Preserve,
             document_end: MarkerTarget::Preserve,
             fold_long_lines: false,
             brace_spacing: false,

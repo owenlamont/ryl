@@ -155,7 +155,7 @@
         },
         "document-start": {
           "$ref": "#/$defs/MarkerTarget",
-          "default": "add",
+          "default": "preserve",
           "description": "Whether to add a missing `---` document start marker."
         },
         "fold-long-lines": {
