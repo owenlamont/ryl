@@ -8,13 +8,16 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use lsp_types::{
-    Diagnostic, NumberOrString, Position, PositionEncodingKind, PrepareRenameResponse,
-    PreviousResultId, Range, Uri, WorkspaceDocumentDiagnosticReport,
+    CodeActionContext, CodeActionKind, CodeActionOrCommand, Diagnostic,
+    DocumentChanges, NumberOrString, OneOf, Position, PositionEncodingKind,
+    PrepareRenameResponse, PreviousResultId, Range, Uri,
+    WorkspaceDocumentDiagnosticReport,
 };
 use tempfile::tempdir;
 
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::fix::Rewrite;
+use ryl::lsp::actions::{Input, build};
 use ryl::lsp::analysis::{diagnostics, fix_rule_edit, rewrite_edit};
 use ryl::lsp::encoding::{
     PositionEncoding, full_range, negotiate, offset_at, path_to_uri, problem_range,
@@ -337,6 +340,81 @@ fn diagnostics_lint_embedded_yaml_in_markdown() {
 }
 
 #[test]
+fn diagnostics_lint_markdown_front_matter_after_a_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
+    let diags = diagnostics(
+        "\u{feff}---\na: 1 \n---\n",
+        Path::new("/proj/x.md"),
+        &cfg,
+        Path::new("/proj"),
+        SourceKind::Markdown,
+        PositionEncoding::Utf16,
+    );
+    assert_eq!(
+        rule_ranges(&diags),
+        [diag_at("trailing-spaces", 1, 4)],
+        "as `ryl check` reports"
+    );
+}
+
+#[test]
+fn diagnostics_after_a_bom_point_at_the_buffers_first_line_characters() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    // `ryl check` puts both at column 4; on the first line the buffer's BOM precedes it.
+    for (enc, first) in [
+        (PositionEncoding::Utf8, 9),
+        (PositionEncoding::Utf16, 5),
+        (PositionEncoding::Utf32, 4),
+    ] {
+        let diags = diagnostics(
+            "\u{feff}\u{1F600}:  1\nb:  2\n",
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            enc,
+        );
+        assert_eq!(
+            rule_ranges(&diags),
+            [diag_at("colons", 0, first), diag_at("colons", 1, 3)],
+            "{enc:?}"
+        );
+    }
+}
+
+#[test]
+fn diagnostics_honour_a_disable_file_directive_after_a_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let diags = diagnostics(
+        "\u{feff}# ryl disable-file\na:   1\n",
+        Path::new("/proj/x.yaml"),
+        &cfg,
+        Path::new("/proj"),
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+    );
+    assert!(
+        diags.is_empty(),
+        "`ryl check` skips a disabled file: {diags:?}"
+    );
+}
+
+fn rule_ranges(diags: &[Diagnostic]) -> Vec<(Option<NumberOrString>, Range)> {
+    diags
+        .iter()
+        .map(|diag| (diag.code.clone(), diag.range))
+        .collect()
+}
+
+fn diag_at(rule: &str, line: u32, character: u32) -> (Option<NumberOrString>, Range) {
+    let range = Range::new(
+        Position::new(line, character),
+        Position::new(line, character + 1),
+    );
+    (Some(NumberOrString::String(rule.to_string())), range)
+}
+
+#[test]
 fn rewrite_edit_fix_replaces_the_whole_document_when_fixable() {
     let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let edit = rewrite_edit(
@@ -612,6 +690,102 @@ fn fix_rule_edit_is_none_for_an_unfixable_rule_or_markdown() {
         .is_none(),
         "per-rule fix is not offered for markdown"
     );
+}
+
+#[test]
+fn fix_rule_edit_keeps_a_bom_and_honours_a_disable_file_directive_after_it() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let edit = |source: &str| {
+        fix_rule_edit(
+            source,
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+            "colons",
+        )
+    };
+    assert_eq!(
+        edit("\u{feff}a:   1\n")
+            .expect("colons is fixable")
+            .new_text,
+        "\u{feff}a: 1\n"
+    );
+    assert!(
+        edit("\u{feff}# ryl disable-file\na:   1\n").is_none(),
+        "`ryl check --fix` leaves a disabled file alone"
+    );
+}
+
+#[test]
+fn disable_actions_insert_after_a_leading_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let (text, path) = ("\u{feff}a:   1\n", Path::new("/proj/x.yaml"));
+    let uri = path_to_uri(path);
+    // Before the BOM, YAML loaders read it as part of the key: `{"\u{feff}a": 1}`.
+    for (enc, after_bom) in [
+        (PositionEncoding::Utf8, 3),
+        (PositionEncoding::Utf16, 1),
+        (PositionEncoding::Utf32, 1),
+    ] {
+        let input = Input {
+            uri: &uri,
+            text,
+            version: 1,
+            path,
+            cfg: &cfg,
+            base_dir: Path::new("/proj"),
+            kind: SourceKind::Yaml,
+            enc,
+            supports_document_changes: true,
+        };
+        let context = CodeActionContext {
+            diagnostics: diagnostics(
+                text,
+                path,
+                &cfg,
+                Path::new("/proj"),
+                SourceKind::Yaml,
+                enc,
+            ),
+            only: Some(vec![CodeActionKind::QUICKFIX]),
+            trigger_kind: None,
+        };
+        let starts: Vec<(String, Position)> = build(&input, &context)
+            .expect("disable actions are offered")
+            .into_iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .flat_map(|action| {
+                let Some(DocumentChanges::Edits(edits)) =
+                    action.edit.and_then(|edit| edit.document_changes)
+                else {
+                    panic!("a versioned edit");
+                };
+                let title = action.title;
+                edits.into_iter().flat_map(|edit| edit.edits).map(
+                    move |edit| match edit {
+                        OneOf::Left(edit) => (title.clone(), edit.range.start),
+                        OneOf::Right(edit) => {
+                            (title.clone(), edit.text_edit.range.start)
+                        }
+                    },
+                )
+            })
+            .collect();
+        let expected = Position::new(0, after_bom);
+        assert_eq!(
+            starts,
+            [
+                ("Disable colons for this line".to_string(), expected),
+                ("Disable ryl for this file".to_string(), expected),
+            ],
+            "{enc:?}"
+        );
+    }
 }
 
 #[test]

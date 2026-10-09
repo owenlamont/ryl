@@ -38,6 +38,13 @@ fn to_diagnostic(
     }
 }
 
+/// Splits off a leading UTF-8 BOM, which the CLI's decoder strips before linting or
+/// rewriting, so the engine sees the same text here as on the command line.
+fn split_bom(text: &str) -> (&str, &str) {
+    text.strip_prefix('\u{feff}')
+        .map_or(("", text), |body| ("\u{feff}", body))
+}
+
 #[must_use]
 pub fn diagnostics(
     text: &str,
@@ -47,14 +54,21 @@ pub fn diagnostics(
     kind: SourceKind,
     enc: PositionEncoding,
 ) -> Vec<Diagnostic> {
+    let (bom, body) = split_bom(text);
     let problems = match kind {
-        SourceKind::Markdown => lint_markdown_str(text, path, cfg, base_dir),
-        SourceKind::Yaml => lint_str(text, path, cfg, base_dir),
+        SourceKind::Markdown => lint_markdown_str(body, path, cfg, base_dir),
+        SourceKind::Yaml => lint_str(body, path, cfg, base_dir),
     };
     let lines = line_contents(text);
     problems
         .into_iter()
-        .map(|problem| to_diagnostic(&lines, problem, enc))
+        .map(|mut problem| {
+            // Columns on the first line count from after the BOM; the buffer keeps it.
+            if problem.line == 1 {
+                problem.column += bom.chars().count();
+            }
+            to_diagnostic(&lines, problem, enc)
+        })
         .collect()
 }
 
@@ -70,10 +84,7 @@ pub fn rewrite_edit(
     enc: PositionEncoding,
     rewrite: Rewrite,
 ) -> Option<TextEdit> {
-    // The CLI's decoder strips a UTF-8 BOM before rewriting and restores it on write.
-    let (bom, body) = text
-        .strip_prefix('\u{feff}')
-        .map_or(("", text), |body| ("\u{feff}", body));
+    let (bom, body) = split_bom(text);
     let (rewritten, _) = rewrite_str(body, cfg, path, base_dir, kind, rewrite);
     rewritten
         .filter(|rewritten| rewritten != body)
@@ -103,8 +114,10 @@ pub fn fix_rule_edit(
         .copied()
         .filter(|id| *id != rule)
         .collect();
-    let fixed = apply_safe_fixes_filtered(text, cfg, path, base_dir, &skip);
-    (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
+    let (bom, body) = split_bom(text);
+    let fixed = apply_safe_fixes_filtered(body, cfg, path, base_dir, &skip);
+    (fixed != body)
+        .then(|| TextEdit::new(full_range(text, enc), format!("{bom}{fixed}")))
 }
 
 /// A fingerprint of `items`, returned as a `resultId` and sent back on the next pull so an
