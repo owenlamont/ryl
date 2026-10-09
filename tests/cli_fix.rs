@@ -849,7 +849,7 @@ fn fix_document_end_appends_marker_when_leading_comments_precede_start_marker() 
 }
 
 #[test]
-fn fix_skips_document_end_for_multi_document_streams() {
+fn fix_adds_document_end_to_every_document_of_a_stream() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
     fs::write(&file, "key: a\n---\nkey: b\n").unwrap();
@@ -863,10 +863,7 @@ fn fix_skips_document_end_for_multi_document_streams() {
     let _ = run(Command::new(exe).arg("--fix").arg(&file));
 
     let fixed = fs::read_to_string(&file).unwrap();
-    assert_eq!(
-        fixed, "key: a\n---\nkey: b\n",
-        "fix must leave multi-document streams untouched: {fixed:?}"
-    );
+    assert_eq!(fixed, "key: a\n...\n---\nkey: b\n...\n");
 }
 
 #[test]

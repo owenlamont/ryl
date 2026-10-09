@@ -58,20 +58,10 @@ this: is the only document
 
 ## Automatic fixing
 
-`ryl check --fix` appends a `...` end marker when `present: true` and the
-document does not already have one. The fix is **partial** by design:
-it only runs when the buffer is a single document. A buffer is treated
-as single-document when, after skipping leading blank lines, comments,
-and `%`-directive lines:
-
-- it contains at most one `---` marker, and that marker is not preceded
-  by real (non-comment, non-directive) content, and
-- it contains no `...` marker anywhere.
-
-Multi-document streams are left for manual intervention because each
-document needs its own `...` placed at the correct byte offset, and the
-rule does not record per-document end positions. The `present: false`
-case (removing existing `...` markers) is never auto-fixed.
+`ryl check --fix` adds a `...` end marker to every document that lacks one
+when `present: true`: before the `---` that opens the next document, and at
+the end of the stream. The `present: false` case (removing existing `...`
+markers) is never auto-fixed.
 
 Disable with:
 
@@ -81,7 +71,7 @@ fixable = ["ALL"]
 unfixable = ["document-end"]
 ```
 
-`ryl format` adds `...` under the same limits only when `[format] document-end` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` adds `...` the same way only when `[format] document-end` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

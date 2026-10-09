@@ -1,15 +1,17 @@
 //! `document-end` rule: require (or forbid) the `...` end marker.
 //!
-//! `--fix` rewrites only `present: true` on a single-document buffer: multi-document
-//! inputs need per-document end offsets the rule does not record, and removing `...`
-//! (`present: false`) can collide with document boundaries, so neither is fixed.
+//! `--fix` rewrites only `present: true`, inserting `...` before the `---` that follows
+//! each implicitly ended document and appending one at the end of the stream. Removing
+//! `...` (`present: false`) can collide with document boundaries, so it is not fixed.
 use std::cmp;
 
 use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::block_scalar_chomping;
-use crate::rules::support::line_syntax::{buffer_newline, line_contents};
+use crate::rules::support::line_syntax::{
+    buffer_newline, split_lines_preserve_endings,
+};
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 pub const ID: &str = "document-end";
@@ -80,56 +82,47 @@ enum Marker {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    scan(buffer, cfg).violations
+}
+
+fn scan<'src, 'cfg>(
+    buffer: &'src str,
+    cfg: &'cfg Config,
+) -> DocumentEndReceiver<'src, 'cfg> {
     let mut parser = Parser::new_from_str(buffer);
     let mut receiver = DocumentEndReceiver::new(buffer, cfg);
     let _ = parser.load(&mut receiver, true);
-    receiver.violations
+    receiver
 }
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    if !cfg.requires_marker()
-        || has_inner_document_markers(buffer)
-        || check(buffer, cfg).is_empty()
-    {
-        return None;
-    }
+    let receiver = scan(buffer, cfg);
     let newline = buffer_newline(buffer);
-    let mut output = buffer.to_string();
+    let mut marker_lines = receiver.unended_before.iter().peekable();
+    let mut output =
+        String::with_capacity(buffer.len() + 4 * receiver.violations.len());
+    for (idx, content, ending) in split_lines_preserve_endings(buffer) {
+        if marker_lines.next_if_eq(&&(idx + 1)).is_some() {
+            output.push_str("...");
+            output.push_str(newline);
+        }
+        output.push_str(content);
+        output.push_str(ending);
+    }
     // A `\r`-terminated file already ends in a break; checking `\n` only would insert a
     // spurious blank line before `...`.
-    if !output.ends_with('\n') && !output.ends_with('\r') {
-        if block_scalar_chomping::ends_in_unstripped_scalar(buffer) {
-            return None;
+    let ends_in_break = buffer.ends_with(['\n', '\r']);
+    if receiver.unended_at_stream_end
+        && (ends_in_break || !block_scalar_chomping::ends_in_unstripped_scalar(buffer))
+    {
+        if !ends_in_break {
+            output.push_str(newline);
         }
+        output.push_str("...");
         output.push_str(newline);
     }
-    output.push_str("...");
-    output.push_str(newline);
-    Some(output)
-}
-
-fn has_inner_document_markers(buffer: &str) -> bool {
-    let mut seen_real_content = false;
-    let mut start_markers = 0u32;
-    for line in line_contents(buffer) {
-        let trimmed = line.trim_start_matches([' ', '\t']);
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('%') {
-            continue;
-        }
-        if trimmed == "..." || trimmed.starts_with("... ") {
-            return true;
-        }
-        if trimmed == "---" || trimmed.starts_with("--- ") {
-            start_markers += 1;
-            if start_markers > 1 || seen_real_content {
-                return true;
-            }
-        } else {
-            seen_real_content = true;
-        }
-    }
-    false
+    (output != buffer).then_some(output)
 }
 
 struct DocumentEndReceiver<'src, 'cfg> {
@@ -137,6 +130,9 @@ struct DocumentEndReceiver<'src, 'cfg> {
     config: &'cfg Config,
     violations: Vec<Violation>,
     pending_stream_end_violation: bool,
+    /// 1-based lines of each `---` that follows an implicitly ended document.
+    unended_before: Vec<usize>,
+    unended_at_stream_end: bool,
 }
 
 impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
@@ -146,6 +142,8 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
             config,
             violations: Vec::new(),
             pending_stream_end_violation: false,
+            unended_before: Vec::new(),
+            unended_at_stream_end: false,
         }
     }
 
@@ -170,6 +168,7 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
             }
             Marker::DocumentStart { line } => {
                 self.pending_stream_end_violation = false;
+                self.unended_before.push(line);
                 self.violations.push(Violation {
                     line,
                     column: 1,
@@ -187,6 +186,7 @@ impl<'src, 'cfg> DocumentEndReceiver<'src, 'cfg> {
             return;
         }
 
+        self.unended_at_stream_end = true;
         let raw_line = span.start.line();
         let line = cmp::max(1, raw_line.saturating_sub(1));
         self.violations.push(Violation {
