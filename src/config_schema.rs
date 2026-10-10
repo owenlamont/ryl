@@ -617,7 +617,7 @@ pub enum FixableRuleSelector {
 }
 
 /// A fixable rule name accepted by `lint.unfixable`.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 pub enum FixRuleName {
     #[serde(rename = "braces")]
     Braces,

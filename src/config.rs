@@ -15,10 +15,9 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 
 use crate::config_schema::{
-    DeprecatedKey, DeprecatedKeyUse, FixRuleName as TomlFixRuleName,
-    FixableRuleSelector as TomlFixableRuleSelector, LEGACY_YAML_SOURCES,
-    LegacyYamlSource, NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown,
-    NormalizedPerLineIgnore, OutputTable, TomlConfig, format_keys,
+    DeprecatedKey, DeprecatedKeyUse, FixableRuleSelector as TomlFixableRuleSelector,
+    LEGACY_YAML_SOURCES, LegacyYamlSource, NormalizedConfig, NormalizedFixConfig,
+    NormalizedMarkdown, NormalizedPerLineIgnore, OutputTable, TomlConfig, format_keys,
     normalize_toml_config, normalized_config_to_toml_value, parse_toml_config_str,
     validate_toml_config, yaml_rule_filter_patterns, yaml_rule_level,
 };
@@ -27,7 +26,7 @@ use crate::format::FormatSettings;
 
 pub(crate) mod legacy_yaml;
 
-pub use crate::config_schema::RuleLevel;
+pub use crate::config_schema::{FixRuleName as FixRule, RuleLevel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -396,26 +395,6 @@ fn rule_filter_from_node(node: &YamlOwned) -> Option<RuleFilter> {
 pub struct FixConfig {
     fixable: Vec<FixRuleSelector>,
     unfixable: Vec<FixRule>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FixRule {
-    Braces,
-    Brackets,
-    Colons,
-    Commas,
-    Comments,
-    CommentsIndentation,
-    DocumentEnd,
-    DocumentStart,
-    EmptyLines,
-    Hyphens,
-    KeyOrdering,
-    NewLineAtEndOfFile,
-    NewLines,
-    QuotedStrings,
-    TrailingSpaces,
-    Truthy,
 }
 
 impl FixRule {
@@ -1190,7 +1169,7 @@ fn typed_fix_config(fix: &NormalizedFixConfig) -> FixConfig {
         .copied()
         .map(typed_fix_selector)
         .collect();
-    let unfixable = fix.unfixable.iter().copied().map(typed_fix_rule).collect();
+    let unfixable = fix.unfixable.clone();
     FixConfig { fixable, unfixable }
 }
 
@@ -1206,12 +1185,7 @@ fn normalized_fix_config(fix: &FixConfig) -> Option<NormalizedFixConfig> {
             .copied()
             .map(normalized_fix_selector)
             .collect(),
-        unfixable: fix
-            .unfixable
-            .iter()
-            .copied()
-            .map(normalized_fix_rule)
-            .collect(),
+        unfixable: fix.unfixable.clone(),
     })
 }
 
@@ -1250,27 +1224,6 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
             TomlFixableRuleSelector::TrailingSpaces
         }
         FixRuleSelector::Rule(FixRule::Truthy) => TomlFixableRuleSelector::Truthy,
-    }
-}
-
-fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
-    match rule {
-        FixRule::Braces => TomlFixRuleName::Braces,
-        FixRule::Brackets => TomlFixRuleName::Brackets,
-        FixRule::Colons => TomlFixRuleName::Colons,
-        FixRule::Hyphens => TomlFixRuleName::Hyphens,
-        FixRule::Commas => TomlFixRuleName::Commas,
-        FixRule::Comments => TomlFixRuleName::Comments,
-        FixRule::CommentsIndentation => TomlFixRuleName::CommentsIndentation,
-        FixRule::DocumentEnd => TomlFixRuleName::DocumentEnd,
-        FixRule::DocumentStart => TomlFixRuleName::DocumentStart,
-        FixRule::EmptyLines => TomlFixRuleName::EmptyLines,
-        FixRule::KeyOrdering => TomlFixRuleName::KeyOrdering,
-        FixRule::NewLineAtEndOfFile => TomlFixRuleName::NewLineAtEndOfFile,
-        FixRule::NewLines => TomlFixRuleName::NewLines,
-        FixRule::QuotedStrings => TomlFixRuleName::QuotedStrings,
-        FixRule::TrailingSpaces => TomlFixRuleName::TrailingSpaces,
-        FixRule::Truthy => TomlFixRuleName::Truthy,
     }
 }
 
@@ -1339,27 +1292,6 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
             FixRuleSelector::Rule(FixRule::TrailingSpaces)
         }
         TomlFixableRuleSelector::Truthy => FixRuleSelector::Rule(FixRule::Truthy),
-    }
-}
-
-fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
-    match rule {
-        TomlFixRuleName::Braces => FixRule::Braces,
-        TomlFixRuleName::Brackets => FixRule::Brackets,
-        TomlFixRuleName::Colons => FixRule::Colons,
-        TomlFixRuleName::Hyphens => FixRule::Hyphens,
-        TomlFixRuleName::Commas => FixRule::Commas,
-        TomlFixRuleName::Comments => FixRule::Comments,
-        TomlFixRuleName::CommentsIndentation => FixRule::CommentsIndentation,
-        TomlFixRuleName::DocumentEnd => FixRule::DocumentEnd,
-        TomlFixRuleName::DocumentStart => FixRule::DocumentStart,
-        TomlFixRuleName::EmptyLines => FixRule::EmptyLines,
-        TomlFixRuleName::KeyOrdering => FixRule::KeyOrdering,
-        TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
-        TomlFixRuleName::NewLines => FixRule::NewLines,
-        TomlFixRuleName::QuotedStrings => FixRule::QuotedStrings,
-        TomlFixRuleName::TrailingSpaces => FixRule::TrailingSpaces,
-        TomlFixRuleName::Truthy => FixRule::Truthy,
     }
 }
 
