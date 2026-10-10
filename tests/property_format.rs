@@ -132,6 +132,16 @@ proptest! {
         check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
     }
 
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_format_consistency.txt",
+        ))),
+        ..ProptestConfig::default()
+    })]
+
     #[test]
     fn random_format_config_agrees_with_lint_and_conflicts(
         document in arb_document_with_properties(),
@@ -158,6 +168,16 @@ proptest! {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
     }
+
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_format.txt",
+        ))),
+        ..ProptestConfig::default()
+    })]
 
     #[test]
     fn encoded_previews_match_decoded_formatting(
