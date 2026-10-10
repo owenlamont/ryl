@@ -271,29 +271,31 @@ fn reindent_target(width: u8) -> indentation::Config {
         IndentSequencesSetting::True,
         false,
     )
+    .with_dash_on_own_line(false)
 }
 
-/// `input` re-indented to `width` is left alone by a format with no `indent-width`: the
-/// width detected moves no line, and is `width` wherever some width would move one.
+/// `input` re-indented as `ryl format` would at `width`, to a fixed point since a dash join
+/// can enable another, is left alone by a format with no `indent-width`.
 fn check_detection(input: &str, width: u8) -> Result<(), String> {
-    let consistent = indentation::reindent(input, &reindent_target(width));
-    if representation(input).is_none() || !consistent.refused.is_empty() {
+    if representation(input).is_none() {
         return Ok(());
     }
-    let text = consistent.text;
+    let mut text = input.to_string();
+    for _ in 0..8 {
+        let consistent = indentation::reindent(&text, &reindent_target(width));
+        if !consistent.refused.is_empty() {
+            return Ok(());
+        }
+        if consistent.text == text {
+            break;
+        }
+        text = consistent.text;
+    }
     let detected = file_indent_width(&YamlLintConfig::default(), &text);
-    let moved = indentation::moved_lines(
-        &text,
-        &(2..=8).map(reindent_target).collect::<Vec<_>>(),
-    );
-    let unmoved = indentation::reindent(&text, &reindent_target(detected)).text == text;
-    if moved.iter().any(|&count| count > 0) && (detected != width || !unmoved) {
+    if indentation::reindent(&text, &reindent_target(detected)).text != text {
         return Err(format!(
             "detected {detected}, consistent at {width}: {text:?}"
         ));
-    }
-    if moved[usize::from(detected - 2)] > 0 {
-        return Err(format!("detected {detected} moves lines: {text:?}"));
     }
     Ok(())
 }

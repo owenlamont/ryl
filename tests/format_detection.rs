@@ -1,5 +1,5 @@
-//! Without `indent-width`, `ryl format` keeps the indent width that moves the fewest lines
-//! led by a token, and `line-ending = "auto"` keeps the ending most lines use; a tie or no
+//! Without `indent-width`, `ryl format` keeps the indent width whose re-indent changes the
+//! fewest lines, and `line-ending = "auto"` keeps the ending most lines use; a tie or no
 //! evidence falls back to 2 and `lf`.
 
 use std::path::Path;
@@ -55,17 +55,19 @@ fn a_tie_or_a_flat_file_falls_back_to_two() {
 }
 
 #[test]
-fn block_scalar_bodies_never_sway_the_width() {
-    let body = "        text\n".repeat(20);
-    let mostly_two =
-        format!("a:\n  b: 1\n  c: 2\n  d: 3\nx:\n    y: |\n{body}    z: 1\n");
-    let mostly_four = format!(
-        "a:\n    b: 1\n    c: 2\n    d: 3\nx:\n  y: |\n{}  z: 1\n",
-        "    text\n".repeat(20)
-    );
+fn block_scalar_bodies_and_comments_count_as_changed_lines() {
     let unset = config(UNSET);
-    assert_eq!(file_indent_width(&unset, &mostly_two), 2);
-    assert_eq!(file_indent_width(&unset, &mostly_four), 4);
+    let scalar = format!("    y: |\n{}    z: 1\n", "        text\n".repeat(20));
+    let comments = format!("{}    y: 1\n", "    # text\n".repeat(20));
+    for nested in [scalar, comments] {
+        let input = format!("a:\n  b: 1\n  c: 2\n  d: 3\nx:\n{nested}");
+        assert_eq!(file_indent_width(&unset, &input), 4, "{input}");
+        assert_eq!(
+            format(&input, UNSET),
+            format(&input, "indent-width = 4\n"),
+            "{input}"
+        );
+    }
 }
 
 #[test]

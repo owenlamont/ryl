@@ -10,7 +10,7 @@ use crate::rules::support::span_utils::CharPos;
 
 mod rewrite;
 
-pub use rewrite::{Cause, Refusal, Reindented, fix, moved_lines, reindent};
+pub use rewrite::{Cause, Refusal, Reindented, fix, reindent, reindent_widths};
 
 pub const ID: &str = "indentation";
 

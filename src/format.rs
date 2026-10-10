@@ -222,17 +222,32 @@ pub fn line_length(cfg: &YamlLintConfig) -> u16 {
 }
 
 /// The indent width `ryl format` targets in `content`: the top-level `indent-width`, else
-/// the one width of [`DETECTED_WIDTHS`] that moves the fewest lines, else
+/// the one width of [`DETECTED_WIDTHS`] whose re-indent changes the fewest lines, else
 /// [`DEFAULT_INDENT_WIDTH`].
 #[must_use]
 pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
     if let Some(width) = cfg.indent_width() {
         return width.get();
     }
-    let targets = DETECTED_WIDTHS.map(|width| indentation_target(cfg, width));
+    let before: Vec<&str> = content.split_inclusive('\n').collect();
+    let widths = DETECTED_WIDTHS.map(usize::from);
     let moved: Vec<(u8, usize)> = DETECTED_WIDTHS
         .into_iter()
-        .zip(indentation::moved_lines(content, &targets))
+        .zip(indentation::reindent_widths(
+            content,
+            &indentation_target(cfg, DEFAULT_INDENT_WIDTH),
+            &widths,
+        ))
+        .map(|(width, reindented)| {
+            let after: Vec<&str> = reindented.text.split_inclusive('\n').collect();
+            let changed = TextDiff::from_slices(&before, &after)
+                .ops()
+                .iter()
+                .filter(|op| op.tag() != DiffTag::Equal)
+                .map(|op| op.old_range().len().max(op.new_range().len()))
+                .sum();
+            (width, changed)
+        })
         .collect();
     let fewest = moved.iter().map(|&(_, count)| count).min();
     match moved

@@ -91,9 +91,9 @@ re-indents every block level to `indent-width`, and uses both as the fold width 
 continuation indent under `fold-long-lines`.
 
 Without `indent-width`, `ryl format` keeps each file's own width: of the widths 2 to 8,
-the one that moves the fewest lines when the file is re-indented to it. Block scalar
-bodies and continuation lines do not count, and a tie or a file with nothing nested
-falls back to 2. A file mostly at 4 with one block at 2 is re-indented to 4.
+the one whose re-indent changes the fewest lines, block scalar bodies and comments
+included. A tie, or a file the re-indent leaves alone at every width, falls back to 2.
+A file mostly at 4 with one block at 2 is re-indented to 4.
 
 The rest of the layout is fixed:
 

@@ -30,7 +30,8 @@ fn format_respaces_and_reindents_compact_collections() {
         (0, "---\na: 1\nlist:\n  - x\n"),
         "{stderr}"
     );
-    let (code, stderr, formatted) = run_on(COMPACT, &["format"]);
+    let (code, stderr, formatted) =
+        run_on(COMPACT, &["format", "-d", "indent-width = 2"]);
     assert_eq!(
         (code, formatted.as_str(), stderr.as_str()),
         (0, "---\nseq:\n  - a: 1\n    b: 2\n? k\n: - x\n  - y\n", "")
