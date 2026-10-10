@@ -669,59 +669,33 @@ fn typed_toml_to_value_handles_configs_without_rules() {
 
 #[test]
 fn typed_toml_parser_round_trips_unknown_extras_and_custom_rules() {
-    let parsed = parse_toml_config_str(
-        r#"
+    for location in ["rules", "lint.rules"] {
+        let body = format!(
+            r#"
 flag = true
 stamp = 1979-05-27T07:32:00Z
 
 [extra]
 name = "demo"
+stamps = [1979-05-27, 07:32:00]
 
-[lint.rules]
+[{location}]
 anchors = "disable"
 
-[lint.rules.custom-rule]
+[{location}.custom-rule]
 count = 3
 stamp = 1979-05-27T07:32:00Z
-"#,
-        false,
-    )
-    .expect("typed TOML parse should succeed")
-    .expect("project TOML should produce config");
-
-    let value = toml_config_to_value(&parsed);
-    assert_eq!(value.get("flag").and_then(toml::Value::as_bool), Some(true));
-    assert!(
-        value
-            .get("stamp")
-            .and_then(toml::Value::as_datetime)
-            .is_some()
-    );
-    assert_eq!(
-        value
-            .get("extra")
-            .and_then(|extra| extra.get("name"))
-            .and_then(toml::Value::as_str),
-        Some("demo")
-    );
-    assert_eq!(
-        value
-            .get("lint")
-            .and_then(|lint| lint.get("rules"))
-            .and_then(|rules| rules.get("custom-rule"))
-            .and_then(|rule| rule.get("count"))
-            .and_then(toml::Value::as_integer),
-        Some(3)
-    );
-    assert!(
-        value
-            .get("lint")
-            .and_then(|lint| lint.get("rules"))
-            .and_then(|rules| rules.get("custom-rule"))
-            .and_then(|rule| rule.get("stamp"))
-            .and_then(toml::Value::as_datetime)
-            .is_some()
-    );
+"#
+        );
+        let parsed = parse_toml_config_str(&body, false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+        let expected: toml::Value = toml::from_str(&body).expect("valid TOML");
+        let value = toml_config_to_value(&parsed);
+        assert_eq!(value, expected);
+        let rendered = toml::to_string(&value).expect("TOML should render");
+        assert_eq!(toml::from_str::<toml::Value>(&rendered).unwrap(), expected);
+    }
 }
 
 #[test]
@@ -1064,11 +1038,6 @@ fn normalize_toml_config_preserves_quoted_strings_in_fixable() {
 
 #[test]
 fn every_rule_round_trips_through_toml_serialization() {
-    // `rules_table_to_value` serializes each rule via a hand-written
-    // `insert_serialized` line with no compile-time cross-check, so a new rule
-    // whose line is forgotten is silently dropped from normalized output. Enable
-    // every rule and assert each survives the round trip, so that omission fails
-    // a test instead of shipping.
     let body: String = std::iter::once("[lint.rules]\n".to_string())
         .chain(
             ryl::rules::ALL_RULE_IDS

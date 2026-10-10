@@ -42,7 +42,8 @@ use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{Overrides, YamlLintConfig, discover_config, discover_config_with};
 use ryl::config_schema::TomlConfig;
 use ryl::config_schema::{
-    normalize_toml_config, parse_toml_config_str, validate_toml_config,
+    normalize_toml_config, parse_toml_config_str, toml_config_to_value,
+    validate_toml_config,
 };
 use ryl::lint::lint_str;
 
@@ -70,6 +71,10 @@ fn parse_toml_without_panicking(toml_config: &str) {
     if let Ok(Some(typed)) = parse_toml_config_str(toml_config, false)
         && validate_toml_config(&typed).is_ok()
     {
+        assert_eq!(
+            toml_config_to_value(&typed),
+            toml::from_str::<toml::Value>(toml_config).unwrap()
+        );
         let _ = normalize_toml_config(&typed);
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(".ryl.toml");
