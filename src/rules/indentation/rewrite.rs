@@ -107,8 +107,8 @@ impl<'a> Prepared<'a> {
             (String::new(), Vec::new(), Vec::new())
         };
         let chars: Vec<(usize, char)> = shaped.char_indices().collect();
-        let line_starts = build_line_starts(&chars);
-        let tokens = scan(&shaped, &chars, &line_starts);
+        let mut line_starts = build_line_starts(&chars);
+        let tokens = scan(&shaped, &chars, &mut line_starts);
         Self {
             buffer,
             original,
@@ -139,7 +139,16 @@ impl<'a> Prepared<'a> {
         analyzer.run(&self.tokens);
         let shaped_lines: Vec<(&str, &str)> =
             split_lines_preserve_endings(&self.shaped)
-                .map(|(_, content, ending)| (content, ending))
+                .map(|(line, content, ending)| {
+                    let content = if self.bom_prefix(line) {
+                        content
+                            .strip_prefix('\u{feff}')
+                            .expect("BOM prefix matches the scanned line")
+                    } else {
+                        content
+                    };
+                    (content, ending)
+                })
                 .collect();
         let deltas = settle(&shaped_lines, &analyzer.shifts);
         let mut refused = self.refusals(&analyzer);
@@ -162,6 +171,7 @@ impl<'a> Prepared<'a> {
                     render_line(
                         &mut text,
                         shaped_lines[line],
+                        self.bom_prefix(line),
                         deltas[line],
                         &analyzer.gaps[line],
                     );
@@ -191,6 +201,11 @@ impl<'a> Prepared<'a> {
                 })
                 .collect(),
         }
+    }
+
+    fn bom_prefix(&self, line: usize) -> bool {
+        let start = self.line_starts[line].get();
+        start > 0 && self.chars[start - 1].1 == '\u{feff}'
     }
 
     /// Each document's first [`Cause`] other than [`Cause::Changed`].
@@ -242,9 +257,13 @@ fn document_starts(buffer: &str, documents: &[Document<'_>]) -> Vec<usize> {
 fn render_line(
     text: &mut String,
     (content, ending): (&str, &str),
+    bom: bool,
     delta: isize,
     gaps: &[Gap],
 ) {
+    if bom {
+        text.push('\u{feff}');
+    }
     let indent = content.len() - content.trim_start_matches(' ').len();
     let placed = indent.saturating_add_signed(delta);
     text.push_str(&" ".repeat(placed * usize::from(!content.is_empty())));
@@ -275,8 +294,8 @@ fn reshape(
     let mut kept = Vec::new();
     if let Some(own_line) = dash_on_own_line {
         let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-        let line_starts = build_line_starts(&chars);
-        let tokens = scan(buffer, &chars, &line_starts);
+        let mut line_starts = build_line_starts(&chars);
+        let tokens = scan(buffer, &chars, &mut line_starts);
         let commented: HashSet<usize> = Scanner::new(StrInput::new(buffer))
             .map_while(Result::ok)
             .map(Token::into_parts)
@@ -301,7 +320,12 @@ fn reshape(
             } else if !own_line
                 && start.line == entry.line + 1
                 && start.column > entry.column + 1
-                && lines[entry.line].0.trim_end().len() == entry.column + 1
+                && lines[entry.line]
+                    .0
+                    .trim_start_matches('\u{feff}')
+                    .trim_end()
+                    .len()
+                    == entry.column + 1
             {
                 joins[entry.line] = Some(entry.column);
             }
@@ -312,6 +336,14 @@ fn reshape(
     let mut line = 0;
     while line < lines.len() {
         let (content, ending) = lines[line];
+        let content = if (joins[line].is_some() || breaks[line].is_some())
+            && content.starts_with('\u{feff}')
+        {
+            text.push('\u{feff}');
+            &content['\u{feff}'.len_utf8()..]
+        } else {
+            content
+        };
         origin.push(line);
         if let Some(dash) = joins[line] {
             let (below, below_ending) = lines[line + 1];

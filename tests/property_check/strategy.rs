@@ -562,6 +562,11 @@ fn arb_block_scalar_block() -> impl Strategy<Value = Vec<Line>> {
 fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
     prop_oneof![
         10 => (arb_line(), arb_newline()).prop_map(|pair| vec![pair]),
+        1 => (prop::sample::select(vec!["---", "-   å", "å :   b", "#bad", "  "]), arb_newline())
+            .prop_map(|(body, newline)| vec![
+                (Line::DocumentEnd, newline),
+                (Line::Raw { indent: 0, text: format!("\u{feff}{body}") }, newline),
+            ]),
         1 => (arb_merge_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
