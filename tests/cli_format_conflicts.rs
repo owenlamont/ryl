@@ -88,7 +88,7 @@ fn agreeing_configs_are_silent() {
             true,
         ),
         (
-            "rules: {indentation: {spaces: 2, indent-sequences: whatever, \
+            "rules: {indentation: {spaces: consistent, indent-sequences: whatever, \
              check-multi-line-strings: true}}",
             false,
         ),
@@ -278,16 +278,22 @@ fn a_forbidden_flow_style_names_the_collection_key() {
 }
 
 #[test]
-fn indentation_and_hyphens_name_the_layout_key_they_disagree_with() {
+fn layout_rules_name_the_key_they_disagree_with() {
     for (config, expected) in [
         (
-            "[lint.rules.indentation]\nspaces = 4\n",
+            "indent-width = 2\n[lint.rules.indentation]\nspaces = 4\n",
             "`indent-width = 2`",
         ),
         (
-            "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 4\n\
+            "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 2\n\
              indent-sequences = false\n",
-            "`indent-width = 2`",
+            "per-file indent width (`indent-width` unset). Disable indentation when \
+             using `ryl format`, or set the top-level `indent-width` to its `spaces`.",
+        ),
+        (
+            "[format]\nline-ending = 'auto'\n[lint.rules]\nnew-lines = 'enable'\n",
+            "`[format] line-ending = \"auto\"`. Disable new-lines when using `ryl format`, \
+             or set `[format] line-ending` to the ending its `type` names.",
         ),
         (
             "[lint.rules.indentation]\nindent-sequences = false\n",

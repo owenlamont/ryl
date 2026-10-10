@@ -12,7 +12,7 @@ use common::cli::{run, ryl};
 
 const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
 const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
-const UNFOLLOWABLE: &str = "k:\n    a: 1\n---\n: v\n";
+const UNFOLLOWABLE: &str = "k:\n  a: 1\nj:\n    b: 1\n---\n: v\n";
 
 fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();

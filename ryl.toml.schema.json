@@ -171,7 +171,7 @@
         "line-ending": {
           "$ref": "#/$defs/LineEndingTarget",
           "default": "lf",
-          "description": "Line ending; `native` is the platform's."
+          "description": "Line ending; `native` is the platform's, `auto` the one most of the file uses."
         },
         "mapping-style": {
           "$ref": "#/$defs/CollectionStyleTarget",
@@ -264,7 +264,8 @@
       "enum": [
         "lf",
         "cr-lf",
-        "native"
+        "native",
+        "auto"
       ],
       "type": "string"
     },

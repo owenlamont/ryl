@@ -38,6 +38,7 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
+use ryl::format::file_indent_width;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 
@@ -177,6 +178,14 @@ proptest! {
     }
 
     #[test]
+    fn a_file_consistent_at_a_width_keeps_it_without_an_indent_width(
+        document in arb_document_with_properties(),
+        width in 2u8..=8,
+    ) {
+        check_detection(&document.render(), width).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
     fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
         input in arb_fold_document()
     ) {
@@ -254,6 +263,39 @@ fn check_reindent(input: &str, width: usize) -> Result<(), String> {
         )),
         None => Ok(()),
     }
+}
+
+fn reindent_target(width: u8) -> indentation::Config {
+    indentation::Config::new(
+        SpacesSetting::Fixed(usize::from(width)),
+        IndentSequencesSetting::True,
+        false,
+    )
+}
+
+/// `input` re-indented to `width` is left alone by a format with no `indent-width`: the
+/// width detected moves no line, and is `width` wherever some width would move one.
+fn check_detection(input: &str, width: u8) -> Result<(), String> {
+    let consistent = indentation::reindent(input, &reindent_target(width));
+    if representation(input).is_none() || !consistent.refused.is_empty() {
+        return Ok(());
+    }
+    let text = consistent.text;
+    let detected = file_indent_width(&YamlLintConfig::default(), &text);
+    let moved = indentation::moved_lines(
+        &text,
+        &(2..=8).map(reindent_target).collect::<Vec<_>>(),
+    );
+    let unmoved = indentation::reindent(&text, &reindent_target(detected)).text == text;
+    if moved.iter().any(|&count| count > 0) && (detected != width || !unmoved) {
+        return Err(format!(
+            "detected {detected}, consistent at {width}: {text:?}"
+        ));
+    }
+    if moved[usize::from(detected - 2)] > 0 {
+        return Err(format!("detected {detected} moves lines: {text:?}"));
+    }
+    Ok(())
 }
 
 fn check_fold(input: &str, output: &str) -> Result<(), String> {

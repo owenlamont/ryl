@@ -64,7 +64,7 @@ fixable = ["ALL"]
 unfixable = ["new-lines"]
 ```
 
-`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending, and with any `type` under `line-ending = "auto"`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

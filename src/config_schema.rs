@@ -95,7 +95,7 @@ pub struct LintTable {
 pub struct FormatTable {
     /// Preferred quote for strings that need quoting; `preserve` leaves quoting alone.
     pub quote_style: QuoteStyleTarget,
-    /// Line ending; `native` is the platform's.
+    /// Line ending; `native` is the platform's, `auto` the one most of the file uses.
     pub line_ending: LineEndingTarget,
     /// Whether to add a missing `---` document start marker.
     pub document_start: MarkerTarget,
@@ -158,6 +158,7 @@ pub enum LineEndingTarget {
     Lf,
     CrLf,
     Native,
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]

@@ -75,7 +75,8 @@ parent:
 `ryl check --fix` does not fix this rule; indentation changes can shift values into
 different parents.
 
-`ryl format` re-indents each block level to the top-level `indent-width` (default 2),
+`ryl format` re-indents each block level to the top-level `indent-width`, or without it
+to the width the file mostly uses (see [Configuration](../formatter.md#configuration)),
 with block sequences indented past their key unless `[format] indent-sequences = false`.
 Block scalar bodies, continuation lines and comments move with the line they belong to,
 and lines inside a flow collection go where this rule expects them. A document is left

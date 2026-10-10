@@ -146,6 +146,26 @@ pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
     }
 }
 
+/// For each of `cfgs`, how many lines led by a token [`reindent`] would move: a line
+/// inside a multi-line scalar, a block scalar's body included, never counts.
+#[must_use]
+pub fn moved_lines(buffer: &str, cfgs: &[Config]) -> Vec<usize> {
+    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let line_starts = build_line_starts(&chars);
+    let tokens = scan(buffer, &chars, &line_starts);
+    cfgs.iter()
+        .map(|cfg| {
+            let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, Mode::Target);
+            analyzer.run(&tokens);
+            analyzer
+                .shifts
+                .iter()
+                .filter(|shift| matches!(shift, Some(Shift::Token { delta, .. }) if *delta != 0))
+                .count()
+        })
+        .collect()
+}
+
 /// The 0-based line each of `documents` starts on, the first taking any lines before it.
 fn document_starts(buffer: &str, documents: &[Document<'_>]) -> Vec<usize> {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
