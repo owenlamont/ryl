@@ -12,7 +12,7 @@
 //!
 //! Sources: YAML 1.2.2 §8.1.1.2; <https://www.yaml.info/learn/quote#chomp>.
 
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
+use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
 
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
@@ -39,8 +39,7 @@ pub fn check(buffer: &str) -> Vec<Violation> {
 }
 
 pub(crate) struct Header {
-    /// The scanner token's start index, which identifies the scalar.
-    pub(crate) token_start: usize,
+    pub(crate) span: Span,
     pub(crate) line: usize,
     pub(crate) column: usize,
     pub(crate) chomping: Option<char>,
@@ -60,7 +59,7 @@ pub(crate) fn headers(buffer: &str) -> Vec<Header> {
                 let (line, column) =
                     line_and_column(&line_starts, CharPos::new(marker));
                 headers.push(Header {
-                    token_start: span.start.index(),
+                    span,
                     line,
                     column,
                     chomping: chars[marker + 1..]
@@ -111,6 +110,7 @@ pub(crate) fn ends_in_unstripped_scalar(buffer: &str) -> bool {
     });
     !commented_after
         && headers(buffer).last().is_some_and(|header| {
-            header.token_start == span.start.index() && header.chomping != Some('-')
+            header.span.start.index() == span.start.index()
+                && header.chomping != Some('-')
         })
 }

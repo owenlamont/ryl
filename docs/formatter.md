@@ -85,7 +85,7 @@ dash-on-own-line = false
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
-| `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines. |
+| `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines; leading and trailing runs are removed. Scalar content is preserved, including keep-chomping (`\|+`/`>+`) tails; clip/strip tails can be trimmed. |
 | `indent-sequences` | `true` | `true`, `false` | Whether a block sequence under a mapping key is indented past the key; `false` keeps it flush. |
 | `dash-on-own-line` | `false` | `true`, `false` | Whether a block mapping in a block sequence starts on the line after its `-`; `false` joins them as `- name: web`. |
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
@@ -110,7 +110,7 @@ The rest of the layout is fixed:
 | Own-line comments | Aligned with the content they precede |
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
 | Blank lines | None at the start or end of the file |
-| Line ends | No trailing whitespace; exactly one newline at the end of the file |
+| Line ends | Remove trailing whitespace outside scalar content; add a final newline when value-safe |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
