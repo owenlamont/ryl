@@ -26,6 +26,8 @@ mod ast;
 #[path = "property_safe_fix/config.rs"]
 #[allow(dead_code)]
 mod config;
+#[path = "common/encoding.rs"]
+mod encoding;
 #[path = "property_safe_fix/strategy.rs"]
 mod strategy;
 #[path = "property_markdown_fix/wrap.rs"]
@@ -168,6 +170,37 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn encoded_previews_match_plain_previews(
+        input in prop_oneof![
+            arb_document().prop_map(|document| (document.render(), SourceKind::Yaml)),
+            arb_markdown_doc().prop_map(|document| (document.render(), SourceKind::Markdown)),
+        ],
+        width in prop::sample::select(vec![1usize, 2, 4]),
+        little in any::<bool>(),
+        bom in any::<bool>(),
+    ) {
+        let (input, kind) = input;
+        let bytes = encoding::encoded(&input, width, little, bom);
+        let decoded = ryl::decoder::decode_bytes_lossless(&bytes).unwrap();
+        for prepared in safe_fix_configs() {
+            let plain = diff_outcome(
+                &input, &prepared.cfg, synthetic_path(), synthetic_base_dir(),
+                kind, Rewrite::Fix,
+            );
+            let outcome = ryl::fix::decoded_diff_outcome(
+                &decoded, &prepared.cfg, synthetic_path(), synthetic_base_dir(),
+                kind, Rewrite::Fix,
+            );
+            prop_assert_eq!(outcome.changed, plain.changed, "{}", prepared.name);
+            if !decoded.is_plain_utf8() {
+                prop_assert!(outcome.diff.is_none());
+            } else {
+                prop_assert_eq!(outcome.diff, plain.diff);
+            }
+        }
+    }
 
     #[test]
     fn yaml_diff_is_a_faithful_applicable_preview(document in arb_document()) {

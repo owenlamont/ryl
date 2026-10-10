@@ -47,19 +47,21 @@ fn byte_preserving_overrides_keep_plain_stdin_lint_diffs() {
 #[test]
 fn stateful_overrides_skip_lint_diffs_that_cannot_apply_to_input_bytes() {
     let dir = tempdir().unwrap();
-    let mut command = ryl(dir.path());
-    command.env("YAMLLINT_FILE_ENCODING", "iso-2022-jp").args([
-        "check",
-        "-d",
-        "{rules: {colons: enable}}",
-        "--diff",
-        "-",
-    ]);
-    let input = [b"\x1b(B".as_slice(), b"a:    1\n"].concat();
-    let output = stdin_output(&mut command, &input);
-    assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert!(output.stdout.is_empty(), "{output:?}");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("skipped by --diff"));
+    for (text, expected) in [("a:    1\n", 1), ("a: 1\n", 0)] {
+        let mut command = ryl(dir.path());
+        command.env("YAMLLINT_FILE_ENCODING", "iso-2022-jp").args([
+            "check",
+            "-d",
+            "{rules: {colons: enable}}",
+            "--diff",
+            "-",
+        ]);
+        let input = [b"\x1b(B".as_slice(), text.as_bytes()].concat();
+        let output = stdin_output(&mut command, &input);
+        assert_eq!(output.status.code(), Some(expected), "{output:?}");
+        assert!(output.stdout.is_empty(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("skipped by --diff"));
+    }
 }
 
 #[test]

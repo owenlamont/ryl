@@ -274,7 +274,7 @@ remaining *unfixable* findings are neither printed nor counted:
 
 A file that cannot be parsed (or a symlink) is skipped with a notice on
 stderr and does not affect the exit code. Non-UTF-8 and BOM-prefixed files
-are also skipped without affecting the exit code; use `--fix` instead
+emit no patch, but still exit `1` when a fix would change the decoded text; use `--fix`
 (see [File encodings](#file-encodings)). For embedded YAML in Markdown,
 the diff is reported at the host-file level (one diff per `.md`).
 
@@ -296,8 +296,10 @@ the yamllint-compatible override prints:
 `ryl format -` preserves stdin's encoding in stdout.
 
 For BOM/UTF-16/UTF-32 input, `--diff` reports that no applicable text patch
-can be emitted. `ryl format --check` and `ryl format --diff` still exit `1`
-when formatting would change the text.
+can be emitted. `ryl check --diff` still exits `1` when a fix would change
+the decoded text, including stdin and embedded YAML in Markdown.
+`ryl format --check` and `ryl format --diff` likewise exit `1` when formatting
+would change the text.
 
 [LSP position encoding](https://ryl-docs.pages.dev/editor-integration/#notes) counts columns,
 independently of file encoding.
