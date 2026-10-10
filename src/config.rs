@@ -10,7 +10,7 @@ use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
 use crate::rules::key_ordering::{self, KeyOrder};
 use crate::yaml_dom::{ScalarOwned, YamlOwned};
-use globset::{Glob, GlobMatcher, escape as glob_escape};
+use globset::{GlobBuilder, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 
@@ -35,6 +35,9 @@ pub enum SourceKind {
 }
 
 pub trait Env {
+    fn case_insensitive_paths(&self) -> bool {
+        CASE_INSENSITIVE_PATHS
+    }
     fn current_dir(&self) -> PathBuf;
     fn config_dir(&self) -> Option<PathBuf>;
     fn home_dir(&self) -> Option<PathBuf>;
@@ -53,6 +56,70 @@ fn process_cwd() -> &'static Path {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemEnv;
+
+pub(crate) const CASE_INSENSITIVE_PATHS: bool = cfg!(any(windows, target_os = "macos"));
+
+#[derive(Debug, Clone, Copy)]
+enum PathCase {
+    Sensitive,
+    Insensitive,
+}
+
+impl From<bool> for PathCase {
+    fn from(insensitive: bool) -> Self {
+        if insensitive {
+            Self::Insensitive
+        } else {
+            Self::Sensitive
+        }
+    }
+}
+
+impl PathCase {
+    fn is_insensitive(self) -> bool {
+        matches!(self, Self::Insensitive)
+    }
+}
+
+fn strip_path_prefix<'a>(
+    path: &'a Path,
+    base: &Path,
+    case_insensitive: bool,
+) -> Option<&'a Path> {
+    let mut components = path.components();
+    for base_component in base.components() {
+        let component = components.next()?;
+        let matched = if case_insensitive {
+            component
+                .as_os_str()
+                .as_encoded_bytes()
+                .eq_ignore_ascii_case(base_component.as_os_str().as_encoded_bytes())
+        } else {
+            component == base_component
+        };
+        if !matched {
+            return None;
+        }
+    }
+    Some(components.as_path())
+}
+
+pub(crate) fn paths_equal(left: &Path, right: &Path, case_insensitive: bool) -> bool {
+    strip_path_prefix(left, right, case_insensitive)
+        .is_some_and(|rest| rest.as_os_str().is_empty())
+}
+
+pub(crate) fn path_has_name(
+    path: &Path,
+    names: &[&str],
+    case_insensitive: bool,
+) -> bool {
+    path.file_name().is_some_and(|name| {
+        names.iter().any(|candidate| {
+            paths_equal(Path::new(name), Path::new(candidate), case_insensitive)
+        })
+    })
+}
 
 impl Env for SystemEnv {
     fn current_dir(&self) -> PathBuf {
@@ -129,6 +196,7 @@ impl Env for ClosureEnv<'_> {
 
 #[derive(Debug, Clone)]
 pub struct YamlLintConfig {
+    path_case: PathCase,
     ignore_patterns: Vec<String>,
     ignore_from_files: Vec<String>,
     #[allow(clippy::struct_field_names)]
@@ -186,8 +254,13 @@ struct PerFileIgnore {
 }
 
 impl PerFileIgnore {
-    fn new(pattern: &str, rules: Vec<String>, base_dir: &Path) -> Result<Self, String> {
-        let glob = PathGlob::new(pattern, base_dir).map_err(|err| {
+    fn new(
+        pattern: &str,
+        rules: Vec<String>,
+        base_dir: &Path,
+        case_insensitive: bool,
+    ) -> Result<Self, String> {
+        let glob = PathGlob::new(pattern, base_dir, case_insensitive).map_err(|err| {
             let (_, pattern) = split_negation(pattern);
             format!(
                 "invalid config: per-file-ignores pattern '{pattern}' is invalid: {err}"
@@ -210,12 +283,21 @@ struct PathGlob {
 
 impl PathGlob {
     /// `base_dir` resolves against the cwd, as walked and CLI paths do.
-    fn new(pattern: &str, base_dir: &Path) -> Result<Self, globset::Error> {
+    fn new(
+        pattern: &str,
+        base_dir: &Path,
+        case_insensitive: bool,
+    ) -> Result<Self, globset::Error> {
         let (negated, pattern) = split_negation(pattern);
-        let basename = Glob::new(pattern)?.compile_matcher();
+        let basename = GlobBuilder::new(pattern)
+            .case_insensitive(case_insensitive)
+            .build()?
+            .compile_matcher();
         let cwd = lexical_abspath(Path::new("."));
         let anchor = normalize_lexically(&cwd.join(base_dir));
-        let absolute = Glob::new(&absolute_glob_pattern(pattern, &anchor))
+        let absolute = GlobBuilder::new(&absolute_glob_pattern(pattern, &anchor))
+            .case_insensitive(case_insensitive)
+            .build()
             .expect("an escaped anchor keeps a valid pattern valid")
             .compile_matcher();
         Ok(Self {
@@ -307,9 +389,13 @@ struct PerLineIgnoreMatcher {
 
 impl PerLineIgnoreMatcher {
     /// Infallible: `validate_per_line_ignores` already proved every regex/glob compiles.
-    fn new(entry: &NormalizedPerLineIgnore, base_dir: &Path) -> Self {
+    fn new(
+        entry: &NormalizedPerLineIgnore,
+        base_dir: &Path,
+        case_insensitive: bool,
+    ) -> Self {
         let path_glob = entry.path.as_deref().map(|pattern| {
-            PathGlob::new(pattern, base_dir)
+            PathGlob::new(pattern, base_dir, case_insensitive)
                 .expect("per-line-ignores `path` compiles after config validation")
         });
         let regex = entry.regex.as_deref().map(|pattern| {
@@ -340,10 +426,11 @@ impl PerLineIgnoreMatcher {
 fn build_per_line_ignores(
     entries: &[NormalizedPerLineIgnore],
     base_dir: &Path,
+    case_insensitive: bool,
 ) -> Vec<PerLineIgnoreMatcher> {
     entries
         .iter()
-        .map(|entry| PerLineIgnoreMatcher::new(entry, base_dir))
+        .map(|entry| PerLineIgnoreMatcher::new(entry, base_dir, case_insensitive))
         .collect()
 }
 
@@ -375,11 +462,13 @@ impl RuleConfig {
         build_rule_filter(filter, envx, base_dir)
     }
 
-    fn is_ignored(&self, path: &Path, base_dir: &Path) -> bool {
+    fn is_ignored(&self, path: &Path, base_dir: &Path, case_insensitive: bool) -> bool {
         self.filter
             .as_ref()
             .and_then(|filter| filter.matcher.as_ref())
-            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
+            .is_some_and(|matcher| {
+                path_matches_ignore(matcher, path, base_dir, case_insensitive)
+            })
     }
 }
 
@@ -471,6 +560,7 @@ impl FixConfig {
 impl Default for YamlLintConfig {
     fn default() -> Self {
         Self {
+            path_case: CASE_INSENSITIVE_PATHS.into(),
             ignore_patterns: Vec::new(),
             ignore_from_files: Vec::new(),
             ignore_matcher: None,
@@ -619,17 +709,29 @@ impl YamlLintConfig {
     }
 
     fn build_file_kind_matchers(&mut self, base_dir: &Path) {
-        self.yaml_matcher = build_glob_matcher(base_dir, &self.yaml_file_patterns);
-        self.markdown_matcher =
-            build_glob_matcher(base_dir, &self.markdown_file_patterns);
+        self.yaml_matcher = build_glob_matcher(
+            base_dir,
+            &self.yaml_file_patterns,
+            self.path_case.is_insensitive(),
+        );
+        self.markdown_matcher = build_glob_matcher(
+            base_dir,
+            &self.markdown_file_patterns,
+            self.path_case.is_insensitive(),
+        );
     }
 
     /// Matches `path` relative to `base_dir`.
     #[must_use]
     pub fn is_file_ignored(&self, path: &Path, base_dir: &Path) -> bool {
-        self.ignore_matcher
-            .as_ref()
-            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
+        self.ignore_matcher.as_ref().is_some_and(|matcher| {
+            path_matches_ignore(
+                matcher,
+                path,
+                base_dir,
+                self.path_case.is_insensitive(),
+            )
+        })
     }
 
     /// Disable filename-based rule ignores so every enabled rule runs. Use when linting
@@ -651,19 +753,18 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
-        self.rules
-            .get(rule)
-            .is_some_and(|config| config.is_ignored(path, base_dir))
-            || self
-                .per_file_ignore_matchers
-                .iter()
-                .filter(|entry| entry.glob.matches(path))
-                .any(|entry| {
-                    entry
-                        .rules
-                        .iter()
-                        .any(|candidate| candidate == rule || candidate == "ALL")
-                })
+        self.rules.get(rule).is_some_and(|config| {
+            config.is_ignored(path, base_dir, self.path_case.is_insensitive())
+        }) || self
+            .per_file_ignore_matchers
+            .iter()
+            .filter(|entry| entry.glob.matches(path))
+            .any(|entry| {
+                entry
+                    .rules
+                    .iter()
+                    .any(|candidate| candidate == rule || candidate == "ALL")
+            })
     }
 
     /// `key-ordering`'s `orders` entries whose `files` match `path`, in config order.
@@ -696,7 +797,7 @@ impl YamlLintConfig {
     #[must_use]
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         if let Some(matcher) = &self.yaml_matcher {
-            let rel = relative_to_base(path, base_dir);
+            let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
             let matched =
                 matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
             return matched.is_ignore();
@@ -711,7 +812,7 @@ impl YamlLintConfig {
         let Some(matcher) = &self.markdown_matcher else {
             return false;
         };
-        let rel = relative_to_base(path, base_dir);
+        let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
         matcher
             .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
             .is_ignore()
@@ -753,8 +854,11 @@ impl YamlLintConfig {
                 .iter()
                 .map(|pattern| (*pattern).to_string())
                 .collect();
-            self.markdown_matcher =
-                build_glob_matcher(base_dir, &self.markdown_file_patterns);
+            self.markdown_matcher = build_glob_matcher(
+                base_dir,
+                &self.markdown_file_patterns,
+                self.path_case.is_insensitive(),
+            );
             self.markdown_from_flag = true;
         }
     }
@@ -943,6 +1047,7 @@ impl YamlLintConfig {
         envx: &dyn Env,
         base_dir: &Path,
     ) -> Result<(), String> {
+        self.path_case = envx.case_insensitive_paths().into();
         // Reject unknown rule names (matching yamllint's "no such rule"): an unknown rule
         // is never dispatched by `lint_str`, so without this a typo lints nothing and a
         // config whose only entries are unknown slips past the "no rules enabled" guard.
@@ -964,10 +1069,16 @@ impl YamlLintConfig {
             self.ignore_patterns.extend(extra_patterns);
         }
         self.ignore_matcher = matcher;
-        self.per_file_ignore_matchers =
-            build_per_file_ignores(&self.per_file_ignores, base_dir)?;
-        self.per_line_ignore_matchers =
-            build_per_line_ignores(&self.per_line_ignores, base_dir);
+        self.per_file_ignore_matchers = build_per_file_ignores(
+            &self.per_file_ignores,
+            base_dir,
+            self.path_case.is_insensitive(),
+        )?;
+        self.per_line_ignore_matchers = build_per_line_ignores(
+            &self.per_line_ignores,
+            base_dir,
+            self.path_case.is_insensitive(),
+        );
         let orders = self.rule_option(key_ordering::ID, "orders");
         self.key_orders = (orders
             .and_then(YamlOwned::as_sequence)
@@ -979,7 +1090,8 @@ impl YamlLintConfig {
                 .and_then(YamlOwned::as_sequence);
             let globs = (files.into_iter().flatten().filter_map(YamlOwned::as_str))
                 .map(|glob| {
-                    PathGlob::new(glob, base_dir).expect("validated `files` glob")
+                    PathGlob::new(glob, base_dir, self.path_case.is_insensitive())
+                        .expect("validated `files` glob")
                 });
             (globs.collect(), KeyOrder::new(entry))
         })
@@ -1020,11 +1132,18 @@ fn build_rule_filter(
     Ok(())
 }
 
-fn build_glob_matcher(base_dir: &Path, patterns: &[String]) -> Option<Gitignore> {
+fn build_glob_matcher(
+    base_dir: &Path,
+    patterns: &[String],
+    case_insensitive: bool,
+) -> Option<Gitignore> {
     if patterns.is_empty() {
         return None;
     }
     let mut builder = GitignoreBuilder::new(base_dir);
+    builder
+        .case_insensitive(case_insensitive)
+        .expect("setting case sensitivity is infallible");
     builder.allow_unclosed_class(false);
     for pat in patterns {
         let normalized = pat.trim_end_matches(['\r']);
@@ -1044,6 +1163,9 @@ fn build_ignore_matcher(
     }
 
     let mut builder = GitignoreBuilder::new(base_dir);
+    builder
+        .case_insensitive(envx.case_insensitive_paths())
+        .expect("setting case sensitivity is infallible");
     builder.allow_unclosed_class(false);
     let mut any_pattern = false;
 
@@ -1101,33 +1223,45 @@ fn build_ignore_matcher(
 fn build_per_file_ignores(
     per_file_ignores: &BTreeMap<String, Vec<String>>,
     base_dir: &Path,
+    case_insensitive: bool,
 ) -> Result<Vec<PerFileIgnore>, String> {
     per_file_ignores
         .iter()
-        .map(|(pattern, rules)| PerFileIgnore::new(pattern, rules.clone(), base_dir))
+        .map(|(pattern, rules)| {
+            PerFileIgnore::new(pattern, rules.clone(), base_dir, case_insensitive)
+        })
         .collect()
 }
 
 /// Resolves a relative path or base via the cwd; a path outside the base falls back
 /// to its file name, as `ignore` panics on one not under its root.
-fn relative_to_base<'a>(path: &'a Path, base_dir: &Path) -> Cow<'a, Path> {
-    if let Ok(rel) = path.strip_prefix(base_dir) {
+fn relative_to_base<'a>(
+    path: &'a Path,
+    base_dir: &Path,
+    case_insensitive: bool,
+) -> Cow<'a, Path> {
+    if let Some(rel) = strip_path_prefix(path, base_dir, case_insensitive)
+        && (!case_insensitive || !rel.has_root())
+    {
         return Cow::Borrowed(rel);
     }
     let cwd = process_cwd();
-    let resolved = cwd
-        .join(path)
-        .strip_prefix(cwd.join(base_dir))
-        .ok()
-        .map(Path::to_path_buf);
+    let resolved =
+        strip_path_prefix(&cwd.join(path), &cwd.join(base_dir), case_insensitive)
+            .map(Path::to_path_buf);
     Cow::Owned(
         resolved
             .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
     )
 }
 
-fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> bool {
-    let rel = relative_to_base(path, base_dir);
+fn path_matches_ignore(
+    matcher: &Gitignore,
+    path: &Path,
+    base_dir: &Path,
+    case_insensitive: bool,
+) -> bool {
+    let rel = relative_to_base(path, base_dir, case_insensitive);
     let rel = rel.as_ref();
     let direct = matcher.matched(rel, false);
     if direct.is_whitelist() {
@@ -1581,12 +1715,9 @@ fn config_base_dir(envx: &dyn Env, p: &Path) -> PathBuf {
     let base = p
         .parent()
         .map_or_else(|| envx.current_dir(), Path::to_path_buf);
-    let is_config_candidate = base.file_name().and_then(|name| name.to_str())
-        == Some(".config")
-        && matches!(
-            p.file_name().and_then(|name| name.to_str()),
-            Some(".ryl.toml" | "ryl.toml")
-        );
+    let insensitive = envx.case_insensitive_paths();
+    let is_config_candidate = path_has_name(&base, &[".config"], insensitive)
+        && path_has_name(p, &[".ryl.toml", "ryl.toml"], insensitive);
     if !is_config_candidate {
         return base;
     }
@@ -1605,7 +1736,7 @@ fn ctx_from_config_path_core(
     mut notices: Vec<String>,
 ) -> Result<ConfigContext, String> {
     let base = config_base_dir(envx, p);
-    if !is_toml_path(p) {
+    if !is_toml_path_with_case(p, envx.case_insensitive_paths()) {
         notices.push(legacy_yaml_notice(origin, Some(p)));
     }
     let allow_missing_pyproject = origin == LegacyYamlSource::Project;
@@ -1632,7 +1763,7 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
     // YAMLLINT_CONFIG_FILE is yamllint's env var, so it accepts only yamllint YAML configs.
     // Reject a `.toml` target (by extension, the loader's sole YAML-vs-TOML signal) before
     // the existence check: `-c`/project discovery are the route for ryl TOML.
-    if is_toml_path(&path) {
+    if is_toml_path_with_case(&path, envx.case_insensitive_paths()) {
         return Err(format!(
             "YAMLLINT_CONFIG_FILE points at a TOML file ({}); it accepts only yamllint YAML \
              configs. Use -c/--config-file or project config discovery for ryl-native TOML.",
@@ -1761,10 +1892,7 @@ fn load_config_from_path_core(
     allow_missing_pyproject: bool,
 ) -> Result<Option<YamlLintConfig>, String> {
     let data = envx.read_to_string(path)?;
-    if path
-        .file_name()
-        .is_some_and(|name| name == "pyproject.toml")
-    {
+    if path_has_name(path, &["pyproject.toml"], envx.case_insensitive_paths()) {
         let cfg = YamlLintConfig::from_toml_str_with_env(
             &data,
             Some(envx),
@@ -1779,7 +1907,7 @@ fn load_config_from_path_core(
         }
         return Ok(cfg);
     }
-    if is_toml_path(path) {
+    if is_toml_path_with_case(path, envx.case_insensitive_paths()) {
         let cfg = YamlLintConfig::from_toml_str_with_env(
             &data,
             Some(envx),
@@ -1793,7 +1921,13 @@ fn load_config_from_path_core(
 }
 
 pub(crate) fn is_toml_path(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == "toml")
+    is_toml_path_with_case(path, CASE_INSENSITIVE_PATHS)
+}
+
+fn is_toml_path_with_case(path: &Path, case_insensitive: bool) -> bool {
+    path.extension().is_some_and(|ext| {
+        paths_equal(Path::new(ext), Path::new("toml"), case_insensitive)
+    })
 }
 
 /// Join a `/`-separated candidate onto `dir` component by component so the result uses
@@ -1824,7 +1958,10 @@ fn build_project_search_starts(envx: &dyn Env, inputs: &[PathBuf]) -> Vec<PathBu
         }
         .components()
         .collect();
-        if !starts.iter().any(|existing| existing == &abs) {
+        if !starts
+            .iter()
+            .any(|existing| paths_equal(existing, &abs, envx.case_insensitive_paths()))
+        {
             starts.push(abs);
         }
     }
@@ -1844,7 +1981,9 @@ fn find_first_yaml_candidate(
                 return Some(candidate);
             }
         }
-        if home_abs.is_some_and(|home| home == &dir) {
+        if home_abs
+            .is_some_and(|home| paths_equal(home, &dir, envx.case_insensitive_paths()))
+        {
             break;
         }
         match dir.parent() {
@@ -1861,7 +2000,7 @@ pub(crate) fn find_project_toml_config(
 ) -> Result<Option<PathBuf>, String> {
     Ok(find_project_config_core(envx, inputs)?
         .map(|discovery| discovery.cfg_path)
-        .filter(|path| is_toml_path(path)))
+        .filter(|path| is_toml_path_with_case(path, envx.case_insensitive_paths())))
 }
 
 fn find_project_config_core(
@@ -1911,7 +2050,9 @@ fn find_project_config_core(
                     notices,
                 }));
             }
-            if home_abs.as_ref().is_some_and(|home| home == &dir) {
+            if home_abs.as_ref().is_some_and(|home| {
+                paths_equal(home, &dir, envx.case_insensitive_paths())
+            }) {
                 break;
             }
             match dir.parent() {

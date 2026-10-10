@@ -11,7 +11,6 @@ pub mod hover;
 pub mod rename;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -1075,11 +1074,17 @@ impl Server {
         let Some(path) = uri_to_path(uri) else {
             return false;
         };
-        self.settings.config_file.as_ref() == Some(&path)
-            || path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .is_some_and(|name| WATCHED_CONFIG_NAMES.contains(&name))
+        self.settings.config_file.as_ref().is_some_and(|config| {
+            crate::config::paths_equal(
+                config,
+                &path,
+                crate::config::CASE_INSENSITIVE_PATHS,
+            )
+        }) || crate::config::path_has_name(
+            &path,
+            &WATCHED_CONFIG_NAMES,
+            crate::config::CASE_INSENSITIVE_PATHS,
+        )
     }
 
     fn document_text(&self, uri: &str) -> Option<String> {

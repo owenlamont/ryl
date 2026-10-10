@@ -733,6 +733,36 @@ fn did_open_publishes_diagnostics() {
 }
 
 #[test]
+fn document_path_case_policy_matches_cli_filters() {
+    let dir = project(
+        "exclude = ['skip/**']\n[lint.rules.trailing-spaces]\nignore = ['rule/**']\n[lint.per-file-ignores]\n'ignored/**' = ['trailing-spaces']\n",
+    );
+    for subdir in ["SKIP", "RULE", "IGNORED"] {
+        std::fs::create_dir(dir.path().join(subdir)).unwrap();
+    }
+    let (mut client, _init) = Client::launch(None, Some(dir.path()));
+    for path in ["SKIP/x.yaml", "RULE/x.yaml", "IGNORED/x.yaml"] {
+        client.did_open(file_uri(dir.path(), path), "a: 1 \n");
+        assert_eq!(
+            client.diagnostics().len(),
+            usize::from(!cfg!(any(windows, target_os = "macos"))),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        client
+            .formatting(file_uri(dir.path(), "SKIP/x.yaml"))
+            .is_none(),
+        cfg!(any(windows, target_os = "macos"))
+    );
+    client.did_open(file_uri(dir.path(), "x.YAML"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        usize::from(cfg!(any(windows, target_os = "macos")))
+    );
+}
+
+#[test]
 fn published_diagnostics_carry_the_document_version() {
     let dir = project(TRAILING);
     let (client, _init) = Client::launch(None, None);
@@ -876,6 +906,32 @@ fn pull_client_is_asked_to_refresh_after_config_change() {
                 if note.method == "textDocument/publishDiagnostics")
         }),
         "the refresh replaces a push for a pull client, it does not accompany one"
+    );
+}
+
+#[test]
+fn config_case_alias_notification_uses_platform_policy() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch_pull(Some(dir.path()), true);
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({
+        "changes": [{ "uri": file_uri(dir.path(), ".RYL.TOML"), "type": 2 },
+            { "uri": uri("file:///"), "type": 2 }]
+        }),
+    );
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, _) = client.messages_until_response(&id);
+    let refreshes = messages
+        .iter()
+        .filter(|message| {
+            matches!(message,
+        Message::Request(request) if request.method == "workspace/diagnostic/refresh")
+        })
+        .count();
+    assert_eq!(
+        refreshes,
+        usize::from(cfg!(any(windows, target_os = "macos")))
     );
 }
 
@@ -1572,6 +1628,17 @@ fn config_watcher_includes_an_explicit_config_path() {
         params.contains("custom.toml"),
         "an explicit configPath (non-standard name) is also watched: {params}"
     );
+    client.did_open(file_uri(root.path(), "x.yaml"), "a: 1 \n");
+    assert_eq!(client.diagnostics().len(), 1);
+    std::fs::write(&config, "[lint.rules.key-duplicates]\n").unwrap();
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({ "changes": [
+            { "uri": uri("file:///"), "type": 2 },
+            { "uri": file_uri(root.path(), "custom.toml"), "type": 2 }
+        ] }),
+    );
+    assert!(client.diagnostics().is_empty());
 }
 
 #[test]

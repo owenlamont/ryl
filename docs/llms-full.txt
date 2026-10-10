@@ -2232,6 +2232,11 @@ present = true
 Patterns are gitignore-style: `**` crosses directory boundaries, a bare `*.yaml`
 matches at any depth, and a leading `!` negates an earlier pattern.
 
+On Windows and macOS, path globs and config filename comparisons ignore ASCII
+case. The policy applies to `exclude`, `[files]`, rule ignores, per-line path
+filters and key-ordering file selectors, including stdin filenames and the language
+server. Other platforms keep case-sensitive matching.
+
 A pattern with a directory in it is anchored at the directory holding the config
 file, whether discovered or passed with `-c`, or at the working directory for inline
 `-d` config. A file outside that directory
