@@ -17,6 +17,59 @@ fn indent_config() -> indentation::Config {
 }
 
 #[test]
+fn indentation_diagnostics_count_document_prefix_bom_characters() {
+    let dir = tempdir().unwrap();
+    let hits = indentation::check("\u{feff}  scalar\n", &indent_config());
+    assert_eq!((hits[0].line, hits[0].column), (1, 4));
+    for newline in ["\n", "\r\n"] {
+        for markdown in [false, true] {
+            let input = "a: a\n...\n\u{feff}  scalar\n".replace('\n', newline);
+            let (name, input, line) = if markdown {
+                (
+                    "input.md",
+                    format!("```yaml{newline}{input}```{newline}"),
+                    4,
+                )
+            } else {
+                ("input.yaml", input, 3)
+            };
+            let path = dir.path().join(name);
+            fs::write(&path, &input).unwrap();
+            let (code, stdout, stderr) = run(ryl(dir.path()).args([
+                "check", "-f", "parsable", "-d",
+                "[files]\nmarkdown = ['*.md']\n[lint.rules.indentation]\nspaces = 2",
+            ]).arg(&path));
+            assert_eq!(code, 1, "{stdout} {stderr}");
+            assert!(
+                format!("{stdout}{stderr}").contains(&format!(":{line}:4:")),
+                "{stdout} {stderr}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sibling_diagnostic_columns_remain_physical_after_a_later_bom() {
+    let dir = tempdir().unwrap();
+    for (rule, body, column) in [
+        ("hyphens", "-   😀\n", 5),
+        ("colons", "😀:   b\n", 6),
+        ("trailing-spaces", "😀: b  \n", 6),
+    ] {
+        let path = dir.path().join("input.yaml");
+        fs::write(&path, format!("a: a\n...\n\u{feff}{body}")).unwrap();
+        let (code, stdout, stderr) = run(ryl(dir.path())
+            .args(["check", "-f", "parsable", "--enable", rule])
+            .arg(&path));
+        assert_eq!(code, 1, "{stdout} {stderr}");
+        assert!(
+            format!("{stdout}{stderr}").contains(&format!(":3:{column}:")),
+            "{stdout} {stderr}"
+        );
+    }
+}
+
+#[test]
 fn document_prefix_bom_is_not_indentation() {
     for newline in ["\n", "\r\n", "\r"] {
         for prefix in ["", "a: a\n...\n"] {

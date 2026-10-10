@@ -449,11 +449,11 @@ impl<'a> Analyzer<'a> {
             let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
             let next = tokens.get(idx + 1);
             if self.step(token, prev, next, tokens.get(idx + 2)).is_err() {
-                self.diagnostics.push(Violation {
-                    line: token.line + 1,
-                    column: token.column + 1,
-                    message: "cannot infer indentation: unexpected token".to_string(),
-                });
+                self.push(
+                    token.line + 1,
+                    token.column,
+                    "cannot infer indentation: unexpected token".to_string(),
+                );
             }
         }
     }
@@ -846,9 +846,13 @@ impl<'a> Analyzer<'a> {
     }
 
     fn push(&mut self, line: usize, found: usize, message: String) {
+        let start = self.line_starts[line - 1].get();
+        let bom = usize::from(
+            start > 0 && char_at(self.chars, start - 1) == Some('\u{feff}'),
+        );
         self.diagnostics.push(Violation {
             line,
-            column: found + 1,
+            column: found + bom + 1,
             message,
         });
     }

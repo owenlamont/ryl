@@ -30,6 +30,54 @@ use ryl::lsp::{
 };
 
 #[test]
+fn later_bom_indentation_diagnostics_point_at_the_scalar() {
+    let cfg = yaml_cfg("[lint.rules.indentation]\nspaces = 2\n");
+    for newline in ["\n", "\r\n"] {
+        let input = "a: a\n...\n\u{feff}  scalar\n".replace('\n', newline);
+        for (text, kind, line) in [
+            (input.clone(), SourceKind::Yaml, 2),
+            (
+                format!("```yaml{newline}{input}```{newline}"),
+                SourceKind::Markdown,
+                3,
+            ),
+        ] {
+            let diags = diagnostics(
+                &text,
+                Path::new("/proj/x.yaml"),
+                &cfg,
+                Path::new("/proj"),
+                kind,
+                PositionEncoding::Utf16,
+            );
+            assert_eq!(rule_ranges(&diags), [diag_at("indentation", line, 3)]);
+            assert_eq!(diags[0].range.end, Position::new(line, 4));
+        }
+    }
+}
+
+#[test]
+fn later_bom_sibling_columns_keep_utf16_positions() {
+    for (rule, body, character) in [
+        ("hyphens", "-   😀\n", 4),
+        ("colons", "😀:   b\n", 6),
+        ("trailing-spaces", "😀: b  \n", 6),
+    ] {
+        let cfg = yaml_cfg(&format!("[lint.rules]\n{rule} = 'enable'\n"));
+        let text = format!("a: a\n...\n\u{feff}{body}");
+        let diags = diagnostics(
+            &text,
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+        );
+        assert_eq!(rule_ranges(&diags), [diag_at(rule, 2, character)]);
+    }
+}
+
+#[test]
 fn negotiate_prefers_clients_first_supported_kind() {
     assert_eq!(
         negotiate(Some(&[
