@@ -1,5 +1,36 @@
+use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
+
+pub fn exempt_final_scalar(output: &str, rule: Option<&str>, line: usize) -> bool {
+    let tokens: Vec<_> = Scanner::new(StrInput::new(output))
+        .map_while(Result::ok)
+        .map(granit_parser::Token::into_parts)
+        .filter(|(_, kind)| !matches!(kind, TokenType::BlockEnd | TokenType::StreamEnd))
+        .collect();
+    let Some((span, TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, _))) =
+        tokens
+            .iter()
+            .rev()
+            .find(|(_, kind)| !matches!(kind, TokenType::Comment(_)))
+    else {
+        return false;
+    };
+    if tokens.iter().any(|(comment, kind)| {
+        matches!(kind, TokenType::Comment(_))
+            && comment.start.index() >= span.end.index()
+    }) {
+        return false;
+    }
+    match rule {
+        Some("new-line-at-end-of-file") => !output.ends_with(['\n', '\r']),
+        Some("empty-lines") => {
+            let lines: Vec<_> = output.lines().collect();
+            line == lines.len() && lines.last().is_some_and(|line| line.is_empty())
+        }
+        _ => false,
+    }
+}
 
 pub fn agreeing_lint(config: &str) -> String {
     let cfg = YamlLintConfig::from_toml_str(config).expect(config);
