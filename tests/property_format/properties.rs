@@ -6,7 +6,9 @@
 
 use proptest::prelude::*;
 
-use super::ast::{BlockEntry, Node, Scalar, SeqBody};
+use super::ast::{
+    BlockEntry, MultilineLine, MultilineQuotedSpec, Node, Scalar, SeqBody,
+};
 use super::stack::{StackedDocument, arb_stacked_document};
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
@@ -108,6 +110,7 @@ impl Decorator<'_> {
             SeqBody::CompactSeq(nodes) => nodes
                 .iter_mut()
                 .for_each(|(_, node)| self.decorate_inline(node)),
+            SeqBody::MultilineQuoted(spec) => self.decorate_multiline(spec),
             _ => {}
         }
     }
@@ -136,7 +139,20 @@ impl Decorator<'_> {
                     *scalar = self.apply(property, scalar);
                 }
             }
+            Node::MultilineQuoted(spec) => self.decorate_multiline(spec),
             _ => {}
+        }
+    }
+
+    fn decorate_multiline(&mut self, spec: &mut MultilineQuotedSpec) {
+        for line in &mut spec.lines {
+            let property = self.properties[self.next % self.properties.len()];
+            self.next += 1;
+            if let MultilineLine::Content(text) = line
+                && let Property::QuotedKey(index) = property
+            {
+                *text = format!("#{}", QUOTED_KEYS[index]);
+            }
         }
     }
 

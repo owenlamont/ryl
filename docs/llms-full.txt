@@ -1621,7 +1621,9 @@ f: 'say "hi": x'
 
 A string that needs quoting takes whichever quotes avoid an escape: single when it
 contains `"`, double when it contains only `'`, else `quote-style`. A string that needs
-escape sequences stays double-quoted. A string that YAML 1.1 loads
+escape sequences stays double-quoted. Physical line breaks alone do not require
+double quotes: conversion to single quotes preserves the continuation lines and blank
+lines, including their YAML folding. A string that YAML 1.1 loads
 as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
 clean. So do `"y"`, `"Y"`, `"n"` and `"N"`, which go-yaml v2, and so Kubernetes, loads
 as booleans. Mapping keys follow the same rules.

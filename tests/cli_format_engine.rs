@@ -26,6 +26,31 @@ fn format_file(
 }
 
 #[test]
+fn multiline_double_quotes_take_single_style_in_yaml_and_markdown() {
+    for newline in ["\n", "\r\n"] {
+        let config = format!(
+            "[format]\nquote-style = 'single'\nline-ending = '{}'\n",
+            if newline == "\n" { "lf" } else { "cr-lf" }
+        );
+        for (prefix, suffix, args) in [
+            ("", "", &[][..]),
+            ("text\n```yaml\n", "```\n", &["--markdown"][..]),
+        ] {
+            let input = format!("{prefix}a: \"#h0w\n\n    #t5988\"\n{suffix}")
+                .replace('\n', newline);
+            let expected = format!("{prefix}a: '#h0w\n\n    #t5988'\n{suffix}")
+                .replace('\n', newline);
+            let (code, _, stderr, formatted) = format_file(Some(&config), &input, args);
+            assert_eq!(code, 0, "{stderr}");
+            assert_eq!(formatted, expected);
+            let (code, _, stderr, again) = format_file(Some(&config), &formatted, args);
+            assert_eq!(code, 0, "{stderr}");
+            assert_eq!(again, expected);
+        }
+    }
+}
+
+#[test]
 fn zero_config_formats_every_rule_and_is_idempotent() {
     let (code, stdout, stderr, formatted) = format_file(None, DIRTY, &[]);
     assert_eq!((code, stdout.as_str()), (0, ""), "{stderr}");
