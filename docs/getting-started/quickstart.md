@@ -130,11 +130,34 @@ remaining *unfixable* findings are neither printed nor counted:
 - `2` &mdash; CLI usage error.
 
 A file that cannot be parsed (or a symlink) is skipped with a notice on
-stderr and does not affect the exit code. A non-UTF-8 or BOM-prefixed file
-is also skipped: a textual diff of its decoded content could not be applied
-back to the original bytes, so use `--fix` (which preserves the encoding)
-for those. For embedded YAML in Markdown, the diff is reported at the
-host-file level (one diff per `.md`).
+stderr and does not affect the exit code. Non-UTF-8 and BOM-prefixed files
+are also skipped without affecting the exit code; use `--fix` instead
+(see [File encodings](#file-encodings)). For embedded YAML in Markdown,
+the diff is reported at the host-file level (one diff per `.md`).
+
+## File encodings
+
+ryl auto-detects UTF-8 (with or without a BOM), UTF-16 LE/BE, and UTF-32 LE/BE:
+the encodings required by [YAML 1.2](https://yaml.org/spec/1.2.2/#52-character-encodings).
+A BOM identifies the encoding; without a BOM, null-byte patterns identify
+UTF-16/32, otherwise ryl uses UTF-8.
+
+Other encodings, such as Latin-1, fail with a decode error unless named via
+`YAMLLINT_FILE_ENCODING` (for example, `latin-1`). Prefer converting to UTF-8;
+the yamllint-compatible override prints:
+
+> YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed
+> in a future version of yamllint.
+
+`ryl check --fix` and `ryl format` preserve the original encoding and BOM;
+`ryl format -` preserves stdin's encoding in stdout.
+
+For BOM/UTF-16/UTF-32 input, `--diff` reports that no applicable text patch
+can be emitted. `ryl format --check` and `ryl format --diff` still exit `1`
+when formatting would change the text.
+
+[LSP position encoding](../editor-integration.md#notes) counts columns,
+independently of file encoding.
 
 ## Configure for your project
 
