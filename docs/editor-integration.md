@@ -32,6 +32,15 @@ whole-document formatting is offered, not a selected range. As with the CLI, YAM
 not parse is left as it is: a whole YAML file, or one region of a Markdown file while its
 other regions are still fixed or formatted.
 
+When formatting or explicitly requesting fix-all, the server checks for lint options conflicting
+with `[format]` and shows the same warnings as
+[`ryl format`](formatter.md) through `window/showMessage`. Each warning appears once
+across documents and requests, until configuration is reloaded. The warnings explain
+how to align the options so format-on-save and fix-on-save do not undo each other.
+Lint diagnostics, unrestricted lightbulb requests, and quickfix-only requests do not
+check for formatter conflicts. Each formatting or explicit fix-all request checks the
+current config, including config edits made without a client reload notification.
+
 ## Running it
 
 ```console
