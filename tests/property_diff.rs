@@ -174,14 +174,16 @@ proptest! {
     #[test]
     fn absolute_diff_paths_beneath_cwd_have_relative_headers(
         filename in "[a-z][a-z 0-9]{0,10}\\.yaml[. ]{0,3}",
-        spelling in 0u8..3,
+        spelling in 0u8..4,
     ) {
         let cwd = std::env::current_dir().unwrap();
         let path = cwd.join("sub").join("..").join(&filename);
         let plain = path.display().to_string();
         let path = if cfg!(windows) && spelling > 0 {
             let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain);
-            if spelling == 1 {
+            if spelling == 3 {
+                format!("{}:sub/../{filename}", &plain[..1])
+            } else if spelling == 1 {
                 format!(r"\\?\{plain}")
             } else {
                 format!("//?/{}", plain.replace('\\', "/"))

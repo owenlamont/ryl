@@ -259,8 +259,25 @@ fn cwd_relative_label(path: &Path) -> String {
     let cwd = std::env::current_dir().unwrap_or_default();
     #[cfg(windows)]
     let label = {
+        let rooted = match path.components().next() {
+            Some(std::path::Component::Prefix(prefix))
+                if matches!(prefix.kind(), std::path::Prefix::Disk(_))
+                    && !path.has_root() =>
+            {
+                let std::path::Prefix::Disk(drive) = prefix.kind() else {
+                    unreachable!()
+                };
+                std::path::absolute(format!("{}:", char::from(drive)))
+                    .expect("an input drive is absolutizable")
+                    .join(
+                        path.strip_prefix(prefix.as_os_str())
+                            .expect("the prefix came from this path"),
+                    )
+            }
+            _ => cwd.join(path),
+        };
         let mut absolute = PathBuf::new();
-        for component in cwd.join(path).components() {
+        for component in rooted.components() {
             if component == std::path::Component::ParentDir {
                 absolute.pop();
             } else {

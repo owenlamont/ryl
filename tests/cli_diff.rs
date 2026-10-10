@@ -444,6 +444,42 @@ fn diff_header_relativizes_absolute_path_under_cwd() {
 
 #[cfg(windows)]
 #[test]
+fn drive_relative_diff_headers_are_relative_to_the_drive_directory() {
+    use std::path::{Component, Prefix};
+
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let Some(Component::Prefix(prefix)) = root.components().next() else {
+        panic!("temp directory must have a drive")
+    };
+    let (Prefix::Disk(drive) | Prefix::VerbatimDisk(drive)) = prefix.kind() else {
+        panic!("temp directory must be on a disk")
+    };
+    fs::write(root.join("input.yaml"), "key: value  \n").unwrap();
+    for drive in [char::from(drive), char::from(drive).to_ascii_lowercase()] {
+        for subcommand in ["check", "format"] {
+            let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+                .current_dir(&root)
+                .args([subcommand, "--diff", "-d", TRAILING])
+                .arg(format!("{drive}:input.yaml")));
+            assert_eq!(code, 1, "{stderr}");
+            assert!(
+                stdout.starts_with("--- input.yaml\n+++ input.yaml\n"),
+                "{stdout}"
+            );
+            let (code, _, stderr) = run_with_stdin(
+                Command::new("git")
+                    .current_dir(&root)
+                    .args(["apply", "-p0", "--check", "-"]),
+                stdout.as_bytes(),
+            );
+            assert_eq!(code, 0, "{stderr}");
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
 fn verbatim_diff_headers_preserve_trailing_dots_and_spaces() {
     let dir = tempdir().unwrap();
     let root = fs::canonicalize(dir.path()).unwrap();

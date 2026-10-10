@@ -126,6 +126,7 @@ Diff headers use paths relative to the current directory for files beneath it.
 On Windows, headers use forward slashes and omit the `\\?\` verbatim prefix,
 so the patch applies with `git apply -p0`. `ryl format --diff` uses the same headers.
 Filenames retain trailing dots and spaces, including on Windows.
+Windows drive-relative inputs such as `C:input.yaml` resolve from that drive's current directory.
 
 Like `ruff check --diff`, the exit code reflects only the diff &mdash;
 remaining *unfixable* findings are neither printed nor counted:
