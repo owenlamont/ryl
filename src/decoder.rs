@@ -79,6 +79,7 @@ impl FileEncoding {
 pub struct DecodedFile {
     content: String,
     encoding: FileEncoding,
+    plain_utf8: bool,
 }
 
 impl DecodedFile {
@@ -95,7 +96,7 @@ impl DecodedFile {
     /// Whether a text diff can apply to the original bytes.
     #[must_use]
     pub fn is_plain_utf8(&self) -> bool {
-        self.encoding == FileEncoding::Utf8
+        self.plain_utf8
     }
 
     /// Encode replacement text with the detected encoding and BOM.
@@ -395,7 +396,11 @@ fn decode_with_kind(bytes: &[u8], encoding: FileEncoding) -> Result<String, Stri
 /// Returns an error when encoding detection or decoding fails.
 pub fn decode_bytes_lossless(bytes: &[u8]) -> Result<DecodedFile, String> {
     let encoding = detect_encoding(bytes)?;
-    decode_with_kind(bytes, encoding).map(|content| DecodedFile { content, encoding })
+    decode_with_kind(bytes, encoding).map(|content| DecodedFile {
+        plain_utf8: content.as_bytes() == bytes,
+        content,
+        encoding,
+    })
 }
 
 /// Decode raw bytes using yamllint-compatible encoding detection.

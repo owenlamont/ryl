@@ -11,7 +11,7 @@ mod encoding;
 use encoding::encoded;
 
 #[test]
-fn utf8_override_aliases_keep_plain_stdin_lint_diffs() {
+fn byte_preserving_overrides_keep_plain_stdin_lint_diffs() {
     let dir = tempdir().unwrap();
     for label in [
         "utf-8",
@@ -22,6 +22,10 @@ fn utf8_override_aliases_keep_plain_stdin_lint_diffs() {
         "unicode20utf8",
         "x-unicode20utf8",
         " UTF8 ",
+        "latin-1",
+        "windows-1252",
+        "shift_jis",
+        "iso-2022-jp",
     ] {
         let mut command = ryl(dir.path());
         command.env("YAMLLINT_FILE_ENCODING", label).args([
@@ -38,6 +42,24 @@ fn utf8_override_aliases_keep_plain_stdin_lint_diffs() {
             "{label}: {output:?}"
         );
     }
+}
+
+#[test]
+fn stateful_overrides_skip_lint_diffs_that_cannot_apply_to_input_bytes() {
+    let dir = tempdir().unwrap();
+    let mut command = ryl(dir.path());
+    command.env("YAMLLINT_FILE_ENCODING", "iso-2022-jp").args([
+        "check",
+        "-d",
+        "{rules: {colons: enable}}",
+        "--diff",
+        "-",
+    ]);
+    let input = [b"\x1b(B".as_slice(), b"a:    1\n"].concat();
+    let output = stdin_output(&mut command, &input);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("skipped by --diff"));
 }
 
 #[test]
