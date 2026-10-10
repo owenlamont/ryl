@@ -330,14 +330,13 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     assert!(!ctx.config.fix().allows_rule("quoted-strings"));
 }
 
-/// Runs the two-pass repro (key-ordering moves a block scalar's whitespace-only last line
-/// out of the scalar, after trailing-spaces has run) under `max_passes`, returning the
-/// output and the error text.
+/// Document-end terminates a scalar's last line after trailing-spaces has run.
 fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
-    let cfg = config("rules:\n  key-ordering: enable\n  trailing-spaces: enable\n");
+    let cfg =
+        config("rules:\n  document-end: {present: true}\n  trailing-spaces: enable\n");
     let mut err = Vec::new();
     let fixed = apply_safe_fixes_capped(
-        "b: |\n  x\n \na: 1\n",
+        "a: |-\n  x\n  ",
         &cfg,
         std::path::Path::new("input.yaml"),
         std::path::Path::new("."),
@@ -352,7 +351,7 @@ fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
 fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
     let (fixed, err) = fix_two_pass_repro(1);
 
-    assert_eq!(fixed, "a: 1\n \nb: |\n  x\n");
+    assert_eq!(fixed, "a: |-\n  x\n  \n...\n");
     for expected in [
         "error: Failed to converge after 1 iterations.",
         "This indicates a bug in ryl.",
@@ -368,7 +367,7 @@ fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
 fn fix_pipeline_converging_exactly_at_the_cap_reports_nothing() {
     let (fixed, err) = fix_two_pass_repro(2);
 
-    assert_eq!(fixed, "a: 1\n\nb: |\n  x\n");
+    assert_eq!(fixed, "a: |-\n  x\n\n...\n");
     assert_eq!(err, "");
 }
 

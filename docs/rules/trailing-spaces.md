@@ -51,10 +51,10 @@ key: value
 ## Automatic fixing
 
 `ryl check --fix` strips trailing spaces and tabs from each line. The fix is
-**partial** by design: lines inside literal/folded block scalars
-(`|`/`>`) and inside multi-line double-quoted scalars are left untouched,
-because in those contexts trailing whitespace can be part of the parsed
-scalar value. The diagnostic still fires on those lines so the
+**partial** by design: terminated space-only lines inside literal/folded block scalars
+(`|`/`>`) are stripped when no wider than the scalar's indentation. Spaces
+past that indentation are content and stay, as do trailing spaces on content
+lines and whitespace inside multi-line double-quoted scalars. The diagnostic still fires on those lines so the
 remaining trailing whitespace is visible after `--fix`; edit them by
 hand if you want them clean. Multi-line single-quoted and plain scalars
 fold trailing whitespace away at parse time, so the fix can safely

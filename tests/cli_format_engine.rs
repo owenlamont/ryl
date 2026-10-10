@@ -35,6 +35,40 @@ fn zero_config_formats_every_rule_and_is_idempotent() {
 }
 
 #[test]
+fn block_scalar_blank_indentation_is_removed_in_yaml_and_markdown() {
+    for header in ["|", ">", "|-", ">-", "|+", ">+", "|3", ">3-", "|-3", ">+3"] {
+        for newline in ["\n", "\r\n"] {
+            let config = format!(
+                "indent-width = 3\n[format]\nline-ending = '{}'\n",
+                if newline == "\n" { "lf" } else { "cr-lf" }
+            );
+            let input = format!("a: {header}\n   \n   x\n  \n    \n   y  \n")
+                .replace('\n', newline);
+            let expected =
+                format!("a: {header}\n\n   x\n\n    \n   y  \n").replace('\n', newline);
+            for (prefix, ending, args) in [
+                ("", "", &[][..]),
+                ("---\n", "---\ntext\n", &["--markdown"][..]),
+                ("text\n```yaml\n", "```\ntext\n", &["--markdown"][..]),
+            ] {
+                let prefix = prefix.replace('\n', newline);
+                let ending = ending.replace('\n', newline);
+                let host = format!("{prefix}{input}{ending}");
+                let wanted = format!("{prefix}{expected}{ending}");
+                let (code, _, stderr, formatted) =
+                    format_file(Some(&config), &host, args);
+                assert_eq!(code, 0, "{stderr}");
+                assert_eq!(formatted, wanted, "{host:?}");
+                let (code, _, stderr, again) =
+                    format_file(Some(&config), &formatted, args);
+                assert_eq!(code, 0, "{stderr}");
+                assert_eq!(again, formatted);
+            }
+        }
+    }
+}
+
+#[test]
 fn block_scalar_tails_follow_chomping_in_yaml_and_markdown() {
     for header in ["|", ">", "|-", ">-", "|+", ">+"] {
         for suffix in ["", "b: 1\n"] {

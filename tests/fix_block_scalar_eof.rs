@@ -61,5 +61,11 @@ fn blank_lines_before_a_block_scalars_content_stay() {
     for input in ["a: |+\n\n\n\nb: 1\n", "a: |\n\n\n\n  x\nb: 1\n"] {
         assert_eq!(empty_lines::fix(input, &collapse), None, "{input:?}");
     }
-    assert_eq!(trailing_spaces::fix("a:\n  - |\n    \n    a\n"), None);
+    let input = "a:\n  - |\n    \n    a\n";
+    let fixed = trailing_spaces::fix(input).unwrap();
+    assert_eq!(fixed, "a:\n  - |\n\n    a\n");
+    assert_eq!(
+        ryl::yaml_dom::YamlOwned::load_from_str(input).unwrap(),
+        ryl::yaml_dom::YamlOwned::load_from_str(&fixed).unwrap()
+    );
 }

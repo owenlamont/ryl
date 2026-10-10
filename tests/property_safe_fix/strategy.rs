@@ -256,7 +256,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
         prop::option::of(prop_oneof![Just('-'), Just('+')]),
         prop::option::of(1u8..=4u8),
         prop_oneof![3 => Just(2u8), 1 => 1u8..=4],
-        prop::option::weighted(0.2, 0u8..=2),
+        prop::option::weighted(0.5, 0u8..=2),
         arb_block_body_content(),
         prop::collection::vec(arb_block_body_line(), 0..=3),
         prop::option::weighted(0.2, 0u8..=1),

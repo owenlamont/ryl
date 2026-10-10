@@ -110,7 +110,7 @@ The rest of the layout is fixed:
 | Own-line comments | Aligned with the content they precede |
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
 | Blank lines | None at the start or end of the file |
-| Line ends | No trailing whitespace; exactly one newline at the end of the file |
+| Line ends | Remove trailing whitespace outside scalar content; add a final newline when value-safe |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
