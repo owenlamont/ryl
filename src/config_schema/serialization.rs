@@ -257,97 +257,24 @@ fn rules_table_to_value<
 >(
     rules: &RulesTable<Q, K, A, C, H, M, O>,
 ) -> toml::Value {
-    let mut table = toml::map::Map::new();
-    insert_serialized(&mut table, "ALL", rules.all.as_ref());
-    insert_serialized(&mut table, "anchors", rules.anchors.as_ref());
-    insert_serialized(
-        &mut table,
-        "block-scalar-chomping",
-        rules.block_scalar_chomping.as_ref(),
-    );
-    insert_serialized(&mut table, "braces", rules.braces.as_ref());
-    insert_serialized(&mut table, "brackets", rules.brackets.as_ref());
-    insert_serialized(&mut table, "colons", rules.colons.as_ref());
-    insert_serialized(&mut table, "commas", rules.commas.as_ref());
-    insert_serialized(&mut table, "comments", rules.comments.as_ref());
-    insert_serialized(
-        &mut table,
-        "comments-indentation",
-        rules.comments_indentation.as_ref(),
-    );
-    insert_serialized(&mut table, "document-end", rules.document_end.as_ref());
-    insert_serialized(&mut table, "document-start", rules.document_start.as_ref());
-    insert_serialized(&mut table, "empty-lines", rules.empty_lines.as_ref());
-    insert_serialized(&mut table, "empty-values", rules.empty_values.as_ref());
-    insert_serialized(&mut table, "float-values", rules.float_values.as_ref());
-    insert_serialized(&mut table, "hyphens", rules.hyphens.as_ref());
-    insert_serialized(&mut table, "indentation", rules.indentation.as_ref());
-    insert_serialized(&mut table, "key-duplicates", rules.key_duplicates.as_ref());
-    insert_serialized(&mut table, "key-ordering", rules.key_ordering.as_ref());
-    insert_serialized(&mut table, "line-length", rules.line_length.as_ref());
-    insert_serialized(&mut table, "merge-keys", rules.merge_keys.as_ref());
-    insert_serialized(
-        &mut table,
-        "new-line-at-end-of-file",
-        rules.new_line_at_end_of_file.as_ref(),
-    );
-    insert_serialized(&mut table, "new-lines", rules.new_lines.as_ref());
-    insert_serialized(&mut table, "octal-values", rules.octal_values.as_ref());
-    insert_serialized(&mut table, "quoted-strings", rules.quoted_strings.as_ref());
-    insert_serialized(&mut table, "tags", rules.tags.as_ref());
-    insert_serialized(
-        &mut table,
-        "trailing-spaces",
-        rules.trailing_spaces.as_ref(),
-    );
-    insert_serialized(&mut table, "truthy", rules.truthy.as_ref());
-    insert_serialized(
-        &mut table,
-        "unicode-line-breaks",
-        rules.unicode_line_breaks.as_ref(),
-    );
+    let mut table = serialized_table(rules);
+    // Flattened datetime extras serialize as private marker tables.
     table.extend(rules.extra.clone());
     toml::Value::Table(table)
+}
+
+fn serialized_table<T: Serialize>(value: &T) -> toml::map::Map<String, toml::Value> {
+    toml::Table::try_from(value).expect("serializing typed TOML value should succeed")
 }
 
 /// # Panics
 /// Panics if serializing the typed config into TOML unexpectedly fails.
 #[must_use]
 pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
-    let mut table = toml::map::Map::new();
-    insert_serialized(&mut table, "files", config.files.as_ref());
-    insert_serialized(&mut table, "markdown", config.markdown.as_ref());
-    insert_serialized(&mut table, "output", config.output.as_ref());
-    insert_serialized(&mut table, "exclude", config.exclude.as_ref());
-    insert_serialized(
-        &mut table,
-        "exclude-from-file",
-        config.exclude_from_file.as_ref(),
-    );
-    insert_serialized(&mut table, "ignore", config.ignore.as_ref());
-    insert_serialized(
-        &mut table,
-        "ignore-from-file",
-        config.ignore_from_file.as_ref(),
-    );
-    insert_serialized(&mut table, "locale", config.locale.as_ref());
-    insert_serialized(&mut table, "line-length", config.line_length.as_ref());
-    insert_serialized(&mut table, "indent-width", config.indent_width.as_ref());
+    let mut table = serialized_table(config);
     if let Some(lint) = config.lint.as_ref() {
         table.insert("lint".to_string(), lint_table_to_value(lint));
     }
-    insert_serialized(&mut table, "format", config.format.as_ref());
-    insert_serialized(&mut table, "fix", config.fix.as_ref());
-    insert_serialized(
-        &mut table,
-        "per-file-ignores",
-        config.per_file_ignores.as_ref(),
-    );
-    insert_serialized(
-        &mut table,
-        "per-line-ignores",
-        config.per_line_ignores.as_ref(),
-    );
     if let Some(rules) = config.rules.as_ref() {
         table.insert("rules".to_string(), rules_table_to_value(rules));
     }
@@ -356,22 +283,10 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
 }
 
 fn lint_table_to_value(lint: &LintTable) -> toml::Value {
-    let mut table = toml::map::Map::new();
+    let mut table = serialized_table(lint);
     if let Some(rules) = lint.rules.as_ref() {
         table.insert("rules".to_string(), rules_table_to_value(rules));
     }
-    insert_serialized(&mut table, "fixable", lint.fixable.as_ref());
-    insert_serialized(&mut table, "unfixable", lint.unfixable.as_ref());
-    insert_serialized(
-        &mut table,
-        "per-file-ignores",
-        lint.per_file_ignores.as_ref(),
-    );
-    insert_serialized(
-        &mut table,
-        "per-line-ignores",
-        lint.per_line_ignores.as_ref(),
-    );
     toml::Value::Table(table)
 }
 
@@ -452,9 +367,10 @@ fn normalized_lint_to_toml_table(
         insert_serialized(&mut table, "unfixable", Some(&fix.unfixable));
     }
     if !config.per_file_ignores.is_empty() {
-        table.insert(
-            "per-file-ignores".to_string(),
-            normalized_per_file_ignores_to_toml_value(&config.per_file_ignores),
+        insert_serialized(
+            &mut table,
+            "per-file-ignores",
+            Some(&config.per_file_ignores),
         );
     }
     if !config.per_line_ignores.is_empty() {
@@ -494,27 +410,6 @@ fn normalized_markdown_to_toml_value(markdown: &NormalizedMarkdown) -> toml::Val
         toml::Value::Boolean(markdown.fenced_blocks.unwrap_or(true)),
     );
     toml::Value::Table(table)
-}
-
-fn normalized_per_file_ignores_to_toml_value(
-    per_file_ignores: &std::collections::BTreeMap<String, Vec<String>>,
-) -> toml::Value {
-    toml::Value::Table(
-        per_file_ignores
-            .iter()
-            .map(|(pattern, rules)| {
-                (
-                    pattern.clone(),
-                    toml::Value::Array(
-                        rules
-                            .iter()
-                            .map(|rule| toml::Value::String(rule.clone()))
-                            .collect(),
-                    ),
-                )
-            })
-            .collect(),
-    )
 }
 
 fn normalized_per_line_ignores_to_toml_value(
