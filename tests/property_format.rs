@@ -143,6 +143,9 @@ proptest! {
         let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
         let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
         let conflicts = ryl::format::conflicts(&cfg);
+        if !problems.is_empty() {
+            prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
+        }
         prop_assert!(problems.is_empty(), "{agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}\nconflicts {conflicts:?}");
         prop_assert!(conflicts.is_empty(), "{agreeing}\nconflicts {conflicts:?}");
         let disagreeing = agreeing.replace(
