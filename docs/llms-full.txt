@@ -606,9 +606,13 @@ A config passed to `-c` under any other name migrates by naming the file:
 `--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes
 in its place. Only an existing `ci/lint.toml` blocks that migration.
 
-Migration never overwrites or deletes through surprises: it skips (with a
-warning, leaving the source untouched) any config whose target directory already
-contains a ryl-native config (`.ryl.toml` or `ryl.toml`), and it refuses to
+Migration skips a legacy project YAML config when project discovery already picks
+a TOML config, including `.config/` candidates and `pyproject.toml` with `[tool.ryl]`,
+in the same directory or an ancestor up to `HOME`. The warning names the active
+TOML config; the YAML source and its lower-precedence siblings stay untouched,
+even with `--migrate-delete-old` or `--migrate-rename-old`. A `pyproject.toml`
+without `[tool.ryl]` does not block migration. User-global migration skips when
+a ryl-native user config already exists. Migration also refuses to
 follow a symlink for either the source or the target (mirroring `--fix`). It also
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.

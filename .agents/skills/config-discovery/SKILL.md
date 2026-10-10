@@ -68,8 +68,9 @@ cases exit `2`, both stricter than yamllint:
   (`ConfigContext::config_found == false`), not the `default` preset; reports
   `main::NO_CONFIG_ERROR`. yamllint lints with `extends: default`.
 - **A resolved config that enables no rules** — `rules: {}`, empty
-  `[lint.rules]`/`[tool.ryl]`, a `[files]`-only TOML config, or one disabling everything;
-  reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently lints nothing.
+  `[lint.rules]`/`[tool.ryl.lint.rules]`, a `[files]`-only TOML config, or one
+  disabling everything; reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently
+  lints nothing.
 
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
 the message. The `default`/`relaxed`/`empty` presets stay available via `extends:`
