@@ -27,7 +27,7 @@ use ryl::fix::{Rewrite, fix_markdown_str};
 use ryl::{MarkdownSources, extract_regions};
 
 use config::{synthetic_base_dir, synthetic_path};
-use representation::{annotations, representation, yaml_1_1_representation};
+use representation::{check_annotations, check_values, check_yaml_1_1_preserved};
 
 fn arb_markdown() -> impl Strategy<Value = String> {
     wrap::arb_markdown_doc().prop_flat_map(|host| {
@@ -71,27 +71,11 @@ fn verify_preserved(original: &str, formatted: &str) -> Result<(), TestCaseError
             &formatted[formatted_cursor..after.raw_span.start],
             "non-YAML Markdown changed"
         );
-        prop_assert_eq!(
-            representation(&before.content),
-            representation(&after.content),
-            "core values/parse changed: {:?} -> {:?}",
-            before.content,
-            after.content
-        );
-        prop_assert_eq!(
-            yaml_1_1_representation(&before.content),
-            yaml_1_1_representation(&after.content),
-            "PyYAML-equivalent values changed: {:?} -> {:?}",
-            before.content,
-            after.content
-        );
-        prop_assert_eq!(
-            annotations(&before.content),
-            annotations(&after.content),
-            "comments/anchors changed: {:?} -> {:?}",
-            before.content,
-            after.content
-        );
+        check_values(&before.content, &after.content).map_err(TestCaseError::fail)?;
+        check_yaml_1_1_preserved(&before.content, &after.content)
+            .map_err(TestCaseError::fail)?;
+        check_annotations(&before.content, &after.content)
+            .map_err(TestCaseError::fail)?;
         original_cursor = before.raw_span.end;
         formatted_cursor = after.raw_span.end;
     }

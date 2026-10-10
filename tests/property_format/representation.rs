@@ -82,7 +82,6 @@ pub struct Annotations {
 #[derive(Default)]
 struct Recorder {
     nodes: Vec<Node>,
-    /// Nodes `Comment::after_events` counts so far.
     counted: usize,
     /// The line each counted node but a document end starts on, `counted` before it, and
     /// whether it is a block node's start.
@@ -233,6 +232,43 @@ fn record(content: &str, assume_yaml_1_1: bool) -> Option<Recorder> {
         .load(&mut recorder, true)
         .ok()?;
     Some(recorder)
+}
+
+pub fn check_values(input: &str, output: &str) -> Result<(), String> {
+    let before = representation(input);
+    let after = representation(output);
+    if before.is_some() != after.is_some() {
+        return Err(format!("parse-preservation: output {output:?}"));
+    }
+    if before != after {
+        return Err(format!(
+            "value-preservation: output {output:?}; before {before:?}; after {after:?}"
+        ));
+    }
+    Ok(())
+}
+
+pub fn check_annotations(input: &str, output: &str) -> Result<(), String> {
+    let (before, after) = (annotations(input), annotations(output));
+    if before != after {
+        return Err(format!(
+            "comment/anchor fidelity: output {output:?}; before {before:?}; after {after:?}"
+        ));
+    }
+    Ok(())
+}
+
+pub fn check_yaml_1_1_preserved(input: &str, output: &str) -> Result<(), String> {
+    let (before, after) = (
+        yaml_1_1_representation(input),
+        yaml_1_1_representation(output),
+    );
+    if before != after {
+        return Err(format!(
+            "yaml-1.1 value-preservation: output {output:?}; before {before:?}; after {after:?}"
+        ));
+    }
+    Ok(())
 }
 
 pub fn representation(content: &str) -> Option<Vec<Node>> {
