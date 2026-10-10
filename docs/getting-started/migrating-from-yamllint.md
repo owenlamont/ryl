@@ -316,15 +316,19 @@ the directive, so the two disagree:
 | :--- | :--- | :--- |
 | `'+.5'` with no directive, `quoted-strings: only-when-needed` | kept (1.2 float) | redundant (1.1 string) |
 | `'no'` under any directive, same rule | kept (1.1 boolean) | kept |
+| `'y'` under any directive, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
 | `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
 | `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
 
 **Why ryl differs:** the spec is the authority. It assigns a directive-less
 document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
-rejecting a higher major version. `quoted-strings` uses PyYAML's own 1.1 set
-under every directive, so `'y'` and `'n'` are redundant to both, and `--fix`
-never strips quotes a 1.1 reader needs, nor, without a directive, quotes a 1.2
-reader needs.
+rejecting a higher major version. `quoted-strings` uses PyYAML's 1.1 set
+under every directive, so `--fix` never strips quotes a 1.1 reader needs, nor,
+without a directive, quotes a 1.2 reader needs. ryl adds `y`, `Y`, `n` and `N`
+to that set: PyYAML loads them as strings, but go-yaml v2, which Kubernetes,
+Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
+`'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
+does a plain `no`.
 
 ### Comments after a block scalar header
 

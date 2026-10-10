@@ -79,11 +79,11 @@ static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
         .expect("YAML 1.1 implicit-type regex is valid")
 });
 
-// PyYAML's 1.1 implicit-type resolvers plus the `0o` octal yamllint's quoted-strings
-// adds, so the set matches yamllint (`y`/`n`, `1e5` and `-.5` are strings).
+// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans
+// (`1e5` and `-.5` stay strings).
 const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
     r"\A(?:",
-    r"yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
+    r"y|Y|n|N|yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
     r"|[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?",
     r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)",
     r"|[-+]?0b[0-1_]+|[-+]?0o?[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
