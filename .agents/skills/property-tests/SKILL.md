@@ -203,7 +203,8 @@ committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
 ## Property Tests For Markdown Formatting
 
 `tests/property_markdown_format.rs` exercises the same Markdown write-back with
-`Rewrite::Format` under every `format/*` profile from `property_format/passes.rs`.
+`Rewrite::Format` under every `format/*` profile from `property_format/passes.rs`
+plus a random profile from `property_format/settings.rs` per case.
 The shared Markdown wrapper embeds the formatter's decorated YAML generator; each region
 must preserve its core and YAML 1.1 representation, comments and anchor names, while
 host bytes stay identical and formatting is idempotent. Deterministic dirty-region and

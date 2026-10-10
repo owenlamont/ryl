@@ -11,6 +11,8 @@ mod passes;
 mod properties;
 #[path = "property_format/representation.rs"]
 mod representation;
+#[path = "property_format/settings.rs"]
+mod settings;
 #[path = "property_fix_convergence/stack.rs"]
 #[allow(dead_code, reason = "only the decorated document is embedded")]
 mod stack;
@@ -112,22 +114,31 @@ fn format(markdown: &str, cfg: &ryl::config::YamlLintConfig) -> String {
     .unwrap_or_else(|| markdown.to_string())
 }
 
+fn check_config(
+    markdown: &str,
+    name: &str,
+    cfg: &ryl::config::YamlLintConfig,
+) -> Result<(), TestCaseError> {
+    let once = format(markdown, cfg);
+    verify_preserved(markdown, &once).map_err(|error| {
+        TestCaseError::fail(format!("{name} on {markdown:?}: {error}"))
+    })?;
+    prop_assert_eq!(
+        &once,
+        &format(&once, cfg),
+        "not idempotent under {} on {:?}",
+        name,
+        markdown
+    );
+    Ok(())
+}
+
 fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
     for pass in passes::format_passes()
         .iter()
         .filter(|pass| pass.name.starts_with("format/"))
     {
-        let once = format(markdown, &pass.cfg);
-        verify_preserved(markdown, &once).map_err(|error| {
-            TestCaseError::fail(format!("{} on {markdown:?}: {error}", pass.name))
-        })?;
-        prop_assert_eq!(
-            &once,
-            &format(&once, &pass.cfg),
-            "not idempotent under {} on {:?}",
-            pass.name,
-            markdown
-        );
+        check_config(markdown, &pass.name, &pass.cfg)?;
     }
     Ok(())
 }
@@ -141,8 +152,13 @@ proptest! {
     })]
 
     #[test]
-    fn markdown_format_preserves_regions_and_host(markdown in arb_markdown()) {
+    fn markdown_format_preserves_regions_and_host(
+        markdown in arb_markdown(),
+        table in settings::arb_format_config(),
+    ) {
         run_invariants(&markdown)?;
+        let cfg = ryl::config::YamlLintConfig::from_toml_str(&table).expect(&table);
+        check_config(&markdown, &table, &cfg)?;
     }
 }
 

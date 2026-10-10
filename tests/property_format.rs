@@ -150,6 +150,7 @@ proptest! {
         let cfg = YamlLintConfig::from_toml_str(&table).expect(&table);
         let pass = FormatPass {
             name: table,
+            cfg: cfg.clone(),
             format: Box::new(move |input| {
                 ryl::format::format_str(input, &cfg, synthetic_path(), &[])
             }),
