@@ -18,41 +18,15 @@ pub fn lint_markdown_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
-    if super::markdown_has_unsupported_cr(markdown) {
-        return vec![super::unsupported_cr_skip()];
-    }
-    let sources = MarkdownSources {
-        front_matter: cfg.markdown_front_matter(),
-        fenced_blocks: cfg.markdown_fenced_blocks(),
-    };
-
     let suppressed = suppressed_rules();
-    let mut problems = Vec::new();
-    for region in extract_regions(markdown, sources) {
-        if region.content.trim().is_empty() {
-            continue;
-        }
-        let mut region_problems = lint_str(&region.content, path, cfg, base_dir);
-        region_problems
+    markdown_region_problems(markdown, cfg, |region| {
+        let mut problems = lint_str(&region.content, path, cfg, base_dir);
+        problems
             .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
-        if region_problems.is_empty() {
-            continue;
-        }
-        let stripped = stripped_indents(markdown, &region);
-        for mut problem in region_problems {
-            problem.column += stripped
-                .get(problem.line - 1)
-                .copied()
-                .unwrap_or(region.col_offset);
-            problem.line += region.line_offset;
-            problems.push(problem);
-        }
-    }
-    problems
+        problems
+    })
 }
 
-/// Each embedded region's problems from `region_problems` (`--fix`'s parse skips, or
-/// `ryl format --check`'s diagnostics) mapped to host coordinates.
 #[must_use]
 pub fn markdown_region_problems(
     markdown: &str,
