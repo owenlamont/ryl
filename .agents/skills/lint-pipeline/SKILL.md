@@ -154,3 +154,8 @@ zero-config run formats. Inline directives are honoured by both. A YAML config g
 - `format::unfixed` names each `colons`/`hyphens` site the formatter leaves because
   re-spacing it would re-indent a compact block collection. Every mode prints them as
   `<path>:L:C <rule> not fixed: …` skip notices; they never change the exit code.
+- File and stdin output preserve the detected encoding and BOM. Encoded input still
+  runs through the formatter for `--check`/`--diff`: decoded-text changes determine
+  exit `1` and diagnostics, even when no applicable text patch can be emitted.
+  Formatting changes also count when a trailing bare CR or an unrepresentable filename
+  prevents a patch; `ryl check --diff` keeps those skips without an exit effect.

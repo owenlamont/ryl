@@ -19,6 +19,8 @@ mod ast;
     reason = "shared with the safe-fix suite, which uses every item"
 )]
 mod config;
+#[path = "common/encoding.rs"]
+mod encoding;
 #[path = "property_format/fold.rs"]
 mod fold;
 #[path = "property_format/passes.rs"]
@@ -137,6 +139,29 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn encoded_previews_match_decoded_formatting(
+        document in arb_document_with_properties(),
+        width in prop::sample::select(vec![1usize, 2, 4]),
+        little in any::<bool>(),
+        bom in any::<bool>(),
+    ) {
+        let input = document.render();
+        let bytes = encoding::encoded(&input, width, little, bom);
+        let decoded = ryl::decoder::decode_bytes_lossless(&bytes).unwrap();
+        let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+        let formatted = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+        let outcome = ryl::fix::decoded_diff_outcome(
+            &decoded, &cfg, synthetic_path(), synthetic_base_dir(),
+            ryl::config::SourceKind::Yaml, ryl::fix::Rewrite::Format,
+        );
+        prop_assert_eq!(outcome.changed, input != formatted);
+        prop_assert_eq!(decoded.encode(&formatted), encoding::encoded(&formatted, width, little, bom));
+        if !decoded.is_plain_utf8() {
+            prop_assert!(outcome.diff.is_none());
+        }
+    }
 
     #[test]
     fn zero_config_output_is_what_the_yamllint_default_preset_asks_for(

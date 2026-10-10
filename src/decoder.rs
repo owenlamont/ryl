@@ -76,14 +76,14 @@ impl FileEncoding {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DecodedFile {
+pub struct DecodedFile {
     content: String,
     encoding: FileEncoding,
 }
 
 impl DecodedFile {
     #[must_use]
-    pub(crate) fn content(&self) -> &str {
+    pub fn content(&self) -> &str {
         &self.content
     }
 
@@ -92,12 +92,16 @@ impl DecodedFile {
         self.content
     }
 
-    /// True when the file is UTF-8 without a BOM, i.e. the decoded content's bytes
-    /// equal the on-disk bytes. Only then can a textual diff apply back to the file;
-    /// any BOM or non-UTF-8 encoding is transcoded on decode, so `--diff` skips it.
+    /// Whether a text diff can apply to the original bytes.
     #[must_use]
-    pub(crate) fn is_plain_utf8(&self) -> bool {
+    pub fn is_plain_utf8(&self) -> bool {
         self.encoding == FileEncoding::Utf8
+    }
+
+    /// Encode replacement text with the detected encoding and BOM.
+    #[must_use]
+    pub fn encode(&self, content: &str) -> Vec<u8> {
+        self.encoding.encode(content)
     }
 
     pub(crate) fn write(&self, path: &Path, content: &str) -> Result<(), String> {
@@ -373,9 +377,11 @@ fn decode_with_kind(bytes: &[u8], encoding: FileEncoding) -> Result<String, Stri
     }
 }
 
-fn decode_bytes_with_encoding(bytes: &[u8]) -> Result<(String, FileEncoding), String> {
+/// # Errors
+/// Returns an error when encoding detection or decoding fails.
+pub fn decode_bytes_lossless(bytes: &[u8]) -> Result<DecodedFile, String> {
     let encoding = detect_encoding(bytes)?;
-    decode_with_kind(bytes, encoding).map(|s| (s, encoding))
+    decode_with_kind(bytes, encoding).map(|content| DecodedFile { content, encoding })
 }
 
 /// Decode raw bytes using yamllint-compatible encoding detection.
@@ -383,7 +389,7 @@ fn decode_bytes_with_encoding(bytes: &[u8]) -> Result<(String, FileEncoding), St
 /// # Errors
 /// Returns an error string when decoding fails.
 pub fn decode_bytes(bytes: &[u8]) -> Result<String, String> {
-    decode_bytes_with_encoding(bytes).map(|(content, _)| content)
+    decode_bytes_lossless(bytes).map(DecodedFile::into_content)
 }
 
 /// Decode bytes with an explicit override, bypassing the environment lookup.
@@ -413,7 +419,6 @@ pub fn read_file(path: &Path) -> Result<String, String> {
 pub(crate) fn read_file_lossless(path: &Path) -> Result<DecodedFile, String> {
     let data = std::fs::read(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    decode_bytes_with_encoding(&data)
-        .map(|(content, encoding)| DecodedFile { content, encoding })
+    decode_bytes_lossless(&data)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))
 }
