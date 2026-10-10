@@ -2,7 +2,24 @@ use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
-pub fn exempt_value_bearing_content(output: &str, line: usize, column: usize) -> bool {
+#[derive(Debug, PartialEq, Eq)]
+pub enum ContentWhitespace {
+    ValueBearing,
+    ValueSafePending,
+}
+
+pub fn content_whitespace(
+    output: &str,
+    rule: Option<&str>,
+    line: usize,
+    column: usize,
+) -> Option<ContentWhitespace> {
+    if !matches!(
+        rule,
+        Some("trailing-spaces" | "empty-lines" | "new-line-at-end-of-file")
+    ) {
+        return None;
+    }
     let raw_lines: Vec<_> = output.lines().collect();
     let content_line = Scanner::new(StrInput::new(output))
         .map_while(Result::ok)
@@ -29,12 +46,10 @@ pub fn exempt_value_bearing_content(output: &str, line: usize, column: usize) ->
                     || (line == span.end.line() && span.end.col() > 0))
         });
     if !content_line {
-        return false;
+        return None;
     }
     let lines: Vec<_> = output.split_inclusive('\n').collect();
-    let Some(raw) = line.checked_sub(1).and_then(|index| lines.get(index)) else {
-        return false;
-    };
+    let raw = line.checked_sub(1).and_then(|index| lines.get(index))?;
     let content = raw.trim_end_matches(['\n', '\r']);
     let start: usize = lines[..line - 1].iter().map(|line| line.len()).sum();
     let mut repaired = output.to_owned();
@@ -58,66 +73,20 @@ pub fn exempt_value_bearing_content(output: &str, line: usize, column: usize) ->
     {
         repaired.push('\n');
     } else {
-        let Some((offset, _)) = content.char_indices().nth(column.saturating_sub(1))
-        else {
-            return false;
-        };
+        let (offset, _) = content.char_indices().nth(column.saturating_sub(1))?;
         if !content[offset..].chars().all(|ch| matches!(ch, ' ' | '\t')) {
-            return false;
+            return None;
         }
         repaired.replace_range(start + offset..start + content.len(), "");
     }
     match (loaded_strings(output), loaded_strings(&repaired)) {
-        (Ok(before), Ok(after)) => before != after,
-        _ => false,
+        (Ok(before), Ok(after)) => Some(if before == after {
+            ContentWhitespace::ValueSafePending
+        } else {
+            ContentWhitespace::ValueBearing
+        }),
+        _ => None,
     }
-}
-
-pub fn exempt_pending_scalar_blanks(
-    output: &str,
-    rule: Option<&str>,
-    line: usize,
-) -> bool {
-    let lines: Vec<_> = output.split_inclusive('\n').collect();
-    if rule != Some("empty-lines")
-        || line == 0
-        || !lines
-            .get(line - 1)
-            .is_some_and(|line| line.trim_end_matches(['\n', '\r']).is_empty())
-    {
-        return false;
-    }
-    let mut repaired = output.to_owned();
-    let begin: usize = lines[..line - 1].iter().map(|line| line.len()).sum();
-    repaired.replace_range(begin..begin + lines[line - 1].len(), "");
-    match (loaded_strings(output), loaded_strings(&repaired)) {
-        (Ok(before), Ok(after)) if before == after => {}
-        _ => return false,
-    }
-    let tokens: Vec<_> = Scanner::new(StrInput::new(output))
-        .map_while(Result::ok)
-        .map(granit_parser::Token::into_parts)
-        .filter(|(_, kind)| {
-            !matches!(
-                kind,
-                TokenType::BlockEnd | TokenType::StreamEnd | TokenType::DocumentEnd
-            )
-        })
-        .collect();
-    let Some((span, TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, _))) =
-        tokens
-            .iter()
-            .rev()
-            .find(|(_, kind)| !matches!(kind, TokenType::Comment(_)))
-    else {
-        return false;
-    };
-    line >= span.start.line()
-        && line < span.end.line()
-        && !tokens.iter().any(|(comment, kind)| {
-            matches!(kind, TokenType::Comment(_))
-                && comment.start.index() >= span.end.index()
-        })
 }
 
 pub fn agreeing_lint(config: &str) -> String {
