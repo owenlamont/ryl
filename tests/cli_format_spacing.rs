@@ -36,6 +36,39 @@ fn format_respaces_and_reindents_compact_collections() {
 }
 
 #[test]
+fn detected_width_agrees_with_explicit_key_indentation() {
+    let config = "[format]\ndash-on-own-line = true\n\
+                  [lint.rules.indentation]\nindent-sequences = true\n";
+    for (input, expected) in [
+        (
+            "? a\n: -  a: a\n     b: b\n",
+            "? a\n: -\n    a: a\n    b: b\n",
+        ),
+        ("? a\n: a\nb:\n     - a\n", "? a\n: a\nb:\n  - a\n"),
+        (
+            "? |\n  key\n: value\nb:\n    c: value\n",
+            "? |\n    key\n: value\nb:\n  c: value\n",
+        ),
+        (
+            "root:\n  ? a\n  : a\n  b:\n       - a\n",
+            "root:\n  ? a\n  : a\n  b:\n    - a\n",
+        ),
+    ] {
+        let (code, _, stderr, formatted) = ryl_on(Some(config), input, &["format"]);
+        assert_eq!(
+            (code, formatted.as_str(), stderr.as_str()),
+            (0, expected, ""),
+            "{input:?}"
+        );
+        let (code, stdout, stderr, _) = ryl_on(Some(config), &formatted, &["check"]);
+        assert_eq!(code, 0, "{input:?}: {stdout}{stderr}");
+        let (code, _, stderr, _) =
+            ryl_on(Some(config), &formatted, &["format", "--check"]);
+        assert_eq!((code, stderr.as_str()), (0, ""), "{input:?}");
+    }
+}
+
+#[test]
 fn format_check_fails_only_on_what_it_would_change() {
     let (code, stderr, _) = run_on(UNFOLLOWABLE, &["format", "--check"]);
     assert!(

@@ -1,6 +1,5 @@
-//! Without `indent-width`, `ryl format` keeps the indent width whose re-indent changes the
-//! fewest lines, and `line-ending = "auto"` keeps the ending most lines use; a tie or no
-//! evidence falls back to 2 and `lf`.
+//! Automatic layout detection prefers consistent indentation, then fewer changed lines;
+//! line endings follow the majority, with ties falling back to 2 and `lf`.
 
 use std::path::Path;
 
@@ -52,6 +51,21 @@ fn a_tie_or_a_flat_file_falls_back_to_two() {
         format("a:\n  b: 1\nx:\n    y: 1\n", UNSET),
         "a:\n  b: 1\nx:\n  y: 1\n"
     );
+}
+
+#[test]
+fn explicit_key_content_constrains_detected_width() {
+    for input in ["? a\n: a\nb:\n     - a\n", "? a\n: -  a: a\n     b: b\n"] {
+        assert_eq!(file_indent_width(&config(UNSET), input), 2, "{input:?}");
+    }
+    for input in [
+        "a:\n    b: 1\n? a\n: b\nc:\n    d: 1\n",
+        "? a\n:\n     b\nc:\n    d: 1\ne:\n    f: 1\n",
+    ] {
+        assert_eq!(file_indent_width(&config(UNSET), input), 4, "{input:?}");
+    }
+    let flow = "x: {? a: b}\ny:\n     z: value\n";
+    assert_eq!(file_indent_width(&config(UNSET), flow), 5);
 }
 
 #[test]
