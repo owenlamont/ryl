@@ -60,6 +60,13 @@ fn check(dir: &Path, extra: &[&str]) -> (i32, String, String) {
     run(ryl(dir).current_dir(dir).arg("check").args(extra).arg("."))
 }
 
+fn migrate(dir: &Path, extra: &[&str]) -> (i32, String, String) {
+    run(ryl(dir)
+        .args(["--migrate-configs", "--migrate-root"])
+        .arg(dir)
+        .args(extra))
+}
+
 #[test]
 fn legacy_and_nested_shapes_lint_and_fix_identically() {
     let legacy = project(LEGACY);
@@ -81,13 +88,6 @@ fn legacy_and_nested_shapes_lint_and_fix_identically() {
         !nested_err.contains("v.yaml"),
         "exclude applies: {nested_err}"
     );
-    let diagnostics = |stderr: &str| -> Vec<String> {
-        stderr
-            .lines()
-            .filter(|line| !line.starts_with("warning: "))
-            .map(str::to_string)
-            .collect()
-    };
     assert_eq!(diagnostics(&legacy_err), diagnostics(&nested_err));
 
     check(legacy.path(), &["--fix"]);
@@ -150,15 +150,10 @@ fn nested_key_wins_over_its_legacy_location() {
 #[test]
 fn migrate_rewrites_legacy_toml_in_place_to_a_config_that_does_not_warn() {
     let dir = project(LEGACY);
-    let root = dir.path().to_str().unwrap();
-    let (code, stdout, stderr) = run(ryl(dir.path()).args([
-        "--migrate-configs",
-        "--migrate-root",
-        root,
-        "--migrate-write",
-        "--migrate-rename-old",
-        ".bak",
-    ]));
+    let (code, stdout, stderr) = migrate(
+        dir.path(),
+        &["--migrate-write", "--migrate-rename-old", ".bak"],
+    );
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains(".ryl.toml -> "), "{stdout}");
     assert_eq!(
@@ -186,13 +181,7 @@ fn migrate_rewrites_legacy_toml_in_place_to_a_config_that_does_not_warn() {
 #[test]
 fn migrate_dry_run_leaves_legacy_toml_untouched() {
     let dir = project(LEGACY);
-    let root = dir.path().to_str().unwrap();
-    let (code, stdout, _) = run(ryl(dir.path()).args([
-        "--migrate-configs",
-        "--migrate-root",
-        root,
-        "--migrate-stdout",
-    ]));
+    let (code, stdout, _) = migrate(dir.path(), &["--migrate-stdout"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("[lint.rules]"), "{stdout}");
     assert_eq!(
@@ -213,13 +202,7 @@ fn migrate_reports_legacy_pyproject_without_rewriting_it() {
         "[project]\nname = 'x'\n",
     )
     .unwrap();
-    let root = dir.path().to_str().unwrap();
-    let (code, stdout, stderr) = run(ryl(dir.path()).args([
-        "--migrate-configs",
-        "--migrate-root",
-        root,
-        "--migrate-write",
-    ]));
+    let (code, stdout, stderr) = migrate(dir.path(), &["--migrate-write"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(
         stderr.contains("in [tool.ryl], move `rules` to `lint.rules`"),
@@ -239,9 +222,7 @@ fn migrate_reports_legacy_pyproject_without_rewriting_it() {
 fn migrate_skips_an_unparsable_toml_config_with_a_warning() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("ryl.toml"), "rules = [\n").unwrap();
-    let root = dir.path().to_str().unwrap();
-    let (code, _, stderr) =
-        run(ryl(dir.path()).args(["--migrate-configs", "--migrate-root", root]));
+    let (code, _, stderr) = migrate(dir.path(), &[]);
     assert_eq!(code, 0, "a broken TOML config does not block the migration");
     assert!(
         stderr.contains("ryl.toml: failed to parse config data"),
@@ -253,9 +234,7 @@ fn migrate_skips_an_unparsable_toml_config_with_a_warning() {
 fn migrate_skips_an_unreadable_toml_config_with_a_warning() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("ryl.toml"), [0xff, 0xfe]).unwrap();
-    let root = dir.path().to_str().unwrap();
-    let (code, _, stderr) =
-        run(ryl(dir.path()).args(["--migrate-configs", "--migrate-root", root]));
+    let (code, _, stderr) = migrate(dir.path(), &[]);
     assert_eq!(code, 0);
     assert!(
         stderr.contains("ryl.toml: failed to read config"),
@@ -273,13 +252,7 @@ fn migrate_skips_a_symlinked_legacy_toml() {
         dir.path().join("ryl.toml"),
     )
     .unwrap();
-    let root = dir.path().to_str().unwrap();
-    let (code, _, stderr) = run(ryl(dir.path()).args([
-        "--migrate-configs",
-        "--migrate-root",
-        root,
-        "--migrate-write",
-    ]));
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stderr.contains("refusing to follow a symlink"), "{stderr}");
     assert_eq!(
@@ -309,15 +282,10 @@ fn yaml_config_rejects_the_toml_only_lint_table() {
 fn migrate_rewrite_refuses_to_overwrite_an_existing_backup() {
     let dir = project(LEGACY);
     fs::write(dir.path().join(".ryl.toml.bak"), "old backup").unwrap();
-    let root = dir.path().to_str().unwrap();
-    let (code, _, stderr) = run(ryl(dir.path()).args([
-        "--migrate-configs",
-        "--migrate-root",
-        root,
-        "--migrate-write",
-        "--migrate-rename-old",
-        ".bak",
-    ]));
+    let (code, _, stderr) = migrate(
+        dir.path(),
+        &["--migrate-write", "--migrate-rename-old", ".bak"],
+    );
     assert_eq!(code, 2, "{stderr}");
     assert!(
         stderr.contains("refusing to overwrite existing backup"),
