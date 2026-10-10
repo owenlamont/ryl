@@ -5,6 +5,8 @@
 //! its node and every anchor and alias name. Folding also keeps the two
 //! parser-independent properties in `fold`: only lone spaces become line breaks, and
 //! every continuation is deeper than its scalar's owner.
+//! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
+
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;

@@ -1,5 +1,3 @@
-//! `line-length` is complementary lint: docs/formatter.md's Long lines contract makes the formatter target soft.
-
 use proptest::prelude::*;
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
