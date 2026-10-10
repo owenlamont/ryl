@@ -133,6 +133,30 @@ proptest! {
     }
 
     #[test]
+    fn random_format_config_agrees_with_lint_and_conflicts(
+        document in arb_document_with_properties(),
+        table in settings::arb_format_config(),
+    ) {
+        let agreeing = settings::agreeing_lint(&table);
+        let cfg = YamlLintConfig::from_toml_str(&agreeing).expect(&agreeing);
+        let input = document.render();
+        let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+        let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+        let conflicts = ryl::format::conflicts(&cfg);
+        prop_assert!(problems.is_empty(), "{agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}\nconflicts {conflicts:?}");
+        prop_assert!(conflicts.is_empty(), "{agreeing}\nconflicts {conflicts:?}");
+        let disagreeing = agreeing.replace(
+            "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 1",
+            "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 0",
+        );
+        let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
+        let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+        if !problems.is_empty() {
+            prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
+        }
+    }
+
+    #[test]
     fn encoded_previews_match_decoded_formatting(
         document in arb_document_with_properties(),
         width in prop::sample::select(vec![1usize, 2, 4]),
