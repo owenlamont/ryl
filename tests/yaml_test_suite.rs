@@ -13,8 +13,22 @@ fn normalize(expected: &str) -> Vec<String> {
         .lines()
         .map(|line| {
             let mut line = line.to_owned();
+            line = match line.as_str() {
+                "+DOC ---" => "+DOC".to_owned(),
+                "-DOC ..." => "-DOC".to_owned(),
+                value if value.starts_with("+SEQ []") => {
+                    value.replacen("+SEQ []", "+SEQ", 1)
+                }
+                value if value.starts_with("+MAP {}") => {
+                    value.replacen("+MAP {}", "+MAP", 1)
+                }
+                _ => line,
+            };
+
             if let Some(start) = line.find('&')
-                && !line[..start].contains(':')
+                && (line.starts_with("+MAP &")
+                    || line.starts_with("+SEQ &")
+                    || line.starts_with("=VAL &"))
             {
                 let end = line[start..].find(' ').map_or(line.len(), |n| start + n);
                 anchors.push(line[start + 1..end].to_owned());
@@ -24,11 +38,6 @@ fn normalize(expected: &str) -> Vec<String> {
                 let index = anchors.iter().rposition(|anchor| anchor == name).unwrap();
                 line = format!("=ALI *{}", index + 1);
             }
-            line = line
-                .replace("+DOC ---", "+DOC")
-                .replace("-DOC ...", "-DOC")
-                .replace("+SEQ []", "+SEQ")
-                .replace("+MAP {}", "+MAP");
             if line.starts_with("=VAL ") && !line.contains('<') && line.ends_with(" :")
             {
                 line.push('~');
@@ -127,16 +136,33 @@ fn yaml_test_suite_gate() {
     fs::write(&config, CONFIG).unwrap();
     let cfg = ryl::config::YamlLintConfig::from_toml_str(CONFIG).unwrap();
     let file = temp.path().join("case.yaml");
-    let mut cases: Vec<_> = fs::read_dir(suite)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.join("in.yaml").is_file())
-        .collect();
+    let mut cases = Vec::new();
+    for entry in fs::read_dir(suite).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name.len() != 4
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+        {
+            continue;
+        }
+        if path.join("in.yaml").is_file() {
+            cases.push(path);
+        } else if path.is_dir() {
+            cases.extend(
+                fs::read_dir(path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path())
+                    .filter(|path| path.join("in.yaml").is_file()),
+            );
+        }
+    }
     cases.sort();
     assert_eq!(cases.len(), 402, "pinned suite inventory");
     let (mut passed, mut failed, mut bails) = (0, 0, 0);
     for case in cases {
-        let id = case.file_name().unwrap().to_string_lossy();
+        let id = case.strip_prefix(suite).unwrap().to_string_lossy();
         let input = fs::read_to_string(case.join("in.yaml")).unwrap();
         fs::write(&file, &input).unwrap();
         let formatted = cli(&config, &["format"], &file);
@@ -150,7 +176,8 @@ fn yaml_test_suite_gate() {
             {
                 Some("format did not refuse invalid YAML".to_owned())
             } else if checked.status.code() != Some(1)
-                || !String::from_utf8_lossy(&checked.stdout).contains("syntax")
+                || !(String::from_utf8_lossy(&checked.stdout).contains("syntax")
+                    || String::from_utf8_lossy(&checked.stderr).contains("syntax"))
             {
                 Some("check did not report a syntax error".to_owned())
             } else {
@@ -174,10 +201,21 @@ fn yaml_test_suite_gate() {
                     Some(format!("formatted output is invalid: {error}"))
                 }
                 (Ok(before), Ok(after)) if before != expected || after != expected => {
-                    let (phase, actual) = if before != expected { ("input", before) } else { ("output", after) };
-                    let index = actual.iter().zip(&expected).position(|(a, e)| a != e)
+                    let (phase, actual) = if before != expected {
+                        ("input", before)
+                    } else {
+                        ("output", after)
+                    };
+                    let index = actual
+                        .iter()
+                        .zip(&expected)
+                        .position(|(a, e)| a != e)
                         .unwrap_or(actual.len().min(expected.len()));
-                    Some(format!("{phase} events differ at {index}: expected {:?}, got {:?}", expected.get(index), actual.get(index)))
+                    Some(format!(
+                        "{phase} events differ at {index}: expected {:?}, got {:?}",
+                        expected.get(index),
+                        actual.get(index)
+                    ))
                 }
                 _ if !formatted.status.success() => {
                     Some("format command failed".to_owned())
