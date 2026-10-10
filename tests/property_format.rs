@@ -7,7 +7,6 @@
 //! every continuation is deeper than its scalar's owner.
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
-//! Value-safe block-content whitespace is temporarily exempt until #640 merges; remove the value-safe exemption then.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
 //! Explicit-key indentation diagnostics are exempt within their document until #657 merges; remove then.
 //! Empty block-scalar header whitespace is value-safe but skipped until #658 merges; remove then.
@@ -1071,7 +1070,6 @@ fn bom_document_marker_keeps_g11_indentation_consistent() {
 fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
     use consistency::content_whitespace;
     for (input, rule, line, column) in [
-        ("a: |\r\n \r\nFALSE: a\r\n", "trailing-spaces", 2, 1),
         ("a: |\n  a", "new-line-at-end-of-file", 2, 4),
         ("a: >\n  a \n", "trailing-spaces", 2, 4),
         ("a: | # header\n  a \nb: b\n", "trailing-spaces", 2, 4),
@@ -1090,6 +1088,7 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
         );
     }
     for (input, rule, line, column) in [
+        ("a: |\r\n \r\nFALSE: a\r\n", "trailing-spaces", 2, 1),
         ("a: |\n\n", "empty-lines", 2, 1),
         ("a: |3\n   \n   a\n", "trailing-spaces", 2, 1),
         ("a: |-\n  a", "new-line-at-end-of-file", 2, 4),
@@ -1098,7 +1097,7 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
         ("a: |\n  a\n\n...\n", "empty-lines", 3, 1),
     ] {
         assert!(
-            content_whitespace(input, Some(rule), line, column),
+            !content_whitespace(input, Some(rule), line, column),
             "{input:?}"
         );
     }

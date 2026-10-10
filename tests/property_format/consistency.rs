@@ -147,11 +147,7 @@ pub fn content_whitespace(
         repaired.replace_range(begin + offset..begin + content.len(), "");
     }
     match (scalar_value(output, index), scalar_value(&repaired, index)) {
-        (Some(before), Some(after)) => {
-            before != after
-                || (rule != Some("document-end")
-                    && matches!(style, ScalarStyle::Literal | ScalarStyle::Folded))
-        }
+        (Some(before), Some(after)) => before != after,
         _ => false,
     }
 }
