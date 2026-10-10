@@ -255,17 +255,74 @@ impl DiffStats {
     }
 }
 
-/// `path` `lexical_abspath`-normalized, relativized to CWD and control-sanitized.
 fn cwd_relative_label(path: &Path) -> String {
-    let abspath = crate::cli_support::lexical_abspath(path);
     let cwd = std::env::current_dir().unwrap_or_default();
-    let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
-    crate::cli_support::sanitize_control(&display.display().to_string()).into_owned()
+    #[cfg(windows)]
+    let label = {
+        let rooted = match path.components().next() {
+            Some(std::path::Component::Prefix(prefix))
+                if matches!(prefix.kind(), std::path::Prefix::Disk(_))
+                    && !path.has_root() =>
+            {
+                let std::path::Prefix::Disk(drive) = prefix.kind() else {
+                    unreachable!()
+                };
+                std::path::absolute(format!("{}:", char::from(drive)))
+                    .expect("an input drive is absolutizable")
+                    .join(
+                        path.strip_prefix(prefix.as_os_str())
+                            .expect("the prefix came from this path"),
+                    )
+            }
+            _ => cwd.join(path),
+        };
+        let mut absolute = PathBuf::new();
+        for component in rooted.components() {
+            if component == std::path::Component::ParentDir {
+                absolute.pop();
+            } else {
+                absolute.push(component.as_os_str());
+            }
+        }
+        windows_diff_label(&absolute.to_string_lossy(), &cwd.to_string_lossy())
+    };
+    #[cfg(not(windows))]
+    let label = {
+        let abspath = crate::cli_support::lexical_abspath(path);
+        abspath
+            .strip_prefix(&cwd)
+            .unwrap_or(&abspath)
+            .display()
+            .to_string()
+    };
+    crate::cli_support::sanitize_control(&label).into_owned()
+}
+
+#[must_use]
+pub fn windows_diff_label(path: &str, cwd: &str) -> String {
+    let path = diff_display_path(path);
+    let cwd = diff_display_path(cwd);
+    if path == cwd {
+        String::new()
+    } else {
+        path.strip_prefix(&format!("{}/", cwd.trim_end_matches('/')))
+            .unwrap_or(&path)
+            .to_owned()
+    }
+}
+
+fn diff_display_path(path: &str) -> String {
+    let label = path.replace('\\', "/");
+    if let Some(unc) = label.strip_prefix("//?/UNC/") {
+        format!("//{unc}")
+    } else {
+        label.strip_prefix("//?/").unwrap_or(&label).to_owned()
+    }
 }
 
 /// A unified diff, or `None` when identical, like `ruff check --diff`: 3 context lines
 /// (pinned against a `similar` default change) and a plain `--- path`/`+++ path` header,
-/// `lexical_abspath`-normalized, CWD-relative (so `git apply -p0` works) and sanitized
+/// CWD-relative (so `git apply -p0` works) and sanitized
 /// against injected escapes or forged hunks. The body is verbatim.
 fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
     if original == fixed {

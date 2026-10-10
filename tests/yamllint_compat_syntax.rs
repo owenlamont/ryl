@@ -101,7 +101,8 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
                 let file_part = meta_parts.next()?;
                 let line_part = meta_parts.next()?;
                 let col_part = meta_parts.next()?;
-                let file_path = file_part.strip_prefix("file=")?;
+                let file_path =
+                    compat::github_file_path(file_part.strip_prefix("file=")?);
                 let line_str = line_part.strip_prefix("line=")?;
                 let col_str = col_part.strip_prefix("col=")?;
                 let line = line_str.parse().ok()?;
@@ -110,7 +111,7 @@ fn yamllint_exit_behavior_matches_for_syntax_only() {
                 if !file_path.ends_with(&file) {
                     return None;
                 }
-                Some((file_path.to_string(), line, col))
+                Some((file_path, line, col))
             }
         }
     }

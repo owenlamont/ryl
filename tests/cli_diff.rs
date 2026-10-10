@@ -20,6 +20,13 @@ mod encoding;
 
 const TRAILING: &str = "rules: {trailing-spaces: enable}";
 
+fn diff_header_path(path: &std::path::Path) -> String {
+    let label = path.display().to_string();
+    #[cfg(windows)]
+    let label = label.replace('\\', "/");
+    label
+}
+
 fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
     let mut child = cmd
         .stdin(Stdio::piped())
@@ -62,8 +69,8 @@ fn diff_prints_unified_diff_and_leaves_file_unchanged() {
         "expected the trailing-space removal in the diff: {stdout}"
     );
     assert!(
-        stdout.contains(&format!("--- {}", file.display()))
-            && stdout.contains(&format!("+++ {}", file.display())),
+        stdout.contains(&format!("--- {}", diff_header_path(&file)))
+            && stdout.contains(&format!("+++ {}", diff_header_path(&file))),
         "diff header must carry the file path on both sides: {stdout}"
     );
     assert_eq!(
@@ -270,7 +277,7 @@ fn diff_rewrites_yaml_embedded_in_markdown_at_host_level() {
 
     assert_eq!(code, 1, "a fixable embedded block exits 1: {stderr}");
     assert!(
-        stdout.contains(&format!("--- {}", file.display())),
+        stdout.contains(&format!("--- {}", diff_header_path(&file))),
         "markdown diffs at the host-file level: {stdout}"
     );
     assert!(
@@ -413,23 +420,169 @@ fn diff_header_relativizes_absolute_path_under_cwd() {
     let file = root.join("input.yaml");
     fs::write(&file, "key:   value  \n").unwrap();
 
-    let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe)
-        .current_dir(&root)
-        .arg("--diff")
-        .arg("-d")
-        .arg(TRAILING)
-        .arg(&file)); // absolute path under the run directory
+    for subcommand in ["check", "format"] {
+        let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .current_dir(&root)
+            .args([subcommand, "--diff", "-d", TRAILING])
+            .arg(&file));
 
-    assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
-    assert!(
-        stdout.contains("--- input.yaml") && stdout.contains("+++ input.yaml"),
-        "an absolute path under cwd must be relativized in the header: {stdout}"
+        assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
+        assert!(
+            stdout.starts_with("--- input.yaml\n+++ input.yaml\n"),
+            "an absolute path under cwd must be relativized in the header: {stdout}"
+        );
+        let (code, _, stderr) = run_with_stdin(
+            Command::new("git")
+                .current_dir(&root)
+                .args(["apply", "-p0", "--check", "-"]),
+            stdout.as_bytes(),
+        );
+        assert_eq!(code, 0, "the diff must apply from cwd: {stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "key:   value  \n");
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn drive_relative_diff_headers_are_relative_to_the_drive_directory() {
+    use std::path::{Component, Prefix};
+
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let Some(Component::Prefix(prefix)) = root.components().next() else {
+        panic!("temp directory must have a drive")
+    };
+    let (Prefix::Disk(drive) | Prefix::VerbatimDisk(drive)) = prefix.kind() else {
+        panic!("temp directory must be on a disk")
+    };
+    fs::write(root.join("input.yaml"), "key: value  \n").unwrap();
+    for drive in [char::from(drive), char::from(drive).to_ascii_lowercase()] {
+        for subcommand in ["check", "format"] {
+            let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+                .current_dir(&root)
+                .args([subcommand, "--diff", "-d", TRAILING])
+                .arg(format!("{drive}:input.yaml")));
+            assert_eq!(code, 1, "{stderr}");
+            assert!(
+                stdout.starts_with("--- input.yaml\n+++ input.yaml\n"),
+                "{stdout}"
+            );
+            let (code, _, stderr) = run_with_stdin(
+                Command::new("git")
+                    .current_dir(&root)
+                    .args(["apply", "-p0", "--check", "-"]),
+                stdout.as_bytes(),
+            );
+            assert_eq!(code, 0, "{stderr}");
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn verbatim_diff_headers_preserve_trailing_dots_and_spaces() {
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let config = root.join("ryl.toml");
+    fs::write(
+        &config,
+        "[files]\nyaml = ['*']\n[lint.rules.trailing-spaces]\n",
+    )
+    .unwrap();
+    let sibling = root.join("input.yaml");
+    fs::write(&sibling, "sibling: untouched\n").unwrap();
+    for filename in ["input.yaml.", "input.yaml ", "input.yaml. "] {
+        let file = root.join(filename);
+        fs::write(&file, "key: value  \n").unwrap();
+        for subcommand in ["check", "format"] {
+            let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+                .current_dir(&root)
+                .args([subcommand, "--diff", "-c"])
+                .arg(&config)
+                .arg(&file));
+            assert_eq!(code, 1, "{stderr}");
+            assert!(
+                stdout.starts_with(&format!("--- {filename}\n+++ {filename}\n")),
+                "{stdout}"
+            );
+            assert_eq!(fs::read_to_string(&file).unwrap(), "key: value  \n");
+            assert_eq!(
+                fs::read_to_string(&sibling).unwrap(),
+                "sibling: untouched\n"
+            );
+        }
+    }
+}
+
+#[test]
+fn windows_diff_labels_preserve_component_text() {
+    for suffix in [".", " ", ". "] {
+        for (root, cwd) in [
+            (r"\\?\C:\work", "C:/work"),
+            ("//?/C:/work", r"\\?\C:\work"),
+            (r"\\?\UNC\server\share\work", "//server/share/work"),
+            ("//?/UNC/server/share/work", r"\\server\share\work"),
+        ] {
+            let filename = format!("input.yaml{suffix}");
+            assert_eq!(
+                ryl::fix::windows_diff_label(&format!("{root}/{filename}"), cwd),
+                filename
+            );
+        }
+    }
+    assert_eq!(ryl::fix::windows_diff_label("C:/work", "C:/work"), "");
+    assert_eq!(
+        ryl::fix::windows_diff_label("C:/work-sibling/input.yaml.", "C:/work"),
+        "C:/work-sibling/input.yaml."
     );
-    assert!(
-        !stdout.contains(&format!("--- {}", file.display())),
-        "the absolute path must not appear in the header: {stdout}"
+    assert_eq!(
+        ryl::fix::windows_diff_label("C:/input.yaml ", "C:/"),
+        "input.yaml "
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn diff_headers_strip_verbatim_prefixes_for_both_rewrites() {
+    use ryl::config::{SourceKind, YamlLintConfig};
+    use ryl::fix::{Rewrite, diff_outcome};
+    use std::path::Path;
+
+    let cwd = std::env::current_dir().unwrap();
+    let plain = cwd.join("input.yaml").display().to_string();
+    let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain);
+    let outside = format!("{}-sibling/input.yaml", cwd.display()).replace('\\', "/");
+    let cfg = YamlLintConfig::from_yaml_str(TRAILING).unwrap();
+    for (path, label) in [
+        (plain.to_owned(), "input.yaml"),
+        (format!(r"\\?\{plain}"), "input.yaml"),
+        (format!("//?/{}", plain.replace('\\', "/")), "input.yaml"),
+        (
+            r"\\?\UNC\server\share\input.yaml".to_owned(),
+            "//server/share/input.yaml",
+        ),
+        (
+            "//?/UNC/server/share/input.yaml".to_owned(),
+            "//server/share/input.yaml",
+        ),
+        (format!("//?/{outside}"), outside.as_str()),
+    ] {
+        for rewrite in [Rewrite::Fix, Rewrite::Format] {
+            let outcome = diff_outcome(
+                "key: value  \n",
+                &cfg,
+                Path::new(&path),
+                &cwd,
+                SourceKind::Yaml,
+                rewrite,
+            );
+            let diff = outcome.diff.unwrap();
+            assert!(
+                diff.starts_with(&format!("--- {label}\n+++ {label}\n")),
+                "{path}: {diff}"
+            );
+        }
+    }
 }
 
 #[test]

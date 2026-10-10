@@ -1,6 +1,10 @@
 # Fenced YAML in the rules docs is example content, not links.
 include_verbatim = false
 
+remap = [
+  '^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/([^#?]+)$ https://raw.githubusercontent.com/$1/$2/$3/$4',
+]
+
 # Generated files carrying only external absolutized URLs: checking them adds network
 # churn (and self-links can 404 between a docs change and its deploy) for no extra coverage.
 exclude_path = ['(^|[\\/])llms(-full)?\.txt$']
