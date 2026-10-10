@@ -1,6 +1,27 @@
 use ryl::rules::document_end::{self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAGE};
 
 #[test]
+fn malformed_next_document_keeps_partial_marker_findings_and_fixes() {
+    let input = "first: value\n---\n[";
+    let cfg = Config::new(true);
+    let hits = document_end::check(input, &cfg);
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (2, 1));
+    assert_eq!(
+        document_end::fix(input, &cfg),
+        Some("first: value\n...\n---\n[".to_string())
+    );
+    let start = ryl::rules::document_start::Config::new(true);
+    let hits = ryl::rules::document_start::check(input, &start);
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (1, 1));
+    assert_eq!(
+        ryl::rules::document_start::fix(input, &start),
+        Some("---\nfirst: value\n---\n[".to_string())
+    );
+}
+
+#[test]
 fn detects_end_marker_after_multibyte_comment() {
     let cfg = Config::new(true);
     let input = "# —\n---\nfoo: bar\n...\n";
