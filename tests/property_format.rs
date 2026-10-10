@@ -16,6 +16,8 @@ mod ast;
     reason = "shared with the safe-fix suite, which uses every item"
 )]
 mod config;
+#[path = "property_format/consistency.rs"]
+mod consistency;
 #[path = "common/encoding.rs"]
 mod encoding;
 #[path = "property_format/fold.rs"]
@@ -149,7 +151,7 @@ proptest! {
         document in arb_document_with_properties(),
         table in settings::arb_format_config(),
     ) {
-        let agreeing = settings::agreeing_lint(&table);
+        let agreeing = consistency::agreeing_lint(&table);
         let cfg = YamlLintConfig::from_toml_str(&agreeing).expect(&agreeing);
         let input = document.render();
         let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
