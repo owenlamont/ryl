@@ -1,3 +1,7 @@
+use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
+use ryl::config::YamlLintConfig;
+use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
+
 pub fn refused(
     problem: &ryl::lint::LintProblem,
     notices: &[ryl::lint::LintProblem],
@@ -6,10 +10,6 @@ pub fn refused(
         .iter()
         .any(|notice| notice.line == problem.line && notice.rule == problem.rule)
 }
-
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
-use ryl::config::YamlLintConfig;
-use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
 pub fn content_whitespace(
     output: &str,
@@ -58,6 +58,23 @@ pub fn content_whitespace(
             .nth(column.saturating_sub(1))
             .is_some_and(|(offset, _)| {
                 raw[offset..].chars().all(|ch| matches!(ch, ' ' | '\t'))
+            })
+}
+
+pub fn pending_multiline_quote(
+    output: &str,
+    problem: &ryl::lint::LintProblem,
+    cfg: &YamlLintConfig,
+) -> bool {
+    problem.rule == Some("quoted-strings")
+        && cfg.format().targets().quote_style == QuoteStyleTarget::Single
+        && Scanner::new(StrInput::new(output))
+            .map_while(Result::ok)
+            .map(granit_parser::Token::into_parts)
+            .any(|(span, kind)| {
+                matches!(kind, TokenType::Scalar(ScalarStyle::DoubleQuoted, _))
+                    && span.start.line() == problem.line
+                    && span.start.line() < span.end.line()
             })
 }
 

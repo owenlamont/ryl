@@ -9,6 +9,7 @@
 //! G11 permanently exempts whitespace-only repairs to value-bearing block-scalar content.
 //! Value-safe block-content whitespace is temporarily exempt until #640 merges; remove the value-safe exemption then.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
+//! Multiline double quotes under the single-quote target are exempt until #650 merges; remove then.
 
 
 #[path = "property_safe_fix/ast.rs"]
@@ -163,7 +164,8 @@ proptest! {
         );
         let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals)
+            && !consistency::pending_multiline_quote(&output, problem, &cfg));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -176,7 +178,8 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals)
+            && !consistency::pending_multiline_quote(&output, problem, &cfg));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1139,4 +1142,37 @@ fn g11_refusal_exempts_only_the_reported_line_and_concern() {
     other.rule = Some("colons");
     assert!(!consistency::refused(&other, &refusals));
     assert!(!consistency::refused(&problems[0], &[]));
+}
+
+#[test]
+fn g11_pending_multiline_quote_exemption_excludes_other_scalars_and_rules() {
+    let table = "[format]\nquote-style = 'single'\n";
+    let cfg =
+        YamlLintConfig::from_toml_str(&consistency::agreeing_lint(table)).unwrap();
+    let input = "a: \"#first\n\n    #last\"\n";
+    let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problem = problems
+        .iter()
+        .find(|problem| problem.rule == Some("quoted-strings"))
+        .unwrap();
+    assert!(consistency::pending_multiline_quote(input, problem, &cfg));
+    assert!(!consistency::pending_multiline_quote(
+        "a: \"#one line\"\n",
+        problem,
+        &cfg
+    ));
+    assert!(!consistency::pending_multiline_quote(
+        "a: '#first\n\n    #last'\n",
+        problem,
+        &cfg
+    ));
+    let mut other = problem.clone();
+    other.line += 1;
+    assert!(!consistency::pending_multiline_quote(input, &other, &cfg));
+    other.line = problem.line;
+    other.rule = Some("comments");
+    assert!(!consistency::pending_multiline_quote(input, &other, &cfg));
+    let cfg =
+        YamlLintConfig::from_toml_str("[format]\nquote-style = 'double'\n").unwrap();
+    assert!(!consistency::pending_multiline_quote(input, problem, &cfg));
 }
