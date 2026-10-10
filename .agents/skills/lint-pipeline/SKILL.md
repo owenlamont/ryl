@@ -123,12 +123,13 @@ tripping only an unfixable rule exits `0`). Reuses the fix pipeline
 (`fix::diff_files` → `fix::diff_outcome`), inheriting the parse-error gate
 and symlink skip (both → a `skipped by --diff` notice, no exit effect).
 
-A non-UTF-8/BOM input is likewise skipped (`fix::non_utf8_diff_skip`; files via
-`DecodedFile::is_plain_utf8`, stdin via decoded==raw bytes) — a text diff can't apply
-back to transcoded bytes, so `--fix` (which re-encodes) is the path for those — as is a
-filename with control characters (no representable header). Markdown diffs at host-file
-level. The diff *body* is verbatim (hk re-applies it byte-for-byte); the header path is
-sanitized and relativized to CWD (like ruff) so it applies via `git apply -p0`. A bare
+A non-UTF-8/BOM input runs through `fix::decoded_diff_outcome` for files and stdin:
+decoded-text changes count toward exit `1`, but the patch is suppressed with a notice
+because a text diff can't apply back to transcoded bytes; use `--fix` to re-encode.
+A filename with control characters is skipped (no representable header). Markdown diffs
+are at host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte);
+the header path is sanitized and relativized to CWD (like ruff) so it applies via
+`git apply -p0`. A bare
 `\r` is rendered as diff *content* (`render_unified_diff` splits hunk lines on `\n`
 only), so a mid-line/mixed `\r` round-trips; content that *ends* in a bare `\r` is
 skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).

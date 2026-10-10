@@ -15,6 +15,8 @@ use tempfile::tempdir;
 
 mod common;
 use common::cli::run;
+#[path = "common/encoding.rs"]
+mod encoding;
 
 const TRAILING: &str = "rules: {trailing-spaces: enable}";
 
@@ -460,9 +462,6 @@ fn diff_deduplicates_inputs_listed_under_multiple_spellings() {
 
 #[test]
 fn diff_skips_non_utf8_file_with_notice() {
-    // A textual diff of decoded content can't be applied back to BOM'd/transcoded
-    // bytes (git apply / hk would reject it), and a text diff can't round-trip the
-    // encoding the way --fix's re-encode does. So --diff skips non-plain-UTF-8 inputs.
     let dir = tempdir().unwrap();
     let file = dir.path().join("bom.yaml");
     let original: &[u8] = b"\xEF\xBB\xBFkey: value  \n"; // UTF-8 BOM + trailing spaces
@@ -475,7 +474,7 @@ fn diff_skips_non_utf8_file_with_notice() {
         .arg(TRAILING)
         .arg(&file));
 
-    assert_eq!(code, 0, "a skipped file yields no diff: {stderr}");
+    assert_eq!(code, 1, "a pending fix must exit 1: {stderr}");
     assert!(stdout.is_empty(), "no diff for a non-UTF-8 file: {stdout}");
     assert!(
         stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 or BOM"),
@@ -500,12 +499,94 @@ fn diff_skips_non_utf8_stdin_with_notice() {
         b"\xEF\xBB\xBFkey: value  \n",
     );
 
-    assert_eq!(code, 0, "skipped stdin yields no diff: {stderr}");
+    assert_eq!(code, 1, "a pending fix must exit 1: {stderr}");
     assert!(stdout.is_empty(), "no diff for non-UTF-8 stdin: {stdout}");
     assert!(
         stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 or BOM"),
         "non-UTF-8 stdin must be skipped with a notice: {stderr}"
     );
+}
+
+#[test]
+fn encoded_diff_detects_fixes_in_yaml_and_markdown_files_and_stdin() {
+    let dir = tempdir().unwrap();
+    for (name, dirty, clean, invalid, disabled, args) in [
+        (
+            "input.yaml",
+            "a:    café😀\n",
+            "a: café😀\n",
+            "a: [\n",
+            "# ryl disable-file\na:    café😀\n",
+            vec![],
+        ),
+        (
+            "input.md",
+            "---\na:    café😀\n---\n\n```yaml\nb:    2\n```\n",
+            "---\na: café😀\n---\n\n```yaml\nb: 2\n```\n",
+            "```yaml\na: [\n```\n",
+            "```yaml\n# ryl disable-file\na:    café😀\n```\n",
+            vec!["--markdown"],
+        ),
+    ] {
+        let path = dir.path().join(name);
+        for (width, little, bom) in [
+            (1, false, false),
+            (1, false, true),
+            (2, false, false),
+            (2, false, true),
+            (2, true, false),
+            (2, true, true),
+            (4, false, false),
+            (4, false, true),
+            (4, true, false),
+            (4, true, true),
+        ] {
+            for (text, expected) in
+                [(dirty, 1), (clean, 0), (invalid, 0), (disabled, 0)]
+            {
+                let bytes = encoding::encoded(text, width, little, bom);
+                fs::write(&path, &bytes).unwrap();
+                let command = || {
+                    let mut command = common::cli::ryl(dir.path());
+                    command
+                        .args(["check", "--diff", "-d", "[lint.rules.colons]"])
+                        .args(&args);
+                    command
+                };
+                assert_encoded_diff(
+                    run(command().arg(&path)),
+                    expected,
+                    width != 1 || bom,
+                );
+                assert_encoded_diff(
+                    run_with_stdin(command().arg("-"), &bytes),
+                    expected,
+                    width != 1 || bom,
+                );
+                assert_eq!(fs::read(&path).unwrap(), bytes);
+            }
+        }
+    }
+}
+
+fn assert_encoded_diff(
+    (code, stdout, stderr): (i32, String, String),
+    expected: i32,
+    encoded: bool,
+) {
+    assert_eq!(code, expected, "{stderr}");
+    if encoded {
+        assert!(
+            stdout.is_empty(),
+            "encoded input has no applicable patch: {stdout}"
+        );
+        assert!(
+            stderr.contains("non-UTF-8 or BOM") && stderr.contains("use --fix"),
+            "{stderr}"
+        );
+    } else {
+        assert_eq!(stdout.contains("@@"), expected == 1, "{stdout}");
+    }
 }
 
 #[test]

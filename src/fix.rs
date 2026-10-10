@@ -490,18 +490,16 @@ pub fn decoded_diff_outcome(
     if decoded.is_plain_utf8() {
         return diff_outcome(decoded.content(), cfg, path, base_dir, kind, rewrite);
     }
-    if rewrite == Rewrite::Fix {
-        return DiffOutcome {
-            skipped: vec![non_utf8_diff_skip()],
-            ..DiffOutcome::default()
-        };
-    }
     let mut outcome =
         diff_outcome(decoded.content(), cfg, path, base_dir, kind, rewrite);
     outcome.diff = None;
-    outcome.skipped.push(diff_skip(
-        "non-UTF-8 or BOM content has no applicable text diff; use ryl format",
-    ));
+    outcome.skipped.push(if rewrite == Rewrite::Fix {
+        non_utf8_diff_skip()
+    } else {
+        diff_skip(
+            "non-UTF-8 or BOM content has no applicable text diff; use ryl format",
+        )
+    });
     outcome
 }
 
