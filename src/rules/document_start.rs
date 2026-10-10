@@ -4,7 +4,7 @@
 //! after the last `...` that precedes it, else at the buffer start or after a line-1
 //! shebang or `#cloud-config`. Removing `---` (`present: false`) can collide with
 //! document boundaries, so it is not fixed.
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
@@ -48,19 +48,34 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    scan(buffer, cfg).violations
+    scan(buffer, *cfg).violations
 }
 
-fn scan<'cfg>(buffer: &str, cfg: &'cfg Config) -> DocumentStartReceiver<'cfg> {
-    let mut parser = Parser::new_from_str(buffer);
-    let mut receiver = DocumentStartReceiver::new(cfg);
-    let _ = parser.load(&mut receiver, true);
-    receiver
+fn scan(buffer: &str, cfg: Config) -> Scan {
+    let mut result = Scan::default();
+    for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
+        if let Event::DocumentStart(explicit, _) = event
+            && explicit != cfg.requires_marker()
+        {
+            let message = if explicit {
+                FORBIDDEN_MESSAGE
+            } else {
+                result.implicit_starts.push(span.start.line());
+                MISSING_MESSAGE
+            };
+            result.violations.push(Violation {
+                line: span.start.line(),
+                column: if explicit { span.start.col() + 1 } else { 1 },
+                message: message.to_string(),
+            });
+        }
+    }
+    result
 }
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let content_lines = scan(buffer, cfg).implicit_starts;
+    let content_lines = scan(buffer, *cfg).implicit_starts;
     if content_lines.is_empty() {
         return None;
     }
@@ -119,42 +134,8 @@ fn split_bom(line: &str) -> (&str, &str) {
         .map_or(("", line), |rest| ("\u{feff}", rest))
 }
 
-struct DocumentStartReceiver<'cfg> {
-    config: &'cfg Config,
+#[derive(Default)]
+struct Scan {
     violations: Vec<Violation>,
-    /// 1-based first content line of each implicit document.
     implicit_starts: Vec<usize>,
-}
-
-impl<'cfg> DocumentStartReceiver<'cfg> {
-    const fn new(config: &'cfg Config) -> Self {
-        Self {
-            config,
-            violations: Vec::new(),
-            implicit_starts: Vec::new(),
-        }
-    }
-}
-
-impl SpannedEventReceiver<'_> for DocumentStartReceiver<'_> {
-    fn on_event(&mut self, event: Event<'_>, span: Span) {
-        if let Event::DocumentStart(explicit, _) = event {
-            if self.config.requires_marker() {
-                if !explicit {
-                    self.implicit_starts.push(span.start.line());
-                    self.violations.push(Violation {
-                        line: span.start.line(),
-                        column: 1,
-                        message: MISSING_MESSAGE.to_string(),
-                    });
-                }
-            } else if explicit {
-                self.violations.push(Violation {
-                    line: span.start.line(),
-                    column: span.start.col() + 1,
-                    message: FORBIDDEN_MESSAGE.to_string(),
-                });
-            }
-        }
-    }
 }
