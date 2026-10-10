@@ -8,7 +8,7 @@ use std::path::Path;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::{run, ryl};
+use common::cli::{run, ryl, ryl_on, stdin_output};
 
 /// Dirty for ten of the fourteen formatting rules (not `new-lines`, `comments-indentation`
 /// or `document-start`), the tenth being its missing final newline.
@@ -17,22 +17,12 @@ const DIRTY: &str =
 const FORMATTED: &str =
     "k: abc\nm: {a: 1, b: 2}\nq: 'a: b'\nkey: x\nn: 1  # c\n\n\nz: []\n";
 
-/// Run `ryl format <args> a.yaml` beside a `.ryl.toml` holding `config` (none when
-/// `None`), returning the exit code, stdout, stderr and the file afterwards.
 fn format_file(
     config: Option<&str>,
     input: &str,
     args: &[&str],
 ) -> (i32, String, String, String) {
-    let dir = tempdir().unwrap();
-    if let Some(config) = config {
-        fs::write(dir.path().join(".ryl.toml"), config).unwrap();
-    }
-    let file = dir.path().join("a.yaml");
-    fs::write(&file, input).unwrap();
-    let (code, stdout, stderr) =
-        run(ryl(dir.path()).arg("format").args(args).arg(&file));
-    (code, stdout, stderr, fs::read_to_string(&file).unwrap())
+    ryl_on(config, input, &[&["format"], args].concat())
 }
 
 #[test]
@@ -385,18 +375,11 @@ fn stdin_formats_to_stdout_and_check_explains() {
     fs::write(&config, "[output]\nparsable = {}\n").unwrap();
     let config = config.to_str().unwrap();
     let run_stdin = |args: &[&str], input: &[u8]| {
-        let mut child = ryl(dir.path())
-            .arg("format")
-            .args(args)
-            .arg("-")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        // ryl may reject the input and exit before reading all of it.
-        let _ = std::io::Write::write_all(child.stdin.as_mut().unwrap(), input);
-        let out = child.wait_with_output().unwrap();
+        let out = stdin_output(
+            ryl(dir.path()).arg("format").args(args).arg("-"),
+            input,
+            |_| {},
+        );
         (
             out.status.code().unwrap(),
             String::from_utf8(out.stdout).unwrap(),

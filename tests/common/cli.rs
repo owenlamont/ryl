@@ -1,22 +1,10 @@
-//! Shared CLI test harness: invoke the `ryl` binary and read its output. The
-//! `cli_*` integration tests use these instead of each re-defining `run` /
-//! `command_output`. Items are `#[allow(dead_code)]` because every test binary
-//! that does `mod common;` compiles the whole module, but each uses only the
-//! helpers it needs (the same pattern `fake_env` follows).
-
+use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 
-/// A `ryl` command whose config discovery is isolated from the shared temp root. Project
-/// discovery climbs from each input through its ancestors up to `HOME`, so a test whose
-/// inputs live under the system temp dir would otherwise walk into that shared dir, where
-/// a stray `ryl.toml`/`.yamllint`/etc. (left by another test, a concurrent process, or a
-/// manual smoke run) gets discovered and silently overrides the test's own setup, and
-/// TOML candidates outrank a tempdir's `.yamllint`, so an adjacent YAML config is not
-/// enough to shield it. Setting `HOME` to `home` stops the walk there. Any test that
-/// exercises discovery (does NOT pass `-c`/`-d`, and has no adjacent TOML config in its
-/// input's directory) must build its command with this, passing its own tempdir.
-#[allow(dead_code)]
+/// Bound project-config discovery at `home`.
+#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn ryl(home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ryl"));
     cmd.env("HOME", home);
@@ -24,9 +12,14 @@ pub fn ryl(home: &Path) -> Command {
 }
 
 /// Run `cmd` to completion, returning `(exit code, stdout, stderr)`.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn run(cmd: &mut Command) -> (i32, String, String) {
     let out = cmd.output().expect("process");
+    output_tuple(out)
+}
+
+#[allow(dead_code, reason = "not every test binary uses every helper")]
+pub fn output_tuple(out: Output) -> (i32, String, String) {
     let code = out.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy_owned(out.stdout);
     let stderr = String::from_utf8_lossy_owned(out.stderr);
@@ -35,7 +28,39 @@ pub fn run(cmd: &mut Command) -> (i32, String, String) {
 
 /// Whichever stream carried the diagnostics: `stderr` when non-empty (ryl prints
 /// diagnostics there), otherwise `stdout`.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn command_output<'a>(stdout: &'a str, stderr: &'a str) -> &'a str {
     if stderr.is_empty() { stdout } else { stderr }
+}
+
+#[allow(dead_code, reason = "not every test binary uses every helper")]
+pub fn stdin_output(
+    cmd: &mut Command,
+    input: &[u8],
+    check_write: impl FnOnce(io::Result<()>),
+) -> Output {
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ryl");
+    check_write(child.stdin.take().expect("stdin").write_all(input));
+    child.wait_with_output().expect("wait")
+}
+
+#[allow(dead_code, reason = "not every test binary uses every helper")]
+pub fn ryl_on(
+    config: Option<&str>,
+    input: &str,
+    args: &[&str],
+) -> (i32, String, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    if let Some(config) = config {
+        fs::write(dir.path().join(".ryl.toml"), config).unwrap();
+    }
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, input).unwrap();
+    let (code, stdout, stderr) = run(ryl(dir.path()).args(args).arg(&file));
+    (code, stdout, stderr, fs::read_to_string(&file).unwrap())
 }

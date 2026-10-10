@@ -7,28 +7,11 @@ use std::fs;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::{run, ryl};
+use common::cli::{run, ryl, ryl_on};
 
 const FOLD: &str = "line-length = 20\n[format]\nfold-long-lines = true\n";
 const LONG: &str = "---\nk: aaa bbb ccc ddd eee fff\n";
 const FOLDED: &str = "---\nk: aaa bbb ccc ddd\n  eee fff\n";
-
-/// Run `ryl <args> a.yaml` beside a `.ryl.toml` holding `config` (none when `None`),
-/// returning the exit code, stdout, stderr and the file afterwards.
-fn ryl_on(
-    config: Option<&str>,
-    input: &str,
-    args: &[&str],
-) -> (i32, String, String, String) {
-    let dir = tempdir().unwrap();
-    if let Some(config) = config {
-        fs::write(dir.path().join(".ryl.toml"), config).unwrap();
-    }
-    let file = dir.path().join("a.yaml");
-    fs::write(&file, input).unwrap();
-    let (code, stdout, stderr) = run(ryl(dir.path()).args(args).arg(&file));
-    (code, stdout, stderr, fs::read_to_string(&file).unwrap())
-}
 
 #[test]
 fn folding_is_opt_in() {

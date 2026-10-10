@@ -1,13 +1,12 @@
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use tempfile::tempdir;
 
 use ryl::rules::document_start::{self, Config};
 
 mod common;
-use common::cli::{run, ryl};
+use common::cli::{run, ryl, stdin_output};
 
 #[test]
 fn fix_adds_a_marker_to_every_implicit_document() {
@@ -116,20 +115,13 @@ fn format_adds_a_marker_to_the_first_of_several_documents() {
 }
 
 fn format_stdin(home: &Path, input: &str) -> String {
-    let mut child = ryl(home)
-        .current_dir(home)
-        .args(["format", "-d", "[format]\ndocument-start = 'add'\n"])
-        .args(["--stdin-filename", "s.yaml", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
-    String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+    let output = stdin_output(
+        ryl(home)
+            .current_dir(home)
+            .args(["format", "-d", "[format]\ndocument-start = 'add'\n"])
+            .args(["--stdin-filename", "s.yaml", "-"]),
+        input.as_bytes(),
+        |result| result.unwrap(),
+    );
+    String::from_utf8(output.stdout).unwrap()
 }
