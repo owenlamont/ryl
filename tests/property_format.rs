@@ -6,8 +6,8 @@
 //! parser-independent properties in `fold`: only lone spaces become line breaks, and
 //! every continuation is deeper than its scalar's owner.
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
-//! G11 exempts a final unterminated block scalar from EOF-newline lint to preserve its value.
-//! G11 exempts terminal blank lines after a final block scalar: format preserves them today.
+//! G11 exempts whitespace diagnostics in block-scalar content only when repair changes loaded values.
+//! Final block-scalar trailing blanks remain temporarily exempt pending the clip/strip formatter fix.
 
 
 #[path = "property_safe_fix/ast.rs"]
@@ -158,7 +158,7 @@ proptest! {
         let input = document.render();
         let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::exempt_final_scalar(&output, problem.rule, problem.line));
+        problems.retain(|problem| !(consistency::exempt_value_bearing_content(&output, problem.line, problem.column) || consistency::exempt_pending_scalar_blanks(&output, problem.rule, problem.line)));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -171,7 +171,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::exempt_final_scalar(&output, problem.rule, problem.line));
+        problems.retain(|problem| !(consistency::exempt_value_bearing_content(&output, problem.line, problem.column) || consistency::exempt_pending_scalar_blanks(&output, problem.rule, problem.line)));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1055,48 +1055,62 @@ fn bom_document_marker_keeps_g11_indentation_consistent() {
 }
 
 #[test]
-fn g11_final_scalar_exemptions_keep_other_diagnostics() {
-    for input in ["a: |\n  a", "a: >\n  a", "a: | # header\n  a"] {
-        assert!(consistency::exempt_final_scalar(
-            input,
-            Some("new-line-at-end-of-file"),
-            2
-        ));
-        assert!(!consistency::exempt_final_scalar(
-            input,
-            Some("trailing-spaces"),
-            2
-        ));
+fn g11_content_exemption_requires_a_loaded_value_change() {
+    for (input, line, column) in [
+        ("a: |\n  a", 2, 4),
+        ("a: >\n  a \n", 2, 4),
+        ("a: | # header\n  a \nb: b\n", 2, 4),
+        ("a: |+\n  a\n\n", 3, 1),
+        ("a: |\n  café \n", 2, 7),
+        ("---\na: |\n  a \n...\n\u{feff}---\n\na: 1\n...\n", 3, 4),
+    ] {
+        assert!(
+            consistency::exempt_value_bearing_content(input, line, column),
+            "{input:?}"
+        );
     }
-    for input in ["a: |\n  a\n\n", "a: |-\r\n  a\r\n\r\n"] {
-        assert!(consistency::exempt_final_scalar(
+    for (input, line, column) in [
+        ("a: plain ", 1, 9),
+        ("a: |3\n   \n   a\n", 2, 1),
+        ("a: |-\n  a", 2, 4),
+        ("a: |\n  a\n\n", 3, 1),
+        ("a: |-\r\n  a\r\n\r\n", 3, 1),
+        ("a: | \n  a\n", 1, 5),
+        ("a: |\n  a\nb: b \n", 3, 5),
+        ("a: |\n  a\n# after\n\n", 4, 1),
+    ] {
+        assert!(
+            !consistency::exempt_value_bearing_content(input, line, column),
+            "{input:?}"
+        );
+    }
+    for input in [
+        "a: |\n  a\n\n",
+        "a: |-\r\n  a\r\n\r\n",
+        "a: |\n  a\n\n...\n",
+    ] {
+        assert!(consistency::exempt_pending_scalar_blanks(
             input,
             Some("empty-lines"),
             3
         ));
-        assert!(!consistency::exempt_final_scalar(
+        assert!(!consistency::exempt_pending_scalar_blanks(
             input,
             Some("empty-lines"),
             1
         ));
-        assert!(!consistency::exempt_final_scalar(
+        assert!(!consistency::exempt_pending_scalar_blanks(
             input,
-            Some("new-line-at-end-of-file"),
+            Some("trailing-spaces"),
             3
         ));
     }
     for input in [
-        "a: plain",
-        "a: |\n  a\nb: plain",
+        "a: plain\n\n",
         "a: |\n  a\n# after\n\n",
         "a: |\n  a\n...\n\n",
     ] {
-        assert!(!consistency::exempt_final_scalar(
-            input,
-            Some("new-line-at-end-of-file"),
-            2
-        ));
-        assert!(!consistency::exempt_final_scalar(
+        assert!(!consistency::exempt_pending_scalar_blanks(
             input,
             Some("empty-lines"),
             input.lines().count()
