@@ -257,17 +257,26 @@ fn check_falls_back_per_rule_and_skips_directive_disabled_lines() {
 }
 
 #[test]
-fn check_reports_through_config_output_but_diff_keeps_the_default() {
+fn check_reports_through_output_format_or_config_output_but_diff_keeps_the_default() {
     let config = "[output]\nparsable = {}\n";
     let (code, _, stderr, _) = format_file(Some(config), DIRTY, &["--check"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("a.yaml:2:6: [error]"), "{stderr}");
-    let (code, stdout, stderr, _) = format_file(Some(config), DIRTY, &["--diff"]);
+    let gitlab = ["--check", "--output-format", "gitlab"];
+    let (code, stdout, stderr, _) = format_file(Some(config), DIRTY, &gitlab);
     assert_eq!(code, 1);
     assert!(
-        stdout.starts_with("--- ") && !stderr.contains("a.yaml:2:6:"),
-        "{stderr}"
+        stdout.starts_with("[{") && !stderr.contains("a.yaml:2:6:"),
+        "--output-format overrides [output]: {stdout}{stderr}"
     );
+    for args in [&["--diff"][..], &["--diff", "--output-format", "gitlab"]] {
+        let (code, stdout, stderr, _) = format_file(Some(config), DIRTY, args);
+        assert_eq!(code, 1);
+        assert!(
+            stdout.starts_with("--- ") && !stderr.contains("a.yaml:2:6:"),
+            "{args:?}: {stderr}"
+        );
+    }
     let config = "[output]\nparsable = { path = 'missing/dir/out.txt' }\n";
     let (code, _, stderr, _) = format_file(Some(config), DIRTY, &["--check"]);
     assert_eq!(code, 2, "an unopenable output target is an error: {stderr}");
@@ -407,6 +416,16 @@ fn stdin_formats_to_stdout_and_check_explains() {
     assert!(stderr.contains("warning: the braces lint rule"), "{stderr}");
     let parsable = ["--check", "-c", config, "--stdin-filename", "s.yaml"];
     let (code, _, stderr) = run_stdin(&parsable, dirty);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("s.yaml:2:6: [error]"), "{stderr}");
+    let cli = [
+        "--check",
+        "--output-format",
+        "parsable",
+        "--stdin-filename",
+        "s.yaml",
+    ];
+    let (code, _, stderr) = run_stdin(&cli, dirty);
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("s.yaml:2:6: [error]"), "{stderr}");
     let (code, _, stderr) = run_stdin(&["--check"], &[0xFF, 0xFF, 0xFF]);

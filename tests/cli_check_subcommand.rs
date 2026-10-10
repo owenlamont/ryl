@@ -122,9 +122,10 @@ fn check_matches_bare_on_diff_without_mutating() {
     );
 }
 
-/// The load-bearing case: `--format`/`--output-file` order is recovered from clap arg indices,
-/// which under `check` live in the subcommand's `ArgMatches`, not the root's. A console + a
-/// gitlab report file in one run must come out identical for both invocation forms.
+/// The load-bearing case: `--output-format`/`--output-file` order, under any spelling, is
+/// recovered from clap arg indices, which under `check` live in the subcommand's
+/// `ArgMatches`, not the root's. A console + a gitlab report file in one run must come out
+/// identical for both invocation forms.
 #[test]
 fn check_matches_bare_on_multi_format_outputs() {
     let dir = tempdir().unwrap();
@@ -148,9 +149,9 @@ fn check_matches_bare_on_multi_format_outputs() {
         "check",
         "-d",
         CFG,
-        "--format",
+        "-f",
         "auto",
-        "--format",
+        "--output-format",
         "gitlab",
         "-o",
         check_report.to_str().unwrap(),

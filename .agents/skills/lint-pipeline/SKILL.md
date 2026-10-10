@@ -17,7 +17,7 @@ Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
 `ryl check <inputs>` (the lint subcommand, #369) and bare `ryl <inputs>` lint
 identically: `LintArgs` (`clap::Args`) is flattened both at the top level and under
 `Commands::Check`, and the dispatch routes `check` through the subcommand's own
-`ArgMatches` so the repeatable `--format`/`--output-file` `indices_of` recovery reads
+`ArgMatches` so the repeatable `-f`/`--output-file` `indices_of` recovery reads
 the right scope. `check` is the recommended form; bare is deprecated: `run_cli` prints
 a one-line stderr warning (skipped under `--no-warnings` or with no inputs) after every
 meta-action has returned, and removal is a later sibling of the #238 lint/format split.
@@ -117,7 +117,7 @@ Markdown paths.
 
 `--diff` (#269) previews `--fix` without writing: prints a unified diff (3 lines of
 context) per changed file to **stdout** and exits `1` iff any file would change,
-mirroring `ruff check --diff`. `conflicts_with` `--fix`, ignores `--format`, supports
+mirroring `ruff check --diff`. `conflicts_with` `--fix`, ignores `-f`, supports
 stdin. Diff-only: remaining *unfixable* findings are neither printed nor counted (a file
 tripping only an unfixable rule exits `0`). Reuses the fix pipeline
 (`fix::diff_files` → `fix::diff_outcome`), inheriting the parse-error gate

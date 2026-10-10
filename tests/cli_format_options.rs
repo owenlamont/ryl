@@ -805,7 +805,7 @@ fn stdin_output_file_without_format_is_usage_error() {
         "an unpaired --output-file is a usage error on stdin"
     );
     assert!(
-        stderr.contains("--output-file must follow a --format"),
+        stderr.contains("--output-file must follow an --output-format"),
         "expected the unpaired-output message: {stderr}"
     );
 }
@@ -1179,7 +1179,7 @@ fn output_file_without_preceding_format_is_usage_error() {
         .arg(&file));
     assert_eq!(code, 2, "an unpaired --output-file is a usage error");
     assert!(
-        stderr.contains("--output-file must follow a --format"),
+        stderr.contains("--output-file must follow an --output-format"),
         "expected the unpaired-output message: {stderr}"
     );
 }
@@ -1207,7 +1207,7 @@ fn format_with_two_output_files_is_usage_error() {
         "binding two files to one --format is a usage error"
     );
     assert!(
-        stderr.contains("a --format takes at most one --output-file"),
+        stderr.contains("an --output-format takes at most one --output-file"),
         "expected the one-output-per-format message: {stderr}"
     );
 }

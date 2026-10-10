@@ -74,13 +74,14 @@ Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only er
 
 ## Machine-readable output
 
-`-f/--format`: `parsable` or `github` (line-oriented, stderr) for parsing diagnostics;
-`junit` or `gitlab` (stdout) for CI report artifacts. `--format` is repeatable and each
+`-f/--output-format`: `parsable` or `github` (line-oriented, stderr) for parsing
+diagnostics; `junit` or `gitlab` (stdout) for CI report artifacts. `--output-format` is
+repeatable and each
 `-o/--output-file` binds to the preceding format, so console + a report file can be
 produced together:
 
 ```bash
-ryl check --format github --format gitlab -o code-quality.json .
+ryl check --output-format github --output-format gitlab -o code-quality.json .
 ```
 
 ## Configuration: YAML vs TOML

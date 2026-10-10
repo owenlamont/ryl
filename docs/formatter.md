@@ -27,7 +27,8 @@ with the defaults below.
 
 `--check` reports each line `ryl format` would change as a diagnostic from the rule
 whose fix changes it, through the same reporters as `ryl check`, so it honours
-[`[output]`](output-formats.md) and picks the GitHub format in GitHub Actions.
+`--output-format` and [`[output]`](output-formats.md) and picks the GitHub format in
+GitHub Actions.
 
 ## Guarantees
 
@@ -229,8 +230,8 @@ nothing today.
 ## YAML in Markdown
 
 `ryl format` formats YAML front matter and fenced YAML blocks in Markdown files matched
-by `[files].markdown`, as described in [YAML in Markdown](markdown.md). There is no
-`--markdown` flag on `ryl format`; set `[files].markdown` instead.
+by `[files].markdown`, as described in [YAML in Markdown](markdown.md), or every input
+given `--markdown`, as with `ryl check`.
 
 ## Suppression
 

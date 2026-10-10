@@ -1,8 +1,9 @@
 # Output formats
 
-`ryl` renders diagnostics in several formats, selected with `--format` (`-f`). The
-default, `auto`, picks a human-readable format for your environment; the machine-readable
-formats are opt-in and are meant to be consumed by editors, CI, and Git forges.
+`ryl` renders diagnostics in several formats, selected with `--output-format` (`-f`, or
+yamllint's `--format`). The default, `auto`, picks a human-readable format for your
+environment; the machine-readable formats are opt-in and are meant to be consumed by
+editors, CI, and Git forges.
 
 | Format | Purpose | Default destination |
 | --- | --- | --- |
@@ -25,31 +26,31 @@ Each format has a default stream: the console formats (`standard`, `colored`, `g
 so a report can be redirected into an artifact file:
 
 ```console
-$ ryl check --format gitlab . > gl-code-quality-report.json
+$ ryl check --output-format gitlab . > gl-code-quality-report.json
 ```
 
 ### Multiple outputs in one run
 
-`--format` (`-f`) is repeatable, and each `--output-file` (`-o`) binds to the **most
-recent** `--format`, so a single run can produce several outputs at once (the RuboCop /
-Biome model). `-o` takes a file path, or `-` for stdout:
+`--output-format` (`-f`) is repeatable, and each `--output-file` (`-o`) binds to the
+**most recent** `--output-format`, so a single run can produce several outputs at once
+(the RuboCop / Biome model). `-o` takes a file path, or `-` for stdout:
 
 ```console
 # console diagnostics on stderr AND a GitLab report written to a file
-$ ryl check --format auto --format gitlab -o gl-code-quality-report.json .
+$ ryl check --output-format auto --output-format gitlab -o gl-code-quality-report.json .
 
 # a JUnit file and a GitLab file together, with no console output
-$ ryl check --format junit -o report.xml --format gitlab -o gl.json .
+$ ryl check --output-format junit -o report.xml --output-format gitlab -o gl.json .
 ```
 
-A `--format` with no `--output-file` uses its default stream, so the way to get your usual
-console output **and** a report file is to add the report `--format` with its own `-o`, as
-in the first example above.
+An `--output-format` with no `--output-file` uses its default stream, so the way to get
+your usual console output **and** a report file is to add the report `--output-format`
+with its own `-o`, as in the first example above.
 
 The rules that keep the outputs unambiguous (each a usage error, exit code 2):
 
-- an `--output-file` must follow a `--format`, since it binds to that format;
-- a `--format` takes at most one `--output-file`;
+- an `--output-file` must follow an `--output-format`, since it binds to that format;
+- an `--output-format` takes at most one `--output-file`;
 - at most one output may go to stdout and at most one to the console (stderr); two
   documents sharing a stream would interleave, so give the others a file destination;
 - two outputs may not resolve to the same file (the second would clobber the first);
@@ -57,11 +58,17 @@ The rules that keep the outputs unambiguous (each a usage error, exit code 2):
   report can never truncate the source it just linted.
 
 Otherwise an `--output-file` overwrites its destination, so do not point it at a file you
-want to keep. `--diff` previews fixes and ignores `--format`, so it combines with neither
-`--output-file` nor `--format junit`/`--format gitlab`. A clean or empty project still
-produces a valid empty report for each report target (`[]` for GitLab, an empty
-`<testsuites>` for JUnit), so a CI step that ingests the artifact never fails on a missing
-file.
+want to keep. `--diff` previews fixes and ignores `--output-format`, so it combines with
+neither `--output-file` nor `--output-format junit`/`--output-format gitlab`. A clean or
+empty project still produces a valid empty report for each report target (`[]` for
+GitLab, an empty `<testsuites>` for JUnit), so a CI step that ingests the artifact never
+fails on a missing file.
+
+### `ryl format --check`
+
+`ryl format --check` reports the lines it would change through the same formats.
+`ryl format --output-format` takes one format, written to its default stream, and
+overrides `[output]`. Like ruff's, `ryl format` honours it only under `--check`.
 
 ### Configuring outputs in TOML
 
@@ -81,9 +88,9 @@ path = "gl-code-quality-report.json"
 `[output]` is ryl-only and TOML-only (it is rejected in a YAML config). It is read once
 from the configuration governing the run: the `-c`/`-d` config, or the project config
 discovered for the inputs (so a project's `.ryl.toml` applies to `ryl check .`). A CLI
-`--format` overrides the entire `[output]` table, so the command line always wins over the
-config. The same unambiguous-output rules above apply to a config that declares several
-targets.
+`--output-format` overrides the entire `[output]` table, so the command line always wins
+over the config. The same unambiguous-output rules above apply to a config that declares
+several targets.
 
 `[output]` produces a single, run-level set of artifacts, so it is read from one config.
 That is unambiguous for a single project (one root, or subdirectories that share the
@@ -154,7 +161,7 @@ Publish it with `artifacts:reports:codequality` pointing at the file you wrote w
 ```yaml
 lint:
   script:
-    - ryl check --format gitlab -o gl-code-quality-report.json .
+    - ryl check --output-format gitlab -o gl-code-quality-report.json .
   artifacts:
     reports:
       codequality: gl-code-quality-report.json

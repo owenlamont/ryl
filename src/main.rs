@@ -330,14 +330,19 @@ struct LintArgs {
     source: SourceArgs,
 
     /// Output format (auto, standard, colored, github, parsable, junit, gitlab). Repeatable:
-    /// each `--format` may be followed by an `--output-file` to send that format to a file,
-    /// so console and report artifacts can be produced together.
-    #[arg(short = 'f', long = "format", value_enum)]
+    /// each `--output-format` may be followed by an `--output-file` to send that format to a
+    /// file, so console and report artifacts can be produced together.
+    #[arg(
+        short = 'f',
+        long = "output-format",
+        visible_alias = "format",
+        value_enum
+    )]
     format: Vec<CliFormat>,
 
-    /// Destination for the preceding `--format` (a path, or `-` for stdout). Repeatable;
-    /// each binds to the most recent `--format`. Default stream otherwise: stderr for the
-    /// console formats, stdout for junit/gitlab.
+    /// Destination for the preceding `--output-format` (a path, or `-` for stdout).
+    /// Repeatable; each binds to the most recent `--output-format`. Default stream
+    /// otherwise: stderr for the console formats, stdout for junit/gitlab.
     #[arg(
         short = 'o',
         long = "output-file",
@@ -371,6 +376,7 @@ struct SourceArgs {
 }
 
 #[derive(clap::Args, Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "one field per CLI flag")]
 struct FormatArgs {
     #[command(flatten)]
     source: SourceArgs,
@@ -384,7 +390,16 @@ struct FormatArgs {
     #[arg(long = "diff", default_value_t = false)]
     diff: bool,
 
-    /// Suppress config warnings
+    /// Output format for the files `--check` would reformat; overrides `[output]`
+    #[arg(long = "output-format", value_enum)]
+    output_format: Option<CliFormat>,
+
+    /// Format inputs as Markdown (embedded YAML front matter and fenced yaml/yml
+    /// blocks) using default globs, without configuring `[files].markdown`
+    #[arg(long = "markdown", default_value_t = false)]
+    markdown: bool,
+
+    /// Suppress config warnings, the only warnings `ryl format` emits
     #[arg(long = "no-warnings", default_value_t = false)]
     no_warnings: bool,
 }
@@ -583,13 +598,13 @@ fn resolve_cli_targets(
             Occurrence::Format(format) => pending.push((format, None)),
             Occurrence::Output(path) => {
                 let Some((_, destination)) = pending.last_mut() else {
-                    return Err(
-                        "error: --output-file must follow a --format".to_string()
-                    );
+                    return Err("error: --output-file must follow an --output-format"
+                        .to_string());
                 };
                 if destination.is_some() {
                     return Err(
-                        "error: a --format takes at most one --output-file".to_string()
+                        "error: an --output-format takes at most one --output-file"
+                            .to_string(),
                     );
                 }
                 *destination = Some(if path.as_os_str() == "-" {
@@ -633,11 +648,15 @@ fn config_or_default_targets(config_output: Option<&OutputTable>) -> Vec<OutputT
     {
         return config_targets;
     }
-    let format = detect_output_format(CliFormat::Auto);
-    vec![OutputTarget {
+    vec![default_target(CliFormat::Auto)]
+}
+
+fn default_target(choice: CliFormat) -> OutputTarget {
+    let format = detect_output_format(choice);
+    OutputTarget {
         destination: default_destination(format),
         format,
-    }]
+    }
 }
 
 /// One target per declared format, in `OutputTable::entries` order (deterministic). Table
@@ -887,7 +906,7 @@ fn validate_targets(targets: &[OutputTarget], diff: bool) -> Result<(), String> 
 fn reject_diff_report_conflict(targets: &[OutputTarget]) -> Result<(), String> {
     if targets.iter().any(|target| !target.format.is_streaming()) {
         return Err(
-            "error: `--diff` cannot be combined with `--format junit` or `--format gitlab`"
+            "error: `--diff` cannot be combined with `--output-format junit` or `--output-format gitlab`"
                 .to_string(),
         );
     }
@@ -1496,6 +1515,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
                 no_warnings: format.no_warnings,
                 ..CompatibilityLintFlags::default()
             },
+            markdown: format.markdown,
             ..LintFlags::default()
         },
         ..LintArgs::default()
@@ -1506,16 +1526,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         format.check.then_some(Preview::Check)
     };
     if stdin_requested(&args.source)? {
-        return run_stdin_format(&args, preview);
+        return run_stdin_format(&args, preview, format.output_format);
     }
     let (_, files, _) = collect_files(&args)?;
     warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
     if let Some(preview) = preview {
-        let output_config = files
-            .first()
-            .and_then(|(.., cfg, _)| cfg.output())
-            .filter(|_| preview == Preview::Check);
-        let targets = config_or_default_targets(output_config);
+        let output_config = files.first().and_then(|(.., cfg, _)| cfg.output());
+        let targets = format_targets(preview, format.output_format, output_config);
         reject_input_collisions(
             &targets,
             files.iter().map(|(path, ..)| path.as_path()),
@@ -1527,6 +1544,20 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         eprint_skip_notice(path, problem, Rewrite::Format.flag());
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Under `--check`, `--output-format` beats `[output]`; `--diff` keeps the default target,
+/// as in ruff.
+fn format_targets(
+    preview: Preview,
+    output_format: Option<CliFormat>,
+    config_output: Option<&OutputTable>,
+) -> Vec<OutputTarget> {
+    match (preview, output_format) {
+        (Preview::Diff, _) => config_or_default_targets(None),
+        (Preview::Check, Some(choice)) => vec![default_target(choice)],
+        (Preview::Check, None) => config_or_default_targets(config_output),
+    }
 }
 
 fn warn_format_conflicts<'a>(
@@ -1578,13 +1609,13 @@ fn emit_format_preview(
 fn run_stdin_format(
     args: &LintArgs,
     preview: Option<Preview>,
+    output_format: Option<CliFormat>,
 ) -> Result<ExitCode, String> {
     let (path, base_dir, cfg, apply_yaml_files, _) = resolve_stdin_ctx(args)?;
     let kind = resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?;
     warn_format_conflicts([&cfg], args);
     if let (Some(preview), Some(kind)) = (preview, kind) {
-        let output_config = cfg.output().filter(|_| preview == Preview::Check);
-        let targets = config_or_default_targets(output_config);
+        let targets = format_targets(preview, output_format, cfg.output());
         reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
         let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?;
         return emit_format_preview(&stats, preview, &targets);

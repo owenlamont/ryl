@@ -173,12 +173,12 @@ and exits `1` if any file would change. A region `--fix` would leave untouched
 Markdown linting is normally enabled by listing `[files].markdown` globs, but it can
 also be turned on for a single run from the command line:
 
-- `--markdown` enables Markdown linting using default globs (`*.md`, `*.markdown`,
-  `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is a no-op when
-  `[files].markdown` is already set, and its injected globs **win** over the `yaml`
-  globs for an overlapping file (so the flag never aborts a run whose `yaml` globs
-  happen to match a Markdown extension). When linting stdin, `--markdown` forces the
-  input to be treated as Markdown regardless of `--stdin-filename`.
+- `--markdown` (on `ryl check` and `ryl format`) enables Markdown linting using default
+  globs (`*.md`, `*.markdown`, `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is
+  a no-op when `[files].markdown` is already set, and its injected globs **win** over
+  the `yaml` globs for an overlapping file (so the flag never aborts a run whose `yaml`
+  globs happen to match a Markdown extension). When linting stdin, `--markdown` forces
+  the input to be treated as Markdown regardless of `--stdin-filename`.
 - Reading from stdin otherwise honours the source kind: `ryl check - --stdin-filename
   doc.md` lints the piped bytes as Markdown when `doc.md` matches the `markdown`
   globs (front matter and fenced blocks are extracted exactly as for a file on
