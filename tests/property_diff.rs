@@ -172,6 +172,36 @@ proptest! {
     })]
 
     #[test]
+    fn absolute_diff_paths_beneath_cwd_have_relative_headers(
+        filename in "[a-z][a-z 0-9]{0,10}\\.yaml",
+        spelling in 0u8..3,
+    ) {
+        let cwd = std::env::current_dir().unwrap();
+        let path = cwd.join("sub").join("..").join(&filename);
+        let plain = path.display().to_string();
+        let path = if cfg!(windows) && spelling > 0 {
+            let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain);
+            if spelling == 1 {
+                format!(r"\\?\{plain}")
+            } else {
+                format!("//?/{}", plain.replace('\\', "/"))
+            }
+        } else {
+            plain
+        };
+        let cfg = YamlLintConfig::from_yaml_str("rules: {trailing-spaces: enable}").unwrap();
+        for rewrite in [Rewrite::Fix, Rewrite::Format] {
+            let outcome = diff_outcome(
+                "key: value  \n", &cfg, std::path::Path::new(&path), &cwd,
+                SourceKind::Yaml, rewrite,
+            );
+            let diff = outcome.diff.unwrap();
+            prop_assert!(diff.starts_with(&format!("--- {filename}\n+++ {filename}\n")), "{path}: {diff}");
+            prop_assert_eq!(apply_unified("key: value  \n", &diff), "key: value\n");
+        }
+    }
+
+    #[test]
     fn encoded_previews_match_plain_previews(
         input in prop_oneof![
             arb_document().prop_map(|document| (document.render(), SourceKind::Yaml)),

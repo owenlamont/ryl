@@ -137,6 +137,41 @@ jobs:
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0
 
+  windows-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_BUILD_JOBS: 4
+      RUST_TEST_THREADS: 4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+
+      - name: Install yamllint
+        run: |-
+          uv tool install yamllint --force
+          yamllint --version
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0
+        with:
+          tool: cargo-nextest
+
+      - name: Run tests with default features
+        run: cargo nextest run
+
+      - name: Run tests without default features
+        run: cargo nextest run --no-default-features
+
   coverage-comment:
     # Posting the coverage comment needs `pull-requests: write`, so it is isolated here,
     # keeping the `checks` job (and every prek hook it runs) read-only. Runs even when

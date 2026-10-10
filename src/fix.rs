@@ -257,10 +257,24 @@ impl DiffStats {
 
 /// `path` `lexical_abspath`-normalized, relativized to CWD and control-sanitized.
 fn cwd_relative_label(path: &Path) -> String {
+    #[cfg(windows)]
+    let path = &diff_display_path(path);
     let abspath = crate::cli_support::lexical_abspath(path);
     let cwd = std::env::current_dir().unwrap_or_default();
+    #[cfg(windows)]
+    let cwd = diff_display_path(&cwd);
     let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
     crate::cli_support::sanitize_control(&display.display().to_string()).into_owned()
+}
+
+#[cfg(windows)]
+fn diff_display_path(path: &Path) -> PathBuf {
+    let label = path.to_string_lossy().replace('\\', "/");
+    if let Some(unc) = label.strip_prefix("//?/UNC/") {
+        PathBuf::from(format!("//{unc}"))
+    } else {
+        PathBuf::from(label.strip_prefix("//?/").unwrap_or(&label))
+    }
 }
 
 /// A unified diff, or `None` when identical, like `ruff check --diff`: 3 context lines

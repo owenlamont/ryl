@@ -33,7 +33,11 @@ fn assert_shadowed_migration(
     let td = tempdir().unwrap();
     let project = td.path().join("project");
     fs::create_dir(&project).unwrap();
-    let native = if ancestor { td.path() } else { &project }.join(candidate);
+    let native = if ancestor { td.path() } else { &project }.join(
+        Path::new(candidate)
+            .components()
+            .collect::<std::path::PathBuf>(),
+    );
     write_native(&native);
     let original = fs::read(&native).unwrap();
     fs::write(project.join(yaml), "rules: {truthy: enable}\n").unwrap();
@@ -107,7 +111,16 @@ fn migration_uses_candidate_and_ancestor_precedence() {
             .arg(&project));
         assert_eq!(code, 0, "{stderr}");
         assert!(
-            stderr.contains(&project.join(selected).display().to_string()),
+            stderr.contains(
+                &project
+                    .join(
+                        Path::new(selected)
+                            .components()
+                            .collect::<std::path::PathBuf>()
+                    )
+                    .display()
+                    .to_string()
+            ),
             "{stderr}"
         );
     }

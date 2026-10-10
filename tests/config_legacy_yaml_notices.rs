@@ -99,16 +99,18 @@ fn env_var_yaml_names_the_variable() {
 
 #[test]
 fn yamllint_user_global_names_migrate_user_config() {
+    let path = std::path::Path::new("/xdg").join("yamllint").join("config");
     let env = FakeEnv::new()
         .with_cwd("/proj")
         .with_var("XDG_CONFIG_HOME", "/xdg")
         .with_file("/xdg/yamllint/config", RULES);
     assert_eq!(
         notices(&env, &Overrides::default()),
-        [
-            "warning: /xdg/yamllint/config: yamllint YAML config is deprecated; run `ryl \
-             --migrate-user-config` to convert it to ryl's own user config"
-        ]
+        [format!(
+            "warning: {}: yamllint YAML config is deprecated; run `ryl \
+             --migrate-user-config` to convert it to ryl's own user config",
+            path.display()
+        )]
     );
 }
 

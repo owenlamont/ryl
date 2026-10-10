@@ -63,7 +63,6 @@ fn warned_rules(config: &str, toml: bool) -> Vec<String> {
 fn agreeing_configs_are_silent() {
     for (config, toml) in [
         ("extends: default", false),
-        ("rules: {new-lines: {type: platform}}", false),
         (
             "rules: {document-start: {present: true}, document-end: {present: false}}",
             false,
@@ -101,6 +100,25 @@ fn agreeing_configs_are_silent() {
     ] {
         assert_eq!(warned_rules(config, toml), Vec::<String>::new(), "{config}");
     }
+}
+
+#[test]
+fn native_lint_endings_agree_only_with_the_native_formatter_ending() {
+    assert_eq!(
+        warned_rules("rules: {new-lines: {type: platform}}", false),
+        if cfg!(windows) {
+            vec!["new-lines"]
+        } else {
+            vec![]
+        }
+    );
+    assert_eq!(
+        warned_rules(
+            "[format]\nline-ending = 'native'\n[lint.rules.new-lines]\ntype = 'platform'\n",
+            true,
+        ),
+        Vec::<String>::new()
+    );
 }
 
 #[test]
