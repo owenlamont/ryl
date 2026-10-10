@@ -154,7 +154,6 @@ items:
 
 ```yaml
 # after, with fold-long-lines = true
----
 items:
   - description: This single line is well over eighty characters wide and so the
       formatter should fold it.
@@ -178,7 +177,6 @@ metadata: {name: example}
 
 ```yaml
 # after, with both set to "block"
----
 items:  # shopping
   - one
   - two
@@ -213,7 +211,6 @@ f: "say \"hi\": x"
 
 ```yaml
 # after, with quote-style = "single"
----
 a: x
 b: '123'
 c: it's

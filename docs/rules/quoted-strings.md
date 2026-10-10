@@ -46,8 +46,8 @@ version: '1.0'  # needs quoting, but single-quoted where double is required
 ### :wrench: After `ryl check --fix`
 
 ```yaml
-name: plain
-version: "1.0"
+name: plain   # redundantly quoted: a plain string needs no quotes
+version: "1.0"  # needs quoting, but single-quoted where double is required
 ```
 
 ## Configuration
