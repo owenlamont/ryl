@@ -94,12 +94,12 @@ Migration produces a self-contained config. yamllint's top-level `ignore` and
 `ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
 `ignore` key suppresses rules, never whole files. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
-then the current directory. The user-global config moves to a new directory
-(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `exclude`
-patterns there too, rather than left as a relative path that would no longer
-resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
-with a warning (inline those patterns or use an absolute path, then re-run),
-since its rule config cannot be relocated safely. Project migration keeps a
+then the current directory. A user-global config with a relative `ignore-from-file`,
+at either the top level or rule level, is skipped with a warning: the path resolves
+against each linted file's directory, which a single migrated config cannot express.
+Make the path absolute or move the setting into a project config, then re-run.
+Absolute top-level paths are inlined as `exclude` patterns; absolute rule-level
+paths are retained. Project migration keeps a
 relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
 directory.
 
