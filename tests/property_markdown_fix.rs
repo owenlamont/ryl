@@ -176,6 +176,25 @@ fn known_dirty_front_matter_and_indented_block_is_fixed() {
 }
 
 #[test]
+fn unquoting_cannot_close_a_tilde_fence() {
+    let cfg = YamlLintConfig::from_yaml_str(
+        "rules: {quoted-strings: {required: only-when-needed}}",
+    )
+    .unwrap();
+    let input = "~~~yaml\n\"~~~\"\n~~~\n";
+    assert!(
+        fix_markdown_str(
+            input,
+            synthetic_path(),
+            &cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix
+        )
+        .is_none()
+    );
+}
+
+#[test]
 fn known_dirty_crlf_block_round_trips() {
     let markdown = "# t\r\n\r\n```yaml\r\nbar: [3,4]\r\n```\r\n";
     run_invariants(markdown).expect("invariants hold for CRLF markdown");

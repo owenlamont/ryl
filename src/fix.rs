@@ -540,8 +540,9 @@ pub fn diff_files(
 /// in, or `None` if nothing changed. File-shape rules are excluded per [`suppressed_rules`].
 /// Each line regains the prefix the parser stripped (spaces, a blockquote `> `, or a tab), and
 /// a region is rewritten only when re-applying that prefix reproduces the original raw bytes
-/// exactly (the reconstruct-and-verify guard), so a ragged region is left untouched. Regions
-/// are spliced back-to-front so earlier edits do not shift later offsets.
+/// exactly, and parsing the replacement recovers the full rewritten region. Ragged regions
+/// and rewrites that change Markdown boundaries are left untouched. Regions are spliced
+/// back-to-front so earlier edits do not shift later offsets.
 #[must_use]
 pub fn fix_markdown_str(
     markdown: &str,
@@ -598,7 +599,19 @@ fn fix_markdown_cached(
         let Some((prefix, newline)) = region_prefix(markdown, region) else {
             continue;
         };
-        out.replace_range(region.raw_span.clone(), &reindent(&fixed, &prefix, newline));
+        let replacement = reindent(&fixed, &prefix, newline);
+        let mut candidate = out.clone();
+        candidate.replace_range(region.raw_span.clone(), &replacement);
+        let expected_span =
+            region.raw_span.start..region.raw_span.start + replacement.len();
+        if !extract_regions(&candidate, sources).iter().any(|updated| {
+            updated.kind == region.kind
+                && updated.raw_span == expected_span
+                && updated.content.replace("\r\n", "\n") == fixed.replace("\r\n", "\n")
+        }) {
+            continue;
+        }
+        out = candidate;
         changed = true;
     }
     changed.then_some(out)

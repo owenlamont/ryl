@@ -76,12 +76,13 @@ linted as its own document) and maps diagnostics back to the Markdown file. The
 Extractor in `src/markdown_embed/` (fenced blocks via `pulldown-cmark`, front matter via
 a line scan); each `EmbeddedRegion` carries the `raw_span` and per-line column remap.
 `document-start`/`document-end`/`new-line-at-end-of-file`/`new-lines` are suppressed in
-regions via `fix::suppressed_rules(kind)`.
+regions via `fix::suppressed_rules()`.
 
 `--fix` writes back (`fix::fix_markdown_str`): re-applies each line's stripped prefix
 (spaces, `> `, or a tab), preserves CRLF, and only rewrites a region when that reproduces
-the original bytes exactly — a ragged region (no single shared prefix) is reported but
-left untouched. A Markdown file with a bare `\r` (CR not in CRLF) anywhere is skipped
+the original bytes exactly and parsing the replacement recovers the complete rewritten
+region — ragged regions and rewrites that create closing fences are left untouched.
+A Markdown file with a bare `\r` (CR not in CRLF) anywhere is skipped
 loudly (`markdown_has_unsupported_cr` guards `lint_markdown_str`/`fix_markdown_str`/
 `markdown_region_problems`: lint error + `--fix`/`--diff` notice): `pulldown-cmark` can't
 find fences in a `\r` host and the `\n`-based remap can't place a region `\r`. LF/CRLF

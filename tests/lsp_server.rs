@@ -1200,6 +1200,23 @@ fn formatting_formats_embedded_markdown_yaml() {
 }
 
 #[test]
+fn formatting_never_closes_a_markdown_fence() {
+    let dir = project(
+        "line-length = 16\n[files]\nmarkdown = [\"*.md\"]\n[format]\nfold-long-lines = true\n",
+    );
+    let (mut client, _init) = Client::launch(None, None);
+    for (index, body) in ["\"~~~\"", "alpha beta gamma ~~~"].into_iter().enumerate() {
+        let doc = file_uri(dir.path(), &format!("x{index}.md"));
+        let input = format!("~~~yaml\n{body}\n~~~\n");
+        client.did_open(doc.clone(), &input);
+        assert!(
+            client.formatting(doc.clone()).is_none(),
+            "unsafe region must stay unchanged: {input:?}"
+        );
+    }
+}
+
+#[test]
 fn formatting_keeps_a_bom_and_formats_markdown_front_matter_after_it() {
     let dir = project("[files]\nmarkdown = [\"*.md\"]\n");
     let (mut client, _init) = Client::launch(None, None);

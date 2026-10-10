@@ -242,6 +242,9 @@ nothing today.
 by `[files].markdown`, as described in [YAML in Markdown](markdown.md), or every input
 given `--markdown`, as with `ryl check`.
 
+If formatting would create a line that closes a YAML fence, ryl leaves that region
+unchanged. Other regions still format. The same guard applies to editor formatting.
+
 ## Suppression
 
 `ryl format` honours the same [inline directives](directives.md) as `ryl check`: a
