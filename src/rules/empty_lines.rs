@@ -1,13 +1,13 @@
 //! `empty-lines` rule: limit consecutive blank lines (`max`/`max-start`/`max-end`).
 //!
-//! `--fix` leaves blank runs inside any multi-line scalar untouched (they contribute
-//! to the parsed value); the protected line set comes from `granit_parser`, so the fix
-//! bails (returns `None`) on an unparsable buffer.
+//! `--fix` preserves scalar content, but trims trailing blanks discarded by chomping.
+//! An unparsable buffer is left untouched.
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;
+use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
-    protected_scalar_lines, split_lines_preserve_endings,
+    line_contents, protected_scalar_lines, split_lines_preserve_endings,
 };
 
 pub const ID: &str = "empty-lines";
@@ -60,7 +60,27 @@ pub struct Violation {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let protected = protected_scalar_lines(buffer, |_style, _span| true)?;
+    let mut protected = protected_scalar_lines(buffer, |_style, _span| true)?;
+    let lines = line_contents(buffer);
+    for header in block_scalar_chomping::headers(buffer) {
+        if header.chomping == Some('+') {
+            continue;
+        }
+        let span = header.span;
+        let end_line = lines.get(span.end.line() - 1);
+        let next_token = end_line.is_some_and(|line| {
+            line.chars().take(span.end.col()).all(|ch| ch == ' ')
+                && line.chars().nth(span.end.col()).is_some()
+        });
+        let last = span.end.line()
+            - usize::from(span.end.col() == 0 || span.is_empty() || next_token);
+        for line in (header.line + 1..=last)
+            .rev()
+            .take_while(|line| lines[*line - 1].is_empty())
+        {
+            protected.remove(&line);
+        }
+    }
     let mut output = String::with_capacity(buffer.len());
     let mut blank_run: Vec<(&str, &str)> = Vec::new();
     let mut seen_nonblank = false;

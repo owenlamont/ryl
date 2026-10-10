@@ -59,7 +59,11 @@ pub fn ryl_on(
     if let Some(config) = config {
         fs::write(dir.path().join(".ryl.toml"), config).unwrap();
     }
-    let file = dir.path().join("a.yaml");
+    let file = dir.path().join(if args.contains(&"--markdown") {
+        "a.md"
+    } else {
+        "a.yaml"
+    });
     fs::write(&file, input).unwrap();
     let (code, stdout, stderr) = run(ryl(dir.path()).args(args).arg(&file));
     (code, stdout, stderr, fs::read_to_string(&file).unwrap())

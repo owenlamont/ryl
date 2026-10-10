@@ -261,6 +261,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
         prop::collection::vec(arb_block_body_line(), 0..=3),
         prop::option::weighted(0.2, 0u8..=1),
         prop::bool::weighted(0.1),
+        0usize..=3,
     )
         .prop_map(
             |(
@@ -274,6 +275,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
                 rest,
                 trailing_comment,
                 blank_only,
+                trailing_blanks,
             )| {
                 let mut body = vec![first];
                 body.extend(rest);
@@ -288,6 +290,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
                 {
                     body.pop();
                 }
+                body.extend(std::iter::repeat_n(BlockBodyLine::Blank, trailing_blanks));
                 BlockScalarSpec {
                     properties,
                     style,

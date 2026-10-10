@@ -70,7 +70,9 @@ and `max-end` for the leading and trailing run). The fix is **partial**
 by design: blank lines that fall inside any multi-line scalar — literal
 or folded block scalars (`|`/`>`), multi-line single- or double-quoted
 scalars, or multi-line plain scalars — are left untouched, because
-those blank lines contribute to the parsed value.
+those blank lines contribute to the parsed value. Trailing blank lines in clip
+(`|`/`>`) and strip (`|-`/`>-`) block scalars are trimmed because chomping
+discards them. Keep (`|+`/`>+`) tails remain content and are preserved.
 
 The protected line set is computed via the YAML parser, so the fix
 bails (leaves the file untouched) when the input cannot be parsed.
