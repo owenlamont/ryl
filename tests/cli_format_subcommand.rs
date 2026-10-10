@@ -164,6 +164,122 @@ fn ignored_stdin_filename_passes_through() {
 }
 
 #[test]
+fn empty_format_checks_emit_configured_reports() {
+    for explicit_config in [false, true] {
+        for input in ["empty", "ignored.yaml", "stdin"] {
+            let dir = tempdir().unwrap();
+            let junit = dir.path().join("report.xml");
+            let gitlab = dir.path().join("report.json");
+            let config = dir.path().join("ryl.toml");
+            fs::write(
+                &config,
+                format!(
+                    "exclude = ['ignored.yaml']\n[output.junit]\npath = '{}'\n\
+                     [output.gitlab]\npath = '{}'\n",
+                    junit.display().to_string().replace('\\', "/"),
+                    gitlab.display().to_string().replace('\\', "/"),
+                ),
+            )
+            .unwrap();
+            fs::create_dir(dir.path().join("empty")).unwrap();
+            fs::write(dir.path().join("ignored.yaml"), "a:   1\n").unwrap();
+            fs::write(&junit, "stale report").unwrap();
+            fs::write(&gitlab, "stale report").unwrap();
+            let mut cmd = ryl(dir.path());
+            cmd.args(["format", "--check"]);
+            if explicit_config {
+                cmd.arg("-c").arg(&config);
+            }
+            if input == "stdin" {
+                cmd.arg("--stdin-filename")
+                    .arg(dir.path().join("ignored.yaml"))
+                    .arg("-");
+            } else {
+                cmd.arg(dir.path().join(input));
+            }
+            let (code, stdout, stderr) = run_with_stdin(&mut cmd, b"a:   1\n");
+            assert_eq!(code, 0, "{explicit_config}/{input}: {stderr}");
+            assert!(stdout.is_empty(), "{stdout}");
+            assert_eq!(
+                fs::read(&junit).unwrap(),
+                ryl::report::render_junit(&[]),
+                "{explicit_config}/{input}: empty JUnit report"
+            );
+            assert_eq!(
+                fs::read(&gitlab).unwrap(),
+                ryl::report::render_gitlab(&[]),
+                "{explicit_config}/{input}: empty GitLab report"
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_format_runs_preserve_output_precedence_and_errors() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join("ryl.toml");
+    fs::write(
+        &config,
+        format!(
+            "exclude = ['ignored.yaml']\n[output.junit]\npath = '{}'\n",
+            dir.path()
+                .join("missing/report.xml")
+                .display()
+                .to_string()
+                .replace('\\', "/"),
+        ),
+    )
+    .unwrap();
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let named = dir.path().join("ignored.yaml");
+    for stdin in [false, true] {
+        for (args, expected_code) in [
+            (&["--check"][..], 2),
+            (&["--check", "--output-format", "gitlab"][..], 0),
+            (&["--diff"][..], 0),
+            (&[][..], 0),
+        ] {
+            let mut cmd = ryl(dir.path());
+            cmd.arg("format").args(args).arg("-c").arg(&config);
+            if stdin {
+                cmd.arg("--stdin-filename").arg(&named).arg("-");
+            } else {
+                cmd.arg(&empty);
+            }
+            let (code, stdout, stderr) = run_with_stdin(&mut cmd, b"a:   1\n");
+            assert_eq!(code, expected_code, "{stdin}/{args:?}: {stderr}");
+            if args.contains(&"gitlab") {
+                assert_eq!(stdout.as_bytes(), ryl::report::render_gitlab(&[]));
+            }
+        }
+    }
+    fs::write(
+        &config,
+        format!(
+            "exclude = ['ignored.yaml']\n[output.junit]\npath = '{}'\n",
+            named.display().to_string().replace('\\', "/"),
+        ),
+    )
+    .unwrap();
+    let (code, _, stderr) = run_with_stdin(
+        ryl(dir.path())
+            .args(["format", "--check", "-c"])
+            .arg(&config)
+            .arg("--stdin-filename")
+            .arg(&named)
+            .arg("-"),
+        b"a:   1\n",
+    );
+    assert_eq!(code, 2, "excluded stdin cannot be overwritten: {stderr}");
+    assert!(!named.exists());
+    fs::write(&config, "[output]\njunit = false\n").unwrap();
+    let (code, _, stderr) =
+        run(ryl(dir.path()).args(["format", "--check"]).arg(&empty));
+    assert_eq!(code, 2, "invalid project output config: {stderr}");
+}
+
+#[test]
 fn unusable_inputs_are_errors() {
     let dir = tempdir().unwrap();
     let missing = dir.path().join("missing.yaml");

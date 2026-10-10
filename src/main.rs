@@ -1528,11 +1528,16 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     if stdin_requested(&args.source)? {
         return run_stdin_format(&args, preview, format.output_format);
     }
-    let (_, files, _) = collect_files(&args)?;
+    let (global_cfg, files, _) = collect_files(&args)?;
     warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
     if let Some(preview) = preview {
-        let output_config = files.first().and_then(|(.., cfg, _)| cfg.output());
-        let targets = format_targets(preview, format.output_format, output_config);
+        let output_config = if preview == Preview::Check {
+            run_output_config(global_cfg.as_ref(), &args.source.inputs, &args)?
+        } else {
+            None
+        };
+        let targets =
+            format_targets(preview, format.output_format, output_config.as_ref());
         reject_input_collisions(
             &targets,
             files.iter().map(|(path, ..)| path.as_path()),
@@ -1614,14 +1619,16 @@ fn run_stdin_format(
     let (path, base_dir, cfg, apply_yaml_files, _) = resolve_stdin_ctx(args)?;
     let kind = resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?;
     warn_format_conflicts([&cfg], args);
-    if let (Some(preview), Some(kind)) = (preview, kind) {
+    if let Some(preview) = preview {
         let targets = format_targets(preview, output_format, cfg.output());
         reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
-        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?;
+        let stats = match kind {
+            Some(kind) => {
+                stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?
+            }
+            None => DiffStats::default(),
+        };
         return emit_format_preview(&stats, preview, &targets);
-    }
-    if preview.is_some() {
-        return Ok(ExitCode::SUCCESS);
     }
     let (content, raw) = read_stdin_decoded(&path)?;
     let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
