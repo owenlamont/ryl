@@ -257,11 +257,12 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
         prop::option::of(1u8..=4u8),
         prop_oneof![3 => Just(2u8), 1 => 1u8..=4],
         prop::option::weighted(0.5, 0u8..=2),
-        arb_block_body_content(),
+        prop::option::of(arb_block_body_content()),
         prop::collection::vec(arb_block_body_line(), 0..=3),
         prop::option::weighted(0.2, 0u8..=1),
         prop::bool::weighted(0.1),
         0usize..=3,
+        0u8..=3,
     )
         .prop_map(
             |(
@@ -276,8 +277,9 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
                 trailing_comment,
                 blank_only,
                 trailing_blanks,
+                header_spaces,
             )| {
-                let mut body = vec![first];
+                let mut body: Vec<_> = first.into_iter().collect();
                 body.extend(rest);
                 if blank_only {
                     body.retain(|line| !matches!(line, BlockBodyLine::Content { .. }));
@@ -296,6 +298,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
                     style,
                     chomp,
                     explicit_indent,
+                    header_spaces,
                     offset,
                     leading_short,
                     body,

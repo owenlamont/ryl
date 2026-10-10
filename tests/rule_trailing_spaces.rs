@@ -41,6 +41,22 @@ fn handles_crlf_lines() {
 }
 
 #[test]
+fn fix_trims_empty_block_scalar_headers_without_touching_bodies() {
+    for (input, expected) in [
+        ("a: | \t", "a: |"),
+        ("a: >+2  # note \t", "a: >+2  # note"),
+        ("a: |+ \t\n  ", "a: |+\n  "),
+        ("a: | \t\n  x  ", "a: |\n  x  "),
+    ] {
+        assert_eq!(trailing_spaces::fix(input).as_deref(), Some(expected));
+        assert_eq!(
+            ryl::yaml_dom::YamlOwned::load_from_str(input).unwrap(),
+            ryl::yaml_dom::YamlOwned::load_from_str(expected).unwrap()
+        );
+    }
+}
+
+#[test]
 fn fix_trims_the_line_after_a_blank_only_block_scalar() {
     assert_eq!(
         trailing_spaces::fix("a: |+\n\nb: 1   \n"),

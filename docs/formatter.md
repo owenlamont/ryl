@@ -113,6 +113,10 @@ The rest of the layout is fixed:
 | Line ends | Remove trailing whitespace outside scalar content; add a final newline when value-safe |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
+Block scalar headers lose trailing spaces and tabs. A header with no body at EOF gains
+a final newline and, with `document-end = "add"`, a `...` marker. Unterminated clip/keep
+scalar bodies stay untouched when adding a newline could change their value.
+
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.
 

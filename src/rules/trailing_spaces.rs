@@ -46,6 +46,7 @@ pub fn fix(buffer: &str) -> Option<String> {
     })?;
     let lines = line_contents(buffer);
     for header in block_scalar_chomping::headers(buffer) {
+        protected.remove(&header.line);
         let span = header.span;
         let indent = span.indent.unwrap_or_else(|| {
             // Blank-only spans have no content whose spaces need protection.

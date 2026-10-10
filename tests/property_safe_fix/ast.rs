@@ -66,6 +66,7 @@ pub struct BlockScalarSpec {
     pub style: char,
     pub chomp: Option<char>,
     pub explicit_indent: Option<u8>,
+    pub header_spaces: u8,
     /// The body's offset from the parent's indentation when no indicator fixes it.
     pub offset: u8,
     /// A whitespace-only line before the first content line, this many columns short of
@@ -300,6 +301,7 @@ impl BlockScalarSpec {
         if let Some(c) = self.chomp {
             buffer.push(c);
         }
+        push_spaces(buffer, self.header_spaces);
         let indent = base + usize::from(self.explicit_indent.unwrap_or(self.offset));
         if let Some(short) = self.leading_short {
             buffer.push_str(line_term);

@@ -660,6 +660,18 @@ fn every_pass_rewrites_a_document_every_format_owned_rule_flags() {
 }
 
 #[test]
+fn every_pass_preserves_header_only_block_scalars() {
+    for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "|+2"] {
+        for suffix in ["", " \t", "  # note \t"] {
+            let input = format!("a: {header}{suffix}");
+            for pass in format_passes() {
+                check_pass(pass, &input).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn every_pass_keeps_a_trailing_comment_at_the_end_of_its_document() {
     for input in ["a: 1\n# tail\n", "a: 1\n\n# tail\n", "a: [1]\n# tail"] {
         for pass in format_passes() {
@@ -732,6 +744,10 @@ fn representation_ignores_layout() {
 #[test]
 fn a_trailing_comment_keeps_its_node_on_the_key_line() {
     assert_eq!(
+        annotations("k0: aaa aaa #\n"),
+        annotations("k0: aaa\n  aaa  #\n")
+    );
+    assert_eq!(
         annotations("k: [a, b]  # c\nj: 1\n"),
         annotations("k:  # c\n  - a\n  - b\nj: 1\n")
     );
@@ -744,6 +760,8 @@ fn a_trailing_comment_keeps_its_node_on_the_key_line() {
 #[test]
 fn an_empty_block_scalar_leaves_the_next_line_s_comment_to_its_node() {
     for (spread, joined) in [
+        ("a: |  # note", "a: |  # note\n...\n"),
+        ("|  # note", "|  # note\n...\n"),
         (
             "k:\n- |\n-\n  a: {x: 1}  #c\n",
             "k:\n  - |\n  - a: {x: 1}  # c\n",

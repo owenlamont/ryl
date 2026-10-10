@@ -60,6 +60,59 @@ fn zero_config_formats_every_rule_and_is_idempotent() {
 }
 
 #[test]
+fn empty_block_scalar_headers_are_trimmed_and_terminated() {
+    for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "|+2"] {
+        for (prefix, suffix) in [
+            ("a: ", ""),
+            ("- ", " \t"),
+            ("--- ", "  # note \t"),
+            ("a: !!str &s ", "  # note \t"),
+        ] {
+            for newline in ["\n", "\r\n"] {
+                for add_end in [false, true] {
+                    let config = format!(
+                        "[format]\nline-ending = '{}'\ndocument-end = '{}'\n",
+                        if newline == "\n" { "lf" } else { "cr-lf" },
+                        if add_end { "add" } else { "preserve" },
+                    );
+                    let input = format!("{prefix}{header}{suffix}");
+                    let expected = format!(
+                        "{prefix}{header}{}{newline}{}",
+                        suffix.trim_end_matches([' ', '\t']),
+                        if add_end {
+                            format!("...{newline}")
+                        } else {
+                            String::new()
+                        },
+                    );
+                    let (code, _, stderr, formatted) =
+                        format_file(Some(&config), &input, &[]);
+                    assert_eq!(code, 0, "{stderr}");
+                    assert_eq!(formatted, expected, "{input:?}, {config}");
+                    let (code, _, stderr, _) =
+                        format_file(Some(&config), &formatted, &["--check"]);
+                    assert_eq!(code, 0, "{stderr}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn unterminated_block_scalar_bodies_remain_protected() {
+    for header in ["|", ">", "|+", ">+", "|2", ">+2"] {
+        for body in ["  café  ", "  ", "\n  "] {
+            let input = format!("a: {header} \t\n{body}");
+            let expected = format!("a: {header}\n{body}");
+            let (code, _, stderr, formatted) =
+                format_file(Some("[format]\ndocument-end = 'add'\n"), &input, &[]);
+            assert_eq!(code, 0, "{stderr}");
+            assert_eq!(formatted, expected, "{input:?}");
+        }
+    }
+}
+
+#[test]
 fn block_scalar_blank_indentation_is_removed_in_yaml_and_markdown() {
     for header in ["|", ">", "|-", ">-", "|+", ">+", "|3", ">3-", "|-3", ">+3"] {
         for newline in ["\n", "\r\n"] {
