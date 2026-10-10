@@ -36,7 +36,14 @@ fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
 fn format_help_lists_its_flags_and_completions_include_it() {
     let (code, stdout, stderr) = run(exe().args(["format", "--help"]));
     assert_eq!(code, 0, "format --help should succeed: {stderr}");
-    for flag in ["--check", "--diff", "--stdin-filename", "--config-file"] {
+    for flag in [
+        "--check",
+        "--diff",
+        "--stdin-filename",
+        "--config-file",
+        "--output-format",
+        "--markdown",
+    ] {
         assert!(
             stdout.contains(flag),
             "format --help missing {flag}: {stdout}"
@@ -190,4 +197,22 @@ fn no_warnings_silences_config_deprecation_notices() {
         assert_eq!(code, 0, "{flag:?}: {stderr}");
         assert_eq!(stderr.contains("deprecated"), warns, "{flag:?}: {stderr}");
     }
+}
+
+#[test]
+fn markdown_flag_formats_markdown_without_files_config() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "---\nk:   1\n---\n").unwrap();
+    let (code, _, stderr) =
+        run(ryl(dir.path()).args(["format", "--markdown"]).arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "---\nk: 1\n---\n");
+    let (_, stdout, stderr) = run_with_stdin(
+        ryl(dir.path())
+            .args(["format", "--markdown", "-", "--stdin-filename"])
+            .arg(dir.path().join("notes.txt")),
+        b"```yaml\na:   1\n```\n",
+    );
+    assert_eq!(stdout, "```yaml\na: 1\n```\n", "{stderr}");
 }
