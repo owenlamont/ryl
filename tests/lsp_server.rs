@@ -3149,6 +3149,72 @@ fn lint_diagnostics_never_show_formatter_conflicts() {
 }
 
 #[test]
+fn lightbulb_requests_never_show_formatter_conflicts() {
+    let dir = project(CONFLICT_CONFIG);
+    let (mut client, _) = Client::launch_pull(Some(dir.path()), false);
+    let doc = file_uri(dir.path(), "a.yaml");
+    client.did_open(doc.clone(), "a: 1  # comment\n");
+    let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+    let _ = client.messages_until_response(&barrier);
+    let id = client.request("textDocument/codeAction", json!({
+        "textDocument": {"uri": doc},
+        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+        "context": {"diagnostics": []}
+    }));
+    let (messages, response) = client.messages_until_response(&id);
+    assert!(
+        response
+            .response_result
+            .expect("actions")
+            .as_array()
+            .expect("array")
+            .iter()
+            .any(|action| action["kind"] == "source.fixAll.ryl")
+    );
+    assert!(
+        messages
+            .iter()
+            .all(|message| warning_text(message).is_none())
+    );
+}
+
+#[test]
+fn formatting_checks_config_edited_without_notification() {
+    for method in ["textDocument/formatting", "textDocument/codeAction"] {
+        let dir = project(
+            &CONFLICT_CONFIG.replace("comment-spacing = 2", "comment-spacing = 4"),
+        );
+        let (mut client, _) = Client::launch_pull(Some(dir.path()), false);
+        let doc = file_uri(dir.path(), "a.yaml");
+        client.did_open(doc.clone(), "a: 1  # comment\n");
+        let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+        let _ = client.messages_until_response(&barrier);
+        let params = json!({
+            "textDocument": {"uri": doc},
+            "options": {"tabSize": 2, "insertSpaces": true},
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+            "context": {"diagnostics": [], "only": ["source.fixAll.ryl.comments"]}
+        });
+        let id = client.request(method, params.clone());
+        let (messages, _) = client.messages_until_response(&id);
+        assert!(
+            messages
+                .iter()
+                .all(|message| warning_text(message).is_none())
+        );
+        std::fs::write(dir.path().join(".ryl.toml"), CONFLICT_CONFIG).expect("config");
+        client.did_change(doc, "a: 1    # comment\n");
+        let id = client.request(method, params);
+        let (messages, _) = client.messages_until_response(&id);
+        let cfg = ryl::config::YamlLintConfig::from_toml_str(CONFLICT_CONFIG)
+            .expect("config");
+        let warnings: Vec<_> = messages.iter().filter_map(warning_text).collect();
+        assert_eq!(warnings, ryl::format::conflicts(&cfg), "{method}");
+        assert!(!warnings.is_empty());
+    }
+}
+
+#[test]
 fn formatter_conflict_warning_is_deduplicated_and_reloaded() {
     for method in ["textDocument/formatting", "textDocument/codeAction"] {
         let dir = project(CONFLICT_CONFIG);

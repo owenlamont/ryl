@@ -161,7 +161,6 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         settings,
         documents: HashMap::new(),
         reported_messages: HashSet::new(),
-        checked_format_configs: HashSet::new(),
         workers: Vec::new(),
         pull: None,
         revision: 0,
@@ -413,7 +412,6 @@ struct Server {
     /// Config errors and warnings already surfaced via `window/showMessage`, so each is
     /// reported once rather than on every file/keystroke.
     reported_messages: HashSet<String>,
-    checked_format_configs: HashSet<Option<PathBuf>>,
     /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk
     /// never blocks the message loop.
     workers: Vec<Worker>,
@@ -698,7 +696,6 @@ impl Server {
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
         self.reported_messages.clear();
-        self.checked_format_configs.clear();
         if self.push_diagnostics {
             self.relint_open_documents(connection);
         } else if self.supports_diagnostic_refresh {
@@ -763,12 +760,10 @@ impl Server {
         connection: &Connection,
         context: &ConfigContext,
     ) {
-        if self.checked_format_configs.insert(context.source.clone()) {
-            self.report_config_notices(
-                connection,
-                &crate::format::conflicts(&context.config),
-            );
-        }
+        self.report_config_notices(
+            connection,
+            &crate::format::conflicts(&context.config),
+        );
     }
 
     fn code_action(
@@ -792,11 +787,10 @@ impl Server {
             supports_document_changes: self.supports_document_changes,
         };
         let result = actions::build(&input, &params.context);
-        if crate::fix::SAFE_FIX_RULE_IDS.iter().any(|rule| {
-            actions::admits(
-                params.context.only.as_deref(),
-                &format!("source.fixAll.ryl.{rule}"),
-            )
+        if params.context.only.as_deref().is_some_and(|only| {
+            crate::fix::SAFE_FIX_RULE_IDS.iter().any(|rule| {
+                actions::admits(Some(only), &format!("source.fixAll.ryl.{rule}"))
+            })
         }) {
             self.report_format_conflicts(connection, &target.context);
         }
