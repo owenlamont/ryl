@@ -518,13 +518,13 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
             report!($rule, $hits, |hit: $rule::Violation| hit.message)
         };
         ($rule:ident, $hits:expr, $message:expr) => {
-            problems.extend($hits.into_iter().map(|hit| LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: Severity::Error,
-                message: $message(hit),
-                rule: Some($rule::ID),
-            }))
+            crate::lint::emit_problems!(
+                problems,
+                $rule,
+                $hits,
+                Severity::Error,
+                $message
+            )
         };
     }
     let platform = new_lines::platform_newline();
