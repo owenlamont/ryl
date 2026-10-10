@@ -71,7 +71,7 @@ num-bigint = { version = "0.5", default-features = false, features = ["std"] }
 # A different diff implementation than `similar` (which produces the diff), so the
 # `--diff` round-trip property test validates the output is standard-compliant.
 diffy = { version = "0.5.0", default-features = false }
-jsonschema = "0.56.0"
+jsonschema = "0.58.4"
 proptest = "1.11.0"
 semver = "1"
 tempfile = "3"
