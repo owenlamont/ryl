@@ -29,6 +29,8 @@ mod passes;
 mod properties;
 #[path = "property_format/representation.rs"]
 mod representation;
+#[path = "property_format/settings.rs"]
+mod settings;
 #[path = "property_fix_convergence/stack.rs"]
 mod stack;
 #[path = "property_safe_fix/strategy.rs"]
@@ -139,6 +141,21 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn random_format_config_keeps_the_guarantee(
+        document in arb_document_with_properties(),
+        table in settings::arb_format_config(),
+    ) {
+        let cfg = YamlLintConfig::from_toml_str(&table).expect(&table);
+        let pass = FormatPass {
+            name: table,
+            format: Box::new(move |input| {
+                ryl::format::format_str(input, &cfg, synthetic_path(), &[])
+            }),
+        };
+        check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
+    }
 
     #[test]
     fn encoded_previews_match_decoded_formatting(
