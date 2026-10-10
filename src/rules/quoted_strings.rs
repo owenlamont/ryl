@@ -660,10 +660,7 @@ fn ladder_target(
     value: &str,
     facts: ScalarQuoteFacts,
 ) -> QuoteStyle {
-    if current == QuoteStyle::Double
-        && (facts.has_double_quote_escape.get()
-            || value_needs_double_quotes_for_content(value))
-    {
+    if current == QuoteStyle::Double && facts.has_double_quote_escape.get() {
         QuoteStyle::Double
     } else if value.contains('"') {
         QuoteStyle::Single
@@ -1211,6 +1208,17 @@ impl<'cfg> FixState<'cfg> {
                 }
                 if let Some(preferred) = self.config.avoid_escapes {
                     let target = ladder_target(preferred, style_kind, value, facts);
+                    let source = inner_quoted_content(self.buffer, start, end);
+                    if target == QuoteStyle::Single
+                        && style_kind == QuoteStyle::Double
+                        && source.contains(['\n', '\r'])
+                    {
+                        return Some((
+                            start,
+                            end,
+                            quote_value(&source.replace("\\\"", "\""), target),
+                        ));
+                    }
                     return (target != style_kind)
                         .then(|| replacement_for_target(value, start, end, target))
                         .flatten();

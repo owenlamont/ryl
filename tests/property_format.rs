@@ -497,6 +497,38 @@ fn zero_config_indentation_is_what_the_yamllint_default_preset_asks_for() {
 }
 
 #[test]
+fn quote_ladder_converts_physical_line_breaks_without_changing_folding() {
+    let pass = named_pass("format/default");
+    for (input, expected) in [
+        ("a: \"#h0w\n\n    #t5988\"\n", "a: '#h0w\n\n    #t5988'\n"),
+        ("a: \"#first\n    last\"\n", "a: '#first\n    last'\n"),
+        (
+            "a: \"#first\n\n\n    last\"\n",
+            "a: '#first\n\n\n    last'\n",
+        ),
+        (
+            "a: \"#say \\\"hi\\\"\n\n    it's\"\n",
+            "a: '#say \"hi\"\n\n    it''s'\n",
+        ),
+        (
+            "? \"#key\n\n    tail\"\n: value\n",
+            "? '#key\n\n    tail'\n: value\n",
+        ),
+        (
+            "a: \"#first\\n\n    last\"\n",
+            "a: \"#first\\n\n    last\"\n",
+        ),
+        ("a: \"#first\\\n    last\"\n", "a: \"#first\\\n    last\"\n"),
+    ] {
+        for newline in ["\n", "\r\n", "\r"] {
+            let input = input.replace('\n', newline);
+            check_pass(pass, &input).unwrap_or_else(|violation| panic!("{violation}"));
+            assert_eq!((pass.format)(&input), expected, "{input:?}");
+        }
+    }
+}
+
+#[test]
 fn quote_ladder_escalates_to_double_only_for_escapes() {
     let pass = named_pass("format/default");
     for (input, expected) in [
