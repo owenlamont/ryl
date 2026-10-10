@@ -26,7 +26,17 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
         .prop_map(
             |(
                 (indent, length, quote, ending, start, end, fold),
-                (brace, gap, comment, blanks, sequence, mapping, sequences, dash, preview),
+                (
+                    brace,
+                    gap,
+                    comment,
+                    blanks,
+                    sequence,
+                    mapping,
+                    sequences,
+                    dash,
+                    preview,
+                ),
             )| {
                 let indent = indent.map_or_else(String::new, |width| {
                     format!("indent-width = {width}\n")
@@ -41,7 +51,9 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
                      comment-starting-space = '{}'\nmax-blank-lines = {blanks}\n\
                      sequence-style = '{sequence}'\nmapping-style = '{mapping}'\n\
                      indent-sequences = {sequences}\ndash-on-own-line = {dash}\n",
-                    marker(start), marker(end), marker(comment),
+                    marker(start),
+                    marker(end),
+                    marker(comment),
                 )
             },
         )
