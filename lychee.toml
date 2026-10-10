@@ -11,9 +11,9 @@ timeout = 30
 # The default 128 concurrent requests is rude to rate-limited hosts (GitHub, Cloudflare).
 max_concurrency = 16
 
-# 429 (rate-limited) and 503 (GitHub intermittently serves it for blob pages) are reachable,
-# not rot. 403 is deliberately NOT accepted so a link that rots into a hard 403 is still
-# caught; auth-walled hosts are excluded by host below.
+# 429 (rate-limited) and 503 (GitHub intermittently serves it for blob pages) are transient,
+# so they pass rather than block CI. 403 is deliberately NOT accepted so a link that rots into
+# a hard 403 is still caught; auth-walled hosts are excluded by host below.
 accept = ["200..=299", "429", "503"]
 
 exclude = [
