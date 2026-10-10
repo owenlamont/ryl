@@ -153,13 +153,39 @@ proptest! {
 
     #[test]
     fn markdown_format_preserves_regions_and_host(
-        markdown in arb_markdown(),
+        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar()],
         table in settings::arb_format_config(),
     ) {
         run_invariants(&markdown)?;
         let cfg = ryl::config::YamlLintConfig::from_toml_str(&table).expect(&table);
         check_config(&markdown, &table, &cfg)?;
     }
+}
+
+fn arb_fence_like_scalar() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(vec!['`', '~']),
+        3usize..129,
+        0usize..4,
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(marker, length, indent, fold, crlf)| {
+            let fence = marker.to_string().repeat(length);
+            let prefix = " ".repeat(indent);
+            let body = if fold {
+                format!("alpha beta gamma {fence}")
+            } else {
+                format!("\"{fence}\"")
+            };
+            let input =
+                format!("{prefix}{fence}yaml\n{prefix}{body}\n{prefix}{fence}\n");
+            if crlf {
+                input.replace('\n', "\r\n")
+            } else {
+                input
+            }
+        })
 }
 
 #[test]
@@ -213,5 +239,57 @@ fn crlf_blockquotes_tabs_and_ragged_regions_keep_the_guarantee() {
         "text\n\n   ```yaml\n   a: [1,2]\n  b: 3\n   ```\n".to_string(),
     ] {
         run_invariants(&input).unwrap();
+    }
+}
+
+#[test]
+fn fence_like_scalar_lines_preserve_markdown_boundaries() {
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(
+        "line-length = 16\nindent-width = 2\n[format]\nfold-long-lines = true\n",
+    )
+    .unwrap();
+    for marker in ['`', '~'] {
+        for length in [3, 4, 5, 8, 32, 128] {
+            let fence = marker.to_string().repeat(length);
+            for scalar_length in [length - 1, length, length + 1] {
+                let value = marker.to_string().repeat(scalar_length);
+                for prefix in ["", " ", "  ", "   ", "> "] {
+                    check_fence_bodies(&fence, &value, prefix, &cfg);
+                }
+            }
+        }
+    }
+}
+
+fn check_fence_bodies(
+    fence: &str,
+    value: &str,
+    prefix: &str,
+    cfg: &ryl::config::YamlLintConfig,
+) {
+    for body in [
+        format!("\"{value}\""),
+        format!("alpha beta gamma {value}"),
+        format!(">-\n  alpha beta gamma {value}"),
+        format!("alpha beta gamma\n    {value}"),
+    ] {
+        let body: String = body
+            .lines()
+            .map(|line| format!("{prefix}{line}\n"))
+            .collect();
+        let input = format!(
+            "```yaml\nb:   2\n```\n\n{prefix}{fence}yaml\n{body}{prefix}{fence}\n\n```yaml\na:   1\n```\n"
+        );
+        let output = format(&input, cfg);
+        verify_preserved(&input, &output).unwrap();
+        assert!(
+            output.ends_with("```yaml\na: 1\n```\n"),
+            "safe sibling must format"
+        );
+        assert!(
+            output.starts_with("```yaml\nb: 2\n```\n"),
+            "preceding sibling must format"
+        );
+        assert_eq!(output, format(&output, cfg));
     }
 }

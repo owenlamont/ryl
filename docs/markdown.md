@@ -156,12 +156,12 @@ check mode are also excluded from fixing, so a fragment never gains a `---`/`...
 marker or a trailing newline.
 
 Write-back is **conservative by construction**: ryl only rewrites a region when
-re-applying that prefix reproduces the region's original bytes exactly. A region it
+re-applying that prefix reproduces the region's original bytes exactly and parsing
+the rewritten Markdown recovers the full replacement region. A region it
 cannot reproduce — one whose lines do not share a single prefix (ragged indentation
 where content lines are indented less than the fence, or other non-uniform layouts)
-— is left **byte-for-byte untouched** while still being reported. This guarantees
-`--fix` can never corrupt a Markdown document: the worst case is that an unusual
-region is reported but not auto-fixed.
+— is left **byte-for-byte untouched** while still being reported. A rewrite that
+creates a closing fence is also refused, preserving the embedded YAML boundary.
 
 `--diff` previews these same fixes without writing: it emits one unified diff per
 Markdown file (at the host-file level, with the embedded edits shown in context)

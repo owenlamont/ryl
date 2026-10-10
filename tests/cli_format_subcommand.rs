@@ -62,6 +62,26 @@ fn check_and_diff_are_mutually_exclusive() {
     assert_eq!(code, 2, "--check with --diff is a usage error: {stderr}");
 }
 
+#[test]
+fn markdown_format_refuses_new_closing_fence_lines() {
+    for body in ["\"~~~\"", "alpha beta gamma ~~~"] {
+        let input = format!("~~~yaml\n{body}\n~~~\n");
+        let (code, output, stderr) = run_with_stdin(
+            exe().args([
+                "format",
+                "--markdown",
+                "-",
+                "--no-warnings",
+                "-d",
+                "line-length = 16\n[format]\nfold-long-lines = true\n",
+            ]),
+            input.as_bytes(),
+        );
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(output, input);
+    }
+}
+
 /// A `[format]`-only project config enables no lint rules, which `check` rejects; `format`
 /// must run regardless. The Markdown file routes through the embedded-region path.
 #[test]
