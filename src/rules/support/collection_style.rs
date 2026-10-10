@@ -85,10 +85,11 @@ fn plan(buffer: &str, cfg: Config) -> (Vec<Edit>, Vec<Finding>) {
     let style = |target, rule| {
         (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)
     };
+    let (nodes, comments) = tree(buffer);
     let restyler = Restyler {
         buffer,
-        nodes: tree(buffer),
-        comments: comments(buffer),
+        nodes,
+        comments,
         sequences: style(cfg.sequences, brackets::ID),
         mappings: style(cfg.mappings, braces::ID),
         indent: usize::from(cfg.indent),
@@ -149,8 +150,9 @@ struct Node {
     children: Vec<usize>,
 }
 
-fn tree(buffer: &str) -> Vec<Node> {
+fn tree(buffer: &str) -> (Vec<Node>, Vec<(usize, usize)>) {
     let mut nodes: Vec<Node> = Vec::new();
+    let mut comments = Vec::new();
     let mut open: Vec<usize> = Vec::new();
     for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
         let (start, end) = (
@@ -158,6 +160,10 @@ fn tree(buffer: &str) -> Vec<Node> {
             marker_byte_offset(span.end).get(),
         );
         let (kind, flow) = match event {
+            Event::Comment(..) => {
+                comments.push((start, end));
+                continue;
+            }
             Event::Scalar(_, style, ..) => (Kind::Scalar(style), false),
             Event::Alias(_) => (Kind::Alias, false),
             Event::SequenceStart(style, ..) => {
@@ -199,21 +205,7 @@ fn tree(buffer: &str) -> Vec<Node> {
             open.push(index);
         }
     }
-    nodes
-}
-
-/// The byte span of each comment in `buffer`.
-fn comments(buffer: &str) -> Vec<(usize, usize)> {
-    Parser::new_from_str(buffer)
-        .map_while(Result::ok)
-        .filter(|(event, _)| matches!(event, Event::Comment(..)))
-        .map(|(_, span)| {
-            (
-                marker_byte_offset(span.start).get(),
-                marker_byte_offset(span.end).get(),
-            )
-        })
-        .collect()
+    (nodes, comments)
 }
 
 fn is_space(ch: char) -> bool {
