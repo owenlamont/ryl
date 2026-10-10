@@ -5,11 +5,6 @@
 //! its node and every anchor and alias name. Folding also keeps the two
 //! parser-independent properties in `fold`: only lone spaces become line breaks, and
 //! every continuation is deeper than its scalar's owner.
-//!
-//! The generator layers anchors, aliases and tags (`properties`) over the fix-convergence
-//! suite's stacked documents. Deterministic tests pin the quote ladder, show the oracle
-//! tells apart what it must, and feed deliberately broken passes through the same checks
-//! so the suite cannot pass vacuously.
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -53,7 +48,10 @@ use passes::{
     named_pass, yaml_rules_for,
 };
 use properties::arb_document_with_properties;
-use representation::{annotations, representation, yaml_1_1_representation};
+use representation::{
+    annotations, check_annotations, check_values, check_yaml_1_1_preserved,
+    representation,
+};
 
 /// yamllint's `default` preset, bar the lint-owned `truthy` and the preserved
 /// `document-start`, and the quoted-strings options the formatter page documents as
@@ -79,23 +77,8 @@ fn profile_anchor_configs() -> &'static [YamlLintConfig; 2] {
 }
 
 fn check_preserved(input: &str, output: &str) -> Result<(), String> {
-    let before = representation(input);
-    let after = representation(output);
-    if before.is_some() != after.is_some() {
-        return Err(format!("parse-preservation: output {output:?}"));
-    }
-    if before != after {
-        return Err(format!(
-            "value-preservation: output {output:?}; before {before:?}; after {after:?}"
-        ));
-    }
-    let (before, after) = (annotations(input), annotations(output));
-    if before != after {
-        return Err(format!(
-            "comment/anchor fidelity: output {output:?}; before {before:?}; after {after:?}"
-        ));
-    }
-    Ok(())
+    check_values(input, output)?;
+    check_annotations(input, output)
 }
 
 fn check_invariants(
@@ -116,16 +99,7 @@ fn check_yaml_1_1_values(
     input: &str,
 ) -> Result<(), String> {
     let once = format(input);
-    let (before, after) = (
-        yaml_1_1_representation(input),
-        yaml_1_1_representation(&once),
-    );
-    if before != after {
-        return Err(format!(
-            "yaml-1.1 value-preservation: output {once:?}; before {before:?}; after {after:?}"
-        ));
-    }
-    Ok(())
+    check_yaml_1_1_preserved(input, &once)
 }
 
 fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
