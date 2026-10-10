@@ -32,11 +32,14 @@
 #[path = "property_config/strategy.rs"]
 mod strategy;
 
+#[path = "common/mod.rs"]
+mod common;
+
 use std::path::Path;
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use ryl::config::{Overrides, YamlLintConfig, discover_config};
+use ryl::config::{Overrides, YamlLintConfig, discover_config, discover_config_with};
 use ryl::config_schema::TomlConfig;
 use ryl::config_schema::{
     normalize_toml_config, parse_toml_config_str, validate_toml_config,
@@ -116,6 +119,34 @@ proptest! {
         prop_assert_eq!(deprecated(&nested).unwrap_or(0), 0);
         if let Some(count) = deprecated(&legacy) {
             prop_assert!(count > 0, "the legacy shape always sets `rules`");
+        }
+    }
+
+    #[test]
+    fn case_insensitive_config_paths_have_identical_effect(
+        folder in "[a-z]{1,12}", filename in "[a-z]{1,12}", negated in any::<bool>(),
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let env = common::fake_env::FakeEnv::new().with_cwd(dir.path())
+            .with_case_insensitive_paths(true);
+        let prefix = if negated { "!" } else { "" };
+        let config = format!(
+            "exclude = ['{folder}/skip/**']\n[files]\nyaml = ['{folder}/**/*.yaml']\n\
+             [lint.rules.truthy]\nignore = ['{folder}/rule/**']\n\
+             [lint.per-file-ignores]\n'{prefix}{folder}/ignored/**' = ['truthy']\n"
+        );
+        let ctx = discover_config_with(&[], &Overrides {
+            config_data: Some(config), config_file: None,
+        }, &env).unwrap();
+        for subdir in ["keep", "skip", "rule", "ignored"] {
+            let path = dir.path().join(format!("{folder}/{subdir}/{filename}.yaml"));
+            let alias = std::path::PathBuf::from(path.to_string_lossy().to_ascii_uppercase());
+            prop_assert_eq!(ctx.config.source_kind(&path, &ctx.base_dir).unwrap(),
+                ctx.config.source_kind(&alias, &ctx.base_dir).unwrap());
+            prop_assert_eq!(ctx.config.is_file_ignored(&path, &ctx.base_dir),
+                ctx.config.is_file_ignored(&alias, &ctx.base_dir));
+            prop_assert_eq!(lint_str("a: yes\n", &path, &ctx.config, &ctx.base_dir),
+                lint_str("a: yes\n", &alias, &ctx.config, &ctx.base_dir));
         }
     }
 }
