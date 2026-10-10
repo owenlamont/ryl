@@ -220,12 +220,10 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> Result<FixStats, S
     Ok(stats)
 }
 
-/// One file's `--diff` result: the unified diff (`None` when nothing would change) plus any
-/// parse-skips: a plain YAML file contributes at most one (its whole-file parse error), a
-/// Markdown file one per region that does not parse. A `ryl format` preview also carries
-/// the [`crate::format::problems`] explaining the diff.
+/// A rewrite preview; formatting changes can have no applicable text diff.
 #[derive(Debug, Default)]
 pub struct DiffOutcome {
+    pub changed: bool,
     pub diff: Option<String>,
     pub skipped: Vec<crate::lint::LintProblem>,
     pub problems: Vec<crate::lint::LintProblem>,
@@ -234,17 +232,17 @@ pub struct DiffOutcome {
 /// Aggregated `--diff` results across all linted files.
 #[derive(Debug, Default)]
 pub struct DiffStats {
+    pub changed_files: usize,
     /// Unified diffs for files that would change, in input order.
     pub diffs: Vec<String>,
-    /// Files left unchanged because they (or, for Markdown, a region) do not parse.
+    /// Inputs or regions left without a patch, with skip notices.
     pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
     pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>)>,
 }
 
 impl DiffStats {
-    /// Fold one file's outcome into the aggregate, tagging each parse-skip with the file path.
-    /// Shared by the file-walk and stdin paths.
     pub fn record(&mut self, path: &Path, outcome: DiffOutcome) {
+        self.changed_files += usize::from(outcome.changed);
         if let Some(diff) = outcome.diff {
             self.diffs.push(diff);
         }
@@ -309,9 +307,16 @@ pub fn diff_outcome(
     let mut cache = FormatCache::default();
     let mut outcome =
         diff_and_skips(content, cfg, path, base_dir, kind, rewrite, &mut cache);
-    if rewrite == Rewrite::Format && outcome.diff.is_some() {
+    if rewrite == Rewrite::Format && outcome.changed {
         outcome.problems =
             crate::format::problems(content, cfg, path, kind, &mut cache);
+    }
+    if path_unrepresentable_in_diff(path) {
+        outcome.diff = None;
+        outcome.changed &= rewrite == Rewrite::Format;
+        outcome.skipped.push(diff_skip(
+            "filename has non-UTF-8 bytes or control characters; no applicable diff path",
+        ));
     }
     outcome
 }
@@ -325,16 +330,6 @@ fn diff_and_skips(
     rewrite: Rewrite,
     cache: &mut FormatCache,
 ) -> DiffOutcome {
-    if path_unrepresentable_in_diff(path) {
-        return DiffOutcome {
-            diff: None,
-            skipped: vec![diff_skip(
-                "filename has non-UTF-8 bytes or control characters; no applicable \
-                 diff path",
-            )],
-            ..DiffOutcome::default()
-        };
-    }
     match kind {
         SourceKind::Yaml => {
             if let Some(problem) = crate::lint::parse_error(content) {
@@ -347,12 +342,14 @@ fn diff_and_skips(
             let fixed = rewrite.apply(content, cfg, path, base_dir, &[], cache);
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
+                    changed: rewrite == Rewrite::Format,
                     diff: None,
-                    skipped: vec![bare_cr_diff_skip()],
+                    skipped: vec![bare_cr_diff_skip(rewrite)],
                     ..DiffOutcome::default()
                 };
             }
             DiffOutcome {
+                changed: content != fixed,
                 diff: render_unified_diff(content, &fixed, path),
                 skipped: unfixed_notices(
                     if rewrite == Rewrite::Format {
@@ -388,9 +385,11 @@ fn diff_and_skips(
                 skipped.retain(|problem| problem.rule.is_none());
                 skipped.extend(skips(fixed).into_iter().filter(|p| p.rule.is_some()));
             }
+            let changed = fixed.is_some();
             let diff =
                 fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
             DiffOutcome {
+                changed,
                 diff,
                 skipped,
                 ..DiffOutcome::default()
@@ -453,10 +452,11 @@ fn ends_in_bare_cr(original: &str, fixed: &str) -> bool {
 }
 
 #[must_use]
-fn bare_cr_diff_skip() -> crate::lint::LintProblem {
-    diff_skip(
-        "content ends in a bare carriage return, which has no applicable text diff; use --fix",
-    )
+fn bare_cr_diff_skip(rewrite: Rewrite) -> crate::lint::LintProblem {
+    diff_skip(&format!(
+        "content ends in a bare carriage return, which has no applicable text diff; use {}",
+        rewrite.flag(),
+    ))
 }
 
 /// A 1:1 skip problem for an input that cannot produce an applicable `--diff`.
@@ -476,6 +476,33 @@ fn diff_skip(message: &str) -> crate::lint::LintProblem {
 #[must_use]
 pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
     diff_skip("non-UTF-8 or BOM content has no applicable text diff; use --fix")
+}
+
+#[must_use]
+pub fn decoded_diff_outcome(
+    decoded: &decoder::DecodedFile,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    kind: SourceKind,
+    rewrite: Rewrite,
+) -> DiffOutcome {
+    if decoded.is_plain_utf8() {
+        return diff_outcome(decoded.content(), cfg, path, base_dir, kind, rewrite);
+    }
+    if rewrite == Rewrite::Fix {
+        return DiffOutcome {
+            skipped: vec![non_utf8_diff_skip()],
+            ..DiffOutcome::default()
+        };
+    }
+    let mut outcome =
+        diff_outcome(decoded.content(), cfg, path, base_dir, kind, rewrite);
+    outcome.diff = None;
+    outcome.skipped.push(diff_skip(
+        "non-UTF-8 or BOM content has no applicable text diff; use ryl format",
+    ));
+    outcome
 }
 
 /// Whether the path can't be faithfully written in a diff header (not valid UTF-8, or holding
@@ -504,12 +531,8 @@ pub fn diff_files(
             continue;
         }
         let decoded = decoder::read_file_lossless(path)?;
-        if !decoded.is_plain_utf8() {
-            stats.skipped.push((path.clone(), non_utf8_diff_skip()));
-            continue;
-        }
         let outcome =
-            diff_outcome(decoded.content(), cfg, path, base_dir, *kind, rewrite);
+            decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite);
         stats.record(path, outcome);
     }
     Ok(stats)

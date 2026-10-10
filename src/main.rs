@@ -29,8 +29,8 @@ use ryl::config_schema::{
 };
 use ryl::decoder;
 use ryl::fix::{
-    DiffStats, Rewrite, SAFE_FIX_RULE_IDS, diff_files, diff_outcome, rewrite_files,
-    rewrite_str,
+    DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
+    rewrite_files, rewrite_str,
 };
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
@@ -1419,14 +1419,12 @@ fn resolve_stdin_kind(
     }
 }
 
-/// Read stdin, returning its decoded text and raw bytes; they are equal exactly when the
-/// input was plain UTF-8 (no BOM, no transcode), i.e. when a textual `--diff` applies back.
-fn read_stdin_decoded(path: &Path) -> Result<(String, Vec<u8>), String> {
+fn read_stdin_decoded(path: &Path) -> Result<(decoder::DecodedFile, Vec<u8>), String> {
     let mut buf = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let content = decoder::decode_bytes(&buf)
+    let content = decoder::decode_bytes_lossless(&buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     Ok((content, buf))
 }
@@ -1439,8 +1437,10 @@ fn read_and_lint_stdin(
 ) -> Result<Vec<LintProblem>, String> {
     let (content, _) = read_stdin_decoded(path)?;
     Ok(match kind {
-        SourceKind::Markdown => lint_markdown_str(&content, path, cfg, base_dir),
-        SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
+        SourceKind::Markdown => {
+            lint_markdown_str(content.content(), path, cfg, base_dir)
+        }
+        SourceKind::Yaml => lint_str(content.content(), path, cfg, base_dir),
     })
 }
 
@@ -1451,20 +1451,12 @@ fn stdin_diff_stats(
     kind: SourceKind,
     rewrite: Rewrite,
 ) -> Result<DiffStats, String> {
-    let (content, raw) = read_stdin_decoded(path)?;
+    let (decoded, _) = read_stdin_decoded(path)?;
     let mut stats = DiffStats::default();
-    if content.as_bytes() == raw {
-        stats.record(
-            path,
-            diff_outcome(&content, cfg, path, base_dir, kind, rewrite),
-        );
-    } else {
-        // The decoded-UTF-8 diff would not apply to the BOM'd/transcoded source, so skip
-        // rather than emit a patch that won't apply (same as the file path).
-        stats
-            .skipped
-            .push((path.to_path_buf(), ryl::fix::non_utf8_diff_skip()));
-    }
+    stats.record(
+        path,
+        decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite),
+    );
     Ok(stats)
 }
 
@@ -1483,9 +1475,6 @@ impl Preview {
     }
 }
 
-/// Write parse-skip notices to stderr and, for `--diff`, the per-file unified diffs to
-/// stdout, returning `1` if any file would change, else `0`. Only the diff drives the exit
-/// code; remaining unfixable diagnostics are neither printed nor counted.
 fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
     for (path, problem) in &stats.skipped {
         eprint_skip_notice(path, problem, preview.flag());
@@ -1494,7 +1483,7 @@ fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
         // Each diff already carries its trailing newline, so concatenate and print once.
         print!("{}", stats.diffs.concat());
     }
-    if stats.diffs.is_empty() {
+    if stats.changed_files == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -1632,14 +1621,20 @@ fn run_stdin_format(
     }
     let (content, raw) = read_stdin_decoded(&path)?;
     let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
-        rewrite_str(&content, &cfg, &path, &base_dir, kind, Rewrite::Format)
+        rewrite_str(
+            content.content(),
+            &cfg,
+            &path,
+            &base_dir,
+            kind,
+            Rewrite::Format,
+        )
     });
     for problem in &skipped {
         eprint_skip_notice(&path, problem, Rewrite::Format.flag());
     }
-    // Unchanged input goes back byte-for-byte, keeping a BOM or non-UTF-8 encoding.
     std::io::stdout()
-        .write_all(&formatted.map_or(raw, String::into_bytes))
+        .write_all(&formatted.map_or(raw, |formatted| content.encode(&formatted)))
         .expect("stdout accepts the output, as `print!` assumes");
     Ok(ExitCode::SUCCESS)
 }
