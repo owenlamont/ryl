@@ -3105,6 +3105,122 @@ fn warning_text(message: &Message) -> Option<String> {
 
 const LEGACY_RULES_CONFIG: &str = "[rules]\ntrailing-spaces = \"enable\"\n";
 
+const CONFLICT_CONFIG: &str = "[format]\ncomment-spacing = 2\n[lint.rules.comments]\nmin-spaces-from-content = 4\n";
+
+#[test]
+fn formatter_conflict_warning_is_deduplicated_and_reloaded() {
+    let dir = project(CONFLICT_CONFIG);
+    let (mut client, _) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "a.yaml");
+    client.did_open(doc.clone(), "a: 1    # comment\n");
+    let warnings: Vec<_> = client
+        .drain_to_publish()
+        .iter()
+        .filter_map(warning_text)
+        .collect();
+    let cfg =
+        ryl::config::YamlLintConfig::from_toml_str(CONFLICT_CONFIG).expect("config");
+    assert_eq!(warnings, ryl::format::conflicts(&cfg));
+    assert!(!warnings.is_empty());
+    assert_eq!(
+        client.formatting(doc.clone()).expect("format edit")[0].new_text,
+        "a: 1  # comment\n"
+    );
+    client.did_change(doc, "a: 1  # comment\n");
+    assert!(
+        client
+            .drain_to_publish()
+            .iter()
+            .all(|message| warning_text(message).is_none())
+    );
+    client.did_open(file_uri(dir.path(), "b.yaml"), "b: 2\n");
+    assert!(
+        client
+            .drain_to_publish()
+            .iter()
+            .all(|message| warning_text(message).is_none())
+    );
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
+    let warnings: Vec<_> = client
+        .drain_to_publish()
+        .iter()
+        .filter_map(warning_text)
+        .collect();
+    assert_eq!(warnings, ryl::format::conflicts(&cfg));
+    let _ = client.drain_to_publish();
+    std::fs::write(dir.path().join(".ryl.toml"), "[format]\n").expect("config");
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        changed_config(dir.path()),
+    );
+    for _ in 0..2 {
+        assert!(
+            client
+                .drain_to_publish()
+                .iter()
+                .all(|message| warning_text(message).is_none())
+        );
+    }
+}
+
+#[test]
+fn formatter_conflict_warning_reaches_pull_clients_and_save_requests() {
+    for method in [
+        "textDocument/diagnostic",
+        "workspace/diagnostic",
+        "textDocument/formatting",
+        "textDocument/codeAction",
+    ] {
+        let dir = project(CONFLICT_CONFIG);
+        std::fs::write(dir.path().join("a.yaml"), "a: 1  # comment\n").expect("yaml");
+        let (mut client, _) = Client::launch_pull(Some(dir.path()), false);
+        let doc = file_uri(dir.path(), "a.yaml");
+        if matches!(
+            method,
+            "textDocument/formatting" | "textDocument/codeAction"
+        ) {
+            client.did_open(doc.clone(), "a: 1  # comment\n");
+            let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+            let _ = client.messages_until_response(&barrier);
+            client.notify("workspace/didChangeConfiguration", json!({"settings": {}}));
+        }
+        let params = json!({
+            "textDocument": {"uri": doc},
+            "previousResultIds": [],
+            "options": {"tabSize": 2, "insertSpaces": true},
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+            "context": {"diagnostics": [], "only": ["source.fixAll"]}
+        });
+        let id = client.request(method, params.clone());
+        let (messages, response) = client.messages_until_response(&id);
+        let warnings: Vec<_> = messages.iter().filter_map(warning_text).collect();
+        assert_eq!(warnings.len(), 1, "{method}: {warnings:?}");
+        assert!(
+            warnings[0].contains("the comments lint rule's options are incompatible")
+        );
+        if method == "textDocument/codeAction" {
+            let result = response.response_result.expect("actions");
+            assert_eq!(
+                result[0]["edit"]["documentChanges"][0]["edits"][0]["newText"],
+                "a: 1    # comment\n"
+            );
+        }
+        if method != "workspace/diagnostic" {
+            let id = client.request(method, params);
+            let (messages, _) = client.messages_until_response(&id);
+            assert!(
+                messages
+                    .iter()
+                    .all(|message| warning_text(message).is_none()),
+                "{method}"
+            );
+        }
+    }
+}
+
 #[test]
 fn deprecated_config_key_is_shown_as_a_warning_once() {
     let dir = project(LEGACY_RULES_CONFIG);

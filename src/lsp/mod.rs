@@ -510,12 +510,12 @@ impl Server {
         match method.as_str() {
             "textDocument/codeAction" => {
                 let result = parse::<CodeActionParams>(&params)
-                    .and_then(|params| self.code_action(&params));
+                    .and_then(|params| self.code_action(connection, &params));
                 respond(connection, id, result);
             }
             "textDocument/formatting" => {
                 let result = parse::<DocumentFormattingParams>(&params)
-                    .and_then(|params| self.formatting(&params));
+                    .and_then(|params| self.formatting(connection, &params));
                 respond(connection, id, result);
             }
             "textDocument/hover" => {
@@ -695,7 +695,6 @@ impl Server {
     /// does not keep showing diagnostics computed under the old config. A pull client without
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
-        // Clear the surfaced-errors set so a still-broken config re-reports once.
         self.reported_messages.clear();
         if self.push_diagnostics {
             self.relint_open_documents(connection);
@@ -756,10 +755,15 @@ impl Server {
         }
     }
 
-    fn code_action(&self, params: &CodeActionParams) -> Option<CodeActionResponse> {
+    fn code_action(
+        &mut self,
+        connection: &Connection,
+        params: &CodeActionParams,
+    ) -> Option<CodeActionResponse> {
         let uri = &params.text_document.uri;
-        let document = self.documents.get(uri.as_str())?;
         let target = self.resolve(uri.as_str()).ok().flatten()?;
+        self.report_config_notices(connection, &target.context.notices);
+        let document = self.documents.get(uri.as_str())?;
         let input = actions::Input {
             uri,
             text: &document.text,
@@ -775,11 +779,16 @@ impl Server {
     }
 
     /// `ryl format` on the document. Like the CLI, it needs no enabled rule.
-    fn formatting(&self, params: &DocumentFormattingParams) -> Option<Vec<TextEdit>> {
+    fn formatting(
+        &mut self,
+        connection: &Connection,
+        params: &DocumentFormattingParams,
+    ) -> Option<Vec<TextEdit>> {
         let uri = params.text_document.uri.as_str();
-        let document = self.documents.get(uri)?;
         let (path, is_file) = self.uri_path(uri);
         let target = self.resolve_path(path, is_file, false).ok().flatten()?;
+        self.report_config_notices(connection, &target.context.notices);
+        let document = self.documents.get(uri)?;
         Some(vec![analysis::rewrite_edit(
             &document.text,
             &target.path,
@@ -1171,6 +1180,9 @@ fn resolve_for_path(
         context.config.disable_path_based_rule_ignores();
         SourceKind::Yaml
     };
+    context
+        .notices
+        .extend(crate::format::conflicts(&context.config));
     Ok(Some(Target {
         path,
         context,
