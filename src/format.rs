@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::num::{NonZeroU8, NonZeroU16};
+use std::num::NonZeroU16;
 use std::path::Path;
 
 use similar::{DiffTag, TextDiff};
@@ -212,13 +212,6 @@ pub const DEFAULT_LINE_LENGTH: u16 = 80;
 
 /// The widths `ryl format` weighs for a file without a top-level `indent-width`.
 const DETECTED_WIDTHS: [u8; 7] = [2, 3, 4, 5, 6, 7, 8];
-
-/// The top-level `indent-width`, else [`DEFAULT_INDENT_WIDTH`].
-#[must_use]
-pub fn indent_width(cfg: &YamlLintConfig) -> u8 {
-    cfg.indent_width()
-        .map_or(DEFAULT_INDENT_WIDTH, NonZeroU8::get)
-}
 
 /// The line length `ryl format` targets: the top-level `line-length`, else
 /// [`DEFAULT_LINE_LENGTH`].
