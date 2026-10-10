@@ -173,7 +173,7 @@ proptest! {
 
     #[test]
     fn absolute_diff_paths_beneath_cwd_have_relative_headers(
-        filename in "[a-z][a-z 0-9]{0,10}\\.yaml",
+        filename in "[a-z][a-z 0-9]{0,10}\\.yaml[. ]{0,3}",
         spelling in 0u8..3,
     ) {
         let cwd = std::env::current_dir().unwrap();

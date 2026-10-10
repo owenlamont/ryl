@@ -255,31 +255,57 @@ impl DiffStats {
     }
 }
 
-/// `path` `lexical_abspath`-normalized, relativized to CWD and control-sanitized.
 fn cwd_relative_label(path: &Path) -> String {
-    #[cfg(windows)]
-    let path = &diff_display_path(path);
-    let abspath = crate::cli_support::lexical_abspath(path);
     let cwd = std::env::current_dir().unwrap_or_default();
     #[cfg(windows)]
-    let cwd = diff_display_path(&cwd);
-    let display = abspath.strip_prefix(&cwd).unwrap_or(&abspath);
-    crate::cli_support::sanitize_control(&display.display().to_string()).into_owned()
+    let label = {
+        let mut absolute = PathBuf::new();
+        for component in cwd.join(path).components() {
+            if component == std::path::Component::ParentDir {
+                absolute.pop();
+            } else {
+                absolute.push(component.as_os_str());
+            }
+        }
+        windows_diff_label(&absolute.to_string_lossy(), &cwd.to_string_lossy())
+    };
+    #[cfg(not(windows))]
+    let label = {
+        let abspath = crate::cli_support::lexical_abspath(path);
+        abspath
+            .strip_prefix(&cwd)
+            .unwrap_or(&abspath)
+            .display()
+            .to_string()
+    };
+    crate::cli_support::sanitize_control(&label).into_owned()
 }
 
-#[cfg(windows)]
-fn diff_display_path(path: &Path) -> PathBuf {
-    let label = path.to_string_lossy().replace('\\', "/");
-    if let Some(unc) = label.strip_prefix("//?/UNC/") {
-        PathBuf::from(format!("//{unc}"))
+#[must_use]
+pub fn windows_diff_label(path: &str, cwd: &str) -> String {
+    let path = diff_display_path(path);
+    let cwd = diff_display_path(cwd);
+    if path == cwd {
+        String::new()
     } else {
-        PathBuf::from(label.strip_prefix("//?/").unwrap_or(&label))
+        path.strip_prefix(&format!("{}/", cwd.trim_end_matches('/')))
+            .unwrap_or(&path)
+            .to_owned()
+    }
+}
+
+fn diff_display_path(path: &str) -> String {
+    let label = path.replace('\\', "/");
+    if let Some(unc) = label.strip_prefix("//?/UNC/") {
+        format!("//{unc}")
+    } else {
+        label.strip_prefix("//?/").unwrap_or(&label).to_owned()
     }
 }
 
 /// A unified diff, or `None` when identical, like `ruff check --diff`: 3 context lines
 /// (pinned against a `similar` default change) and a plain `--- path`/`+++ path` header,
-/// `lexical_abspath`-normalized, CWD-relative (so `git apply -p0` works) and sanitized
+/// CWD-relative (so `git apply -p0` works) and sanitized
 /// against injected escapes or forged hunks. The body is verbatim.
 fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
     if original == fixed {

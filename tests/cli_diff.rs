@@ -444,6 +444,69 @@ fn diff_header_relativizes_absolute_path_under_cwd() {
 
 #[cfg(windows)]
 #[test]
+fn verbatim_diff_headers_preserve_trailing_dots_and_spaces() {
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let config = root.join("ryl.toml");
+    fs::write(
+        &config,
+        "[files]\nyaml = ['*']\n[lint.rules.trailing-spaces]\n",
+    )
+    .unwrap();
+    let sibling = root.join("input.yaml");
+    fs::write(&sibling, "sibling: untouched\n").unwrap();
+    for filename in ["input.yaml.", "input.yaml ", "input.yaml. "] {
+        let file = root.join(filename);
+        fs::write(&file, "key: value  \n").unwrap();
+        for subcommand in ["check", "format"] {
+            let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+                .current_dir(&root)
+                .args([subcommand, "--diff", "-c"])
+                .arg(&config)
+                .arg(&file));
+            assert_eq!(code, 1, "{stderr}");
+            assert!(
+                stdout.starts_with(&format!("--- {filename}\n+++ {filename}\n")),
+                "{stdout}"
+            );
+            assert_eq!(fs::read_to_string(&file).unwrap(), "key: value  \n");
+            assert_eq!(
+                fs::read_to_string(&sibling).unwrap(),
+                "sibling: untouched\n"
+            );
+        }
+    }
+}
+
+#[test]
+fn windows_diff_labels_preserve_component_text() {
+    for suffix in [".", " ", ". "] {
+        for (root, cwd) in [
+            (r"\\?\C:\work", "C:/work"),
+            ("//?/C:/work", r"\\?\C:\work"),
+            (r"\\?\UNC\server\share\work", "//server/share/work"),
+            ("//?/UNC/server/share/work", r"\\server\share\work"),
+        ] {
+            let filename = format!("input.yaml{suffix}");
+            assert_eq!(
+                ryl::fix::windows_diff_label(&format!("{root}/{filename}"), cwd),
+                filename
+            );
+        }
+    }
+    assert_eq!(ryl::fix::windows_diff_label("C:/work", "C:/work"), "");
+    assert_eq!(
+        ryl::fix::windows_diff_label("C:/work-sibling/input.yaml.", "C:/work"),
+        "C:/work-sibling/input.yaml."
+    );
+    assert_eq!(
+        ryl::fix::windows_diff_label("C:/input.yaml ", "C:/"),
+        "input.yaml "
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn diff_headers_strip_verbatim_prefixes_for_both_rewrites() {
     use ryl::config::{SourceKind, YamlLintConfig};
     use ryl::fix::{Rewrite, diff_outcome};
