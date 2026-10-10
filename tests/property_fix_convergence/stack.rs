@@ -127,6 +127,11 @@ impl StackedDocument {
 impl FollowOn {
     fn render(&self, buffer: &mut String, terminator: &str) {
         let marker = if self.explicit { "---" } else { "..." };
+        if self.bom && self.explicit {
+            buffer.push_str("...");
+            buffer.push_str(terminator);
+            buffer.push('\u{feff}');
+        }
         buffer.push_str(marker);
         buffer.push_str(terminator);
         if self.comment {

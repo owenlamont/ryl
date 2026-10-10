@@ -167,6 +167,27 @@ proptest! {
     }
 
     #[test]
+    fn later_document_bom_keeps_indentation_on_the_scalar(
+        spaces in 1usize..9,
+        crlf in any::<bool>(),
+        markdown in any::<bool>(),
+    ) {
+        let cfg = ryl::config::YamlLintConfig::from_toml_str(
+            "[lint.rules.indentation]\nspaces = 2\n",
+        ).unwrap();
+        let newline = if crlf { "\r\n" } else { "\n" };
+        let text = format!("a: a{newline}...{newline}\u{feff}{}scalar{newline}", " ".repeat(spaces));
+        let (text, kind, line) = if markdown {
+            (format!("```yaml{newline}{text}```{newline}"), SourceKind::Markdown, 3)
+        } else {
+            (text, SourceKind::Yaml, 2)
+        };
+        let diags = diagnostics(&text, lint_path(), &cfg, base(), kind, PositionEncoding::Utf16);
+        prop_assert_eq!(diags.len(), 1);
+        prop_assert_eq!(diags[0].range.start, Position::new(line, u32::try_from(spaces + 1).unwrap()));
+    }
+
+    #[test]
     fn diagnostics_are_consistent_across_encodings(document in arb_document()) {
         let content = document.render();
         let render = |enc| {

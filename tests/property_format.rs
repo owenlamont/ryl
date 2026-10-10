@@ -898,3 +898,31 @@ fn corpus_verdict_names_the_broken_invariant() {
     }
     assert_eq!(corpus_verdict(b"a: \xff\n", b"a: 1\n"), "unreadable");
 }
+
+#[test]
+fn bom_document_marker_keeps_g11_indentation_consistent() {
+    let input = "a: a\n...\n\u{feff}\na: 1";
+    let cfg = YamlLintConfig::from_toml_str(
+        "line-length = 1\n[format]\nquote-style = 'single'\nline-ending = 'lf'\n\
+         document-start = 'add'\ndocument-end = 'preserve'\nfold-long-lines = false\n\
+         brace-spacing = false\npreview = false\ncomment-spacing = 1\n\
+         comment-starting-space = 'preserve'\nmax-blank-lines = 0\n\
+         sequence-style = 'preserve'\nmapping-style = 'preserve'\n\
+         indent-sequences = false\ndash-on-own-line = false\n\
+         [lint.rules.indentation]\nspaces = 'consistent'\n",
+    )
+    .unwrap();
+    let formatted = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_eq!(
+        indentation::check(&formatted, &indentation::Config::resolve(&cfg)),
+        []
+    );
+    check_invariants(
+        &|input| ryl::format::format_str(input, &cfg, synthetic_path(), &[]),
+        input,
+    )
+    .unwrap();
+    for pass in format_passes() {
+        check_pass(pass, input).unwrap();
+    }
+}

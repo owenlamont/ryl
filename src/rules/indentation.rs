@@ -126,8 +126,8 @@ impl Config {
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
-    let tokens = scan(buffer, &chars, &line_starts);
+    let mut line_starts = build_line_starts(&chars);
+    let tokens = scan(buffer, &chars, &mut line_starts);
     let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, Mode::Check);
     analyzer.run(&tokens);
     analyzer.diagnostics
@@ -176,10 +176,22 @@ impl Token {
     }
 }
 
-fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<Token> {
+fn scan(
+    buffer: &str,
+    chars: &[(usize, char)],
+    line_starts: &mut [CharPos],
+) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
+        for marker in [span.start, span.end] {
+            let Some(line_start) = line_starts.get_mut(marker.line() - 1) else {
+                continue;
+            };
+            if marker.index().saturating_sub(line_start.get()) > marker.col() {
+                skip_prefix_bom(chars, line_start);
+            }
+        }
         let (mut start, mut end) = (span.start.index(), span.end.index());
         let kind = match token_type {
             TokenType::Comment(_) => continue,
@@ -219,6 +231,8 @@ fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<T
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
                     let from = tokens.last().map_or(0, |prev| prev.end);
                     start = block_indicator(chars, from).unwrap_or(start);
+                    let (line, _) = locate(line_starts, start);
+                    skip_prefix_bom(chars, &mut line_starts[line]);
                     let end_line_start = line_starts[locate(line_starts, end).0].get();
                     let trailing = end - end_line_start;
                     if count_spaces(chars, end_line_start) >= trailing
@@ -252,6 +266,12 @@ fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<T
 fn locate(line_starts: &[CharPos], idx: usize) -> (usize, usize) {
     let (line, column) = line_and_column(line_starts, CharPos::new(idx));
     (line - 1, column - 1)
+}
+
+fn skip_prefix_bom(chars: &[(usize, char)], start: &mut CharPos) {
+    if char_at(chars, start.get()) == Some('\u{feff}') {
+        *start = CharPos::new(start.get() + 1);
+    }
 }
 
 fn char_at(chars: &[(usize, char)], idx: usize) -> Option<char> {
@@ -429,11 +449,11 @@ impl<'a> Analyzer<'a> {
             let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
             let next = tokens.get(idx + 1);
             if self.step(token, prev, next, tokens.get(idx + 2)).is_err() {
-                self.diagnostics.push(Violation {
-                    line: token.line + 1,
-                    column: token.column + 1,
-                    message: "cannot infer indentation: unexpected token".to_string(),
-                });
+                self.push(
+                    token.line + 1,
+                    token.column,
+                    "cannot infer indentation: unexpected token".to_string(),
+                );
             }
         }
     }
@@ -826,9 +846,13 @@ impl<'a> Analyzer<'a> {
     }
 
     fn push(&mut self, line: usize, found: usize, message: String) {
+        let start = self.line_starts[line - 1].get();
+        let bom = usize::from(
+            start > 0 && char_at(self.chars, start - 1) == Some('\u{feff}'),
+        );
         self.diagnostics.push(Violation {
             line,
-            column: found + 1,
+            column: found + bom + 1,
             message,
         });
     }

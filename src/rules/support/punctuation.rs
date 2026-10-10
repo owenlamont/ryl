@@ -87,7 +87,10 @@ pub(crate) fn line_and_column(
     }
 
     let line_start = line_starts[left];
-    (left + 1, char_idx.get() - line_start.get() + 1)
+    (
+        left + 1,
+        char_idx.get().saturating_sub(line_start.get()) + 1,
+    )
 }
 
 pub(crate) fn template_double_curly_end(

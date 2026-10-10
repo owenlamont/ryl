@@ -289,6 +289,14 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### Document-prefix byte order marks
+
+ryl accepts `a: a\n...\n\uFEFF---\na: 1\n` and treats the BOM as an encoding
+prefix, not indentation. yamllint rejects the later BOM-prefixed marker as a syntax
+error. YAML 1.2.2 [document-prefix production
+202](https://yaml.org/spec/1.2.2/#911-document-prefix) permits a BOM before each
+document; the reference parser emits two documents, with `+DOC ---` for the second.
+
 ### Blank CRLF lines in multi-line scalars
 
 With `indentation: check-multi-line-strings` enabled, yamllint flags a blank line inside

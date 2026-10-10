@@ -45,6 +45,9 @@ A file that does not parse is left alone and reported on stderr as
 
 See [File encodings](getting-started/quickstart.md#file-encodings) for encoding
 preservation and `--check`/`--diff` behavior when a text patch cannot be emitted.
+A document-prefix BOM stays before an added `---` marker, including in later
+documents; the BOM does not count toward indentation. Diagnostic columns still
+count a document-prefix BOM that remains in the source text.
 The same exit behavior applies when a patch is skipped because the YAML ends in a
 bare carriage return or the filename cannot be represented in a diff header.
 
