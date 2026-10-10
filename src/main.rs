@@ -1526,7 +1526,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             None
         };
         let targets =
-            format_targets(preview, format.output_format, output_config.as_ref());
+            format_targets(preview, format.output_format, output_config.as_ref())?;
         reject_input_collisions(
             &targets,
             files.iter().map(|(path, ..)| path.as_path()),
@@ -1546,12 +1546,14 @@ fn format_targets(
     preview: Preview,
     output_format: Option<CliFormat>,
     config_output: Option<&OutputTable>,
-) -> Vec<OutputTarget> {
-    match (preview, output_format) {
+) -> Result<Vec<OutputTarget>, String> {
+    let targets = match (preview, output_format) {
         (Preview::Diff, _) => config_or_default_targets(None),
         (Preview::Check, Some(choice)) => vec![default_target(choice)],
         (Preview::Check, None) => config_or_default_targets(config_output),
-    }
+    };
+    validate_targets(&targets, preview == Preview::Diff)?;
+    Ok(targets)
 }
 
 fn warn_format_conflicts<'a>(
@@ -1609,7 +1611,7 @@ fn run_stdin_format(
     let kind = resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?;
     warn_format_conflicts([&cfg], args);
     if let Some(preview) = preview {
-        let targets = format_targets(preview, output_format, cfg.output());
+        let targets = format_targets(preview, output_format, cfg.output())?;
         reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
         let stats = match kind {
             Some(kind) => {

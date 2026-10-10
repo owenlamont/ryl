@@ -71,6 +71,9 @@ An empty or wholly excluded run still writes an empty configured report, includi
 when `--stdin-filename` is excluded.
 `ryl format --output-format` takes one format, written to its default stream, and
 overrides `[output]`. Like ruff's, `ryl format` honours it only under `--check`.
+The same output-target guards apply to files and stdin: two configured reporters
+sharing stdout or stderr exit 2 before emitting reports. `ryl format --diff` ignores
+`[output]` and `--output-format`, keeping stdout for the patch.
 
 ### Configuring outputs in TOML
 
