@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 5b9015ed7a3bb2cee301cc903a91dbd991d4dcabc12c3d61c2c4bbb60af2166d # shrinks to document = StackedDocument { document: Document { version_directive: None, entries: [BlockEntry { leading_comment: None, key: "a", colon: ColonGap { extra_before: 0, extra_after: 0, tab: false, explicit: None }, value: Scalar(Plain("a")), trailing_inline_comment: None, layout: Layout { width: 2, flush: false, comment_shift: 0 } }], newline: Lf, has_final_newline: false }, decorations: [Decoration { leading: [], trailing_spaces: 0 }], start_marker: false, end_marker: false, follow_ons: [FollowOn { explicit: false, comment: false, bom: true, key: "a" }], trailing_blank_lines: 0 }, table = "line-length = 1\n[format]\nquote-style = 'single'\nline-ending = 'lf'\ndocument-start = 'preserve'\ndocument-end = 'preserve'\nfold-long-lines = false\nbrace-spacing = false\npreview = false\ncomment-spacing = 1\ncomment-starting-space = 'preserve'\nmax-blank-lines = 0\nsequence-style = 'preserve'\nmapping-style = 'preserve'\nindent-sequences = false\ndash-on-own-line = false\n"

@@ -1,3 +1,5 @@
+//! `line-length` is complementary lint: docs/formatter.md's Long lines contract makes the formatter target soft.
+
 use proptest::prelude::*;
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
@@ -33,7 +35,6 @@ pub fn agreeing_lint(config: &str) -> String {
          [lint.rules.comments]\nmin-spaces-from-content = {}\n\
          max-spaces-from-content = {}\nrequire-starting-space = {}\n\
          [lint.rules.empty-lines]\nmax = {}\nmax-start = 0\nmax-end = 0\n\
-         [lint.rules.line-length]\nmax = {}\n\
          [lint.rules.quoted-strings]\nquote-type = '{quote}'\n\
          required = 'only-when-needed'\nallow-double-quotes-for-escaping = true\n\
          allow-quoted-quotes = true\n\
@@ -46,7 +47,6 @@ pub fn agreeing_lint(config: &str) -> String {
         table.comment_spacing,
         table.comment_starting_space == MarkerTarget::Add,
         table.max_blank_lines,
-        ryl::format::line_length(&cfg),
     );
     if table.quote_style == QuoteStyleTarget::Preserve {
         let start = lint.find("[lint.rules.quoted-strings]").unwrap();
