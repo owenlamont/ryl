@@ -161,6 +161,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         settings,
         documents: HashMap::new(),
         reported_messages: HashSet::new(),
+        checked_format_configs: HashSet::new(),
         workers: Vec::new(),
         pull: None,
         revision: 0,
@@ -412,6 +413,7 @@ struct Server {
     /// Config errors and warnings already surfaced via `window/showMessage`, so each is
     /// reported once rather than on every file/keystroke.
     reported_messages: HashSet<String>,
+    checked_format_configs: HashSet<Option<PathBuf>>,
     /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk
     /// never blocks the message loop.
     workers: Vec<Worker>,
@@ -696,6 +698,7 @@ impl Server {
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
         self.reported_messages.clear();
+        self.checked_format_configs.clear();
         if self.push_diagnostics {
             self.relint_open_documents(connection);
         } else if self.supports_diagnostic_refresh {
@@ -755,6 +758,19 @@ impl Server {
         }
     }
 
+    fn report_format_conflicts(
+        &mut self,
+        connection: &Connection,
+        context: &ConfigContext,
+    ) {
+        if self.checked_format_configs.insert(context.source.clone()) {
+            self.report_config_notices(
+                connection,
+                &crate::format::conflicts(&context.config),
+            );
+        }
+    }
+
     fn code_action(
         &mut self,
         connection: &Connection,
@@ -775,7 +791,16 @@ impl Server {
             enc: self.encoding,
             supports_document_changes: self.supports_document_changes,
         };
-        actions::build(&input, &params.context)
+        let result = actions::build(&input, &params.context);
+        if crate::fix::SAFE_FIX_RULE_IDS.iter().any(|rule| {
+            actions::admits(
+                params.context.only.as_deref(),
+                &format!("source.fixAll.ryl.{rule}"),
+            )
+        }) {
+            self.report_format_conflicts(connection, &target.context);
+        }
+        result
     }
 
     /// `ryl format` on the document. Like the CLI, it needs no enabled rule.
@@ -788,6 +813,7 @@ impl Server {
         let (path, is_file) = self.uri_path(uri);
         let target = self.resolve_path(path, is_file, false).ok().flatten()?;
         self.report_config_notices(connection, &target.context.notices);
+        self.report_format_conflicts(connection, &target.context);
         let document = self.documents.get(uri)?;
         Some(vec![analysis::rewrite_edit(
             &document.text,
@@ -1180,9 +1206,6 @@ fn resolve_for_path(
         context.config.disable_path_based_rule_ignores();
         SourceKind::Yaml
     };
-    context
-        .notices
-        .extend(crate::format::conflicts(&context.config));
     Ok(Some(Target {
         path,
         context,

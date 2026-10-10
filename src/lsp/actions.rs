@@ -128,7 +128,7 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
 /// Whether `context.only` admits an action of `kind`: no filter means yes, else a
 /// requested kind must equal `kind` or be an ancestor (so a `source` / `source.fixAll`
 /// request matches `source.fixAll.ryl`, as `editor.codeActionsOnSave` issues them).
-fn admits(only: Option<&[CodeActionKind]>, kind: &str) -> bool {
+pub(super) fn admits(only: Option<&[CodeActionKind]>, kind: &str) -> bool {
     match only {
         None => true,
         Some(only) => only.iter().any(|requested| {
