@@ -82,6 +82,62 @@ fn markdown_format_refuses_new_closing_fence_lines() {
     }
 }
 
+#[test]
+fn format_preview_validates_resolved_output_streams_like_check() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    let empty = dir.path().join("empty");
+    fs::write(&file, "a: 1\n").unwrap();
+    fs::create_dir(&empty).unwrap();
+    for output in [
+        "[output.junit]\n[output.gitlab]",
+        "[output.standard]\npath = '-'\n[output.gitlab]",
+        "[output.standard]\n[output.parsable]",
+    ] {
+        let config = format!("[lint.rules]\nanchors = 'enable'\n{output}");
+        for input in [file.to_str().unwrap(), empty.to_str().unwrap(), "-"] {
+            let (check_code, check_stdout, check_stderr) = run_with_stdin(
+                ryl(dir.path()).args(["check", input, "--no-warnings", "-d", &config]),
+                b"a: 1\n",
+            );
+            assert_eq!(check_code, 2, "{output}/{input}: {check_stderr}");
+            assert!(check_stdout.is_empty());
+            let (code, stdout, stderr) = run_with_stdin(
+                ryl(dir.path()).args([
+                    "format",
+                    "--check",
+                    input,
+                    "--no-warnings",
+                    "-d",
+                    &config,
+                ]),
+                b"a: 1\n",
+            );
+            assert_eq!(code, 2, "{output}/{input}: {stdout}{stderr}");
+            assert_eq!(stderr, check_stderr, "{output}/{input}");
+            assert!(stdout.is_empty(), "rejected targets emit no reports");
+            for args in [
+                &["--check", "--output-format", "gitlab"][..],
+                &["--diff"],
+                &["--diff", "--output-format", "gitlab"],
+            ] {
+                let (code, stdout, stderr) = run_with_stdin(
+                    ryl(dir.path()).arg("format").args(args).args([
+                        input,
+                        "--no-warnings",
+                        "-d",
+                        &config,
+                    ]),
+                    b"a: 1\n",
+                );
+                assert_eq!(code, 0, "{output}/{input}/{args:?}: {stderr}");
+                assert!(stderr.is_empty(), "{stderr}");
+                assert_eq!(stdout, if args[0] == "--check" { "[]\n" } else { "" });
+            }
+        }
+    }
+}
+
 /// A `[format]`-only project config enables no lint rules, which `check` rejects; `format`
 /// must run regardless. The Markdown file routes through the embedded-region path.
 #[test]
