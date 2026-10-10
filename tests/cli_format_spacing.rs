@@ -12,7 +12,7 @@ use common::cli::{run, ryl};
 
 const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
 const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
-const UNFOLLOWABLE: &str = "k:\n    a: 1\n---\n: v\n";
+const UNFOLLOWABLE: &str = "k:\n  a: 1\nj:\n    b: 1\n---\n: v\n";
 
 fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();
@@ -30,7 +30,8 @@ fn format_respaces_and_reindents_compact_collections() {
         (0, "---\na: 1\nlist:\n  - x\n"),
         "{stderr}"
     );
-    let (code, stderr, formatted) = run_on(COMPACT, &["format"]);
+    let (code, stderr, formatted) =
+        run_on(COMPACT, &["format", "-d", "indent-width = 2"]);
     assert_eq!(
         (code, formatted.as_str(), stderr.as_str()),
         (0, "---\nseq:\n  - a: 1\n    b: 2\n? k\n: - x\n  - y\n", "")

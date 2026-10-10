@@ -70,7 +70,7 @@ dash-on-own-line = false
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
-| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
+| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
@@ -89,6 +89,11 @@ they set the defaults for the `line-length` and `indentation` rules (see
 [Quick start](getting-started/quickstart.md#configure-for-your-project)). `ryl format`
 re-indents every block level to `indent-width`, and uses both as the fold width and
 continuation indent under `fold-long-lines`.
+
+Without `indent-width`, `ryl format` keeps each file's own width: of the widths 2 to 8,
+the one whose re-indent changes the fewest lines, block scalar bodies and comments
+included. A tie, or a file the re-indent leaves alone at every width, falls back to 2.
+A file mostly at 4 with one block at 2 is re-indented to 4.
 
 The rest of the layout is fixed:
 
@@ -126,7 +131,7 @@ preset only adds a missing `---` to the output.
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
 | `line-length = 80` | The default of prettier, biome and yamllint's `line-length` |
-| `indent-width = 2` | The default of prettier, biome and yamlfix |
+| `indent-width = 2` | The default of prettier, biome and yamlfix, for a file that shows no width of its own |
 | Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
@@ -265,12 +270,12 @@ says so.
 | [`document-end`](rules/document-end.md) | `present = false` with `[format] document-end = "add"` |
 | [`empty-lines`](rules/empty-lines.md) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | Never |
-| [`new-lines`](rules/new-lines.md) | `type` resolves to a different ending from `[format] line-ending` |
+| [`new-lines`](rules/new-lines.md) | `type` resolves to a different ending from `[format] line-ending`, or `line-ending = "auto"`, which writes either |
 | [`quoted-strings`](rules/quoted-strings.md) | See below; never under `quote-style = "preserve"` |
 | [`trailing-spaces`](rules/trailing-spaces.md) | Never |
 | [`colons`](rules/colons.md) | `max-spaces-after` is 0 |
 | [`hyphens`](rules/hyphens.md) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
-| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences` |
+| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](rules/line-length.md) | Never; folding is opt-in and leaves lines it cannot break |
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`

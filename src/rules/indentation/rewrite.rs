@@ -3,7 +3,9 @@ use std::ops::RangeInclusive;
 
 use granit_parser::{Scanner, StrInput, Token, TokenType};
 
-use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate, scan};
+use super::{
+    Analyzer, Config, Gap, ID, Kind, Mode, Shift, SpacesSetting, locate, scan,
+};
 use crate::directives::Directives;
 use crate::rules::hyphens;
 use crate::rules::support::event_compare::{Document, documents};
@@ -11,6 +13,7 @@ use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
 };
 use crate::rules::support::punctuation::build_line_starts;
+use crate::rules::support::span_utils::CharPos;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reindented {
@@ -47,102 +50,179 @@ pub enum Cause {
 /// byte-identical for each [`Cause`].
 #[must_use]
 pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
-    let (original, parsed) = documents(buffer);
-    if !parsed || original.is_empty() {
-        return Reindented {
-            text: buffer.to_string(),
-            refused: Vec::new(),
-            kept_dash_lines: Vec::new(),
-        };
-    }
-    let directives = Directives::parse(buffer);
-    let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
-        .map(|(_, content, ending)| (content, ending))
-        .collect();
-    let starts = document_starts(buffer, &original);
-    let document_of = |line: usize| starts.partition_point(|&start| start <= line) - 1;
+    Prepared::new(buffer, cfg.dash_on_own_line).reindent(cfg)
+}
 
-    let (shaped, origin, kept_dash_lines) =
-        reshape(buffer, &lines, cfg.dash_on_own_line, &directives);
-    let chars: Vec<(usize, char)> = shaped.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
-    let tokens = scan(&shaped, &chars, &line_starts);
-    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, Mode::Target);
-    analyzer.run(&tokens);
-    let shaped_lines: Vec<(&str, &str)> = split_lines_preserve_endings(&shaped)
-        .map(|(_, content, ending)| (content, ending))
-        .collect();
-    let deltas = settle(&shaped_lines, &analyzer.shifts);
-
-    let mut refused: Vec<Option<Cause>> = vec![None; starts.len()];
-    let mut refuse = |line: usize, cause: Cause| {
-        refused[document_of(line)].get_or_insert(cause);
-    };
-    for line in 0..lines.len() {
-        if directives.is_disabled(ID, line + 1) {
-            refuse(line, Cause::Disabled);
-        }
-    }
-    for (line, gaps) in analyzer.gaps.iter().enumerate().take(origin.len()) {
-        if gaps
-            .iter()
-            .any(|gap| directives.is_disabled(gap.rule, origin[line] + 1))
-        {
-            refuse(origin[line], Cause::Disabled);
-        }
-    }
-    for (line, (content, _)) in lines.iter().enumerate() {
-        if tab_in_indentation(content) {
-            refuse(line, Cause::Tab);
-        }
-    }
-    for problem in &analyzer.diagnostics {
-        refuse(origin[problem.line - 1], Cause::Unfollowable);
-    }
-
-    let end_of = |index: usize| starts.get(index + 1).copied().unwrap_or(lines.len());
-    let render = |refused: &[Option<Cause>]| {
-        let mut text = String::with_capacity(buffer.len());
-        for (index, cause) in refused.iter().enumerate() {
-            if cause.is_some() {
-                for &(content, ending) in &lines[starts[index]..end_of(index)] {
-                    text.push_str(content);
-                    text.push_str(ending);
-                }
-                continue;
-            }
-            let first = origin.partition_point(|&line| line < starts[index]);
-            let last = origin.partition_point(|&line| line < end_of(index));
-            for line in first..last {
-                render_line(
-                    &mut text,
-                    shaped_lines[line],
-                    deltas[line],
-                    &analyzer.gaps[line],
-                );
-            }
-        }
-        text
-    };
-    // Documents parse independently, so one round of refusals settles every document.
-    let attempt = render(&refused);
-    let (rewritten, _) = documents(&attempt);
-    for (index, cause) in refused.iter_mut().enumerate() {
-        let changed = rewritten.get(index).map(|document| &document.events)
-            != Some(&original[index].events);
-        *cause = cause.or(changed.then_some(Cause::Changed));
-    }
-    Reindented {
-        text: render(&refused),
-        kept_dash_lines,
-        refused: (0..starts.len())
-            .filter_map(|index| {
-                refused[index].map(|cause| Refusal {
-                    lines: starts[index] + 1..=end_of(index),
-                    cause,
-                })
+/// [`reindent`] under `cfg` at each of `widths`, parsing and scanning `buffer` once.
+#[must_use]
+pub fn reindent_widths(
+    buffer: &str,
+    cfg: &Config,
+    widths: &[usize],
+) -> Vec<Reindented> {
+    let prepared = Prepared::new(buffer, cfg.dash_on_own_line);
+    widths
+        .iter()
+        .map(|&width| {
+            prepared.reindent(&Config {
+                spaces: SpacesSetting::Fixed(width),
+                ..*cfg
             })
-            .collect(),
+        })
+        .collect()
+}
+
+/// What [`reindent`] derives from `buffer` alone, so several widths can share it.
+struct Prepared<'a> {
+    buffer: &'a str,
+    original: Vec<Document<'a>>,
+    parsed: bool,
+    directives: Directives,
+    lines: Vec<(&'a str, &'a str)>,
+    starts: Vec<usize>,
+    shaped: String,
+    origin: Vec<usize>,
+    kept_dash_lines: Vec<(usize, usize)>,
+    chars: Vec<(usize, char)>,
+    line_starts: Vec<CharPos>,
+    tokens: Vec<super::Token>,
+}
+
+impl<'a> Prepared<'a> {
+    fn new(buffer: &'a str, dash_on_own_line: Option<bool>) -> Self {
+        let (original, parsed) = documents(buffer);
+        let directives = Directives::parse(buffer);
+        let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
+            .map(|(_, content, ending)| (content, ending))
+            .collect();
+        let parsed = parsed && !original.is_empty();
+        let starts = if parsed {
+            document_starts(buffer, &original)
+        } else {
+            Vec::new()
+        };
+        let (shaped, origin, kept_dash_lines) = if parsed {
+            reshape(buffer, &lines, dash_on_own_line, &directives)
+        } else {
+            (String::new(), Vec::new(), Vec::new())
+        };
+        let chars: Vec<(usize, char)> = shaped.char_indices().collect();
+        let line_starts = build_line_starts(&chars);
+        let tokens = scan(&shaped, &chars, &line_starts);
+        Self {
+            buffer,
+            original,
+            parsed,
+            directives,
+            lines,
+            starts,
+            shaped,
+            origin,
+            kept_dash_lines,
+            chars,
+            line_starts,
+            tokens,
+        }
+    }
+
+    fn reindent(&self, cfg: &Config) -> Reindented {
+        if !self.parsed {
+            return Reindented {
+                text: self.buffer.to_string(),
+                refused: Vec::new(),
+                kept_dash_lines: Vec::new(),
+            };
+        }
+        let (lines, starts, origin) = (&self.lines, &self.starts, &self.origin);
+        let mut analyzer =
+            Analyzer::new(&self.chars, &self.line_starts, cfg, Mode::Target);
+        analyzer.run(&self.tokens);
+        let shaped_lines: Vec<(&str, &str)> =
+            split_lines_preserve_endings(&self.shaped)
+                .map(|(_, content, ending)| (content, ending))
+                .collect();
+        let deltas = settle(&shaped_lines, &analyzer.shifts);
+        let mut refused = self.refusals(&analyzer);
+        let end_of =
+            |index: usize| starts.get(index + 1).copied().unwrap_or(lines.len());
+        let render = |refused: &[Option<Cause>]| {
+            let mut text = String::with_capacity(self.buffer.len());
+            for (index, cause) in refused.iter().enumerate() {
+                if cause.is_some() {
+                    text.extend(
+                        lines[starts[index]..end_of(index)]
+                            .iter()
+                            .flat_map(|&(content, ending)| [content, ending]),
+                    );
+                    continue;
+                }
+                let first = origin.partition_point(|&line| line < starts[index]);
+                let last = origin.partition_point(|&line| line < end_of(index));
+                for line in first..last {
+                    render_line(
+                        &mut text,
+                        shaped_lines[line],
+                        deltas[line],
+                        &analyzer.gaps[line],
+                    );
+                }
+            }
+            text
+        };
+        // Documents parse independently, so one round of refusals settles every document.
+        let attempt = render(&refused);
+        if attempt != self.buffer {
+            let (rewritten, _) = documents(&attempt);
+            for (index, cause) in refused.iter_mut().enumerate() {
+                let changed = rewritten.get(index).map(|document| &document.events)
+                    != Some(&self.original[index].events);
+                *cause = cause.or(changed.then_some(Cause::Changed));
+            }
+        }
+        Reindented {
+            text: render(&refused),
+            kept_dash_lines: self.kept_dash_lines.clone(),
+            refused: (0..starts.len())
+                .filter_map(|index| {
+                    refused[index].map(|cause| Refusal {
+                        lines: starts[index] + 1..=end_of(index),
+                        cause,
+                    })
+                })
+                .collect(),
+        }
+    }
+
+    /// Each document's first [`Cause`] other than [`Cause::Changed`].
+    fn refusals(&self, analyzer: &Analyzer) -> Vec<Option<Cause>> {
+        let (directives, origin) = (&self.directives, &self.origin);
+        let mut refused: Vec<Option<Cause>> = vec![None; self.starts.len()];
+        let mut refuse = |line: usize, cause: Cause| {
+            let document = self.starts.partition_point(|&start| start <= line) - 1;
+            refused[document].get_or_insert(cause);
+        };
+        for line in 0..self.lines.len() {
+            if directives.is_disabled(ID, line + 1) {
+                refuse(line, Cause::Disabled);
+            }
+        }
+        for (line, gaps) in analyzer.gaps.iter().enumerate().take(origin.len()) {
+            if gaps
+                .iter()
+                .any(|gap| directives.is_disabled(gap.rule, origin[line] + 1))
+            {
+                refuse(origin[line], Cause::Disabled);
+            }
+        }
+        for (line, (content, _)) in self.lines.iter().enumerate() {
+            if tab_in_indentation(content) {
+                refuse(line, Cause::Tab);
+            }
+        }
+        for problem in &analyzer.diagnostics {
+            refuse(origin[problem.line - 1], Cause::Unfollowable);
+        }
+        refused
     }
 }
 

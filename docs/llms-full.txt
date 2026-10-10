@@ -318,8 +318,8 @@ allow-non-breakable-words = true
 The top-level `line-length` (1 to 65535) and `indent-width` (1 to 255) are the
 formatter's targets and the defaults for `[lint.rules.line-length] max` and
 `[lint.rules.indentation] spaces`; an explicit rule option overrides them for
-linting only. Unset, `max` is 80 and `spaces` is `"consistent"`. A YAML config
-cannot set them.
+linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` keeps
+each file's own indent width. A YAML config cannot set them.
 
 ```toml
 line-length = 100
@@ -1422,7 +1422,7 @@ dash-on-own-line = false
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
-| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"` | Line endings, including the final newline; `"native"` is the platform's. |
+| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
@@ -1441,6 +1441,11 @@ they set the defaults for the `line-length` and `indentation` rules (see
 [Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/#configure-for-your-project)). `ryl format`
 re-indents every block level to `indent-width`, and uses both as the fold width and
 continuation indent under `fold-long-lines`.
+
+Without `indent-width`, `ryl format` keeps each file's own width: of the widths 2 to 8,
+the one whose re-indent changes the fewest lines, block scalar bodies and comments
+included. A tie, or a file the re-indent leaves alone at every width, falls back to 2.
+A file mostly at 4 with one block at 2 is re-indented to 4.
 
 The rest of the layout is fixed:
 
@@ -1478,7 +1483,7 @@ preset only adds a missing `---` to the output.
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
 | `line-length = 80` | The default of prettier, biome and yamllint's `line-length` |
-| `indent-width = 2` | The default of prettier, biome and yamlfix |
+| `indent-width = 2` | The default of prettier, biome and yamlfix, for a file that shows no width of its own |
 | Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
@@ -1617,12 +1622,12 @@ says so.
 | [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | `present = false` with `[format] document-end = "add"` |
 | [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | Never |
-| [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | `type` resolves to a different ending from `[format] line-ending` |
+| [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | `type` resolves to a different ending from `[format] line-ending`, or `line-ending = "auto"`, which writes either |
 | [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | See below; never under `quote-style = "preserve"` |
 | [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Never |
 | [`colons`](https://ryl-docs.pages.dev/rules/colons/) | `max-spaces-after` is 0 |
 | [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
-| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width`, or `indent-sequences` is the opposite of `[format] indent-sequences` |
+| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Never; folding is opt-in and leaves lines it cannot break |
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
@@ -4722,7 +4727,8 @@ parent:
 `ryl check --fix` does not fix this rule; indentation changes can shift values into
 different parents.
 
-`ryl format` re-indents each block level to the top-level `indent-width` (default 2),
+`ryl format` re-indents each block level to the top-level `indent-width`, or without it
+to the width the file mostly uses (see [Configuration](https://ryl-docs.pages.dev/formatter/#configuration)),
 with block sequences indented past their key unless `[format] indent-sequences = false`.
 Block scalar bodies, continuation lines and comments move with the line they belong to,
 and lines inside a flow collection go where this rule expects them. A document is left
@@ -5356,7 +5362,7 @@ fixable = ["ALL"]
 unfixable = ["new-lines"]
 ```
 
-`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending, and with any `type` under `line-ending = "auto"`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 

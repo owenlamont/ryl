@@ -38,6 +38,7 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
+use ryl::format::file_indent_width;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 
@@ -177,6 +178,14 @@ proptest! {
     }
 
     #[test]
+    fn a_file_consistent_at_a_width_keeps_it_without_an_indent_width(
+        document in arb_document_with_properties(),
+        width in 2u8..=8,
+    ) {
+        check_detection(&document.render(), width).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
     fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
         input in arb_fold_document()
     ) {
@@ -254,6 +263,41 @@ fn check_reindent(input: &str, width: usize) -> Result<(), String> {
         )),
         None => Ok(()),
     }
+}
+
+fn reindent_target(width: u8) -> indentation::Config {
+    indentation::Config::new(
+        SpacesSetting::Fixed(usize::from(width)),
+        IndentSequencesSetting::True,
+        false,
+    )
+    .with_dash_on_own_line(false)
+}
+
+/// `input` re-indented as `ryl format` would at `width`, to a fixed point since a dash join
+/// can enable another, is left alone by a format with no `indent-width`.
+fn check_detection(input: &str, width: u8) -> Result<(), String> {
+    if representation(input).is_none() {
+        return Ok(());
+    }
+    let mut text = input.to_string();
+    for _ in 0..8 {
+        let consistent = indentation::reindent(&text, &reindent_target(width));
+        if !consistent.refused.is_empty() {
+            return Ok(());
+        }
+        if consistent.text == text {
+            break;
+        }
+        text = consistent.text;
+    }
+    let detected = file_indent_width(&YamlLintConfig::default(), &text);
+    if indentation::reindent(&text, &reindent_target(detected)).text != text {
+        return Err(format!(
+            "detected {detected}, consistent at {width}: {text:?}"
+        ));
+    }
+    Ok(())
 }
 
 fn check_fold(input: &str, output: &str) -> Result<(), String> {
