@@ -622,12 +622,12 @@ Migration produces a self-contained config. yamllint's top-level `ignore` and
 `ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
 `ignore` key suppresses rules, never whole files. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
-then the current directory. The user-global config moves to a new directory
-(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `exclude`
-patterns there too, rather than left as a relative path that would no longer
-resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
-with a warning (inline those patterns or use an absolute path, then re-run),
-since its rule config cannot be relocated safely. Project migration keeps a
+then the current directory. A user-global config with a relative `ignore-from-file`,
+at either the top level or rule level, is skipped with a warning: the path resolves
+against each linted file's directory, which a single migrated config cannot express.
+Make the path absolute or move the setting into a project config, then re-run.
+Absolute top-level paths are inlined as `exclude` patterns; absolute rule-level
+paths are retained. Project migration keeps a
 relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
 directory.
 
@@ -1455,7 +1455,7 @@ dash-on-own-line = false
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
-| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain, quoted and folded (`>`) scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
@@ -1518,10 +1518,11 @@ preset only adds a missing `---` to the output.
 
 ## Long lines
 
-With `fold-long-lines = true`, `ryl format` splits a block plain scalar line longer than
-the top-level `line-length` (default 80) at a single space. The new line takes the
-indent of the scalar's existing continuation lines, or else sits `indent-width` past the
-column of the collection that owns the value:
+With `fold-long-lines = true`, `ryl format` splits scalar lines longer than the top-level
+`line-length` (default 80) at single spaces. Folding applies to plain and quoted values
+in block context, and folded (`>`) scalar lines at their content indent. For plain and
+quoted values, the new line takes the indent of the scalar's existing continuation
+lines, or else sits `indent-width` past the column of the collection that owns the value:
 
 ```yaml
 # before
@@ -1536,9 +1537,10 @@ items:
       formatter should fold it.
 ```
 
-Keys, flow collections, quoted and block scalars, and words with no space to break at
-stay as they are. A line ending in an inline directive comment stays whole. Folding
-ignores the `line-length` rule's own options, and `ryl check --fix` never folds.
+Folded (`>`) scalars keep their content indent; more-indented lines stay whole.
+Keys, flow collections, literal (`|`) scalars, and words with no space to break at
+stay as they are. Folding ignores the `line-length` rule's own options, and
+`ryl check --fix` never folds.
 
 ## Collection style
 
@@ -5147,7 +5149,8 @@ allow-non-breakable-inline-mappings = false
 `ryl check --fix` does not fix this rule; long lines need to be reflowed by
 hand or wrapped with a block scalar.
 
-With `[format] fold-long-lines = true`, `ryl format` folds long plain scalars to the
+With `[format] fold-long-lines = true`, `ryl format` folds long plain and quoted values
+in block context, and folded (`>`) scalar lines at their content indent, to the
 top-level `line-length`; see [Long lines](https://ryl-docs.pages.dev/formatter/#long-lines). No option of this
 rule conflicts with it.
 

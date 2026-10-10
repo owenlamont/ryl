@@ -78,7 +78,7 @@ dash-on-own-line = false
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
-| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain, quoted and folded (`>`) scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
@@ -141,10 +141,11 @@ preset only adds a missing `---` to the output.
 
 ## Long lines
 
-With `fold-long-lines = true`, `ryl format` splits a block plain scalar line longer than
-the top-level `line-length` (default 80) at a single space. The new line takes the
-indent of the scalar's existing continuation lines, or else sits `indent-width` past the
-column of the collection that owns the value:
+With `fold-long-lines = true`, `ryl format` splits scalar lines longer than the top-level
+`line-length` (default 80) at single spaces. Folding applies to plain and quoted values
+in block context, and folded (`>`) scalar lines at their content indent. For plain and
+quoted values, the new line takes the indent of the scalar's existing continuation
+lines, or else sits `indent-width` past the column of the collection that owns the value:
 
 ```yaml
 # before
@@ -159,9 +160,10 @@ items:
       formatter should fold it.
 ```
 
-Keys, flow collections, quoted and block scalars, and words with no space to break at
-stay as they are. A line ending in an inline directive comment stays whole. Folding
-ignores the `line-length` rule's own options, and `ryl check --fix` never folds.
+Folded (`>`) scalars keep their content indent; more-indented lines stay whole.
+Keys, flow collections, literal (`|`) scalars, and words with no space to break at
+stay as they are. Folding ignores the `line-length` rule's own options, and
+`ryl check --fix` never folds.
 
 ## Collection style
 
