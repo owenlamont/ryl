@@ -10,8 +10,8 @@
 //! Value-safe block-content whitespace is temporarily exempt until #640 merges; remove the value-safe exemption then.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
 //! Explicit-key indentation diagnostics are exempt within their document until #657 merges; remove then.
+//! Empty block-scalar header whitespace is value-safe but skipped until #658 merges; remove then.
 //! Multiline double quotes under the single-quote target are exempt until #650 merges; remove then.
-
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -167,7 +167,8 @@ proptest! {
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
         problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals)
             && !consistency::pending_multiline_quote(&output, problem, &cfg)
-            && !consistency::pending_explicit_key_indent(&output, problem));
+            && !consistency::pending_explicit_key_indent(&output, problem)
+            && !consistency::pending_empty_block_header(&output, problem));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -182,7 +183,8 @@ proptest! {
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
         problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals)
             && !consistency::pending_multiline_quote(&output, problem, &cfg)
-            && !consistency::pending_explicit_key_indent(&output, problem));
+            && !consistency::pending_explicit_key_indent(&output, problem)
+            && !consistency::pending_empty_block_header(&output, problem));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1239,4 +1241,43 @@ fn g11_pending_explicit_key_indentation_exemption_stays_in_its_document() {
     ));
     other.message = "wrong indentation in scalar".to_owned();
     assert!(!consistency::pending_explicit_key_indent(input, &other));
+}
+
+#[test]
+fn g11_empty_header_exemption_rejects_content_and_other_rules() {
+    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint("[format]\n"))
+        .unwrap();
+    for input in [
+        "a: | ",
+        "a: | \n",
+        "a: > ",
+        "a: |",
+        "-9223372036854775809: a\na: !!str | \r\n",
+    ] {
+        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+        assert!(!problems.is_empty());
+        for problem in problems {
+            assert!(
+                consistency::pending_empty_block_header(input, &problem),
+                "{input:?}: {problem:?}"
+            );
+            let mut other = problem.clone();
+            other.rule = Some("indentation");
+            assert!(!consistency::pending_empty_block_header(input, &other));
+            other = problem.clone();
+            other.line += 1;
+            assert!(!consistency::pending_empty_block_header(input, &other));
+        }
+    }
+    for input in ["a: | \n  value\n", "a: |\n  value ", "a: plain "] {
+        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+        assert!(
+            problems
+                .iter()
+                .all(|problem| !consistency::pending_empty_block_header(
+                    input, problem
+                )),
+            "{input:?}: {problems:?}"
+        );
+    }
 }

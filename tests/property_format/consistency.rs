@@ -156,6 +156,73 @@ pub fn content_whitespace(
     }
 }
 
+pub fn pending_empty_block_header(
+    output: &str,
+    problem: &ryl::lint::LintProblem,
+) -> bool {
+    if !matches!(
+        problem.rule,
+        Some("trailing-spaces" | "new-line-at-end-of-file")
+    ) {
+        return false;
+    }
+    let tokens: Vec<_> = Scanner::new(StrInput::new(output))
+        .map_while(Result::ok)
+        .map(granit_parser::Token::into_parts)
+        .collect();
+    if !tokens.windows(2).any(|pair| {
+        matches!(&pair[1].1, TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, value) if value.is_empty())
+            && pair[0].0.start.line() == problem.line
+    }) {
+        return false;
+    }
+    let lines: Vec<_> = output.split_inclusive('\n').collect();
+    let Some(raw) = problem
+        .line
+        .checked_sub(1)
+        .and_then(|index| lines.get(index))
+    else {
+        return false;
+    };
+    let mut repaired = output.to_owned();
+    if problem.rule == Some("new-line-at-end-of-file") {
+        if problem.line != lines.len() || output.ends_with('\n') {
+            return false;
+        }
+        repaired.push('\n');
+    } else {
+        let content = raw.trim_end_matches(['\r', '\n']);
+        let Some((offset, _)) =
+            content.char_indices().nth(problem.column.saturating_sub(1))
+        else {
+            return false;
+        };
+        if !content[offset..].chars().all(|ch| matches!(ch, ' ' | '\t')) {
+            return false;
+        }
+        let begin: usize = lines[..problem.line - 1]
+            .iter()
+            .map(|line| line.len())
+            .sum();
+        repaired.replace_range(begin + offset..begin + content.len(), "");
+    }
+    let load_header = |document: &str| -> Option<String> {
+        let raw = document.split_inclusive('\n').nth(problem.line - 1)?;
+        static HEADER: std::sync::LazyLock<regex::Regex> =
+            std::sync::LazyLock::new(|| {
+                regex::Regex::new(r"(?:^|[ \t])([|>][1-9+-]{0,2}[ \t]*(?:#.*)?)$")
+                    .unwrap()
+            });
+        let captures = HEADER.captures(raw.trim_end_matches(['\r', '\n']))?;
+        let ending = if raw.ends_with('\n') { "\n" } else { "" };
+        let fragment = format!("a: {}{ending}", &captures[1]);
+        let mut value: std::collections::BTreeMap<String, String> =
+            serde_yaml_ng::from_str(&fragment).ok()?;
+        value.remove("a")
+    };
+    matches!((load_header(output), load_header(&repaired)), (Some(before), Some(after)) if before == after)
+}
+
 pub fn pending_explicit_key_indent(
     output: &str,
     problem: &ryl::lint::LintProblem,
