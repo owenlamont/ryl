@@ -158,7 +158,7 @@ pub fn pending_empty_block_header(
 ) -> bool {
     if !matches!(
         problem.rule,
-        Some("trailing-spaces" | "new-line-at-end-of-file")
+        Some("trailing-spaces" | "new-line-at-end-of-file" | "document-end")
     ) {
         return false;
     }
@@ -166,12 +166,14 @@ pub fn pending_empty_block_header(
         .map_while(Result::ok)
         .map(granit_parser::Token::into_parts)
         .collect();
-    if !tokens.windows(2).any(|pair| {
-        matches!(&pair[1].1, TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, value) if value.is_empty())
-            && pair[0].0.start.line() == problem.line
-    }) {
+    let Some(header_line) = tokens.windows(2).rev().find_map(|pair| {
+        let header = pair[0].0.start.line();
+        (matches!(&pair[1].1, TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, value) if value.is_empty())
+            && if problem.rule == Some("document-end") { header <= problem.line } else { header == problem.line })
+            .then_some(header)
+    }) else {
         return false;
-    }
+    };
     let lines: Vec<_> = output.split_inclusive('\n').collect();
     let Some(raw) = problem
         .line
@@ -181,7 +183,19 @@ pub fn pending_empty_block_header(
         return false;
     };
     let mut repaired = output.to_owned();
-    if problem.rule == Some("new-line-at-end-of-file") {
+    if problem.rule == Some("document-end") {
+        if problem.message != "missing document end \"...\""
+            || !lines[header_line..]
+                .iter()
+                .all(|line| line.trim_matches([' ', '\t', '\r', '\n']).is_empty())
+        {
+            return false;
+        }
+        if !repaired.ends_with('\n') {
+            repaired.push('\n');
+        }
+        repaired.push_str("...\n");
+    } else if problem.rule == Some("new-line-at-end-of-file") {
         if problem.line != lines.len() || output.ends_with('\n') {
             return false;
         }
@@ -203,7 +217,7 @@ pub fn pending_empty_block_header(
         repaired.replace_range(begin + offset..begin + content.len(), "");
     }
     let load_header = |document: &str| -> Option<String> {
-        let raw = document.split_inclusive('\n').nth(problem.line - 1)?;
+        let raw = document.split_inclusive('\n').nth(header_line - 1)?;
         static HEADER: std::sync::LazyLock<regex::Regex> =
             std::sync::LazyLock::new(|| {
                 regex::Regex::new(r"(?:^|[ \t])([|>][1-9+-]{0,2}[ \t]*(?:#.*)?)$")
@@ -211,7 +225,10 @@ pub fn pending_empty_block_header(
             });
         let captures = HEADER.captures(raw.trim_end_matches(['\r', '\n']))?;
         let ending = if raw.ends_with('\n') { "\n" } else { "" };
-        let fragment = format!("a: {}{ending}", &captures[1]);
+        let mut fragment = format!("a: {}{ending}", &captures[1]);
+        if problem.rule == Some("document-end") {
+            fragment.extend(document.split_inclusive('\n').skip(header_line));
+        }
         let mut value: std::collections::BTreeMap<String, String> =
             serde_yaml_ng::from_str(&fragment).ok()?;
         value.remove("a")

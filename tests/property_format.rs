@@ -9,7 +9,7 @@
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
 //! Explicit-key indentation diagnostics are exempt within their document until #657 merges; remove then.
-//! Empty block-scalar header whitespace is value-safe but skipped until #658 merges; remove then.
+//! Empty block-scalar header/EOF whitespace and end markers are value-safe but skipped until #658 merges; remove then.
 //! Multiline double quotes under the single-quote target are exempt until #650 merges; remove then.
 
 #[path = "property_safe_fix/ast.rs"]
@@ -1278,5 +1278,30 @@ fn g11_empty_header_exemption_rejects_content_and_other_rules() {
                 )),
             "{input:?}: {problems:?}"
         );
+    }
+}
+
+#[test]
+fn g11_empty_header_end_marker_exemption_requires_eof_and_empty_value() {
+    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint(
+        "[format]\ndocument-end = 'add'\n",
+    ))
+    .unwrap();
+    for input in ["a: |", "a: >- ", "a: |\n", "a: |\n\n"] {
+        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+        let problem = problems
+            .iter()
+            .find(|problem| problem.rule == Some("document-end"))
+            .unwrap();
+        assert!(
+            consistency::pending_empty_block_header(input, problem),
+            "{input:?}: {problem:?}"
+        );
+        for other in ["a: |\n  value", "a: |\nb: b", "a: |\n...\n", "a: plain"] {
+            assert!(
+                !consistency::pending_empty_block_header(other, problem),
+                "{other:?}"
+            );
+        }
     }
 }
