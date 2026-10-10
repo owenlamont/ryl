@@ -57,4 +57,3 @@ pub fn agreeing_lint(config: &str) -> String {
     }
     lint
 }
-
