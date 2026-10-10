@@ -59,12 +59,15 @@ allow-double-quotes-for-escaping = true
 
 pub struct FormatPass {
     pub name: String,
+    #[allow(dead_code, reason = "used by the Markdown format suite")]
+    pub cfg: YamlLintConfig,
     pub format: Box<dyn Fn(&str) -> String + Send + Sync>,
 }
 
 fn fix_pass(name: String, cfg: YamlLintConfig) -> FormatPass {
     FormatPass {
         name,
+        cfg: cfg.clone(),
         format: Box::new(move |input| {
             apply_safe_fixes(input, &cfg, synthetic_path(), synthetic_base_dir())
         }),
@@ -97,6 +100,7 @@ fn toml_pass(
         .config;
     FormatPass {
         name: name.to_string(),
+        cfg: cfg.clone(),
         // The config keeps paths into the tempdir, so the closure owns it.
         format: Box::new(move |input| {
             let _backing = &dir;
