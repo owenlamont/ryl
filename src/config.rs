@@ -1923,6 +1923,15 @@ fn find_first_yaml_candidate(
     None
 }
 
+pub(crate) fn find_project_toml_config(
+    envx: &dyn Env,
+    inputs: &[PathBuf],
+) -> Result<Option<PathBuf>, String> {
+    Ok(find_project_config_core(envx, inputs)?
+        .map(|discovery| discovery.cfg_path)
+        .filter(|path| is_toml_path(path)))
+}
+
 fn find_project_config_core(
     envx: &dyn Env,
     inputs: &[PathBuf],

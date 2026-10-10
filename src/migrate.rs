@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use ignore::WalkBuilder;
 
 use crate::config::{
-    Env, RYL_USER_GLOBAL_CONFIG_CANDIDATES, SystemEnv, YamlLintConfig, is_toml_path,
-    legacy_yaml,
+    Env, RYL_USER_GLOBAL_CONFIG_CANDIDATES, SystemEnv, YamlLintConfig,
+    find_project_toml_config, is_toml_path, legacy_yaml,
 };
 use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
 use crate::rules::{comments, quoted_strings};
@@ -285,33 +285,29 @@ fn rename_destination(source: &Path, suffix: &str) -> PathBuf {
     source.with_file_name(format!("{name}{suffix}"))
 }
 
-/// An existing ryl-native TOML config *file* that a migration into `target` would
-/// overwrite or be shadowed by. For a discovery name (`.ryl.toml`/`ryl.toml`) that is any
-/// root name or `.config/` candidate in its directory, which a written `<dir>/.ryl.toml`
-/// would silently outrank; any other target is only ever named by `-c`, so only the
-/// target itself collides. A non-file (e.g. a directory) is not a collision, leaving the
-/// write path to report it.
-fn existing_ryl_native_config(target: &Path) -> Option<PathBuf> {
+fn existing_ryl_native_config(
+    target: &Path,
+    user_global: bool,
+) -> Result<Option<PathBuf>, String> {
     if !is_ryl_toml_config_path(target) {
-        return target.is_file().then(|| target.to_path_buf());
+        return Ok(target.is_file().then(|| target.to_path_buf()));
     }
-    target
+    if !user_global {
+        return Ok(
+            find_project_toml_config(&SystemEnv, &[target.to_path_buf()])?
+                .filter(|path| path.is_file()),
+        );
+    }
+    Ok(target
         .parent()
         .into_iter()
-        .flat_map(|dir| {
-            [
-                dir.join(".ryl.toml"),
-                dir.join("ryl.toml"),
-                dir.join(".config").join(".ryl.toml"),
-                dir.join(".config").join("ryl.toml"),
-            ]
-        })
-        .find(|candidate| candidate.is_file())
+        .flat_map(|dir| RYL_USER_GLOBAL_CONFIG_CANDIDATES.map(|name| dir.join(name)))
+        .find(|candidate| candidate.is_file()))
 }
 
 /// Convert one YAML config at `source` into a TOML `MigrationEntry` written to `target`.
 /// Skips (with a warning) when the source or target is a symlink, or a ryl-native config
-/// already exists at the target. Returns `true` when an entry was added, `false` when
+/// would be replaced by migration. Returns `true` when an entry was added, `false` when
 /// skipped, so callers avoid cleaning up sources for a directory that was not migrated.
 ///
 /// `user_global` marks the user-global config, whose target moves to `<config-dir>/ryl/`,
@@ -337,7 +333,7 @@ fn build_entry(
         ));
         return Ok(false);
     }
-    if let Some(existing) = existing_ryl_native_config(&target) {
+    if let Some(existing) = existing_ryl_native_config(&target, user_global)? {
         plan.warnings.push(format!(
             "warning: skipping migration of {}: a ryl-native config already exists at {}",
             source.display(),
