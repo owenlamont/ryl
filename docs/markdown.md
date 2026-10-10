@@ -228,7 +228,7 @@ hook passes a `.md` that no `[files]` glob matches, ryl reports an error (it was
 named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow the
 hook's file filter.
 
-`ryl` also applies its `ignore` patterns to **explicitly passed** files, not just
+`ryl` also applies its `exclude` patterns to **explicitly passed** files, not just
 to files found by scanning a directory. So a file pre-commit hands to `ryl` that
-matches `ignore` is skipped — the equivalent of ruff's `force-exclude`, always on,
+matches `exclude` is skipped — the equivalent of ruff's `force-exclude`, always on,
 with no separate flag to set.

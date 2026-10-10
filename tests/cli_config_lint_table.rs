@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use common::cli::{run, ryl};
 use tempfile::tempdir;
 
-const LEGACY: &str = r#"[rules]
+const LEGACY: &str = r#"ignore = ["vendor/**"]
+
+[rules]
 trailing-spaces = "enable"
 truthy = "enable"
 comments = "enable"
@@ -23,7 +25,9 @@ regex = "KEEP"
 rules = ["comments"]
 "#;
 
-const NESTED: &str = r#"[lint]
+const NESTED: &str = r#"exclude = ["vendor/**"]
+
+[lint]
 fixable = ["ALL"]
 unfixable = ["truthy"]
 
@@ -47,6 +51,8 @@ fn project(config: &str) -> tempfile::TempDir {
     fs::write(dir.path().join(".ryl.toml"), config).unwrap();
     fs::write(dir.path().join("a.yaml"), DOC).unwrap();
     fs::write(dir.path().join("skip.yaml"), DOC).unwrap();
+    fs::create_dir(dir.path().join("vendor")).unwrap();
+    fs::write(dir.path().join("vendor/v.yaml"), DOC).unwrap();
     dir
 }
 
@@ -71,6 +77,10 @@ fn legacy_and_nested_shapes_lint_and_fix_identically() {
         "per-line ignore applies: {nested_err}"
     );
     assert!(!nested_err.contains("is deprecated"), "{nested_err}");
+    assert!(
+        !nested_err.contains("v.yaml"),
+        "exclude applies: {nested_err}"
+    );
     let diagnostics = |stderr: &str| -> Vec<String> {
         stderr
             .lines()
@@ -103,6 +113,7 @@ fn each_legacy_key_warns_once_naming_its_replacement() {
         ("fix.unfixable", "lint.unfixable"),
         ("per-file-ignores", "lint.per-file-ignores"),
         ("per-line-ignores", "lint.per-line-ignores"),
+        ("ignore", "exclude"),
     ] {
         let warning = format!("`{key}` is deprecated; use `{replacement}` instead");
         assert_eq!(stderr.matches(&warning).count(), 1, "{warning}: {stderr}");
@@ -158,6 +169,10 @@ fn migrate_rewrites_legacy_toml_in_place_to_a_config_that_does_not_warn() {
     let migrated = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
     assert!(migrated.contains("[lint.rules]"), "{migrated}");
     assert!(!migrated.contains("[fix]"), "{migrated}");
+    assert!(
+        migrated.contains("exclude = [") && !migrated.contains("ignore = ["),
+        "{migrated}"
+    );
 
     let (_, migrated_out, migrated_err) = check(dir.path(), &[]);
     let (_, nested_out, nested_err) = check(project(NESTED).path(), &[]);

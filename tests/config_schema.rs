@@ -795,9 +795,9 @@ fn normalized_config_to_toml_value_skips_yaml_files_when_absent() {
     assert!(!table.contains_key("yaml-files"));
     assert_eq!(
         table
-            .get("ignore")
+            .get("exclude")
             .and_then(toml::Value::as_array)
-            .expect("ignore should serialize as array")
+            .expect("exclude should serialize as array")
             .len(),
         1
     );
@@ -866,21 +866,21 @@ fn pyproject_without_tool_ryl_is_not_empty_and_yields_no_config() {
 }
 
 #[test]
-fn typed_toml_validation_rejects_ignore_and_ignore_from_file_together() {
-    let parsed = parse_toml_config_str(
+fn typed_toml_validation_rejects_exclude_and_exclude_from_file_together() {
+    for config in [
+        "exclude = ['vendor/**']\nexclude-from-file = ['.ignore-list']\n",
         "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",
-        false,
-    )
-    .expect("typed TOML parse should succeed")
-    .expect("project TOML should produce config");
-
-    let err = validate_toml_config(&parsed)
-        .expect_err("typed validation should reject conflicting ignore settings");
-
-    assert_eq!(
-        err,
-        "invalid config: ignore and ignore-from-file keys cannot be used together"
-    );
+    ] {
+        let parsed = parse_toml_config_str(config, false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+        let err = validate_toml_config(&parsed)
+            .expect_err("typed validation should reject conflicting exclude settings");
+        assert_eq!(
+            err,
+            "invalid config: exclude and exclude-from-file keys cannot be used together"
+        );
+    }
 }
 
 #[test]
@@ -1210,6 +1210,8 @@ fn deprecated_toml_keys_table_is_pinned() {
             ("fix.unfixable", "lint.unfixable", "0.25.0", None),
             ("per-file-ignores", "lint.per-file-ignores", "0.25.0", None),
             ("per-line-ignores", "lint.per-line-ignores", "0.25.0", None),
+            ("ignore", "exclude", "0.25.0", None),
+            ("ignore-from-file", "exclude-from-file", "0.25.0", None),
         ]
     );
 }
@@ -1217,7 +1219,8 @@ fn deprecated_toml_keys_table_is_pinned() {
 #[test]
 fn deprecated_keys_follow_table_order_and_flag_overridden_ones() {
     let parsed = parse_toml_config_str(
-        "[rules]\n[fix]\nunfixable = []\n[lint]\nunfixable = []\n[per-file-ignores]\n",
+        "ignore = []\nignore-from-file = 'a'\nexclude-from-file = 'b'\n[rules]\n[fix]\n\
+         unfixable = []\n[lint]\nunfixable = []\n[per-file-ignores]\n",
         false,
     )
     .unwrap()
@@ -1233,6 +1236,8 @@ fn deprecated_keys_follow_table_order_and_flag_overridden_ones() {
             ("rules", false),
             ("fix.unfixable", true),
             ("per-file-ignores", false),
+            ("ignore", false),
+            ("ignore-from-file", true),
         ]
     );
     let dumped = toml_config_to_value(&parsed);
@@ -1248,5 +1253,12 @@ fn deprecated_keys_follow_table_order_and_flag_overridden_ones() {
     );
     let nested = toml_config_to_value(&parsed.to_nested());
     assert!(nested.get("rules").is_none() && nested.get("fix").is_none());
+    assert!(nested.get("ignore").is_none() && nested.get("ignore-from-file").is_none());
+    assert_eq!(
+        nested
+            .get("exclude-from-file")
+            .and_then(toml::Value::as_str),
+        Some("b")
+    );
     assert!(parsed.to_nested().deprecated_keys().is_empty());
 }

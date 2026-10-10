@@ -60,8 +60,8 @@ Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` |
-| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` |
+| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
 | `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |
@@ -90,10 +90,12 @@ write), migration may leave a partial config file behind. The next run reports i
 via the "a ryl-native config already exists" skip warning, so delete the partial
 file and re-run.
 
-Migration produces a self-contained config. A relative `extends` is flattened
+Migration produces a self-contained config. yamllint's top-level `ignore` and
+`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
+`ignore` key suppresses rules, never whole files. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
 then the current directory. The user-global config moves to a new directory
-(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `ignore`
+(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `exclude`
 patterns there too, rather than left as a relative path that would no longer
 resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
 with a warning (inline those patterns or use an absolute path, then re-run),

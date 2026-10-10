@@ -149,7 +149,7 @@ below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
-every pass (`[files]`, `ignore`/`ignore-from-file`, `[markdown]`, `locale`,
+every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
 `[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
 (`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](../formatter.md)
@@ -203,7 +203,7 @@ and the first match wins:
 `.config/` holds ryl-native TOML only: the legacy `.yamllint`/`.yamllint.yaml`/
 `.yamllint.yml` files are discovered at the directory level, never inside
 `.config/`. A `.config/ryl.toml` is a true drop-in for a root `ryl.toml`: its
-`[files]`/`ignore` globs and relative `ignore-from-file` paths resolve against
+`[files]`/`exclude` globs and relative `exclude-from-file` paths resolve against
 the project root (the directory containing `.config/`), not `.config/` itself.
 
 If you already have a yamllint configuration, use the built-in converter:

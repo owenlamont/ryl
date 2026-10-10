@@ -533,7 +533,7 @@ fn stdin_markdown_filename_ignored_is_skipped() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "files = { markdown = [\"*.md\"] }\nignore = [\"doc.md\"]\n[lint.rules]\ncolons = \"enable\"\n",
+        "files = { markdown = [\"*.md\"] }\nexclude = [\"doc.md\"]\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
 

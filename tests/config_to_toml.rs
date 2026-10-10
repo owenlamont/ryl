@@ -17,7 +17,7 @@ fn to_toml_includes_ignore_and_locale_and_rules() {
     )
     .unwrap();
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("ignore = ["));
+    assert!(toml.contains("exclude = ["));
     assert!(toml.contains("locale = \"en_US.UTF-8\""));
     assert!(toml.contains("document-start = \"disable\""));
 }
@@ -40,7 +40,7 @@ fn to_toml_includes_ignore_from_file_when_present() {
     )
     .unwrap();
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("ignore-from-file = ["));
+    assert!(toml.contains("exclude-from-file = ["));
 }
 
 #[test]
