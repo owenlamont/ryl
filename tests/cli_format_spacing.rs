@@ -8,18 +8,15 @@ use std::fs;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::{run, ryl};
+use common::cli::{run, ryl, ryl_on};
 
 const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
 const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
 const UNFOLLOWABLE: &str = "k:\n  a: 1\nj:\n    b: 1\n---\n: v\n";
 
 fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
-    let dir = tempdir().unwrap();
-    let file = dir.path().join("a.yaml");
-    fs::write(&file, input).unwrap();
-    let (code, _, stderr) = run(ryl(dir.path()).args(args).arg(&file));
-    (code, stderr, fs::read_to_string(&file).unwrap())
+    let (code, _, stderr, after) = ryl_on(None, input, args);
+    (code, stderr, after)
 }
 
 #[test]

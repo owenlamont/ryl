@@ -1,11 +1,10 @@
 use std::fs;
-use std::io::Write;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
 use tempfile::tempdir;
 
 mod common;
-use common::cli::ryl;
+use common::cli::{ryl, stdin_output};
 #[path = "common/encoding.rs"]
 mod encoding;
 use encoding::encoded;
@@ -35,7 +34,7 @@ fn byte_preserving_overrides_keep_plain_stdin_lint_diffs() {
             "--diff",
             "-",
         ]);
-        let output = stdin_output(&mut command, b"a:    1\n");
+        let output = stdin_output(&mut command, b"a:    1\n", |result| result.unwrap());
         assert_eq!(output.status.code(), Some(1), "{label}: {output:?}");
         assert!(
             String::from_utf8_lossy(&output.stdout).contains("+a: 1"),
@@ -57,7 +56,7 @@ fn stateful_overrides_skip_lint_diffs_that_cannot_apply_to_input_bytes() {
             "-",
         ]);
         let input = [b"\x1b(B".as_slice(), text.as_bytes()].concat();
-        let output = stdin_output(&mut command, &input);
+        let output = stdin_output(&mut command, &input, |result| result.unwrap());
         assert_eq!(output.status.code(), Some(expected), "{output:?}");
         assert!(output.stdout.is_empty(), "{output:?}");
         assert!(String::from_utf8_lossy(&output.stderr).contains("skipped by --diff"));
@@ -119,7 +118,8 @@ fn unicode_override_aliases_preserve_stdin_encoding_and_actual_bom() {
                     command
                         .env("YAMLLINT_FILE_ENCODING", label)
                         .args(["format", "-d", "[format]", "-"]);
-                    let output = stdin_output(&mut command, &bytes);
+                    let output =
+                        stdin_output(&mut command, &bytes, |result| result.unwrap());
                     assert_eq!(output.status.code(), Some(0), "{label}: {output:?}");
                     assert_eq!(
                         output.stdout,
@@ -153,7 +153,7 @@ fn assert_override_previews(
         command
             .env("YAMLLINT_FILE_ENCODING", label)
             .args(["format", "-d", "[format]", mode, "-"]);
-        let output = stdin_output(&mut command, bytes);
+        let output = stdin_output(&mut command, bytes, |result| result.unwrap());
         assert_preview(&output, expected, mode, encoded);
         let output = ryl(home)
             .env("YAMLLINT_FILE_ENCODING", label)
@@ -195,17 +195,6 @@ fn assert_preview(output: &Output, expected: i32, mode: &str, encoded: bool) {
     }
 }
 
-fn stdin_output(command: &mut Command, input: &[u8]) -> Output {
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    child.wait_with_output().unwrap()
-}
-
 #[test]
 fn encoded_format_previews_detect_changes_in_files_and_stdin() {
     let dir = tempdir().unwrap();
@@ -238,7 +227,8 @@ fn encoded_format_previews_detect_changes_in_files_and_stdin() {
                         .args(["format", "-d", "[format]", mode])
                         .args(&args)
                         .arg("-");
-                    let output = stdin_output(&mut command, &bytes);
+                    let output =
+                        stdin_output(&mut command, &bytes, |result| result.unwrap());
                     assert_preview(&output, expected, mode, width != 1 || bom);
                 }
                 assert_eq!(fs::read(&path).unwrap(), bytes);
@@ -259,7 +249,8 @@ fn encoding_overrides_are_preserved_by_stdin_and_checked_by_previews() {
                     .args(["format", "-d", "[format]"])
                     .args(mode)
                     .arg("-");
-                let output = stdin_output(&mut command, input);
+                let output =
+                    stdin_output(&mut command, input, |result| result.unwrap());
                 let expected = i32::from(mode.is_some() && input == b"a:    caf\xe9\n");
                 assert_eq!(output.status.code(), Some(expected), "{label}: {output:?}");
                 if mode.is_none() {
@@ -288,7 +279,7 @@ fn format_previews_count_changes_without_an_applicable_patch() {
                 name,
                 "-",
             ]);
-            let output = stdin_output(&mut command, input);
+            let output = stdin_output(&mut command, input, |result| result.unwrap());
             assert_preview(&output, 1, mode, true);
         }
     }
@@ -323,8 +314,11 @@ fn formatted_stdin_preserves_encoding_and_bom() {
                 .args(["format", "-d", "exclude = ['ignored.yaml']\n[format]"])
                 .args(args)
                 .arg("-");
-            let output =
-                stdin_output(&mut command, &encoded(input, width, little, bom));
+            let output = stdin_output(
+                &mut command,
+                &encoded(input, width, little, bom),
+                |result| result.unwrap(),
+            );
             assert_eq!(output.status.code(), Some(0), "{output:?}");
             assert_eq!(
                 output.stdout,

@@ -1,12 +1,11 @@
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use tempfile::tempdir;
 
 use ryl::rules::document_end::{self, Config};
 
 mod common;
-use common::cli::{run, ryl};
+use common::cli::{run, ryl, stdin_output};
 
 #[test]
 fn fix_ends_every_implicitly_ended_document() {
@@ -80,22 +79,14 @@ fn fix_leaves_ended_or_forbidden_markers_alone() {
 #[test]
 fn format_adds_an_end_to_every_document_of_a_stream() {
     let dir = tempdir().unwrap();
-    let mut child = ryl(dir.path())
-        .current_dir(dir.path())
-        .args(["format", "-d", "[format]\ndocument-end = 'add'\n"])
-        .args(["--stdin-filename", "s.yaml", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"a: 1\n---\nb: 2\n...\nc: 3\n")
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
+    let output = stdin_output(
+        ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["format", "-d", "[format]\ndocument-end = 'add'\n"])
+            .args(["--stdin-filename", "s.yaml", "-"]),
+        b"a: 1\n---\nb: 2\n...\nc: 3\n",
+        |result| result.unwrap(),
+    );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "a: 1\n...\n---\nb: 2\n...\nc: 3\n...\n"
