@@ -6,8 +6,7 @@ include_verbatim = false
 exclude_path = ['(^|[\\/])llms(-full)?\.txt$']
 
 max_retries = 5
-# Backoff doubles from here (10s to 160s), riding out GitHub's short 503 bursts in CI.
-retry_wait_time = 10
+retry_wait_time = 2
 timeout = 30
 # The default 128 concurrent requests is rude to rate-limited hosts (GitHub, Cloudflare).
 max_concurrency = 16
