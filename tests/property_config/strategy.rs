@@ -341,12 +341,17 @@ pub fn render_yaml(model: &ConfigModel) -> String {
 }
 
 /// Renders the lint-owned tables under `prefix`: `""` for the deprecated top-level shape,
-/// `"lint."` for the nested one.
+/// with `ignore` for `exclude`, and `"lint."` for the current one.
 pub fn render_toml(model: &ConfigModel, prefix: &str) -> String {
     let mut out = String::new();
     if let Some(patterns) = &model.ignore {
         let inner: Vec<String> = patterns.iter().map(|p| format!("\"{p}\"")).collect();
-        out.push_str(&format!("ignore = [{}]\n", inner.join(", ")));
+        let key = if prefix.is_empty() {
+            "ignore"
+        } else {
+            "exclude"
+        };
+        out.push_str(&format!("{key} = [{}]\n", inner.join(", ")));
     }
     if let Some(locale) = model.locale {
         out.push_str(&format!("locale = \"{locale}\"\n"));

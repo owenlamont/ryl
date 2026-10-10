@@ -24,10 +24,17 @@ pub struct TomlConfig {
     pub markdown: Option<MarkdownTable>,
     /// Output targets: which format goes to which destination (file/stdout/stderr).
     pub output: Option<OutputTable>,
-    /// Ignore patterns, either as one multi-line string or a list of patterns.
+    /// Files to skip, as one multi-line string or a list of gitignore-style patterns.
+    pub exclude: Option<StringOrVec>,
+    /// Paths to files that contain exclude patterns, such as `.gitignore`.
+    #[serde(rename = "exclude-from-file")]
+    pub exclude_from_file: Option<StringOrVec>,
+    /// Deprecated: use `exclude`.
+    #[schemars(extend("deprecated" = true))]
     pub ignore: Option<StringOrVec>,
-    /// Paths to files that contain ignore patterns.
+    /// Deprecated: use `exclude-from-file`.
     #[serde(rename = "ignore-from-file")]
+    #[schemars(extend("deprecated" = true))]
     pub ignore_from_file: Option<StringOrVec>,
     /// Locale identifier used by diagnostics.
     pub locale: Option<String>,
@@ -192,7 +199,7 @@ const LINT_TABLE_SINCE: &str = "0.25.0";
 
 /// Every deprecated TOML key location, the single source the deprecation warnings and
 /// `--migrate-configs` read.
-pub const DEPRECATED_TOML_KEYS: [DeprecatedKey; 5] = [
+pub const DEPRECATED_TOML_KEYS: [DeprecatedKey; 7] = [
     DeprecatedKey {
         key: "rules",
         replacement: "lint.rules",
@@ -220,6 +227,18 @@ pub const DEPRECATED_TOML_KEYS: [DeprecatedKey; 5] = [
     DeprecatedKey {
         key: "per-line-ignores",
         replacement: "lint.per-line-ignores",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "ignore",
+        replacement: "exclude",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "ignore-from-file",
+        replacement: "exclude-from-file",
         deprecated_since: LINT_TABLE_SINCE,
         removed_in: None,
     },
@@ -320,6 +339,11 @@ impl TomlConfig {
                 self.per_line_ignores.is_some(),
                 lint.is_some_and(|l| l.per_line_ignores.is_some()),
             ),
+            (self.ignore.is_some(), self.exclude.is_some()),
+            (
+                self.ignore_from_file.is_some(),
+                self.exclude_from_file.is_some(),
+            ),
         ];
         DEPRECATED_TOML_KEYS
             .iter()
@@ -352,10 +376,27 @@ impl TomlConfig {
         }
     }
 
+    /// The effective `exclude` and `exclude-from-file`, each else its deprecated `ignore`
+    /// spelling.
+    #[must_use]
+    pub fn merged_exclude(&self) -> (Option<&StringOrVec>, Option<&StringOrVec>) {
+        (
+            self.exclude.as_ref().or(self.ignore.as_ref()),
+            self.exclude_from_file
+                .as_ref()
+                .or(self.ignore_from_file.as_ref()),
+        )
+    }
+
     /// This config with every deprecated key moved to its replacement.
     #[must_use]
     pub fn to_nested(&self) -> Self {
+        let (exclude, exclude_from_file) = self.merged_exclude();
         Self {
+            exclude: exclude.cloned(),
+            exclude_from_file: exclude_from_file.cloned(),
+            ignore: None,
+            ignore_from_file: None,
             lint: Some(self.merged_lint()),
             fix: None,
             per_file_ignores: None,
@@ -1440,9 +1481,10 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
             .as_ref()
             .and_then(|rules| rules.comments.as_ref()),
     )?;
+    let (exclude, exclude_from_file) = config.merged_exclude();
     validate_common_config(
-        config.ignore.as_ref(),
-        config.ignore_from_file.as_ref(),
+        ("exclude", exclude),
+        ("exclude-from-file", exclude_from_file),
         lint.rules.as_ref(),
     )
 }
@@ -1468,8 +1510,8 @@ fn validate_output_table(output: &OutputTable) -> Result<(), String> {
 /// deserialization alone.
 pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     validate_common_config(
-        config.ignore.as_ref(),
-        config.ignore_from_file.as_ref(),
+        ("ignore", config.ignore.as_ref()),
+        ("ignore-from-file", config.ignore_from_file.as_ref()),
         config.rules.as_ref(),
     )
 }
@@ -1483,15 +1525,14 @@ fn validate_common_config<
     M,
     O: validation::KeyOrderingOptionSet,
 >(
-    ignore: Option<&StringOrVec>,
-    ignore_from_file: Option<&StringOrVec>,
+    (patterns_key, patterns): (&str, Option<&StringOrVec>),
+    (from_file_key, from_file): (&str, Option<&StringOrVec>),
     rules: Option<&RulesTable<Q, K, A, C, H, M, O>>,
 ) -> Result<(), String> {
-    if ignore.is_some() && ignore_from_file.is_some() {
-        return Err(
-            "invalid config: ignore and ignore-from-file keys cannot be used together"
-                .to_string(),
-        );
+    if patterns.is_some() && from_file.is_some() {
+        return Err(format!(
+            "invalid config: {patterns_key} and {from_file_key} keys cannot be used together"
+        ));
     }
 
     if let Some(rules) = rules {

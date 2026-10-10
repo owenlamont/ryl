@@ -378,22 +378,22 @@ fn scalar_tool_ryl_pyproject_is_rejected() {
 }
 
 #[test]
-fn exact_typed_toml_supports_single_string_ignore_from_file() {
+fn exact_typed_toml_supports_single_string_exclude_from_file() {
     let td = tempdir().unwrap();
     let root = td.path();
     std::fs::write(root.join(".ignore-list"), "build/**\n").unwrap();
     std::fs::write(
         root.join(".ryl.toml"),
-        "ignore-from-file = '.ignore-list'\n",
+        "exclude-from-file = '.ignore-list'\n",
     )
     .unwrap();
     std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
 
     let ctx = discover_per_file(&root.join("file.yaml"))
-        .expect("typed TOML ignore-from-file should load");
+        .expect("typed TOML exclude-from-file should load");
     let rendered = ctx.config.to_toml_string();
 
-    assert!(rendered.contains("ignore-from-file = ["));
+    assert!(rendered.contains("exclude-from-file = ["));
     assert!(rendered.contains(".ignore-list"));
 }
 
@@ -403,7 +403,7 @@ fn exact_typed_toml_splits_multiline_scalar_ignore_patterns() {
     let root = td.path();
     std::fs::write(
         root.join(".ryl.toml"),
-        "ignore = \"\"\"\nvendor/**\ngenerated/**\n\"\"\"\n",
+        "exclude = \"\"\"\nvendor/**\ngenerated/**\n\"\"\"\n",
     )
     .unwrap();
     std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
@@ -430,11 +430,11 @@ fn exact_typed_toml_splits_multiline_scalar_ignore_patterns() {
 }
 
 #[test]
-fn toml_ignore_and_ignore_from_file_conflict_errors() {
+fn toml_exclude_and_exclude_from_file_conflict_errors() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",
+        "exclude = ['vendor/**']\nexclude-from-file = ['.ignore-list']\n",
     );
     let err = discover_config_with(
         &[],
@@ -448,7 +448,7 @@ fn toml_ignore_and_ignore_from_file_conflict_errors() {
 
     assert_eq!(
         err,
-        "invalid config: ignore and ignore-from-file keys cannot be used together"
+        "invalid config: exclude and exclude-from-file keys cannot be used together"
     );
 }
 

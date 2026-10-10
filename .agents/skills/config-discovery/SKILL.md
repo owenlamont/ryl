@@ -32,7 +32,7 @@ Project candidates run every ancestor to `HOME`, TOML-first
 `.yamllint*` in a separate full ancestor walk (`find_first_yaml_candidate`), so any TOML
 config up-tree outranks even a nearer `.yamllint`.
 
-`.config/` is TOML-only and anchors path globs/`ignore-from-file` at its parent
+`.config/` is TOML-only and anchors path globs/`exclude-from-file` at its parent
 (`config_base_dir`, #218). `YAMLLINT_CONFIG_FILE` is yamllint-only: a `.toml` target
 errors (exit 2) before the existence check (`try_env_config_core`, #332); use
 `-c`/`-d`/project discovery for ryl TOML. User-global: ryl-native
@@ -45,9 +45,10 @@ LSP via `window/showMessage`. `finalize_context` adds one per deprecated TOML ke
 (`config_schema::DEPRECATED_TOML_KEYS`, read by `TomlConfig::deprecated_keys`, which
 `--migrate-configs`/`--migrate-user-config` also use to pick the TOML files they rewrite
 in place; the warning names whichever of the two applies to its file).
-`TomlConfig::merged_lint` resolves each key, the `[lint]` spelling winning; a new
-deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
-`merged_lint`. The legacy YAML config stays flat.
+`TomlConfig::merged_lint` resolves each `[lint]` key and `merged_exclude` the top-level
+`exclude`/`exclude-from-file`, the current spelling winning over the deprecated one; a
+new deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
+one of the two. The legacy YAML config stays flat and keeps yamllint's `ignore`.
 
 Every yamllint YAML config source adds one notice from its `LEGACY_YAML_SOURCES` row
 (`legacy_yaml_notice`): `ctx_from_config_path_core` for project/`-c`/env by its

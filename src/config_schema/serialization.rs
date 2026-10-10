@@ -139,12 +139,10 @@ pub(crate) fn yaml_owned_to_toml_value(
 /// a TOML table.
 pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     let lint = config.merged_lint();
+    let (exclude, exclude_from_file) = config.merged_exclude();
     NormalizedConfig {
-        ignore_patterns: config
-            .ignore
-            .as_ref()
-            .map(ignore_patterns_from_string_or_vec),
-        ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
+        ignore_patterns: exclude.map(ignore_patterns_from_string_or_vec),
+        ignore_from_files: exclude_from_file.map(string_or_vec_items),
         per_file_ignores: lint
             .per_file_ignores
             .as_ref()
@@ -320,6 +318,12 @@ pub fn toml_config_to_value(config: &TomlConfig) -> toml::Value {
     insert_serialized(&mut table, "files", config.files.as_ref());
     insert_serialized(&mut table, "markdown", config.markdown.as_ref());
     insert_serialized(&mut table, "output", config.output.as_ref());
+    insert_serialized(&mut table, "exclude", config.exclude.as_ref());
+    insert_serialized(
+        &mut table,
+        "exclude-from-file",
+        config.exclude_from_file.as_ref(),
+    );
     insert_serialized(&mut table, "ignore", config.ignore.as_ref());
     insert_serialized(
         &mut table,
@@ -419,9 +423,9 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
     insert_serialized(&mut table, "output", config.output.as_ref());
 
     if let Some(ignore_from_file) = config.ignore_from_files.as_ref() {
-        insert_string_array(&mut table, "ignore-from-file", ignore_from_file);
+        insert_string_array(&mut table, "exclude-from-file", ignore_from_file);
     } else if let Some(ignore) = config.ignore_patterns.as_ref() {
-        insert_string_array(&mut table, "ignore", ignore);
+        insert_string_array(&mut table, "exclude", ignore);
     }
 
     if let Some(locale) = config.locale.as_ref() {
