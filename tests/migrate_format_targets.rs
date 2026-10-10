@@ -33,72 +33,59 @@ fn migrate(dir: &Path, legacy: &str) -> YamlLintConfig {
 }
 
 #[test]
-fn migrated_disabled_rules_stop_format_enforcing_them() {
-    let td = tempdir().unwrap();
-    let cfg = migrate(
-        td.path(),
-        "extends: default\nrules:\n  document-start: disable\n  quoted-strings: disable\n",
-    );
-    assert_eq!(
-        cfg.format().targets().document_start,
-        MarkerTarget::Preserve
-    );
-    assert_eq!(
-        cfg.format().targets().quote_style,
-        QuoteStyleTarget::Preserve
-    );
-    assert_eq!(cfg.format().targets().document_end, MarkerTarget::Preserve);
-    let toml = fs::read_to_string(td.path().join(".ryl.toml")).unwrap();
-    let format = toml::from_str::<toml::Table>(&toml).unwrap()["format"].clone();
-    assert_eq!(
-        format,
-        toml::toml! { quote-style = "preserve" }.into(),
-        "{toml}"
-    );
-
-    fs::write(td.path().join("a.yaml"), "a: \"x\"\n").unwrap();
-    let (code, stdout, stderr) =
-        run(ryl(td.path()).arg("format").arg("--check").arg(td.path()));
-    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
-}
-
-#[test]
-fn migrated_unenforced_options_are_preserved() {
-    let td = tempdir().unwrap();
-    let cfg = migrate(
-        td.path(),
-        "rules:\n  document-start: {present: false}\n  document-end: {present: false}\n  \
+fn migrated_unenforced_targets_are_preserved() {
+    for (name, legacy, document_end, comment_space, quote_style) in [
+        (
+            "disabled rules",
+            "extends: default\nrules:\n  document-start: disable\n  quoted-strings: disable\n",
+            Some(MarkerTarget::Preserve),
+            None,
+            QuoteStyleTarget::Preserve,
+        ),
+        (
+            "unenforced options",
+            "rules:\n  document-start: {present: false}\n  document-end: {present: false}\n  \
          comments: {require-starting-space: false}\n  \
          quoted-strings: enable\n",
-    );
-    assert_eq!(
-        cfg.format().targets().document_start,
-        MarkerTarget::Preserve
-    );
-    assert_eq!(cfg.format().targets().document_end, MarkerTarget::Preserve);
-    assert_eq!(
-        cfg.format().targets().comment_starting_space,
-        MarkerTarget::Preserve
-    );
-    assert_eq!(cfg.format().targets().quote_style, QuoteStyleTarget::Single);
-}
+            Some(MarkerTarget::Preserve),
+            Some(MarkerTarget::Preserve),
+            QuoteStyleTarget::Single,
+        ),
+        (
+            "absent rules",
+            "rules:\n  line-length: enable\n",
+            None,
+            Some(MarkerTarget::Preserve),
+            QuoteStyleTarget::Preserve,
+        ),
+    ] {
+        let td = tempdir().unwrap();
+        let cfg = migrate(td.path(), legacy);
+        let targets = cfg.format().targets();
+        assert_eq!(targets.document_start, MarkerTarget::Preserve, "{name}");
+        assert_eq!(targets.quote_style, quote_style, "{name}");
+        if let Some(expected) = document_end {
+            assert_eq!(targets.document_end, expected, "{name}");
+        }
+        if let Some(expected) = comment_space {
+            assert_eq!(targets.comment_starting_space, expected, "{name}");
+        }
+        if name == "disabled rules" {
+            let toml = fs::read_to_string(td.path().join(".ryl.toml")).unwrap();
+            let format =
+                toml::from_str::<toml::Table>(&toml).unwrap()["format"].clone();
+            assert_eq!(
+                format,
+                toml::toml! { quote-style = "preserve" }.into(),
+                "{toml}"
+            );
 
-#[test]
-fn migrated_rules_absent_from_a_non_extending_config_are_preserved() {
-    let td = tempdir().unwrap();
-    let cfg = migrate(td.path(), "rules:\n  line-length: enable\n");
-    assert_eq!(
-        cfg.format().targets().document_start,
-        MarkerTarget::Preserve
-    );
-    assert_eq!(
-        cfg.format().targets().quote_style,
-        QuoteStyleTarget::Preserve
-    );
-    assert_eq!(
-        cfg.format().targets().comment_starting_space,
-        MarkerTarget::Preserve
-    );
+            fs::write(td.path().join("a.yaml"), "a: \"x\"\n").unwrap();
+            let (code, stdout, stderr) =
+                run(ryl(td.path()).arg("format").arg("--check").arg(td.path()));
+            assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+        }
+    }
 }
 
 #[test]
