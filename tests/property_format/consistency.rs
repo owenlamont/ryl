@@ -11,23 +11,17 @@ use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum ContentWhitespace {
-    ValueBearing,
-    ValueSafePending,
-}
-
 pub fn content_whitespace(
     output: &str,
     rule: Option<&str>,
     line: usize,
     column: usize,
-) -> Option<ContentWhitespace> {
+) -> bool {
     if !matches!(
         rule,
         Some("trailing-spaces" | "empty-lines" | "new-line-at-end-of-file")
     ) {
-        return None;
+        return false;
     }
     let raw_lines: Vec<_> = output.lines().collect();
     let content_line = Scanner::new(StrInput::new(output))
@@ -41,61 +35,30 @@ pub fn content_whitespace(
                 return false;
             }
             let mut first = span.start.line();
-            if span.indent.is_none() {
-                first += 1;
-            } else {
-                while first > 1
-                    && raw_lines[first - 2].trim_matches([' ', '\t']).is_empty()
-                {
-                    first -= 1;
-                }
+            while first > 1 && raw_lines[first - 2].trim_matches([' ', '\t']).is_empty()
+            {
+                first -= 1;
             }
             line >= first
                 && (line < span.end.line()
                     || (line == span.end.line() && span.end.col() > 0))
         });
     if !content_line {
-        return None;
+        return false;
     }
-    let lines: Vec<_> = output.split_inclusive('\n').collect();
-    let raw = line.checked_sub(1).and_then(|index| lines.get(index))?;
-    let content = raw.trim_end_matches(['\n', '\r']);
-    let start: usize = lines[..line - 1].iter().map(|line| line.len()).sum();
-    let mut repaired = output.to_owned();
-    if content.is_empty() {
-        let mut first = line - 1;
-        let mut last = line;
-        while first > 0 && lines[first - 1].trim_end_matches(['\n', '\r']).is_empty() {
-            first -= 1;
-        }
-        while last < lines.len()
-            && lines[last].trim_end_matches(['\n', '\r']).is_empty()
-        {
-            last += 1;
-        }
-        let begin: usize = lines[..first].iter().map(|line| line.len()).sum();
-        let end: usize = lines[..last].iter().map(|line| line.len()).sum();
-        repaired.replace_range(begin..end, "");
-    } else if column == content.chars().count() + 1
-        && line == lines.len()
-        && !raw.ends_with('\n')
-    {
-        repaired.push('\n');
-    } else {
-        let (offset, _) = content.char_indices().nth(column.saturating_sub(1))?;
-        if !content[offset..].chars().all(|ch| matches!(ch, ' ' | '\t')) {
-            return None;
-        }
-        repaired.replace_range(start + offset..start + content.len(), "");
-    }
-    match (loaded_strings(output), loaded_strings(&repaired)) {
-        (Ok(before), Ok(after)) => Some(if before == after {
-            ContentWhitespace::ValueSafePending
-        } else {
-            ContentWhitespace::ValueBearing
-        }),
-        _ => None,
-    }
+    let Some(raw) = line.checked_sub(1).and_then(|index| raw_lines.get(index)) else {
+        return false;
+    };
+    raw.is_empty()
+        || (column == raw.chars().count() + 1
+            && line == raw_lines.len()
+            && !output.ends_with('\n'))
+        || raw
+            .char_indices()
+            .nth(column.saturating_sub(1))
+            .is_some_and(|(offset, _)| {
+                raw[offset..].chars().all(|ch| matches!(ch, ' ' | '\t'))
+            })
 }
 
 pub fn agreeing_lint(config: &str) -> String {
@@ -153,89 +116,4 @@ pub fn agreeing_lint(config: &str) -> String {
         lint = lint.replace("[lint.rules]", "[lint.rules]\nnew-lines = 'disable'");
     }
     lint
-}
-
-#[derive(Default)]
-struct LoadedStrings(Vec<String>);
-
-impl<'de> serde::Deserialize<'de> for LoadedStrings {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Self, D::Error> {
-        struct Strings;
-        impl<'de> serde::de::Visitor<'de> for Strings {
-            type Value = LoadedStrings;
-            fn expecting(
-                &self,
-                formatter: &mut std::fmt::Formatter<'_>,
-            ) -> std::fmt::Result {
-                formatter.write_str("a YAML value")
-            }
-            fn visit_str<E: serde::de::Error>(
-                self,
-                value: &str,
-            ) -> Result<Self::Value, E> {
-                Ok(LoadedStrings(vec![value.to_owned()]))
-            }
-            fn visit_bool<E: serde::de::Error>(
-                self,
-                _: bool,
-            ) -> Result<Self::Value, E> {
-                Ok(LoadedStrings::default())
-            }
-            fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
-                Ok(LoadedStrings::default())
-            }
-            fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
-                Ok(LoadedStrings::default())
-            }
-            fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
-                Ok(LoadedStrings::default())
-            }
-            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-                Ok(LoadedStrings::default())
-            }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut sequence: A,
-            ) -> Result<Self::Value, A::Error> {
-                let mut strings = LoadedStrings::default();
-                while let Some(value) = sequence.next_element::<LoadedStrings>()? {
-                    strings.0.extend(value.0);
-                }
-                Ok(strings)
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut mapping: A,
-            ) -> Result<Self::Value, A::Error> {
-                let mut strings = LoadedStrings::default();
-                while let Some((key, value)) =
-                    mapping.next_entry::<LoadedStrings, LoadedStrings>()?
-                {
-                    strings.0.extend(key.0);
-                    strings.0.extend(value.0);
-                }
-                Ok(strings)
-            }
-            fn visit_enum<A: serde::de::EnumAccess<'de>>(
-                self,
-                tagged: A,
-            ) -> Result<Self::Value, A::Error> {
-                let (_, value) = tagged.variant::<String>()?;
-                serde::de::VariantAccess::newtype_variant(value)
-            }
-        }
-        deserializer.deserialize_any(Strings)
-    }
-}
-
-fn loaded_strings(input: &str) -> Result<Vec<String>, serde_yaml_ng::Error> {
-    let mut strings = Vec::new();
-    let input = input.replace("\n\u{feff}---", "\n---");
-    for document in serde_yaml_ng::Deserializer::from_str(&input) {
-        let value: LoadedStrings = serde::Deserialize::deserialize(document)?;
-        strings.extend(value.0);
-    }
-    Ok(strings)
 }

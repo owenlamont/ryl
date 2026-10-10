@@ -163,7 +163,7 @@ proptest! {
         );
         let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| consistency::content_whitespace(&output, problem.rule, problem.line, problem.column).is_none() && !consistency::refused(problem, &refusals));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -176,7 +176,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| consistency::content_whitespace(&output, problem.rule, problem.line, problem.column).is_none() && !consistency::refused(problem, &refusals));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1060,9 +1060,10 @@ fn bom_document_marker_keeps_g11_indentation_consistent() {
 }
 
 #[test]
-fn g11_content_whitespace_distinguishes_permanent_and_pending_exemptions() {
-    use consistency::{ContentWhitespace, content_whitespace};
+fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
+    use consistency::content_whitespace;
     for (input, rule, line, column) in [
+        ("a: |\r\n \r\nFALSE: a\r\n", "trailing-spaces", 2, 1),
         ("a: |\n  a", "new-line-at-end-of-file", 2, 4),
         ("a: >\n  a \n", "trailing-spaces", 2, 4),
         ("a: | # header\n  a \nb: b\n", "trailing-spaces", 2, 4),
@@ -1075,9 +1076,8 @@ fn g11_content_whitespace_distinguishes_permanent_and_pending_exemptions() {
             4,
         ),
     ] {
-        assert_eq!(
+        assert!(
             content_whitespace(input, Some(rule), line, column),
-            Some(ContentWhitespace::ValueBearing),
             "{input:?}"
         );
     }
@@ -1088,9 +1088,8 @@ fn g11_content_whitespace_distinguishes_permanent_and_pending_exemptions() {
         ("a: |-\r\n  a\r\n\r\n", "empty-lines", 3, 1),
         ("a: |\n  a\n\n...\n", "empty-lines", 3, 1),
     ] {
-        assert_eq!(
+        assert!(
             content_whitespace(input, Some(rule), line, column),
-            Some(ContentWhitespace::ValueSafePending),
             "{input:?}"
         );
     }
@@ -1103,9 +1102,8 @@ fn g11_content_whitespace_distinguishes_permanent_and_pending_exemptions() {
         ("a: |\n  a \n", "indentation", 2, 4),
         ("a: |\n  a \n", "trailing-spaces", 2, 3),
     ] {
-        assert_eq!(
-            content_whitespace(input, Some(rule), line, column),
-            None,
+        assert!(
+            !content_whitespace(input, Some(rule), line, column),
             "{input:?}"
         );
     }
