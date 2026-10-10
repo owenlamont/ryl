@@ -8,6 +8,7 @@
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
 //! G11 permanently exempts whitespace-only repairs to value-bearing block-scalar content.
 //! Value-safe block-content whitespace is temporarily exempt until #640 merges; remove the value-safe exemption then.
+//! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
 
 
 #[path = "property_safe_fix/ast.rs"]
@@ -156,9 +157,13 @@ proptest! {
         let agreeing = consistency::agreeing_lint(&table);
         let cfg = YamlLintConfig::from_toml_str(&agreeing).expect(&agreeing);
         let input = document.render();
-        let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+        let (formatted, refusals) = ryl::fix::rewrite_str(
+            &input, &cfg, synthetic_path(), synthetic_base_dir(),
+            ryl::config::SourceKind::Yaml, ryl::fix::Rewrite::Format,
+        );
+        let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| consistency::content_whitespace(&output, problem.rule, problem.line, problem.column).is_none());
+        problems.retain(|problem| consistency::content_whitespace(&output, problem.rule, problem.line, problem.column).is_none() && !consistency::refused(problem, &refusals));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -171,7 +176,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| consistency::content_whitespace(&output, problem.rule, problem.line, problem.column).is_none());
+        problems.retain(|problem| consistency::content_whitespace(&output, problem.rule, problem.line, problem.column).is_none() && !consistency::refused(problem, &refusals));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1104,4 +1109,36 @@ fn g11_content_whitespace_distinguishes_permanent_and_pending_exemptions() {
             "{input:?}"
         );
     }
+}
+
+#[test]
+fn g11_refusal_exempts_only_the_reported_line_and_concern() {
+    let table = "[format]\ndash-on-own-line = true\ndocument-start = 'add'\n";
+    let cfg =
+        YamlLintConfig::from_toml_str(&consistency::agreeing_lint(table)).unwrap();
+    let input = "a:\n  - a: a #a\n";
+    let (formatted, refusals) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap_or_else(|| input.to_owned());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(!problems.is_empty());
+    assert!(
+        problems
+            .iter()
+            .all(|problem| consistency::refused(problem, &refusals)),
+        "{problems:?}: {refusals:?}"
+    );
+    let mut other = problems[0].clone();
+    other.line += 1;
+    assert!(!consistency::refused(&other, &refusals));
+    other.line = problems[0].line;
+    other.rule = Some("colons");
+    assert!(!consistency::refused(&other, &refusals));
+    assert!(!consistency::refused(&problems[0], &[]));
 }

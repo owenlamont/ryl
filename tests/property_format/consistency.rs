@@ -1,3 +1,12 @@
+pub fn refused(
+    problem: &ryl::lint::LintProblem,
+    notices: &[ryl::lint::LintProblem],
+) -> bool {
+    notices
+        .iter()
+        .any(|notice| notice.line == problem.line && notice.rule == problem.rule)
+}
+
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
