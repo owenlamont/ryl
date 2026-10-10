@@ -487,3 +487,21 @@ fn keeps_hash_led_lines_of_a_block_scalar_in_place() {
         assert_eq!((code, formatted.as_str()), (0, input), "{stderr}");
     }
 }
+
+#[test]
+fn keeps_quotes_on_y_and_n_which_go_yaml_v2_loads_as_booleans() {
+    let input = "a: 'y'\nb: \"N\"\n'n': 1\n";
+    for (style, expected) in [
+        ("single", "a: 'y'\nb: 'N'\n'n': 1\n"),
+        ("double", "a: \"y\"\nb: \"N\"\n\"n\": 1\n"),
+        ("preserve", input),
+    ] {
+        let config = format!("[format]\nquote-style = '{style}'\n");
+        let (code, _, stderr, formatted) = format_file(Some(&config), input, &[]);
+        assert_eq!(
+            (code, formatted.as_str()),
+            (0, expected),
+            "{style}: {stderr}"
+        );
+    }
+}

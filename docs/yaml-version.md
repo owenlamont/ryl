@@ -44,8 +44,9 @@ like, which are the same boolean under both versions.
 Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
 any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
 `'1_000'`), as yamllint does, so the output means the same to a 1.1 consumer
-such as PyYAML. The set is PyYAML's 1.1 resolver plus yamllint's `0o` octal;
-`y`, `Y`, `n` and `N` are strings to it, so their quotes are still redundant.
+such as PyYAML. The set is PyYAML's 1.1 resolver plus yamllint's `0o` octal,
+and `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads as
+booleans although PyYAML does not.
 Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
 `'008'`) are kept too.
 

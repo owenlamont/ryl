@@ -98,8 +98,8 @@ reads as a non-string is not redundantly quoted, as in yamllint: `'no'`,
 `'on'`, `'yes'` and their case variants, 1.1 integers, floats, sexagesimals
 and timestamps keep their quotes, and `--fix` leaves them in place, since
 stripping them would change the value for a 1.1 consumer such as PyYAML.
-`'y'` and `'n'` are strings to 1.1 as well, so their quotes are still
-redundant. Unless the document declares `%YAML 1.1`, quotes a YAML 1.2 reader
+Unlike yamllint, `'y'`, `'Y'`, `'n'` and `'N'` keep their quotes too, since
+go-yaml v2, used by Kubernetes, loads them as booleans. Unless the document declares `%YAML 1.1`, quotes a YAML 1.2 reader
 needs (`'+.5'`, `'008'`) are kept too. `ryl format` keeps the same quotes. See
 [YAML version compatibility](../yaml-version.md) for more context.
 

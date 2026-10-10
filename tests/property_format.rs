@@ -355,6 +355,8 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
         "2001-12-14",
         "<<",
         "=",
+        "y",
+        "N",
     ];
     for prelude in ["", "%YAML 1.2\n---\n", "%YAML 1.1\n---\n"] {
         for value in kept {
@@ -375,7 +377,7 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
                 );
             }
         }
-        for value in ["y", "N", "_", "._", "1.2.3"] {
+        for value in ["_", "._", "1.2.3"] {
             let output = (pass.format)(&format!("{prelude}k: '{value}'\n"));
             assert!(
                 format!("\n{output}").contains(&format!("\nk: {value}\n")),

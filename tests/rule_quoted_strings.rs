@@ -822,7 +822,16 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
     let cfg = only_when_needed();
     // Each resolves to a non-string under YAML 1.1 but a string under 1.2 core, so
     // dropping the quotes would change the value for a consumer honouring the directive.
-    for value in ["no", "Yes", "0b101", "1_000", "1:30", "2002-12-14"] {
+    for value in [
+        "no",
+        "Yes",
+        "y",
+        "N",
+        "0b101",
+        "1_000",
+        "1:30",
+        "2002-12-14",
+    ] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert!(
             quoted_strings::check(&input, &cfg).is_empty(),
@@ -838,7 +847,7 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
 #[test]
 fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
     let cfg = only_when_needed();
-    for value in ["hello", "y", "N", "_", "_1", "._", "1.2.3", "08", "-.5"] {
+    for value in ["hello", "_", "_1", "._", "1.2.3", "08", "-.5"] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert_eq!(quoted_strings::check(&input, &cfg).len(), 1, "{input:?}");
         assert_eq!(
@@ -860,14 +869,13 @@ fn required_true_does_not_quote_a_yaml_1_1_boolean_under_explicit_1_1() {
 
 #[test]
 fn required_true_leaves_a_yaml_1_1_boolean_plain_without_a_directive() {
-    // As in yamllint, a word YAML 1.1 reads as a boolean is not a string to quote, but
-    // `y` is a string to 1.1 as well.
+    // As in yamllint, a word YAML 1.1 reads as a boolean is not a string to quote; go-yaml
+    // v2's 1.1 resolver extends that to `y` and `n`.
     let cfg = build_config("rules:\n  quoted-strings:\n    required: true\n");
-    assert!(quoted_strings::check("flag: no\n", &cfg).is_empty());
-    assert_eq!(
-        quoted_strings::fix("flag: y\n", &cfg).as_deref(),
-        Some("flag: 'y'\n"),
-    );
+    for input in ["flag: no\n", "flag: y\n", "n: 1\n"] {
+        assert!(quoted_strings::check(input, &cfg).is_empty(), "{input:?}");
+        assert_eq!(quoted_strings::fix(input, &cfg), None, "{input:?}");
+    }
 }
 
 #[test]
@@ -876,16 +884,22 @@ fn keeps_yaml_1_1_word_quotes_without_a_1_1_directive() {
     // Dropping these quotes would turn the value into a boolean for a YAML 1.1 reader
     // such as yamllint's, so they are kept whatever the directive.
     for prefix in ["", "%YAML 1.2\n---\n"] {
-        for value in ["no", "on", "yes"] {
-            let input = format!("{prefix}key: '{value}'\n");
+        for input in [
+            format!("{prefix}key: 'no'\n"),
+            format!("{prefix}key: 'on'\n"),
+            format!("{prefix}key: 'yes'\n"),
+            format!("{prefix}key: 'y'\n"),
+            format!("{prefix}key: \"N\"\n"),
+        ] {
             assert!(quoted_strings::check(&input, &cfg).is_empty(), "{input:?}");
             assert!(quoted_strings::fix(&input, &cfg).is_none(), "{input:?}");
         }
-        let input = format!("{prefix}key: 'y'\n");
-        assert_eq!(
-            quoted_strings::fix(&input, &cfg),
-            Some(format!("{prefix}key: y\n")),
+        let keys = build_config(
+            "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
         );
+        let input = format!("{prefix}'n': 1\n");
+        assert!(quoted_strings::check(&input, &keys).is_empty(), "{input:?}");
+        assert!(quoted_strings::fix(&input, &keys).is_none(), "{input:?}");
     }
 }
 
