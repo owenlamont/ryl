@@ -225,6 +225,7 @@ fn unsafe_collections_stay_flow_with_the_reason() {
         ("k: [a\n  b, c]\n", "an entry spans lines"),
         ("k: [\"a\n  b\", c]\n", "an entry spans lines"),
         ("k: [a,  # c\n  b]\n", "it holds a comment"),
+        ("k: [a, # café\n b]\n---\n[", "it holds a comment"),
         ("k: [a, {b: 1,  # c\n  d: 2}]\n", "it holds a comment"),
         ("k: {? [a]: b}\n", "a key is a collection"),
         ("k: {: v}\n", "a key is empty"),
