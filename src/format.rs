@@ -239,7 +239,8 @@ pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
             &widths,
         ))
         .map(|(width, reindented)| {
-            let after: Vec<&str> = reindented.text.split_inclusive('\n').collect();
+            let text = settled(reindented.text, content, cfg, width);
+            let after: Vec<&str> = text.split_inclusive('\n').collect();
             let changed = TextDiff::from_slices(&before, &after)
                 .ops()
                 .iter()
@@ -258,6 +259,20 @@ pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
         [&(width, _)] => width,
         _ => DEFAULT_INDENT_WIDTH,
     }
+}
+
+/// `text`, one re-indent of `input` at `width`, re-indented again until it settles, as the
+/// format pipeline does, since one pass can enable another.
+fn settled(mut text: String, input: &str, cfg: &YamlLintConfig, width: u8) -> String {
+    let mut previous = input.to_string();
+    for _ in 0..FIX_PIPELINE_MAX_PASSES {
+        if text == previous {
+            break;
+        }
+        let next = indentation::reindent(&text, &indentation_target(cfg, width)).text;
+        previous = std::mem::replace(&mut text, next);
+    }
+    text
 }
 
 /// What `ryl format` targets in one file where the config can leave it to the file.

@@ -71,6 +71,16 @@ fn block_scalar_bodies_and_comments_count_as_changed_lines() {
 }
 
 #[test]
+fn a_dash_join_that_enables_another_is_scored_once_settled() {
+    let input = "a:\n  -\n   b:\n   -\n     c: 1\nx:\n    y: 1\n";
+    assert_eq!(file_indent_width(&config(UNSET), input), 4);
+    assert_eq!(
+        format(input, UNSET),
+        "a:\n    - b:\n          - c: 1\nx:\n    y: 1\n"
+    );
+}
+
+#[test]
 fn auto_keeps_the_line_ending_most_lines_use() {
     let auto = "[format]\nline-ending = 'auto'\n";
     for (input, expected) in [
