@@ -67,6 +67,8 @@ fails on a missing file.
 ### `ryl format --check`
 
 `ryl format --check` reports the lines it would change through the same formats.
+An empty or wholly excluded run still writes an empty configured report, including
+when `--stdin-filename` is excluded.
 `ryl format --output-format` takes one format, written to its default stream, and
 overrides `[output]`. Like ruff's, `ryl format` honours it only under `--check`.
 
