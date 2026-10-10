@@ -129,8 +129,12 @@ fn parse_override(bytes: &[u8], label: &str) -> Result<FileEncoding, String> {
         ));
     }
     match normalized.as_str() {
-        "utf-8" => Ok(FileEncoding::Utf8),
-        "utf-8-sig" | "utf8-sig" => Ok(FileEncoding::Utf8WithBom),
+        "utf-8" => Ok(if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            FileEncoding::Utf8WithBom
+        } else {
+            FileEncoding::Utf8
+        }),
+        "utf-8-sig" | "utf8-sig" => parse_override(bytes, "utf-8"),
         "utf-16" => Ok(FileEncoding::Utf16 {
             endian: detect_utf16_endian(bytes).unwrap_or(Endian::Little),
             skip_bom: bytes.starts_with(&[0xFE, 0xFF])
@@ -138,11 +142,11 @@ fn parse_override(bytes: &[u8], label: &str) -> Result<FileEncoding, String> {
         }),
         "utf-16le" | "utf-16-le" | "utf16le" => Ok(FileEncoding::Utf16 {
             endian: Endian::Little,
-            skip_bom: false,
+            skip_bom: bytes.starts_with(&[0xFF, 0xFE]),
         }),
         "utf-16be" | "utf-16-be" | "utf16be" => Ok(FileEncoding::Utf16 {
             endian: Endian::Big,
-            skip_bom: false,
+            skip_bom: bytes.starts_with(&[0xFE, 0xFF]),
         }),
         "utf-32" => Ok(FileEncoding::Utf32 {
             endian: detect_utf32_endian(bytes).unwrap_or(Endian::Little),
@@ -151,18 +155,28 @@ fn parse_override(bytes: &[u8], label: &str) -> Result<FileEncoding, String> {
         }),
         "utf-32le" | "utf-32-le" | "utf32le" => Ok(FileEncoding::Utf32 {
             endian: Endian::Little,
-            skip_bom: false,
+            skip_bom: bytes.starts_with(&[0xFF, 0xFE, 0x00, 0x00]),
         }),
         "utf-32be" | "utf-32-be" | "utf32be" => Ok(FileEncoding::Utf32 {
             endian: Endian::Big,
-            skip_bom: false,
+            skip_bom: bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF]),
         }),
         "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" => Ok(FileEncoding::Latin1),
-        other => Encoding::for_label(other.as_bytes())
-            .map(FileEncoding::Custom)
-            .ok_or_else(|| {
+        other => {
+            let encoding = Encoding::for_label(other.as_bytes()).ok_or_else(|| {
                 decode_error("encoding", format!("unsupported label '{label}'"))
-            }),
+            })?;
+            let encoding =
+                Encoding::for_bom(bytes).map_or(encoding, |(detected, _)| detected);
+            if encoding == encoding_rs::UTF_8
+                || encoding == encoding_rs::UTF_16LE
+                || encoding == encoding_rs::UTF_16BE
+            {
+                parse_override(bytes, encoding.name())
+            } else {
+                Ok(FileEncoding::Custom(encoding))
+            }
+        }
     }
 }
 

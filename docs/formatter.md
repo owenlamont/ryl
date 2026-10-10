@@ -43,8 +43,8 @@ Every edit `ryl format` makes is checked by property tests to be:
 A file that does not parse is left alone and reported on stderr as
 `skipped by ryl format`.
 
-File and stdin formatting preserve the detected encoding and BOM, whether or not
-the text changes. `--check` and `--diff` exit `1` when the decoded text would change,
+File and stdin formatting preserve the detected encoding and BOM, including Unicode
+encoding overrides, whether or not the text changes. `--check` and `--diff` exit `1` when the decoded text would change,
 including BOM-prefixed and UTF-16/32 input. A text diff cannot apply to encoded bytes,
 so `--diff` skips the patch for those inputs while still reporting formatting changes.
 The same exit behavior applies when a patch is skipped because the YAML ends in a
