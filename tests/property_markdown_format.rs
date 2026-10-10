@@ -53,7 +53,10 @@ fn arb_markdown() -> impl Strategy<Value = String> {
 }
 
 fn verify_preserved(original: &str, formatted: &str) -> Result<(), TestCaseError> {
-    let sources = MarkdownSources { front_matter: true, fenced_blocks: true };
+    let sources = MarkdownSources {
+        front_matter: true,
+        fenced_blocks: true,
+    };
     let before = extract_regions(original, sources);
     let after = extract_regions(formatted, sources);
     prop_assert_eq!(before.len(), after.len(), "region count changed");
@@ -66,33 +69,65 @@ fn verify_preserved(original: &str, formatted: &str) -> Result<(), TestCaseError
             &formatted[formatted_cursor..after.raw_span.start],
             "non-YAML Markdown changed"
         );
-        prop_assert_eq!(representation(&before.content), representation(&after.content),
-            "core values/parse changed: {:?} -> {:?}", before.content, after.content);
-        prop_assert_eq!(yaml_1_1_representation(&before.content), yaml_1_1_representation(&after.content),
-            "PyYAML-equivalent values changed: {:?} -> {:?}", before.content, after.content);
-        prop_assert_eq!(annotations(&before.content), annotations(&after.content),
-            "comments/anchors changed: {:?} -> {:?}", before.content, after.content);
+        prop_assert_eq!(
+            representation(&before.content),
+            representation(&after.content),
+            "core values/parse changed: {:?} -> {:?}",
+            before.content,
+            after.content
+        );
+        prop_assert_eq!(
+            yaml_1_1_representation(&before.content),
+            yaml_1_1_representation(&after.content),
+            "PyYAML-equivalent values changed: {:?} -> {:?}",
+            before.content,
+            after.content
+        );
+        prop_assert_eq!(
+            annotations(&before.content),
+            annotations(&after.content),
+            "comments/anchors changed: {:?} -> {:?}",
+            before.content,
+            after.content
+        );
         original_cursor = before.raw_span.end;
         formatted_cursor = after.raw_span.end;
     }
-    prop_assert_eq!(&original[original_cursor..], &formatted[formatted_cursor..],
-        "trailing Markdown changed");
+    prop_assert_eq!(
+        &original[original_cursor..],
+        &formatted[formatted_cursor..],
+        "trailing Markdown changed"
+    );
     Ok(())
 }
 
 fn format(markdown: &str, cfg: &ryl::config::YamlLintConfig) -> String {
-    fix_markdown_str(markdown, synthetic_path(), cfg, synthetic_base_dir(), Rewrite::Format)
-        .unwrap_or_else(|| markdown.to_string())
+    fix_markdown_str(
+        markdown,
+        synthetic_path(),
+        cfg,
+        synthetic_base_dir(),
+        Rewrite::Format,
+    )
+    .unwrap_or_else(|| markdown.to_string())
 }
 
 fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
-    for pass in passes::format_passes().iter().filter(|pass| pass.name.starts_with("format/")) {
+    for pass in passes::format_passes()
+        .iter()
+        .filter(|pass| pass.name.starts_with("format/"))
+    {
         let once = format(markdown, &pass.cfg);
         verify_preserved(markdown, &once).map_err(|error| {
             TestCaseError::fail(format!("{} on {markdown:?}: {error}", pass.name))
         })?;
-        prop_assert_eq!(&once, &format(&once, &pass.cfg),
-            "not idempotent under {} on {:?}", pass.name, markdown);
+        prop_assert_eq!(
+            &once,
+            &format(&once, &pass.cfg),
+            "not idempotent under {} on {:?}",
+            pass.name,
+            markdown
+        );
     }
     Ok(())
 }
@@ -115,11 +150,24 @@ proptest! {
 fn dirty_regions_change_under_every_profile() {
     let input = "---\n#front\nfoo: &a [1,2]\nbar: *a\n---\n\ntext\n\n  ```yaml\n  #fence\n  foo: &b [3,4]\n  bar: *b\n  ```\n\n```text\na: [1,2]\n```\n";
     run_invariants(input).unwrap();
-    for pass in passes::format_passes().iter().filter(|pass| pass.name.starts_with("format/")) {
+    for pass in passes::format_passes()
+        .iter()
+        .filter(|pass| pass.name.starts_with("format/"))
+    {
         let output = format(input, &pass.cfg);
-        let sources = MarkdownSources { front_matter: true, fenced_blocks: true };
-        for (before, after) in extract_regions(input, sources).iter().zip(extract_regions(&output, sources)) {
-            assert_ne!(before.content, after.content, "{} must format both regions", pass.name);
+        let sources = MarkdownSources {
+            front_matter: true,
+            fenced_blocks: true,
+        };
+        for (before, after) in extract_regions(input, sources)
+            .iter()
+            .zip(extract_regions(&output, sources))
+        {
+            assert_ne!(
+                before.content, after.content,
+                "{} must format both regions",
+                pass.name
+            );
         }
     }
 }
@@ -127,9 +175,17 @@ fn dirty_regions_change_under_every_profile() {
 #[test]
 fn host_oracle_rejects_value_annotation_and_prose_changes() {
     let input = "---\na: &x 1 # keep\nb: *x\n---\n\nprose\n";
-    for broken in [input.replace(" 1", " 2"), input.replace("keep", "lost"),
-        input.replace('x', "y"), input.replace("prose", "different"), input.replace("---\na", "---\n- a")] {
-        assert!(verify_preserved(input, &broken).is_err(), "oracle accepted {broken:?}");
+    for broken in [
+        input.replace(" 1", " 2"),
+        input.replace("keep", "lost"),
+        input.replace('x', "y"),
+        input.replace("prose", "different"),
+        input.replace("---\na", "---\n- a"),
+    ] {
+        assert!(
+            verify_preserved(input, &broken).is_err(),
+            "oracle accepted {broken:?}"
+        );
     }
 }
 
