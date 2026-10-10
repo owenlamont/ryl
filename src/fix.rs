@@ -170,25 +170,31 @@ pub fn rewrite_str(
             if let Some(problem) = crate::lint::parse_error(content) {
                 return (None, vec![problem]);
             }
-            let fixed = rewrite.apply(
-                content,
-                cfg,
-                path,
-                base_dir,
-                &[],
-                &mut FormatCache::default(),
-            );
-            let skipped = unfixed_notices(&fixed, cfg, path, base_dir, rewrite);
+            let mut cache = FormatCache::default();
+            let fixed = rewrite.apply(content, cfg, path, base_dir, &[], &mut cache);
+            let skipped =
+                unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
             ((fixed != content).then_some(fixed), skipped)
         }
         SourceKind::Markdown => {
-            let fixed = fix_markdown_str(content, path, cfg, base_dir, rewrite);
+            let mut cache = FormatCache::default();
+            let fixed =
+                fix_markdown_cached(content, path, cfg, base_dir, rewrite, &mut cache);
             // Read from the *fixed* bytes (what gets written) so the reported line stays
             // correct after an earlier region's fix shifts the line count.
             let skipped = markdown_region_problems(
                 fixed.as_deref().unwrap_or(content),
                 cfg,
-                |region| region_skips(&region.content, cfg, path, base_dir, rewrite),
+                |region| {
+                    region_skips(
+                        &region.content,
+                        cfg,
+                        path,
+                        base_dir,
+                        rewrite,
+                        &mut cache,
+                    )
+                },
             );
             (fixed, skipped)
         }
@@ -358,6 +364,7 @@ fn diff_and_skips(
                     path,
                     base_dir,
                     rewrite,
+                    cache,
                 ),
                 ..DiffOutcome::default()
             }
@@ -370,9 +377,9 @@ fn diff_and_skips(
             // Report skips against the *original* content: `--diff` never writes, so the file
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
-            let skips = |markdown| {
+            let mut skips = |markdown| {
                 markdown_region_problems(markdown, cfg, |region| {
-                    region_skips(&region.content, cfg, path, base_dir, rewrite)
+                    region_skips(&region.content, cfg, path, base_dir, rewrite, cache)
                 })
             };
             let mut skipped = skips(content);
@@ -400,12 +407,13 @@ fn unfixed_notices(
     path: &Path,
     base_dir: &Path,
     rewrite: Rewrite,
+    cache: &mut FormatCache,
 ) -> Vec<crate::lint::LintProblem> {
     if crate::directives::disables_file(content) {
         return Vec::new();
     }
     if rewrite == Rewrite::Format {
-        return crate::format::unfixed(content, cfg);
+        return crate::format::unfixed(content, cfg, cache);
     }
     if !rule_enabled(key_ordering::ID, cfg, path, base_dir) {
         return Vec::new();
@@ -430,9 +438,10 @@ fn region_skips(
     path: &Path,
     base_dir: &Path,
     rewrite: Rewrite,
+    cache: &mut FormatCache,
 ) -> Vec<crate::lint::LintProblem> {
     crate::lint::parse_error(region).map_or_else(
-        || unfixed_notices(region, cfg, path, base_dir, rewrite),
+        || unfixed_notices(region, cfg, path, base_dir, rewrite, cache),
         |problem| vec![problem],
     )
 }

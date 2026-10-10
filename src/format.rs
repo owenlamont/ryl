@@ -172,7 +172,7 @@ pub fn format_str(
     format_tracked(
         input,
         cfg,
-        Layout::of(cfg, input),
+        Layout::of(cfg, input, file_indent_width(cfg, input)),
         path,
         skip,
         &mut Vec::new(),
@@ -283,7 +283,7 @@ struct Layout {
 }
 
 impl Layout {
-    fn of(cfg: &YamlLintConfig, content: &str) -> Self {
+    fn of(cfg: &YamlLintConfig, content: &str, indent: u8) -> Self {
         let kind = match cfg.format().targets().line_ending {
             LineEndingTarget::CrLf => new_lines::LineKind::Dos,
             LineEndingTarget::Native => new_lines::LineKind::Platform,
@@ -296,7 +296,7 @@ impl Layout {
             LineEndingTarget::Lf | LineEndingTarget::Auto => new_lines::LineKind::Unix,
         };
         Self {
-            indent: file_indent_width(cfg, content),
+            indent,
             line_ending: new_lines::Config { kind },
         }
     }
@@ -320,12 +320,23 @@ fn format_tracked(
     )
 }
 
-/// Formatter output and edited rules by input text, so a preview that both diffs and
-/// explains a file formats each region once. Only valid for one `cfg`, `path` and `skip`.
+/// Formatter output, edited rules and indent width by input text, so a preview that both
+/// diffs and explains a file formats and detects each region once. Only valid for one
+/// `cfg`, `path` and `skip`.
 #[derive(Default)]
-pub(crate) struct FormatCache(HashMap<String, (String, Vec<&'static str>)>);
+pub(crate) struct FormatCache {
+    formatted: HashMap<String, (String, Vec<&'static str>)>,
+    widths: HashMap<String, u8>,
+}
 
 impl FormatCache {
+    pub(crate) fn indent_width(&mut self, cfg: &YamlLintConfig, input: &str) -> u8 {
+        *self
+            .widths
+            .entry(input.to_string())
+            .or_insert_with(|| file_indent_width(cfg, input))
+    }
+
     pub(crate) fn format(
         &mut self,
         input: &str,
@@ -333,16 +344,10 @@ impl FormatCache {
         path: &Path,
         skip: &[&str],
     ) -> &(String, Vec<&'static str>) {
-        self.0.entry(input.to_string()).or_insert_with(|| {
+        let layout = Layout::of(cfg, input, self.indent_width(cfg, input));
+        self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
-            let formatted = format_tracked(
-                input,
-                cfg,
-                Layout::of(cfg, input),
-                path,
-                skip,
-                &mut edited,
-            );
+            let formatted = format_tracked(input, cfg, layout, path, skip, &mut edited);
             (formatted, edited)
         })
     }
@@ -375,7 +380,7 @@ fn region_problems(
     skip: &[&str],
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    let layout = Layout::of(cfg, content);
+    let layout = Layout::of(cfg, content, cache.indent_width(cfg, content));
     let (formatted, edited) = cache.format(content, cfg, path, skip);
     if formatted == content {
         return Vec::new();
@@ -460,8 +465,12 @@ fn indentation_target(cfg: &YamlLintConfig, width: u8) -> indentation::Config {
 /// Each document `ryl format` leaves un-re-indented in `content` for a reason other than an
 /// inline directive, at its first line, each `-` a comment keeps its mapping beside, and
 /// each collection-style refusal.
-pub(crate) fn unfixed(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
-    let indent = file_indent_width(cfg, content);
+pub(crate) fn unfixed(
+    content: &str,
+    cfg: &YamlLintConfig,
+    cache: &mut FormatCache,
+) -> Vec<LintProblem> {
+    let indent = cache.indent_width(cfg, content);
     let reindented = indentation::reindent(content, &indentation_target(cfg, indent));
     let kept = reindented
         .kept_dash_lines
@@ -593,7 +602,11 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let probe = format!("{shebang}{CONFLICT_PROBE}{blanks}last: 1\n");
     let formatted = run_passes(
         &probe,
-        &Passes::format(cfg, Layout::of(cfg, &probe), &[]),
+        &Passes::format(
+            cfg,
+            Layout::of(cfg, &probe, file_indent_width(cfg, &probe)),
+            &[],
+        ),
         Path::new(""),
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::sink(),
