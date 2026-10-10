@@ -697,6 +697,10 @@ fn representation_tells_apart_what_value_preservation_forbids() {
             "%YAML 1.1\n---\na: !!int 11\n",
         ),
         ("a: [1]\n", "a: {1: }\n"),
+        ("a: |+\r\n    ", "a: |+\r\n    \r\n"),
+        ("a: |2+\n   ", "a: |2+\n"),
+        ("a: |2+\n  |\n   ", "a: |2+\n  |\n"),
+        ("a: |+\n  x\n  ", "a: |+\n  y\n"),
     ] {
         assert_ne!(
             representation(left),
@@ -732,6 +736,10 @@ fn representation_ignores_layout() {
         ("%YAML 1.2\n---\na: 'no'\n", "%YAML 1.2\n---\na: no\n"),
         ("a: &x 1\nb: *x\n", "a: &y 1\nb: *y\n"),
         ("%YAML 1.1\n---\na: 1e3\n", "%YAML 1.1\n---\na: '1e3'\n"),
+        ("a: |+\r\n    ", "a: |+\r\n"),
+        ("a: |-\n  ", "a: |-\n"),
+        ("a: >+\n\n  ", "a: >+\n\n"),
+        ("a: |+\n  x\n  ", "a: |+\n  x\n"),
     ] {
         assert_eq!(
             representation(left),

@@ -115,7 +115,9 @@ The rest of the layout is fixed:
 
 Block scalar headers lose trailing spaces and tabs. A header with no body at EOF gains
 a final newline and, with `document-end = "add"`, a `...` marker. Unterminated clip/keep
-scalar bodies stay untouched when adding a newline could change their value.
+scalar content stays protected when adding a newline could change its value.
+An indentation-only final line loses its spaces without gaining a scalar line break:
+`a: |+\r\n    ` becomes `a: |+\r\n`, preserving the empty string value.
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.

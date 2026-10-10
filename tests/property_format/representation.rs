@@ -19,6 +19,8 @@ use granit_parser::{
 use regex::Regex;
 use ryl::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
 
+use crate::config::block_scalar_eof;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Core(ScalarOwned),
@@ -231,7 +233,7 @@ fn record(content: &str, assume_yaml_1_1: bool) -> Option<Recorder> {
         assume_yaml_1_1,
         ..Recorder::default()
     };
-    Parser::new_from_str(content)
+    Parser::new_from_str(block_scalar_eof::without_indentation(content))
         .load(&mut recorder, true)
         .ok()?;
     Some(recorder)

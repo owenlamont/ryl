@@ -1,6 +1,9 @@
 //! Named config matrix and shared parsing helpers for the safe-fix property
 //! suite.
 
+#[path = "../common/block_scalar_eof.rs"]
+pub(crate) mod block_scalar_eof;
+
 use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
@@ -243,7 +246,8 @@ pub fn safe_fix_rule_diagnostics(
 /// Loads `content` with every mapping's entries sorted, since `key-ordering` may
 /// reorder them.
 pub fn parse_for_compare(content: &str) -> Option<Vec<YamlOwned>> {
-    let docs = YamlOwned::load_from_str(content).ok()?;
+    let docs = YamlOwned::load_from_str(block_scalar_eof::without_indentation(content))
+        .ok()?;
     Some(docs.into_iter().map(canonical).collect())
 }
 

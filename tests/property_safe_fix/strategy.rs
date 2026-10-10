@@ -285,13 +285,6 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
                     body.retain(|line| !matches!(line, BlockBodyLine::Content { .. }));
                     body.push(BlockBodyLine::Spaces(2));
                 }
-                // granit keeps a last whitespace-only line under clip as a line break,
-                // which yaml, ruamel and PyYAML (and the spec) chomp.
-                while chomp != Some('+')
-                    && matches!(body.last(), Some(BlockBodyLine::Spaces(_)))
-                {
-                    body.pop();
-                }
                 body.extend(std::iter::repeat_n(BlockBodyLine::Blank, trailing_blanks));
                 BlockScalarSpec {
                     properties,
