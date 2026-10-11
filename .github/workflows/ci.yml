@@ -145,8 +145,19 @@ jobs:
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0
 
-  windows-tests:
-    runs-on: windows-latest
+  platform-tests:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-tests
+            os: windows-latest
+            cargo-args: ""
+          - name: linux-cli-tests
+            os: ubuntu-latest
+            cargo-args: --no-default-features
     timeout-minutes: 30
     permissions:
       contents: read
@@ -174,15 +185,10 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Run tests with default features
+      - name: Run tests
         env:
           PROPTEST_CASES: "0"
-        run: cargo nextest run
-
-      - name: Run tests without default features
-        env:
-          PROPTEST_CASES: "0"
-        run: cargo nextest run --no-default-features
+        run: cargo nextest run ${{ matrix.cargo-args }}
 
   coverage-comment:
     # Posting the coverage comment needs `pull-requests: write`, so it is isolated here,
