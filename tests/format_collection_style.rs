@@ -449,3 +449,11 @@ fn check_reports_a_block_collection_that_would_become_flow() {
         "{stderr}"
     );
 }
+
+#[test]
+fn nested_mapping_values_keep_their_collection_properties() {
+    assert_eq!(
+        restyle("k: {a: &x !!seq [b, c]}\n", BOTH),
+        "k:\n  a: &x !!seq\n    - b\n    - c\n"
+    );
+}

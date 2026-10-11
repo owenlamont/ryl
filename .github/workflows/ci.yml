@@ -72,7 +72,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh skill publish --dry-run
 
+      - name: Replay saved property seeds
+        env:
+          PROPTEST_CASES: "0"
+        run: cargo nextest run --test 'property_*'
+
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
+        env:
+          PROPTEST_CASES: "0"
+          PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
         run: |-
           set -euo pipefail
           # Run the suite once; every report below is derived from this single run's
@@ -167,9 +175,13 @@ jobs:
           tool: cargo-nextest
 
       - name: Run tests with default features
+        env:
+          PROPTEST_CASES: "0"
         run: cargo nextest run
 
       - name: Run tests without default features
+        env:
+          PROPTEST_CASES: "0"
         run: cargo nextest run --no-default-features
 
   coverage-comment:

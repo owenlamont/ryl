@@ -174,6 +174,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## Automated Tests
 
+- Deterministic tests own coverage: every covered region must have a named example test.
+  CI disables random property cases; saved regression seeds replay separately from coverage.
+  Local property runs retain their default counts and the 20× requirements below.
 - Convey a test's purpose through function and variable names and assertion messages.
   Test comments meet the same bar as the rest of the codebase: keep one only for why an
   input is crafted a certain way (e.g. the `café` char-vs-byte column rationale), a

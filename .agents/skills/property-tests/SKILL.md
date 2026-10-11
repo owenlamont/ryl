@@ -15,13 +15,22 @@ property-test generator(s) so the new/updated syntax is actually exercised (each
 below lists exactly what to extend and the deterministic guard to add), then
 before committing run every suite at its default count, plus a **20× run of the suites
 the change touches**: e.g. `PROPTEST_CASES=5120 cargo test --release --test
-property_check`. The suites run proptest's default 256 cases in CI unless they pin
+property_check`. Local suites use proptest's default 256 cases unless they pin
 `cases` themselves; `PROPTEST_CASES` still overrides a pinned `cases`. Keep the whole
 step within **5–10 minutes**. Commit only once it is green, and keep any newly-persisted
 seeds in `tests/proptest-regressions/`.
 
 **A release gate, or an integration branch's tip, runs every suite at 20×**, not only the
 touched ones. A seed it finds becomes a regression test plus a fix.
+
+## Coverage and CI
+
+Deterministic tests own coverage: give every region a named example test, even when a
+property case already reaches the region. Coverage runs with `PROPTEST_CASES=0` and
+`PROPTEST_DISABLE_FAILURE_PERSISTENCE=1`, so neither random cases nor saved seeds can
+satisfy the gate. CI replays committed seeds separately with `PROPTEST_CASES=0` and
+failure persistence enabled; proptest replays seeds before generating random cases.
+Local property runs and the 20× release/integration gates remain unchanged.
 
 ## Property Tests For Safe Fixes
 

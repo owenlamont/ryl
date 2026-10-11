@@ -1766,6 +1766,17 @@ fn hover_reports_the_rule_and_docs_link() {
 }
 
 #[test]
+fn hover_for_an_unopened_document_is_null() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    assert!(
+        client
+            .hover(&file_uri(dir.path(), "unopened.yaml"), 0, 0)
+            .is_none()
+    );
+}
+
+#[test]
 fn hover_off_a_diagnostic_is_null() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
