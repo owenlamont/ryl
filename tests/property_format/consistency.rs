@@ -152,6 +152,65 @@ pub fn content_whitespace(
     }
 }
 
+pub fn pending_empty_sequence_comment(
+    output: &str,
+    problem: &ryl::lint::LintProblem,
+) -> bool {
+    if problem.rule != Some("trailing-spaces") {
+        return false;
+    }
+    let lines: Vec<_> = output.split_inclusive('\n').collect();
+    let Some(index) = problem.line.checked_sub(1) else {
+        return false;
+    };
+    let Some(raw) = lines.get(index) else {
+        return false;
+    };
+    let content = raw.trim_end_matches(['\r', '\n']);
+    if !content.trim_start_matches(' ').starts_with('#') {
+        return false;
+    }
+    let Some((offset, _)) =
+        content.char_indices().nth(problem.column.saturating_sub(1))
+    else {
+        return false;
+    };
+    if !content[offset..].chars().all(|ch| matches!(ch, ' ' | '\t')) {
+        return false;
+    }
+    let Some(header) = lines[..index]
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+    else {
+        return false;
+    };
+    static HEADER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^( *)- [|>][1-9+-]{0,2}[ \t]*(?:#.*)?$").unwrap()
+    });
+    let Some(captures) = HEADER.captures(lines[header].trim_end_matches(['\r', '\n']))
+    else {
+        return false;
+    };
+    if content.len() - content.trim_start_matches(' ').len() != captures[1].len() {
+        return false;
+    }
+    let fragment: String = lines[header..=index]
+        .iter()
+        .map(|line| line.strip_prefix(&captures[1]).unwrap_or(line))
+        .collect();
+    if !matches!(serde_yaml_ng::from_str::<Vec<String>>(&fragment), Ok(value) if value == [String::new()])
+    {
+        return false;
+    }
+    let mut repaired: String = lines[header..index]
+        .iter()
+        .map(|line| line.strip_prefix(&captures[1]).unwrap_or(line))
+        .collect();
+    repaired.push_str(content[captures[1].len()..offset].trim_end());
+    repaired.push('\n');
+    matches!((serde_yaml_ng::from_str::<Vec<String>>(&fragment), serde_yaml_ng::from_str::<Vec<String>>(&repaired)), (Ok(before), Ok(after)) if before == after)
+}
+
 pub fn agreeing_lint(config: &str) -> String {
     let cfg = YamlLintConfig::from_toml_str(config).expect(config);
     let table = cfg.format().targets();
