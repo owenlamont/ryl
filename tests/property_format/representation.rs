@@ -19,6 +19,8 @@ use granit_parser::{
 use regex::Regex;
 use ryl::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
 
+use crate::config::block_scalar_eof;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Core(ScalarOwned),
@@ -63,8 +65,7 @@ pub struct Comment {
     /// comment counts only those before the first node on the line of the node it trails,
     /// so a flow collection turned block may keep its trailing comment on its key's line;
     /// a block node's start counts as first only alone, since joining or breaking a `-`
-    /// line moves a collection's, and granit starts an empty block scalar on the line
-    /// after its header.
+    /// line moves a collection's.
     pub after_events: usize,
     pub inline: bool,
     /// Payload with whitespace trimmed around it and after its leading `#` run: the
@@ -164,11 +165,15 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 let inline = placement == Placement::Right;
                 let trailed = self.starts.last().filter(|_| inline);
                 let after_events = trailed.map_or(self.counted, |&(last, ..)| {
-                    let on_line =
-                        || self.starts.iter().filter(|(start, ..)| *start == last);
+                    let on_line = || {
+                        self.starts
+                            .iter()
+                            .filter(|(start, ..)| *start == last.min(line))
+                    };
                     on_line()
                         .find(|(.., block)| !block)
                         .or_else(|| on_line().next())
+                        .or(trailed)
                         .map(|&(_, before, _)| before)
                         .expect("the trailed node is among the starts")
                 });
@@ -228,7 +233,7 @@ fn record(content: &str, assume_yaml_1_1: bool) -> Option<Recorder> {
         assume_yaml_1_1,
         ..Recorder::default()
     };
-    Parser::new_from_str(content)
+    Parser::new_from_str(block_scalar_eof::without_indentation(content))
         .load(&mut recorder, true)
         .ok()?;
     Some(recorder)

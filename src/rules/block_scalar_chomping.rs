@@ -111,6 +111,7 @@ pub(crate) fn ends_in_unstripped_scalar(buffer: &str) -> bool {
     !commented_after
         && headers(buffer).last().is_some_and(|header| {
             header.span.start.index() == span.start.index()
+                && span.end.line() > header.line
                 && header.chomping != Some('-')
         })
 }

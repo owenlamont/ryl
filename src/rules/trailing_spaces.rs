@@ -1,6 +1,6 @@
 //! `trailing-spaces`: report and strip trailing whitespace from lines.
 //!
-//! `--fix` strips terminated space-only block-scalar lines up to its indentation.
+//! `--fix` strips space-only block-scalar lines up to its indentation.
 //! A double-quoted backslash + trailing whitespace + newline differs
 //! from `\<newline>` alone (a line-continuation escape that drops the folded space).
 //! Multi-line single-quoted and plain scalars fold trailing whitespace away, so they
@@ -46,6 +46,7 @@ pub fn fix(buffer: &str) -> Option<String> {
     })?;
     let lines = line_contents(buffer);
     for header in block_scalar_chomping::headers(buffer) {
+        protected.remove(&header.line);
         let span = header.span;
         let indent = span.indent.unwrap_or_else(|| {
             // Blank-only spans have no content whose spaces need protection.
@@ -55,8 +56,7 @@ pub fn fix(buffer: &str) -> Option<String> {
                 span.start.col()
             }
         });
-        // granit counts an unterminated line's indentation as another scalar break.
-        for line in header.line + 1..span.end.line() {
+        for line in header.line + 1..=span.end.line() {
             if lines.get(line - 1).is_some_and(|text| {
                 text.len() <= indent && text.bytes().all(|ch| ch == b' ')
             }) {

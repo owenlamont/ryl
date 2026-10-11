@@ -1508,6 +1508,12 @@ The rest of the layout is fixed:
 | Line ends | Remove trailing whitespace outside scalar content; add a final newline when value-safe |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
+Block scalar headers lose trailing spaces and tabs. A header with no body at EOF gains
+a final newline and, with `document-end = "add"`, a `...` marker. Unterminated clip/keep
+scalar content stays protected when adding a newline could change its value.
+An indentation-only final line loses its spaces without gaining a scalar line break:
+`a: |+\r\n    ` becomes `a: |+\r\n`, preserving the empty string value.
+
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.
 
@@ -4259,7 +4265,8 @@ this: is the only document
 `ryl check --fix` adds a `...` end marker to every document that lacks one
 when `present: true`: before the `---` that opens the next document, and at
 the end of the stream. The `present: false` case (removing existing `...`
-markers) is never auto-fixed.
+markers) is never auto-fixed. A block scalar header with no body at EOF can gain the
+newline and marker; an unterminated clip/keep body is left alone to preserve its value.
 
 Disable with:
 
@@ -5352,7 +5359,9 @@ ryl appends a single newline when the file does not already end with one.
 
 ## Automatic fixing
 
-`ryl check --fix` appends a trailing newline when one is missing. Disable with:
+`ryl check --fix` appends a trailing newline when one is missing, including after a
+block scalar header with no body. An unterminated clip/keep block scalar body is left
+alone because appending a newline could change its value. Disable with:
 
 ```toml
 [lint]
@@ -5793,7 +5802,7 @@ key: value
 ## Automatic fixing
 
 `ryl check --fix` strips trailing spaces and tabs from each line. The fix is
-**partial** by design: terminated space-only lines inside literal/folded block scalars
+**partial** by design: space-only lines inside literal/folded block scalars
 (`|`/`>`) are stripped when no wider than the scalar's indentation. Spaces
 past that indentation are content and stay, as do trailing spaces on content
 lines and whitespace inside multi-line double-quoted scalars. The diagnostic still fires on those lines so the
@@ -5801,6 +5810,9 @@ remaining trailing whitespace is visible after `--fix`; edit them by
 hand if you want them clean. Multi-line single-quoted and plain scalars
 fold trailing whitespace away at parse time, so the fix can safely
 strip those.
+
+An indentation-only final line is stripped without adding a scalar line break.
+For example, `a: |+\r\n    ` becomes `a: |+\r\n`; both load as an empty string.
 
 The fix bails (leaves the file untouched) when the input cannot be
 parsed as YAML, so a broken document is never made worse.

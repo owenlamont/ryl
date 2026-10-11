@@ -41,6 +41,21 @@ fn handles_crlf_lines() {
 }
 
 #[test]
+fn fix_trims_empty_block_scalar_headers_without_touching_bodies() {
+    for (input, expected) in [
+        ("a: | \t", "a: |"),
+        ("a: >+2  # note \t", "a: >+2  # note"),
+        ("a: | \t\n  x  ", "a: |\n  x  "),
+    ] {
+        assert_eq!(trailing_spaces::fix(input).as_deref(), Some(expected));
+        assert_eq!(
+            ryl::yaml_dom::YamlOwned::load_from_str(input).unwrap(),
+            ryl::yaml_dom::YamlOwned::load_from_str(expected).unwrap()
+        );
+    }
+}
+
+#[test]
 fn fix_trims_the_line_after_a_blank_only_block_scalar() {
     assert_eq!(
         trailing_spaces::fix("a: |+\n\nb: 1   \n"),
@@ -79,6 +94,25 @@ fn fix_strips_only_block_scalar_blank_indentation() {
 }
 
 #[test]
+fn fix_strips_unterminated_block_scalar_indentation() {
+    for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "|+2"] {
+        for newline in ["\n", "\r\n", "\r"] {
+            for body in ["", "  x\n", "\n"] {
+                let body = body.replace('\n', newline);
+                let input = format!("a: {header}{newline}{body}  ");
+                let expected = format!("a: {header}{newline}{body}");
+                assert_eq!(
+                    trailing_spaces::fix(&input),
+                    Some(expected.clone()),
+                    "{input:?}"
+                );
+                assert!(trailing_spaces::fix(&expected).is_none());
+            }
+        }
+    }
+}
+
+#[test]
 fn fix_handles_blank_only_block_scalars_and_unterminated_lines() {
     for header in ["|3", ">3", "|3-", ">-3", "|3+", ">+3"] {
         for suffix in ["", "b: 1\n"] {
@@ -98,9 +132,9 @@ fn fix_handles_blank_only_block_scalars_and_unterminated_lines() {
         }
     }
     for (input, expected) in [
-        ("a: |+\n   ", "a: |+\n   "),
-        ("a: |3-\n   ", "a: |3-\n   "),
-        ("a: |3+\n   x\n   ", "a: |3+\n   x\n   "),
+        ("a: |+\n   ", "a: |+\n"),
+        ("a: |3-\n   ", "a: |3-\n"),
+        ("a: |3+\n   x\n   ", "a: |3+\n   x\n"),
         ("a: |3+\n    ", "a: |3+\n    "),
         ("a: |3+\n   \t\n   x\n", "a: |3+\n   \t\n   x\n"),
     ] {
