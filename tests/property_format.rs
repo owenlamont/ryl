@@ -8,9 +8,6 @@
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
-//! Explicit-key indentation diagnostics are exempt within their document until #657 merges; remove then.
-//! Empty block-scalar header/EOF whitespace and end markers are value-safe but skipped until #658 merges; remove then.
-//! Multiline double quotes under the single-quote target are exempt until #650 merges; remove then.
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -164,10 +161,7 @@ proptest! {
         );
         let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals)
-            && !consistency::pending_multiline_quote(&output, problem, &cfg)
-            && !consistency::pending_explicit_key_indent(&output, problem)
-            && !consistency::pending_empty_block_header(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -180,10 +174,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals)
-            && !consistency::pending_multiline_quote(&output, problem, &cfg)
-            && !consistency::pending_explicit_key_indent(&output, problem)
-            && !consistency::pending_empty_block_header(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1150,39 +1141,6 @@ fn g11_refusal_exempts_only_the_reported_line_and_concern() {
 }
 
 #[test]
-fn g11_pending_multiline_quote_exemption_excludes_other_scalars_and_rules() {
-    let table = "[format]\nquote-style = 'single'\n";
-    let cfg =
-        YamlLintConfig::from_toml_str(&consistency::agreeing_lint(table)).unwrap();
-    let input = "a: \"#first\n\n    #last\"\n";
-    let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
-    let problem = problems
-        .iter()
-        .find(|problem| problem.rule == Some("quoted-strings"))
-        .unwrap();
-    assert!(consistency::pending_multiline_quote(input, problem, &cfg));
-    assert!(!consistency::pending_multiline_quote(
-        "a: \"#one line\"\n",
-        problem,
-        &cfg
-    ));
-    assert!(!consistency::pending_multiline_quote(
-        "a: '#first\n\n    #last'\n",
-        problem,
-        &cfg
-    ));
-    let mut other = problem.clone();
-    other.line += 1;
-    assert!(!consistency::pending_multiline_quote(input, &other, &cfg));
-    other.line = problem.line;
-    other.rule = Some("comments");
-    assert!(!consistency::pending_multiline_quote(input, &other, &cfg));
-    let cfg =
-        YamlLintConfig::from_toml_str("[format]\nquote-style = 'double'\n").unwrap();
-    assert!(!consistency::pending_multiline_quote(input, problem, &cfg));
-}
-
-#[test]
 fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
     use consistency::content_whitespace;
     for (input, rule, line, column) in [
@@ -1209,99 +1167,5 @@ fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
             !content_whitespace(input, Some(rule), line, column),
             "{input:?}"
         );
-    }
-}
-
-#[test]
-fn g11_pending_explicit_key_indentation_exemption_stays_in_its_document() {
-    let cfg = YamlLintConfig::from_toml_str(
-        "[format]\n[lint.rules.indentation]\nindent-sequences=true\n",
-    )
-    .unwrap();
-    let input = "? a\n: a\nb:\n     - a\n";
-    let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
-    let problem = problems
-        .iter()
-        .find(|problem| problem.rule == Some("indentation"))
-        .unwrap();
-    assert!(consistency::pending_explicit_key_indent(input, problem));
-    assert!(!consistency::pending_explicit_key_indent(
-        "a: a\nb:\n     - a\n",
-        problem
-    ));
-    let mut other = problem.clone();
-    other.rule = Some("hyphens");
-    assert!(!consistency::pending_explicit_key_indent(input, &other));
-    other.rule = Some("indentation");
-    other.line = 7;
-    assert!(!consistency::pending_explicit_key_indent(
-        "? a\n: a\n---\na: a\nb:\n     - a\n \n",
-        &other
-    ));
-    other.message = "wrong indentation in scalar".to_owned();
-    assert!(!consistency::pending_explicit_key_indent(input, &other));
-}
-
-#[test]
-fn g11_empty_header_exemption_rejects_content_and_other_rules() {
-    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint("[format]\n"))
-        .unwrap();
-    for input in [
-        "a: | ",
-        "a: | \n",
-        "a: > ",
-        "a: |",
-        "-9223372036854775809: a\na: !!str | \r\n",
-    ] {
-        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
-        assert!(!problems.is_empty());
-        for problem in problems {
-            assert!(
-                consistency::pending_empty_block_header(input, &problem),
-                "{input:?}: {problem:?}"
-            );
-            let mut other = problem.clone();
-            other.rule = Some("indentation");
-            assert!(!consistency::pending_empty_block_header(input, &other));
-            other = problem.clone();
-            other.line += 1;
-            assert!(!consistency::pending_empty_block_header(input, &other));
-        }
-    }
-    for input in ["a: | \n  value\n", "a: |\n  value ", "a: plain "] {
-        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
-        assert!(
-            problems
-                .iter()
-                .all(|problem| !consistency::pending_empty_block_header(
-                    input, problem
-                )),
-            "{input:?}: {problems:?}"
-        );
-    }
-}
-
-#[test]
-fn g11_empty_header_end_marker_exemption_requires_eof_and_empty_value() {
-    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint(
-        "[format]\ndocument-end = 'add'\n",
-    ))
-    .unwrap();
-    for input in ["a: |", "a: >- ", "a: |\n", "a: |\n\n"] {
-        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
-        let problem = problems
-            .iter()
-            .find(|problem| problem.rule == Some("document-end"))
-            .unwrap();
-        assert!(
-            consistency::pending_empty_block_header(input, problem),
-            "{input:?}: {problem:?}"
-        );
-        for other in ["a: |\n  value", "a: |\nb: b", "a: |\n...\n", "a: plain"] {
-            assert!(
-                !consistency::pending_empty_block_header(other, problem),
-                "{other:?}"
-            );
-        }
     }
 }
