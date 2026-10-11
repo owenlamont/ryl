@@ -35,16 +35,16 @@ ryl check --enable truthy,line-length .     # run only these rules, config or no
 and replaces the config's rule selection for that run.
 
 Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
-`tool.ryl`, so `[rules]` becomes `[tool.ryl.rules]`):
+`tool.ryl`, so `[lint.rules]` becomes `[tool.ryl.lint.rules]`):
 
 ```toml
 # ryl.toml
-[rules]
+[lint.rules]
 trailing-spaces = "enable"
 new-line-at-end-of-file = "enable"
 ```
 
-`ALL = "enable"` under `[rules]` turns on every rule at its defaults; an explicit entry
+`ALL = "enable"` under `[lint.rules]` turns on every rule at its defaults; an explicit entry
 for a rule wins over it.
 
 ## Run and branch on exit codes
@@ -74,13 +74,14 @@ Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only er
 
 ## Machine-readable output
 
-`-f/--format`: `parsable` or `github` (line-oriented, stderr) for parsing diagnostics;
-`junit` or `gitlab` (stdout) for CI report artifacts. `--format` is repeatable and each
+`-f/--output-format`: `parsable` or `github` (line-oriented, stderr) for parsing
+diagnostics; `junit` or `gitlab` (stdout) for CI report artifacts. `--output-format` is
+repeatable and each
 `-o/--output-file` binds to the preceding format, so console + a report file can be
 produced together:
 
 ```bash
-ryl check --format github --format gitlab -o code-quality.json .
+ryl check --output-format github --output-format gitlab -o code-quality.json .
 ```
 
 ## Configuration: YAML vs TOML

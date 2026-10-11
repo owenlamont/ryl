@@ -8,13 +8,17 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use lsp_types::{
-    Diagnostic, NumberOrString, Position, PositionEncodingKind, PrepareRenameResponse,
-    PreviousResultId, Range, Uri, WorkspaceDocumentDiagnosticReport,
+    CodeActionContext, CodeActionKind, CodeActionOrCommand, Diagnostic,
+    DocumentChanges, NumberOrString, OneOf, Position, PositionEncodingKind,
+    PrepareRenameResponse, PreviousResultId, Range, Uri,
+    WorkspaceDocumentDiagnosticReport,
 };
 use tempfile::tempdir;
 
 use ryl::config::{SourceKind, YamlLintConfig};
-use ryl::lsp::analysis::{diagnostics, fix_all_edit, fix_rule_edit};
+use ryl::fix::Rewrite;
+use ryl::lsp::actions::{Input, build};
+use ryl::lsp::analysis::{diagnostics, fix_rule_edit, rewrite_edit};
 use ryl::lsp::encoding::{
     PositionEncoding, full_range, negotiate, offset_at, path_to_uri, problem_range,
     range_contains, uri_to_path,
@@ -24,6 +28,54 @@ use ryl::lsp::rename::{prepare_rename, rename_edits};
 use ryl::lsp::{
     OpenText, PreviousIds, ReportSink, Settings, previous_by_path, workspace_scan,
 };
+
+#[test]
+fn later_bom_indentation_diagnostics_point_at_the_scalar() {
+    let cfg = yaml_cfg("[lint.rules.indentation]\nspaces = 2\n");
+    for newline in ["\n", "\r\n"] {
+        let input = "a: a\n...\n\u{feff}  scalar\n".replace('\n', newline);
+        for (text, kind, line) in [
+            (input.clone(), SourceKind::Yaml, 2),
+            (
+                format!("```yaml{newline}{input}```{newline}"),
+                SourceKind::Markdown,
+                3,
+            ),
+        ] {
+            let diags = diagnostics(
+                &text,
+                Path::new("/proj/x.yaml"),
+                &cfg,
+                Path::new("/proj"),
+                kind,
+                PositionEncoding::Utf16,
+            );
+            assert_eq!(rule_ranges(&diags), [diag_at("indentation", line, 3)]);
+            assert_eq!(diags[0].range.end, Position::new(line, 4));
+        }
+    }
+}
+
+#[test]
+fn later_bom_sibling_columns_keep_utf16_positions() {
+    for (rule, body, character) in [
+        ("hyphens", "-   😀\n", 4),
+        ("colons", "😀:   b\n", 6),
+        ("trailing-spaces", "😀: b  \n", 6),
+    ] {
+        let cfg = yaml_cfg(&format!("[lint.rules]\n{rule} = 'enable'\n"));
+        let text = format!("a: a\n...\n\u{feff}{body}");
+        let diags = diagnostics(
+            &text,
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+        );
+        assert_eq!(rule_ranges(&diags), [diag_at(rule, 2, character)]);
+    }
+}
 
 #[test]
 fn negotiate_prefers_clients_first_supported_kind() {
@@ -263,7 +315,7 @@ fn yaml_cfg(toml: &str) -> YamlLintConfig {
 
 #[test]
 fn diagnostics_map_a_yaml_problem_to_lsp() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let diags = diagnostics(
         "a: \u{1F600} \n",
         Path::new("/proj/x.yaml"),
@@ -291,7 +343,7 @@ fn diagnostics_map_a_yaml_problem_to_lsp() {
 
 #[test]
 fn diagnostics_carry_warning_severity_when_configured() {
-    let cfg = yaml_cfg("[rules.trailing-spaces]\nlevel = \"warning\"\n");
+    let cfg = yaml_cfg("[lint.rules.trailing-spaces]\nlevel = \"warning\"\n");
     let diags = diagnostics(
         "a: 1 \n",
         Path::new("/proj/x.yaml"),
@@ -308,7 +360,7 @@ fn diagnostics_carry_warning_severity_when_configured() {
 
 #[test]
 fn diagnostics_for_a_syntax_error_have_no_rule_code() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let diags = diagnostics(
         "a: [b\n",
         Path::new("/proj/x.yaml"),
@@ -323,7 +375,7 @@ fn diagnostics_for_a_syntax_error_have_no_rule_code() {
 
 #[test]
 fn diagnostics_lint_embedded_yaml_in_markdown() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     let diags = diagnostics(
         "# doc\n\n```yaml\na: 1 \n```\n",
         Path::new("/proj/x.md"),
@@ -336,15 +388,91 @@ fn diagnostics_lint_embedded_yaml_in_markdown() {
 }
 
 #[test]
-fn fix_all_edit_replaces_the_whole_document_when_fixable() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
-    let edit = fix_all_edit(
+fn diagnostics_lint_markdown_front_matter_after_a_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
+    let diags = diagnostics(
+        "\u{feff}---\na: 1 \n---\n",
+        Path::new("/proj/x.md"),
+        &cfg,
+        Path::new("/proj"),
+        SourceKind::Markdown,
+        PositionEncoding::Utf16,
+    );
+    assert_eq!(
+        rule_ranges(&diags),
+        [diag_at("trailing-spaces", 1, 4)],
+        "as `ryl check` reports"
+    );
+}
+
+#[test]
+fn diagnostics_after_a_bom_point_at_the_buffers_first_line_characters() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    // `ryl check` puts both at column 4; on the first line the buffer's BOM precedes it.
+    for (enc, first) in [
+        (PositionEncoding::Utf8, 9),
+        (PositionEncoding::Utf16, 5),
+        (PositionEncoding::Utf32, 4),
+    ] {
+        let diags = diagnostics(
+            "\u{feff}\u{1F600}:  1\nb:  2\n",
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            enc,
+        );
+        assert_eq!(
+            rule_ranges(&diags),
+            [diag_at("colons", 0, first), diag_at("colons", 1, 3)],
+            "{enc:?}"
+        );
+    }
+}
+
+#[test]
+fn diagnostics_honour_a_disable_file_directive_after_a_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let diags = diagnostics(
+        "\u{feff}# ryl disable-file\na:   1\n",
+        Path::new("/proj/x.yaml"),
+        &cfg,
+        Path::new("/proj"),
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+    );
+    assert!(
+        diags.is_empty(),
+        "`ryl check` skips a disabled file: {diags:?}"
+    );
+}
+
+fn rule_ranges(diags: &[Diagnostic]) -> Vec<(Option<NumberOrString>, Range)> {
+    diags
+        .iter()
+        .map(|diag| (diag.code.clone(), diag.range))
+        .collect()
+}
+
+fn diag_at(rule: &str, line: u32, character: u32) -> (Option<NumberOrString>, Range) {
+    let range = Range::new(
+        Position::new(line, character),
+        Position::new(line, character + 1),
+    );
+    (Some(NumberOrString::String(rule.to_string())), range)
+}
+
+#[test]
+fn rewrite_edit_fix_replaces_the_whole_document_when_fixable() {
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
+    let edit = rewrite_edit(
         "a: 1 \n",
         Path::new("/proj/x.yaml"),
         &cfg,
         Path::new("/proj"),
         SourceKind::Yaml,
         PositionEncoding::Utf16,
+        Rewrite::Fix,
     )
     .expect("a fixable document yields an edit");
     assert_eq!(edit.new_text, "a: 1\n", "the trailing space is removed");
@@ -356,16 +484,17 @@ fn fix_all_edit_replaces_the_whole_document_when_fixable() {
 }
 
 #[test]
-fn fix_all_edit_is_none_when_already_clean() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+fn rewrite_edit_fix_is_none_when_already_clean() {
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     assert!(
-        fix_all_edit(
+        rewrite_edit(
             "a: 1\n",
             Path::new("/proj/x.yaml"),
             &cfg,
             Path::new("/proj"),
             SourceKind::Yaml,
             PositionEncoding::Utf16,
+            Rewrite::Fix,
         )
         .is_none(),
         "a conforming document needs no edit"
@@ -373,15 +502,16 @@ fn fix_all_edit_is_none_when_already_clean() {
 }
 
 #[test]
-fn fix_all_edit_fixes_embedded_markdown_yaml() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
-    let edit = fix_all_edit(
+fn rewrite_edit_fix_fixes_embedded_markdown_yaml() {
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
+    let edit = rewrite_edit(
         "```yaml\na: 1 \n```\n",
         Path::new("/proj/x.md"),
         &cfg,
         Path::new("/proj"),
         SourceKind::Markdown,
         PositionEncoding::Utf16,
+        Rewrite::Fix,
     )
     .expect("the fenced block is fixable");
     assert!(
@@ -391,20 +521,55 @@ fn fix_all_edit_fixes_embedded_markdown_yaml() {
 }
 
 #[test]
-fn fix_all_edit_skips_markdown_with_an_unsupported_bare_cr() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\n");
+fn rewrite_edit_fix_skips_markdown_with_an_unsupported_bare_cr() {
+    let cfg = yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\n");
     // A lone CR (not part of CRLF) makes the markdown host unfixable.
     assert!(
-        fix_all_edit(
+        rewrite_edit(
             "# h\rmore\n\n```yaml\na: 1 \n```\n",
             Path::new("/proj/x.md"),
             &cfg,
             Path::new("/proj"),
             SourceKind::Markdown,
             PositionEncoding::Utf16,
+            Rewrite::Fix,
         )
         .is_none(),
         "a bare CR markdown host is left untouched"
+    );
+}
+
+#[test]
+fn rewrite_edit_format_runs_the_formatter_under_the_format_table() {
+    let cfg =
+        yaml_cfg("[format]\nquote-style = \"double\"\ndocument-start = \"preserve\"\n");
+    let edit = rewrite_edit(
+        "a:   'x: y'\n",
+        Path::new("/proj/x.yaml"),
+        &cfg,
+        Path::new("/proj"),
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+        Rewrite::Format,
+    )
+    .expect("the formatter changes the spacing and quotes");
+    assert_eq!(edit.new_text, "a: \"x: y\"\n");
+}
+
+#[test]
+fn rewrite_edit_format_refuses_an_unparsable_document() {
+    assert!(
+        rewrite_edit(
+            "a:   [1\n",
+            Path::new("/proj/x.yaml"),
+            &yaml_cfg("[format]\n"),
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+            Rewrite::Format,
+        )
+        .is_none(),
+        "a document that does not parse is left untouched"
     );
 }
 
@@ -509,7 +674,8 @@ fn path_to_uri_adds_the_leading_slash_for_a_drive_path() {
 #[test]
 fn fix_rule_edit_fixes_only_the_named_rule() {
     // Two fixable problems: a comma-spacing issue and a trailing space.
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\ncommas = \"enable\"\n");
+    let cfg =
+        yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\ncommas = \"enable\"\n");
     let source = "a: [1 ,2] \n";
     let trailing = fix_rule_edit(
         source,
@@ -544,7 +710,8 @@ fn fix_rule_edit_fixes_only_the_named_rule() {
 
 #[test]
 fn fix_rule_edit_is_none_for_an_unfixable_rule_or_markdown() {
-    let cfg = yaml_cfg("[rules]\ntrailing-spaces = \"enable\"\nanchors = \"enable\"\n");
+    let cfg =
+        yaml_cfg("[lint.rules]\ntrailing-spaces = \"enable\"\nanchors = \"enable\"\n");
     assert!(
         fix_rule_edit(
             "a: 1 \n",
@@ -574,8 +741,104 @@ fn fix_rule_edit_is_none_for_an_unfixable_rule_or_markdown() {
 }
 
 #[test]
+fn fix_rule_edit_keeps_a_bom_and_honours_a_disable_file_directive_after_it() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let edit = |source: &str| {
+        fix_rule_edit(
+            source,
+            Path::new("/proj/x.yaml"),
+            &cfg,
+            Path::new("/proj"),
+            SourceKind::Yaml,
+            PositionEncoding::Utf16,
+            "colons",
+        )
+    };
+    assert_eq!(
+        edit("\u{feff}a:   1\n")
+            .expect("colons is fixable")
+            .new_text,
+        "\u{feff}a: 1\n"
+    );
+    assert!(
+        edit("\u{feff}# ryl disable-file\na:   1\n").is_none(),
+        "`ryl check --fix` leaves a disabled file alone"
+    );
+}
+
+#[test]
+fn disable_actions_insert_after_a_leading_bom() {
+    let cfg = yaml_cfg("[lint.rules]\ncolons = \"enable\"\n");
+    let (text, path) = ("\u{feff}a:   1\n", Path::new("/proj/x.yaml"));
+    let uri = path_to_uri(path);
+    // Before the BOM, YAML loaders read it as part of the key: `{"\u{feff}a": 1}`.
+    for (enc, after_bom) in [
+        (PositionEncoding::Utf8, 3),
+        (PositionEncoding::Utf16, 1),
+        (PositionEncoding::Utf32, 1),
+    ] {
+        let input = Input {
+            uri: &uri,
+            text,
+            version: 1,
+            path,
+            cfg: &cfg,
+            base_dir: Path::new("/proj"),
+            kind: SourceKind::Yaml,
+            enc,
+            supports_document_changes: true,
+        };
+        let context = CodeActionContext {
+            diagnostics: diagnostics(
+                text,
+                path,
+                &cfg,
+                Path::new("/proj"),
+                SourceKind::Yaml,
+                enc,
+            ),
+            only: Some(vec![CodeActionKind::QUICKFIX]),
+            trigger_kind: None,
+        };
+        let starts: Vec<(String, Position)> = build(&input, &context)
+            .expect("disable actions are offered")
+            .into_iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .flat_map(|action| {
+                let Some(DocumentChanges::Edits(edits)) =
+                    action.edit.and_then(|edit| edit.document_changes)
+                else {
+                    panic!("a versioned edit");
+                };
+                let title = action.title;
+                edits.into_iter().flat_map(|edit| edit.edits).map(
+                    move |edit| match edit {
+                        OneOf::Left(edit) => (title.clone(), edit.range.start),
+                        OneOf::Right(edit) => {
+                            (title.clone(), edit.text_edit.range.start)
+                        }
+                    },
+                )
+            })
+            .collect();
+        let expected = Position::new(0, after_bom);
+        assert_eq!(
+            starts,
+            [
+                ("Disable colons for this line".to_string(), expected),
+                ("Disable ryl for this file".to_string(), expected),
+            ],
+            "{enc:?}"
+        );
+    }
+}
+
+#[test]
 fn fix_rule_edit_for_truthy_needs_a_recasable_boolean() {
-    let cfg = yaml_cfg("[rules]\ntruthy = \"enable\"\n");
+    let cfg = yaml_cfg("[lint.rules]\ntruthy = \"enable\"\n");
     let edit = |source: &str| {
         fix_rule_edit(
             source,
@@ -794,7 +1057,7 @@ fn workspace_project() -> tempfile::TempDir {
     let dir = tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntrailing-spaces = \"enable\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n",
     )
     .expect("config");
     dir

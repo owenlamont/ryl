@@ -4,9 +4,9 @@ use std::{fs, process::Command};
 use jsonschema::validator_for;
 use ryl::config_schema::FixableRuleSelector::QuotedStrings as SelQuotedStrings;
 use ryl::config_schema::{
-    NormalizedConfig, normalize_toml_config, normalized_config_to_toml_value,
-    parse_toml_config_str, schema_value, toml_config_to_value, validate_toml_config,
-    yaml_schema_value,
+    DEPRECATED_TOML_KEYS, NormalizedConfig, normalize_toml_config,
+    normalized_config_to_toml_value, parse_toml_config_str, schema_value,
+    toml_config_to_value, validate_toml_config, yaml_schema_value,
 };
 use serde_json::{Value, json};
 
@@ -216,32 +216,32 @@ locale = "en_US.UTF-8"
 [files]
 yaml = ["*.yaml", "*.yml"]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/values.yaml" = ["document-start"]
 
-[rules]
+[lint.rules]
 document-start = "disable"
 comments-indentation = true
 new-line-at-end-of-file = "enable"
 
-[rules.comments]
+[lint.rules.comments]
 level = "warning"
 require-starting-space = true
 ignore = ["generated.yaml"]
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = "consistent"
 indent-sequences = "whatever"
 check-multi-line-strings = false
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 quote-type = "double"
 required = "only-when-needed"
 extra-required = ["^cmd$"]
 allow-double-quotes-for-escaping = true
 check-keys = true
 
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 "#,
@@ -259,13 +259,13 @@ fn generated_schema_rejects_invalid_known_field_types() {
     let validator = validator_for(&schema).expect("generated schema should compile");
     let instance = toml_to_json(
         r#"
-[rules.comments]
+[lint.rules.comments]
 require-starting-space = "yes"
 
-[fix]
+[lint]
 fixable = "comments"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "values.yaml" = ["not-a-rule"]
 "#,
     );
@@ -280,7 +280,7 @@ fixable = "comments"
 fn normalize_toml_config_preserves_all_per_file_ignore_rule_names() {
     let typed = parse_toml_config_str(
         r#"
-[per-file-ignores]
+[lint.per-file-ignores]
 "all.yaml" = [
     "anchors",
     "braces",
@@ -603,7 +603,7 @@ fn checked_in_toml_example_covers_all_builtin_rules() {
         .expect("schema rule properties should be an object");
     let instance = toml_to_json(&checked_in_text(".ryl.toml.example"));
     let configured_rules = instance
-        .get("rules")
+        .pointer("/lint/rules")
         .and_then(Value::as_object)
         .expect("example config should contain rules");
 
@@ -622,7 +622,7 @@ fn typed_toml_parser_reads_project_toml() {
         r#"
 yaml-files = ["*.yaml"]
 
-[rules]
+[lint.rules]
 document-start = "disable"
 "#,
         false,
@@ -632,7 +632,8 @@ document-start = "disable"
 
     let value = toml_config_to_value(&parsed);
     let document_start = value
-        .get("rules")
+        .get("lint")
+        .and_then(|lint| lint.get("rules"))
         .and_then(|rules| rules.get("document-start"))
         .and_then(toml::Value::as_str);
 
@@ -642,7 +643,7 @@ document-start = "disable"
 #[test]
 fn typed_toml_parser_accepts_toml_only_quoted_strings_option() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nallow-double-quotes-for-escaping = true\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -668,57 +669,33 @@ fn typed_toml_to_value_handles_configs_without_rules() {
 
 #[test]
 fn typed_toml_parser_round_trips_unknown_extras_and_custom_rules() {
-    let parsed = parse_toml_config_str(
-        r#"
+    for location in ["rules", "lint.rules"] {
+        let body = format!(
+            r#"
 flag = true
 stamp = 1979-05-27T07:32:00Z
 
 [extra]
 name = "demo"
+stamps = [1979-05-27, 07:32:00]
 
-[rules]
+[{location}]
 anchors = "disable"
 
-[rules.custom-rule]
+[{location}.custom-rule]
 count = 3
 stamp = 1979-05-27T07:32:00Z
-"#,
-        false,
-    )
-    .expect("typed TOML parse should succeed")
-    .expect("project TOML should produce config");
-
-    let value = toml_config_to_value(&parsed);
-    assert_eq!(value.get("flag").and_then(toml::Value::as_bool), Some(true));
-    assert!(
-        value
-            .get("stamp")
-            .and_then(toml::Value::as_datetime)
-            .is_some()
-    );
-    assert_eq!(
-        value
-            .get("extra")
-            .and_then(|extra| extra.get("name"))
-            .and_then(toml::Value::as_str),
-        Some("demo")
-    );
-    assert_eq!(
-        value
-            .get("rules")
-            .and_then(|rules| rules.get("custom-rule"))
-            .and_then(|rule| rule.get("count"))
-            .and_then(toml::Value::as_integer),
-        Some(3)
-    );
-    assert!(
-        value
-            .get("rules")
-            .and_then(|rules| rules.get("custom-rule"))
-            .and_then(|rule| rule.get("stamp"))
-            .and_then(toml::Value::as_datetime)
-            .is_some()
-    );
+"#
+        );
+        let parsed = parse_toml_config_str(&body, false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+        let expected: toml::Value = toml::from_str(&body).expect("valid TOML");
+        let value = toml_config_to_value(&parsed);
+        assert_eq!(value, expected);
+        let rendered = toml::to_string(&value).expect("TOML should render");
+        assert_eq!(toml::from_str::<toml::Value>(&rendered).unwrap(), expected);
+    }
 }
 
 #[test]
@@ -747,10 +724,10 @@ fn normalize_toml_config_flattens_top_level_fields_and_rules() {
 ignore = "vendor/**"
 files = { yaml = ["*.yaml"] }
 
-[fix]
+[lint]
 unfixable = ["comments"]
 
-[rules.comments]
+[lint.rules.comments]
 level = "warning"
 require-starting-space = true
 "#,
@@ -792,9 +769,9 @@ fn normalized_config_to_toml_value_skips_yaml_files_when_absent() {
     assert!(!table.contains_key("yaml-files"));
     assert_eq!(
         table
-            .get("ignore")
+            .get("exclude")
             .and_then(toml::Value::as_array)
-            .expect("ignore should serialize as array")
+            .expect("exclude should serialize as array")
             .len(),
         1
     );
@@ -863,29 +840,31 @@ fn pyproject_without_tool_ryl_is_not_empty_and_yields_no_config() {
 }
 
 #[test]
-fn typed_toml_validation_rejects_ignore_and_ignore_from_file_together() {
-    let parsed = parse_toml_config_str(
+fn typed_toml_validation_rejects_exclude_and_exclude_from_file_together() {
+    for config in [
+        "exclude = ['vendor/**']\nexclude-from-file = ['.ignore-list']\n",
         "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",
-        false,
-    )
-    .expect("typed TOML parse should succeed")
-    .expect("project TOML should produce config");
-
-    let err = validate_toml_config(&parsed)
-        .expect_err("typed validation should reject conflicting ignore settings");
-
-    assert_eq!(
-        err,
-        "invalid config: ignore and ignore-from-file keys cannot be used together"
-    );
+    ] {
+        let parsed = parse_toml_config_str(config, false)
+            .expect("typed TOML parse should succeed")
+            .expect("project TOML should produce config");
+        let err = validate_toml_config(&parsed)
+            .expect_err("typed validation should reject conflicting exclude settings");
+        assert_eq!(
+            err,
+            "invalid config: exclude and exclude-from-file keys cannot be used together"
+        );
+    }
 }
 
 #[test]
 fn typed_toml_validation_rejects_invalid_key_ordering_regex() {
-    let parsed =
-        parse_toml_config_str("[rules.key-ordering]\nignored-keys = ['[']\n", false)
-            .expect("typed TOML parse should succeed")
-            .expect("project TOML should produce config");
+    let parsed = parse_toml_config_str(
+        "[lint.rules.key-ordering]\nignored-keys = ['[']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
 
     let err = validate_toml_config(&parsed)
         .expect_err("typed validation should reject invalid regex");
@@ -899,7 +878,7 @@ fn typed_toml_validation_rejects_invalid_key_ordering_regex() {
 #[test]
 fn typed_toml_validation_accepts_key_ordering_without_ignored_keys() {
     let parsed =
-        parse_toml_config_str("[rules.key-ordering]\nlevel = 'warning'\n", false)
+        parse_toml_config_str("[lint.rules.key-ordering]\nlevel = 'warning'\n", false)
             .expect("typed TOML parse should succeed")
             .expect("project TOML should produce config");
 
@@ -909,10 +888,12 @@ fn typed_toml_validation_accepts_key_ordering_without_ignored_keys() {
 
 #[test]
 fn typed_toml_validation_accepts_valid_key_ordering_regex() {
-    let parsed =
-        parse_toml_config_str("[rules.key-ordering]\nignored-keys = ['^ok$']\n", false)
-            .expect("typed TOML parse should succeed")
-            .expect("project TOML should produce config");
+    let parsed = parse_toml_config_str(
+        "[lint.rules.key-ordering]\nignored-keys = ['^ok$']\n",
+        false,
+    )
+    .expect("typed TOML parse should succeed")
+    .expect("project TOML should produce config");
 
     validate_toml_config(&parsed)
         .expect("typed validation should accept valid key-ordering regexes");
@@ -921,7 +902,7 @@ fn typed_toml_validation_accepts_valid_key_ordering_regex() {
 #[test]
 fn typed_toml_validation_rejects_quoted_strings_conflicts() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nextra-required = ['^http']\n",
+        "[lint.rules.quoted-strings]\nextra-required = ['^http']\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -940,7 +921,7 @@ fn typed_toml_validation_rejects_quoted_strings_conflicts() {
 #[test]
 fn typed_toml_validation_rejects_required_true_with_extra_allowed() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nrequired = true\nextra-allowed = ['^http']\n",
+        "[lint.rules.quoted-strings]\nrequired = true\nextra-allowed = ['^http']\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -958,7 +939,7 @@ fn typed_toml_validation_rejects_required_true_with_extra_allowed() {
 #[test]
 fn typed_toml_validation_rejects_required_false_with_extra_allowed() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nrequired = false\nextra-allowed = ['^http']\n",
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-allowed = ['^http']\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -976,7 +957,7 @@ fn typed_toml_validation_rejects_required_false_with_extra_allowed() {
 #[test]
 fn typed_toml_validation_rejects_invalid_quoted_strings_regex() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nrequired = false\nextra-required = ['[']\n",
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['[']\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -996,7 +977,7 @@ fn typed_toml_validation_rejects_invalid_quoted_strings_regex() {
 #[test]
 fn typed_toml_validation_rejects_invalid_extra_allowed_regex() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-allowed = ['[']\n",
+        "[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-allowed = ['[']\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -1016,7 +997,7 @@ fn typed_toml_validation_rejects_invalid_extra_allowed_regex() {
 #[test]
 fn typed_toml_validation_accepts_only_when_needed_without_regex_lists() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nrequired = 'only-when-needed'\n",
+        "[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -1030,7 +1011,7 @@ fn typed_toml_validation_accepts_only_when_needed_without_regex_lists() {
 #[test]
 fn typed_toml_validation_accepts_valid_extra_allowed_regex() {
     let parsed = parse_toml_config_str(
-        "[rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-allowed = ['^cmd$']\n",
+        "[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-allowed = ['^cmd$']\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -1043,7 +1024,7 @@ fn typed_toml_validation_accepts_valid_extra_allowed_regex() {
 #[test]
 fn normalize_toml_config_preserves_quoted_strings_in_fixable() {
     let parsed = parse_toml_config_str(
-        "[fix]\nfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nfixable = [\"quoted-strings\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
         false,
     )
     .expect("typed TOML parse should succeed")
@@ -1057,12 +1038,7 @@ fn normalize_toml_config_preserves_quoted_strings_in_fixable() {
 
 #[test]
 fn every_rule_round_trips_through_toml_serialization() {
-    // `rules_table_to_value` serializes each rule via a hand-written
-    // `insert_serialized` line with no compile-time cross-check, so a new rule
-    // whose line is forgotten is silently dropped from normalized output. Enable
-    // every rule and assert each survives the round trip, so that omission fails
-    // a test instead of shipping.
-    let body: String = std::iter::once("[rules]\n".to_string())
+    let body: String = std::iter::once("[lint.rules]\n".to_string())
         .chain(
             ryl::rules::ALL_RULE_IDS
                 .iter()
@@ -1074,7 +1050,8 @@ fn every_rule_round_trips_through_toml_serialization() {
         .expect("config enabling every rule should produce a config");
     let value = toml_config_to_value(&parsed);
     let rules = value
-        .get("rules")
+        .get("lint")
+        .and_then(|lint| lint.get("rules"))
         .and_then(|rules| rules.as_table())
         .expect("serialized config should have a rules table");
     let mut dropped: Vec<&str> = ryl::rules::ALL_RULE_IDS
@@ -1173,10 +1150,84 @@ fn yaml_config_rejecting_files_points_at_the_yaml_spelling() {
 #[test]
 fn rule_list_typos_name_the_valid_selectors() {
     for config in [
-        "[per-file-ignores]\n\"a.yaml\" = [\"truthyy\"]\n",
-        "[[per-line-ignores]]\npath = \"a.yaml\"\nrules = [\"truthyy\"]\n",
+        "[lint.per-file-ignores]\n\"a.yaml\" = [\"truthyy\"]\n",
+        "[[lint.per-line-ignores]]\npath = \"a.yaml\"\nrules = [\"truthyy\"]\n",
     ] {
         let err = parse_toml_config_str(config, false).unwrap_err();
         assert!(err.contains("expected one of `ALL`, `anchors`"), "{err}");
     }
+}
+
+#[test]
+fn deprecated_toml_keys_table_is_pinned() {
+    let rows: Vec<_> = DEPRECATED_TOML_KEYS
+        .iter()
+        .map(|key| {
+            (
+                key.key,
+                key.replacement,
+                key.deprecated_since,
+                key.removed_in,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("rules", "lint.rules", "0.25.0", None),
+            ("fix.fixable", "lint.fixable", "0.25.0", None),
+            ("fix.unfixable", "lint.unfixable", "0.25.0", None),
+            ("per-file-ignores", "lint.per-file-ignores", "0.25.0", None),
+            ("per-line-ignores", "lint.per-line-ignores", "0.25.0", None),
+            ("ignore", "exclude", "0.25.0", None),
+            ("ignore-from-file", "exclude-from-file", "0.25.0", None),
+        ]
+    );
+}
+
+#[test]
+fn deprecated_keys_follow_table_order_and_flag_overridden_ones() {
+    let parsed = parse_toml_config_str(
+        "ignore = []\nignore-from-file = 'a'\nexclude-from-file = 'b'\n[rules]\n[fix]\n\
+         unfixable = []\n[lint]\nunfixable = []\n[per-file-ignores]\n",
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    let found: Vec<_> = parsed
+        .deprecated_keys()
+        .iter()
+        .map(|used| (used.key.key, used.overridden))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("rules", false),
+            ("fix.unfixable", true),
+            ("per-file-ignores", false),
+            ("ignore", false),
+            ("ignore-from-file", true),
+        ]
+    );
+    let dumped = toml_config_to_value(&parsed);
+    assert!(
+        dumped.get("rules").is_some(),
+        "the typed dump keeps the legacy key"
+    );
+    assert!(
+        dumped
+            .get("lint")
+            .and_then(|lint| lint.get("rules"))
+            .is_none()
+    );
+    let nested = toml_config_to_value(&parsed.to_nested());
+    assert!(nested.get("rules").is_none() && nested.get("fix").is_none());
+    assert!(nested.get("ignore").is_none() && nested.get("ignore-from-file").is_none());
+    assert_eq!(
+        nested
+            .get("exclude-from-file")
+            .and_then(toml::Value::as_str),
+        Some("b")
+    );
+    assert!(parsed.to_nested().deprecated_keys().is_empty());
 }

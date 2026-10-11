@@ -288,7 +288,7 @@ fn build_toml_config(toml: &str) -> Config {
     Config::resolve(&cfg)
 }
 
-const MAX_TWO: &str = "[rules.comments]\nmax-spaces-from-content = 2\n";
+const MAX_TWO: &str = "[lint.rules.comments]\nmax-spaces-from-content = 2\n";
 
 #[test]
 fn reports_inline_comments_beyond_max_spacing() {
@@ -329,7 +329,7 @@ fn fix_trims_to_max_and_normalises_tabs() {
 #[test]
 fn fix_returns_none_within_spacing_band() {
     let resolved = build_toml_config(
-        "[rules.comments]\nmin-spaces-from-content = 1\nmax-spaces-from-content = 3\n",
+        "[lint.rules.comments]\nmin-spaces-from-content = 1\nmax-spaces-from-content = 3\n",
     );
     let fixed = comments::fix("a: 1 # one\nb: 1   # three\n", &resolved);
     assert_eq!(fixed, None);

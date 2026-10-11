@@ -23,7 +23,7 @@ fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
     (code, command_output(&stdout, &stderr).to_string())
 }
 
-const ENABLE: &str = "[rules]\nblock-scalar-chomping = \"enable\"\n";
+const ENABLE: &str = "[lint.rules]\nblock-scalar-chomping = \"enable\"\n";
 
 #[test]
 fn flags_bare_literal_and_folded_clip_headers() {
@@ -202,6 +202,19 @@ fn preserves_hash_characters_that_do_not_start_comments() {
 }
 
 #[test]
+fn keeps_spaced_hash_inside_double_quoted_key_with_escaped_quote() {
+    let (code, output) = lint_with_toml_config("\"a\\\" #b\": | # c\n  body\n", ENABLE);
+    assert_eq!(
+        code, 1,
+        "bare header after a quoted key should fail: {output}"
+    );
+    assert!(
+        output.contains("1:11"),
+        "expected the marker at 1:11: {output}"
+    );
+}
+
+#[test]
 fn preserves_plain_key_fragments_that_resemble_node_properties() {
     // `!` and `&` may appear after the first character of a plain scalar. The
     // scanner confirms these are keys, so header recovery must not reinterpret
@@ -275,7 +288,7 @@ fn rule_is_rejected_in_yaml_config() {
 
 #[test]
 fn per_file_ignores_accept_the_rule_name() {
-    // A `[per-file-ignores]` entry naming the rule must be accepted (the rule id
+    // A `[lint.per-file-ignores]` entry naming the rule must be accepted (the rule id
     // round-trips through `RuleSelector`), suppressing its diagnostics for that file.
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
@@ -284,7 +297,7 @@ fn per_file_ignores_accept_the_rule_name() {
     fs::write(
         &config,
         format!(
-            "[rules]\nblock-scalar-chomping = \"enable\"\n[per-file-ignores]\n'{}' = ['block-scalar-chomping']\n",
+            "[lint.rules]\nblock-scalar-chomping = \"enable\"\n[lint.per-file-ignores]\n'{}' = ['block-scalar-chomping']\n",
             file.display()
         ),
     )
@@ -310,11 +323,33 @@ fn disabled_by_default() {
     // no diagnostic under an unrelated rule's config.
     let (code, output) = lint_with_toml_config(
         "block: |\n  body\n",
-        "[rules]\ntrailing-spaces = \"enable\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n",
     );
     assert_eq!(code, 0, "rule is off by default: {output}");
     assert!(
         !output.contains("block-scalar-chomping"),
         "rule must not fire unless enabled: {output}"
     );
+}
+
+#[test]
+fn finds_the_header_past_quote_like_plain_scalars_and_comments() {
+    // A plain key holding `'` once hid its own header and panicked or flagged an
+    // earlier one; a `|` in a comment before the header is not the header.
+    for (content, positions) in [
+        ("z': | # c\n  text\n", vec!["1:5"]),
+        ("a: |-\n  old\nz': | # c\n  new\n", vec!["3:5"]),
+        ("a: # x | y\n  |\n  text\n", vec!["2:3"]),
+    ] {
+        let (code, output) = lint_with_toml_config(content, ENABLE);
+        assert_eq!(code, 1, "{content:?}: {output}");
+        assert_eq!(
+            output.matches("block-scalar-chomping").count(),
+            positions.len(),
+            "{content:?}: {output}"
+        );
+        for position in positions {
+            assert!(output.contains(position), "{content:?}: {output}");
+        }
+    }
 }

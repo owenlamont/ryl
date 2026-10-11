@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 
+use granit_parser::ScalarStyle;
+
 use lsp_types::{
     CodeAction, CodeActionContext, CodeActionKind, CodeActionOrCommand,
     CodeActionResponse, Diagnostic, DocumentChanges, NumberOrString, OneOf,
@@ -15,9 +17,9 @@ use lsp_types::{
 };
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::SAFE_FIX_RULE_IDS;
-use crate::lsp::analysis::{fix_all_edit, fix_rule_edit};
-use crate::lsp::encoding::PositionEncoding;
+use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS};
+use crate::lsp::analysis::{fix_rule_edit, rewrite_edit};
+use crate::lsp::encoding::{PositionEncoding, position_at};
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, protected_scalar_lines,
@@ -44,13 +46,14 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
     let mut actions = Vec::new();
 
     if admits(context.only.as_deref(), FIX_ALL_KIND)
-        && let Some(edit) = fix_all_edit(
+        && let Some(edit) = rewrite_edit(
             input.text,
             input.path,
             input.cfg,
             input.base_dir,
             input.kind,
             input.enc,
+            Rewrite::Fix,
         )
     {
         actions.push(entry(
@@ -94,10 +97,18 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
         // (1-based granit line numbers). When the document does NOT parse we cannot tell
         // which lines are scalar content, so no disable-line is offered; disable-file (a
         // line-0 prepend) is always safe.
-        let scalar_lines = protected_scalar_lines(input.text, |_, span| {
-            span.start.line() != span.end.line()
+        // A line inserted where a blank-only block scalar's empty span sits would be the
+        // first line of its body, and so its content.
+        let mut empty_bodies = Vec::new();
+        let scalar_lines = protected_scalar_lines(input.text, |style, span| {
+            let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+            if block && span.is_empty() {
+                empty_bodies.push(span.end.line());
+            }
+            block || span.start.line() != span.end.line()
         });
-        if let Some(scalar_lines) = scalar_lines {
+        if let Some(mut scalar_lines) = scalar_lines {
+            scalar_lines.extend(empty_bodies);
             for (rule, line) in disable_targets(&context.diagnostics) {
                 if let Some(action) =
                     disable_line_action(input, &rule, line, &scalar_lines)
@@ -117,7 +128,7 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
 /// Whether `context.only` admits an action of `kind`: no filter means yes, else a
 /// requested kind must equal `kind` or be an ancestor (so a `source` / `source.fixAll`
 /// request matches `source.fixAll.ryl`, as `editor.codeActionsOnSave` issues them).
-fn admits(only: Option<&[CodeActionKind]>, kind: &str) -> bool {
+pub(super) fn admits(only: Option<&[CodeActionKind]>, kind: &str) -> bool {
     match only {
         None => true,
         Some(only) => only.iter().any(|requested| {
@@ -198,7 +209,7 @@ fn disable_line_action(
         .collect();
     let newline = buffer_newline(input.text);
     let insert = format!("{indent}# ryl disable-line rule:{rule}{newline}");
-    let edit = TextEdit::new(at_line_start(line), insert);
+    let edit = TextEdit::new(at_line_start(input, line), insert);
     Some(entry(
         format!("Disable {rule} for this line"),
         CodeActionKind::QUICKFIX.as_str(),
@@ -211,7 +222,7 @@ fn disable_line_action(
 /// [`crate::directives`]).
 fn disable_file_action(input: &Input) -> CodeActionOrCommand {
     let insert = format!("# ryl disable-file{}", buffer_newline(input.text));
-    let edit = TextEdit::new(at_line_start(0), insert);
+    let edit = TextEdit::new(at_line_start(input, 0), insert);
     entry(
         "Disable ryl for this file".to_string(),
         CodeActionKind::QUICKFIX.as_str(),
@@ -220,11 +231,15 @@ fn disable_file_action(input: &Input) -> CodeActionOrCommand {
     )
 }
 
-fn at_line_start(line: u32) -> Range {
-    Range {
-        start: Position::new(line, 0),
-        end: Position::new(line, 0),
-    }
+/// The empty range at `line`'s start, past a leading BOM so an insert keeps the BOM
+/// first (before it, the BOM would load as part of the first key).
+fn at_line_start(input: &Input, line: u32) -> Range {
+    let bom = usize::from(line == 0 && input.text.starts_with('\u{feff}'));
+    let start = Position::new(
+        line,
+        position_at(&[input.text], 1, 1 + bom, input.enc).character,
+    );
+    Range::new(start, start)
 }
 
 fn entry(

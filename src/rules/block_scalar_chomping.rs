@@ -6,21 +6,16 @@
 //!
 //! Detection enumerates block scalars from granit's scanner tokens
 //! (`ScalarStyle::Literal`/`Folded`), so a `|`/`>` in a quoted scalar, comment, or
-//! block content is never mistaken for a header. granit reports a non-empty token at
-//! its first *content* line (not the header), with only blank lines between, so the
-//! header is the nearest marker-bearing line *strictly above*. Empty/blank-only
-//! scalars are the exception: granit places their token on the header at
-//! end-of-stream but on the following node otherwise, so a token whose start column
-//! is the marker uses its own line.
+//! block content is never mistaken for a header. Only blanks and comments separate a
+//! block scalar's `|`/`>` from the token before it, so the header is the first such
+//! marker past that token outside a comment.
 //!
 //! Sources: YAML 1.2.2 §8.1.1.2; <https://www.yaml.info/learn/quote#chomp>.
 
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
+use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
 
-use crate::rules::support::line_syntax::{
-    block_scalar_header_marker_index, line_contents,
-    strip_trailing_comment_preserving_quotes,
-};
+use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::span_utils::CharPos;
 
 pub const ID: &str = "block-scalar-chomping";
 pub const MESSAGE: &str = "missing explicit chomping indicator (\"-\" or \"+\")";
@@ -33,65 +28,90 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
-    let lines = line_contents(buffer);
-    let mut violations = Vec::new();
-
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, token_type) = token.into_parts();
-        let TokenType::Scalar(style, value) = token_type else {
-            continue;
-        };
-        if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-            continue;
-        }
-
-        let (header_line, header_text, marker_idx) = header_marker(
-            &lines,
-            span.start.line(),
-            span.start.col(),
-            value.chars().all(|ch| matches!(ch, '\n' | '\r')),
-        );
-        // `marker_idx` is the byte offset of the single-byte `|`/`>`; the column counts
-        // characters not bytes, so a multibyte key shifts it correctly.
-        let indicators = &header_text[marker_idx + 1..];
-        if indicators.bytes().any(|b| matches!(b, b'-' | b'+')) {
-            continue;
-        }
-        violations.push(Violation {
-            line: header_line,
-            column: header_text[..marker_idx].chars().count() + 1,
-        });
-    }
-
-    violations
+    headers(buffer)
+        .into_iter()
+        .filter(|header| header.chomping.is_none())
+        .map(|header| Violation {
+            line: header.line,
+            column: header.column,
+        })
+        .collect()
 }
 
-/// `token_line` is 1-based, `token_column` a 0-based character column, as granit
-/// reports them. The marker check distinguishes the empty-at-end-of-stream case (token
-/// on its own header); every other token takes the nearest marker-bearing line above.
-fn header_marker<'a>(
-    lines: &[&'a str],
-    token_line: usize,
-    token_column: usize,
-    blank_only: bool,
-) -> (usize, &'a str, usize) {
-    let current = blank_only
-        .then(|| lines.get(token_line - 1))
-        .flatten()
-        .and_then(|line| {
-            let text = strip_trailing_comment_preserving_quotes(line);
-            block_scalar_header_marker_index(text)
-                .filter(|marker_idx| {
-                    text[..*marker_idx].chars().count() == token_column
-                })
-                .map(|marker_idx| (token_line, text, marker_idx))
-        });
-    current
-        .or_else(|| {
-            (1..token_line).rev().find_map(|line_no| {
-                let text = strip_trailing_comment_preserving_quotes(lines[line_no - 1]);
-                block_scalar_header_marker_index(text).map(|idx| (line_no, text, idx))
-            })
+pub(crate) struct Header {
+    pub(crate) span: Span,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) chomping: Option<char>,
+}
+
+pub(crate) fn headers(buffer: &str) -> Vec<Header> {
+    let chars: Vec<char> = buffer.chars().collect();
+    let line_starts = build_line_starts(&buffer.char_indices().collect::<Vec<_>>());
+    let mut headers = Vec::new();
+    let mut previous_end = 0;
+    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
+        let (span, token_type) = token.into_parts();
+        match token_type {
+            TokenType::Comment(_) => continue,
+            TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, _) => {
+                let marker = header_marker(&chars, previous_end);
+                let (line, column) =
+                    line_and_column(&line_starts, CharPos::new(marker));
+                headers.push(Header {
+                    span,
+                    line,
+                    column,
+                    chomping: chars[marker + 1..]
+                        .iter()
+                        .take_while(|ch| !ch.is_whitespace() && **ch != '#')
+                        .copied()
+                        .find(|ch| matches!(ch, '-' | '+')),
+                });
+            }
+            _ => {}
+        }
+        previous_end = span.end.index();
+    }
+    headers
+}
+
+/// The char index of the first `|`/`>` at or past `from` outside a comment.
+fn header_marker(chars: &[char], from: usize) -> usize {
+    let mut in_comment = false;
+    from + chars[from..]
+        .iter()
+        .position(|&ch| {
+            in_comment = (in_comment || ch == '#') && !matches!(ch, '\n' | '\r');
+            !in_comment && matches!(ch, '|' | '>')
         })
-        .expect("a block scalar has a marker-bearing header")
+        .expect("a block scalar has a `|` or `>` header")
+}
+
+/// Whether `buffer` ends inside a block scalar that keeps or clips its final line break,
+/// so a break appended after an unterminated last line joins its value.
+pub(crate) fn ends_in_unstripped_scalar(buffer: &str) -> bool {
+    let tokens: Vec<_> = Scanner::new(StrInput::new(buffer))
+        .map_while(Result::ok)
+        .map(granit_parser::Token::into_parts)
+        .filter(|(_, kind)| !matches!(kind, TokenType::BlockEnd | TokenType::StreamEnd))
+        .collect();
+    // granit emits a header's comment after its scalar, so a comment counts only past it.
+    let Some((span, TokenType::Scalar(..))) = tokens
+        .iter()
+        .rev()
+        .find(|(_, kind)| !matches!(kind, TokenType::Comment(_)))
+    else {
+        return false;
+    };
+    let commented_after = tokens.iter().any(|(comment, kind)| {
+        matches!(kind, TokenType::Comment(_))
+            && comment.start.index() >= span.end.index()
+    });
+    !commented_after
+        && headers(buffer).last().is_some_and(|header| {
+            header.span.start.index() == span.start.index()
+                && span.end.line() > header.line
+                && header.chomping != Some('-')
+        })
 }

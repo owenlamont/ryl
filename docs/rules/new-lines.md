@@ -16,7 +16,7 @@ Unix (LF), DOS/Windows (CRLF), or whatever the host platform produces.
 ## Configuration
 
 ```toml
-[rules.new-lines]
+[lint.rules.new-lines]
 level = "error"
 type = "unix"
 ```
@@ -59,10 +59,12 @@ the behaviour is identical. See
 `ryl check --fix` rewrites all line endings to match `type`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["new-lines"]
 ```
+
+`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending, and with any `type` under `line-ending = "auto"`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

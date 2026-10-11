@@ -22,15 +22,15 @@ use ryl::cli_support::{
 };
 use ryl::config::{
     ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
-    user_config_migration_paths,
+    is_inline_toml, user_config_migration_paths,
 };
 use ryl::config_schema::{
     OutputDestination, OutputTable, schema_string_pretty, yaml_schema_string_pretty,
 };
 use ryl::decoder;
 use ryl::fix::{
-    DiffStats, SAFE_FIX_RULE_IDS, apply_safe_fixes_to_files, diff_outcome,
-    diff_safe_fixes_for_files,
+    DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
+    rewrite_files, rewrite_str,
 };
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
@@ -51,10 +51,10 @@ const OUTPUT_INFALLIBLE: &str =
     "writing diagnostics to an in-memory buffer cannot fail";
 
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
-     least one rule, use 'extends: default' for the standard rule set, or pass '--enable ALL'";
+     least one rule, copy a preset from https://ryl-docs.pages.dev/config-presets/, or pass '--enable ALL'";
 
 const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
-     config that enables rules, use 'extends: default' for the standard rule set, or pass '--enable ALL'";
+     config that enables rules, copy a preset from https://ryl-docs.pages.dev/config-presets/, or pass '--enable ALL'";
 
 fn no_rules_error(config_found: bool) -> String {
     if config_found {
@@ -92,9 +92,9 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
 
 fn cli_overrides(args: &LintArgs) -> Overrides {
     Overrides {
-        config_file: args.config_file.clone(),
-        config_data: args.config_data.as_ref().map(|raw| {
-            if !raw.is_empty() && !raw.contains(':') {
+        config_file: args.source.config_file.clone(),
+        config_data: args.source.config_data.as_ref().map(|raw| {
+            if !raw.is_empty() && !raw.contains(':') && !is_inline_toml(raw) {
                 format!("extends: {raw}")
             } else {
                 raw.clone()
@@ -107,8 +107,8 @@ fn build_global_cfg(
     inputs: &[PathBuf],
     args: &LintArgs,
 ) -> Result<Option<ConfigContext>, String> {
-    if args.config_data.is_some()
-        || args.config_file.is_some()
+    if args.source.config_data.is_some()
+        || args.source.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
     {
         discover_config(inputs, &cli_overrides(args)).map(Some)
@@ -141,9 +141,9 @@ fn run_output_config(
 }
 
 fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
-    if !cli.lint_args.inputs.is_empty() {
+    if !cli.lint_args.source.inputs.is_empty() {
         return Err(
-            "error: migration takes no input paths; use --migrate-root <DIR> to \
+            "error: migration takes no input paths; use --migrate-root <PATH> to \
              choose where --migrate-configs searches"
                 .to_string(),
         );
@@ -194,26 +194,33 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         );
     }
     // Per-trigger "nothing migrated" feedback, reported independently so a combined run
-    // surfaces an empty trigger even when the other produced entries. The user-global entry
-    // (if any) is identified by its source path; the rest are project.
-    let user_source = user_config.as_ref().map(|user| user.source.as_path());
+    // surfaces an empty trigger even when the other produced entries. User-global entries
+    // are identified by their source paths; the rest are project.
+    let user_sources: Vec<PathBuf> =
+        user_config.as_ref().map_or_else(Vec::new, |user| {
+            let mut sources = user.ryl_config_paths();
+            sources.push(user.source.clone());
+            sources
+        });
     if let Some(root) = &project_root {
         let project_migrated = result
             .entries
             .iter()
-            .any(|entry| Some(entry.source.as_path()) != user_source);
+            .any(|entry| !is_user_source(&entry.source, &user_sources));
         if !project_migrated {
             println!(
-                "No legacy YAML config files migrated under {}",
+                "No legacy config files migrated under {}",
                 sanitize_control(&root.display().to_string())
             );
         }
     }
     if cli.migrate_user_config {
-        let user_migrated = user_source
-            .is_some_and(|source| result.entries.iter().any(|e| e.source == source));
+        let user_migrated = result
+            .entries
+            .iter()
+            .any(|entry| is_user_source(&entry.source, &user_sources));
         if !user_migrated {
-            println!("No yamllint user-global config migrated.");
+            println!("No user-global config migrated.");
         }
     }
     if options.output_mode == MigrateOutputMode::IncludeToml {
@@ -269,7 +276,7 @@ struct Cli {
     )]
     print_toml_config_schema: bool,
 
-    /// Print the JSON Schema for yamllint-compatible YAML config and exit
+    /// Print the JSON Schema for yamllint-compatible YAML config and exit (deprecated)
     #[arg(
         long = "print-yaml-config-schema",
         default_value_t = false,
@@ -277,7 +284,7 @@ struct Cli {
     )]
     print_yaml_config_schema: bool,
 
-    /// Convert discovered legacy YAML config files into .ryl.toml files
+    /// Convert legacy YAML configs into .ryl.toml files and move deprecated keys in ryl TOML configs
     #[arg(long = "migrate-configs", default_value_t = false)]
     migrate_configs: bool,
 
@@ -301,12 +308,15 @@ struct Cli {
     command: Option<Commands>,
 }
 
-/// Subcommands; none (bare `ryl <paths>`) lints, like `check`. The bare token `check`/`server`
-/// resolves to the subcommand, so lint a path of that name with `ryl check <name>`.
+/// Subcommands; none (bare `ryl <paths>`) lints, like `check`. A bare subcommand token
+/// (`check`/`format`/`server`) resolves to the subcommand, so lint a path of that name with
+/// `ryl check <name>`.
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
     /// Lint YAML inputs (the explicit form of bare `ryl <paths>`)
     Check(LintArgs),
+    /// Format YAML inputs in place
+    Format(FormatArgs),
     /// Run the language server (LSP) over stdio for editor integration
     #[cfg(feature = "lsp")]
     Server,
@@ -316,31 +326,23 @@ enum Commands {
 /// `ryl check`, so the two forms are byte-for-byte equivalent.
 #[derive(clap::Args, Debug, Default)]
 struct LintArgs {
-    /// One or more paths: files and/or directories, or `-` to read from stdin
-    #[arg(value_name = "PATH_OR_FILE")]
-    inputs: Vec<PathBuf>,
-
-    /// Filename used for diagnostics, config discovery, and yaml-files matching when reading stdin
-    #[arg(long = "stdin-filename", value_name = "FILE")]
-    stdin_filename: Option<PathBuf>,
-
-    /// Path to configuration file (YAML or TOML)
-    #[arg(short = 'c', long = "config-file", value_name = "FILE")]
-    config_file: Option<PathBuf>,
-
-    /// Inline configuration data (yaml)
-    #[arg(short = 'd', long = "config-data", value_name = "YAML")]
-    config_data: Option<String>,
+    #[command(flatten)]
+    source: SourceArgs,
 
     /// Output format (auto, standard, colored, github, parsable, junit, gitlab). Repeatable:
-    /// each `--format` may be followed by an `--output-file` to send that format to a file,
-    /// so console and report artifacts can be produced together.
-    #[arg(short = 'f', long = "format", value_enum)]
+    /// each `--output-format` may be followed by an `--output-file` to send that format to a
+    /// file, so console and report artifacts can be produced together.
+    #[arg(
+        short = 'f',
+        long = "output-format",
+        visible_alias = "format",
+        value_enum
+    )]
     format: Vec<CliFormat>,
 
-    /// Destination for the preceding `--format` (a path, or `-` for stdout). Repeatable;
-    /// each binds to the most recent `--format`. Default stream otherwise: stderr for the
-    /// console formats, stdout for junit/gitlab.
+    /// Destination for the preceding `--output-format` (a path, or `-` for stdout).
+    /// Repeatable; each binds to the most recent `--output-format`. Default stream
+    /// otherwise: stderr for the console formats, stdout for junit/gitlab.
     #[arg(
         short = 'o',
         long = "output-file",
@@ -351,6 +353,55 @@ struct LintArgs {
 
     #[command(flatten)]
     lint: LintFlags,
+}
+
+/// The inputs and config selection shared by `check` and `format`.
+#[derive(clap::Args, Debug, Default, Clone)]
+struct SourceArgs {
+    /// One or more paths: files and/or directories, or `-` to read from stdin
+    #[arg(value_name = "PATH_OR_FILE")]
+    inputs: Vec<PathBuf>,
+
+    /// Filename used for diagnostics, config discovery, and yaml-files matching when reading stdin
+    #[arg(long = "stdin-filename", value_name = "FILE")]
+    stdin_filename: Option<PathBuf>,
+
+    /// Path to configuration file (TOML, or deprecated yamllint YAML)
+    #[arg(short = 'c', long = "config-file", value_name = "FILE")]
+    config_file: Option<PathBuf>,
+
+    /// Inline configuration data (TOML, or deprecated yamllint YAML)
+    #[arg(short = 'd', long = "config-data", value_name = "DATA")]
+    config_data: Option<String>,
+}
+
+#[derive(clap::Args, Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "one field per CLI flag")]
+struct FormatArgs {
+    #[command(flatten)]
+    source: SourceArgs,
+
+    /// Write nothing; exit 1 if any file would be reformatted
+    #[arg(long = "check", default_value_t = false, conflicts_with = "diff")]
+    check: bool,
+
+    /// Print a unified diff of the formatting changes instead of writing them; exits 1 if any
+    /// file would change
+    #[arg(long = "diff", default_value_t = false)]
+    diff: bool,
+
+    /// Output format for the files `--check` would reformat; overrides `[output]`
+    #[arg(long = "output-format", value_enum)]
+    output_format: Option<CliFormat>,
+
+    /// Format inputs as Markdown (embedded YAML front matter and fenced yaml/yml
+    /// blocks) using default globs, without configuring `[files].markdown`
+    #[arg(long = "markdown", default_value_t = false)]
+    markdown: bool,
+
+    /// Suppress config warnings, the only warnings `ryl format` emits
+    #[arg(long = "no-warnings", default_value_t = false)]
+    no_warnings: bool,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -428,10 +479,10 @@ struct CompatibilityLintFlags {
 
 #[derive(clap::Args, Debug, Default)]
 struct MigrateFlags {
-    /// Root path to search for legacy YAML config files (default: .)
+    /// Directory to search for legacy YAML config files, or one config file (default: .)
     #[arg(
         long = "migrate-root",
-        value_name = "DIR",
+        value_name = "PATH",
         requires = "migrate_configs"
     )]
     root: Option<PathBuf>,
@@ -547,13 +598,13 @@ fn resolve_cli_targets(
             Occurrence::Format(format) => pending.push((format, None)),
             Occurrence::Output(path) => {
                 let Some((_, destination)) = pending.last_mut() else {
-                    return Err(
-                        "error: --output-file must follow a --format".to_string()
-                    );
+                    return Err("error: --output-file must follow an --output-format"
+                        .to_string());
                 };
                 if destination.is_some() {
                     return Err(
-                        "error: a --format takes at most one --output-file".to_string()
+                        "error: an --output-format takes at most one --output-file"
+                            .to_string(),
                     );
                 }
                 *destination = Some(if path.as_os_str() == "-" {
@@ -588,16 +639,24 @@ fn resolve_targets(
     if !cli_targets.is_empty() {
         return Ok(cli_targets);
     }
+    Ok(config_or_default_targets(config_output))
+}
+
+fn config_or_default_targets(config_output: Option<&OutputTable>) -> Vec<OutputTarget> {
     if let Some(config_targets) = config_output.map(config_targets_from_table)
         && !config_targets.is_empty()
     {
-        return Ok(config_targets);
+        return config_targets;
     }
-    let format = detect_output_format(CliFormat::Auto);
-    Ok(vec![OutputTarget {
+    vec![default_target(CliFormat::Auto)]
+}
+
+fn default_target(choice: CliFormat) -> OutputTarget {
+    let format = detect_output_format(choice);
+    OutputTarget {
         destination: default_destination(format),
         format,
-    }])
+    }
 }
 
 /// One target per declared format, in `OutputTable::entries` order (deterministic). Table
@@ -847,7 +906,7 @@ fn validate_targets(targets: &[OutputTarget], diff: bool) -> Result<(), String> 
 fn reject_diff_report_conflict(targets: &[OutputTarget]) -> Result<(), String> {
     if targets.iter().any(|target| !target.format.is_streaming()) {
         return Err(
-            "error: `--diff` cannot be combined with `--format junit` or `--format gitlab`"
+            "error: `--diff` cannot be combined with `--output-format junit` or `--output-format gitlab`"
                 .to_string(),
         );
     }
@@ -1022,6 +1081,7 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
                 .expect("check subcommand matches present");
             return run_lint(args, sub);
         }
+        Some(Commands::Format(args)) => return run_format(args),
         None => {}
     }
 
@@ -1051,7 +1111,7 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     }
 
     let args = &cli.lint_args;
-    if !args.inputs.is_empty() && !args.lint.compatibility.no_warnings {
+    if !args.source.inputs.is_empty() && !args.lint.compatibility.no_warnings {
         eprintln!(
             "warning: bare `ryl <paths>` is deprecated; use `ryl check <paths>` instead"
         );
@@ -1061,15 +1121,19 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     run_lint(args, matches)
 }
 
+/// Whether the inputs name stdin (`-`), which must then be the only input.
+fn stdin_requested(source: &SourceArgs) -> Result<bool, String> {
+    let has_stdin = source.inputs.iter().any(|p| p.as_path() == Path::new("-"));
+    if has_stdin && source.inputs.len() > 1 {
+        return Err(
+            "error: `-` (stdin) cannot be combined with other inputs".to_string()
+        );
+    }
+    Ok(has_stdin)
+}
+
 fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
-    let stdin_input = Path::new("-");
-    let has_stdin = args.inputs.iter().any(|p| p.as_path() == stdin_input);
-    if has_stdin {
-        if args.inputs.len() > 1 {
-            return Err(
-                "error: `-` (stdin) cannot be combined with other inputs".to_string()
-            );
-        }
+    if stdin_requested(&args.source)? {
         if args.lint.fix.fix {
             return Err(
                 "error: `--fix` is not supported when reading from stdin".to_string()
@@ -1078,53 +1142,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
         return run_stdin_lint(args, matches);
     }
 
-    if args.stdin_filename.is_some() {
-        return Err(
-            "error: `--stdin-filename` only applies when reading from stdin (`-`)"
-                .to_string(),
-        );
-    }
-
-    if args.inputs.is_empty() {
-        return Err(
-            "error: expected one or more paths (files and/or directories), or `-` for stdin"
-                .to_string(),
-        );
-    }
-
-    let flags = cli_config_flags(args);
-    let mut global_cfg = build_global_cfg(&args.inputs, args)?;
-    if let Some(ctx) = global_cfg.as_mut() {
-        flags.apply(&mut ctx.config, &ctx.base_dir);
-    }
-    if let Some(cfg) = &global_cfg {
-        for notice in &cfg.notices {
-            eprintln!("{}", sanitize_control(notice));
-        }
-    }
-    let inputs = &args.inputs;
-
-    let (candidates, explicit_files) = gather_inputs(inputs);
-
-    let global_resolved = global_cfg.as_ref().map(|ctx| {
-        (
-            ctx.base_dir.clone(),
-            Arc::new(ctx.config.clone()),
-            ctx.config_found,
-        )
-    });
-    let mut cache = ConfigCache::default();
-    let mut emitted_notices: HashSet<String> = HashSet::new();
-    let mut files: Vec<LintFile> = Vec::new();
-    let ruleless_config_found = gather_lint_files(
-        &candidates,
-        &explicit_files,
-        global_resolved.as_ref(),
-        &flags,
-        &mut cache,
-        &mut emitted_notices,
-        &mut files,
-    )?;
+    let (global_cfg, files, ruleless_config_found) = collect_files(args)?;
 
     if args.lint.compatibility.list_files {
         for (path, ..) in &files {
@@ -1139,7 +1157,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     let output_config = if args.lint.fix.diff {
         None
     } else {
-        run_output_config(global_cfg.as_ref(), &args.inputs, args)?
+        run_output_config(global_cfg.as_ref(), &args.source.inputs, args)?
     };
     let targets = resolve_targets(matches, args, output_config.as_ref())?;
     validate_targets(&targets, args.lint.fix.diff)?;
@@ -1159,10 +1177,71 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     }
 
     if args.lint.fix.diff {
-        return Ok(emit_diff(&diff_safe_fixes_for_files(&files)?));
+        return Ok(emit_diff(
+            &diff_files(&files, Rewrite::Fix, Preview::Diff.flag())?,
+            Preview::Diff,
+        ));
     }
 
     lint_and_exit(&files, args, targets)
+}
+
+type CollectedFiles = (Option<ConfigContext>, Vec<LintFile>, Option<bool>);
+
+/// The deduplicated files the (non-stdin) inputs select, with the global config they were
+/// resolved under and [`gather_lint_files`]' no-rules marker; config notices are emitted.
+///
+/// # Errors
+///
+/// A usage error for `--stdin-filename` without `-` or for no inputs; otherwise propagates
+/// a config or source-kind error.
+fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
+    if args.source.stdin_filename.is_some() {
+        return Err(
+            "error: `--stdin-filename` only applies when reading from stdin (`-`)"
+                .to_string(),
+        );
+    }
+
+    if args.source.inputs.is_empty() {
+        return Err(
+            "error: expected one or more paths (files and/or directories), or `-` for stdin"
+                .to_string(),
+        );
+    }
+
+    let flags = cli_config_flags(args);
+    let mut global_cfg = build_global_cfg(&args.source.inputs, args)?;
+    if let Some(ctx) = global_cfg.as_mut() {
+        flags.apply(&mut ctx.config, &ctx.base_dir);
+    }
+    let mut notices = global_cfg
+        .as_ref()
+        .map_or_else(Vec::new, |ctx| ctx.notices.clone());
+    let inputs = &args.source.inputs;
+
+    let (candidates, explicit_files) = gather_inputs(inputs);
+
+    let global_resolved = global_cfg.as_ref().map(|ctx| {
+        (
+            ctx.base_dir.clone(),
+            Arc::new(ctx.config.clone()),
+            ctx.config_found,
+        )
+    });
+    let mut cache = ConfigCache::default();
+    let mut files: Vec<LintFile> = Vec::new();
+    let ruleless_config_found = gather_lint_files(
+        &candidates,
+        &explicit_files,
+        global_resolved.as_ref(),
+        &flags,
+        &mut cache,
+        &mut notices,
+        &mut files,
+    )?;
+    emit_notices(&notices, args.lint.compatibility.no_warnings);
+    Ok((global_cfg, files, ruleless_config_found))
 }
 
 /// Open destinations before `--fix` mutates anything (so an unopenable `--output-file` fails
@@ -1225,9 +1304,9 @@ fn apply_fixes_reporting_skips(
     no_warnings: bool,
 ) -> Result<Vec<SafeFixRuleCounts>, String> {
     let before = safe_fix_rule_counts(&lint_files(files), no_warnings);
-    let fix_stats = apply_safe_fixes_to_files(files)?;
+    let fix_stats = rewrite_files(files, Rewrite::Fix)?;
     for (path, problem) in &fix_stats.skipped {
-        eprint_skip_notice(path, problem, "--fix");
+        eprint_skip_notice(path, problem, Rewrite::Fix.flag());
     }
     Ok(before)
 }
@@ -1294,7 +1373,8 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     if args.lint.fix.diff {
-        return run_stdin_diff(&path, &base_dir, &cfg, kind);
+        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Fix)?;
+        return Ok(emit_diff(&stats, Preview::Diff));
     }
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
@@ -1339,17 +1419,14 @@ fn resolve_stdin_kind(
     }
 }
 
-/// Read and decode stdin. The bool is whether the bytes were plain UTF-8 (no BOM, no
-/// transcode), i.e. whether a textual `--diff` would apply back to the original bytes.
-fn read_stdin_decoded(path: &Path) -> Result<(String, bool), String> {
+fn read_stdin_decoded(path: &Path) -> Result<(decoder::DecodedFile, Vec<u8>), String> {
     let mut buf = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let content = decoder::decode_bytes(&buf)
+    let content = decoder::decode_bytes_lossless(&buf)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let plain_utf8 = content.as_bytes() == buf.as_slice();
-    Ok((content, plain_utf8))
+    Ok((content, buf))
 }
 
 fn read_and_lint_stdin(
@@ -1360,55 +1437,214 @@ fn read_and_lint_stdin(
 ) -> Result<Vec<LintProblem>, String> {
     let (content, _) = read_stdin_decoded(path)?;
     Ok(match kind {
-        SourceKind::Markdown => lint_markdown_str(&content, path, cfg, base_dir),
-        SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
+        SourceKind::Markdown => {
+            lint_markdown_str(content.content(), path, cfg, base_dir)
+        }
+        SourceKind::Yaml => lint_str(content.content(), path, cfg, base_dir),
     })
 }
 
-fn run_stdin_diff(
+fn stdin_diff_stats(
     path: &Path,
     base_dir: &Path,
     cfg: &YamlLintConfig,
     kind: SourceKind,
-) -> Result<ExitCode, String> {
-    let (content, plain_utf8) = read_stdin_decoded(path)?;
+    rewrite: Rewrite,
+) -> Result<DiffStats, String> {
+    let (decoded, _) = read_stdin_decoded(path)?;
     let mut stats = DiffStats::default();
-    if plain_utf8 {
-        stats.record(path, diff_outcome(&content, cfg, path, base_dir, kind));
-    } else {
-        // The decoded-UTF-8 diff would not apply to the BOM'd/transcoded source, so skip
-        // rather than emit a patch that won't apply (same as the file path).
-        stats
-            .skipped
-            .push((path.to_path_buf(), ryl::fix::non_utf8_diff_skip()));
-    }
-    Ok(emit_diff(&stats))
+    stats.record(
+        path,
+        decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite),
+    );
+    Ok(stats)
 }
 
-/// Write per-file unified diffs to stdout and parse-skip notices to stderr, returning the
-/// `--diff` exit code: `1` if any file would change, else `0`. Only the diff drives the exit
-/// code; remaining unfixable diagnostics are neither printed nor counted.
-fn emit_diff(stats: &DiffStats) -> ExitCode {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Preview {
+    Diff,
+    Check,
+}
+
+impl Preview {
+    fn flag(self) -> &'static str {
+        match self {
+            Self::Diff => "--diff",
+            Self::Check => "--check",
+        }
+    }
+}
+
+fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
     for (path, problem) in &stats.skipped {
-        eprint_skip_notice(path, problem, "--diff");
+        eprint_skip_notice(path, problem, preview.flag());
     }
-    // Each diff already carries its trailing newline, so concatenate and print once.
-    let mut rendered = String::new();
-    for diff in &stats.diffs {
-        rendered.push_str(diff);
+    if preview == Preview::Diff {
+        // Each diff already carries its trailing newline, so concatenate and print once.
+        print!("{}", stats.diffs.concat());
     }
-    print!("{rendered}");
-    if stats.diffs.is_empty() {
+    if stats.changed_files == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
     }
 }
 
+/// `ryl format`: rewrite each input in place (stdin to stdout), or preview with
+/// `--check`/`--diff`. Unlike `check`, a config enabling no rules is not an error.
+///
+/// # Errors
+///
+/// A usage or config error, or a file that cannot be read or written.
+fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
+    let args = LintArgs {
+        source: format.source.clone(),
+        lint: LintFlags {
+            compatibility: CompatibilityLintFlags {
+                no_warnings: format.no_warnings,
+                ..CompatibilityLintFlags::default()
+            },
+            markdown: format.markdown,
+            ..LintFlags::default()
+        },
+        ..LintArgs::default()
+    };
+    let preview = if format.diff {
+        Some(Preview::Diff)
+    } else {
+        format.check.then_some(Preview::Check)
+    };
+    if stdin_requested(&args.source)? {
+        return run_stdin_format(&args, preview, format.output_format);
+    }
+    let (global_cfg, files, _) = collect_files(&args)?;
+    warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
+    if let Some(preview) = preview {
+        let output_config = if preview == Preview::Check {
+            run_output_config(global_cfg.as_ref(), &args.source.inputs, &args)?
+        } else {
+            None
+        };
+        let targets =
+            format_targets(preview, format.output_format, output_config.as_ref())?;
+        reject_input_collisions(
+            &targets,
+            files.iter().map(|(path, ..)| path.as_path()),
+        )?;
+        let stats = diff_files(&files, Rewrite::Format, preview.flag())?;
+        return emit_format_preview(&stats, preview, &targets);
+    }
+    for (path, problem) in &rewrite_files(&files, Rewrite::Format)?.skipped {
+        eprint_skip_notice(path, problem, Rewrite::Format.flag());
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Under `--check`, `--output-format` beats `[output]`; `--diff` keeps the default target,
+/// as in ruff.
+fn format_targets(
+    preview: Preview,
+    output_format: Option<CliFormat>,
+    config_output: Option<&OutputTable>,
+) -> Result<Vec<OutputTarget>, String> {
+    let targets = match (preview, output_format) {
+        (Preview::Diff, _) => config_or_default_targets(None),
+        (Preview::Check, Some(choice)) => vec![default_target(choice)],
+        (Preview::Check, None) => config_or_default_targets(config_output),
+    };
+    validate_targets(&targets, preview == Preview::Diff)?;
+    Ok(targets)
+}
+
+fn warn_format_conflicts<'a>(
+    configs: impl IntoIterator<Item = &'a YamlLintConfig>,
+    args: &LintArgs,
+) {
+    if args.lint.compatibility.no_warnings {
+        return;
+    }
+    let mut distinct: Vec<&YamlLintConfig> = Vec::new();
+    for cfg in configs {
+        if !distinct.iter().any(|seen| seen.source() == cfg.source()) {
+            distinct.push(cfg);
+        }
+    }
+    for cfg in &distinct {
+        let prefix = match (distinct.len() > 1, cfg.source()) {
+            (true, Some(path)) => {
+                format!("{}: ", sanitize_control(&path.display().to_string()))
+            }
+            _ => String::new(),
+        };
+        for warning in ryl::format::conflicts(cfg) {
+            eprintln!("warning: {prefix}{warning}");
+        }
+    }
+}
+
+fn emit_format_preview(
+    stats: &DiffStats,
+    preview: Preview,
+    targets: &[OutputTarget],
+) -> Result<ExitCode, String> {
+    let records: Vec<FileRecord> = stats
+        .problems
+        .iter()
+        .map(|(path, problems)| FileRecord {
+            path,
+            kept: problems.clone(),
+            error: None,
+        })
+        .collect();
+    emit_targets(targets, &records)?;
+    Ok(emit_diff(stats, preview))
+}
+
+/// `ryl format -`: the formatted text goes to stdout, an ignored `--stdin-filename` passing
+/// through unchanged.
+fn run_stdin_format(
+    args: &LintArgs,
+    preview: Option<Preview>,
+    output_format: Option<CliFormat>,
+) -> Result<ExitCode, String> {
+    let (path, base_dir, cfg, apply_yaml_files, _) = resolve_stdin_ctx(args)?;
+    let kind = resolve_stdin_kind(args, &cfg, &path, &base_dir, apply_yaml_files)?;
+    warn_format_conflicts([&cfg], args);
+    if let Some(preview) = preview {
+        let targets = format_targets(preview, output_format, cfg.output())?;
+        reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
+        let stats = match kind {
+            Some(kind) => {
+                stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?
+            }
+            None => DiffStats::default(),
+        };
+        return emit_format_preview(&stats, preview, &targets);
+    }
+    let (content, raw) = read_stdin_decoded(&path)?;
+    let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
+        rewrite_str(
+            content.content(),
+            &cfg,
+            &path,
+            &base_dir,
+            kind,
+            Rewrite::Format,
+        )
+    });
+    for problem in &skipped {
+        eprint_skip_notice(&path, problem, Rewrite::Format.flag());
+    }
+    std::io::stdout()
+        .write_all(&formatted.map_or(raw, |formatted| content.encode(&formatted)))
+        .expect("stdout accepts the output, as `print!` assumes");
+    Ok(ExitCode::SUCCESS)
+}
+
 fn resolve_stdin_ctx(
     args: &LintArgs,
 ) -> Result<(PathBuf, PathBuf, YamlLintConfig, bool, bool), String> {
-    let (path, apply_yaml_files) = match args.stdin_filename.clone() {
+    let (path, apply_yaml_files) = match args.source.stdin_filename.clone() {
         Some(name) => (name, true),
         None => (PathBuf::from(STDIN_LABEL), false),
     };
@@ -1418,15 +1654,31 @@ fn resolve_stdin_ctx(
         PathBuf::from(".")
     };
     let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
-    for notice in &ctx.notices {
-        eprintln!("{}", sanitize_control(notice.as_str()));
-    }
+    emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
     let mut cfg = ctx.config;
     cli_config_flags(args).apply(&mut cfg, &ctx.base_dir);
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
     Ok((path, ctx.base_dir, cfg, apply_yaml_files, ctx.config_found))
+}
+
+/// Whether a migrated `source` is a user-global config, by file identity so a relative
+/// `--migrate-root` spelling still matches; a deleted source only matches literally.
+fn is_user_source(source: &Path, user_sources: &[PathBuf]) -> bool {
+    user_sources.iter().any(|user| {
+        user == source || same_file::is_same_file(user, source).unwrap_or(false)
+    })
+}
+
+/// Config notices are all warnings, so `--no-warnings` silences them.
+fn emit_notices(notices: &[String], no_warnings: bool) {
+    if no_warnings {
+        return;
+    }
+    for notice in notices {
+        eprintln!("{}", sanitize_control(notice));
+    }
 }
 
 fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
@@ -1452,7 +1704,7 @@ fn gather_lint_files(
     global_cfg: Option<&ResolvedConfig>,
     flags: &CliConfigFlags,
     cache: &mut ConfigCache,
-    emitted_notices: &mut HashSet<String>,
+    notices: &mut Vec<String>,
     files: &mut Vec<LintFile>,
 ) -> Result<Option<bool>, String> {
     // `config_found` of the first selected file that enables no rules, so a no-rules run
@@ -1470,11 +1722,11 @@ fn gather_lint_files(
         .map(|path| (path, false))
         .chain(explicit_files.iter().map(|path| (path, true)));
     for (path, explicit) in tagged {
-        let (base_dir, cfg, notices, found) =
+        let (base_dir, cfg, file_notices, found) =
             resolve_ctx(path, global_cfg, flags, cache)?;
-        for notice in notices {
-            if emitted_notices.insert(notice.clone()) {
-                eprintln!("{}", sanitize_control(notice.as_str()));
+        for notice in file_notices {
+            if !notices.contains(&notice) {
+                notices.push(notice);
             }
         }
         if cfg.is_file_ignored(path, &base_dir) {

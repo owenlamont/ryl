@@ -10,8 +10,7 @@ pub mod encoding;
 pub mod hover;
 pub mod rename;
 
-use std::collections::{HashMap, HashSet};
-use std::ffi::OsStr;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -48,6 +47,7 @@ use lsp_types::{
 
 use crate::config::{ConfigContext, Overrides, SourceKind, discover_config};
 use crate::discover::gather_yaml_from_dir_cancellable;
+use crate::fix::Rewrite;
 use crate::lsp::encoding::{
     PositionEncoding, negotiate, offset_at, path_to_uri, uri_to_path,
 };
@@ -159,7 +159,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         next_refresh_id: 0,
         settings,
         documents: HashMap::new(),
-        reported_errors: HashSet::new(),
+        reported_messages: HashSet::new(),
         workers: Vec::new(),
         pull: None,
         revision: 0,
@@ -408,9 +408,9 @@ struct Server {
     next_refresh_id: i32,
     settings: Settings,
     documents: HashMap<String, Document>,
-    /// Config errors already surfaced via `window/showMessage`, so a broken config is
+    /// Config errors and warnings already surfaced via `window/showMessage`, so each is
     /// reported once rather than on every file/keystroke.
-    reported_errors: HashSet<String>,
+    reported_messages: HashSet<String>,
     /// In-flight `workspace/diagnostic` scans, each on its own thread so the repo walk
     /// never blocks the message loop.
     workers: Vec<Worker>,
@@ -509,12 +509,12 @@ impl Server {
         match method.as_str() {
             "textDocument/codeAction" => {
                 let result = parse::<CodeActionParams>(&params)
-                    .and_then(|params| self.code_action(&params));
+                    .and_then(|params| self.code_action(connection, &params));
                 respond(connection, id, result);
             }
             "textDocument/formatting" => {
                 let result = parse::<DocumentFormattingParams>(&params)
-                    .and_then(|params| self.formatting(&params));
+                    .and_then(|params| self.formatting(connection, &params));
                 respond(connection, id, result);
             }
             "textDocument/hover" => {
@@ -530,7 +530,7 @@ impl Server {
             "textDocument/rename" => self.rename(connection, id, &params),
             "textDocument/diagnostic" => {
                 let result = parse::<DocumentDiagnosticParams>(&params)
-                    .map(|params| self.document_diagnostic(&params));
+                    .map(|params| self.document_diagnostic(connection, &params));
                 respond(connection, id, result);
             }
             "workspace/diagnostic" => {
@@ -653,7 +653,10 @@ impl Server {
         text: String,
     ) {
         let diagnostics = match self.diagnostics_for(uri.as_str(), &text) {
-            Ok(diagnostics) => diagnostics,
+            Ok((diagnostics, notices)) => {
+                self.report_config_notices(connection, &notices);
+                diagnostics
+            }
             // A broken config disables linting silently; tell the user once, then publish
             // empty diagnostics.
             Err(error) => {
@@ -691,8 +694,7 @@ impl Server {
     /// does not keep showing diagnostics computed under the old config. A pull client without
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
-        // Clear the surfaced-errors set so a still-broken config re-reports once.
-        self.reported_errors.clear();
+        self.reported_messages.clear();
         if self.push_diagnostics {
             self.relint_open_documents(connection);
         } else if self.supports_diagnostic_refresh {
@@ -721,11 +723,27 @@ impl Server {
 
     /// Surface a config-discovery error to the user once (deduped by message).
     fn report_config_error(&mut self, connection: &Connection, error: &str) {
-        if self.reported_errors.insert(error.to_string()) {
-            let params = ShowMessageParams {
-                typ: MessageType::ERROR,
-                message: config_error_text(error),
-            };
+        self.show_message_once(
+            connection,
+            MessageType::ERROR,
+            config_error_text(error),
+        );
+    }
+
+    fn report_config_notices(&mut self, connection: &Connection, notices: &[String]) {
+        for notice in notices {
+            self.show_message_once(connection, MessageType::WARNING, notice.clone());
+        }
+    }
+
+    fn show_message_once(
+        &mut self,
+        connection: &Connection,
+        typ: MessageType,
+        message: String,
+    ) {
+        if self.reported_messages.insert(message.clone()) {
+            let params = ShowMessageParams { typ, message };
             send(
                 connection,
                 Message::Notification(Notification::new(
@@ -736,10 +754,26 @@ impl Server {
         }
     }
 
-    fn code_action(&self, params: &CodeActionParams) -> Option<CodeActionResponse> {
+    fn report_format_conflicts(
+        &mut self,
+        connection: &Connection,
+        context: &ConfigContext,
+    ) {
+        self.report_config_notices(
+            connection,
+            &crate::format::conflicts(&context.config),
+        );
+    }
+
+    fn code_action(
+        &mut self,
+        connection: &Connection,
+        params: &CodeActionParams,
+    ) -> Option<CodeActionResponse> {
         let uri = &params.text_document.uri;
-        let document = self.documents.get(uri.as_str())?;
         let target = self.resolve(uri.as_str()).ok().flatten()?;
+        self.report_config_notices(connection, &target.context.notices);
+        let document = self.documents.get(uri.as_str())?;
         let input = actions::Input {
             uri,
             text: &document.text,
@@ -751,20 +785,37 @@ impl Server {
             enc: self.encoding,
             supports_document_changes: self.supports_document_changes,
         };
-        actions::build(&input, &params.context)
+        let result = actions::build(&input, &params.context);
+        if params.context.only.as_deref().is_some_and(|only| {
+            crate::fix::SAFE_FIX_RULE_IDS.iter().any(|rule| {
+                actions::admits(Some(only), &format!("source.fixAll.ryl.{rule}"))
+            })
+        }) {
+            self.report_format_conflicts(connection, &target.context);
+        }
+        result
     }
 
-    fn formatting(&self, params: &DocumentFormattingParams) -> Option<Vec<TextEdit>> {
+    /// `ryl format` on the document. Like the CLI, it needs no enabled rule.
+    fn formatting(
+        &mut self,
+        connection: &Connection,
+        params: &DocumentFormattingParams,
+    ) -> Option<Vec<TextEdit>> {
         let uri = params.text_document.uri.as_str();
+        let (path, is_file) = self.uri_path(uri);
+        let target = self.resolve_path(path, is_file, false).ok().flatten()?;
+        self.report_config_notices(connection, &target.context.notices);
+        self.report_format_conflicts(connection, &target.context);
         let document = self.documents.get(uri)?;
-        let target = self.resolve(uri).ok().flatten()?;
-        Some(vec![analysis::fix_all_edit(
+        Some(vec![analysis::rewrite_edit(
             &document.text,
             &target.path,
             &target.context.config,
             &target.context.base_dir,
             target.kind,
             self.encoding,
+            Rewrite::Format,
         )?])
     }
 
@@ -773,7 +824,7 @@ impl Server {
         let document = self.documents.get(position.text_document.uri.as_str())?;
         // Recompute for hit-testing (sub-ms/file) rather than caching published diagnostics.
         // A config error here is silent: already surfaced on open/change.
-        let diagnostics = self
+        let (diagnostics, _) = self
             .diagnostics_for(position.text_document.uri.as_str(), &document.text)
             .unwrap_or_default();
         hover::hover(&diagnostics, position.position)
@@ -841,16 +892,22 @@ impl Server {
 
     /// The pull-diagnostic report for one document (open buffer if tracked, else disk).
     fn document_diagnostic(
-        &self,
+        &mut self,
+        connection: &Connection,
         params: &DocumentDiagnosticParams,
     ) -> DocumentDiagnosticReport {
         let uri = params.text_document.uri.as_str();
-        let items = self.document_text(uri).map_or_else(Vec::new, |text| {
-            // Surface a config failure as an error diagnostic, not an empty (clean) report,
-            // so a pull-only client is not misled into thinking the file is fine.
-            self.diagnostics_for(uri, &text)
-                .unwrap_or_else(|error| vec![config_error_diagnostic(&error)])
-        });
+        let (items, notices) =
+            self.document_text(uri)
+                .map_or_else(Default::default, |text| {
+                    // Surface a config failure as an error diagnostic, not an empty (clean)
+                    // report, so a pull-only client is not misled into thinking the file is
+                    // fine.
+                    self.diagnostics_for(uri, &text).unwrap_or_else(|error| {
+                        (vec![config_error_diagnostic(&error)], Vec::new())
+                    })
+                });
+        self.report_config_notices(connection, &notices);
         let result_id = analysis::result_id(&items);
         match &result_id {
             Some(id) if params.previous_result_id.as_ref() == Some(id) => {
@@ -944,6 +1001,10 @@ impl Server {
     }
 
     fn finish_scan(&mut self, connection: &Connection, result: ScanResult) {
+        if let Some(scan) = &result.scan {
+            let notices: Vec<String> = scan.notices.iter().cloned().collect();
+            self.report_config_notices(connection, &notices);
+        }
         let Some(pull) = self.pull.take() else {
             return;
         };
@@ -1013,11 +1074,17 @@ impl Server {
         let Some(path) = uri_to_path(uri) else {
             return false;
         };
-        self.settings.config_file.as_ref() == Some(&path)
-            || path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .is_some_and(|name| WATCHED_CONFIG_NAMES.contains(&name))
+        self.settings.config_file.as_ref().is_some_and(|config| {
+            crate::config::paths_equal(
+                config,
+                &path,
+                crate::config::CASE_INSENSITIVE_PATHS,
+            )
+        }) || crate::config::path_has_name(
+            &path,
+            &WATCHED_CONFIG_NAMES,
+            crate::config::CASE_INSENSITIVE_PATHS,
+        )
     }
 
     fn document_text(&self, uri: &str) -> Option<String> {
@@ -1028,23 +1095,26 @@ impl Server {
         crate::decoder::read_file(&path).ok()
     }
 
-    /// Diagnostics for `text` against `uri`'s config; `Err` on a config failure (callers
-    /// decide whether to surface it).
+    /// Diagnostics for `text` against `uri`'s config, plus the config's notices; `Err` on
+    /// a config failure (callers decide whether to surface it).
     fn diagnostics_for(
         &self,
         uri: &str,
         text: &str,
-    ) -> Result<Vec<Diagnostic>, String> {
+    ) -> Result<(Vec<Diagnostic>, Vec<String>), String> {
         Ok(match self.resolve(uri)? {
-            Some(target) => analysis::diagnostics(
-                text,
-                &target.path,
-                &target.context.config,
-                &target.context.base_dir,
-                target.kind,
-                self.encoding,
-            ),
-            None => Vec::new(),
+            Some(target) => {
+                let diagnostics = analysis::diagnostics(
+                    text,
+                    &target.path,
+                    &target.context.config,
+                    &target.context.base_dir,
+                    target.kind,
+                    self.encoding,
+                );
+                (diagnostics, target.context.notices)
+            }
+            None => Default::default(),
         })
     }
 
@@ -1057,8 +1127,8 @@ impl Server {
     }
 
     /// As [`Self::resolve`] but from an already-decoded path. `require_rules` gates on the
-    /// config enabling at least one rule (true for linting/fixing; false for rename, which
-    /// works regardless of lint config).
+    /// config enabling at least one rule (true for linting/fixing; false for rename and
+    /// formatting, which work regardless of lint config).
     fn resolve_path(
         &self,
         path: PathBuf,
@@ -1105,8 +1175,8 @@ struct Target {
 
 /// Resolve config + source kind for an already-decoded path, layering `settings` onto
 /// CLI-precedence discovery. `require_rules` gates on the config enabling at least one rule
-/// (true for linting/fixing; false for rename). Free (no `&self`) so a worker thread can
-/// call it too.
+/// (true for linting/fixing; false for rename and formatting). Free (no `&self`) so a
+/// worker thread can call it too.
 fn resolve_for_path(
     path: PathBuf,
     is_file: bool,
@@ -1159,38 +1229,44 @@ pub fn previous_by_path(previous: &[PreviousResultId]) -> PreviousIds {
         .collect()
 }
 
-/// Lint one workspace file for a pull report, preferring the open buffer's text. `None`
-/// skips a non-linted/ignored/unreadable file; a config failure becomes an error report,
-/// not a silent omit (a pull client would read absence as clean).
+/// Lint one workspace file for a pull report, preferring the open buffer's text, plus
+/// its config's notices. `None` skips a non-linted/ignored/unreadable file; a config
+/// failure becomes an error report, not a silent omit (a pull client would read absence
+/// as clean).
 fn file_report(
     path: &Path,
     settings: &Settings,
     encoding: PositionEncoding,
     open: &OpenText,
     previous: &PreviousIds,
-) -> Option<WorkspaceDocumentDiagnosticReport> {
+) -> (Option<WorkspaceDocumentDiagnosticReport>, Vec<String>) {
     let previous_id = previous.get(path).map(|(_, id)| id.as_str());
     let target = match resolve_for_path(path.to_path_buf(), true, true, settings) {
         Ok(Some(target)) => target,
-        Ok(None) => return None,
+        Ok(None) => return (None, Vec::new()),
         Err(error) => {
             let items = vec![config_error_diagnostic(&error)];
-            return file_pull_report(path, None, items, previous_id);
+            return (file_pull_report(path, None, items, previous_id), Vec::new());
         }
     };
-    let (text, version) = match open.get(path) {
-        Some((text, version)) => (text.clone(), Some(i64::from(*version))),
-        None => (crate::decoder::read_file(path).ok()?, None),
+    let text_and_version = match open.get(path) {
+        Some((text, version)) => Some((text.clone(), Some(i64::from(*version)))),
+        None => crate::decoder::read_file(path)
+            .ok()
+            .map(|text| (text, None)),
     };
-    let items = analysis::diagnostics(
-        &text,
-        &target.path,
-        &target.context.config,
-        &target.context.base_dir,
-        target.kind,
-        encoding,
-    );
-    file_pull_report(path, version, items, previous_id)
+    let report = text_and_version.and_then(|(text, version)| {
+        let items = analysis::diagnostics(
+            &text,
+            &target.path,
+            &target.context.config,
+            &target.context.base_dir,
+            target.kind,
+            encoding,
+        );
+        file_pull_report(path, version, items, previous_id)
+    });
+    (report, target.context.notices)
 }
 
 /// One file's entry in a workspace pull. `None` for an untracked clean file: nothing to
@@ -1229,6 +1305,7 @@ const STREAM_INTERVAL: Duration = Duration::from_millis(50);
 pub struct ScanOutcome {
     pub items: Vec<WorkspaceDocumentDiagnosticReport>,
     pub streamed: bool,
+    pub notices: BTreeSet<String>,
 }
 
 impl ScanOutcome {
@@ -1313,6 +1390,7 @@ impl ReportSink {
         ScanOutcome {
             items: self.held,
             streamed: self.streamed,
+            notices: BTreeSet::new(),
         }
     }
 }
@@ -1356,20 +1434,21 @@ pub fn workspace_scan(
         }
     }
     let mut covered: HashSet<&PathBuf> = HashSet::new();
+    let mut notices = BTreeSet::new();
     for batch in files.chunks(SCAN_BATCH) {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        let reports: Vec<(&PathBuf, WorkspaceDocumentDiagnosticReport)> = batch
+        let reports: Vec<_> = batch
             .par_iter()
-            .filter_map(|path| {
-                file_report(path, settings, encoding, open, previous)
-                    .map(|report| (path, report))
-            })
+            .map(|path| (path, file_report(path, settings, encoding, open, previous)))
             .collect();
-        for (path, report) in reports {
-            covered.insert(path);
-            sink.push(report);
+        for (path, (report, file_notices)) in reports {
+            notices.extend(file_notices);
+            if let Some(report) = report {
+                covered.insert(path);
+                sink.push(report);
+            }
         }
         sink.flush_batch();
     }
@@ -1381,7 +1460,10 @@ pub fn workspace_scan(
     {
         sink.push(workspace_report(uri.clone(), None, None, Vec::new()));
     }
-    Some(sink.finish())
+    Some(ScanOutcome {
+        notices,
+        ..sink.finish()
+    })
 }
 
 fn request_id(id: NumberOrString) -> RequestId {

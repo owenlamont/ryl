@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{
-    FixOutcome, apply_safe_fixes, apply_safe_fixes_capped, apply_safe_fixes_in_place,
-    apply_safe_fixes_to_files,
+    FixOutcome, Rewrite, apply_safe_fixes, apply_safe_fixes_capped, rewrite_files,
+    rewrite_in_place,
 };
 use tempfile::tempdir;
 
@@ -22,7 +22,8 @@ fn apply_safe_fixes_in_place_reports_no_change() {
     );
 
     let outcome =
-        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+        rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("fix succeeds");
 
     assert_eq!(outcome, FixOutcome::default());
     assert_eq!(fs::read_to_string(&file).unwrap(), "key: value\n");
@@ -36,7 +37,8 @@ fn apply_safe_fixes_in_place_writes_changes() {
     let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
 
     let outcome =
-        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+        rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("fix succeeds");
 
     assert!(outcome.changed && outcome.skipped.is_empty());
     assert_eq!(
@@ -53,7 +55,8 @@ fn apply_safe_fixes_in_place_skips_and_reports_unparsable_file() {
     let cfg = config("rules:\n  trailing-spaces: enable\n");
 
     let outcome =
-        apply_safe_fixes_in_place(&file, &cfg, dir.path()).expect("fix succeeds");
+        rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("fix succeeds");
 
     assert!(!outcome.changed, "an unparsable file is not changed");
     assert_eq!(outcome.skipped.len(), 1, "one whole-file parse error");
@@ -121,7 +124,7 @@ fn apply_safe_fixes_in_place_returns_read_error_for_missing_file() {
     let file = dir.path().join("missing.yaml");
     let cfg = config("rules:\n  comments: enable\n");
 
-    let err = apply_safe_fixes_in_place(&file, &cfg, dir.path())
+    let err = rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
         .expect_err("missing file should fail");
 
     assert!(err.contains("failed to read"));
@@ -138,7 +141,7 @@ fn apply_safe_fixes_in_place_returns_write_error_for_read_only_file() {
 
     let cfg = config("rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n");
 
-    let err = apply_safe_fixes_in_place(&file, &cfg, dir.path())
+    let err = rewrite_in_place(&file, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
         .expect_err("read-only file should fail");
 
     assert!(err.contains("failed to write fixed file"));
@@ -197,7 +200,7 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
         ),
     ];
 
-    let stats = apply_safe_fixes_to_files(&files).expect("fixes succeed");
+    let stats = rewrite_files(&files, Rewrite::Fix).expect("fixes succeed");
 
     assert_eq!(
         fs::read_to_string(&first).unwrap(),
@@ -283,7 +286,7 @@ fn apply_safe_fixes_skips_quoted_strings_when_unfixable() {
     fs::write(&file, "foo: \"bar\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[fix]\nunfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nunfixable = [\"quoted-strings\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -302,7 +305,7 @@ fn fix_config_allows_quoted_strings_when_listed_in_fixable() {
     fs::write(&file, "foo: bar\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[fix]\nfixable = [\"quoted-strings\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nfixable = [\"quoted-strings\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -318,7 +321,7 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     fs::write(&file, "foo: bar\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[fix]\nfixable = [\"comments\"]\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nfixable = [\"comments\"]\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -327,14 +330,12 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     assert!(!ctx.config.fix().allows_rule("quoted-strings"));
 }
 
-/// Runs the two-pass repro (quoted-strings joins a continuation line, stranding a comment
-/// for comments-indentation) under `max_passes`, returning the output and the error text.
-fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
+fn fix_capped_repro(max_passes: usize) -> (String, String) {
     let cfg =
-        config("rules:\n  comments-indentation: enable\n  quoted-strings: enable\n");
+        config("rules:\n  document-end: {present: true}\n  trailing-spaces: enable\n");
     let mut err = Vec::new();
     let fixed = apply_safe_fixes_capped(
-        "a: b\n  c\n  # x\nd: e\n",
+        "a: |-\n  x\n  ",
         &cfg,
         std::path::Path::new("input.yaml"),
         std::path::Path::new("."),
@@ -346,16 +347,16 @@ fn fix_two_pass_repro(max_passes: usize) -> (String, String) {
 }
 
 #[test]
-fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
-    let (fixed, err) = fix_two_pass_repro(1);
+fn fix_pipeline_reports_failure_when_no_pass_is_allowed() {
+    let (fixed, err) = fix_capped_repro(0);
 
-    assert_eq!(fixed, "a: 'b c'\n  # x\nd: 'e'\n");
+    assert_eq!(fixed, "a: |-\n  x\n  ");
     for expected in [
-        "error: Failed to converge after 1 iterations.",
+        "error: Failed to converge after 0 iterations.",
         "This indicates a bug in ryl.",
         "https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D",
         "`input.yaml`",
-        "the rule ids comments-indentation,",
+        "the rule ids trailing-spaces,",
     ] {
         assert!(err.contains(expected), "missing {expected:?} in {err:?}");
     }
@@ -363,8 +364,25 @@ fn fix_pipeline_reports_failure_to_converge_and_keeps_partial_fix() {
 
 #[test]
 fn fix_pipeline_converging_exactly_at_the_cap_reports_nothing() {
-    let (fixed, err) = fix_two_pass_repro(2);
+    let (fixed, err) = fix_capped_repro(1);
 
-    assert_eq!(fixed, "a: 'b c'\n# x\nd: 'e'\n");
+    assert_eq!(fixed, "a: |-\n  x\n...\n");
     assert_eq!(err, "");
+}
+
+#[test]
+fn an_unfixable_new_lines_still_sets_the_appended_final_newline() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint]\nunfixable = [\"new-lines\"]\n\n[lint.rules]\nnew-line-at-end-of-file = 'enable'\n\n[lint.rules.new-lines]\ntype = 'dos'\n",
+    )
+    .unwrap();
+    let ctx = discover_config(std::slice::from_ref(&file), &Overrides::default())
+        .expect("config discovers");
+
+    let fixed = apply_safe_fixes("a: 1\nb: 2", &ctx.config, &file, &ctx.base_dir);
+
+    assert_eq!(fixed, "a: 1\nb: 2\r\n");
 }

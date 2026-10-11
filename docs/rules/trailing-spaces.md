@@ -15,7 +15,7 @@ Reports whitespace at the end of any line.
 ## Configuration
 
 ```toml
-[rules.trailing-spaces]
+[lint.rules.trailing-spaces]
 level = "error"
 ```
 
@@ -51,14 +51,17 @@ key: value
 ## Automatic fixing
 
 `ryl check --fix` strips trailing spaces and tabs from each line. The fix is
-**partial** by design: lines inside literal/folded block scalars
-(`|`/`>`) and inside multi-line double-quoted scalars are left untouched,
-because in those contexts trailing whitespace can be part of the parsed
-scalar value. The diagnostic still fires on those lines so the
+**partial** by design: space-only lines inside literal/folded block scalars
+(`|`/`>`) are stripped when no wider than the scalar's indentation. Spaces
+past that indentation are content and stay, as do trailing spaces on content
+lines and whitespace inside multi-line double-quoted scalars. The diagnostic still fires on those lines so the
 remaining trailing whitespace is visible after `--fix`; edit them by
 hand if you want them clean. Multi-line single-quoted and plain scalars
 fold trailing whitespace away at parse time, so the fix can safely
 strip those.
+
+An indentation-only final line is stripped without adding a scalar line break.
+For example, `a: |+\r\n    ` becomes `a: |+\r\n`; both load as an empty string.
 
 The fix bails (leaves the file untouched) when the input cannot be
 parsed as YAML, so a broken document is never made worse.
@@ -66,10 +69,12 @@ parsed as YAML, so a broken document is never made worse.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["trailing-spaces"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 

@@ -91,7 +91,11 @@ fn merging_a_wide_base_into_many_hosts_stays_bounded() {
     doc.push_str("tail:\n  <<: [*base]\n");
     fs::write(&target, doc).unwrap();
     let config = dir.path().join("ryl.toml");
-    fs::write(&config, "[rules.key-duplicates]\ncheck-canonical = true\n").unwrap();
+    fs::write(
+        &config,
+        "[lint.rules.key-duplicates]\ncheck-canonical = true\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _out, err) = run(Command::new(exe).arg("-c").arg(&config).arg(&target));
@@ -121,7 +125,11 @@ fn deeply_nested_anchored_merges_stay_bounded() {
     doc.push_str(&format!("{indent}<<: *base\n"));
     fs::write(&target, doc).unwrap();
     let config = dir.path().join("ryl.toml");
-    fs::write(&config, "[rules.key-duplicates]\ncheck-canonical = true\n").unwrap();
+    fs::write(
+        &config,
+        "[lint.rules.key-duplicates]\ncheck-canonical = true\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _out, err) = run(Command::new(exe).arg("-c").arg(&config).arg(&target));
@@ -146,7 +154,11 @@ fn merging_a_wide_anchor_many_times_stays_bounded() {
     doc.push_str(&format!("host:\n  <<: [{refs}]\n"));
     fs::write(&target, doc).unwrap();
     let config = dir.path().join("ryl.toml");
-    fs::write(&config, "[rules.key-duplicates]\ncheck-canonical = true\n").unwrap();
+    fs::write(
+        &config,
+        "[lint.rules.key-duplicates]\ncheck-canonical = true\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _out, err) = run(Command::new(exe).arg("-c").arg(&config).arg(&target));
@@ -165,7 +177,11 @@ fn linting_alias_bomb_with_check_canonical_stays_bounded() {
     let target = dir.path().join("bomb.yaml");
     fs::write(&target, alias_bomb()).unwrap();
     let config = dir.path().join("ryl.toml");
-    fs::write(&config, "[rules.key-duplicates]\ncheck-canonical = true\n").unwrap();
+    fs::write(
+        &config,
+        "[lint.rules.key-duplicates]\ncheck-canonical = true\n",
+    )
+    .unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _out, err) = run(Command::new(exe).arg("-c").arg(&config).arg(&target));

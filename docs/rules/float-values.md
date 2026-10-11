@@ -16,7 +16,7 @@ values `.nan` and `.inf`.
 ## Configuration
 
 ```toml
-[rules.float-values]
+[lint.rules.float-values]
 level = "error"
 require-numeral-before-decimal = false
 forbid-scientific-notation = false

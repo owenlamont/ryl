@@ -1,8 +1,9 @@
 # ryl
 
-ryl - the Rust YAML linter - is intended to ultimately be a drop-in
-replacement for [yamllint](https://github.com/adrienverge/yamllint). It is
-usable today, but parity and edge-case behaviour are still maturing.
+ryl - the Rust YAML linter - implements the rules of
+[yamllint](https://github.com/adrienverge/yamllint) and converts yamllint
+configs to its own TOML. It is usable today, but parity and edge-case behaviour
+are still maturing.
 
 Full documentation lives at <https://ryl-docs.pages.dev/>.
 
@@ -25,13 +26,13 @@ Full documentation lives at <https://ryl-docs.pages.dev/>.
 ## Quick start
 
 ryl enables no rules by default, so it needs a configuration or `--enable` that
-turns rules on. `-d 'extends: default'` opts into yamllint's standard rule set for
-a one-off run, and `--enable <RULES>` runs just the named rules; for a project,
+turns rules on. `--enable ALL` runs every rule for a one-off run, and
+`--enable <RULES>` runs just the named rules; for a project,
 drop a `.ryl.toml` at the root (see
 [Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
 
-`ryl check` is the lint subcommand (a `ryl format` formatter is coming) and the
-recommended form. Bare `ryl <paths>` still lints identically but is deprecated: it
+`ryl check` is the lint subcommand and the recommended form; `ryl format` is the
+formatter. Bare `ryl <paths>` still lints identically but is deprecated: it
 prints a warning to stderr (silenced by `--no-warnings`) and a later release will
 remove it, so prefer `ryl check`.
 
@@ -41,6 +42,10 @@ uvx ryl check -d 'extends: default' .
 
 # Using npx (Node.js)
 npx @owenlamont/ryl check -d 'extends: default' .
+
+# Format in place, or check formatting in CI
+uvx ryl format .
+uvx ryl format --check .
 ```
 
 For `prek` / `pre-commit` integration, see
@@ -66,19 +71,20 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   yamllint equivalent (`tags`, `merge-keys`, `block-scalar-chomping`, and
   `unicode-line-breaks`), configured in TOML only. The current rule reference
   and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.
-- Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `commas`,
-  `comments`, `comments-indentation`, `document-end`, `document-start`,
-  `empty-lines`, `key-ordering`, `new-line-at-end-of-file`, `new-lines`,
-  `quoted-strings`, `trailing-spaces`, and `truthy` (case only, e.g. `True`
-  to `true`). The set of rules that may apply fixes is configurable via the
-  TOML `[fix]` table.
+- Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `colons`,
+  `commas`, `comments`, `comments-indentation`, `document-end`,
+  `document-start`, `empty-lines`, `hyphens`, `key-ordering`,
+  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`,
+  and `truthy` (case only, e.g. `True` to `true`). The set of rules that may
+  apply fixes is configurable via the TOML `lint.fixable`/`lint.unfixable`
+  keys.
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file
   would change.
 - TOML is the recommended configuration format and supports ryl-only
-  features that have no upstream equivalent: the `[fix]` table,
-  `[per-file-ignores]`, and rule options such as
+  features that have no upstream equivalent: the `lint.fixable`/`lint.unfixable`
+  fix policy, `[lint.per-file-ignores]`, and rule options such as
   `allow-double-quotes-for-escaping`.
 - TOML assigns each file a source kind via the `[files]` table
   (`yaml = [...]`, `markdown = [...]`). The legacy `yaml-files` key is YAML-only;
@@ -88,10 +94,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   to the Markdown file. It is off by default; `--fix` writes safe fixes back into
   the embedded blocks and `--diff` previews them at the host-file level. See
   <https://ryl-docs.pages.dev/markdown/>.
-- yamllint-style YAML configuration is also accepted (`.yamllint`,
-  `.yamllint.yml`, `.yamllint.yaml`) for drop-in compatibility, including
-  the built-in `default`, `relaxed`, and `empty` presets via `extends`.
-  An existing yamllint configuration can be converted with
+- yamllint-style YAML configuration (`.yamllint`, `.yamllint.yml`,
+  `.yamllint.yaml`, including the `default`, `relaxed`, and `empty` presets via
+  `extends`) still works but is deprecated and warns; convert it with
   `ryl --migrate-configs --migrate-write`.
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`

@@ -48,9 +48,20 @@ fn stdin_with_no_enabled_rules_errors() {
 
 #[test]
 fn stdin_clean_yaml_succeeds_and_uses_label() {
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n",
+    )
+    .unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) =
-        run_with_stdin(Command::new(exe).arg("check").arg("-"), b"key: value\n");
+    let (code, stdout, stderr) = run_with_stdin(
+        Command::new(exe)
+            .current_dir(td.path())
+            .arg("check")
+            .arg("-"),
+        b"key: value\n",
+    );
     assert_eq!(code, 0, "expected success: stdout={stdout} stderr={stderr}");
     assert!(stdout.is_empty(), "expected empty stdout: {stdout}");
     assert!(stderr.is_empty(), "expected empty stderr: {stderr}");
@@ -159,7 +170,7 @@ fn stdin_filename_anchors_project_config_discovery() {
     fs::create_dir(&pkg).unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nkey-duplicates = \"disable\"\ntrailing-spaces = \"enable\"\n",
+        "[lint.rules]\nkey-duplicates = \"disable\"\ntrailing-spaces = \"enable\"\n",
     )
     .unwrap();
 
@@ -185,7 +196,7 @@ fn stdin_without_filename_ignores_per_file_ignores() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = \"enable\"\n\n[per-file-ignores]\n\"*\" = [\"document-start\"]\n",
+        "[lint.rules]\ndocument-start = \"enable\"\n\n[lint.per-file-ignores]\n\"*\" = [\"document-start\"]\n",
     )
     .unwrap();
 
@@ -239,7 +250,7 @@ fn stdin_filename_respects_per_file_ignores() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = \"enable\"\n\n[per-file-ignores]\n\"ignored.yaml\" = [\"document-start\"]\n",
+        "[lint.rules]\ndocument-start = \"enable\"\n\n[lint.per-file-ignores]\n\"ignored.yaml\" = [\"document-start\"]\n",
     )
     .unwrap();
 
@@ -436,7 +447,7 @@ fn stdin_emits_legacy_yaml_notice_when_toml_present() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntrailing-spaces = \"enable\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n",
     )
     .unwrap();
     fs::write(
@@ -477,7 +488,7 @@ fn stdin_markdown_filename_lints_embedded_yaml() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n",
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
 
@@ -522,7 +533,7 @@ fn stdin_markdown_filename_ignored_is_skipped() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "files = { markdown = [\"*.md\"] }\nignore = [\"doc.md\"]\n[rules]\ncolons = \"enable\"\n",
+        "files = { markdown = [\"*.md\"] }\nexclude = [\"doc.md\"]\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
 
@@ -574,7 +585,7 @@ fn stdin_markdown_overlap_is_a_hard_error() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n",
+        "files = { yaml = [\"*.md\"], markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
 

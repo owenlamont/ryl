@@ -5,6 +5,8 @@
 Requires that standalone comment lines line up with the surrounding
 content. A comment must share the indentation of the line that follows it
 (or, when at the end of the file, the line that precedes it).
+A line-1 `#!` shebang or `#cloud-config` header is exempt, where yamllint
+checks it: moving it would break the file.
 
 ## Why this matters
 
@@ -16,7 +18,7 @@ content. A comment must share the indentation of the line that follows it
 ## Configuration
 
 ```toml
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "error"
 # Accept a comment aligned to any still-open enclosing block level (default false).
 allow-any-open-indent = false
@@ -75,10 +77,12 @@ parent:
 follows them. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 

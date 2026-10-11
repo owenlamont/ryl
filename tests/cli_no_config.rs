@@ -39,7 +39,7 @@ fn no_config_found_is_rejected_with_escape_hatch() {
     );
     assert!(
         err.contains("no configuration found")
-            && err.contains("extends: default")
+            && err.contains("config-presets")
             && err.contains("--enable ALL"),
         "expected the no-config error naming both escape hatches: {err}"
     );
@@ -85,7 +85,7 @@ fn mixed_run_reports_no_config_for_the_unconfigured_file() {
     let configured = tempdir().unwrap();
     std::fs::write(
         configured.path().join(".ryl.toml"),
-        "[rules]\nanchors = \"enable\"\n",
+        "[lint.rules]\nanchors = \"enable\"\n",
     )
     .unwrap();
     let with_config = configured.path().join("a.yaml");

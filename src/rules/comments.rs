@@ -1,11 +1,13 @@
 //! `comments`: `#` comment formatting: a required space after the `#`, a minimum and
-//! (ryl-only) maximum gap from preceding inline content, and an optional shebang
-//! exemption. Mirrors yamllint's `comments`. Safe `--fix` pads or trims the spaces.
+//! (ryl-only) maximum gap from preceding inline content, and an optional exemption
+//! for a line-1 shebang or `#cloud-config`. Mirrors yamllint's `comments`. Safe
+//! `--fix` pads or trims the spaces.
 
 use granit_parser::Placement;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::comments_scan::{CommentInfo, collect_comments};
+use crate::rules::support::line_syntax::is_magic_first_line_comment;
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 
 pub const ID: &str = "comments";
@@ -32,6 +34,17 @@ impl Config {
             ignore_shebangs,
             min_spaces_from_content: spacing("min-spaces-from-content", 2),
             max_spaces_from_content: spacing("max-spaces-from-content", -1),
+        }
+    }
+
+    /// Exactly `spaces` between content and an inline comment.
+    #[must_use]
+    pub const fn exact_gap(spaces: usize, require_starting_space: bool) -> Self {
+        Self {
+            require_starting_space,
+            ignore_shebangs: true,
+            min_spaces_from_content: Some(spaces),
+            max_spaces_from_content: Some(spaces),
         }
     }
 
@@ -96,7 +109,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             continue;
         };
 
-        if cfg.ignore_shebangs() && line == 1 && hash_column == 1 && next_char == '!' {
+        if cfg.ignore_shebangs()
+            && line == 1
+            && hash_column == 1
+            && is_magic_first_line_comment(&comment.text)
+        {
             continue;
         }
 
@@ -157,7 +174,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
             continue;
         };
 
-        if cfg.ignore_shebangs() && line == 1 && hash_column == 1 && next_char == '!' {
+        if cfg.ignore_shebangs()
+            && line == 1
+            && hash_column == 1
+            && is_magic_first_line_comment(&comment.text)
+        {
             continue;
         }
 

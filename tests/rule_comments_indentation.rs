@@ -5,7 +5,7 @@ fn run(input: &str) -> Vec<Violation> {
 }
 
 fn run_open(input: &str) -> Vec<Violation> {
-    comments_indentation::check(input, &Config::new_for_tests(true))
+    comments_indentation::check(input, &Config::new(true))
 }
 
 #[test]
@@ -372,10 +372,7 @@ fn allow_any_open_indent_accepts_compact_explicit_key() {
 #[test]
 fn allow_any_open_indent_fix_leaves_open_level_comment() {
     let input = "items:\n  - one\n# boundary\n  - two\n";
-    assert_eq!(
-        comments_indentation::fix(input, &Config::new_for_tests(true)),
-        None
-    );
+    assert_eq!(comments_indentation::fix(input, &Config::new(true)), None);
 }
 
 #[test]
@@ -383,7 +380,119 @@ fn allow_any_open_indent_fix_reindents_genuine_violation() {
     // A comment matching no open level is still re-indented to the reference indent.
     let input = "a:\n  b:\n    deep: 1\n  c: 2\n    # stale level\ne: 3\n";
     assert_eq!(
-        comments_indentation::fix(input, &Config::new_for_tests(true)),
+        comments_indentation::fix(input, &Config::new(true)),
         Some("a:\n  b:\n    deep: 1\n  c: 2\n  # stale level\ne: 3\n".to_string())
+    );
+}
+
+#[test]
+fn hash_led_line_inside_a_scalar_is_not_a_comment() {
+    for input in [
+        "key: 'aaa\n  #bbb'\n",
+        "key: \"aaa\n        #bbb\"\nnext: 1\n",
+        "key: ['aaa\n  #bbb', c]\n",
+        "|\n #b\n",
+        "key: !!str |\n  #b\n",
+        "key: &x |\n  #b\nalias: *x\n",
+    ] {
+        assert_eq!(run(input), vec![], "flagged a scalar line in {input:?}");
+        assert_eq!(
+            comments_indentation::fix(input, &Config::default()),
+            None,
+            "rewrote a scalar line in {input:?}"
+        );
+    }
+}
+
+#[test]
+fn fix_keeps_corpus_block_scalar_lines_in_place() {
+    for input in [
+        "|\n  literal\n # c\n",
+        "k: |\n  |--- |--- |\n  |PUT|x|\n    ### S\n",
+        "|\n|\n #\n",
+    ] {
+        assert_eq!(
+            comments_indentation::fix(input, &Config::default()),
+            None,
+            "rewrote {input:?}"
+        );
+    }
+}
+
+#[test]
+fn scalar_continuation_lines_are_not_content() {
+    for input in [
+        "key: 'a\n      b'\n      # c\nnext: 1\n",
+        "key: a\n      b\n      # c\nnext: 1\n",
+    ] {
+        assert_eq!(
+            run(input),
+            vec![Violation { line: 3, column: 7 }],
+            "continuation line taken as content in {input:?}"
+        );
+    }
+}
+
+#[test]
+fn flow_syntax_after_a_quoted_scalar_keeps_its_line_as_content() {
+    for (scalar, rest) in [("'x", "y']"), ("\"x", "y\"]"), ("'x", "y', z]")] {
+        for newline in ["\n", "\r\n"] {
+            let doc = |comment_indent: usize| {
+                [
+                    "a:".to_string(),
+                    format!("  b: [{scalar}"),
+                    format!("        {rest}"),
+                    format!("{}# c", " ".repeat(comment_indent)),
+                    "c: 1".to_string(),
+                    String::new(),
+                ]
+                .join(newline)
+            };
+            assert_eq!(run(&doc(8)), vec![], "{:?}", doc(8));
+            assert_eq!(
+                run(&doc(2)),
+                vec![Violation { line: 4, column: 3 }],
+                "{:?}",
+                doc(2)
+            );
+        }
+    }
+}
+
+#[test]
+fn line_after_a_block_scalar_is_content() {
+    let input = "- key: |\n    a\n  next: 1\n  # c\n- z\n";
+    assert_eq!(
+        run(input),
+        vec![],
+        "comment aligned with `next` was flagged"
+    );
+    assert_eq!(
+        run("k: |\n  x\nn:\n# c\n  m: 1\n"),
+        vec![Violation { line: 4, column: 1 }],
+        "`n:` was not taken as content"
+    );
+}
+
+#[test]
+fn comment_after_a_block_scalar_trails_it_as_in_yamllint() {
+    let cases = [
+        ("key: |\n  a\n # c\nnext: 1\n", vec![]),
+        ("key: |\n  a\n # c\n # d\nnext: 1\n", vec![]),
+        ("a:\n  key: |\n    a\n\n # c\n  n: 1\n", vec![]),
+        (
+            "key: |\n  a\n # c\n   # d\nnext: 1\n",
+            vec![Violation { line: 4, column: 4 }],
+        ),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(run(input), expected, "{input:?}");
+    }
+    assert_eq!(
+        comments_indentation::fix(
+            "key: |\n  a\n # c\n   # d\nnext: 1\n",
+            &Config::default()
+        ),
+        Some("key: |\n  a\n # c\n # d\nnext: 1\n".to_string())
     );
 }

@@ -81,133 +81,62 @@ pub fn lint_markdown_file(
     ))
 }
 
-/// Run one rule under the standard gate (skip a disabled rule or a per-rule-ignored file)
-/// and append a [`LintProblem`] per violation in the rule's own report order. The arms
-/// cover the shapes rules have: a resolved `&Config` or none, a `Vec` or `Option` of
-/// violations, and a per-violation message or a fixed module `MESSAGE`. `$m` is the rule
-/// module; its `ID` / `check` / `Config` / `MESSAGE` are reached through it.
+macro_rules! emit_problems {
+    ($diagnostics:expr, $rule:ident, $hits:expr, $level:expr, $message:expr) => {
+        $diagnostics.extend($hits.into_iter().map(|hit| $crate::lint::LintProblem {
+            line: hit.line,
+            column: hit.column,
+            level: $level,
+            message: $message(hit),
+            rule: Some($rule::ID),
+        }))
+    };
+}
+
+pub(crate) use emit_problems;
+
 macro_rules! lint_rule {
-    // config, `Vec<Violation>`, per-violation message (the common rule shape)
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident) => {
-        if let Some(level) = $cfg.rule_level($m::ID)
-            && !$cfg.is_rule_ignored($m::ID, $path, $base)
-        {
-            for hit in $m::check($content, &$m::Config::resolve($cfg)) {
-                $d.push(LintProblem {
-                    line: hit.line,
-                    column: hit.column,
-                    level: level.into(),
-                    message: hit.message,
-                    rule: Some($m::ID),
-                });
-            }
-        }
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check($content, &$m::Config::resolve($cfg)),
+            |hit: $m::Violation| hit.message);
     };
-    // config resolved for the file's path, `Vec<Violation>`, per-violation message
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, path) => {
-        if let Some(level) = $cfg.rule_level($m::ID)
-            && !$cfg.is_rule_ignored($m::ID, $path, $base)
-        {
-            for hit in $m::check($content, &$m::Config::resolve($cfg, $path)) {
-                $d.push(LintProblem {
-                    line: hit.line,
-                    column: hit.column,
-                    level: level.into(),
-                    message: hit.message,
-                    rule: Some($m::ID),
-                });
-            }
-        }
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check($content, &$m::Config::resolve($cfg, $path)),
+            |hit: $m::Violation| hit.message);
     };
-    // config, `Vec<Violation>`, fixed module `MESSAGE`
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, message) => {
-        if let Some(level) = $cfg.rule_level($m::ID)
-            && !$cfg.is_rule_ignored($m::ID, $path, $base)
-        {
-            for hit in $m::check($content, &$m::Config::resolve($cfg)) {
-                $d.push(LintProblem {
-                    line: hit.line,
-                    column: hit.column,
-                    level: level.into(),
-                    message: $m::MESSAGE.to_string(),
-                    rule: Some($m::ID),
-                });
-            }
-        }
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check($content, &$m::Config::resolve($cfg)),
+            |_| $m::MESSAGE.to_string());
     };
-    // no config, `Vec<Violation>`, per-violation message
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config) => {
-        if let Some(level) = $cfg.rule_level($m::ID)
-            && !$cfg.is_rule_ignored($m::ID, $path, $base)
-        {
-            for hit in $m::check($content) {
-                $d.push(LintProblem {
-                    line: hit.line,
-                    column: hit.column,
-                    level: level.into(),
-                    message: hit.message,
-                    rule: Some($m::ID),
-                });
-            }
-        }
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check($content),
+            |hit: $m::Violation| hit.message);
     };
-    // no config, `Vec<Violation>`, fixed module `MESSAGE`
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config, message) => {
-        if let Some(level) = $cfg.rule_level($m::ID)
-            && !$cfg.is_rule_ignored($m::ID, $path, $base)
-        {
-            for hit in $m::check($content) {
-                $d.push(LintProblem {
-                    line: hit.line,
-                    column: hit.column,
-                    level: level.into(),
-                    message: $m::MESSAGE.to_string(),
-                    rule: Some($m::ID),
-                });
-            }
-        }
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check($content),
+            |_| $m::MESSAGE.to_string());
     };
-    // no config, `Option<Violation>`, fixed module `MESSAGE` (new-line-at-end-of-file)
-    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, option, message) => {
-        if let Some(level) = $cfg.rule_level($m::ID)
-            && !$cfg.is_rule_ignored($m::ID, $path, $base)
-            && let Some(hit) = $m::check($content)
-        {
-            $d.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: $m::MESSAGE.to_string(),
-                rule: Some($m::ID),
-            });
-        }
-    };
-    // config by value + platform newline, `Option<Violation>`, per-violation message
-    // (the platform default is injected for testability)
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, platform) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check($content, $m::Config::resolve($cfg), $m::platform_newline()),
+            |hit: $m::Violation| hit.message);
+    };
+    (@gated $d:ident, $cfg:expr, $path:expr, $base:expr, $m:ident, $hits:expr, $message:expr) => {
         if let Some(level) = $cfg.rule_level($m::ID)
             && !$cfg.is_rule_ignored($m::ID, $path, $base)
-            && let Some(hit) =
-                $m::check($content, $m::Config::resolve($cfg), $m::platform_newline())
         {
-            $d.push(LintProblem {
-                line: hit.line,
-                column: hit.column,
-                level: level.into(),
-                message: hit.message,
-                rule: Some($m::ID),
-            });
+            emit_problems!($d, $m, $hits, level.into(), $message);
         }
     };
 }
 
-// The rule dispatch is split into three batches to keep each function within clippy's
-// cognitive-complexity threshold. The boundaries are pragmatic, but the order (layout,
-// then value, then block) IS ryl's reported diagnostic order (there is no later per-file
-// sort) and must match yamllint's, so keep the sequence stable. The `yamllint_compat_*`
-// suite guards it.
-
-/// Document-shape and layout / punctuation rules (first dispatch batch).
+// Split dispatch for clippy's complexity limit; preserve layout/value/block order
+// because diagnostics are not sorted after collection.
 fn collect_layout_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
     content: &str,
@@ -224,7 +153,7 @@ fn collect_layout_diagnostics(
         path,
         base_dir,
         new_line_at_end_of_file,
-        option,
+        no_config,
         message
     );
     lint_rule!(
@@ -243,7 +172,6 @@ fn collect_layout_diagnostics(
     lint_rule!(diagnostics, cfg, content, path, base_dir, brackets);
 }
 
-/// Comment, node-property, and scalar-value rules (second dispatch batch).
 fn collect_value_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
     content: &str,
@@ -261,7 +189,6 @@ fn collect_value_diagnostics(
     lint_rule!(diagnostics, cfg, content, path, base_dir, truthy);
 }
 
-/// Key, indentation, and line / whitespace rules (third dispatch batch).
 fn collect_block_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
     content: &str,

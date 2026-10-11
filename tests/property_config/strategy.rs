@@ -59,6 +59,8 @@ pub struct ConfigModel {
     pub per_line_ignores: Vec<PerLineModel>,
     pub per_file_ignores: Vec<(&'static str, Vec<&'static str>)>,
     pub key_orders: Vec<KeyOrderModel>,
+    /// TOML-only top-level `line-length` and `indent-width`, as raw TOML values.
+    pub shared: (Option<&'static str>, Option<&'static str>),
 }
 
 /// A generated `[[rules.key-ordering.orders]]` entry (TOML-only), with hostile globs,
@@ -239,9 +241,26 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
             0..3,
         ),
         prop::collection::vec(arb_key_order(), 0..3),
+        (
+            prop::option::of(prop::sample::select(
+                &["1", "100", "65535", "0", "-1", "70000", "\"80\"", "2.5"][..],
+            )),
+            prop::option::of(prop::sample::select(
+                &["1", "4", "255", "0", "-1", "256", "\"2\"", "2.5"][..],
+            )),
+        ),
     )
         .prop_map(
-            |(rules, ignore, locale, per_line_ignores, all, per_file, key_orders)| {
+            |(
+                rules,
+                ignore,
+                locale,
+                per_line_ignores,
+                all,
+                per_file,
+                key_orders,
+                shared,
+            )| {
                 ConfigModel {
                     all,
                     // Drop duplicate rule ids: rendering the same id twice produces a
@@ -254,6 +273,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                     per_line_ignores,
                     per_file_ignores: per_file.into_iter().collect(),
                     key_orders,
+                    shared,
                 }
             },
         )
@@ -320,18 +340,31 @@ pub fn render_yaml(model: &ConfigModel) -> String {
     out
 }
 
-pub fn render_toml(model: &ConfigModel) -> String {
+/// Renders the lint-owned tables under `prefix`: `""` for the deprecated top-level shape,
+/// with `ignore` for `exclude`, and `"lint."` for the current one.
+pub fn render_toml(model: &ConfigModel, prefix: &str) -> String {
     let mut out = String::new();
     if let Some(patterns) = &model.ignore {
         let inner: Vec<String> = patterns.iter().map(|p| format!("\"{p}\"")).collect();
-        out.push_str(&format!("ignore = [{}]\n", inner.join(", ")));
+        let key = if prefix.is_empty() {
+            "ignore"
+        } else {
+            "exclude"
+        };
+        out.push_str(&format!("{key} = [{}]\n", inner.join(", ")));
     }
     if let Some(locale) = model.locale {
         out.push_str(&format!("locale = \"{locale}\"\n"));
     }
+    if let Some(value) = model.shared.0 {
+        out.push_str(&format!("line-length = {value}\n"));
+    }
+    if let Some(value) = model.shared.1 {
+        out.push_str(&format!("indent-width = {value}\n"));
+    }
     // Scalar toggles belong under the inline [rules] table; leveled rules each get
     // their own [rules.<id>] table emitted afterwards so TOML stays well-formed.
-    out.push_str("[rules]\n");
+    out.push_str(&format!("[{prefix}rules]\n"));
     if let Some(all) = model.all {
         out.push_str(&format!("ALL = \"{all}\"\n"));
     }
@@ -344,7 +377,7 @@ pub fn render_toml(model: &ConfigModel) -> String {
     }
     for rule in &model.rules {
         if let Setting::Leveled { level, options } = &rule.setting {
-            out.push_str(&format!("[rules.{}]\n", rule.id));
+            out.push_str(&format!("[{prefix}rules.{}]\n", rule.id));
             out.push_str(&format!("level = \"{level}\"\n"));
             for (key, value) in options {
                 out.push_str(&format!("{key} = {}\n", render_optval_toml(value)));
@@ -357,7 +390,7 @@ pub fn render_toml(model: &ConfigModel) -> String {
         format!("[{}]", inner.join(", "))
     };
     for entry in &model.key_orders {
-        out.push_str("[[rules.key-ordering.orders]]\n");
+        out.push_str(&format!("[[{prefix}rules.key-ordering.orders]]\n"));
         out.push_str(&format!("files = {}\n", quoted(&entry.files)));
         out.push_str(&format!("path = '{}'\n", entry.path));
         out.push_str(&format!("keys = {}\n", quoted(&entry.keys)));
@@ -368,7 +401,7 @@ pub fn render_toml(model: &ConfigModel) -> String {
     // `per-line-ignores` is a top-level array of tables, TOML-only (the YAML path
     // rejects it), so it is rendered here but not in `render_yaml`.
     for entry in &model.per_line_ignores {
-        out.push_str("[[per-line-ignores]]\n");
+        out.push_str(&format!("[[{prefix}per-line-ignores]]\n"));
         if let Some(regex) = entry.regex {
             out.push_str(&format!("regex = \"{regex}\"\n"));
         }
@@ -380,7 +413,7 @@ pub fn render_toml(model: &ConfigModel) -> String {
         out.push_str(&format!("rules = [{}]\n", inner.join(", ")));
     }
     if !model.per_file_ignores.is_empty() {
-        out.push_str("[per-file-ignores]\n");
+        out.push_str(&format!("[{prefix}per-file-ignores]\n"));
         for (path, rules) in &model.per_file_ignores {
             let inner: Vec<String> = rules.iter().map(|r| format!("\"{r}\"")).collect();
             out.push_str(&format!("\"{path}\" = [{}]\n", inner.join(", ")));

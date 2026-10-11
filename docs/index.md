@@ -30,9 +30,9 @@ icon: lucide/braces
     ---
 
     Apply safe automatic fixes for spacing, line endings, quoting, and more
-    with `ryl check --fix`.
+    with `ryl check --fix`, or format whole files with `ryl format`.
 
-    [:octicons-arrow-right-24: Configuration](config-presets.md)
+    [:octicons-arrow-right-24: Formatter](formatter.md)
 
 -   :package:{ .lg .middle } **Easy to install**
 
@@ -66,6 +66,9 @@ winget install owenlamont.ryl
 # Lint a file or directory
 ryl check path/to/file.yaml
 ryl check .
+
+# Format in place
+ryl format .
 ```
 
 ## YAML version compatibility

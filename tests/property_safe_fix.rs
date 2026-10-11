@@ -30,7 +30,10 @@ use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 
-use ast::{BlockEntry, Document, FlowStyle, InlineComment, NewlineStyle, Node, Scalar};
+use ast::{
+    BlockEntry, ColonGap, Document, FlowStyle, InlineComment, Layout, NewlineStyle,
+    Node, Scalar,
+};
 use config::{
     named_config, parse_for_compare, safe_fix_configs, safe_fix_rule_diagnostics,
     synthetic_base_dir, synthetic_path,
@@ -154,13 +157,15 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
         entries: vec![BlockEntry {
             leading_comment: None,
             key: "items".to_string(),
+            colon: ColonGap::default(),
             value: Node::FlowSeq(
                 vec![plain("TRUE"), plain("false")],
                 FlowStyle {
                     inner_padding: 1,
                     spaces_before_comma: 1,
                     spaces_after_comma: 2,
-                    space_after_colon: true,
+                    spaces_before_colon: 0,
+                    spaces_after_colon: 1,
                 },
             ),
             trailing_inline_comment: Some(InlineComment {
@@ -168,6 +173,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
                 spaces_after_hash: 0,
                 text: "trailing".to_string(),
             }),
+            layout: Layout::default(),
         }],
         newline: NewlineStyle::Crlf,
         has_final_newline: false,
@@ -192,7 +198,14 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
             before, after,
             "safe fix must preserve parsed value under config '{cfg_name}'"
         );
-        let remaining = safe_fix_rule_diagnostics(&fixed, cfg);
+        // Zero tolerance still flags the space the grammar requires, which no fix removes.
+        let remaining: Vec<_> = safe_fix_rule_diagnostics(&fixed, cfg)
+            .into_iter()
+            .filter(|problem| {
+                cfg_name != "spacing-zero"
+                    || !matches!(problem.rule, Some("colons" | "hyphens"))
+            })
+            .collect();
         assert!(
             remaining.is_empty(),
             "safe-fix-rule diagnostics must clear after fix under config '{cfg_name}': {remaining:?}"

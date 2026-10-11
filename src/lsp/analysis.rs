@@ -1,5 +1,6 @@
 //! Maps the lint/fix engine results into LSP types. No lint/fix logic lives here: it
-//! reuses `lint_str` / `lint_markdown_str` and `apply_safe_fixes` / `fix_markdown_str`.
+//! reuses `lint_str` / `lint_markdown_str` and the CLI's `rewrite_str` /
+//! `apply_safe_fixes_filtered`.
 
 use std::path::Path;
 
@@ -7,9 +8,7 @@ use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, TextEdit};
 use sha2::{Digest, Sha256};
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::{
-    SAFE_FIX_RULE_IDS, apply_safe_fixes, apply_safe_fixes_filtered, fix_markdown_str,
-};
+use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS, apply_safe_fixes_filtered, rewrite_str};
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::lsp::encoding::{PositionEncoding, full_range, problem_range};
 use crate::markdown_embed::lint_markdown_str;
@@ -39,6 +38,13 @@ fn to_diagnostic(
     }
 }
 
+/// Splits off a leading UTF-8 BOM, which the CLI's decoder strips before linting or
+/// rewriting, so the engine sees the same text here as on the command line.
+fn split_bom(text: &str) -> (&str, &str) {
+    text.strip_prefix('\u{feff}')
+        .map_or(("", text), |body| ("\u{feff}", body))
+}
+
 #[must_use]
 pub fn diagnostics(
     text: &str,
@@ -48,34 +54,43 @@ pub fn diagnostics(
     kind: SourceKind,
     enc: PositionEncoding,
 ) -> Vec<Diagnostic> {
+    let (bom, body) = split_bom(text);
     let problems = match kind {
-        SourceKind::Markdown => lint_markdown_str(text, path, cfg, base_dir),
-        SourceKind::Yaml => lint_str(text, path, cfg, base_dir),
+        SourceKind::Markdown => lint_markdown_str(body, path, cfg, base_dir),
+        SourceKind::Yaml => lint_str(body, path, cfg, base_dir),
     };
     let lines = line_contents(text);
     problems
         .into_iter()
-        .map(|problem| to_diagnostic(&lines, problem, enc))
+        .map(|mut problem| {
+            // Columns on the first line count from after the BOM; the buffer keeps it.
+            if problem.line == 1 {
+                problem.column += bom.chars().count();
+            }
+            to_diagnostic(&lines, problem, enc)
+        })
         .collect()
 }
 
-/// The whole-document edit applying every safe fix, or `None` when nothing changes
-/// (the fix engine returns the input unchanged for an unparsable file; markdown with
-/// an unsupported bare CR yields `None`).
+/// The whole-document edit applying `rewrite` as the CLI does, or `None` when nothing
+/// changes or the document is refused (it does not parse, or is markdown with a bare CR).
 #[must_use]
-pub fn fix_all_edit(
+pub fn rewrite_edit(
     text: &str,
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
     kind: SourceKind,
     enc: PositionEncoding,
+    rewrite: Rewrite,
 ) -> Option<TextEdit> {
-    let fixed = match kind {
-        SourceKind::Markdown => fix_markdown_str(text, path, cfg, base_dir)?,
-        SourceKind::Yaml => apply_safe_fixes(text, cfg, path, base_dir),
-    };
-    (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
+    let (bom, body) = split_bom(text);
+    let (rewritten, _) = rewrite_str(body, cfg, path, base_dir, kind, rewrite);
+    rewritten
+        .filter(|rewritten| rewritten != body)
+        .map(|rewritten| {
+            TextEdit::new(full_range(text, enc), format!("{bom}{rewritten}"))
+        })
 }
 
 /// The whole-document edit applying only `rule`'s safe fix, or `None` when nothing
@@ -99,8 +114,10 @@ pub fn fix_rule_edit(
         .copied()
         .filter(|id| *id != rule)
         .collect();
-    let fixed = apply_safe_fixes_filtered(text, cfg, path, base_dir, &skip);
-    (fixed != text).then(|| TextEdit::new(full_range(text, enc), fixed))
+    let (bom, body) = split_bom(text);
+    let fixed = apply_safe_fixes_filtered(body, cfg, path, base_dir, &skip);
+    (fixed != body)
+        .then(|| TextEdit::new(full_range(text, enc), format!("{bom}{fixed}")))
 }
 
 /// A fingerprint of `items`, returned as a `resultId` and sent back on the next pull so an

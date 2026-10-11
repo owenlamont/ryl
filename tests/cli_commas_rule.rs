@@ -64,10 +64,10 @@ fn rule_ignore_skips_file() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "---\n[1,2]\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  commas:\n    ignore:\n      - ignored.yaml\n",
+        "[lint.rules]\ndocument-start = \"disable\"\ncommas = { ignore = [\"ignored.yaml\"] }\n",
     )
     .unwrap();
 
@@ -90,10 +90,10 @@ fn relaxed_spacing_allows_compact_flow() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("compact.yaml");
     fs::write(&file, "---\n[1,2]\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  commas:\n    max-spaces-before: -1\n    min-spaces-after: 0\n    max-spaces-after: -1\n",
+        "[lint.rules]\ndocument-start = \"disable\"\ncommas = { max-spaces-before = -1, min-spaces-after = 0, max-spaces-after = -1 }\n",
     )
     .unwrap();
 
@@ -116,10 +116,10 @@ fn double_curly_template_is_ignored() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("template.yaml");
     fs::write(&file, "---\nvalue: {{ foo(1,2) }}\n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  commas: enable\n",
+        "[lint.rules]\ndocument-start = \"disable\"\ncommas = \"enable\"\n",
     )
     .unwrap();
 
@@ -144,7 +144,7 @@ fn fix_leaves_double_curly_template_unchanged() {
     fs::write(&file, "value: {{ foo(1,2) }}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncommas = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncommas = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
     )
     .unwrap();
 

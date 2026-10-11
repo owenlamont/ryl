@@ -76,7 +76,7 @@ fn toml_allows_escaped_double_quotes_as_single_quote_exception() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\nallow-double-quotes-for-escaping = true\n",
     )
     .unwrap();
 
@@ -107,7 +107,7 @@ fn fix_preserves_escaped_double_quotes_in_toml_config() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\nallow-double-quotes-for-escaping = true\n",
     )
     .unwrap();
 
@@ -131,7 +131,7 @@ fn fix_preserves_escaped_tabs_that_would_be_invalid_plain_scalars() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nrequired = 'only-when-needed'\n",
+        "[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -158,7 +158,7 @@ fn fix_removes_redundant_quotes_with_cli_fix_flag() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -179,7 +179,7 @@ fn fix_handles_multibyte_comment_before_quoted_scalar() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -216,7 +216,7 @@ fn fix_preserves_inline_comments_when_removing_quotes() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -237,7 +237,7 @@ fn fix_keeps_quotes_for_plain_scalar_edge_cases() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     )
     .unwrap();
 
@@ -294,7 +294,7 @@ fn escaped_double_quote_exception_does_not_set_consistent_style() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'consistent'\nrequired = false\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'consistent'\nrequired = false\nallow-double-quotes-for-escaping = true\n",
     )
     .unwrap();
 
@@ -329,7 +329,7 @@ fn fix_consistent_ignores_escaped_exception_when_seeding_style() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.quoted-strings]\nquote-type = 'consistent'\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nquote-type = 'consistent'\nallow-double-quotes-for-escaping = true\n",
     )
     .unwrap();
 

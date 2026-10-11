@@ -27,7 +27,7 @@ fn lint_with_toml_config(content: &str, config: &str) -> (i32, String) {
 fn unsafe_tags_flagged_for_core_and_local_namespaces() {
     let (code, output) = lint_with_toml_config(
         "exec: !!python/object/apply:os.system [\"id\"]\nobj: !ruby/object:Foo {}\nplain: !!str value\n",
-        "[rules.tags]\nforbid-unsafe-tags = true\n",
+        "[lint.rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(code, 1, "unsafe tags should fail: {output}");
     assert!(
@@ -51,7 +51,7 @@ fn unsafe_tags_flagged_for_core_and_local_namespaces() {
 fn removed_yaml_1_1_types_flagged_for_core_schema_only() {
     let (code, output) = lint_with_toml_config(
         "a: !!omap []\nb: !!set {}\nc: !env X\nd: !!str s\n",
-        "[rules.tags]\nforbid-removed-types = true\n",
+        "[lint.rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "removed types should fail: {output}");
     assert!(
@@ -78,7 +78,7 @@ fn removed_yaml_1_1_types_flagged_for_core_schema_only() {
 fn allowed_tags_flags_only_unlisted_custom_tags() {
     let (code, output) = lint_with_toml_config(
         "a: !env X\nb: !keep Y\nc: !!omap []\nd: !!str s\n",
-        "[rules.tags]\nallowed-tags = [\"!keep\"]\n",
+        "[lint.rules.tags]\nallowed-tags = [\"!keep\"]\n",
     );
     assert_eq!(code, 1, "unlisted custom tag should fail: {output}");
     assert!(
@@ -100,7 +100,7 @@ fn allowed_tags_flags_only_unlisted_custom_tags() {
 fn enabled_with_all_options_off_reports_nothing() {
     let (code, output) = lint_with_toml_config(
         "a: !env X\nb: !!omap []\nc: !!python/object:Foo {}\n",
-        "[rules]\ntags = \"enable\"\n",
+        "[lint.rules]\ntags = \"enable\"\n",
     );
     assert_eq!(code, 0, "no option enabled means no diagnostics: {output}");
     assert!(output.trim().is_empty(), "expected no output: {output}");
@@ -110,7 +110,7 @@ fn enabled_with_all_options_off_reports_nothing() {
 fn multibyte_key_column_is_char_based() {
     let (code, output) = lint_with_toml_config(
         "café: !!omap []\n",
-        "[rules.tags]\nforbid-removed-types = true\n",
+        "[lint.rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "removed type should fail: {output}");
     assert!(
@@ -123,7 +123,7 @@ fn multibyte_key_column_is_char_based() {
 fn tags_rule_does_not_fire_when_not_enabled() {
     let (code, output) = lint_with_toml_config(
         "exec: !!python/object/apply:os.system [\"id\"]\n",
-        "[rules]\ntruthy = \"enable\"\n",
+        "[lint.rules]\ntruthy = \"enable\"\n",
     );
     assert_eq!(code, 0, "tags off by default: {output}");
     assert!(
@@ -136,7 +136,7 @@ fn tags_rule_does_not_fire_when_not_enabled() {
 fn verbatim_and_javax_tag_spellings_are_normalised_and_detected() {
     let (code, output) = lint_with_toml_config(
         "a: !<tag:yaml.org,2002:omap> []\nb: !<!python/object> {}\nc: !!javax.script.ScriptEngineManager {}\n",
-        "[rules.tags]\nforbid-unsafe-tags = true\nforbid-removed-types = true\n",
+        "[lint.rules.tags]\nforbid-unsafe-tags = true\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "verbatim/javax tags should fail: {output}");
     assert!(
@@ -160,7 +160,7 @@ fn tag_directive_mid_split_uri_is_normalised_and_detected() {
     // still be recognised so a split spelling cannot evade a safety check.
     let (code, output) = lint_with_toml_config(
         "%TAG !o! tag:yaml.org,2002:o\n---\nx: !o!map [1]\n",
-        "[rules.tags]\nforbid-removed-types = true\n",
+        "[lint.rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(code, 1, "mid-split removed type should fail: {output}");
     assert!(
@@ -170,7 +170,7 @@ fn tag_directive_mid_split_uri_is_normalised_and_detected() {
 
     let (code, output) = lint_with_toml_config(
         "%TAG !p! tag:yaml.org,2002:p\n---\nx: !p!ython/object:os.system [1]\n",
-        "[rules.tags]\nforbid-unsafe-tags = true\n",
+        "[lint.rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(code, 1, "mid-split unsafe tag should fail: {output}");
     assert!(
@@ -183,7 +183,7 @@ fn tag_directive_mid_split_uri_is_normalised_and_detected() {
 fn custom_tag_directive_handle_is_not_namespace_matched() {
     let (code, output) = lint_with_toml_config(
         "%TAG !e! tag:example.com,2000:\n---\nx: !e!python/object value\n",
-        "[rules.tags]\nforbid-unsafe-tags = true\n",
+        "[lint.rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(
         code, 0,
@@ -199,7 +199,7 @@ fn custom_tag_directive_handle_is_not_namespace_matched() {
 fn custom_tag_directive_handle_is_allowlisted_as_written() {
     let (code, output) = lint_with_toml_config(
         "%TAG !e! tag:example.com,2000:\n---\na: !e!keep value\nb: !e!other value\n",
-        "[rules.tags]\nallowed-tags = [\"!e!keep\"]\n",
+        "[lint.rules.tags]\nallowed-tags = [\"!e!keep\"]\n",
     );
     assert_eq!(code, 1, "unlisted custom handle tag should fail: {output}");
     assert!(
@@ -217,7 +217,7 @@ fn custom_tag_directive_handle_is_allowlisted_as_written() {
 
     let (code, output) = lint_with_toml_config(
         "%TAG !e! tag:example.com,2000:\n---\na: !e!keep value\n",
-        "[rules.tags]\nallowed-tags = [\"tag:example.com,2000:keep\"]\n",
+        "[lint.rules.tags]\nallowed-tags = [\"tag:example.com,2000:keep\"]\n",
     );
     assert_eq!(
         code, 1,
@@ -233,7 +233,7 @@ fn custom_tag_directive_handle_is_allowlisted_as_written() {
 fn non_specific_bare_tag_is_not_flagged() {
     let (code, output) = lint_with_toml_config(
         "a: ! plain\n",
-        "[rules.tags]\nallowed-tags = [\"!keep\"]\n",
+        "[lint.rules.tags]\nallowed-tags = [\"!keep\"]\n",
     );
     assert_eq!(
         code, 0,
@@ -251,7 +251,7 @@ fn non_specific_bare_tag_stays_exempt_under_tag_directive() {
     // custom tag; the exemption keys on the suffix, not the handle.
     let (code, output) = lint_with_toml_config(
         "%TAG ! tag:example.com,2000:\n---\na: ! plain\n",
-        "[rules.tags]\nallowed-tags = [\"!keep\"]\n",
+        "[lint.rules.tags]\nallowed-tags = [\"!keep\"]\n",
     );
     assert_eq!(
         code, 0,
@@ -267,7 +267,7 @@ fn non_specific_bare_tag_stays_exempt_under_tag_directive() {
 fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
     let (code, output) = lint_with_toml_config(
         "x: 1\nb: !!omap\n",
-        "[rules.tags]\nforbid-removed-types = true\n",
+        "[lint.rules.tags]\nforbid-removed-types = true\n",
     );
     assert_eq!(
         code, 1,
@@ -285,7 +285,7 @@ fn tag_on_trailing_empty_scalar_points_at_its_content_line() {
 
 #[test]
 fn block_collection_tag_points_at_tag_and_disable_line_suppresses_it() {
-    let config = "[rules.tags]\nallowed-tags = [\"!keep\"]\n";
+    let config = "[lint.rules.tags]\nallowed-tags = [\"!keep\"]\n";
     let (code, output) = lint_with_toml_config("a: !env\n  - x\n", config);
     assert_eq!(
         code, 1,
@@ -313,7 +313,7 @@ fn block_collection_tag_points_at_tag_and_disable_line_suppresses_it() {
 fn tag_on_implicit_scalar_without_trailing_newline_stays_in_bounds() {
     let (code, output) = lint_with_toml_config(
         "!!python/object",
-        "[rules.tags]\nforbid-unsafe-tags = true\n",
+        "[lint.rules.tags]\nforbid-unsafe-tags = true\n",
     );
     assert_eq!(code, 1, "unsafe tag should fail: {output}");
     assert!(
@@ -364,7 +364,7 @@ fn per_file_ignores_accept_the_tags_rule_name() {
     fs::write(
         &config,
         format!(
-            "[rules.tags]\nforbid-removed-types = true\n[per-file-ignores]\n'{}' = ['tags']\n",
+            "[lint.rules.tags]\nforbid-removed-types = true\n[lint.per-file-ignores]\n'{}' = ['tags']\n",
             file.display()
         ),
     )
@@ -392,7 +392,7 @@ fn rule_ignore_skips_file() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules.tags]\nforbid-removed-types = true\nignore = [\"ignored.yaml\"]\n",
+        "[lint.rules.tags]\nforbid-removed-types = true\nignore = [\"ignored.yaml\"]\n",
     )
     .unwrap();
 

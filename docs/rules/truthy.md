@@ -18,7 +18,7 @@ truthy words (`yes`, `no`, `on`, `off`, `True`, `Yes`, ...) are flagged.
 ## Configuration
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 level = "error"
 allowed-values = ["true", "false"]
 check-keys = true
@@ -56,9 +56,9 @@ Three ways to settle it, narrowest first:
 The recommended form scopes the exemption to the files that need it:
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 ".github/workflows/*" = ["truthy"]
 ```
 

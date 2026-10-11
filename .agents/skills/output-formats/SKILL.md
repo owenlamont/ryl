@@ -1,7 +1,7 @@
 ---
 name: output-formats
 description: >-
-  Use when changing `--format`/`--output-file`, the `[output]` TOML table, or
+  Use when changing `--output-format`/`--output-file`, the `[output]` TOML table, or
   the JUnit/GitLab report writers. Covers the repeatable-target model, the
   CLI > config > default precedence, every exit-2 guard on conflicting
   destinations, and the GitLab fingerprint contract.
@@ -13,19 +13,20 @@ User docs: `docs/output-formats.md`.
 
 ## Formats and default streams
 
-Selected with `--format`/`-f`. The streaming console formats
+Selected with `--output-format`/`-f` (`--format` is a visible alias, kept for yamllint).
+The streaming console formats
 `standard`/`colored`/`github`/`parsable` default to **stderr**; the whole-document
 report formats `junit` (JUnit XML via `quick-xml`) and `gitlab` (GitLab Code Quality
 JSON via `serde_json`) default to **stdout**. `auto` never selects junit/gitlab.
 
 ## Multiple outputs per run
 
-The RuboCop/Biome model: `--format` is repeatable and each `-o/--output-file` binds to the
-most recent `--format` (`resolve_cli_targets` recovers CLI order via
+The RuboCop/Biome model: `--output-format` is repeatable and each `-o/--output-file`
+binds to the most recent `--output-format` (`resolve_cli_targets` recovers CLI order via
 `ArgMatches::indices_of`, so `main` uses `Cli::command().get_matches()` +
 `from_arg_matches`); `-o -` is stdout, a path is a file, none is the format's default
 stream. Console + a report file in one run is therefore supported (closes #285's original
-ask), e.g. `--format auto --format gitlab -o gl.json`.
+ask), e.g. `-f auto -f gitlab -o gl.json`.
 
 ## The `[output]` table
 
@@ -34,13 +35,19 @@ An `[output]` **TOML table** (ryl-only, TOML-only — `config_schema::OutputTabl
 (`[output.gitlab] path=…`; absent `path` = default stream, `"-"` = stdout).
 
 Precedence **CLI > config > default**: `resolve_targets` returns the CLI pairs if any
-`--format` was given, else `config_targets_from_table` of the run config's `[output]`,
-else one default auto-console target. The `[output]` is read run-level by
+`--output-format` was given, else `config_targets_from_table` of the run config's
+`[output]`, else one default auto-console target. The `[output]` is read run-level by
 `run_output_config` (the `-c`/`-d`/env global config, else the inputs-anchored project
 config so `ryl check .` honors a project `.ryl.toml`; a malformed config is propagated —
-the empty-input case has no per-file discovery to surface it, so an invalid `[output]` still
-errors). `--diff` skips config `[output]` (it has its own unified-diff output), so only
-an explicit CLI `--format junit|gitlab` conflicts with it.
+the empty-input case has no per-file discovery to surface it, so an invalid `[output]`
+still errors). `--diff` skips config `[output]` (it has its own unified-diff output), so
+only an explicit CLI `--output-format junit|gitlab` conflicts with it.
+
+## `ryl format --check`
+
+`FormatArgs::output_format` is a single `Option`, with no `-f`, `--format` or `-o`, as
+in ruff. `format_targets` uses it only under `--check`, overriding `[output]`; `--diff`
+keeps the default console target.
 
 ## Pipeline
 
@@ -60,7 +67,8 @@ fast). An empty/all-ignored input set still emits a valid empty report per targe
 
 ## Guards (each exit 2)
 
-- `resolve_cli_targets` rejects an unpaired `-o` and a second `-o` on one `--format`.
+- `resolve_cli_targets` rejects an unpaired `-o` and a second `-o` on one
+  `--output-format`.
 - `validate_targets` rejects `--diff` with a report format, and two outputs on one stream
   (`reject_duplicate_streams`, ≤1 stdout / ≤1 stderr).
 - `open_targets` rejects two outputs resolving to one file

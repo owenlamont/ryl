@@ -82,7 +82,7 @@ ryl is a CLI tool for linting yaml files
   future yamllint additions can't clash with YAML semantics. A whole ryl-only *rule*
   (e.g. `tags`) goes in `rules::RYL_ONLY_RULE_IDS` — the YAML path rejects it and
   `config_schema::yaml_schema` prunes it, so it's configurable only via TOML
-  (`[rules.<id>]`).
+  (`[lint.rules.<id>]`).
 
 ## Dev Skills
 
@@ -135,12 +135,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   skip invoking those individually. Re-run until the auto-fixes stabilise and a full pass
   succeeds without modifying files before running coverage.
 - When editing **feature-gated** code (e.g. anything `#[cfg(feature = "lsp")]`), reproduce
-  CI's two clippy gates locally with `-D warnings` (prek's clippy does not, so it misses
-  these): `cargo clippy --all-targets -- -D warnings` and `cargo clippy --all-targets
-  --no-default-features -- -D warnings`. The `-D warnings` is what promotes a `dead_code`
-  warning to an error — e.g. an `lsp`-only helper with no caller once the feature is off
-  fails the minimal build, which a plain `cargo clippy` run shows only as a warning and
-  silently passes.
+  CI's two clippy gates locally: `cargo clippy --all-targets -- -D warnings` and
+  `cargo clippy --all-targets --no-default-features -- -D warnings`. Prek enforces warnings
+  with all features enabled; the minimal build also catches an `lsp`-only helper left
+  unused when the feature is off.
 - Whenever source files are edited ensure the full test suite passes (run
   `uv run .agents/skills/coverage/coverage-missing.py` to regenerate coverage; it
   reports uncovered ranges and confirms when coverage is complete).

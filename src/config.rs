@@ -1,7 +1,8 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
+use std::num::{NonZeroU8, NonZeroU16};
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -9,23 +10,23 @@ use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
 use crate::rules::key_ordering::{self, KeyOrder};
 use crate::yaml_dom::{ScalarOwned, YamlOwned};
-use globset::{Glob, GlobMatcher, escape as glob_escape};
+use globset::{GlobBuilder, GlobMatcher, escape as glob_escape};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 
 use crate::config_schema::{
-    FixRuleName as TomlFixRuleName, FixableRuleSelector as TomlFixableRuleSelector,
-    NormalizedConfig, NormalizedFixConfig, NormalizedMarkdown, NormalizedPerLineIgnore,
-    OutputTable, TomlConfig, normalize_toml_config, normalized_config_to_toml_value,
-    parse_toml_config_str, parse_yaml_config, validate_toml_config,
-    yaml_rule_filter_patterns, yaml_rule_level,
+    DeprecatedKey, DeprecatedKeyUse, FixableRuleSelector as TomlFixableRuleSelector,
+    LEGACY_YAML_SOURCES, LegacyYamlSource, NormalizedConfig, NormalizedFixConfig,
+    NormalizedMarkdown, NormalizedPerLineIgnore, OutputTable, TomlConfig, format_keys,
+    normalize_toml_config, normalized_config_to_toml_value, parse_toml_config_str,
+    validate_toml_config, yaml_rule_filter_patterns, yaml_rule_level,
 };
-use crate::{conf, decoder};
+use crate::decoder;
+use crate::format::FormatSettings;
 
-pub use crate::config_schema::RuleLevel;
+pub(crate) mod legacy_yaml;
 
-/// Bounds `extends` recursion: a cyclic `extends` would otherwise overflow the stack.
-const MAX_EXTENDS_DEPTH: usize = 32;
+pub use crate::config_schema::{FixRuleName as FixRule, RuleLevel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -34,6 +35,9 @@ pub enum SourceKind {
 }
 
 pub trait Env {
+    fn case_insensitive_paths(&self) -> bool {
+        CASE_INSENSITIVE_PATHS
+    }
     fn current_dir(&self) -> PathBuf;
     fn config_dir(&self) -> Option<PathBuf>;
     fn home_dir(&self) -> Option<PathBuf>;
@@ -52,6 +56,70 @@ fn process_cwd() -> &'static Path {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemEnv;
+
+pub(crate) const CASE_INSENSITIVE_PATHS: bool = cfg!(any(windows, target_os = "macos"));
+
+#[derive(Debug, Clone, Copy)]
+enum PathCase {
+    Sensitive,
+    Insensitive,
+}
+
+impl From<bool> for PathCase {
+    fn from(insensitive: bool) -> Self {
+        if insensitive {
+            Self::Insensitive
+        } else {
+            Self::Sensitive
+        }
+    }
+}
+
+impl PathCase {
+    fn is_insensitive(self) -> bool {
+        matches!(self, Self::Insensitive)
+    }
+}
+
+fn strip_path_prefix<'a>(
+    path: &'a Path,
+    base: &Path,
+    case_insensitive: bool,
+) -> Option<&'a Path> {
+    let mut components = path.components();
+    for base_component in base.components() {
+        let component = components.next()?;
+        let matched = if case_insensitive {
+            component
+                .as_os_str()
+                .as_encoded_bytes()
+                .eq_ignore_ascii_case(base_component.as_os_str().as_encoded_bytes())
+        } else {
+            component == base_component
+        };
+        if !matched {
+            return None;
+        }
+    }
+    Some(components.as_path())
+}
+
+pub(crate) fn paths_equal(left: &Path, right: &Path, case_insensitive: bool) -> bool {
+    strip_path_prefix(left, right, case_insensitive)
+        .is_some_and(|rest| rest.as_os_str().is_empty())
+}
+
+pub(crate) fn path_has_name(
+    path: &Path,
+    names: &[&str],
+    case_insensitive: bool,
+) -> bool {
+    path.file_name().is_some_and(|name| {
+        names.iter().any(|candidate| {
+            paths_equal(Path::new(name), Path::new(candidate), case_insensitive)
+        })
+    })
+}
 
 impl Env for SystemEnv {
     fn current_dir(&self) -> PathBuf {
@@ -128,6 +196,7 @@ impl Env for ClosureEnv<'_> {
 
 #[derive(Debug, Clone)]
 pub struct YamlLintConfig {
+    path_case: PathCase,
     ignore_patterns: Vec<String>,
     ignore_from_files: Vec<String>,
     #[allow(clippy::struct_field_names)]
@@ -152,8 +221,13 @@ pub struct YamlLintConfig {
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
     output: Option<OutputTable>,
+    format: FormatSettings,
+    source: Option<PathBuf>,
+    line_length: Option<NonZeroU16>,
+    indent_width: Option<NonZeroU8>,
     locale: Option<String>,
     fix: FixConfig,
+    deprecated_keys: Vec<DeprecatedKeyUse>,
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
@@ -180,8 +254,13 @@ struct PerFileIgnore {
 }
 
 impl PerFileIgnore {
-    fn new(pattern: &str, rules: Vec<String>, base_dir: &Path) -> Result<Self, String> {
-        let glob = PathGlob::new(pattern, base_dir).map_err(|err| {
+    fn new(
+        pattern: &str,
+        rules: Vec<String>,
+        base_dir: &Path,
+        case_insensitive: bool,
+    ) -> Result<Self, String> {
+        let glob = PathGlob::new(pattern, base_dir, case_insensitive).map_err(|err| {
             let (_, pattern) = split_negation(pattern);
             format!(
                 "invalid config: per-file-ignores pattern '{pattern}' is invalid: {err}"
@@ -204,12 +283,21 @@ struct PathGlob {
 
 impl PathGlob {
     /// `base_dir` resolves against the cwd, as walked and CLI paths do.
-    fn new(pattern: &str, base_dir: &Path) -> Result<Self, globset::Error> {
+    fn new(
+        pattern: &str,
+        base_dir: &Path,
+        case_insensitive: bool,
+    ) -> Result<Self, globset::Error> {
         let (negated, pattern) = split_negation(pattern);
-        let basename = Glob::new(pattern)?.compile_matcher();
+        let basename = GlobBuilder::new(pattern)
+            .case_insensitive(case_insensitive)
+            .build()?
+            .compile_matcher();
         let cwd = lexical_abspath(Path::new("."));
         let anchor = normalize_lexically(&cwd.join(base_dir));
-        let absolute = Glob::new(&absolute_glob_pattern(pattern, &anchor))
+        let absolute = GlobBuilder::new(&absolute_glob_pattern(pattern, &anchor))
+            .case_insensitive(case_insensitive)
+            .build()
             .expect("an escaped anchor keeps a valid pattern valid")
             .compile_matcher();
         Ok(Self {
@@ -301,9 +389,13 @@ struct PerLineIgnoreMatcher {
 
 impl PerLineIgnoreMatcher {
     /// Infallible: `validate_per_line_ignores` already proved every regex/glob compiles.
-    fn new(entry: &NormalizedPerLineIgnore, base_dir: &Path) -> Self {
+    fn new(
+        entry: &NormalizedPerLineIgnore,
+        base_dir: &Path,
+        case_insensitive: bool,
+    ) -> Self {
         let path_glob = entry.path.as_deref().map(|pattern| {
-            PathGlob::new(pattern, base_dir)
+            PathGlob::new(pattern, base_dir, case_insensitive)
                 .expect("per-line-ignores `path` compiles after config validation")
         });
         let regex = entry.regex.as_deref().map(|pattern| {
@@ -334,10 +426,11 @@ impl PerLineIgnoreMatcher {
 fn build_per_line_ignores(
     entries: &[NormalizedPerLineIgnore],
     base_dir: &Path,
+    case_insensitive: bool,
 ) -> Vec<PerLineIgnoreMatcher> {
     entries
         .iter()
-        .map(|entry| PerLineIgnoreMatcher::new(entry, base_dir))
+        .map(|entry| PerLineIgnoreMatcher::new(entry, base_dir, case_insensitive))
         .collect()
 }
 
@@ -369,11 +462,13 @@ impl RuleConfig {
         build_rule_filter(filter, envx, base_dir)
     }
 
-    fn is_ignored(&self, path: &Path, base_dir: &Path) -> bool {
+    fn is_ignored(&self, path: &Path, base_dir: &Path, case_insensitive: bool) -> bool {
         self.filter
             .as_ref()
             .and_then(|filter| filter.matcher.as_ref())
-            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
+            .is_some_and(|matcher| {
+                path_matches_ignore(matcher, path, base_dir, case_insensitive)
+            })
     }
 }
 
@@ -391,35 +486,19 @@ pub struct FixConfig {
     unfixable: Vec<FixRule>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FixRule {
-    Braces,
-    Brackets,
-    Commas,
-    Comments,
-    CommentsIndentation,
-    DocumentEnd,
-    DocumentStart,
-    EmptyLines,
-    KeyOrdering,
-    NewLineAtEndOfFile,
-    NewLines,
-    QuotedStrings,
-    TrailingSpaces,
-    Truthy,
-}
-
 impl FixRule {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "braces" => Some(Self::Braces),
             "brackets" => Some(Self::Brackets),
+            "colons" => Some(Self::Colons),
             "commas" => Some(Self::Commas),
             "comments" => Some(Self::Comments),
             "comments-indentation" => Some(Self::CommentsIndentation),
             "document-end" => Some(Self::DocumentEnd),
             "document-start" => Some(Self::DocumentStart),
             "empty-lines" => Some(Self::EmptyLines),
+            "hyphens" => Some(Self::Hyphens),
             "key-ordering" => Some(Self::KeyOrdering),
             "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
             "new-lines" => Some(Self::NewLines),
@@ -481,6 +560,7 @@ impl FixConfig {
 impl Default for YamlLintConfig {
     fn default() -> Self {
         Self {
+            path_case: CASE_INSENSITIVE_PATHS.into(),
             ignore_patterns: Vec::new(),
             ignore_from_files: Vec::new(),
             ignore_matcher: None,
@@ -502,8 +582,13 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
+            format: FormatSettings::default(),
+            source: None,
+            line_length: None,
+            indent_width: None,
             locale: None,
             fix: FixConfig::default(),
+            deprecated_keys: Vec::new(),
         }
     }
 }
@@ -515,14 +600,6 @@ pub struct Overrides {
 }
 
 impl YamlLintConfig {
-    /// Parse configuration data without filesystem access.
-    ///
-    /// # Errors
-    /// Returns an error when `extends` is used and the config requires filesystem access.
-    pub fn from_yaml_str(s: &str) -> Result<Self, String> {
-        Self::from_yaml_str_with_env(s, None, None)
-    }
-
     /// Parse standalone TOML config text without filesystem access (like
     /// [`Self::from_yaml_str`]). Does not run [`Self::finalize`], so path-based matchers
     /// are not built here; the lint-ready config comes from `discover_config`.
@@ -538,53 +615,6 @@ impl YamlLintConfig {
             .map(|config| config.expect("standalone TOML config is never absent"))
     }
 
-    fn extend_from_entry(
-        &mut self,
-        entry: &str,
-        envx: Option<&dyn Env>,
-        base_dir: &Path,
-        depth: usize,
-    ) -> Result<(), String> {
-        if let Some(builtin) = conf::builtin(entry) {
-            let base = Self::from_yaml_str(builtin).expect("builtin preset must parse");
-            self.merge_from(base);
-            return Ok(());
-        }
-
-        let Some(envx) = envx else {
-            return Err(format!(
-                "invalid config: extends '{entry}' requires filesystem access for resolution"
-            ));
-        };
-
-        let resolved = resolve_extend_path(entry, envx, Some(base_dir));
-        if is_toml_path(&resolved) {
-            return Err(format!(
-                "invalid config: extends cannot reference TOML configuration {}",
-                resolved.display()
-            ));
-        }
-        let data = match envx.read_to_string(&resolved) {
-            Ok(text) => text,
-            Err(err) => {
-                return Err(format!(
-                    "failed to read extended config {}: {err}",
-                    resolved.display()
-                ));
-            }
-        };
-        let parent_dir = resolved
-            .parent()
-            .map_or_else(|| base_dir.to_path_buf(), Path::to_path_buf);
-        let base = Self::from_yaml_str_with_env_depth(
-            &data,
-            Some(envx),
-            Some(&parent_dir),
-            depth + 1,
-        )?;
-        self.merge_from(base);
-        Ok(())
-    }
     #[must_use]
     pub fn ignore_patterns(&self) -> &[String] {
         &self.ignore_patterns
@@ -596,6 +626,21 @@ impl YamlLintConfig {
     /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
         self.ignore_from_files.clear();
+    }
+
+    /// The first relative `ignore-from-file`, top-level or rule-level, read before
+    /// `finalize` resolves it.
+    pub(crate) fn relative_ignore_from_file(&self) -> Option<String> {
+        let rule_files = self
+            .rules
+            .values()
+            .filter_map(|rule| yaml_rule_filter_patterns(&rule.value))
+            .flat_map(|(_, files)| files);
+        self.ignore_from_files
+            .iter()
+            .cloned()
+            .chain(rule_files)
+            .find(|path| !Path::new(path).is_absolute())
     }
 
     /// Whether any rule sets a *relative* rule-level `ignore-from-file`. User-global
@@ -664,17 +709,29 @@ impl YamlLintConfig {
     }
 
     fn build_file_kind_matchers(&mut self, base_dir: &Path) {
-        self.yaml_matcher = build_glob_matcher(base_dir, &self.yaml_file_patterns);
-        self.markdown_matcher =
-            build_glob_matcher(base_dir, &self.markdown_file_patterns);
+        self.yaml_matcher = build_glob_matcher(
+            base_dir,
+            &self.yaml_file_patterns,
+            self.path_case.is_insensitive(),
+        );
+        self.markdown_matcher = build_glob_matcher(
+            base_dir,
+            &self.markdown_file_patterns,
+            self.path_case.is_insensitive(),
+        );
     }
 
     /// Matches `path` relative to `base_dir`.
     #[must_use]
     pub fn is_file_ignored(&self, path: &Path, base_dir: &Path) -> bool {
-        self.ignore_matcher
-            .as_ref()
-            .is_some_and(|matcher| path_matches_ignore(matcher, path, base_dir))
+        self.ignore_matcher.as_ref().is_some_and(|matcher| {
+            path_matches_ignore(
+                matcher,
+                path,
+                base_dir,
+                self.path_case.is_insensitive(),
+            )
+        })
     }
 
     /// Disable filename-based rule ignores so every enabled rule runs. Use when linting
@@ -696,19 +753,18 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
-        self.rules
-            .get(rule)
-            .is_some_and(|config| config.is_ignored(path, base_dir))
-            || self
-                .per_file_ignore_matchers
-                .iter()
-                .filter(|entry| entry.glob.matches(path))
-                .any(|entry| {
-                    entry
-                        .rules
-                        .iter()
-                        .any(|candidate| candidate == rule || candidate == "ALL")
-                })
+        self.rules.get(rule).is_some_and(|config| {
+            config.is_ignored(path, base_dir, self.path_case.is_insensitive())
+        }) || self
+            .per_file_ignore_matchers
+            .iter()
+            .filter(|entry| entry.glob.matches(path))
+            .any(|entry| {
+                entry
+                    .rules
+                    .iter()
+                    .any(|candidate| candidate == rule || candidate == "ALL")
+            })
     }
 
     /// `key-ordering`'s `orders` entries whose `files` match `path`, in config order.
@@ -741,7 +797,7 @@ impl YamlLintConfig {
     #[must_use]
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         if let Some(matcher) = &self.yaml_matcher {
-            let rel = relative_to_base(path, base_dir);
+            let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
             let matched =
                 matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
             return matched.is_ignore();
@@ -756,7 +812,7 @@ impl YamlLintConfig {
         let Some(matcher) = &self.markdown_matcher else {
             return false;
         };
-        let rel = relative_to_base(path, base_dir);
+        let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
         matcher
             .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
             .is_ignore()
@@ -798,8 +854,11 @@ impl YamlLintConfig {
                 .iter()
                 .map(|pattern| (*pattern).to_string())
                 .collect();
-            self.markdown_matcher =
-                build_glob_matcher(base_dir, &self.markdown_file_patterns);
+            self.markdown_matcher = build_glob_matcher(
+                base_dir,
+                &self.markdown_file_patterns,
+                self.path_case.is_insensitive(),
+            );
             self.markdown_from_flag = true;
         }
     }
@@ -842,39 +901,26 @@ impl YamlLintConfig {
         self.output.as_ref()
     }
 
-    fn from_yaml_str_with_env(
-        s: &str,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-    ) -> Result<Self, String> {
-        Self::from_yaml_str_with_env_depth(s, envx, base_dir, 0)
+    /// The resolved `[format]` settings (the defaults when the config declared none).
+    #[must_use]
+    pub fn format(&self) -> &FormatSettings {
+        &self.format
     }
 
-    /// `depth` tracks `extends` recursion so a cycle is rejected (see
-    /// [`MAX_EXTENDS_DEPTH`]) rather than overflowing the stack.
-    fn from_yaml_str_with_env_depth(
-        s: &str,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-        depth: usize,
-    ) -> Result<Self, String> {
-        if depth > MAX_EXTENDS_DEPTH {
-            return Err(
-                "invalid config: extends nested too deeply (possible cyclic extends)"
-                    .to_string(),
-            );
-        }
-        let docs = YamlOwned::load_from_str(s)
-            .map_err(|e| format!("failed to parse config data: {e}"))?;
-        // An empty document stream yields no docs; treat it as a non-mapping so it reports
-        // "invalid config: not a mapping" (matching yamllint) instead of panicking on
-        // `docs[0]`.
-        Self::from_doc_with_env(
-            docs.first().unwrap_or(&YamlOwned::BadValue),
-            envx,
-            base_dir,
-            depth,
-        )
+    /// The config file this was loaded from, if any.
+    #[must_use]
+    pub fn source(&self) -> Option<&Path> {
+        self.source.as_deref()
+    }
+
+    #[must_use]
+    pub const fn line_length(&self) -> Option<NonZeroU16> {
+        self.line_length
+    }
+
+    #[must_use]
+    pub const fn indent_width(&self) -> Option<NonZeroU8> {
+        self.indent_width
     }
 
     fn from_toml_str_with_env(
@@ -888,31 +934,27 @@ impl YamlLintConfig {
         };
         validate_toml_config(&typed)?;
         let _ = (envx, base_dir);
-        Ok(Some(Self::from_typed_toml_config_with_env(&typed)))
+        let explicit = format_keys(s, pyproject);
+        Ok(Some(Self::from_typed_toml_config_with_env(
+            &typed, explicit,
+        )))
     }
 
-    fn from_typed_toml_config_with_env(config: &TomlConfig) -> Self {
+    fn from_typed_toml_config_with_env(
+        config: &TomlConfig,
+        explicit: BTreeSet<String>,
+    ) -> Self {
         let normalized = normalize_toml_config(config);
-        let mut cfg = Self::default();
+        let mut cfg = Self {
+            deprecated_keys: config.deprecated_keys(),
+            format: FormatSettings::new(
+                config.format.clone().unwrap_or_default(),
+                explicit,
+            ),
+            ..Self::default()
+        };
         cfg.apply_normalized_config(normalized);
         cfg
-    }
-
-    fn from_doc_with_env(
-        doc: &YamlOwned,
-        envx: Option<&dyn Env>,
-        base_dir: Option<&Path>,
-        depth: usize,
-    ) -> Result<Self, String> {
-        let parsed = parse_yaml_config(doc)?;
-        let mut cfg = Self::default();
-        let base_path = base_dir.unwrap_or_else(|| Path::new(""));
-        for entry in &parsed.extends {
-            cfg.extend_from_entry(entry, envx, base_path, depth)?;
-        }
-        cfg.apply_normalized_config(parsed.normalized);
-
-        Ok(cfg)
     }
 
     fn merge_from(&mut self, mut other: Self) {
@@ -977,6 +1019,9 @@ impl YamlLintConfig {
             self.locale = Some(locale);
         }
 
+        self.line_length = normalized.line_length;
+        self.indent_width = normalized.indent_width;
+
         if let Some(fix) = normalized.fix.as_ref() {
             self.fix = typed_fix_config(fix);
         }
@@ -997,7 +1042,12 @@ impl YamlLintConfig {
             .expect("serializing TOML Value should not fail")
     }
 
-    fn finalize(&mut self, envx: &dyn Env, base_dir: &Path) -> Result<(), String> {
+    pub(crate) fn finalize(
+        &mut self,
+        envx: &dyn Env,
+        base_dir: &Path,
+    ) -> Result<(), String> {
+        self.path_case = envx.case_insensitive_paths().into();
         // Reject unknown rule names (matching yamllint's "no such rule"): an unknown rule
         // is never dispatched by `lint_str`, so without this a typo lints nothing and a
         // config whose only entries are unknown slips past the "no rules enabled" guard.
@@ -1019,10 +1069,16 @@ impl YamlLintConfig {
             self.ignore_patterns.extend(extra_patterns);
         }
         self.ignore_matcher = matcher;
-        self.per_file_ignore_matchers =
-            build_per_file_ignores(&self.per_file_ignores, base_dir)?;
-        self.per_line_ignore_matchers =
-            build_per_line_ignores(&self.per_line_ignores, base_dir);
+        self.per_file_ignore_matchers = build_per_file_ignores(
+            &self.per_file_ignores,
+            base_dir,
+            self.path_case.is_insensitive(),
+        )?;
+        self.per_line_ignore_matchers = build_per_line_ignores(
+            &self.per_line_ignores,
+            base_dir,
+            self.path_case.is_insensitive(),
+        );
         let orders = self.rule_option(key_ordering::ID, "orders");
         self.key_orders = (orders
             .and_then(YamlOwned::as_sequence)
@@ -1034,7 +1090,8 @@ impl YamlLintConfig {
                 .and_then(YamlOwned::as_sequence);
             let globs = (files.into_iter().flatten().filter_map(YamlOwned::as_str))
                 .map(|glob| {
-                    PathGlob::new(glob, base_dir).expect("validated `files` glob")
+                    PathGlob::new(glob, base_dir, self.path_case.is_insensitive())
+                        .expect("validated `files` glob")
                 });
             (globs.collect(), KeyOrder::new(entry))
         })
@@ -1075,11 +1132,18 @@ fn build_rule_filter(
     Ok(())
 }
 
-fn build_glob_matcher(base_dir: &Path, patterns: &[String]) -> Option<Gitignore> {
+fn build_glob_matcher(
+    base_dir: &Path,
+    patterns: &[String],
+    case_insensitive: bool,
+) -> Option<Gitignore> {
     if patterns.is_empty() {
         return None;
     }
     let mut builder = GitignoreBuilder::new(base_dir);
+    builder
+        .case_insensitive(case_insensitive)
+        .expect("setting case sensitivity is infallible");
     builder.allow_unclosed_class(false);
     for pat in patterns {
         let normalized = pat.trim_end_matches(['\r']);
@@ -1099,6 +1163,9 @@ fn build_ignore_matcher(
     }
 
     let mut builder = GitignoreBuilder::new(base_dir);
+    builder
+        .case_insensitive(envx.case_insensitive_paths())
+        .expect("setting case sensitivity is infallible");
     builder.allow_unclosed_class(false);
     let mut any_pattern = false;
 
@@ -1156,33 +1223,45 @@ fn build_ignore_matcher(
 fn build_per_file_ignores(
     per_file_ignores: &BTreeMap<String, Vec<String>>,
     base_dir: &Path,
+    case_insensitive: bool,
 ) -> Result<Vec<PerFileIgnore>, String> {
     per_file_ignores
         .iter()
-        .map(|(pattern, rules)| PerFileIgnore::new(pattern, rules.clone(), base_dir))
+        .map(|(pattern, rules)| {
+            PerFileIgnore::new(pattern, rules.clone(), base_dir, case_insensitive)
+        })
         .collect()
 }
 
 /// Resolves a relative path or base via the cwd; a path outside the base falls back
 /// to its file name, as `ignore` panics on one not under its root.
-fn relative_to_base<'a>(path: &'a Path, base_dir: &Path) -> Cow<'a, Path> {
-    if let Ok(rel) = path.strip_prefix(base_dir) {
+fn relative_to_base<'a>(
+    path: &'a Path,
+    base_dir: &Path,
+    case_insensitive: bool,
+) -> Cow<'a, Path> {
+    if let Some(rel) = strip_path_prefix(path, base_dir, case_insensitive)
+        && (!case_insensitive || !rel.has_root())
+    {
         return Cow::Borrowed(rel);
     }
     let cwd = process_cwd();
-    let resolved = cwd
-        .join(path)
-        .strip_prefix(cwd.join(base_dir))
-        .ok()
-        .map(Path::to_path_buf);
+    let resolved =
+        strip_path_prefix(&cwd.join(path), &cwd.join(base_dir), case_insensitive)
+            .map(Path::to_path_buf);
     Cow::Owned(
         resolved
             .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
     )
 }
 
-fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> bool {
-    let rel = relative_to_base(path, base_dir);
+fn path_matches_ignore(
+    matcher: &Gitignore,
+    path: &Path,
+    base_dir: &Path,
+    case_insensitive: bool,
+) -> bool {
+    let rel = relative_to_base(path, base_dir, case_insensitive);
     let rel = rel.as_ref();
     let direct = matcher.matched(rel, false);
     if direct.is_whitelist() {
@@ -1192,30 +1271,6 @@ fn path_matches_ignore(matcher: &Gitignore, path: &Path, base_dir: &Path) -> boo
         return true;
     }
     matcher.matched_path_or_any_parents(rel, false).is_ignore()
-}
-
-fn resolve_extend_path(
-    entry: &str,
-    envx: &dyn Env,
-    base_dir: Option<&Path>,
-) -> PathBuf {
-    let candidate = PathBuf::from(entry);
-    if candidate.is_absolute() {
-        return candidate;
-    }
-    if let Some(joined) = base_dir
-        .map(|base| base.join(&candidate))
-        .filter(|candidate| envx.path_exists(candidate))
-    {
-        return joined;
-    }
-    let cwd = envx.current_dir();
-    let fallback = cwd.join(&candidate);
-    if envx.path_exists(&fallback) {
-        fallback
-    } else {
-        candidate
-    }
 }
 
 fn deep_merge_yaml_owned(dst: &mut YamlOwned, src: &YamlOwned) {
@@ -1248,7 +1303,7 @@ fn typed_fix_config(fix: &NormalizedFixConfig) -> FixConfig {
         .copied()
         .map(typed_fix_selector)
         .collect();
-    let unfixable = fix.unfixable.iter().copied().map(typed_fix_rule).collect();
+    let unfixable = fix.unfixable.clone();
     FixConfig { fixable, unfixable }
 }
 
@@ -1264,12 +1319,7 @@ fn normalized_fix_config(fix: &FixConfig) -> Option<NormalizedFixConfig> {
             .copied()
             .map(normalized_fix_selector)
             .collect(),
-        unfixable: fix
-            .unfixable
-            .iter()
-            .copied()
-            .map(normalized_fix_rule)
-            .collect(),
+        unfixable: fix.unfixable.clone(),
     })
 }
 
@@ -1278,6 +1328,8 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
         FixRuleSelector::All => TomlFixableRuleSelector::All,
         FixRuleSelector::Rule(FixRule::Braces) => TomlFixableRuleSelector::Braces,
         FixRuleSelector::Rule(FixRule::Brackets) => TomlFixableRuleSelector::Brackets,
+        FixRuleSelector::Rule(FixRule::Colons) => TomlFixableRuleSelector::Colons,
+        FixRuleSelector::Rule(FixRule::Hyphens) => TomlFixableRuleSelector::Hyphens,
         FixRuleSelector::Rule(FixRule::Commas) => TomlFixableRuleSelector::Commas,
         FixRuleSelector::Rule(FixRule::Comments) => TomlFixableRuleSelector::Comments,
         FixRuleSelector::Rule(FixRule::CommentsIndentation) => {
@@ -1309,25 +1361,6 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
     }
 }
 
-fn normalized_fix_rule(rule: FixRule) -> TomlFixRuleName {
-    match rule {
-        FixRule::Braces => TomlFixRuleName::Braces,
-        FixRule::Brackets => TomlFixRuleName::Brackets,
-        FixRule::Commas => TomlFixRuleName::Commas,
-        FixRule::Comments => TomlFixRuleName::Comments,
-        FixRule::CommentsIndentation => TomlFixRuleName::CommentsIndentation,
-        FixRule::DocumentEnd => TomlFixRuleName::DocumentEnd,
-        FixRule::DocumentStart => TomlFixRuleName::DocumentStart,
-        FixRule::EmptyLines => TomlFixRuleName::EmptyLines,
-        FixRule::KeyOrdering => TomlFixRuleName::KeyOrdering,
-        FixRule::NewLineAtEndOfFile => TomlFixRuleName::NewLineAtEndOfFile,
-        FixRule::NewLines => TomlFixRuleName::NewLines,
-        FixRule::QuotedStrings => TomlFixRuleName::QuotedStrings,
-        FixRule::TrailingSpaces => TomlFixRuleName::TrailingSpaces,
-        FixRule::Truthy => TomlFixRuleName::Truthy,
-    }
-}
-
 fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
     NormalizedConfig {
         ignore_patterns: (!config.ignore_patterns.is_empty())
@@ -1347,6 +1380,8 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
         ),
         output: config.output.clone(),
         locale: config.locale.clone(),
+        line_length: config.line_length,
+        indent_width: config.indent_width,
         fix: normalized_fix_config(&config.fix),
         rules: config
             .rules
@@ -1361,6 +1396,8 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
         TomlFixableRuleSelector::All => FixRuleSelector::All,
         TomlFixableRuleSelector::Braces => FixRuleSelector::Rule(FixRule::Braces),
         TomlFixableRuleSelector::Brackets => FixRuleSelector::Rule(FixRule::Brackets),
+        TomlFixableRuleSelector::Colons => FixRuleSelector::Rule(FixRule::Colons),
+        TomlFixableRuleSelector::Hyphens => FixRuleSelector::Rule(FixRule::Hyphens),
         TomlFixableRuleSelector::Commas => FixRuleSelector::Rule(FixRule::Commas),
         TomlFixableRuleSelector::Comments => FixRuleSelector::Rule(FixRule::Comments),
         TomlFixableRuleSelector::CommentsIndentation => {
@@ -1392,25 +1429,6 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
     }
 }
 
-fn typed_fix_rule(rule: TomlFixRuleName) -> FixRule {
-    match rule {
-        TomlFixRuleName::Braces => FixRule::Braces,
-        TomlFixRuleName::Brackets => FixRule::Brackets,
-        TomlFixRuleName::Commas => FixRule::Commas,
-        TomlFixRuleName::Comments => FixRule::Comments,
-        TomlFixRuleName::CommentsIndentation => FixRule::CommentsIndentation,
-        TomlFixRuleName::DocumentEnd => FixRule::DocumentEnd,
-        TomlFixRuleName::DocumentStart => FixRule::DocumentStart,
-        TomlFixRuleName::EmptyLines => FixRule::EmptyLines,
-        TomlFixRuleName::KeyOrdering => FixRule::KeyOrdering,
-        TomlFixRuleName::NewLineAtEndOfFile => FixRule::NewLineAtEndOfFile,
-        TomlFixRuleName::NewLines => FixRule::NewLines,
-        TomlFixRuleName::QuotedStrings => FixRule::QuotedStrings,
-        TomlFixRuleName::TrailingSpaces => FixRule::TrailingSpaces,
-        TomlFixRuleName::Truthy => FixRule::Truthy,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ConfigContext {
     pub config: YamlLintConfig,
@@ -1428,11 +1446,24 @@ fn finalize_context(
     mut cfg: YamlLintConfig,
     base_dir: impl Into<PathBuf>,
     source: Option<PathBuf>,
-    notices: Vec<String>,
+    mut notices: Vec<String>,
     config_found: bool,
 ) -> Result<ConfigContext, String> {
     let base_dir = base_dir.into();
     cfg.finalize(envx, &base_dir)?;
+    cfg.source.clone_from(&source);
+    let config_path = source.as_deref().unwrap_or_else(|| Path::new("config"));
+    let migrate_command =
+        if ryl_user_global_dir(envx).as_deref() == config_path.parent() {
+            "ryl --migrate-user-config"
+        } else {
+            "ryl --migrate-configs"
+        };
+    notices.extend(
+        cfg.deprecated_keys
+            .iter()
+            .map(|used| deprecation_notice(config_path, migrate_command, *used)),
+    );
     Ok(ConfigContext {
         config: cfg,
         base_dir,
@@ -1440,6 +1471,62 @@ fn finalize_context(
         notices,
         config_found,
     })
+}
+
+fn deprecation_notice(
+    config_path: &Path,
+    migrate_command: &str,
+    used: DeprecatedKeyUse,
+) -> String {
+    let DeprecatedKey {
+        key, replacement, ..
+    } = used.key;
+    let path = config_path.display();
+    if used.overridden {
+        format!(
+            "warning: {path}: `{key}` is deprecated and ignored because `{replacement}` \
+             is also set; remove it"
+        )
+    } else {
+        format!(
+            "warning: {path}: `{key}` is deprecated; use `{replacement}` instead (run \
+             `{migrate_command}` to update)"
+        )
+    }
+}
+
+fn legacy_yaml_notice(source: LegacyYamlSource, path: Option<&Path>) -> String {
+    let row = LEGACY_YAML_SOURCES
+        .iter()
+        .find(|row| row.source == source)
+        .expect("every legacy YAML source has a deprecation row");
+    let label = path.map_or_else(
+        || "-d/--config-data".to_string(),
+        |path| path.display().to_string(),
+    );
+    format!(
+        "warning: {label}: yamllint YAML config is deprecated; {}",
+        row.replacement.replace("{path}", &shell_word(&label))
+    )
+}
+
+/// `text` as one shell word: single-quoted, POSIX-style, unless every character is inert.
+fn shell_word(text: &str) -> String {
+    if text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+:,=@".contains(c))
+    {
+        text.to_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
+/// Whether `-d` text is a ryl TOML config rather than yamllint YAML. A yamllint config is
+/// a YAML mapping, which never parses as a non-empty TOML table.
+#[must_use]
+pub fn is_inline_toml(data: &str) -> bool {
+    toml::from_str::<toml::Table>(data).is_ok_and(|table| !table.is_empty())
 }
 
 /// Discover configuration with precedence:
@@ -1469,19 +1556,28 @@ pub fn discover_config_with(
 ) -> Result<ConfigContext, String> {
     if let Some(ref data) = overrides.config_data {
         let base_dir = envx.current_dir();
-        let cfg =
-            YamlLintConfig::from_yaml_str_with_env(data, Some(envx), Some(&base_dir))?;
-        return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
+        if is_inline_toml(data) {
+            let cfg = YamlLintConfig::from_toml_str(data)?;
+            return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
+        }
+        let cfg = legacy_yaml::parse(data, Some(envx), Some(&base_dir))?;
+        let notices = vec![legacy_yaml_notice(LegacyYamlSource::ConfigData, None)];
+        return finalize_context(envx, cfg, base_dir, None, notices, true);
     }
     if let Some(ref file) = overrides.config_file {
-        return ctx_from_config_path_core(envx, file, false, Vec::new());
+        return ctx_from_config_path_core(
+            envx,
+            file,
+            LegacyYamlSource::ConfigFile,
+            Vec::new(),
+        );
     }
     let discovered = find_project_config_core(envx, inputs)?;
     if let Some(discovered) = discovered {
         return ctx_from_config_path_core(
             envx,
             &discovered.cfg_path,
-            true,
+            LegacyYamlSource::Project,
             discovered.notices,
         );
     }
@@ -1547,9 +1643,12 @@ pub fn discover_per_file_with(
     envx: &dyn Env,
 ) -> Result<ConfigContext, String> {
     match locate_per_file(path, envx)? {
-        PerFileConfig::Project { cfg_path, notices } => {
-            ctx_from_config_path_core(envx, &cfg_path, true, notices)
-        }
+        PerFileConfig::Project { cfg_path, notices } => ctx_from_config_path_core(
+            envx,
+            &cfg_path,
+            LegacyYamlSource::Project,
+            notices,
+        ),
         PerFileConfig::Fallback(ctx) => Ok(*ctx),
     }
 }
@@ -1564,7 +1663,12 @@ pub(crate) enum PerFileConfig {
 }
 
 pub(crate) fn load_project_config(cfg_path: &Path) -> Result<ConfigContext, String> {
-    ctx_from_config_path_core(&SystemEnv, cfg_path, true, Vec::new())
+    ctx_from_config_path_core(
+        &SystemEnv,
+        cfg_path,
+        LegacyYamlSource::Project,
+        Vec::new(),
+    )
 }
 
 pub(crate) fn locate_per_file(
@@ -1611,12 +1715,9 @@ fn config_base_dir(envx: &dyn Env, p: &Path) -> PathBuf {
     let base = p
         .parent()
         .map_or_else(|| envx.current_dir(), Path::to_path_buf);
-    let is_config_candidate = base.file_name().and_then(|name| name.to_str())
-        == Some(".config")
-        && matches!(
-            p.file_name().and_then(|name| name.to_str()),
-            Some(".ryl.toml" | "ryl.toml")
-        );
+    let insensitive = envx.case_insensitive_paths();
+    let is_config_candidate = path_has_name(&base, &[".config"], insensitive)
+        && path_has_name(p, &[".ryl.toml", "ryl.toml"], insensitive);
     if !is_config_candidate {
         return base;
     }
@@ -1631,10 +1732,14 @@ fn config_base_dir(envx: &dyn Env, p: &Path) -> PathBuf {
 fn ctx_from_config_path_core(
     envx: &dyn Env,
     p: &Path,
-    allow_missing_pyproject: bool,
-    notices: Vec<String>,
+    origin: LegacyYamlSource,
+    mut notices: Vec<String>,
 ) -> Result<ConfigContext, String> {
     let base = config_base_dir(envx, p);
+    if !is_toml_path_with_case(p, envx.case_insensitive_paths()) {
+        notices.push(legacy_yaml_notice(origin, Some(p)));
+    }
+    let allow_missing_pyproject = origin == LegacyYamlSource::Project;
     let cfg = load_config_from_path_core(envx, p, &base, allow_missing_pyproject)?
         .expect("missing [tool.ryl] should be filtered or returned as an error before this point");
     finalize_context(envx, cfg, base, Some(p.to_path_buf()), notices, true)
@@ -1658,7 +1763,7 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
     // YAMLLINT_CONFIG_FILE is yamllint's env var, so it accepts only yamllint YAML configs.
     // Reject a `.toml` target (by extension, the loader's sole YAML-vs-TOML signal) before
     // the existence check: `-c`/project discovery are the route for ryl TOML.
-    if is_toml_path(&path) {
+    if is_toml_path_with_case(&path, envx.case_insensitive_paths()) {
         return Err(format!(
             "YAMLLINT_CONFIG_FILE points at a TOML file ({}); it accepts only yamllint YAML \
              configs. Use -c/--config-file or project config discovery for ryl-native TOML.",
@@ -1668,7 +1773,8 @@ fn try_env_config_core(envx: &dyn Env) -> Result<Option<ConfigContext>, String> 
     if !envx.path_exists(&path) {
         return Ok(None);
     }
-    ctx_from_config_path_core(envx, &path, false, Vec::new()).map(Some)
+    ctx_from_config_path_core(envx, &path, LegacyYamlSource::EnvVar, Vec::new())
+        .map(Some)
 }
 
 /// Checks ryl's own location first, then the yamllint-compatible path so migrators keep
@@ -1748,19 +1854,10 @@ fn try_yamllint_user_global_core(
         .filter(|p| envx.path_exists(p))
         .map(|p| {
             let data = envx.read_to_string(&p)?;
-            let cfg = YamlLintConfig::from_yaml_str_with_env(
-                &data,
-                Some(envx),
-                Some(base_dir),
-            )?;
-            finalize_context(
-                envx,
-                cfg,
-                base_dir.to_path_buf(),
-                Some(p),
-                Vec::new(),
-                true,
-            )
+            let cfg = legacy_yaml::parse(&data, Some(envx), Some(base_dir))?;
+            let notices =
+                vec![legacy_yaml_notice(LegacyYamlSource::UserGlobal, Some(&p))];
+            finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p), notices, true)
         })
         .transpose()
 }
@@ -1779,7 +1876,8 @@ const TOML_PROJECT_CONFIG_CANDIDATES: [&str; 5] = [
 ];
 const YAML_PROJECT_CONFIG_CANDIDATES: [&str; 3] =
     [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
-const RYL_USER_GLOBAL_CONFIG_CANDIDATES: [&str; 2] = [".ryl.toml", "ryl.toml"];
+pub(crate) const RYL_USER_GLOBAL_CONFIG_CANDIDATES: [&str; 2] =
+    [".ryl.toml", "ryl.toml"];
 
 #[derive(Debug, Clone)]
 struct ProjectConfigDiscovery {
@@ -1794,10 +1892,7 @@ fn load_config_from_path_core(
     allow_missing_pyproject: bool,
 ) -> Result<Option<YamlLintConfig>, String> {
     let data = envx.read_to_string(path)?;
-    if path
-        .file_name()
-        .is_some_and(|name| name == "pyproject.toml")
-    {
+    if path_has_name(path, &["pyproject.toml"], envx.case_insensitive_paths()) {
         let cfg = YamlLintConfig::from_toml_str_with_env(
             &data,
             Some(envx),
@@ -1812,7 +1907,7 @@ fn load_config_from_path_core(
         }
         return Ok(cfg);
     }
-    if is_toml_path(path) {
+    if is_toml_path_with_case(path, envx.case_insensitive_paths()) {
         let cfg = YamlLintConfig::from_toml_str_with_env(
             &data,
             Some(envx),
@@ -1821,13 +1916,18 @@ fn load_config_from_path_core(
         )?;
         return Ok(cfg);
     }
-    let cfg =
-        YamlLintConfig::from_yaml_str_with_env(&data, Some(envx), Some(base_dir))?;
+    let cfg = legacy_yaml::parse(&data, Some(envx), Some(base_dir))?;
     Ok(Some(cfg))
 }
 
-fn is_toml_path(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == "toml")
+pub(crate) fn is_toml_path(path: &Path) -> bool {
+    is_toml_path_with_case(path, CASE_INSENSITIVE_PATHS)
+}
+
+fn is_toml_path_with_case(path: &Path, case_insensitive: bool) -> bool {
+    path.extension().is_some_and(|ext| {
+        paths_equal(Path::new(ext), Path::new("toml"), case_insensitive)
+    })
 }
 
 /// Join a `/`-separated candidate onto `dir` component by component so the result uses
@@ -1850,12 +1950,18 @@ fn build_project_search_starts(envx: &dyn Env, inputs: &[PathBuf]) -> Vec<PathBu
         } else {
             path.parent().map_or_else(|| cwd.clone(), Path::to_path_buf)
         };
-        let abs = if start.is_absolute() {
+        // Dropping `.` components keeps one config from being reported under two paths.
+        let abs: PathBuf = if start.is_absolute() {
             start
         } else {
             cwd.join(start)
-        };
-        if !starts.iter().any(|existing| existing == &abs) {
+        }
+        .components()
+        .collect();
+        if !starts
+            .iter()
+            .any(|existing| paths_equal(existing, &abs, envx.case_insensitive_paths()))
+        {
             starts.push(abs);
         }
     }
@@ -1875,7 +1981,9 @@ fn find_first_yaml_candidate(
                 return Some(candidate);
             }
         }
-        if home_abs.is_some_and(|home| home == &dir) {
+        if home_abs
+            .is_some_and(|home| paths_equal(home, &dir, envx.case_insensitive_paths()))
+        {
             break;
         }
         match dir.parent() {
@@ -1884,6 +1992,15 @@ fn find_first_yaml_candidate(
         }
     }
     None
+}
+
+pub(crate) fn find_project_toml_config(
+    envx: &dyn Env,
+    inputs: &[PathBuf],
+) -> Result<Option<PathBuf>, String> {
+    Ok(find_project_config_core(envx, inputs)?
+        .map(|discovery| discovery.cfg_path)
+        .filter(|path| is_toml_path_with_case(path, envx.case_insensitive_paths())))
 }
 
 fn find_project_config_core(
@@ -1933,7 +2050,9 @@ fn find_project_config_core(
                     notices,
                 }));
             }
-            if home_abs.as_ref().is_some_and(|home| home == &dir) {
+            if home_abs.as_ref().is_some_and(|home| {
+                paths_equal(home, &dir, envx.case_insensitive_paths())
+            }) {
                 break;
             }
             match dir.parent() {

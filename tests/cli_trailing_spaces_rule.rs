@@ -60,10 +60,10 @@ fn rule_ignore_skips_file() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("ignored.yaml");
     fs::write(&file, "key: value \n").unwrap();
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  trailing-spaces:\n    ignore:\n      - ignored.yaml\n",
+        "[lint.rules]\ntrailing-spaces = { ignore = [\"ignored.yaml\"] }\n",
     )
     .unwrap();
 

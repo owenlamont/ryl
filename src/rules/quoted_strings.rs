@@ -14,7 +14,7 @@ use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
 use crate::rules::support::yaml_version::{
-    Version, event_version, keeps_quotes_under_yaml_1_1,
+    Version, event_version, resolves_as_yaml_1_1, resolves_to_nonstring_in_yaml_1_1,
 };
 use crate::yaml_dom::{Scalar, is_core_schema, is_core_schema_int_spelling};
 
@@ -29,7 +29,7 @@ enum QuoteType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum QuoteStyle {
+pub enum QuoteStyle {
     Single,
     Double,
 }
@@ -89,6 +89,7 @@ pub struct Config {
     extra_allowed: Vec<Regex>,
     allow_quoted_quotes: bool,
     allow_double_quotes_for_escaping: bool,
+    avoid_escapes: Option<QuoteStyle>,
     pub check_keys: bool,
 }
 
@@ -173,14 +174,41 @@ impl Config {
             extra_allowed,
             allow_quoted_quotes,
             allow_double_quotes_for_escaping,
+            avoid_escapes: None,
             check_keys,
         }
+    }
+
+    #[must_use]
+    pub fn has_extra_required(&self) -> bool {
+        !self.extra_required.is_empty()
     }
 
     #[must_use]
     pub fn with_allow_double_quotes_for_escaping(mut self, value: bool) -> Self {
         self.allow_double_quotes_for_escaping = value;
         self
+    }
+
+    /// Quotes only where `required = "only-when-needed"` lint needs them, in whichever
+    /// quotes avoid an escape, else in `style`; keys included.
+    #[must_use]
+    pub const fn ladder(style: QuoteStyle) -> Self {
+        let (quote_type, quote_type_label) = match style {
+            QuoteStyle::Single => (QuoteType::Single, "single"),
+            QuoteStyle::Double => (QuoteType::Double, "double"),
+        };
+        Self {
+            quote_type,
+            quote_type_label,
+            required: RequiredMode::OnlyWhenNeeded,
+            extra_required: Vec::new(),
+            extra_allowed: Vec::new(),
+            allow_quoted_quotes: false,
+            allow_double_quotes_for_escaping: true,
+            avoid_escapes: Some(style),
+            check_keys: true,
+        }
     }
 }
 
@@ -416,6 +444,11 @@ impl<'cfg> QuotedStringsState<'cfg> {
                 {
                     return self.redundant_quote_message(node_label, style_kind, facts);
                 }
+                if let Some(preferred) = self.config.avoid_escapes {
+                    return self.ladder_message(
+                        node_label, preferred, style_kind, value, facts,
+                    );
+                }
                 self.mismatched_quote(
                     style_kind,
                     facts.has_quoted_quotes.get(),
@@ -424,6 +457,23 @@ impl<'cfg> QuotedStringsState<'cfg> {
                 .then(|| self.not_quoted_with_message(node_label))
             },
         )
+    }
+
+    fn ladder_message(
+        &self,
+        node_label: &str,
+        preferred: QuoteStyle,
+        current: QuoteStyle,
+        value: &str,
+        facts: ScalarQuoteFacts,
+    ) -> Option<String> {
+        match ladder_target(preferred, current, value, facts) {
+            target if target == current => None,
+            target if target == preferred => {
+                Some(self.not_quoted_with_message(node_label))
+            }
+            _ => Some("change outer quotes to avoid escaping inner quotes".to_owned()),
+        }
     }
 
     fn redundant_quote_message(
@@ -483,11 +533,12 @@ fn build_violation(span: Span, message: String) -> Violation {
     }
 }
 
-/// Whether the scalar resolves to a string under the document's effective version. A
-/// value YAML 1.1 reads as a non-string (under an explicit `%YAML 1.1`) is not a string,
-/// so a plain one is left alone and a quoted one keeps its load-bearing quotes.
+/// Whether the plain scalar is a string to every reader it must keep its value for: YAML
+/// 1.1, plus the 1.2 core schema unless the document declares `%YAML 1.1`. A non-string
+/// is left alone when plain and keeps its load-bearing quotes when quoted.
 fn resolves_to_string_for_version(version: Option<Version>, value: &str) -> bool {
-    value_resolves_to_string(value) && !keeps_quotes_under_yaml_1_1(version, value)
+    (resolves_as_yaml_1_1(version) || value_resolves_to_string(value))
+        && !resolves_to_nonstring_in_yaml_1_1(value)
 }
 
 fn value_resolves_to_string(value: &str) -> bool {
@@ -535,9 +586,11 @@ fn scalar_quote_facts(
         has_quoted_quotes: Flag::new(quoted_scalar_contains_opposite_quote(
             style, value,
         )),
-        has_double_quote_escape: Flag::new(has_escaping_in_double_quotes(
-            buffer, style, span,
-        )),
+        has_double_quote_escape: Flag::new(if config.avoid_escapes.is_some() {
+            has_escape_besides_quote(buffer, style, span)
+        } else {
+            has_escaping_in_double_quotes(buffer, style, span)
+        }),
         extra_required: Flag::new(
             config.extra_required.iter().any(|re| re.is_match(value)),
         ),
@@ -584,6 +637,41 @@ fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -
 
     let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
     inner_quoted_content(buffer, scalar_start, scalar_end).contains('\\')
+}
+
+fn has_escape_besides_quote(buffer: &str, style: ScalarStyle, span: Span) -> bool {
+    if !matches!(style, ScalarStyle::DoubleQuoted) {
+        return false;
+    }
+    let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
+    let mut chars = inner_quoted_content(buffer, scalar_start, scalar_end).chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.next() != Some('"') {
+            return true;
+        }
+    }
+    false
+}
+
+/// The quotes the formatter's ladder keeps a quoted scalar in, after prettier's YAML rule.
+fn ladder_target(
+    preferred: QuoteStyle,
+    current: QuoteStyle,
+    value: &str,
+    facts: ScalarQuoteFacts,
+) -> QuoteStyle {
+    if current == QuoteStyle::Double && facts.has_double_quote_escape.get() {
+        QuoteStyle::Double
+    } else if value.contains('"') {
+        QuoteStyle::Single
+    } else if value.contains('\'')
+        && !value.contains('\\')
+        && !value_needs_double_quotes_for_content(value)
+    {
+        QuoteStyle::Double
+    } else {
+        preferred
+    }
 }
 
 fn inner_quoted_content(buffer: &str, start: BytePos, end: BytePos) -> &str {
@@ -700,6 +788,16 @@ fn has_backslash_line_ending(buffer: &str, span: Span) -> bool {
     let has_unix_backslash = content.contains("\\\n");
     let has_windows_backslash = content.contains("\\\r\n");
     has_unix_backslash || has_windows_backslash
+}
+
+fn next_token(mut rest: &str) -> &str {
+    loop {
+        rest = rest.trim_start_matches([' ', '\t', '\r', '\n']);
+        let Some(comment) = rest.strip_prefix('#') else {
+            return rest;
+        };
+        rest = comment.find(['\r', '\n']).map_or("", |eol| &comment[eol..]);
+    }
 }
 
 fn scalar_source_bounds(
@@ -1005,7 +1103,7 @@ impl<'cfg> FixState<'cfg> {
         resolves_to_string: bool,
         span: Span,
     ) -> Option<Replacement> {
-        let facts = scalar_quote_facts(
+        let mut facts = scalar_quote_facts(
             self.config,
             self.buffer,
             self.in_flow(),
@@ -1014,6 +1112,15 @@ impl<'cfg> FixState<'cfg> {
             span,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
+        // A `:` before a non-space (`{'k':v}`, `{'k' :v}`) is a value indicator only
+        // because the key is quoted, even with comments and line breaks in between.
+        if next_token(&self.buffer[end.get()..])
+            .strip_prefix(':')
+            .and_then(|after| after.chars().next())
+            .is_some_and(|next| !next.is_whitespace())
+        {
+            facts.quotes_needed = Flag::new(true);
+        }
 
         match self.config.required {
             RequiredMode::Always => self.fix_required_always(value, facts, start, end),
@@ -1098,6 +1205,23 @@ impl<'cfg> FixState<'cfg> {
                     && !self.redundant_quote_allowed(style_kind, facts)
                 {
                     return Some((start, end, value.to_owned()));
+                }
+                if let Some(preferred) = self.config.avoid_escapes {
+                    let target = ladder_target(preferred, style_kind, value, facts);
+                    let source = inner_quoted_content(self.buffer, start, end);
+                    if target == QuoteStyle::Single
+                        && style_kind == QuoteStyle::Double
+                        && source.contains(['\n', '\r'])
+                    {
+                        return Some((
+                            start,
+                            end,
+                            quote_value(&source.replace("\\\"", "\""), target),
+                        ));
+                    }
+                    return (target != style_kind)
+                        .then(|| replacement_for_target(value, start, end, target))
+                        .flatten();
                 }
                 if self.mismatched_quote(style_kind, facts) {
                     let target = self.target_quote_style(style_kind);

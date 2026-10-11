@@ -1,10 +1,16 @@
-//! `indentation`: yamllint's token-driven rule on granit's scanner. No safe `--fix`.
+//! `indentation`: yamllint's token-driven rule on granit's scanner. No safe `--fix`;
+//! `ryl format` re-indents through [`reindent`], which places each line where the check
+//! expects it.
 
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
+
+mod rewrite;
+
+pub use rewrite::{Cause, Refusal, Reindented, fix, reindent, reindent_widths};
 
 pub const ID: &str = "indentation";
 
@@ -20,6 +26,8 @@ pub struct Config {
     spaces: SpacesSetting,
     indent_sequences: IndentSequencesSetting,
     check_multi_line_strings: bool,
+    /// Where [`reindent`] puts a block mapping in a block sequence; `None` leaves it.
+    dash_on_own_line: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,17 +47,19 @@ pub enum IndentSequencesSetting {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let spaces =
-            cfg.rule_option(ID, "spaces")
-                .map_or(SpacesSetting::Consistent, |node| {
-                    node.as_integer()
-                        .map_or(SpacesSetting::Consistent, |value| {
-                            let non_negative = value.max(0);
-                            let fixed =
-                                usize::try_from(non_negative).unwrap_or(usize::MAX);
-                            SpacesSetting::Fixed(fixed)
-                        })
-                });
+        let shared = cfg
+            .indent_width()
+            .map_or(SpacesSetting::Consistent, |width| {
+                SpacesSetting::Fixed(usize::from(width.get()))
+            });
+        let spaces = cfg.rule_option(ID, "spaces").map_or(shared, |node| {
+            node.as_integer()
+                .map_or(SpacesSetting::Consistent, |value| {
+                    let non_negative = value.max(0);
+                    let fixed = usize::try_from(non_negative).unwrap_or(usize::MAX);
+                    SpacesSetting::Fixed(fixed)
+                })
+        });
 
         let indent_sequences = cfg.rule_option(ID, "indent-sequences").map_or(
             IndentSequencesSetting::True,
@@ -79,11 +89,12 @@ impl Config {
             spaces,
             indent_sequences,
             check_multi_line_strings,
+            dash_on_own_line: None,
         }
     }
 
     #[must_use]
-    pub const fn new_for_tests(
+    pub const fn new(
         spaces: SpacesSetting,
         indent_sequences: IndentSequencesSetting,
         check_multi_line_strings: bool,
@@ -92,44 +103,51 @@ impl Config {
             spaces,
             indent_sequences,
             check_multi_line_strings,
+            dash_on_own_line: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_dash_on_own_line(mut self, value: bool) -> Self {
+        self.dash_on_own_line = Some(value);
+        self
+    }
+
+    /// Whether a file indented uniformly by `width` spaces satisfies `spaces`.
+    #[must_use]
+    pub fn admits_width(&self, width: u8) -> bool {
+        match self.spaces {
+            SpacesSetting::Consistent => true,
+            SpacesSetting::Fixed(spaces) => spaces == usize::from(width),
         }
     }
 }
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    analyze(buffer, cfg, Mode::Check).0
+}
+
+pub(crate) fn has_fixed_explicit_indent(buffer: &str, cfg: &Config) -> bool {
+    analyze(buffer, cfg, Mode::Detect).1
+}
+
+fn analyze(buffer: &str, cfg: &Config, mode: Mode) -> (Vec<Violation>, bool) {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
-    let tokens = scan(buffer, &chars, &line_starts);
-    let mut analyzer = Analyzer {
-        chars: &chars,
-        line_starts: &line_starts,
-        check_multi_line_strings: cfg.check_multi_line_strings,
-        stack: vec![Parent::new(ParentKind::Root, 0)],
-        cur_line: 0,
-        cur_line_indent: 0,
-        spaces: match cfg.spaces {
-            SpacesSetting::Fixed(value) => Some(to_isize(value)),
-            SpacesSetting::Consistent => None,
-        },
-        indent_sequences: cfg.indent_sequences,
-        diagnostics: Vec::new(),
-    };
-    for (idx, token) in tokens.iter().enumerate() {
-        let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
-        let next = tokens.get(idx + 1);
-        if analyzer
-            .step(token, prev, next, tokens.get(idx + 2))
-            .is_err()
-        {
-            analyzer.diagnostics.push(Violation {
-                line: token.line + 1,
-                column: token.column + 1,
-                message: "cannot infer indentation: unexpected token".to_string(),
-            });
-        }
-    }
-    analyzer.diagnostics
+    let mut line_starts = build_line_starts(&chars);
+    let tokens = scan(buffer, &chars, &mut line_starts);
+    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, mode);
+    analyzer.run(&tokens);
+    (analyzer.diagnostics, analyzer.fixed_explicit_indent)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Check,
+    Detect,
+    /// Record each line's shift to where the check expects it, and expect what follows
+    /// from the shifted columns.
+    Target,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,10 +185,22 @@ impl Token {
     }
 }
 
-fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<Token> {
+fn scan(
+    buffer: &str,
+    chars: &[(usize, char)],
+    line_starts: &mut [CharPos],
+) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
+        for marker in [span.start, span.end] {
+            let Some(line_start) = line_starts.get_mut(marker.line() - 1) else {
+                continue;
+            };
+            if marker.index().saturating_sub(line_start.get()) > marker.col() {
+                skip_prefix_bom(chars, line_start);
+            }
+        }
         let (mut start, mut end) = (span.start.index(), span.end.index());
         let kind = match token_type {
             TokenType::Comment(_) => continue,
@@ -210,6 +240,8 @@ fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<T
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
                     let from = tokens.last().map_or(0, |prev| prev.end);
                     start = block_indicator(chars, from).unwrap_or(start);
+                    let (line, _) = locate(line_starts, start);
+                    skip_prefix_bom(chars, &mut line_starts[line]);
                     let end_line_start = line_starts[locate(line_starts, end).0].get();
                     let trailing = end - end_line_start;
                     if count_spaces(chars, end_line_start) >= trailing
@@ -243,6 +275,12 @@ fn scan(buffer: &str, chars: &[(usize, char)], line_starts: &[CharPos]) -> Vec<T
 fn locate(line_starts: &[CharPos], idx: usize) -> (usize, usize) {
     let (line, column) = line_and_column(line_starts, CharPos::new(idx));
     (line - 1, column - 1)
+}
+
+fn skip_prefix_bom(chars: &[(usize, char)], start: &mut CharPos) {
+    if char_at(chars, start.get()) == Some('\u{feff}') {
+        *start = CharPos::new(start.get() + 1);
+    }
 }
 
 fn char_at(chars: &[(usize, char)], idx: usize) -> Option<char> {
@@ -292,6 +330,9 @@ struct Parent {
     line_indent: isize,
     explicit_key: bool,
     implicit_block_seq: bool,
+    /// How far a block collection moves, which its block scalars' bodies with an
+    /// indentation indicator move with.
+    shift: isize,
 }
 
 impl Parent {
@@ -302,6 +343,7 @@ impl Parent {
             line_indent: indent,
             explicit_key: false,
             implicit_block_seq: false,
+            shift: 0,
         }
     }
 }
@@ -316,11 +358,117 @@ struct Analyzer<'a> {
     cur_line: usize,
     cur_line_indent: isize,
     spaces: Option<isize>,
+    fixed_explicit_indent: bool,
     indent_sequences: IndentSequencesSetting,
     diagnostics: Vec<Violation>,
+    mode: Mode,
+    shifts: Vec<Option<Shift>>,
+    gaps: Vec<Vec<Gap>>,
 }
 
-impl Analyzer<'_> {
+/// The spaces after an indicator that `ryl format` closes to one, with the rule that owns
+/// them.
+#[derive(Debug, Clone, Copy)]
+struct Gap {
+    column: usize,
+    removed: usize,
+    rule: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Shift {
+    /// A line led by a token found at `found`.
+    Token { found: isize, delta: isize },
+    /// A line inside a multi-line scalar.
+    Carried(isize),
+}
+
+impl Shift {
+    const fn delta(self) -> isize {
+        match self {
+            Self::Token { delta, .. } | Self::Carried(delta) => delta,
+        }
+    }
+}
+
+impl<'a> Analyzer<'a> {
+    fn new(
+        chars: &'a [(usize, char)],
+        line_starts: &'a [CharPos],
+        cfg: &Config,
+        mode: Mode,
+    ) -> Self {
+        Self {
+            chars,
+            line_starts,
+            check_multi_line_strings: cfg.check_multi_line_strings,
+            stack: vec![Parent::new(ParentKind::Root, 0)],
+            cur_line: 0,
+            cur_line_indent: 0,
+            spaces: match cfg.spaces {
+                SpacesSetting::Fixed(value) => Some(to_isize(value)),
+                SpacesSetting::Consistent => None,
+            },
+            fixed_explicit_indent: false,
+            indent_sequences: cfg.indent_sequences,
+            diagnostics: Vec::new(),
+            mode,
+            shifts: vec![None; line_starts.len()],
+            gaps: vec![Vec::new(); line_starts.len()],
+        }
+    }
+
+    fn delta(&self, line: usize) -> isize {
+        self.shifts[line].map_or(0, Shift::delta)
+    }
+
+    fn column(&self, token: &Token) -> isize {
+        let closed: usize = self.gaps[token.line]
+            .iter()
+            .filter(|gap| gap.column < token.column)
+            .map(|gap| gap.removed)
+            .sum();
+        to_isize(token.column) + self.delta(token.line) - to_isize(closed)
+    }
+
+    /// Records the gap after `token` when it is an indicator whose content follows on its
+    /// line past more than one space.
+    fn close_gap(&mut self, token: &Token, next: Option<&Token>, first_in_line: bool) {
+        let rule = match token.kind {
+            Kind::BlockEntry => crate::rules::hyphens::ID,
+            Kind::Key { explicit: true } => crate::rules::colons::ID,
+            Kind::Value if first_in_line => crate::rules::colons::ID,
+            _ => return,
+        };
+        let Some(next) = next.filter(|next| {
+            next.line == token.line && !matches!(next.kind, Kind::BlockEnd)
+        }) else {
+            return;
+        };
+        let gap = next.column - token.column - 1;
+        if gap > 1 && count_spaces(self.chars, token.start + 1) == gap {
+            self.gaps[token.line].push(Gap {
+                column: token.column,
+                removed: gap - 1,
+                rule,
+            });
+        }
+    }
+
+    fn run(&mut self, tokens: &[Token]) {
+        for (idx, token) in tokens.iter().enumerate() {
+            let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
+            let next = tokens.get(idx + 1);
+            if self.step(token, prev, next, tokens.get(idx + 2)).is_err() {
+                self.push(
+                    token.line + 1,
+                    token.column,
+                    "cannot infer indentation: unexpected token".to_string(),
+                );
+            }
+        }
+    }
+
     fn top(&self) -> Parent {
         self.stack[self.stack.len() - 1]
     }
@@ -346,16 +494,18 @@ impl Analyzer<'_> {
         );
         let first_in_line = visible && token.line + 1 > self.cur_line;
         let found = to_isize(token.column);
-        if first_in_line {
-            let top = self.top();
-            let expected = match token.kind {
-                Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent,
-                Kind::Value => top.indent,
-                _ if top.kind == ParentKind::Key && top.explicit_key => {
-                    self.detect_indent(top.indent, found)
-                }
-                _ => top.indent,
-            };
+        if first_in_line && self.mode == Mode::Target {
+            let expected = self.expected(token, found);
+            self.shifts[token.line] = Some(Shift::Token {
+                found,
+                delta: expected - found,
+            });
+        }
+        if self.mode != Mode::Check {
+            self.close_gap(token, next, first_in_line);
+        }
+        if first_in_line && self.mode != Mode::Target {
+            let expected = self.expected(token, found);
             if found != expected {
                 let message = if expected < 0 {
                     format!("wrong indentation: expected at least {}", found + 1)
@@ -365,19 +515,34 @@ impl Analyzer<'_> {
                 self.push(token.line + 1, token.column, message);
             }
         }
-        if let Kind::Scalar { style, .. } = token.kind
-            && self.check_multi_line_strings
-        {
-            self.check_scalar(token, style);
+        if let Kind::Scalar { style, .. } = token.kind {
+            if self.check_multi_line_strings {
+                self.check_scalar(token, style);
+            }
+            if self.mode == Mode::Target {
+                self.carry_scalar_lines(token, style);
+            }
         }
         if visible {
             self.cur_line = self.real_end_line(token);
             if first_in_line {
-                self.cur_line_indent = found;
+                self.cur_line_indent = self.column(token);
             }
         }
         self.update_stack(token, prev, next, nextnext)?;
         self.unwind(token, next)
+    }
+
+    fn expected(&mut self, token: &Token, found: isize) -> isize {
+        let top = self.top();
+        match token.kind {
+            Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent,
+            Kind::Value => top.indent,
+            _ if top.kind == ParentKind::Key && top.explicit_key => {
+                self.detect_indent(top.indent, found)
+            }
+            _ => top.indent,
+        }
     }
 
     fn update_stack(
@@ -387,11 +552,11 @@ impl Analyzer<'_> {
         next: Option<&Token>,
         nextnext: Option<&Token>,
     ) -> Result<(), UnexpectedToken> {
-        let column = to_isize(token.column);
+        let column = self.column(token);
         let Some(next) = next else {
             return Ok(());
         };
-        let next_column = to_isize(next.column);
+        let next_column = self.column(next);
         match token.kind {
             Kind::BlockMappingStart | Kind::BlockSequenceStart => {
                 let (child, kind) = if token.kind == Kind::BlockMappingStart {
@@ -405,7 +570,10 @@ impl Analyzer<'_> {
                 if !child || next.line != token.line {
                     return Err(UnexpectedToken);
                 }
-                self.stack.push(Parent::new(kind, column));
+                self.stack.push(Parent {
+                    shift: column - to_isize(token.column),
+                    ..Parent::new(kind, column)
+                });
             }
             Kind::FlowMappingStart | Kind::FlowSequenceStart => {
                 let indent = if next.line == token.line {
@@ -427,6 +595,7 @@ impl Analyzer<'_> {
                 if self.top().kind != ParentKind::BlockSequence {
                     self.stack.push(Parent {
                         implicit_block_seq: true,
+                        shift: column - to_isize(token.column),
                         ..Parent::new(ParentKind::BlockSequence, column)
                     });
                 }
@@ -444,7 +613,7 @@ impl Analyzer<'_> {
                     ..Parent::new(ParentKind::Key, self.top().indent)
                 });
             }
-            Kind::Value => self.push_value(prev, next, nextnext)?,
+            Kind::Value => self.push_value(token, prev, next, nextnext)?,
             _ => {}
         }
         Ok(())
@@ -452,6 +621,7 @@ impl Analyzer<'_> {
 
     fn push_value(
         &mut self,
+        token: &Token,
         prev: Option<&Token>,
         next: &Token,
         nextnext: Option<&Token>,
@@ -476,7 +646,11 @@ impl Analyzer<'_> {
         {
             return Ok(());
         }
-        let next_column = to_isize(next.column);
+        let next_column = self.column(next);
+        self.fixed_explicit_indent |= key.explicit_key
+            && self.below_top().kind == ParentKind::BlockMapping
+            && self.spaces.is_none()
+            && next.line == token.line;
         let indent = if key.explicit_key {
             self.detect_indent(key.indent, next_column)
         } else if next.line == prev_line {
@@ -579,23 +753,64 @@ impl Analyzer<'_> {
         }
     }
 
-    fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
-        let last_line = if token.end_column > 0 {
-            token.end_line
-        } else {
-            token.end_line.saturating_sub(1)
-        };
-        let mut expected = None;
-        for line in token.line + 1..=last_line {
-            let line_start = self.line_starts[line].get();
-            let indent = count_spaces(self.chars, line_start);
-            if char_at(self.chars, line_start + indent).is_some_and(is_break) {
-                continue;
-            }
+    /// Moves a scalar's later lines: a block body to where [`Self::check_scalar`] expects
+    /// it, or with the collection it is indented against where an indentation indicator
+    /// fixes its column, and a continuation with the line it starts on.
+    fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
+        let delta = if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+            self.column(token) - to_isize(token.column)
+        } else if let Some((_, indent)) = self.body_indents(token).next()
+            && !self.has_indentation_indicator(token)
+        {
             let found = to_isize(indent);
-            let expected = *expected.get_or_insert_with(|| {
-                self.expected_scalar_indent(token, style, found)
-            });
+            self.expected_scalar_indent(token, style, found) - found
+        } else {
+            self.stack
+                .iter()
+                .rev()
+                .find(|parent| {
+                    matches!(
+                        parent.kind,
+                        ParentKind::BlockMapping | ParentKind::BlockSequence
+                    )
+                })
+                .map_or(0, |parent| parent.shift)
+        };
+        for line in token.line + 1..=last_line(token) {
+            self.shifts[line] = Some(Shift::Carried(delta));
+        }
+    }
+
+    fn has_indentation_indicator(&self, token: &Token) -> bool {
+        self.chars[token.start + 1..]
+            .iter()
+            .map(|&(_, ch)| ch)
+            .take_while(|&ch| ch.is_ascii_digit() || matches!(ch, '+' | '-'))
+            .any(|ch| ch.is_ascii_digit())
+    }
+
+    /// Each later line of `token` that is not blank, with its indent.
+    fn body_indents(
+        &self,
+        token: &Token,
+    ) -> impl Iterator<Item = (usize, usize)> + use<'a> {
+        let (chars, line_starts) = (self.chars, self.line_starts);
+        (token.line + 1..=last_line(token)).filter_map(move |line| {
+            let line_start = line_starts[line].get();
+            let indent = count_spaces(chars, line_start);
+            (!char_at(chars, line_start + indent).is_some_and(is_break))
+                .then_some((line, indent))
+        })
+    }
+
+    fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
+        let lines: Vec<(usize, usize)> = self.body_indents(token).collect();
+        let Some(&(_, first)) = lines.first() else {
+            return;
+        };
+        let expected = self.expected_scalar_indent(token, style, to_isize(first));
+        for (line, indent) in lines {
+            let found = to_isize(indent);
             if found != expected {
                 self.push(line + 1, indent, wrong_indent_message(expected, found));
             }
@@ -608,7 +823,7 @@ impl Analyzer<'_> {
         style: ScalarStyle,
         found: isize,
     ) -> isize {
-        let column = to_isize(token.column);
+        let column = self.column(token);
         let top = self.top();
         match style {
             ScalarStyle::Plain => column,
@@ -648,11 +863,24 @@ impl Analyzer<'_> {
     }
 
     fn push(&mut self, line: usize, found: usize, message: String) {
+        let start = self.line_starts[line - 1].get();
+        let bom = usize::from(
+            start > 0 && char_at(self.chars, start - 1) == Some('\u{feff}'),
+        );
         self.diagnostics.push(Violation {
             line,
-            column: found + 1,
+            column: found + bom + 1,
             message,
         });
+    }
+}
+
+/// The last line holding a character of `token`.
+const fn last_line(token: &Token) -> usize {
+    if token.end_column > 0 {
+        token.end_line
+    } else {
+        token.end_line.saturating_sub(1)
     }
 }
 

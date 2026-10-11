@@ -15,7 +15,7 @@ Requires that the keys within each mapping appear in lexicographic
 ## Configuration
 
 ```toml
-[rules.key-ordering]
+[lint.rules.key-ordering]
 level = "error"
 ignored-keys = []
 ```
@@ -56,16 +56,16 @@ beta: 2
 
 ## Custom orders
 
-Each `[[rules.key-ordering.orders]]` entry gives a mapping a key order other
+Each `[[lint.rules.key-ordering.orders]]` entry gives a mapping a key order other
 than alphabetical. An entry applies where both its `files` and its `path`
 match, and the first matching entry wins. Mappings that no entry selects keep
 the alphabetical order, and that includes mappings nested inside a selected one.
 
 ```toml
-[rules.key-ordering]
+[lint.rules.key-ordering]
 level = "error"
 
-[[rules.key-ordering.orders]]
+[[lint.rules.key-ordering.orders]]
 files = [".pre-commit-config.yaml"]
 path = "$.repos[*].hooks[*]"
 keys = ["alias", "name", "description", "args", "env"]
@@ -169,7 +169,7 @@ gamma: 3  # Gamma-specific note.
   disabled on any of its lines.
 
 To keep `--fix` from reordering keys at all, add `unfixable = ["key-ordering"]`
-to the `[fix]` table.
+to the `[lint]` table.
 
 ## Related rules
 

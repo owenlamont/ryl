@@ -1,0 +1,400 @@
+//! `ryl format`'s input, stdin, parse-skip and config plumbing, shared with `ryl check
+//! --fix`/`--diff`: every mode leaves already-formatted and unparsable inputs byte-for-byte
+//! unchanged and exits 0.
+
+use std::fs;
+use std::process::Command;
+
+use tempfile::tempdir;
+
+mod common;
+use common::cli::{output_tuple, run, ryl, stdin_output};
+
+fn exe() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_ryl"))
+}
+
+fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
+    output_tuple(stdin_output(cmd, input, |result| {
+        if let Err(error) = result {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
+        }
+    }))
+}
+
+#[test]
+fn format_help_lists_its_flags_and_completions_include_it() {
+    let (code, stdout, stderr) = run(exe().args(["format", "--help"]));
+    assert_eq!(code, 0, "format --help should succeed: {stderr}");
+    for flag in [
+        "--check",
+        "--diff",
+        "--stdin-filename",
+        "--config-file",
+        "--output-format",
+        "--markdown",
+    ] {
+        assert!(
+            stdout.contains(flag),
+            "format --help missing {flag}: {stdout}"
+        );
+    }
+    let (_, completions, _) = run(exe().args(["--generate-completions", "bash"]));
+    assert!(
+        completions.contains("ryl__subcmd__format"),
+        "bash completions should include the format subcommand"
+    );
+}
+
+#[test]
+fn check_and_diff_are_mutually_exclusive() {
+    let (code, _, stderr) = run(exe().args(["format", "--check", "--diff", "x.yaml"]));
+    assert_eq!(code, 2, "--check with --diff is a usage error: {stderr}");
+}
+
+#[test]
+fn markdown_format_refuses_new_closing_fence_lines() {
+    for body in ["\"~~~\"", "alpha beta gamma ~~~"] {
+        let input = format!("~~~yaml\n{body}\n~~~\n");
+        let (code, output, stderr) = run_with_stdin(
+            exe().args([
+                "format",
+                "--markdown",
+                "-",
+                "--no-warnings",
+                "-d",
+                "line-length = 16\n[format]\nfold-long-lines = true\n",
+            ]),
+            input.as_bytes(),
+        );
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(output, input);
+    }
+}
+
+#[test]
+fn format_preview_validates_resolved_output_streams_like_check() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    let empty = dir.path().join("empty");
+    fs::write(&file, "a: 1\n").unwrap();
+    fs::create_dir(&empty).unwrap();
+    for output in [
+        "[output.junit]\n[output.gitlab]",
+        "[output.standard]\npath = '-'\n[output.gitlab]",
+        "[output.standard]\n[output.parsable]",
+    ] {
+        let config = format!("[lint.rules]\nanchors = 'enable'\n{output}");
+        for input in [file.to_str().unwrap(), empty.to_str().unwrap(), "-"] {
+            let (check_code, check_stdout, check_stderr) = run_with_stdin(
+                ryl(dir.path()).args(["check", input, "--no-warnings", "-d", &config]),
+                b"a: 1\n",
+            );
+            assert_eq!(check_code, 2, "{output}/{input}: {check_stderr}");
+            assert!(check_stdout.is_empty());
+            let (code, stdout, stderr) = run_with_stdin(
+                ryl(dir.path()).args([
+                    "format",
+                    "--check",
+                    input,
+                    "--no-warnings",
+                    "-d",
+                    &config,
+                ]),
+                b"a: 1\n",
+            );
+            assert_eq!(code, 2, "{output}/{input}: {stdout}{stderr}");
+            assert_eq!(stderr, check_stderr, "{output}/{input}");
+            assert!(stdout.is_empty(), "rejected targets emit no reports");
+            for args in [
+                &["--check", "--output-format", "gitlab"][..],
+                &["--diff"],
+                &["--diff", "--output-format", "gitlab"],
+            ] {
+                let (code, stdout, stderr) = run_with_stdin(
+                    ryl(dir.path()).arg("format").args(args).args([
+                        input,
+                        "--no-warnings",
+                        "-d",
+                        &config,
+                    ]),
+                    b"a: 1\n",
+                );
+                assert_eq!(code, 0, "{output}/{input}/{args:?}: {stderr}");
+                assert!(stderr.is_empty(), "{stderr}");
+                assert_eq!(stdout, if args[0] == "--check" { "[]\n" } else { "" });
+            }
+        }
+    }
+}
+
+/// A `[format]`-only project config enables no lint rules, which `check` rejects; `format`
+/// must run regardless. The Markdown file routes through the embedded-region path.
+#[test]
+fn every_mode_leaves_formatted_files_unchanged_and_reports_parse_skips() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[files]\nmarkdown = [\"*.md\"]\n\n[format]\n",
+    )
+    .unwrap();
+    let inputs = [
+        ("a.yaml", "---\nb: 1\na: [1, 2]\n"),
+        ("doc.md", "# Doc\n\n```yaml\nb: 1\n```\n"),
+        ("bad.yaml", "a: [\n"),
+    ];
+    for (name, content) in inputs {
+        fs::write(dir.path().join(name), content).unwrap();
+    }
+    for (mode, label) in [
+        (None, "ryl format"),
+        (Some("--check"), "--check"),
+        (Some("--diff"), "--diff"),
+    ] {
+        let (code, stdout, stderr) =
+            run(ryl(dir.path()).arg("format").args(mode).arg(dir.path()));
+        assert_eq!(code, 0, "{label}: nothing to reformat: {stderr}");
+        assert!(stdout.is_empty(), "{label}: nothing to print: {stdout}");
+        assert!(
+            stderr.contains("bad.yaml:1:4")
+                && stderr.contains(&format!("skipped by {label}")),
+            "{label}: unparsable input is reported: {stderr}"
+        );
+        for (name, content) in inputs {
+            assert_eq!(
+                fs::read_to_string(dir.path().join(name)).unwrap(),
+                content,
+                "{label}: {name} must be unchanged"
+            );
+        }
+    }
+}
+
+#[test]
+fn stdin_is_echoed_to_stdout_and_check_prints_nothing() {
+    let dir = tempdir().unwrap();
+    let cases: [(&[&str], &str, &str, &str); 4] = [
+        (&[], "---\na: 1\n", "---\na: 1\n", ""),
+        (&[], "\u{feff}---\na: 1\n", "\u{feff}---\na: 1\n", ""),
+        (
+            &["--stdin-filename", "s.yaml"],
+            "a: [\n",
+            "a: [\n",
+            "s.yaml:1:4 skipped by ryl format",
+        ),
+        (&["--check"], "---\na: 1\n", "", ""),
+    ];
+    for (args, input, expected_stdout, expected_notice) in cases {
+        let (code, stdout, stderr) = run_with_stdin(
+            ryl(dir.path()).arg("format").args(args).arg("-"),
+            input.as_bytes(),
+        );
+        assert_eq!(code, 0, "{args:?}: {stderr}");
+        assert_eq!(stdout, expected_stdout, "{args:?}: stdout");
+        assert!(stderr.contains(expected_notice), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
+fn document_start_is_added_only_when_configured() {
+    let dir = tempdir().unwrap();
+    let add = "[format]\ndocument-start = \"add\"\n";
+    for (config, expected) in [(None, "a: 1\n"), (Some(add), "---\na: 1\n")] {
+        let mut cmd = ryl(dir.path());
+        cmd.arg("format");
+        if let Some(config) = config {
+            cmd.args(["-d", config]);
+        }
+        let (code, stdout, stderr) = run_with_stdin(cmd.arg("-"), b"a: 1\n");
+        assert_eq!(code, 0, "{config:?}: {stderr}");
+        assert_eq!(stdout, expected, "{config:?}");
+    }
+}
+
+#[test]
+fn ignored_stdin_filename_passes_through() {
+    let ignore = [
+        "-d",
+        "ignore: ignored.yaml",
+        "--stdin-filename",
+        "ignored.yaml",
+    ];
+    let (code, stdout, stderr) =
+        run_with_stdin(exe().arg("format").args(ignore).arg("-"), b"a:   1\n");
+    assert_eq!((code, stdout.as_str()), (0, "a:   1\n"), "{stderr}");
+    let (code, stdout, stderr) = run_with_stdin(
+        exe().args(["format", "--check"]).args(ignore).arg("-"),
+        b"a:   1\n",
+    );
+    assert_eq!((code, stdout.as_str()), (0, ""), "{stderr}");
+}
+
+#[test]
+fn empty_format_checks_emit_configured_reports() {
+    for explicit_config in [false, true] {
+        for input in ["empty", "ignored.yaml", "stdin"] {
+            let dir = tempdir().unwrap();
+            let junit = dir.path().join("report.xml");
+            let gitlab = dir.path().join("report.json");
+            let config = dir.path().join("ryl.toml");
+            fs::write(
+                &config,
+                format!(
+                    "exclude = ['ignored.yaml']\n[output.junit]\npath = '{}'\n\
+                     [output.gitlab]\npath = '{}'\n",
+                    junit.display().to_string().replace('\\', "/"),
+                    gitlab.display().to_string().replace('\\', "/"),
+                ),
+            )
+            .unwrap();
+            fs::create_dir(dir.path().join("empty")).unwrap();
+            fs::write(dir.path().join("ignored.yaml"), "a:   1\n").unwrap();
+            fs::write(&junit, "stale report").unwrap();
+            fs::write(&gitlab, "stale report").unwrap();
+            let mut cmd = ryl(dir.path());
+            cmd.args(["format", "--check"]);
+            if explicit_config {
+                cmd.arg("-c").arg(&config);
+            }
+            if input == "stdin" {
+                cmd.arg("--stdin-filename")
+                    .arg(dir.path().join("ignored.yaml"))
+                    .arg("-");
+            } else {
+                cmd.arg(dir.path().join(input));
+            }
+            let (code, stdout, stderr) = run_with_stdin(&mut cmd, b"a:   1\n");
+            assert_eq!(code, 0, "{explicit_config}/{input}: {stderr}");
+            assert!(stdout.is_empty(), "{stdout}");
+            assert_eq!(
+                fs::read(&junit).unwrap(),
+                ryl::report::render_junit(&[]),
+                "{explicit_config}/{input}: empty JUnit report"
+            );
+            assert_eq!(
+                fs::read(&gitlab).unwrap(),
+                ryl::report::render_gitlab(&[]),
+                "{explicit_config}/{input}: empty GitLab report"
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_format_runs_preserve_output_precedence_and_errors() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join("ryl.toml");
+    fs::write(
+        &config,
+        format!(
+            "exclude = ['ignored.yaml']\n[output.junit]\npath = '{}'\n",
+            dir.path()
+                .join("missing/report.xml")
+                .display()
+                .to_string()
+                .replace('\\', "/"),
+        ),
+    )
+    .unwrap();
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let named = dir.path().join("ignored.yaml");
+    for stdin in [false, true] {
+        for (args, expected_code) in [
+            (&["--check"][..], 2),
+            (&["--check", "--output-format", "gitlab"][..], 0),
+            (&["--diff"][..], 0),
+            (&[][..], 0),
+        ] {
+            let mut cmd = ryl(dir.path());
+            cmd.arg("format").args(args).arg("-c").arg(&config);
+            if stdin {
+                cmd.arg("--stdin-filename").arg(&named).arg("-");
+            } else {
+                cmd.arg(&empty);
+            }
+            let (code, stdout, stderr) = run_with_stdin(&mut cmd, b"a:   1\n");
+            assert_eq!(code, expected_code, "{stdin}/{args:?}: {stderr}");
+            if args.contains(&"gitlab") {
+                assert_eq!(stdout.as_bytes(), ryl::report::render_gitlab(&[]));
+            }
+        }
+    }
+    fs::write(
+        &config,
+        format!(
+            "exclude = ['ignored.yaml']\n[output.junit]\npath = '{}'\n",
+            named.display().to_string().replace('\\', "/"),
+        ),
+    )
+    .unwrap();
+    let (code, _, stderr) = run_with_stdin(
+        ryl(dir.path())
+            .args(["format", "--check", "-c"])
+            .arg(&config)
+            .arg("--stdin-filename")
+            .arg(&named)
+            .arg("-"),
+        b"a:   1\n",
+    );
+    assert_eq!(code, 2, "excluded stdin cannot be overwritten: {stderr}");
+    assert!(!named.exists());
+    fs::write(&config, "[output]\njunit = false\n").unwrap();
+    let (code, _, stderr) =
+        run(ryl(dir.path()).args(["format", "--check"]).arg(&empty));
+    assert_eq!(code, 2, "invalid project output config: {stderr}");
+}
+
+#[test]
+fn unusable_inputs_are_errors() {
+    let dir = tempdir().unwrap();
+    let missing = dir.path().join("missing.yaml");
+    let missing = missing.to_str().unwrap();
+    let notes = dir.path().join("notes.txt");
+    let notes = notes.to_str().unwrap();
+    let cases: [(&[&str], &[u8]); 7] = [
+        (&[], b""),
+        (&["-", missing], b""),
+        (&[missing], b""),
+        (&["--check", missing], b""),
+        (&["-c", missing, "-"], b""),
+        (&["--stdin-filename", notes, "-"], b""),
+        (&["-"], &[0xFF, 0xFF, 0xFF]),
+    ];
+    for (args, input) in cases {
+        let (code, stdout, stderr) =
+            run_with_stdin(ryl(dir.path()).arg("format").args(args), input);
+        assert_eq!((code, stdout.as_str()), (2, ""), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
+fn no_warnings_silences_config_deprecation_notices() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), "[rules]\n").unwrap();
+    fs::write(dir.path().join("a.yaml"), "a: 1\n").unwrap();
+    for (flag, warns) in [(None, true), (Some("--no-warnings"), false)] {
+        let (code, _, stderr) =
+            run(ryl(dir.path()).arg("format").args(flag).arg(dir.path()));
+        assert_eq!(code, 0, "{flag:?}: {stderr}");
+        assert_eq!(stderr.contains("deprecated"), warns, "{flag:?}: {stderr}");
+    }
+}
+
+#[test]
+fn markdown_flag_formats_markdown_without_files_config() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "---\nk:   1\n---\n").unwrap();
+    let (code, _, stderr) =
+        run(ryl(dir.path()).args(["format", "--markdown"]).arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "---\nk: 1\n---\n");
+    let (_, stdout, stderr) = run_with_stdin(
+        ryl(dir.path())
+            .args(["format", "--markdown", "-", "--stdin-filename"])
+            .arg(dir.path().join("notes.txt")),
+        b"```yaml\na:   1\n```\n",
+    );
+    assert_eq!(stdout, "```yaml\na: 1\n```\n", "{stderr}");
+}

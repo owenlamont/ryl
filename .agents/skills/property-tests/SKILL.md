@@ -2,9 +2,10 @@
 name: property-tests
 description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
-  editing any property-test suite (safe-fix / fix-convergence / rule-checker /
-  markdown-fix / config). Covers what each generator must be extended with, the 5–10
-  minute pre-commit run, and which rules intentionally have no safe `--fix`.
+  editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
+  rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
+  each generator must be extended with, the 5–10 minute pre-commit run, the real-world
+  corpus gate, and which rules intentionally have no safe `--fix`.
 ---
 
 # Property Tests
@@ -28,13 +29,22 @@ touched ones. A seed it finds becomes a regression test plus a fix.
 three *soundness* invariants (a safe fix must never change meaning, but need not be
 complete — so it does *not* assert "no diagnostics remain"): idempotence, parse
 preservation (parses to an equal `YamlOwned`), and a leading `# ryl disable` making the
-fix a byte-for-byte no-op. It runs a matrix of named configs — six YAML
+fix a byte-for-byte no-op. It runs a matrix of named configs — eight YAML
 (`yamllint-default`, `best-practice`, `strict-single`, `strict-double`, `consistent`,
-`truthy-title-case`) plus three TOML-backed (`best-practice-toml`, covering ryl-only
+`truthy-title-case`, and `spacing-zero`/`spacing-disabled` for the `colons`/`hyphens`
+tolerances 0 and -1) plus three TOML-backed (`best-practice-toml`, covering ryl-only
 options like `allow-double-quotes-for-escaping`, and two `comments` spacing variants
-exercising `max-spaces-from-content`). Deterministic siblings pin known-dirty /
-production-bug inputs through the same checks (and assert the fixer clears them) so the
-property can't pass vacuously.
+exercising `max-spaces-from-content`). The generator's block entries vary the spacing
+around `:` (including a tab and explicit `?` keys, whose value may be a compact
+collection on the `:` line), and `Node::BlockSeq` emits block sequences: varied dash
+spacing, block and multi-line scalars, `- !!map`, `- &m` and bare `-` bodies, and
+compact `- k: v` / `- - a` items, multi-line ones included. Each entry's `Layout` varies
+the indentation it nests at (width 1–5, sequences flush with their key) and its leading
+comment's column; block scalars take indicators 1–4, whitespace-only lines and a comment
+after the body; plain, quoted and flow continuations sit at random depths past their
+parent. Nesting reaches depth 2. Deterministic siblings pin
+known-dirty / production-bug inputs through the same checks (and assert the fixer clears
+them) so the property can't pass vacuously.
 
 When you add a new `FixSafety::Safe` rule:
 
@@ -94,6 +104,60 @@ Failing inputs persist to the committed
 `tests/proptest-regressions/property_fix_convergence.txt`; run with
 `cargo test --test property_fix_convergence`.
 
+## Property Tests For The Formatter Guarantee
+
+`tests/property_format.rs` proves the formatter's guarantee for every row of the pass
+table in `property_format/passes.rs`: idempotence, parse preservation,
+value preservation, and comment/anchor fidelity. The `format/*` rows run
+`ryl::format::format_str`: `format/default` (an empty `[format]` table),
+`format/quote-double`, and `format/non-defaults` (every non-default `[format]` value). The
+`fix/*` rows prove `ryl check --fix` on the same rules: `apply_safe_fixes` under a config
+enabling the format-owned rules (`FORMAT_OWNED_RULES`, pinned equal to
+`format::FORMAT_RULE_IDS`; `line-length` and `indentation` have no safe fix; `truthy`
+and `key-ordering` are lint-owned and stay out), one per quoted-strings variant plus a
+TOML row for the ryl-only ladder options.
+
+- Value preservation compares granit's event stream (`property_format/representation.rs`),
+  not loaded values: document count, node kinds, entry order, duplicate keys, explicit
+  tags, the anchor/alias graph, and each scalar resolved against its document's declared
+  version. A `%YAML 1.1` document resolves plain scalars through the suite's own 1.1
+  table, written independently of `quoted-strings`'.
+- Comment fidelity keys each trimmed comment to the data events before it and whether it
+  is inline; anchor and alias names must survive in order.
+- Re-indent (`reindent_places_each_line_or_leaves_its_document`) calls
+  `indentation::reindent` at widths 1–4: each line keeps its trimmed text and the line
+  count holds, a refused document is byte-identical, and `indentation::check` passes on
+  every line outside a refused document.
+- The generator (`property_format/properties.rs`) adds anchors, aliases, tags,
+  escape-bearing quoted scalars and quoted block-mapping keys to the fix-convergence
+  stacked documents.
+
+A new formatter pass, or a rule graduating to the formatter, adds its row to the pass table
+before it ships; widen the generator if it rewrites syntax the stacked documents lack.
+`a_deliberately_broken_pass_fails_the_suite` feeds broken passes through the same checks,
+and `representation_tells_apart_what_value_preservation_forbids` pins the oracle's
+resolution; extend both when an invariant changes. Failing inputs persist to
+`tests/proptest-regressions/property_format.txt`; run with
+`cargo test --test property_format`.
+
+### Corpus gate
+
+`uv run scripts/formatter_corpus_check.py run` formats the pinned repos in
+`scripts/formatter_corpus.toml` with the release build, in the default and
+`fold-long-lines = true` modes, and exits 1 on a hard failure: a value, comment or anchor
+change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the same
+oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
+one repo. The epic-to-main gate also passes `--proptest-cases 5120`, which then runs
+every property suite at 20×, one after another. `rust-known-errors` and
+`yaml12-known-errors` in the manifest list files an oracle's own parser misreads; an
+entry waives that oracle's value verdict only while the original and formatted bytes
+match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
+gate as stale. Any ryl error, panic or timeout fails it too.
+`uv run tests/test_formatter_corpus_check.py` tests this gate logic. Minimise a failing
+file by deleting lines while it still fails, then land it as a deterministic test that
+runs `check_invariants` over every pass-table row, and widen the generator if it could
+not have produced the shape.
+
 ## Property Tests For Rule Checkers
 
 `tests/property_check.rs` property-tests the **detection** path: it runs every rule's
@@ -136,6 +200,18 @@ add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to t
 committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
 `cargo test --test property_markdown_fix`.
 
+## Property Tests For Markdown Formatting
+
+`tests/property_markdown_format.rs` exercises the same Markdown write-back with
+`Rewrite::Format` under every `format/*` profile from `property_format/passes.rs`
+plus a random profile from `property_format/settings.rs` per case.
+The shared Markdown wrapper embeds the formatter's decorated YAML generator; each region
+must preserve its core and YAML 1.1 representation, comments and anchor names, while
+host bytes stay identical and formatting is idempotent. Deterministic dirty-region and
+oracle-mutation tests prevent vacuous passes. Seeds persist to
+`tests/proptest-regressions/property_markdown_format.txt`; run with
+`cargo test --test property_markdown_format`.
+
 ## Property Tests For Config Parsing
 
 `tests/property_config.rs` property-tests **configuration robustness**:
@@ -166,23 +242,16 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   strip and `+` keep exist), so a bare `|`/`>` cannot be annotated without
   switching it to strip or keep, which changes the scalar's trailing newlines
   and resolved value; the choice is the author's intent.
-- `colons` — Collapsing extra space around colons safely needs precise parser
-  context tracking (plain scalars, alias keys, explicit `?`/`:` mappings)
-  equivalent to re-implementing the YAML mapping scanner.
 - `empty-values` — The rule's intent is to force the user to choose between
   `~`, `null`, or restructuring; auto-inserting a literal contradicts the
   rule's purpose and would silently change downstream behaviour.
 - `float-values` — Rewrites such as `0.5 → .5`, `.5 → 0.5`, expanding
   `1e3 → 1000`, or replacing `.nan`/`.inf` all change the scalar's string
   representation and, in tagged or string-typed consumers, its semantic value.
-- `hyphens` — Collapsing trailing spaces after `-` in a block sequence
-  changes the indent of any nested block mapping/sequence that follows on
-  subsequent lines and so can change the parsed structure; the `dash-on-own-line`
-  option is likewise no-fix, since breaking the `-` onto its own line re-indents
-  the mapping body.
 - `indentation` — Re-indenting alters the block-structure boundaries the
   YAML grammar uses to delimit mappings, sequences, and scalars; any
-  non-trivial fix risks changing the parsed value.
+  non-trivial fix risks changing the parsed value. `ryl format` re-indents
+  instead, refusing a document whose events would change (#383).
 - `key-duplicates` — Resolving a duplicate requires deciding which key (and
   value) to keep; both choices alter the parsed mapping and need user intent.
 - `line-length` — Splitting an over-long line requires line-folding decisions

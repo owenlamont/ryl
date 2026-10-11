@@ -18,48 +18,20 @@ pub fn lint_markdown_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
-    if super::markdown_has_unsupported_cr(markdown) {
-        return vec![super::unsupported_cr_skip()];
-    }
-    let sources = MarkdownSources {
-        front_matter: cfg.markdown_front_matter(),
-        fenced_blocks: cfg.markdown_fenced_blocks(),
-    };
-
     let suppressed = suppressed_rules();
-    let mut problems = Vec::new();
-    for region in extract_regions(markdown, sources) {
-        if region.content.trim().is_empty() {
-            continue;
-        }
-        let mut region_problems = lint_str(&region.content, path, cfg, base_dir);
-        region_problems
+    markdown_region_problems(markdown, cfg, |region| {
+        let mut problems = lint_str(&region.content, path, cfg, base_dir);
+        problems
             .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
-        if region_problems.is_empty() {
-            continue;
-        }
-        let stripped = stripped_indents(markdown, &region);
-        for mut problem in region_problems {
-            problem.column += stripped
-                .get(problem.line - 1)
-                .copied()
-                .unwrap_or(region.col_offset);
-            problem.line += region.line_offset;
-            problems.push(problem);
-        }
-    }
-    problems
+        problems
+    })
 }
 
-/// Each embedded region's `--fix` skips from `region_skips` (its parse error, say)
-/// mapped to host coordinates, so `--fix` can report which regions its strict gate
-/// refused to rewrite. Unlike a true syntax error (which [`lint_markdown_str`] already
-/// surfaces), an undefined alias is otherwise silent.
 #[must_use]
-pub fn markdown_parse_skips(
+pub fn markdown_region_problems(
     markdown: &str,
     cfg: &YamlLintConfig,
-    region_skips: impl Fn(&str) -> Vec<LintProblem>,
+    mut region_problems: impl FnMut(&EmbeddedRegion) -> Vec<LintProblem>,
 ) -> Vec<LintProblem> {
     if super::markdown_has_unsupported_cr(markdown) {
         return vec![super::unsupported_cr_skip()];
@@ -73,7 +45,7 @@ pub fn markdown_parse_skips(
         if region.content.trim().is_empty() {
             continue;
         }
-        let problems = region_skips(&region.content);
+        let problems = region_problems(&region);
         if problems.is_empty() {
             continue;
         }

@@ -1,7 +1,12 @@
 //! `line-length`: lines may not exceed `max` characters (counted as characters, not
 //! bytes), with an optional allowance for an unbreakable long word/URL. Mirrors
 //! yamllint's `line-length`. No safe `--fix`: splitting an over-long line needs folding
-//! decisions that depend on the scalar's style and whether folding is legal there.
+//! decisions that depend on the scalar's style and whether folding is legal there, so
+//! only `ryl format` folds, and only where [`fold`] proves it safe.
+
+mod fold;
+
+pub use fold::{Fold, fold};
 
 use std::convert::TryFrom;
 
@@ -22,7 +27,11 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
-        let max = cfg.rule_option_int(ID, "max", 80);
+        let max = cfg.rule_option_int(
+            ID,
+            "max",
+            cfg.line_length().map_or(80, |width| i64::from(width.get())),
+        );
         let allow_inline =
             cfg.rule_option_bool(ID, "allow-non-breakable-inline-mappings", false);
         let allow_words =

@@ -11,6 +11,7 @@ pub struct FakeEnv {
     vars: HashMap<String, String>,
     config_dir: Option<PathBuf>,
     home: Option<PathBuf>,
+    case_insensitive_paths: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -59,9 +60,34 @@ impl FakeEnv {
         self.home = Some(path.into());
         self
     }
+
+    pub fn with_case_insensitive_paths(mut self, enabled: bool) -> Self {
+        self.case_insensitive_paths = Some(enabled);
+        self
+    }
+
+    fn paths_equal(&self, left: &Path, right: &Path) -> bool {
+        if self.case_insensitive_paths() {
+            left.components().count() == right.components().count()
+                && left
+                    .components()
+                    .zip(right.components())
+                    .all(|(left, right)| {
+                        left.as_os_str()
+                            .as_encoded_bytes()
+                            .eq_ignore_ascii_case(right.as_os_str().as_encoded_bytes())
+                    })
+        } else {
+            left == right
+        }
+    }
 }
 
 impl Env for FakeEnv {
+    fn case_insensitive_paths(&self) -> bool {
+        self.case_insensitive_paths
+            .unwrap_or(cfg!(any(windows, target_os = "macos")))
+    }
     fn current_dir(&self) -> PathBuf {
         self.cwd.clone()
     }
@@ -71,13 +97,20 @@ impl Env for FakeEnv {
     }
 
     fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        self.files.get(p).cloned().ok_or_else(|| {
-            format!("failed to read config file {}: not found", p.display())
-        })
+        self.files
+            .iter()
+            .find(|(path, _)| self.paths_equal(path, p))
+            .map(|(_, data)| data.clone())
+            .ok_or_else(|| {
+                format!("failed to read config file {}: not found", p.display())
+            })
     }
 
     fn path_exists(&self, p: &Path) -> bool {
-        self.files.contains_key(p) || self.exists.contains(p)
+        self.files
+            .keys()
+            .chain(&self.exists)
+            .any(|path| self.paths_equal(path, p))
     }
 
     fn env_var(&self, key: &str) -> Option<String> {

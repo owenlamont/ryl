@@ -1,0 +1,117 @@
+use std::process::Command;
+
+use tempfile::tempdir;
+
+use ryl::rules::document_end::{self, Config};
+
+mod common;
+use common::cli::{run, ryl, stdin_output};
+
+#[test]
+fn fix_ends_every_implicitly_ended_document() {
+    let cases = [
+        ("a: 1\n---\nb: 2\n", "a: 1\n...\n---\nb: 2\n...\n"),
+        ("a: 1\n...\nb: 2\n", "a: 1\n...\nb: 2\n...\n"),
+        ("...\na: 1\n", "...\na: 1\n...\n"),
+        ("--- a\n--- b\n", "--- a\n...\n--- b\n...\n"),
+        ("---\n---\n", "---\n...\n---\n...\n"),
+        ("a: 1\n--- # c\nb\n", "a: 1\n...\n--- # c\nb\n...\n"),
+        ("a: 1\n# c\n\n---\nb\n", "a: 1\n# c\n\n...\n---\nb\n...\n"),
+        ("a: |+\n  x\n\n---\nb\n", "a: |+\n  x\n\n...\n---\nb\n...\n"),
+        ("--- |\n  x\n--- b", "--- |\n  x\n...\n--- b\n...\n"),
+        ("x: |\n  ---\n", "x: |\n  ---\n...\n"),
+        (
+            "%YAML 1.2\n---\na: 1\n---\nb\n",
+            "%YAML 1.2\n---\na: 1\n...\n---\nb\n...\n",
+        ),
+        (
+            "\u{feff}a: 1\n---\nb: 2\n",
+            "\u{feff}a: 1\n...\n---\nb: 2\n...\n",
+        ),
+        (
+            "a: 1\n...\n\u{feff}---\nb: 2\n",
+            "a: 1\n...\n\u{feff}---\nb: 2\n...\n",
+        ),
+        (
+            "a: 1\r\n# c\r\n---\r\nb\r\n",
+            "a: 1\r\n# c\r\n...\r\n---\r\nb\r\n...\r\n",
+        ),
+        ("a: 1\r# c\r\r---\rb\r", "a: 1\r# c\r\r...\r---\rb\r...\r"),
+        ("--- a\r--- b\r", "--- a\r...\r--- b\r...\r"),
+        ("---\r---\r", "---\r...\r---\r...\r"),
+        ("a\n# c\n---\nb\n...\n", "a\n# c\n...\n---\nb\n...\n"),
+        ("[a]\n# c\n---\nb\n", "[a]\n# c\n...\n---\nb\n...\n"),
+    ];
+    let cfg = Config::new(true);
+    for (input, expected) in cases {
+        assert_eq!(
+            document_end::fix(input, &cfg).as_deref(),
+            Some(expected),
+            "input: {input:?}"
+        );
+        assert!(
+            document_end::check(expected, &cfg).is_empty(),
+            "not clean: {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn fix_inserts_ends_but_skips_the_append_after_an_unterminated_block_scalar() {
+    assert_eq!(
+        document_end::fix("a: 1\n---\nb: |\n  x", &Config::new(true)).as_deref(),
+        Some("a: 1\n...\n---\nb: |\n  x")
+    );
+}
+
+#[test]
+fn fix_leaves_ended_or_forbidden_markers_alone() {
+    assert_eq!(
+        document_end::fix("a: 1\n...\n---\nb: 2\n...\n", &Config::new(true)),
+        None
+    );
+    assert_eq!(
+        document_end::fix("a: 1\n---\nb: 2\n", &Config::new(false)),
+        None
+    );
+}
+
+#[test]
+fn format_adds_an_end_to_every_document_of_a_stream() {
+    let dir = tempdir().unwrap();
+    let output = stdin_output(
+        ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["format", "-d", "[format]\ndocument-end = 'add'\n"])
+            .args(["--stdin-filename", "s.yaml", "-"]),
+        b"a: 1\n---\nb: 2\n...\nc: 3\n",
+        |result| result.unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "a: 1\n...\n---\nb: 2\n...\nc: 3\n...\n"
+    );
+}
+
+#[test]
+fn fix_converges_on_bare_cr_inline_documents() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    std::fs::write(&file, "--- a\r--- b\r").unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args([
+            "check",
+            "--fix",
+            "-d",
+            "[lint.rules]\ndocument-end = 'enable'\n",
+        ])
+        .arg(&file));
+    assert_eq!(
+        code, 0,
+        "fixed output must converge and lint clean: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "--- a\r...\r--- b\r...\r"
+    );
+}

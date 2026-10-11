@@ -10,17 +10,19 @@
 //! non-mapping entry, and a block mapping that is a *mapping* value (no preceding
 //! `BlockEntry`) is never reported.
 //!
-//! No safe `--fix`: collapsing the spaces or breaking the dash onto its own line
-//! re-indents the entry's body, which can change the parsed structure.
+//! Safe `--fix` collapses the spaces to the tolerance, never below one, except after a
+//! dash opening a compact block collection that continues below, whose indentation the
+//! spaces set. `dash-on-own-line` has no fix. `ryl format` closes those gaps and joins or
+//! breaks dash-line mappings as part of re-indenting (`indentation::reindent`).
 //!
 //! Sources: YAML 1.2.2 block-sequence grammar; adrienverge/yamllint#527.
 
 use granit_parser::{Scanner, StrInput, TokenType};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::split_lines_preserve_endings;
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode};
 
 pub const ID: &str = "hyphens";
 pub const MESSAGE: &str = "too many spaces after hyphen";
@@ -31,6 +33,7 @@ pub const MESSAGE_DASH_ON_OWN_LINE: &str =
 pub struct Config {
     max_spaces_after: i64,
     dash_on_own_line: bool,
+    mode: Mode,
 }
 
 impl Config {
@@ -45,14 +48,25 @@ impl Config {
                 Self::DEFAULT_MAX,
             ),
             dash_on_own_line: cfg.rule_option_bool(ID, "dash-on-own-line", false),
+            mode: Mode::Lint,
         }
     }
 
     #[must_use]
-    pub const fn new_for_tests(max_spaces_after: i64) -> Self {
+    pub const fn new(max_spaces_after: i64) -> Self {
         Self {
             max_spaces_after,
             dash_on_own_line: false,
+            mode: Mode::Lint,
+        }
+    }
+
+    /// The formatter's target: exactly one space after `-`.
+    #[must_use]
+    pub const fn format() -> Self {
+        Self {
+            mode: Mode::Format,
+            ..Self::new(1)
         }
     }
 
@@ -77,7 +91,9 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut violations = collect_max_spaces(buffer, cfg.max_spaces_after);
+    let mut violations = violations(buffer, cfg, |fix| {
+        cfg.mode == Mode::Lint || fix == Fix::Safe
+    });
     if cfg.dash_on_own_line {
         violations.extend(collect_dash_on_own_line(buffer));
         // Two independent passes append out of document order; restore it (no later
@@ -87,69 +103,37 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     violations
 }
 
-fn collect_max_spaces(buffer: &str, max_spaces_after: i64) -> Vec<Violation> {
-    let mut violations = Vec::new();
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    token_spacing::fix(buffer, cfg.mode, |site| {
+        (site.indicator == Indicator::Dash).then_some(cfg.max_spaces_after)
+    })
+}
 
-    for (idx, line, _ending) in split_lines_preserve_endings(buffer) {
-        if line.is_empty() {
-            continue;
-        }
+/// The violations `fix` leaves because respacing them would re-indent a collection.
+#[must_use]
+pub fn unfixed(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    violations(buffer, cfg, |fix| fix == Fix::Reindents)
+}
 
-        let chars = line.char_indices();
-        let mut indent_chars = 0usize;
-        let mut hyphen_byte = None;
-
-        for (byte_idx, ch) in chars {
-            match ch {
-                ' ' | '\t' => {
-                    indent_chars += 1;
-                }
-                '-' => {
-                    hyphen_byte = Some(byte_idx);
-                    break;
-                }
-                _ => break,
-            }
-        }
-
-        let Some(hyphen_pos) = hyphen_byte else {
-            continue;
-        };
-
-        let mut offset = hyphen_pos + 1;
-        let mut spaces_after = 0usize;
-
-        while let Some(ch) = line[offset..].chars().next() {
-            if matches!(ch, ' ' | '\t') {
-                spaces_after += 1;
-                offset += ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-
-        if offset >= line.len() {
-            continue;
-        }
-
-        let next_byte = line.as_bytes()[offset];
-        if next_byte == b'#' {
-            continue;
-        }
-
-        let spaces_count = i64::try_from(spaces_after).unwrap_or(i64::MAX);
-
-        if spaces_count > max_spaces_after {
-            let column = indent_chars + 1 + spaces_after;
-            violations.push(Violation {
-                line: idx + 1,
-                column,
-                message: MESSAGE.to_string(),
-            });
-        }
-    }
-
-    violations
+fn violations(
+    buffer: &str,
+    cfg: &Config,
+    keep: impl Fn(Fix) -> bool,
+) -> Vec<Violation> {
+    token_spacing::sites(buffer)
+        .into_iter()
+        .filter(|site| {
+            site.indicator == Indicator::Dash
+                && keep(site.fix)
+                && site.exceeds(cfg.max_spaces_after)
+        })
+        .map(|site| Violation {
+            line: site.line,
+            column: site.column,
+            message: MESSAGE.to_string(),
+        })
+        .collect()
 }
 
 /// Flag every block-sequence entry whose block mapping opens on the dash's line (see

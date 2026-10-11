@@ -26,6 +26,8 @@ mod ast;
 #[path = "property_safe_fix/config.rs"]
 #[allow(dead_code)]
 mod config;
+#[path = "common/encoding.rs"]
+mod encoding;
 #[path = "property_safe_fix/strategy.rs"]
 mod strategy;
 #[path = "property_markdown_fix/wrap.rs"]
@@ -34,7 +36,7 @@ mod wrap;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{SourceKind, YamlLintConfig};
-use ryl::fix::{apply_safe_fixes, diff_outcome, fix_markdown_str};
+use ryl::fix::{Rewrite, apply_safe_fixes, diff_outcome, fix_markdown_str};
 
 use config::{safe_fix_configs, synthetic_base_dir, synthetic_path};
 use strategy::arb_document;
@@ -63,6 +65,7 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Yaml,
+            Rewrite::Fix,
         );
         // A bare `\r` is diffed as line *content* (the `\n`-only renderer), so it
         // round-trips through `git apply`. The one residual case `similar` can't
@@ -108,14 +111,20 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
 fn assert_markdown_preview(input: &str) -> Result<(), TestCaseError> {
     for prepared in safe_fix_configs() {
         let cfg = &prepared.cfg;
-        let fixed =
-            fix_markdown_str(input, synthetic_path(), cfg, synthetic_base_dir());
+        let fixed = fix_markdown_str(
+            input,
+            synthetic_path(),
+            cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix,
+        );
         let outcome = diff_outcome(
             input,
             cfg,
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Markdown,
+            Rewrite::Fix,
         );
         prop_assert_eq!(
             outcome.diff.is_some(),
@@ -147,6 +156,7 @@ fn yaml_produces_a_diff(input: &str) -> bool {
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Yaml,
+            Rewrite::Fix,
         )
         .diff
         .is_some()
@@ -160,6 +170,69 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn absolute_diff_paths_beneath_cwd_have_relative_headers(
+        filename in "[a-z][a-z 0-9]{0,10}\\.yaml[. ]{0,3}",
+        spelling in 0u8..4,
+    ) {
+        let cwd = std::env::current_dir().unwrap();
+        let path = cwd.join("sub").join("..").join(&filename);
+        let plain = path.display().to_string();
+        let path = if cfg!(windows) && spelling > 0 {
+            let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain);
+            if spelling == 3 {
+                format!("{}:sub/../{filename}", &plain[..1])
+            } else if spelling == 1 {
+                format!(r"\\?\{plain}")
+            } else {
+                format!("//?/{}", plain.replace('\\', "/"))
+            }
+        } else {
+            plain
+        };
+        let cfg = YamlLintConfig::from_yaml_str("rules: {trailing-spaces: enable}").unwrap();
+        for rewrite in [Rewrite::Fix, Rewrite::Format] {
+            let outcome = diff_outcome(
+                "key: value  \n", &cfg, std::path::Path::new(&path), &cwd,
+                SourceKind::Yaml, rewrite,
+            );
+            let diff = outcome.diff.unwrap();
+            prop_assert!(diff.starts_with(&format!("--- {filename}\n+++ {filename}\n")), "{path}: {diff}");
+            prop_assert_eq!(apply_unified("key: value  \n", &diff), "key: value\n");
+        }
+    }
+
+    #[test]
+    fn encoded_previews_match_plain_previews(
+        input in prop_oneof![
+            arb_document().prop_map(|document| (document.render(), SourceKind::Yaml)),
+            arb_markdown_doc().prop_map(|document| (document.render(), SourceKind::Markdown)),
+        ],
+        width in prop::sample::select(vec![1usize, 2, 4]),
+        little in any::<bool>(),
+        bom in any::<bool>(),
+    ) {
+        let (input, kind) = input;
+        let bytes = encoding::encoded(&input, width, little, bom);
+        let decoded = ryl::decoder::decode_bytes_lossless(&bytes).unwrap();
+        for prepared in safe_fix_configs() {
+            let plain = diff_outcome(
+                &input, &prepared.cfg, synthetic_path(), synthetic_base_dir(),
+                kind, Rewrite::Fix,
+            );
+            let outcome = ryl::fix::decoded_diff_outcome(
+                &decoded, &prepared.cfg, synthetic_path(), synthetic_base_dir(),
+                kind, Rewrite::Fix,
+            );
+            prop_assert_eq!(outcome.changed, plain.changed, "{}", prepared.name);
+            if !decoded.is_plain_utf8() {
+                prop_assert!(outcome.diff.is_none());
+            } else {
+                prop_assert_eq!(outcome.diff, plain.diff);
+            }
+        }
+    }
 
     #[test]
     fn yaml_diff_is_a_faithful_applicable_preview(document in arb_document()) {
@@ -178,7 +251,7 @@ proptest! {
                 &prepared.cfg,
                 synthetic_path(),
                 synthetic_base_dir(),
-                SourceKind::Yaml,
+                SourceKind::Yaml, Rewrite::Fix
             );
             prop_assert!(
                 outcome.diff.is_none(),
@@ -231,6 +304,7 @@ fn unparsable_yaml_is_skipped_not_diffed() {
             synthetic_path(),
             synthetic_base_dir(),
             SourceKind::Yaml,
+            Rewrite::Fix,
         );
         assert!(
             outcome.diff.is_none(),
@@ -266,6 +340,7 @@ fn crlf_preserving_config_diff_round_trips_via_diffy() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Yaml,
+        Rewrite::Fix,
     );
     let diff = outcome
         .diff
@@ -298,6 +373,7 @@ fn bare_cr_as_content_diff_round_trips_via_diffy() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Yaml,
+        Rewrite::Fix,
     );
     let diff = outcome
         .diff
@@ -326,6 +402,7 @@ fn trailing_bare_cr_change_is_skipped_not_diffed() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Yaml,
+        Rewrite::Fix,
     );
     assert!(
         outcome.diff.is_none() && !outcome.skipped.is_empty(),
@@ -345,6 +422,7 @@ fn known_dirty_markdown_diff_round_trips() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Markdown,
+        Rewrite::Fix,
     );
     assert!(
         outcome.diff.is_some(),
@@ -361,7 +439,14 @@ fn markdown_diff_skips_a_bare_cr_host() {
     let input = "```yaml\ritems: [a ,b]\r```\r";
     let cfg = &safe_fix_configs()[0].cfg;
     assert!(
-        fix_markdown_str(input, synthetic_path(), cfg, synthetic_base_dir()).is_none(),
+        fix_markdown_str(
+            input,
+            synthetic_path(),
+            cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix
+        )
+        .is_none(),
         "a bare-CR markdown host must not be fixed"
     );
     let outcome = diff_outcome(
@@ -370,6 +455,7 @@ fn markdown_diff_skips_a_bare_cr_host() {
         synthetic_path(),
         synthetic_base_dir(),
         SourceKind::Markdown,
+        Rewrite::Fix,
     );
     assert!(
         outcome.diff.is_none() && !outcome.skipped.is_empty(),

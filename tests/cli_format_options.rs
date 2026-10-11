@@ -12,10 +12,10 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 }
 
 fn disable_doc_start_config(dir: &std::path::Path) -> std::path::PathBuf {
-    let cfg = dir.join("config.yml");
+    let cfg = dir.join("config.toml");
     fs::write(
         &cfg,
-        "rules:\n  document-start: disable\n  new-line-at-end-of-file: enable\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nnew-line-at-end-of-file = \"enable\"\n",
     )
     .unwrap();
     cfg
@@ -52,10 +52,10 @@ fn parsable_format_outputs_expected_diagnostic() {
         "unexpected diagnostic payload: {line}"
     );
 
-    let warn_cfg = dir.path().join("config-warning.yml");
+    let warn_cfg = dir.path().join("config-warning.toml");
     fs::write(
         &warn_cfg,
-        "rules:\n  document-start: disable\n  new-line-at-end-of-file:\n    level: warning\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nnew-line-at-end-of-file = { level = \"warning\" }\n",
     )
     .unwrap();
     let (warn_code, warn_stdout, warn_stderr) = run(Command::new(exe)
@@ -307,10 +307,10 @@ fn colored_format_uses_ansi_sequences() {
         "expected ANSI sequences in colored output: {stderr}"
     );
 
-    let warn_cfg = dir.path().join("config-warning.yml");
+    let warn_cfg = dir.path().join("config-warning.toml");
     fs::write(
         &warn_cfg,
-        "rules:\n  document-start: disable\n  new-line-at-end-of-file:\n    level: warning\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nnew-line-at-end-of-file = { level = \"warning\" }\n",
     )
     .unwrap();
     let (warn_code, warn_stdout, warn_stderr) = run(Command::new(exe)
@@ -380,7 +380,7 @@ fn colored_format_matches_reference_layout() {
         .arg("--format")
         .arg("colored")
         .arg("-d")
-        .arg("extends: default")
+        .arg("[lint.rules]\ncommas = \"enable\"\ndocument-start = { level = \"warning\" }\n")
         .arg(&file));
     assert_eq!(code, 1, "colored format should exit 1 when errors occur");
     assert!(
@@ -805,7 +805,7 @@ fn stdin_output_file_without_format_is_usage_error() {
         "an unpaired --output-file is a usage error on stdin"
     );
     assert!(
-        stderr.contains("--output-file must follow a --format"),
+        stderr.contains("--output-file must follow an --output-format"),
         "expected the unpaired-output message: {stderr}"
     );
 }
@@ -987,7 +987,7 @@ fn ignored_stdin_emits_an_empty_gitlab_report() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "ignore = [\"ignored.yaml\"]\n[rules]\ncolons = \"enable\"\n",
+        "ignore = [\"ignored.yaml\"]\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
 
@@ -1022,7 +1022,7 @@ fn ignored_stdin_report_open_failure_is_usage_error() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "ignore = [\"ignored.yaml\"]\n[rules]\ncolons = \"enable\"\n",
+        "ignore = [\"ignored.yaml\"]\n[lint.rules]\ncolons = \"enable\"\n",
     )
     .unwrap();
     let report = dir.path().join("missing-dir").join("gl.json");
@@ -1179,7 +1179,7 @@ fn output_file_without_preceding_format_is_usage_error() {
         .arg(&file));
     assert_eq!(code, 2, "an unpaired --output-file is a usage error");
     assert!(
-        stderr.contains("--output-file must follow a --format"),
+        stderr.contains("--output-file must follow an --output-format"),
         "expected the unpaired-output message: {stderr}"
     );
 }
@@ -1207,7 +1207,7 @@ fn format_with_two_output_files_is_usage_error() {
         "binding two files to one --format is a usage error"
     );
     assert!(
-        stderr.contains("a --format takes at most one --output-file"),
+        stderr.contains("an --output-format takes at most one --output-file"),
         "expected the one-output-per-format message: {stderr}"
     );
 }
@@ -1500,7 +1500,7 @@ fn output_config(dir: &std::path::Path, output_body: &str) -> std::path::PathBuf
     fs::write(
         &cfg,
         format!(
-            "[rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n{output_body}"
+            "[lint.rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n{output_body}"
         ),
     )
     .unwrap();
@@ -1618,7 +1618,7 @@ fn config_output_is_auto_discovered_from_project_config() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
+        "[lint.rules]\nnew-line-at-end-of-file = \"enable\"\ndocument-start = \"disable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
     )
     .unwrap();
     fs::write(dir.path().join("dirty.yaml"), "key: value").unwrap();
@@ -1687,7 +1687,7 @@ fn diff_ignores_config_output_report_format() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntrailing-spaces = \"enable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
+        "[lint.rules]\ntrailing-spaces = \"enable\"\n\n[output.gitlab]\npath = \"gl.json\"\n",
     )
     .unwrap();
     fs::write(dir.path().join("dirty.yaml"), "key: value  \n").unwrap();
@@ -1722,7 +1722,7 @@ fn diff_with_multiple_streaming_formats_is_allowed() {
     // formats (which would otherwise both default to stderr) must not be a usage error.
     let dir = tempdir().unwrap();
     let cfg = dir.path().join("c.toml");
-    fs::write(&cfg, "[rules]\ntrailing-spaces = \"enable\"\n").unwrap();
+    fs::write(&cfg, "[lint.rules]\ntrailing-spaces = \"enable\"\n").unwrap();
     let file = dir.path().join("dirty.yaml");
     fs::write(&file, "key: value  \n").unwrap();
 

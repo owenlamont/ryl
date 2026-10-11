@@ -14,7 +14,7 @@ mappings and flow sequences.
 ## Configuration
 
 ```toml
-[rules.commas]
+[lint.rules.commas]
 level = "error"
 max-spaces-before = 0
 min-spaces-after = 1
@@ -54,10 +54,12 @@ limits, leaving the spacing after a comma as it is when `min-spaces-after` excee
 `max-spaces-after`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["commas"]
 ```
+
+`ryl format` writes no space before a comma and one after. It conflicts with a `min-spaces-after` above 1 or `max-spaces-after = 0`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

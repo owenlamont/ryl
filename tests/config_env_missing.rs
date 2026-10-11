@@ -53,7 +53,7 @@ fn env_xdg_config_home_discovers_ryl_native_user_global() {
     let dir = tempdir().unwrap();
     let ryl_cfg = dir.path().join("ryl").join("ryl.toml");
     fs::create_dir_all(ryl_cfg.parent().unwrap()).unwrap();
-    fs::write(&ryl_cfg, "[rules]\nkey-duplicates = 'enable'\n").unwrap();
+    fs::write(&ryl_cfg, "[lint.rules]\nkey-duplicates = 'enable'\n").unwrap();
 
     let project_root = dir.path().join("workspace");
     fs::create_dir_all(&project_root).unwrap();

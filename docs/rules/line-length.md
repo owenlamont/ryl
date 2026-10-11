@@ -41,7 +41,7 @@ description: >
 ## Configuration
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 80
 allow-non-breakable-words = true
@@ -50,14 +50,19 @@ allow-non-breakable-inline-mappings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `max` | `80` | Maximum number of characters allowed per line. |
+| `max` | top-level `line-length` if set, else `80` | Maximum number of characters allowed per line. |
 | `allow-non-breakable-words` | `true` | Allow over-length lines whose long token has no whitespace to break on (typical for URLs or hashes). |
 | `allow-non-breakable-inline-mappings` | `false` | Extend the above allowance to lines like `key: <single long token>` where the value has no break candidate. |
 
 ## Automatic fixing
 
-This rule does not currently auto-fix; long lines need to be reflowed by
+`ryl check --fix` does not fix this rule; long lines need to be reflowed by
 hand or wrapped with a block scalar.
+
+With `[format] fold-long-lines = true`, `ryl format` folds long plain and quoted values
+in block context, and folded (`>`) scalar lines at their content indent, to the
+top-level `line-length`; see [Long lines](../formatter.md#long-lines). No option of this
+rule conflicts with it.
 
 ## Related rules
 

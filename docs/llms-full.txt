@@ -145,8 +145,8 @@ Source: https://ryl-docs.pages.dev/getting-started/quickstart/
 
 ## The `ryl check` subcommand
 
-ryl's CLI is moving to subcommands: `ryl check` is the lint pass (a dedicated
-`ryl format` formatter is coming). `ryl check <paths>` is the recommended form and
+ryl's CLI is moving to subcommands: `ryl check` is the lint pass and `ryl format` is
+the [formatter](https://ryl-docs.pages.dev/formatter/). `ryl check <paths>` is the recommended form and
 is used throughout these docs. Bare `ryl <paths>` still lints identically, but it is
 deprecated — it prints a warning to stderr (silenced by `--no-warnings`) and a later
 release will remove it, so adopt `ryl check` now.
@@ -216,7 +216,7 @@ cases exit `2` rather than silently linting nothing:
   YAML config with `extends: default` for yamllint's standard rule set, or pass
   `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
   least one rule, use `extends: default`, or pass `--enable ALL`.
 
 This is stricter than yamllint, which lints with the `default` preset when no config
@@ -239,6 +239,17 @@ stderr), so a symlink in an untrusted tree cannot redirect a write to a
 file outside it. This mirrors directory scanning, which does not follow
 symlinks.
 
+## Format
+
+`ryl format` rewrites files to a consistent layout, and needs no config:
+
+```bash
+ryl format .
+ryl format --check .
+```
+
+See [Formatter](https://ryl-docs.pages.dev/formatter/) for what it changes and how to configure it.
+
 ## Preview fixes as a diff
 
 `--diff` runs the same safe fixes as `--fix` but, instead of writing,
@@ -254,6 +265,12 @@ as [hk](https://hk.jdx.dev) that apply the diff themselves rather than
 re-invoking the linter. `--diff` never modifies files, is mutually
 exclusive with `--fix`, and (unlike `--fix`) works with `-`/stdin.
 
+Diff headers use paths relative to the current directory for files beneath it.
+On Windows, headers use forward slashes and omit the `\\?\` verbatim prefix,
+so the patch applies with `git apply -p0`. `ryl format --diff` uses the same headers.
+Filenames retain trailing dots and spaces, including on Windows.
+Windows drive-relative inputs such as `C:input.yaml` resolve from that drive's current directory.
+
 Like `ruff check --diff`, the exit code reflects only the diff &mdash;
 remaining *unfixable* findings are neither printed nor counted:
 
@@ -262,11 +279,36 @@ remaining *unfixable* findings are neither printed nor counted:
 - `2` &mdash; CLI usage error.
 
 A file that cannot be parsed (or a symlink) is skipped with a notice on
-stderr and does not affect the exit code. A non-UTF-8 or BOM-prefixed file
-is also skipped: a textual diff of its decoded content could not be applied
-back to the original bytes, so use `--fix` (which preserves the encoding)
-for those. For embedded YAML in Markdown, the diff is reported at the
-host-file level (one diff per `.md`).
+stderr and does not affect the exit code. Non-UTF-8 and BOM-prefixed files
+emit no patch, but still exit `1` when a fix would change the decoded text; use `--fix`
+(see [File encodings](#file-encodings)). For embedded YAML in Markdown,
+the diff is reported at the host-file level (one diff per `.md`).
+
+## File encodings
+
+ryl auto-detects UTF-8 (with or without a BOM), UTF-16 LE/BE, and UTF-32 LE/BE:
+the encodings required by [YAML 1.2](https://yaml.org/spec/1.2.2/#52-character-encodings).
+A BOM identifies the encoding; without a BOM, null-byte patterns identify
+UTF-16/32, otherwise ryl uses UTF-8.
+
+Other encodings, such as Latin-1, fail with a decode error unless named via
+`YAMLLINT_FILE_ENCODING` (for example, `latin-1`). Prefer converting to UTF-8;
+the yamllint-compatible override prints:
+
+> YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed
+> in a future version of yamllint.
+
+`ryl check --fix` and `ryl format` preserve the original encoding and BOM;
+`ryl format -` preserves stdin's encoding in stdout.
+
+For BOM/UTF-16/UTF-32 input, `--diff` reports that no applicable text patch
+can be emitted. `ryl check --diff` still exits `1` when a fix would change
+the decoded text, including stdin and embedded YAML in Markdown.
+`ryl format --check` and `ryl format --diff` likewise exit `1` when formatting
+would change the text.
+
+[LSP position encoding](https://ryl-docs.pages.dev/editor-integration/#notes) counts columns,
+independently of file encoding.
 
 ## Configure for your project
 
@@ -280,9 +322,14 @@ project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
 
-Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. TOML
-configuration is flat &mdash; copy the preset you want from
-[Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise from there:
+Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
+every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
+`[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
+(`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
+`[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](https://ryl-docs.pages.dev/formatter/)
+settings. Copy the
+preset you want from [Configuration presets](https://ryl-docs.pages.dev/config-presets/) and customise
+from there:
 
 ```toml
 [files]
@@ -294,9 +341,20 @@ yaml = [
 
 # ... rule enable/disable table from the preset ...
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 allow-non-breakable-words = true
+```
+
+The top-level `line-length` (1 to 65535) and `indent-width` (1 to 255) are the
+formatter's targets and the defaults for `[lint.rules.line-length] max` and
+`[lint.rules.indentation] spaces`; an explicit rule option overrides them for
+linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` keeps
+each file's own indent width. A YAML config cannot set them.
+
+```toml
+line-length = 100
+indent-width = 4
 ```
 
 YAML configuration is also accepted for parity with yamllint and supports
@@ -319,7 +377,7 @@ and the first match wins:
 `.config/` holds ryl-native TOML only: the legacy `.yamllint`/`.yamllint.yaml`/
 `.yamllint.yml` files are discovered at the directory level, never inside
 `.config/`. A `.config/ryl.toml` is a true drop-in for a root `ryl.toml`: its
-`[files]`/`ignore` globs and relative `ignore-from-file` paths resolve against
+`[files]`/`exclude` globs and relative `exclude-from-file` paths resolve against
 the project root (the directory containing `.config/`), not `.config/` itself.
 
 If you already have a yamllint configuration, use the built-in converter:
@@ -330,6 +388,47 @@ ryl --migrate-configs --migrate-write
 
 See [Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/) for details.
 
+Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
+`per-line-ignores` at the top level. ryl still reads them, but warns once per
+key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
+one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
+`.ryl.toml`/`ryl.toml` in place, dropping its comments (add
+`--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`), and
+`ryl --migrate-user-config --migrate-write` does the same for the user-global
+config. For `pyproject.toml` it only prints the keys to move, since rewriting
+would drop the rest of the file's comments and layout.
+
+## Lint alongside `ryl format`
+
+If you run `ryl format`, let it own layout and lint only what it never touches. This
+starter config enables the rules that catch YAML that loads to something other than
+what the author meant, and conflicts with no `[format]` setting:
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules]
+anchors = "enable"
+key-duplicates = "enable"
+truthy = "enable"
+
+[lint.per-file-ignores]
+".github/workflows/*" = ["truthy"]
+```
+
+Gate CI on both:
+
+```bash
+ryl format --check .
+ryl check .
+```
+
+The `truthy` ignore keeps GitHub Actions' `on:` key from being reported (see
+[`truthy`](https://ryl-docs.pages.dev/rules/truthy/)). Add any other rule from the
+[Rules reference](https://ryl-docs.pages.dev/rules/) as you need it; the [Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules)
+page lists the layout rules and the options that conflict with `ryl format`. If you do
+not run `ryl format`, start from a [preset](https://ryl-docs.pages.dev/config-presets/) instead, which keeps
+the layout rules.
+
 ## Configure across projects (user-global)
 
 When no project config is found, ryl falls back to a user-global config so you
@@ -338,15 +437,14 @@ can set personal defaults once. It reads its own TOML config first &mdash;
 convention where `<config-dir>` is `$XDG_CONFIG_HOME` if set, else the
 platform-native config dir (`~/.config/ryl` on Linux, `~/Library/Application
 Support/ryl` on macOS, `%APPDATA%\ryl` on Windows) &mdash; then falls back to
-yamllint's `<config-dir>/yamllint/config` for compatibility. A project config,
+yamllint's `<config-dir>/yamllint/config`, which is deprecated and warns. A project config,
 `-c`/`-d`, or `YAMLLINT_CONFIG_FILE` all take precedence over the user-global
-config. `YAMLLINT_CONFIG_FILE` accepts only a yamllint YAML config (pointing it
-at a `.toml` errors); use `-c`/`-d` or project discovery for ryl-native TOML.
+config. `YAMLLINT_CONFIG_FILE` is deprecated and accepts only a yamllint YAML
+config (pointing it at a `.toml` errors); use `-c` for ryl-native TOML.
 
 If you have a yamllint user-global config, `ryl --migrate-user-config
 --migrate-write` converts it to the ryl-native `ryl.toml` (see [Migrating from
-yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/)). Migration is optional, since ryl also
-reads the yamllint location directly.
+yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/)).
 
 ## Configuration precedence
 
@@ -360,18 +458,18 @@ governing its own subtree. The winning config must enable at least one rule, or
 ```mermaid
 flowchart TD
     Start([resolve config]) --> D{"-d / --config-data?"}
-    D -->|yes| UseInline["use inline YAML"] --> Done([config resolved])
+    D -->|yes| UseInline["use inline TOML,<br/>or YAML (deprecated)"] --> Done([config resolved])
     D -->|no| C{"-c / --config-file?"}
-    C -->|yes| UseFile["load file: TOML or YAML by extension"] --> Done
+    C -->|yes| UseFile["load file: TOML, or YAML<br/>(deprecated) by extension"] --> Done
     C -->|no| P{"project config?<br/>walk up from inputs to HOME"}
     P -->|"TOML up-tree"| UseProjToml["nearest TOML:<br/>.ryl.toml &gt; ryl.toml<br/>&gt; .config/.ryl.toml &gt; .config/ryl.toml<br/>&gt; pyproject.toml [tool.ryl]"] --> Done
-    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml"] --> Done
+    P -->|"else .yamllint up-tree"| UseProjYaml["nearest .yamllint /<br/>.yamllint.yaml / .yamllint.yml<br/>(deprecated)"] --> Done
     P -->|none| E{"YAMLLINT_CONFIG_FILE set?"}
     E -->|"points at .toml"| Err1["error: use -c / project discovery<br/>for ryl TOML (exit 2)"]
-    E -->|"YAML and exists"| UseEnv["load as yamllint YAML"] --> Done
+    E -->|"YAML and exists"| UseEnv["load as yamllint YAML<br/>(deprecated)"] --> Done
     E -->|"missing or unset"| G{"user-global config?"}
     G -->|"ryl TOML"| UseRyl["config-dir/ryl/.ryl.toml &gt; ryl.toml"] --> Done
-    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config"] --> Done
+    G -->|"else yamllint YAML"| UseYl["config-dir/yamllint/config<br/>(deprecated)"] --> Done
     G -->|none| N{"--enable?"}
     N -->|yes| UseEmpty["empty config"] --> Done
     N -->|no| Err2["error: no configuration found (exit 2)"]
@@ -436,21 +534,23 @@ Source: https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/
 
 # Migrating from yamllint
 
-ryl is designed as a drop-in replacement for yamllint's existing rule set.
-If you are coming from yamllint you have two paths:
-
-- **Keep your existing YAML configuration.** ryl reads `.yamllint`,
-  `.yamllint.yml`, and `.yamllint.yaml` with the same semantics as upstream.
-  No changes needed to get started.
-- **Migrate to TOML.** TOML is the recommended format for ryl-specific
-  features that have no upstream equivalent &mdash; for example the
-  [`[fix]` table](#optional-configure-auto-fixes) controlling auto-fix
-  selection.
+ryl implements yamllint's rule set, and its own configuration is TOML.
+ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
+`.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
+user-global config) with the same semantics as upstream, but that support is
+deprecated: each one prints a warning naming the command that converts it, and
+a later release will stop reading YAML config. Migrate with
+[`ryl --migrate-configs`](#automatic-migration); TOML also carries the
+ryl-only features, such as
+[`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes).
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
 flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
+`-d` also takes a whole ryl config as inline TOML, such as
+`ryl check -d 'lint.rules.anchors = "enable"' .`, which avoids the YAML
+deprecation warning.
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
@@ -487,21 +587,20 @@ ryl --migrate-user-config --migrate-write
 ryl --migrate-configs --migrate-user-config --migrate-write
 ```
 
-Migrating the user-global config is optional: ryl still reads
-`<config-dir>/yamllint/config` directly, so an unmigrated yamllint user-global
-config keeps working.
+Until YAML config is removed, ryl still reads `<config-dir>/yamllint/config`
+directly, with a deprecation warning naming `ryl --migrate-user-config`.
 
 Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs |
-| `--migrate-user-config` | Migrate the user-global yamllint config |
-| `--migrate-root <DIR>` | Project search root (defaults to `.`) |
+| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
+| `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |
-| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration |
-| `--migrate-delete-old` | Delete source YAML configs after migration |
+| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
+| `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
 
 The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 `--migrate-delete-old` flags apply to whichever migration trigger
@@ -509,9 +608,17 @@ The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 applies to project migration only. Migration takes no positional paths: `ryl
 --migrate-configs sub/` exits 2, so scope it with `--migrate-root sub/` instead.
 
-Migration never overwrites or deletes through surprises: it skips (with a
-warning, leaving the source untouched) any config whose target directory already
-contains a ryl-native config (`.ryl.toml` or `ryl.toml`), and it refuses to
+A config passed to `-c` under any other name migrates by naming the file:
+`--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes
+in its place. Only an existing `ci/lint.toml` blocks that migration.
+
+Migration skips a legacy project YAML config when project discovery already picks
+a TOML config, including `.config/` candidates and `pyproject.toml` with `[tool.ryl]`,
+in the same directory or an ancestor up to `HOME`. The warning names the active
+TOML config; the YAML source and its lower-precedence siblings stay untouched,
+even with `--migrate-delete-old` or `--migrate-rename-old`. A `pyproject.toml`
+without `[tool.ryl]` does not block migration. User-global migration skips when
+a ryl-native user config already exists. Migration also refuses to
 follow a symlink for either the source or the target (mirroring `--fix`). It also
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.
@@ -521,16 +628,27 @@ write), migration may leave a partial config file behind. The next run reports i
 via the "a ryl-native config already exists" skip warning, so delete the partial
 file and re-run.
 
-Migration produces a self-contained config. A relative `extends` is flattened
+Migration produces a self-contained config. yamllint's top-level `ignore` and
+`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
+`ignore` key suppresses rules, never whole files. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
-then the current directory. The user-global config moves to a new directory
-(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `ignore`
-patterns there too, rather than left as a relative path that would no longer
-resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
-with a warning (inline those patterns or use an absolute path, then re-run),
-since its rule config cannot be relocated safely. Project migration keeps a
+then the current directory. A user-global config with a relative `ignore-from-file`,
+at either the top level or rule level, is skipped with a warning: the path resolves
+against each linted file's directory, which a single migrated config cannot express.
+Make the path absolute or move the setting into a project config, then re-run.
+Absolute top-level paths are inlined as `exclude` patterns; absolute rule-level
+paths are retained. Project migration keeps a
 relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
 directory.
+
+Migration also keeps [`ryl format`](https://ryl-docs.pages.dev/formatter/) from enforcing what the
+yamllint config left unchecked, by writing `"preserve"` for these `[format]`
+targets:
+
+| Target | When the yamllint config |
+| :--- | :--- |
+| `quote-style` | leaves `quoted-strings` off, as `extends: default` does |
+| `comment-starting-space` | leaves `comments` off, or sets its `require-starting-space: false` |
 
 After migration, run `ryl check .` to confirm diagnostics match what yamllint
 produced.
@@ -639,6 +757,15 @@ The *unused* note in row 1 and the *duplicated* report in row 2 require the matc
 non-default `anchors` options (`forbid-unused-anchors`, `forbid-duplicated-anchors`); the
 colon-in-name parsing divergence the table illustrates is independent of them.
 
+The `colons` rule follows the same reading. It checks the colons the parser sees as
+mapping indicators:
+
+| Input | ryl | yamllint |
+| :--- | :--- | :--- |
+| `&a : v`, `!t : v` | the space before `:` is required: `&a: v` is the scalar `v` anchored `a:` | too many spaces before colon |
+| `*a :  v` | too many spaces after colon | nothing: an alias key exempts both sides |
+| `*a:  v` | a syntax error: `:` is part of the alias name | too many spaces after colon |
+
 **Why ryl differs:** the YAML specification and its reference parser are the
 authority, and PyYAML's narrowing at `:` is non-conformant (see
 [adrienverge/yamllint#686](https://github.com/adrienverge/yamllint/issues/686) and
@@ -700,6 +827,14 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### Document-prefix byte order marks
+
+ryl accepts `a: a\n...\n\uFEFF---\na: 1\n` and treats the BOM as an encoding
+prefix, not indentation. yamllint rejects the later BOM-prefixed marker as a syntax
+error. YAML 1.2.2 [document-prefix production
+202](https://yaml.org/spec/1.2.2/#911-document-prefix) permits a BOM before each
+document; the reference parser emits two documents, with `+DOC ---` for the second.
+
 ### Blank CRLF lines in multi-line scalars
 
 With `indentation: check-multi-line-strings` enabled, yamllint flags a blank line inside
@@ -727,18 +862,21 @@ the directive, so the two disagree:
 
 | Input | ryl | yamllint |
 | :--- | :--- | :--- |
-| `'no'` with no directive, `quoted-strings: only-when-needed` | redundant (1.2 string) | kept (1.1 boolean) |
-| `'no'` under `%YAML 1.1`, same rule | kept (1.1 boolean) | kept |
-| `'y'` under `%YAML 1.1`, same rule | kept (`y` is a 1.1 boolean) | redundant (PyYAML omits `y`) |
+| `'+.5'` with no directive, `quoted-strings: only-when-needed` | kept (1.2 float) | redundant (1.1 string) |
+| `'no'` under any directive, same rule | kept (1.1 boolean) | kept |
+| `'y'` under any directive, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
 | `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
 | `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
 
 **Why ryl differs:** the spec is the authority. It assigns a directive-less
 document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
-rejecting a higher major version &mdash; and the 1.1 boolean set in the spec
-includes single `y`/`n`, which PyYAML's resolver omits. Resolving under the
-declared version also keeps `--fix` sound: it never strips the quotes from a
-scalar whose value would change under the document's own `%YAML 1.1`.
+rejecting a higher major version. `quoted-strings` uses PyYAML's 1.1 set
+under every directive, so `--fix` never strips quotes a 1.1 reader needs, nor,
+without a directive, quotes a 1.2 reader needs. ryl adds `y`, `Y`, `n` and `N`
+to that set: PyYAML loads them as strings, but go-yaml v2, which Kubernetes,
+Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
+`'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
+does a plain `no`.
 
 ### Comments after a block scalar header
 
@@ -837,10 +975,12 @@ option is configured in TOML and rejected in yamllint-compatible YAML config.
 ### JUnit and GitLab report formats
 
 yamllint offers `standard`, `parsable`, `colored`, `github`, and `auto` output formats.
-ryl keeps those and adds two machine-readable report formats: `--format junit` (JUnit XML)
-and `--format gitlab` (GitLab Code Quality JSON), which write to stdout (or to a file with
-`-o`/`--output-file`) so a Git forge can ingest them as a report artifact. Going beyond
-yamllint, `--format` is repeatable and each pairs with its own `--output-file`, so a single
+ryl keeps those and adds two machine-readable report formats: `--output-format junit`
+(JUnit XML) and `--output-format gitlab` (GitLab Code Quality JSON), which write to stdout
+(or to a file with `-o`/`--output-file`) so a Git forge can ingest them as a report
+artifact. ryl names the flag `--output-format`, like ruff, and keeps yamllint's
+`-f`/`--format` as aliases. Going beyond yamllint, `--output-format` is repeatable and
+each pairs with its own `--output-file`, so a single
 run can emit console diagnostics **and** one or more report files; the same targets can be
 set in a ryl-only TOML `[output]` table. See [Output formats](https://ryl-docs.pages.dev/output-formats/).
 
@@ -905,7 +1045,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
         ".yamllint",
     ]
 
-    [rules]
+    [lint.rules]
     anchors = "enable"
     braces = "enable"
     brackets = "enable"
@@ -925,20 +1065,20 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     trailing-spaces = "enable"
     truthy = "disable"
 
-    [rules.comments]
+    [lint.rules.comments]
     level = "warning"
 
-    [rules.comments-indentation]
+    [lint.rules.comments-indentation]
     level = "warning"
 
-    [rules.document-start]
+    [lint.rules.document-start]
     level = "warning"
 
-    [rules.line-length]
+    [lint.rules.line-length]
     max = 120
     allow-non-breakable-words = true
 
-    [rules.quoted-strings]
+    [lint.rules.quoted-strings]
     quote-type = "double"
     required = "only-when-needed"
     ```
@@ -956,7 +1096,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
 TOML configurations can declare which rules are eligible for `ryl check --fix`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
@@ -964,12 +1104,133 @@ unfixable = ["comments"]
 This is a ryl-only feature. See the [Rules reference](https://ryl-docs.pages.dev/rules/) for the
 list of rules that support automatic fixing.
 
+yamllint has no formatter. ryl adds [`ryl format`](https://ryl-docs.pages.dev/formatter/), which applies the
+layout fixes to every file without enabling the rules. yamllint's `default` preset
+conflicts with none of the formatter's default settings, so a migrated config needs no
+changes to run alongside it.
+
 ## Keeping both files
 
 `.yamllint` and `.ryl.toml` can coexist. ryl prefers TOML when both are
 present in the same directory, but a project that needs to remain
 compatible with yamllint in CI can keep the YAML file authoritative and
 treat the TOML file as supplemental for ryl-only features.
+
+---
+
+Source: https://ryl-docs.pages.dev/getting-started/migrating-from-yamlfix/
+
+# Migrating from yamlfix
+
+`ryl format` covers most of [yamlfix](https://github.com/lyz-code/yamlfix)'s
+options through `[format]` keys and the top-level `line-length` and
+`indent-width`. Replace `yamlfix .` with `ryl format .`, and `yamlfix --check .`
+with `ryl format --check .`.
+
+ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
+`pyproject.toml`, or the file passed with `-c`. It does not read `YAMLFIX_*`
+environment variables.
+
+## Example
+
+A yamlfix configuration:
+
+```toml
+[tool.yamlfix]
+line_length = 100
+explicit_start = false
+whitelines = 1
+comments_min_spaces_from_content = 1
+```
+
+becomes:
+
+```toml
+[tool.ryl]
+line-length = 100
+
+[tool.ryl.format]
+fold-long-lines = true
+document-start = "preserve"
+max-blank-lines = 1
+comment-spacing = 1
+```
+
+## Option mapping
+
+| yamlfix option (default) | ryl equivalent |
+| --- | --- |
+| `comments_min_spaces_from_content` (2) | `[format] comment-spacing` (default 2) |
+| `comments_require_starting_space` (true) | `[format] comment-starting-space = "add"`; `false` maps to `"preserve"` |
+| `whitelines` (0) | `[format] max-blank-lines` (default 2), see [blank lines](#blank-lines) |
+| `comments_whitelines` (1) | none, see [blank lines](#blank-lines) |
+| `section_whitelines` (0) | none, see [blank lines](#blank-lines) |
+| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"preserve"` |
+| `indent_mapping` (2) | top-level `indent-width` |
+| `indent_sequence` (4), `indent_offset` (2) | planned in [#383](https://github.com/owenlamont/ryl/issues/383) |
+| `line_length` (80) | top-level `line-length` with `[format] fold-long-lines = true` |
+| `preserve_quotes` (false) | `true` maps to `[format] quote-style = "preserve"`; for `false`, `quote-style = "single"` or `"double"` is the closest match, see [forcing quotes](#forcing-quotes) |
+| `quote_representation` (`'`) | `[lint.rules.quoted-strings] quote-type = "single"` or `"double"`, see [forcing quotes](#forcing-quotes) |
+| `quote_basic_values`, `quote_keys_and_basic_values` (false) | see [forcing quotes](#forcing-quotes) |
+| `none_representation` (`""`) | none: ryl keeps each null as written |
+| `sequence_style` (`flow_style`) | planned in [#446](https://github.com/owenlamont/ryl/issues/446) |
+| `allow_duplicate_keys` (false) | none: not a formatting concern; the `key-duplicates` lint rule reports them |
+| `config_path` | none: ryl discovers its own config, or `-c` takes a translated config file |
+
+## Differences in behaviour
+
+### Blank lines
+
+- yamlfix's `whitelines = N` sets every run of blank lines to exactly N, so it
+  expands an existing run that is shorter. ryl's `max-blank-lines` only caps a
+  run.
+- ryl has no separate count before comment lines (`comments_whitelines`), and
+  never adds blank lines around multi-line top-level entries
+  (`section_whitelines`).
+
+### Comment spacing
+
+yamlfix only changes the gap before an inline comment when
+`comments_min_spaces_from_content` is above 1. ryl's `comment-spacing` always
+sets the gap exactly, so `comment-spacing = 1` also shrinks a wider gap.
+
+### Removing `---`
+
+yamlfix's `explicit_start = false` removes document start markers, which merges
+the documents of a multi-document stream. ryl never removes `---`;
+`document-start = "preserve"` leaves markers as written.
+
+### Forcing quotes
+
+ryl's formatter quotes only where a value needs quotes. To quote every plain
+string, as yamlfix's `quote_basic_values` does, enable the `quoted-strings`
+lint rule with `required = true` and fix with `ryl check --fix`, and set
+`[format] quote-style = "preserve"` so `ryl format` keeps the quotes. The
+rule's `quote-type` picks the quote, as `quote_representation` does:
+
+```toml
+[format]
+quote-style = "preserve"
+
+[lint.rules.quoted-strings]
+required = true
+quote-type = "single"
+```
+
+`quote_representation` only applies when force-quoting. ryl's
+`[format] quote-style` instead sets the quote for every string that needs one,
+so it approximates yamlfix's quoting rather than matching it.
+
+Add `check-keys = true` to quote keys too, as `quote_keys_and_basic_values`
+does.
+
+### Rewrites ryl does not do
+
+- yamlfix rewrites `yes`, `on` and similar to `true`/`false`. Under YAML 1.2
+  those are strings, so the rewrite changes values; ryl leaves them.
+- yamlfix escapes Jinja `{{ }}` templates. ryl refuses YAML it cannot parse.
+- yamlfix's `line_length` also joins lines the author broke. ryl only splits
+  lines longer than `line-length`, and only when `fold-long-lines` is on.
 
 ---
 
@@ -999,7 +1260,10 @@ For configuration discovery, presets, and file selection, see
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
-Rules that auto-fix are marked with :wrench: in the **Fix** column.
+Rules that auto-fix are marked with :wrench: in the **Fix** column. Most layout
+rules are also enforced by [`ryl format`](https://ryl-docs.pages.dev/formatter/); the
+[Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) page lists which, and the options that
+conflict with it.
 
 ## Layout and spacing
 
@@ -1008,10 +1272,10 @@ Rules that auto-fix are marked with :wrench: in the **Fix** column.
 | [`block-scalar-chomping`](https://ryl-docs.pages.dev/rules/block-scalar-chomping/) | Explicit chomping indicator (`-`/`+`) on block scalars. |  |
 | [`braces`](https://ryl-docs.pages.dev/rules/braces/) | Spaces inside flow mapping braces (`{...}`). | :wrench: |
 | [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | Spaces inside flow sequence brackets (`[...]`). | :wrench: |
-| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | Spaces around mapping colons. |  |
+| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | Spaces around mapping colons. | :wrench: |
 | [`commas`](https://ryl-docs.pages.dev/rules/commas/) | Spaces around flow collection commas. | :wrench: |
 | [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | Number of consecutive empty lines. | :wrench: |
-| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | Spaces after sequence hyphens. |  |
+| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | Spaces after sequence hyphens. | :wrench: |
 | [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | Block indentation, sequence indentation, multi-line strings. |  |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Maximum line length. |  |
 | [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | A trailing newline at end of file. | :wrench: |
@@ -1057,17 +1321,17 @@ printed but do not fail the run.
 Configure the severity inline with the rule:
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 120
 ```
 
 ## Enabling and disabling rules
 
-Toggle a rule on or off with a top-level string in the `[rules]` table:
+Toggle a rule on or off with a top-level string in the `[lint.rules]` table:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "disable"
 key-ordering = "enable"
 ```
@@ -1076,11 +1340,11 @@ Enabling a rule without options applies its defaults. To enable every rule,
 including the ryl-only ones, use `ALL`:
 
 ```toml
-[rules]
+[lint.rules]
 ALL = "enable"
 truthy = "disable"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -1117,13 +1381,435 @@ The `--fix` flag applies safe fixes for rules marked with :wrench: above:
 ryl check --fix .
 ```
 
-Control which rules apply fixes with a `[fix]` table:
+Control which rules apply fixes with `fixable`/`unfixable` in the `[lint]` table:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
+
+---
+
+Source: https://ryl-docs.pages.dev/formatter/
+
+# Formatter
+
+`ryl format` rewrites YAML files in place to a consistent layout. The formatter edits
+only the spans that are off-style rather than reprinting the document, so the first run
+on an existing project produces a small diff, and every later run on formatted files
+changes nothing.
+
+## `ryl format`
+
+```bash
+# Format every YAML file under the current directory, in place
+ryl format .
+
+# Write nothing; exit 1 if any file would change, listing why
+ryl format --check .
+
+# Write nothing; print a unified diff of the changes
+ryl format --diff path/to/file.yaml
+
+# Read stdin, write the formatted text to stdout
+cat file.yaml | ryl format - --stdin-filename file.yaml
+```
+
+Inputs, file discovery, `.gitignore` handling and config discovery are the same as
+`ryl check`. Unlike `ryl check`, `ryl format` needs no config: with none it formats
+with the defaults below.
+
+`--check` reports each line `ryl format` would change as a diagnostic from the rule
+whose fix changes it, through the same reporters as `ryl check`, so it honours
+`--output-format` and [`[output]`](output-formats.md) and picks the GitHub format in
+GitHub Actions.
+
+## Guarantees
+
+Every edit `ryl format` makes is checked by property tests to be:
+
+- **Value-preserving.** The document loads to the same data, with the same tags,
+  anchors, aliases, key order and duplicate keys, resolved under the document's YAML
+  version.
+- **Comment-safe.** Every comment stays beside the node it annotates.
+- **Idempotent.** Formatting formatted output changes nothing.
+
+A file that does not parse is left alone and reported on stderr as
+`skipped by ryl format`.
+
+See [File encodings](https://ryl-docs.pages.dev/getting-started/quickstart/#file-encodings) for encoding
+preservation and `--check`/`--diff` behavior when a text patch cannot be emitted.
+A document-prefix BOM stays before an added `---` marker, including in later
+documents; the BOM does not count toward indentation. Diagnostic columns still
+count a document-prefix BOM that remains in the source text.
+The same exit behavior applies when a patch is skipped because the YAML ends in a
+bare carriage return or the filename cannot be represented in a diff header.
+
+## Configuration
+
+`ryl format` reads the `[format]` table of the same `.ryl.toml`, `ryl.toml` or
+`pyproject.toml` (`[tool.ryl.format]`) that `ryl check` uses. A yamllint-style YAML
+config cannot set it, so YAML-configured projects get the defaults.
+
+```toml
+[format]
+quote-style = "single"
+line-ending = "lf"
+document-start = "preserve"
+document-end = "preserve"
+fold-long-lines = false
+brace-spacing = false
+comment-spacing = 2
+comment-starting-space = "add"
+max-blank-lines = 2
+preview = false
+sequence-style = "preserve"
+mapping-style = "preserve"
+indent-sequences = true
+dash-on-own-line = false
+```
+
+| Key | Default | Values | What it sets |
+| :--- | :--- | :--- | :--- |
+| `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
+| `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
+| `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
+| `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
+| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain, quoted and folded (`>`) scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+| `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
+| `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
+| `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
+| `max-blank-lines` | `2` | `0` to `255` | Most blank lines kept in a row between content lines; leading and trailing runs are removed. Scalar content is preserved, including keep-chomping (`\|+`/`>+`) tails; clip/strip tails can be trimmed. |
+| `indent-sequences` | `true` | `true`, `false` | Whether a block sequence under a mapping key is indented past the key; `false` keeps it flush. |
+| `dash-on-own-line` | `false` | `true`, `false` | Whether a block mapping in a block sequence starts on the line after its `-`; `false` joins them as `- name: web`. |
+| `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
+| `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
+| `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
+
+The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
+they set the defaults for the `line-length` and `indentation` rules (see
+[Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/#configure-for-your-project)). `ryl format`
+re-indents every block level to `indent-width`, and uses both as the fold width and
+continuation indent under `fold-long-lines`.
+
+Without `indent-width`, an inline value under an explicit block key (`? key` followed by
+`: value`) uses 2 if the value establishes the file's consistent indentation step.
+Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the one whose
+re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
+or a file the re-indent leaves alone at every width, falls back to 2.
+A file mostly at 4 with one block at 2 is re-indented to 4.
+
+The rest of the layout is fixed:
+
+| Concern | `ryl format` writes |
+| :--- | :--- |
+| Own-line comments | Aligned with the content they precede |
+| Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
+| Blank lines | None at the start or end of the file |
+| Line ends | Remove trailing whitespace outside scalar content; add a final newline when value-safe |
+| After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
+
+Block scalar headers lose trailing spaces and tabs. A header with no body at EOF gains
+a final newline and, with `document-end = "add"`, a `...` marker. Unterminated clip/keep
+scalar content stays protected when adding a newline could change its value.
+An indentation-only final line loses its spaces without gaining a scalar line break:
+`a: |+\r\n    ` becomes `a: |+\r\n`, preserving the empty string value.
+
+A document that a tab indents, or that re-indenting would parse differently, is left as
+it is and named on stderr.
+
+## Default profile
+
+With no `[format]` table, `ryl format` writes the profile below. Every default but
+`document-start` agrees with yamllint's `default` preset: `ryl check --fix` under that
+preset only adds a missing `---` to the output.
+
+| Default | Why |
+| :--- | :--- |
+| `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
+| `line-ending = "lf"` | The default of biome, prettier and yamllint's `new-lines` |
+| `document-start = "preserve"` | prettier keeps a file's markers as written |
+| `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
+| `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
+| `brace-spacing = false` | yamllint's `braces` defaults and yamlfix; prettier and biome pad |
+| `comment-spacing = 2` | yamllint's `comments`, ruff and yamlfix |
+| `comment-starting-space = "add"` | yamllint's `comments` requires the space |
+| `max-blank-lines = 2` | yamllint's `empty-lines` and ruff |
+| `sequence-style = "preserve"` | Restyling a collection is opt-in |
+| `mapping-style = "preserve"` | Restyling a collection is opt-in |
+| `indent-sequences = true` | yamllint's `indentation` default; prettier indents them too |
+| `dash-on-own-line = false` | prettier writes `- name: web` |
+| `preview = false` | Preview styles are opt-in, as in ruff |
+| `line-length = 80` | The default of prettier, biome and yamllint's `line-length` |
+| `indent-width = 2` | The default of prettier, biome and yamlfix, for a file that shows no width of its own |
+| Fixed layout above | Every formatter probed agrees |
+
+## Long lines
+
+With `fold-long-lines = true`, `ryl format` splits scalar lines longer than the top-level
+`line-length` (default 80) at single spaces. Folding applies to plain and quoted values
+in block context, and folded (`>`) scalar lines at their content indent. For plain and
+quoted values, the new line takes the indent of the scalar's existing continuation
+lines, or else sits `indent-width` past the column of the collection that owns the value:
+
+```yaml
+# before
+items:
+  - description: This single line is well over eighty characters wide and so the formatter should fold it.
+```
+
+```yaml
+# after, with fold-long-lines = true
+items:
+  - description: This single line is well over eighty characters wide and so the
+      formatter should fold it.
+```
+
+Folded (`>`) scalars keep their content indent; more-indented lines stay whole.
+Keys, flow collections, literal (`|`) scalars, and words with no space to break at
+stay as they are. Folding ignores the `line-length` rule's own options, and
+`ryl check --fix` never folds.
+
+## Collection style
+
+With `sequence-style` or `mapping-style` set to `"block"`, `ryl format` rewrites flow
+collections of that kind in block style, indented by `indent-width`, copying each
+entry's text. An inline comment after the collection moves to its key's line:
+
+```yaml
+# before
+items: [one, two]  # shopping
+metadata: {name: example}
+```
+
+```yaml
+# after, with both set to "block"
+items:  # shopping
+  - one
+  - two
+metadata:
+  name: example
+```
+
+Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
+collection or empty key, or an entry some loaders would read differently in block style
+stays as written, and `ryl format` says why on stderr.
+
+With `"flow"`, a block collection of scalars and aliases that is not the document root
+becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
+line fits `line-length`. Block scalars, multi-line or empty entries, and plain scalars
+holding `,[]{}` or starting with `:` or `?` keep it block. Flow collections already
+written are left alone, even long ones.
+
+## Quote style
+
+`ryl format` quotes a string only where its plain form would load as something else,
+using `quote-style`:
+
+```yaml
+# before
+a: "x"
+b: "123"
+c: "it's"
+d: "tab\there"
+e: 'it''s: x'
+f: "say \"hi\": x"
+```
+
+```yaml
+# after, with quote-style = "single"
+a: x
+b: '123'
+c: it's
+d: "tab\there"
+e: "it's: x"
+f: 'say "hi": x'
+```
+
+A string that needs quoting takes whichever quotes avoid an escape: single when it
+contains `"`, double when it contains only `'`, else `quote-style`. A string that needs
+escape sequences stays double-quoted. Physical line breaks alone do not require
+double quotes: conversion to single quotes preserves the continuation lines and blank
+lines, including their YAML folding. A string that YAML 1.1 loads
+as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
+clean. So do `"y"`, `"Y"`, `"n"` and `"N"`, which go-yaml v2, and so Kubernetes, loads
+as booleans. Mapping keys follow the same rules.
+
+## Preview style
+
+`preview = true` opts in to style changes before they become stable. As in ruff, the
+stable style changes only in a minor release, by promoting a preview style, while a
+preview style can change in any release. A fix for invalid output, a changed value or a
+lost comment can ship in any release. No preview styles exist yet, so `preview` changes
+nothing today.
+
+## YAML in Markdown
+
+`ryl format` formats YAML front matter and fenced YAML blocks in Markdown files matched
+by `[files].markdown`, as described in [YAML in Markdown](https://ryl-docs.pages.dev/markdown/), or every input
+given `--markdown`, as with `ryl check`.
+
+If formatting would create a line that closes a YAML fence, ryl leaves that region
+unchanged. Other regions still format. The same guard applies to editor formatting.
+
+## Suppression
+
+`ryl format` honours the same [inline directives](https://ryl-docs.pages.dev/directives/) as `ryl check`: a
+`# yamllint disable-file` comment leaves the file alone, and
+`# yamllint disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
+that rule's formatting where it applies. There is no format-only directive.
+
+## Conflicting lint rules
+
+The formatter's layout is also checked by lint rules, and they stay lint rules:
+`ryl check` still reports them, and `ryl check --fix` still fixes the fixable ones. When
+one of them is enabled with options that reject what `ryl format` writes, every
+`ryl format` run warns on stderr, for example:
+
+```text
+warning: the quoted-strings lint rule's options are incompatible with the formatter's `[format] quote-style = "single"`. Disable quoted-strings when using `ryl format`, or set its options `quote-type = "single"`, `required = "only-when-needed"`, `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`.
+```
+
+`--no-warnings` silences it. A rule left at its defaults conflicts only where the table
+says so.
+
+| Rule | Conflicts with `ryl format` when |
+| :--- | :--- |
+| [`braces`](https://ryl-docs.pages.dev/rules/braces/) | `forbid` is set and `[format] mapping-style` is not `"preserve"`, `min-spaces-inside-empty` is above 0, or `min-spaces-inside` to `max-spaces-inside` excludes the `brace-spacing` padding (0, or 1 when `true`) |
+| [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) | `forbid` is set and `[format] sequence-style` is not `"preserve"`, or `min-spaces-inside` or `min-spaces-inside-empty` is above 0 |
+| [`commas`](https://ryl-docs.pages.dev/rules/commas/) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
+| [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true` under `[format] comment-starting-space = "add"`, since a shebang keeps its `#!` |
+| [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) | Never |
+| [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | `present = false` with `[format] document-start = "add"` |
+| [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | `present = false` with `[format] document-end = "add"` |
+| [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | `max` is below `[format] max-blank-lines` |
+| [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | Never |
+| [`new-lines`](https://ryl-docs.pages.dev/rules/new-lines/) | `type` resolves to a different ending from `[format] line-ending`, or `line-ending = "auto"`, which writes either |
+| [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | See below; never under `quote-style = "preserve"` |
+| [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Never |
+| [`colons`](https://ryl-docs.pages.dev/rules/colons/) | `max-spaces-after` is 0 |
+| [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
+| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
+| [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Never; folding is opt-in and leaves lines it cannot break |
+
+`quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
+or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
+`quote-style`. A `quote-type` of `"single"` or `"double"` also needs
+`allow-quoted-quotes = true`, for strings quoted to avoid an escape, and `"single"`
+needs `allow-double-quotes-for-escaping = true`, for the strings that need escapes. The rule's
+defaults (`required = true`) conflict:
+
+<!-- ryl-config-check: format-conflict -->
+```toml
+[lint.rules]
+quoted-strings = "enable"
+```
+
+These quoted-strings configs accept the formatter's output:
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.quoted-strings]
+quote-type = "any"
+required = "only-when-needed"
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.quoted-strings]
+quote-type = "single"
+required = "only-when-needed"
+allow-double-quotes-for-escaping = true
+allow-quoted-quotes = true
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[format]
+quote-style = "double"
+
+[lint.rules.quoted-strings]
+quote-type = "double"
+required = "only-when-needed"
+allow-quoted-quotes = true
+```
+
+A YAML config cannot set `allow-double-quotes-for-escaping`, so there use
+`quote-type: any`:
+
+<!-- ryl-config-check: format-clean -->
+```yaml
+rules:
+  quoted-strings:
+    quote-type: any
+    required: only-when-needed
+```
+
+The other conflicts follow the table:
+
+<!-- ryl-config-check: format-conflict -->
+```toml
+[format]
+document-start = "add"
+
+[lint.rules.document-start]
+present = false
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.document-start]
+present = false
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[format]
+brace-spacing = true
+
+[lint.rules.braces]
+min-spaces-inside = 1
+max-spaces-inside = 1
+min-spaces-inside-empty = 0
+max-spaces-inside-empty = 0
+```
+
+<!-- ryl-config-check: format-clean -->
+```toml
+[lint.rules.commas]
+max-spaces-after = -1
+
+[lint.rules.comments]
+max-spaces-from-content = -1
+```
+
+The other eleven rules check things `ryl format` never changes, so they never conflict
+with it: [`anchors`](https://ryl-docs.pages.dev/rules/anchors/),
+[`block-scalar-chomping`](https://ryl-docs.pages.dev/rules/block-scalar-chomping/),
+[`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/), [`float-values`](https://ryl-docs.pages.dev/rules/float-values/),
+[`key-duplicates`](https://ryl-docs.pages.dev/rules/key-duplicates/), [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/),
+[`merge-keys`](https://ryl-docs.pages.dev/rules/merge-keys/), [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/),
+[`tags`](https://ryl-docs.pages.dev/rules/tags/), [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) and
+[`unicode-line-breaks`](https://ryl-docs.pages.dev/rules/unicode-line-breaks/). `truthy` and `key-ordering` keep
+their `ryl check --fix` fixes.
+
+## Recommended lint config
+
+To lint alongside `ryl format`, start from the
+[recommended starter config](https://ryl-docs.pages.dev/getting-started/quickstart/#lint-alongside-ryl-format),
+which enables only rules the formatter never touches and leaves layout to
+`ryl format --check`.
+
+## Exit codes
+
+| Code | `ryl format` | `ryl format --check` / `--diff` |
+| :--- | :--- | :--- |
+| `0` | Files formatted, or nothing to do | No file would change |
+| `1` | Not used | At least one file would change |
+| `2` | A usage or config error, an unreadable file, or a file no `[files]` glob matches | Same |
+
+A file skipped for a syntax error does not change the exit code.
 
 ---
 
@@ -1161,8 +1847,7 @@ the scenes:
   design.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
-`relaxed`, `empty`) from
-[src/conf/mod.rs](https://github.com/owenlamont/ryl/blob/main/src/conf/mod.rs).
+`relaxed`, `empty`) in `src/config/legacy_yaml.rs`.
 
 ## `default` (TOML equivalent)
 
@@ -1174,7 +1859,7 @@ yaml = [
     ".yamllint",
 ]
 
-[rules]
+[lint.rules]
 anchors = "enable"
 braces = "enable"
 brackets = "enable"
@@ -1195,16 +1880,16 @@ octal-values = "disable"
 quoted-strings = "disable"
 trailing-spaces = "enable"
 
-[rules.comments]
+[lint.rules.comments]
 level = "warning"
 
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "warning"
 
-[rules.document-start]
+[lint.rules.document-start]
 level = "warning"
 
-[rules.truthy]
+[lint.rules.truthy]
 level = "warning"
 ```
 
@@ -1218,7 +1903,7 @@ yaml = [
     ".yamllint",
 ]
 
-[rules]
+[lint.rules]
 anchors = "enable"
 comments = "disable"
 comments-indentation = "disable"
@@ -1235,31 +1920,31 @@ quoted-strings = "disable"
 trailing-spaces = "enable"
 truthy = "disable"
 
-[rules.braces]
+[lint.rules.braces]
 level = "warning"
 max-spaces-inside = 1
 
-[rules.brackets]
+[lint.rules.brackets]
 level = "warning"
 max-spaces-inside = 1
 
-[rules.colons]
+[lint.rules.colons]
 level = "warning"
 
-[rules.commas]
+[lint.rules.commas]
 level = "warning"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "warning"
 
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "warning"
 
-[rules.indentation]
+[lint.rules.indentation]
 level = "warning"
 indent-sequences = "consistent"
 
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 allow-non-breakable-inline-mappings = true
 ```
@@ -1267,9 +1952,9 @@ allow-non-breakable-inline-mappings = true
 ## `empty`
 
 There is no usable TOML equivalent: ryl requires at least one rule to be
-enabled, so an empty `[rules]` table is rejected with "configuration enables no
+enabled, so an empty `[lint.rules]` table is rejected with "configuration enables no
 rules". The `empty` preset survives only as a base to `extends:` in YAML config;
-in TOML, list the rules you want under `[rules]` directly.
+in TOML, list the rules you want under `[lint.rules]` directly.
 
 ---
 
@@ -1424,8 +2109,9 @@ machine-managed markers that legitimately break a rule everywhere they appear.
 
 Two common cases:
 
-- `#cloud-config` directives must keep their exact spelling, so they trip
-  [`comments`](https://ryl-docs.pages.dev/rules/comments/) (`require-starting-space`).
+- `#cloud-config` directives must keep their exact spelling, so below line 1 (under a
+  `## template: jinja` header) they trip [`comments`](https://ryl-docs.pages.dev/rules/comments/)
+  (`require-starting-space`).
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](https://ryl-docs.pages.dev/rules/line-length/).
 
@@ -1434,19 +2120,19 @@ equivalent); it is rejected in yamllint-compatible YAML config.
 
 ## Configuration
 
-Each `[[per-line-ignores]]` entry suppresses its `rules` on a line when the
+Each `[[lint.per-line-ignores]]` entry suppresses its `rules` on a line when the
 entry's conditions match:
 
 ```toml
-[rules.comments]
-[rules.line-length]
+[lint.rules.comments]
+[lint.rules.line-length]
 max = 80
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '^#cloud-config$'   # match against the whole source line
 rules = ["comments"]
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '#\s*renovate:'
 rules = ["line-length"]
 ```
@@ -1469,12 +2155,12 @@ Use single-quoted TOML strings for patterns so backslashes need no escaping.
 
 ```toml
 # Let machine-generated marker lines break any rule
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = 'GENERATED — do not edit'
 rules = ["ALL"]
 
 # Allow Go-template braces, but only in template files
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 path = "*.tpl.yaml"
 regex = '\{\{.*\}\}'
 rules = ["braces"]
@@ -1514,26 +2200,28 @@ Three mechanisms, narrowing from left to right:
 
 | What | Scope | Config format |
 | :--- | :--- | :--- |
-| [`ignore`](#ignore) | The file is never linted at all | YAML and TOML |
+| [`exclude`](#exclude) | The file is never linted or formatted | TOML (`ignore` in YAML) |
 | [`per-file-ignores`](#per-file-ignores) | Named rules, for paths matching a glob | TOML only |
 | [Per-rule `ignore`](#per-rule-ignore) | One rule, for paths matching a glob | YAML and TOML |
 
-## `ignore`
+## `exclude`
 
-A top-level `ignore` lists paths ryl skips entirely. No rule runs against them
-and they produce no diagnostics.
+A top-level `exclude` lists paths ryl skips entirely. No rule runs against them,
+`ryl format` leaves them alone, and they produce no diagnostics.
 
 ```toml
-[rules.document-start]
-present = true
-
-ignore = """
+exclude = """
 vendor/**
 generated/**
 """
+
+[lint.rules.document-start]
+present = true
 ```
 
-The same key works in yamllint-compatible YAML config:
+`exclude` replaces the deprecated top-level `ignore`, which still works but warns
+until `ryl --migrate-configs` renames it. yamllint-compatible YAML config keeps
+yamllint's `ignore` key:
 
 ```yaml
 rules:
@@ -1544,21 +2232,26 @@ ignore: |
   generated/**
 ```
 
-`ignore-from-file` reads the same patterns from a file instead, so a project can
-reuse its `.gitignore`:
+`exclude-from-file` (`ignore-from-file` in YAML) reads the same patterns from a
+file instead, so a project can reuse its `.gitignore`:
 
 <!-- ryl-config-check: skip -->
 ```toml
-[rules.document-start]
-present = true
+exclude-from-file = ".gitignore"
 
-ignore-from-file = ".gitignore"
+[lint.rules.document-start]
+present = true
 ```
 
 ### Glob semantics
 
 Patterns are gitignore-style: `**` crosses directory boundaries, a bare `*.yaml`
 matches at any depth, and a leading `!` negates an earlier pattern.
+
+On Windows and macOS, path globs and config filename comparisons ignore ASCII
+case. The policy applies to `exclude`, `[files]`, rule ignores, per-line path
+filters and key-ordering file selectors, including stdin filenames and the language
+server. Other platforms keep case-sensitive matching.
 
 A pattern with a directory in it is anchored at the directory holding the config
 file, whether discovered or passed with `-c`, or at the working directory for inline
@@ -1567,20 +2260,20 @@ matches by file name only, so `*.lock.yaml` still applies to it and
 `.github/workflows/*` does not &mdash; the same as ruff.
 
 ```toml
-[rules.document-start]
-present = true
-
-ignore = """
+exclude = """
 *.generated.yaml
 !schema.generated.yaml
 """
+
+[lint.rules.document-start]
+present = true
 ```
 
-### `ignore` also excludes files named on the command line
+### `exclude` also applies to files named on the command line
 
-Unlike a shell glob, `ignore` is not just a directory-walk filter: a path
+Unlike a shell glob, `exclude` is not just a directory-walk filter: a path
 matching it is skipped even when passed explicitly, so `ryl check vendor/a.yaml`
-reports nothing if `vendor/**` is ignored. This is the equivalent of ruff's
+reports nothing if `vendor/**` is excluded. This is the equivalent of ruff's
 `force-exclude`, always on. See [YAML in Markdown](https://ryl-docs.pages.dev/markdown/) for how it
 interacts with a pre-commit hook that passes filenames.
 
@@ -1592,30 +2285,30 @@ everything else &mdash; a Helm values file with no document start, a workflow
 file whose `on:` key trips [`truthy`](https://ryl-docs.pages.dev/rules/truthy/).
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/values.yaml" = ["document-start"]
 ".github/workflows/*" = ["truthy"]
 ```
 
-Each key is a path glob with the same semantics as `ignore`, including `!`
+Each key is a path glob with the same semantics as `exclude`, including `!`
 negation. Each value is a list of rule IDs, or `["ALL"]` to switch off every rule
 for the matching files:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "enable"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/pnpm-*.yaml" = ["ALL"]
 ```
 
 A file under `["ALL"]` is still parsed, so a syntax error in it is still
-reported and the run exits `1`. To skip the file entirely, use `ignore`.
+reported and the run exits `1`. To skip the file entirely, use `exclude`.
 
 `per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
 equivalent); it is rejected in yamllint-compatible YAML config.
@@ -1626,13 +2319,13 @@ Every rule accepts its own `ignore`, scoping that one rule to a subset of the
 tree. Other rules still run against the excluded paths.
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 max = 80
 ignore = """
 docs/**
 """
 
-[rules.colons]
+[lint.rules.colons]
 ```
 
 Here `docs/**` is exempt from `line-length` but still checked by `colons`.
@@ -1641,7 +2334,7 @@ Here `docs/**` is exempt from `line-length` but still checked by `colons`.
 
 | You want to | Use |
 | :--- | :--- |
-| Never see the file again | `ignore` |
+| Never see the file again | `exclude` |
 | Keep checking the file, minus one or two rules | `per-file-ignores` |
 | Check only that the file parses | `per-file-ignores` with `["ALL"]` |
 | Relax a single rule across a subtree | Per-rule `ignore` |
@@ -1654,7 +2347,7 @@ Here `docs/**` is exempt from `line-length` but still checked by `colons`.
 - [Inline directives](https://ryl-docs.pages.dev/directives/) &mdash; in-file suppression with
   `# ryl disable` / `disable-line`.
 - [Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/) &mdash;
-  how `ignore` and `ignore-from-file` resolve relative paths per config source.
+  how `exclude` and `exclude-from-file` resolve relative paths per config source.
 
 ---
 
@@ -1818,12 +2511,12 @@ check mode are also excluded from fixing, so a fragment never gains a `---`/`...
 marker or a trailing newline.
 
 Write-back is **conservative by construction**: ryl only rewrites a region when
-re-applying that prefix reproduces the region's original bytes exactly. A region it
+re-applying that prefix reproduces the region's original bytes exactly and parsing
+the rewritten Markdown recovers the full replacement region. A region it
 cannot reproduce — one whose lines do not share a single prefix (ragged indentation
 where content lines are indented less than the fence, or other non-uniform layouts)
-— is left **byte-for-byte untouched** while still being reported. This guarantees
-`--fix` can never corrupt a Markdown document: the worst case is that an unusual
-region is reported but not auto-fixed.
+— is left **byte-for-byte untouched** while still being reported. A rewrite that
+creates a closing fence is also refused, preserving the embedded YAML boundary.
 
 `--diff` previews these same fixes without writing: it emits one unified diff per
 Markdown file (at the host-file level, with the embedded edits shown in context)
@@ -1835,12 +2528,12 @@ and exits `1` if any file would change. A region `--fix` would leave untouched
 Markdown linting is normally enabled by listing `[files].markdown` globs, but it can
 also be turned on for a single run from the command line:
 
-- `--markdown` enables Markdown linting using default globs (`*.md`, `*.markdown`,
-  `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is a no-op when
-  `[files].markdown` is already set, and its injected globs **win** over the `yaml`
-  globs for an overlapping file (so the flag never aborts a run whose `yaml` globs
-  happen to match a Markdown extension). When linting stdin, `--markdown` forces the
-  input to be treated as Markdown regardless of `--stdin-filename`.
+- `--markdown` (on `ryl check` and `ryl format`) enables Markdown linting using default
+  globs (`*.md`, `*.markdown`, `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is
+  a no-op when `[files].markdown` is already set, and its injected globs **win** over
+  the `yaml` globs for an overlapping file (so the flag never aborts a run whose `yaml`
+  globs happen to match a Markdown extension). When linting stdin, `--markdown` forces
+  the input to be treated as Markdown regardless of `--stdin-filename`.
 - Reading from stdin otherwise honours the source kind: `ryl check - --stdin-filename
   doc.md` lints the piped bytes as Markdown when `doc.md` matches the `markdown`
   globs (front matter and fenced blocks are extracted exactly as for a file on
@@ -1890,22 +2583,21 @@ hook passes a `.md` that no `[files]` glob matches, ryl reports an error (it was
 named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow the
 hook's file filter.
 
-`ryl` also applies its `ignore` patterns to **explicitly passed** files, not just
+`ryl` also applies its `exclude` patterns to **explicitly passed** files, not just
 to files found by scanning a directory. So a file pre-commit hands to `ryl` that
-matches `ignore` is skipped — the equivalent of ruff's `force-exclude`, always on,
+matches `exclude` is skipped — the equivalent of ruff's `force-exclude`, always on,
 with no separate flag to set.
 
 ---
 
 Source: https://ryl-docs.pages.dev/using-with-formatters/
 
-# Using ryl with a YAML formatter
+# Using ryl with another YAML formatter
 
-The boundary between linting and formatting YAML is blurry. Many of ryl's rules are about
-layout (spacing, indentation, quote style, blank lines), and ryl already applies safe
-`--fix` edits to a good number of them, so it does some formatting today. What ryl does
-not do, for now, is reflow a whole document into one canonical layout the way a dedicated
-formatter does. Some projects therefore run ryl alongside a formatter such as
+ryl has its own formatter, [`ryl format`](https://ryl-docs.pages.dev/formatter/), which edits files in place
+rather than reprinting them. Start there unless you already use another formatter. ryl
+does not reflow a whole document into one canonical layout the way a reprinting formatter
+does, so some projects instead run ryl alongside a formatter such as
 [google/yamlfmt](https://github.com/google/yamlfmt),
 [Prettier](https://prettier.io/), or [yamlfix](https://lyz-code.github.io/yamlfix/) for
 that canonical layout, and rely on ryl for the broader checks (and safe fixes) it adds on
@@ -1926,11 +2618,11 @@ rules you want, and you can match their settings to whatever your formatter prod
 There are exactly two ways the two tools can disagree:
 
 - **A loop.** Only a rule with a safe fix can take part, because a loop needs both tools
-  to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `commas`,
-  `comments`, `comments-indentation`, `document-start`, `document-end`, `empty-lines`,
-  `key-ordering`, `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
-  `truthy` (case only: `True` to `true`). If one
-  of these is set to enforce the opposite of what your formatter emits, they fight.
+  to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `colons`,
+  `commas`, `comments`, `comments-indentation`, `document-start`, `document-end`,
+  `empty-lines`, `hyphens`, `key-ordering`, `new-line-at-end-of-file`, `new-lines`,
+  `quoted-strings`, `trailing-spaces`, and `truthy` (case only: `True` to `true`). If
+  one of these is set to enforce the opposite of what your formatter emits, they fight.
 - **A standing complaint.** A rule with no fix (for example `indentation`, `line-length`,
   or `truthy` on `yes`/`no`) can flag something the formatter produced but ryl cannot rewrite. There is no
   loop, but ryl warns on every run until you align the setting or turn the rule off.
@@ -1972,7 +2664,7 @@ not canonicalize truthy values. Its settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for google/yamlfmt
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -1982,26 +2674,26 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.document-start]
+[lint.rules.document-start]
 present = false              # yamlfmt removes `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # yamlfmt uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -2009,7 +2701,7 @@ Notes:
 
 - If you prefer to keep `---`, set yamlfmt's
   [`include_document_start: true`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
-  in its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
+  in its `.yamlfmt` config and change ryl to `[lint.rules.document-start]` `present = true`. The
   two markers must agree. yamlfmt strips the `...` document-end marker, so leave ryl's
   `document-end` rule off.
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
@@ -2032,7 +2724,7 @@ padding this recipe relies on), [`singleQuote`](https://prettier.io/docs/options
 
 ```toml
 # .ryl.toml, tuned for Prettier
-[rules]
+[lint.rules]
 brackets = "enable"
 colons = "enable"
 commas = "enable"
@@ -2041,29 +2733,29 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.braces]
+[lint.rules.braces]
 min-spaces-inside = 1        # Prettier pads `{ a: 1 }`
 max-spaces-inside = 1
 min-spaces-inside-empty = 0  # but keeps an empty `{}` tight
 max-spaces-inside-empty = 0
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # Prettier uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -2100,7 +2792,7 @@ settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for yamlfix
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -2111,23 +2803,23 @@ new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 truthy = "enable"           # yamlfix canonicalizes block-style yes/no (see caveat)
 
-[rules.document-start]
+[lint.rules.document-start]
 present = true              # yamlfix adds `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 2  # yamlfix uses two spaces (ryl's default)
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -2135,10 +2827,7 @@ Notes:
 
 - Keep `document-end` off: it would loop. ryl's `document-end` fix adds `...`, yamlfix
   strips it back out on the next pass, and the two never settle.
-- Leave `quoted-strings` off. yamlfix already normalises quotes, and pairing ryl's
-  `quoted-strings` with it is unsafe: ryl (YAML 1.2) treats `'no'`/`'yes'`/`'on'` as
-  redundantly-quoted strings and strips the quotes, after which yamlfix's truthy pass
-  rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
+- Leave `quoted-strings` off: yamlfix already normalises quotes.
 - yamlfix canonicalises truthy words only in **block** style (`key: yes`, `- yes`); it
   leaves them untouched inside a pre-existing flow collection (`flags: [yes, no]`) or
   before a trailing comment (`x: yes  # ...`). ryl's `truthy` fix only re-cases `True`
@@ -2230,9 +2919,10 @@ Source: https://ryl-docs.pages.dev/output-formats/
 
 # Output formats
 
-`ryl` renders diagnostics in several formats, selected with `--format` (`-f`). The
-default, `auto`, picks a human-readable format for your environment; the machine-readable
-formats are opt-in and are meant to be consumed by editors, CI, and Git forges.
+`ryl` renders diagnostics in several formats, selected with `--output-format` (`-f`, or
+yamllint's `--format`). The default, `auto`, picks a human-readable format for your
+environment; the machine-readable formats are opt-in and are meant to be consumed by
+editors, CI, and Git forges.
 
 | Format | Purpose | Default destination |
 | --- | --- | --- |
@@ -2255,31 +2945,31 @@ Each format has a default stream: the console formats (`standard`, `colored`, `g
 so a report can be redirected into an artifact file:
 
 ```console
-$ ryl check --format gitlab . > gl-code-quality-report.json
+$ ryl check --output-format gitlab . > gl-code-quality-report.json
 ```
 
 ### Multiple outputs in one run
 
-`--format` (`-f`) is repeatable, and each `--output-file` (`-o`) binds to the **most
-recent** `--format`, so a single run can produce several outputs at once (the RuboCop /
-Biome model). `-o` takes a file path, or `-` for stdout:
+`--output-format` (`-f`) is repeatable, and each `--output-file` (`-o`) binds to the
+**most recent** `--output-format`, so a single run can produce several outputs at once
+(the RuboCop / Biome model). `-o` takes a file path, or `-` for stdout:
 
 ```console
 # console diagnostics on stderr AND a GitLab report written to a file
-$ ryl check --format auto --format gitlab -o gl-code-quality-report.json .
+$ ryl check --output-format auto --output-format gitlab -o gl-code-quality-report.json .
 
 # a JUnit file and a GitLab file together, with no console output
-$ ryl check --format junit -o report.xml --format gitlab -o gl.json .
+$ ryl check --output-format junit -o report.xml --output-format gitlab -o gl.json .
 ```
 
-A `--format` with no `--output-file` uses its default stream, so the way to get your usual
-console output **and** a report file is to add the report `--format` with its own `-o`, as
-in the first example above.
+An `--output-format` with no `--output-file` uses its default stream, so the way to get
+your usual console output **and** a report file is to add the report `--output-format`
+with its own `-o`, as in the first example above.
 
 The rules that keep the outputs unambiguous (each a usage error, exit code 2):
 
-- an `--output-file` must follow a `--format`, since it binds to that format;
-- a `--format` takes at most one `--output-file`;
+- an `--output-file` must follow an `--output-format`, since it binds to that format;
+- an `--output-format` takes at most one `--output-file`;
 - at most one output may go to stdout and at most one to the console (stderr); two
   documents sharing a stream would interleave, so give the others a file destination;
 - two outputs may not resolve to the same file (the second would clobber the first);
@@ -2287,11 +2977,22 @@ The rules that keep the outputs unambiguous (each a usage error, exit code 2):
   report can never truncate the source it just linted.
 
 Otherwise an `--output-file` overwrites its destination, so do not point it at a file you
-want to keep. `--diff` previews fixes and ignores `--format`, so it combines with neither
-`--output-file` nor `--format junit`/`--format gitlab`. A clean or empty project still
-produces a valid empty report for each report target (`[]` for GitLab, an empty
-`<testsuites>` for JUnit), so a CI step that ingests the artifact never fails on a missing
-file.
+want to keep. `--diff` previews fixes and ignores `--output-format`, so it combines with
+neither `--output-file` nor `--output-format junit`/`--output-format gitlab`. A clean or
+empty project still produces a valid empty report for each report target (`[]` for
+GitLab, an empty `<testsuites>` for JUnit), so a CI step that ingests the artifact never
+fails on a missing file.
+
+### `ryl format --check`
+
+`ryl format --check` reports the lines it would change through the same formats.
+An empty or wholly excluded run still writes an empty configured report, including
+when `--stdin-filename` is excluded.
+`ryl format --output-format` takes one format, written to its default stream, and
+overrides `[output]`. Like ruff's, `ryl format` honours it only under `--check`.
+The same output-target guards apply to files and stdin: two configured reporters
+sharing stdout or stderr exit 2 before emitting reports. `ryl format --diff` ignores
+`[output]` and `--output-format`, keeping stdout for the patch.
 
 ### Configuring outputs in TOML
 
@@ -2311,9 +3012,9 @@ path = "gl-code-quality-report.json"
 `[output]` is ryl-only and TOML-only (it is rejected in a YAML config). It is read once
 from the configuration governing the run: the `-c`/`-d` config, or the project config
 discovered for the inputs (so a project's `.ryl.toml` applies to `ryl check .`). A CLI
-`--format` overrides the entire `[output]` table, so the command line always wins over the
-config. The same unambiguous-output rules above apply to a config that declares several
-targets.
+`--output-format` overrides the entire `[output]` table, so the command line always wins
+over the config. The same unambiguous-output rules above apply to a config that declares
+several targets.
 
 `[output]` produces a single, run-level set of artifacts, so it is read from one config.
 That is unambiguous for a single project (one root, or subdirectories that share the
@@ -2384,7 +3085,7 @@ Publish it with `artifacts:reports:codequality` pointing at the file you wrote w
 ```yaml
 lint:
   script:
-    - ryl check --format gitlab -o gl-code-quality-report.json .
+    - ryl check --output-format gitlab -o gl-code-quality-report.json .
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
@@ -2415,15 +3116,27 @@ hover only explains ryl's own diagnostics.
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
 | Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
-| Formatting | `textDocument/formatting` | Same as "fix all": formatting *is* applying safe fixes |
+| Formatting | `textDocument/formatting` | Runs [`ryl format`](https://ryl-docs.pages.dev/formatter/) on the document, under the `[format]` table; each YAML region of a Markdown file is formatted on its own |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
 | File watching | `workspace/didChangeWatchedFiles` | Watches ryl/yamllint config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
-The fix-all action and formatting both apply ryl's whole-file safe fixes; ryl has no
-per-occurrence "fix just this one" action, because its fix engine operates per file (the
-per-rule fix-all is the finest grain available, and applies only to YAML, not Markdown). A
-document that does not parse is never modified (the same guarantee as `ryl check --fix`).
+The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrence "fix just
+this one" action, because its fix engine operates per file (the per-rule fix-all is the
+finest grain available, and applies only to YAML, not Markdown). Formatting needs no enabled
+rule, as with the CLI, and ignores the editor's tab size: the `[format]` table decides. Only
+whole-document formatting is offered, not a selected range. As with the CLI, YAML that does
+not parse is left as it is: a whole YAML file, or one region of a Markdown file while its
+other regions are still fixed or formatted.
+
+When formatting or explicitly requesting fix-all, the server checks for lint options conflicting
+with `[format]` and shows the same warnings as
+[`ryl format`](https://ryl-docs.pages.dev/formatter/) through `window/showMessage`. Each warning appears once
+across documents and requests, until configuration is reloaded. The warnings explain
+how to align the options so format-on-save and fix-on-save do not undo each other.
+Lint diagnostics, unrestricted lightbulb requests, and quickfix-only requests do not
+check for formatter conflicts. Each formatting or explicit fix-all request checks the
+current config, including config edits made without a client reload notification.
 
 ## Running it
 
@@ -2492,8 +3205,8 @@ already have ryl on your `PATH` or in a project environment, it uses that instea
 
 It surfaces the language-server features described above - live diagnostics, fix-all (and
 per-rule fix-all), the disable-rule quick fixes, hover, and anchor/alias rename - and adds a
-`ryl.fixAll` command and a fix-on-save option. To make ryl your YAML formatter and apply
-safe fixes on save:
+`ryl.fixAll` command and a fix-on-save option. The editor's Format Document runs
+[`ryl format`](https://ryl-docs.pages.dev/formatter/). To make ryl your YAML formatter and apply safe fixes on save:
 
 ```json
 {
@@ -2620,10 +3333,17 @@ Under an explicit `%YAML 1.1` the value-resolving rules follow 1.1:
 `quoted-strings` keeps quotes that are load-bearing under 1.1 and `truthy`
 flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 1.2: `--fix` only makes edits that preserve the value under the document's
-*declared* version, so it will not strip the quotes from `'no'` under
-`%YAML 1.1`, where the bareword `no` is the boolean false.
-The `truthy` fix only re-cases `True`/`FALSE` and the like, which are the
-same boolean under both versions.
+*declared* version. The `truthy` fix only re-cases `True`/`FALSE` and the
+like, which are the same boolean under both versions.
+
+Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
+any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
+`'1_000'`), as yamllint does, so the output means the same to a 1.1 consumer
+such as PyYAML. The set is PyYAML's 1.1 resolver plus yamllint's `0o` octal,
+and `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads as
+booleans although PyYAML does not.
+Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
+`'008'`) are kept too.
 
 ## What is different in YAML 1.2
 
@@ -2641,23 +3361,9 @@ files.
 
 With `quote-type: double, required: only-when-needed`, yamllint considers
 `"yes"` to need quoting (because the bareword would parse as a boolean in
-1.1), so it accepts the quoted form. With no version directive ryl resolves
-under 1.2, where `"yes"` is a string, so it reports the quotes as redundant.
-Under an explicit `%YAML 1.1` ryl keeps the quotes, matching yamllint, since
-removing them would change the value for a 1.1 consumer.
-
-If your project still wants quotes around YAML 1.1 truthy words in
-directive-less documents to protect consumers that use 1.1 parsers, either
-declare `%YAML 1.1` in those documents or set:
-
-```toml
-[rules.quoted-strings]
-required = true              # always quote, regardless of type
-quote-type = "double"
-```
-
-…or rely on the [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) rule to flag bareword
-booleans instead and keep `quoted-strings` off.
+1.1), so it accepts the quoted form. ryl does the same whatever the
+directive, since removing the quotes would change the value for a 1.1
+consumer.
 
 ## Implications for configuration files
 
@@ -2701,10 +3407,8 @@ yamllint is configured for 1.2 explicitly:
   the 1.2 spec.
 
 For documents that need to be portable between 1.1 and 1.2 consumers,
-the safest pattern is to quote any bareword that 1.1 would coerce. ryl
-will not get in your way as long as `quoted-strings.required` is `true`
-(or unset / disabled) rather than `"only-when-needed"`, or the document
-declares `%YAML 1.1` so ryl keeps those quotes for you.
+the safest pattern is to quote any bareword that 1.1 would coerce.
+`quoted-strings` and `ryl format` keep those quotes for you.
 
 ---
 
@@ -2753,6 +3457,7 @@ resolved value, comments and anchors. That rules out:
   have meant the string. One would only ever sit behind an explicit opt-in.
 - **Whole-document reprinting**, the way Prettier formats YAML. Use a
   reprinting formatter if that is what you want; ryl won't become one.
+  [`ryl format`](https://ryl-docs.pages.dev/formatter/) edits in place under the same guarantees.
 
 ## Not decided yet
 
@@ -2800,7 +3505,7 @@ a `:` is welded to them.
 ## Configuration
 
 ```toml
-[rules.anchors]
+[lint.rules.anchors]
 level = "error"
 forbid-undeclared-aliases = true
 forbid-duplicated-anchors = false
@@ -2917,13 +3622,13 @@ Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
 ## Configuration
 
 `block-scalar-chomping` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[rules.block-scalar-chomping]` in
-`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.block-scalar-chomping]` in
+configured **only in TOML** &mdash; `[lint.rules.block-scalar-chomping]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.block-scalar-chomping]` in
 `pyproject.toml`. It is rejected in yamllint-compatible YAML config (including `-d`
 data) so the YAML namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.block-scalar-chomping]
+[lint.rules.block-scalar-chomping]
 level = "error"
 ```
 
@@ -2994,7 +3699,7 @@ whitespace they may contain.
 ## Configuration
 
 ```toml
-[rules.braces]
+[lint.rules.braces]
 level = "error"
 forbid = false
 min-spaces-inside = 0
@@ -3039,6 +3744,8 @@ is not auto-fixed because converting flow to block style requires
 re-flowing the surrounding document. A minimum above its maximum cannot be
 satisfied, so `--fix` leaves that spacing as it is.
 
+`ryl format` writes no spaces inside braces, `{}` included, and keeps flow style under the default `[format] mapping-style = "preserve"`. It conflicts with `forbid` when `mapping-style` is not `"preserve"`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+
 ## Related rules
 
 - [`brackets`](https://ryl-docs.pages.dev/rules/brackets/) &mdash; the equivalent rule for flow
@@ -3067,7 +3774,7 @@ whitespace they may contain.
 ## Configuration
 
 ```toml
-[rules.brackets]
+[lint.rules.brackets]
 level = "error"
 forbid = false
 min-spaces-inside = 0
@@ -3111,6 +3818,8 @@ bounds. The `forbid` constraint is not auto-fixed because converting flow
 sequences to block style requires re-flowing the document. A minimum above its
 maximum cannot be satisfied, so `--fix` leaves that spacing as it is.
 
+`ryl format` writes no spaces inside brackets, `[]` included, and keeps flow style under the default `[format] sequence-style = "preserve"`. It conflicts with `forbid` when `sequence-style` is not `"preserve"`, and with a `min-spaces-inside` or `min-spaces-inside-empty` above 0; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+
 ## Related rules
 
 - [`braces`](https://ryl-docs.pages.dev/rules/braces/) &mdash; the equivalent rule for flow mappings.
@@ -3139,7 +3848,7 @@ Controls the number of spaces around mapping colons (`:`).
 ## Configuration
 
 ```toml
-[rules.colons]
+[lint.rules.colons]
 level = "error"
 max-spaces-before = 0
 max-spaces-after = 1
@@ -3176,14 +3885,14 @@ second: 2
 third:  3
 ```
 
-### Alias mapping keys
+### Alias, anchor and tag mapping keys
 
-A YAML anchor/alias name may legally contain `:`, so `*anchor:` welds into an alias to an
-anchor named `anchor:` (a parse error here, since no mapping colon remains). Using an
-alias as a mapping key therefore *requires* one separating space before the colon
-&mdash; `*anchor : value`. When exactly that one space is present the colon's spacing is
-not reported (the rule defers to the parser's view of the alias); more than one space
-before the colon is reported as usual.
+A YAML anchor/alias name or a tag may legally contain `:`, so `*anchor:` welds into an
+alias to an anchor named `anchor:` (a parse error here, since no mapping colon remains),
+and `&anchor: value` is the scalar `value` anchored `anchor:`. Using an alias as a
+mapping key, or an empty key carrying only an anchor or tag, therefore *requires* one
+separating space before the colon &mdash; `*anchor : value`, `&anchor : value`. That one
+space is not reported; more than one is reported as usual.
 
 ```yaml
 base: &a name
@@ -3197,7 +3906,21 @@ base: &a name
 
 ## Automatic fixing
 
-This rule does not auto-fix; correct spacing manually.
+`ryl check --fix` trims the spaces before `:` and after `:` or `?` to the configured
+maximum, never below the one space an alias, anchor or tag key needs before `:`, or the
+one space YAML needs after `:` or `?`. A space after `:` that leads to `,`, `]` or `}`
+is left to [`commas`](https://ryl-docs.pages.dev/rules/commas/), [`braces`](https://ryl-docs.pages.dev/rules/braces/) and [`brackets`](https://ryl-docs.pages.dev/rules/brackets/).
+
+`ryl format` writes no space before `:` (one for those keys) and exactly one after `:`
+and `?`, turning a tab into a space. An explicit `?` or `:` that opens a block
+collection continuing below has its spaces set that collection's indentation, so
+`ryl check --fix` leaves it alone and `ryl format` re-indents the collection with it:
+
+```yaml
+? key
+:   - a      # ryl format: `: - a`, with `- b` under `- a`
+    - b
+```
 
 ## Related rules
 
@@ -3225,7 +3948,7 @@ mappings and flow sequences.
 ## Configuration
 
 ```toml
-[rules.commas]
+[lint.rules.commas]
 level = "error"
 max-spaces-before = 0
 min-spaces-after = 1
@@ -3265,10 +3988,12 @@ limits, leaving the spacing after a comma as it is when `min-spaces-after` excee
 `max-spaces-after`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["commas"]
 ```
+
+`ryl format` writes no space before a comma and one after. It conflicts with a `min-spaces-after` above 1 or `max-spaces-after = 0`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3287,6 +4012,8 @@ Source: https://ryl-docs.pages.dev/rules/comments-indentation/
 Requires that standalone comment lines line up with the surrounding
 content. A comment must share the indentation of the line that follows it
 (or, when at the end of the file, the line that precedes it).
+A line-1 `#!` shebang or `#cloud-config` header is exempt, where yamllint
+checks it: moving it would break the file.
 
 ## Why this matters
 
@@ -3298,7 +4025,7 @@ content. A comment must share the indentation of the line that follows it
 ## Configuration
 
 ```toml
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "error"
 # Accept a comment aligned to any still-open enclosing block level (default false).
 allow-any-open-indent = false
@@ -3357,10 +4084,12 @@ parent:
 follows them. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 
@@ -3393,7 +4122,7 @@ content.
 ## Configuration
 
 ```toml
-[rules.comments]
+[lint.rules.comments]
 level = "error"
 require-starting-space = true
 ignore-shebangs = true
@@ -3404,7 +4133,7 @@ max-spaces-from-content = -1
 | Option | Default | Description |
 | :--- | :--- | :--- |
 | `require-starting-space` | `true` | Require at least one space between `#` and the comment text. |
-| `ignore-shebangs` | `true` | Skip `#!` shebang lines when `require-starting-space` is on. |
+| `ignore-shebangs` | `true` | Skip a line-1 `#!` shebang or `#cloud-config` header when `require-starting-space` is on. yamllint skips only the shebang. |
 | `min-spaces-from-content` | `2` | Minimum spaces between code and an inline `#` comment. Use `-1` to disable. |
 | `max-spaces-from-content` | `-1` | Maximum spaces between code and an inline `#` comment; `-1` (the default) disables it. Must be at least 1 and at least `min-spaces-from-content`. TOML only. |
 
@@ -3459,10 +4188,12 @@ to the configured `min-spaces-from-content`, and replaces a gap wider than
 `max-spaces-from-content` with that many spaces. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
+
+`ryl format` inserts the space after `#` and writes exactly two spaces before an inline comment. It conflicts with a `min-spaces-from-content` above 2 or a non-negative `max-spaces-from-content` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3490,7 +4221,7 @@ Requires or forbids the YAML document end marker (`...`).
 ## Configuration
 
 ```toml
-[rules.document-end]
+[lint.rules.document-end]
 level = "error"
 present = true
 ```
@@ -3533,28 +4264,21 @@ this: is the only document
 
 ## Automatic fixing
 
-`ryl check --fix` appends a `...` end marker when `present: true` and the
-document does not already have one. The fix is **partial** by design:
-it only runs when the buffer is a single document. A buffer is treated
-as single-document when, after skipping leading blank lines, comments,
-and `%`-directive lines:
-
-- it contains at most one `---` marker, and that marker is not preceded
-  by real (non-comment, non-directive) content, and
-- it contains no `...` marker anywhere.
-
-Multi-document streams are left for manual intervention because each
-document needs its own `...` placed at the correct byte offset, and the
-rule does not record per-document end positions. The `present: false`
-case (removing existing `...` markers) is never auto-fixed.
+`ryl check --fix` adds a `...` end marker to every document that lacks one
+when `present: true`: before the `---` that opens the next document, and at
+the end of the stream. The `present: false` case (removing existing `...`
+markers) is never auto-fixed. A block scalar header with no body at EOF can gain the
+newline and marker; an unterminated clip/keep body is left alone to preserve its value.
 
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["document-end"]
 ```
+
+`ryl format` adds `...` the same way only when `[format] document-end` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3584,7 +4308,7 @@ Requires or forbids the YAML document start marker (`---`).
 ## Configuration
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 level = "error"
 present = true
 ```
@@ -3623,30 +4347,25 @@ title: example
 
 ## Automatic fixing
 
-`ryl check --fix` prepends a `---` start marker when `present: true` and the
-document does not already have one. The fix is **partial** by design:
-it only runs when
+`ryl check --fix` adds a `---` start marker to every document that lacks one when
+`present: true`: at the top of the file for the first document, and after the
+`...` that ends the previous document for a later one. A UTF-8 BOM, leading the
+file or a later document, stays before the `---`. A line-1 `#!` shebang or
+cloud-init `#cloud-config` header stays first, with the `---` inserted after it,
+since the interpreter or cloud-init reads it from byte 0.
 
-- the buffer is a single document (no inner `---`/`...` markers anywhere
-  in the file),
-- the buffer does not begin (after leading comments and blank lines)
-  with a `%YAML`/`%TAG` directive, and
-- a leading UTF-8 BOM, if any, stays at byte 0 with the new `---`
-  inserted after it.
-
-Multi-document streams and files with directives are left for manual
-intervention, because the correct marker placement there depends on
-context the rule does not record. The `present: false` case (removing
-existing `---` markers) is never auto-fixed because removal can collide
-with multi-document boundaries.
+The `present: false` case (removing existing `---` markers) is never auto-fixed
+because removal can collide with multi-document boundaries.
 
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
+
+`ryl format` adds `---` the same way only when `[format] document-start` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3674,7 +4393,7 @@ file, at the start of the file, and at the end of the file.
 ## Configuration
 
 ```toml
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "error"
 max = 2
 max-start = 0
@@ -3729,7 +4448,9 @@ and `max-end` for the leading and trailing run). The fix is **partial**
 by design: blank lines that fall inside any multi-line scalar — literal
 or folded block scalars (`|`/`>`), multi-line single- or double-quoted
 scalars, or multi-line plain scalars — are left untouched, because
-those blank lines contribute to the parsed value.
+those blank lines contribute to the parsed value. Trailing blank lines in clip
+(`|`/`>`) and strip (`|-`/`>-`) block scalars are trimmed because chomping
+discards them. Keep (`|+`/`>+`) tails remain content and are preserved.
 
 The protected line set is computed via the YAML parser, so the fix
 bails (leaves the file untouched) when the input cannot be parsed.
@@ -3737,10 +4458,12 @@ bails (leaves the file untouched) when the input cannot be parsed.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```
+
+`ryl format` trims runs of empty lines to two and removes them at the start and end of the file, under the same limits. It conflicts with a `max` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -3771,7 +4494,7 @@ mappings, flow mappings, and block sequences.
 ## Configuration
 
 ```toml
-[rules.empty-values]
+[lint.rules.empty-values]
 level = "error"
 forbid-in-block-mappings = true
 forbid-in-flow-mappings = true
@@ -3852,7 +4575,7 @@ values `.nan` and `.inf`.
 ## Configuration
 
 ```toml
-[rules.float-values]
+[lint.rules.float-values]
 level = "error"
 require-numeral-before-decimal = false
 forbid-scientific-notation = false
@@ -3922,7 +4645,7 @@ block sequences.
 ## Configuration
 
 ```toml
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "error"
 max-spaces-after = 1
 dash-on-own-line = false
@@ -3986,9 +4709,20 @@ items:
 
 ## Automatic fixing
 
-This rule does not auto-fix. Trim the extra spaces (`max-spaces-after`) or break the
-mapping onto the line below the `-` (`dash-on-own-line`) manually: re-indenting the
-mapping body is a structural change ryl will not make automatically.
+`ryl check --fix` trims the spaces after `-` to `max-spaces-after`, never below one.
+`ryl format` leaves exactly one. `ryl check --fix` leaves a `-` alone when the block
+mapping or sequence it opens continues on later lines, because the spaces set that
+collection's indentation; `ryl format` closes the gap and re-indents the collection
+with it:
+
+```yaml
+-   name: web    # ryl format: `- name: web`, with `port` under `name`
+    port: 80
+```
+
+`ryl check --fix` does not fix `dash-on-own-line`. `ryl format` joins `-` and its block
+mapping onto one line, or with `[format] dash-on-own-line = true` breaks the mapping
+onto the line below; a dash line carrying an anchor, tag or comment is left as it is.
 
 ## Related rules
 
@@ -4024,7 +4758,7 @@ Enforces consistent indentation throughout the document. Specifically:
 ## Configuration
 
 ```toml
-[rules.indentation]
+[lint.rules.indentation]
 level = "error"
 spaces = "consistent"
 indent-sequences = true
@@ -4033,7 +4767,7 @@ check-multi-line-strings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `spaces` | `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
+| `spaces` | top-level `indent-width` if set, else `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
 | `indent-sequences` | `true` | `true`, `false`, `"whatever"`, or `"consistent"`. Whether block sequence items are indented under the parent key. |
 | `check-multi-line-strings` | `false` | When `true`, apply indent checks inside block scalars and multi-line flow strings. |
 
@@ -4075,8 +4809,16 @@ parent:
 
 ## Automatic fixing
 
-This rule does not auto-fix; indentation changes can shift values into
-different parents, so corrections need human review.
+`ryl check --fix` does not fix this rule; indentation changes can shift values into
+different parents.
+
+`ryl format` re-indents each block level to the top-level `indent-width`, or without it
+to the width the file mostly uses (see [Configuration](https://ryl-docs.pages.dev/formatter/#configuration)),
+with block sequences indented past their key unless `[format] indent-sequences = false`.
+Block scalar bodies, continuation lines and comments move with the line they belong to,
+and lines inside a flow collection go where this rule expects them. A document is left
+as it is, and reported, when a tab indents it or when re-indenting it would change what
+it parses to; an inline `disable` for this rule leaves it unreported.
 
 ## Related rules
 
@@ -4113,7 +4855,7 @@ core-schema resolution, and keys that collide once `<<` merges are expanded.
 ## Configuration
 
 ```toml
-[rules.key-duplicates]
+[lint.rules.key-duplicates]
 level = "error"
 forbid-duplicated-merge-keys = false
 check-canonical = false              # ryl-only
@@ -4226,7 +4968,7 @@ Requires that the keys within each mapping appear in lexicographic
 ## Configuration
 
 ```toml
-[rules.key-ordering]
+[lint.rules.key-ordering]
 level = "error"
 ignored-keys = []
 ```
@@ -4267,16 +5009,16 @@ beta: 2
 
 ## Custom orders
 
-Each `[[rules.key-ordering.orders]]` entry gives a mapping a key order other
+Each `[[lint.rules.key-ordering.orders]]` entry gives a mapping a key order other
 than alphabetical. An entry applies where both its `files` and its `path`
 match, and the first matching entry wins. Mappings that no entry selects keep
 the alphabetical order, and that includes mappings nested inside a selected one.
 
 ```toml
-[rules.key-ordering]
+[lint.rules.key-ordering]
 level = "error"
 
-[[rules.key-ordering.orders]]
+[[lint.rules.key-ordering.orders]]
 files = [".pre-commit-config.yaml"]
 path = "$.repos[*].hooks[*]"
 keys = ["alias", "name", "description", "args", "env"]
@@ -4380,7 +5122,7 @@ gamma: 3  # Gamma-specific note.
   disabled on any of its lines.
 
 To keep `--fix` from reordering keys at all, add `unfixable = ["key-ordering"]`
-to the `[fix]` table.
+to the `[lint]` table.
 
 ## Related rules
 
@@ -4434,7 +5176,7 @@ description: >
 ## Configuration
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 max = 80
 allow-non-breakable-words = true
@@ -4443,14 +5185,19 @@ allow-non-breakable-inline-mappings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `max` | `80` | Maximum number of characters allowed per line. |
+| `max` | top-level `line-length` if set, else `80` | Maximum number of characters allowed per line. |
 | `allow-non-breakable-words` | `true` | Allow over-length lines whose long token has no whitespace to break on (typical for URLs or hashes). |
 | `allow-non-breakable-inline-mappings` | `false` | Extend the above allowance to lines like `key: <single long token>` where the value has no break candidate. |
 
 ## Automatic fixing
 
-This rule does not currently auto-fix; long lines need to be reflowed by
+`ryl check --fix` does not fix this rule; long lines need to be reflowed by
 hand or wrapped with a block scalar.
+
+With `[format] fold-long-lines = true`, `ryl format` folds long plain and quoted values
+in block context, and folded (`>`) scalar lines at their content indent, to the
+top-level `line-length`; see [Long lines](https://ryl-docs.pages.dev/formatter/#long-lines). No option of this
+rule conflicts with it.
 
 ## Related rules
 
@@ -4508,13 +5255,13 @@ Sources: YAML 1.2.2 changes page; YAML merge type.
 ## Configuration
 
 `merge-keys` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.rules.merge-keys]` in `pyproject.toml`. It is rejected in
+**only in TOML** &mdash; `[lint.rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.lint.rules.merge-keys]` in `pyproject.toml`. It is rejected in
 yamllint-compatible YAML config (including `-d` data) so the YAML namespace stays
 reserved for any future yamllint rule.
 
 ```toml
-[rules.merge-keys]
+[lint.rules.merge-keys]
 level = "error"
 ```
 
@@ -4586,7 +5333,7 @@ Requires the file to end with a trailing newline character.
 ## Configuration
 
 ```toml
-[rules.new-line-at-end-of-file]
+[lint.rules.new-line-at-end-of-file]
 level = "error"
 ```
 
@@ -4614,13 +5361,17 @@ ryl appends a single newline when the file does not already end with one.
 
 ## Automatic fixing
 
-`ryl check --fix` appends a trailing newline when one is missing. Disable with:
+`ryl check --fix` appends a trailing newline when one is missing, including after a
+block scalar header with no body. An unterminated clip/keep block scalar body is left
+alone because appending a newline could change its value. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["new-line-at-end-of-file"]
 ```
+
+`ryl format` applies the same fix, ending the file with the `[format] line-ending`, and no option of this rule conflicts with it.
 
 ## Related rules
 
@@ -4651,7 +5402,7 @@ Unix (LF), DOS/Windows (CRLF), or whatever the host platform produces.
 ## Configuration
 
 ```toml
-[rules.new-lines]
+[lint.rules.new-lines]
 level = "error"
 type = "unix"
 ```
@@ -4694,10 +5445,12 @@ the behaviour is identical. See
 `ryl check --fix` rewrites all line endings to match `type`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["new-lines"]
 ```
+
+`ryl format` rewrites line endings to `[format] line-ending`, `lf` by default. It conflicts with a `type` that resolves to a different ending, and with any `type` under `line-ending = "auto"`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -4728,7 +5481,7 @@ Reports octal integer literals. By default both YAML 1.1 implicit form
 ## Configuration
 
 ```toml
-[rules.octal-values]
+[lint.rules.octal-values]
 level = "error"
 forbid-implicit-octal = true
 forbid-explicit-octal = true
@@ -4824,14 +5577,14 @@ version: '1.0'  # needs quoting, but single-quoted where double is required
 ### :wrench: After `ryl check --fix`
 
 ```yaml
-name: plain
-version: "1.0"
+name: plain   # redundantly quoted: a plain string needs no quotes
+version: "1.0"  # needs quoting, but single-quoted where double is required
 ```
 
 ## Configuration
 
 ```toml
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 level = "warning"
 quote-type = "any"
 required = true
@@ -4859,35 +5612,26 @@ adds or removes quotes to satisfy `required`. The fix is conservative: it
 only changes scalars where the corrected form parses to the same value as
 the original.
 
-Disable the fix for this rule by adding it to `[fix].unfixable`:
+Disable the fix for this rule by adding it to `lint.unfixable`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
 
-## YAML 1.2 caveat with `required = "only-when-needed"`
+`ryl format` quotes strings by its own [quote style](https://ryl-docs.pages.dev/formatter/#quote-style), set by `[format] quote-style`. This rule's defaults conflict with it; [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) lists the options that accept its output.
 
-A document with no version directive is resolved per YAML 1.2 when deciding
-whether a quoted scalar is redundantly quoted. Under YAML 1.2 the barewords
-`yes`, `no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
-plain strings, whereas YAML 1.1 treats them as booleans. (`true`, `True`,
-`TRUE`, `false`, `False`, and `FALSE` are booleans under both versions, so
-they are unaffected.) yamllint uses YAML 1.1 semantics, where the longer
-list is boolean.
+## YAML 1.1 values with `required = "only-when-needed"`
 
-The practical consequence is that `"yes"` (with `required:
-"only-when-needed"`, `quote-type: "double"`) is flagged by ryl as
-redundantly quoted but accepted by yamllint. To match yamllint's
-behaviour, set `required = true` so all string scalars are quoted
-regardless of type, or rely on the [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) rule to flag
-ambiguous barewords and keep `quoted-strings` off.
-
-A document that declares `%YAML 1.1` is resolved as YAML 1.1, so ryl keeps
-the quotes on these barewords (and on 1.1 integers, sexagesimals, and
-timestamps) and `--fix` leaves them in place &mdash; stripping them would
-change the value for a 1.1 consumer. See
+Whatever the document's `%YAML` directive, a quoted scalar that YAML 1.1
+reads as a non-string is not redundantly quoted, as in yamllint: `'no'`,
+`'on'`, `'yes'` and their case variants, 1.1 integers, floats, sexagesimals
+and timestamps keep their quotes, and `--fix` leaves them in place, since
+stripping them would change the value for a 1.1 consumer such as PyYAML.
+Unlike yamllint, `'y'`, `'Y'`, `'n'` and `'N'` keep their quotes too, since
+go-yaml v2, used by Kubernetes, loads them as booleans. Unless the document declares `%YAML 1.1`, quotes a YAML 1.2 reader
+needs (`'+.5'`, `'008'`) are kept too. `ryl format` keeps the same quotes. See
 [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/) for more context.
 
 ## Related rules
@@ -4931,13 +5675,13 @@ YAML Company.
 ## Configuration
 
 `tags` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[rules.tags]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.rules.tags]` in `pyproject.toml`. It is rejected in
+**only in TOML** &mdash; `[lint.rules.tags]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.lint.rules.tags]` in `pyproject.toml`. It is rejected in
 yamllint-compatible YAML config (including `-d` data) so the YAML `tags`
 namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.tags]
+[lint.rules.tags]
 level = "error"
 forbid-unsafe-tags = false
 forbid-removed-types = false
@@ -5024,7 +5768,7 @@ Reports whitespace at the end of any line.
 ## Configuration
 
 ```toml
-[rules.trailing-spaces]
+[lint.rules.trailing-spaces]
 level = "error"
 ```
 
@@ -5060,14 +5804,17 @@ key: value
 ## Automatic fixing
 
 `ryl check --fix` strips trailing spaces and tabs from each line. The fix is
-**partial** by design: lines inside literal/folded block scalars
-(`|`/`>`) and inside multi-line double-quoted scalars are left untouched,
-because in those contexts trailing whitespace can be part of the parsed
-scalar value. The diagnostic still fires on those lines so the
+**partial** by design: space-only lines inside literal/folded block scalars
+(`|`/`>`) are stripped when no wider than the scalar's indentation. Spaces
+past that indentation are content and stay, as do trailing spaces on content
+lines and whitespace inside multi-line double-quoted scalars. The diagnostic still fires on those lines so the
 remaining trailing whitespace is visible after `--fix`; edit them by
 hand if you want them clean. Multi-line single-quoted and plain scalars
 fold trailing whitespace away at parse time, so the fix can safely
 strip those.
+
+An indentation-only final line is stripped without adding a scalar line break.
+For example, `a: |+\r\n    ` becomes `a: |+\r\n`; both load as an empty string.
 
 The fix bails (leaves the file untouched) when the input cannot be
 parsed as YAML, so a broken document is never made worse.
@@ -5075,10 +5822,12 @@ parsed as YAML, so a broken document is never made worse.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["trailing-spaces"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 
@@ -5111,7 +5860,7 @@ truthy words (`yes`, `no`, `on`, `off`, `True`, `Yes`, ...) are flagged.
 ## Configuration
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 level = "error"
 allowed-values = ["true", "false"]
 check-keys = true
@@ -5149,9 +5898,9 @@ Three ways to settle it, narrowest first:
 The recommended form scopes the exemption to the files that need it:
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 ".github/workflows/*" = ["truthy"]
 ```
 
@@ -5269,13 +6018,13 @@ Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
 ## Configuration
 
 `unicode-line-breaks` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[rules.unicode-line-breaks]` in
-`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.unicode-line-breaks]` in
+configured **only in TOML** &mdash; `[lint.rules.unicode-line-breaks]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.unicode-line-breaks]` in
 `pyproject.toml`. It is rejected in yamllint-compatible YAML config (including
 `-d` data) so the YAML namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.unicode-line-breaks]
+[lint.rules.unicode-line-breaks]
 level = "error"
 ```
 

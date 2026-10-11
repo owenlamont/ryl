@@ -847,12 +847,14 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
 #[test]
 fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
     let cfg = only_when_needed();
-    let input = "%YAML 1.1\n---\nkey: 'hello'\n";
-    assert_eq!(quoted_strings::check(input, &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix(input, &cfg).as_deref(),
-        Some("%YAML 1.1\n---\nkey: hello\n"),
-    );
+    for value in ["hello", "_", "_1", "._", "1.2.3", "08", "-.5"] {
+        let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
+        assert_eq!(quoted_strings::check(&input, &cfg).len(), 1, "{input:?}");
+        assert_eq!(
+            quoted_strings::fix(&input, &cfg),
+            Some(format!("%YAML 1.1\n---\nkey: {value}\n")),
+        );
+    }
 }
 
 #[test]
@@ -866,34 +868,64 @@ fn required_true_does_not_quote_a_yaml_1_1_boolean_under_explicit_1_1() {
 }
 
 #[test]
-fn required_true_quotes_a_yaml_1_1_word_without_a_directive() {
+fn required_true_leaves_a_yaml_1_1_boolean_plain_without_a_directive() {
+    // As in yamllint, a word YAML 1.1 reads as a boolean is not a string to quote; go-yaml
+    // v2's 1.1 resolver extends that to `y` and `n`.
     let cfg = build_config("rules:\n  quoted-strings:\n    required: true\n");
-    assert_eq!(quoted_strings::check("flag: no\n", &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix("flag: no\n", &cfg).as_deref(),
-        Some("flag: 'no'\n"),
-    );
+    for input in ["flag: no\n", "flag: y\n", "n: 1\n"] {
+        assert!(quoted_strings::check(input, &cfg).is_empty(), "{input:?}");
+        assert_eq!(quoted_strings::fix(input, &cfg), None, "{input:?}");
+    }
 }
 
 #[test]
-fn strips_yaml_1_1_words_without_a_directive() {
+fn keeps_yaml_1_1_word_quotes_without_a_1_1_directive() {
     let cfg = only_when_needed();
-    // Absent a directive ryl resolves under the 1.2 core schema, where `no` is a string,
-    // so the quotes are genuinely redundant.
-    assert_eq!(quoted_strings::check("key: 'no'\n", &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix("key: 'no'\n", &cfg).as_deref(),
-        Some("key: no\n"),
-    );
+    // Dropping these quotes would turn the value into a boolean for a YAML 1.1 reader
+    // such as yamllint's, so they are kept whatever the directive.
+    for prefix in ["", "%YAML 1.2\n---\n"] {
+        for input in [
+            format!("{prefix}key: 'no'\n"),
+            format!("{prefix}key: 'on'\n"),
+            format!("{prefix}key: 'yes'\n"),
+            format!("{prefix}key: 'y'\n"),
+            format!("{prefix}key: \"N\"\n"),
+        ] {
+            assert!(quoted_strings::check(&input, &cfg).is_empty(), "{input:?}");
+            assert!(quoted_strings::fix(&input, &cfg).is_none(), "{input:?}");
+        }
+        let keys = build_config(
+            "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
+        );
+        let input = format!("{prefix}'n': 1\n");
+        assert!(quoted_strings::check(&input, &keys).is_empty(), "{input:?}");
+        assert!(quoted_strings::fix(&input, &keys).is_none(), "{input:?}");
+    }
 }
 
 #[test]
-fn strips_yaml_1_1_words_under_explicit_yaml_1_2() {
-    let cfg = only_when_needed();
-    let input = "%YAML 1.2\n---\nkey: 'no'\n";
-    assert_eq!(quoted_strings::check(input, &cfg).len(), 1);
-    assert_eq!(
-        quoted_strings::fix(input, &cfg).as_deref(),
-        Some("%YAML 1.2\n---\nkey: no\n"),
+fn fix_keeps_quotes_on_a_key_whose_colon_needs_them() {
+    let cfg = build_config(
+        "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
     );
+    for (input, expected) in [
+        ("a: {'no':a, 'b': c}\n", "a: {'no':a, b: c}\n"),
+        ("{'k' :v, 'b' : c}\n", "{'k' :v, b : c}\n"),
+        ("['k' :v]\n", "['k' :v]\n"),
+        (
+            "{ \"foo\"\n  :bar, \"b\"\n  : c }\n",
+            "{ \"foo\"\n  :bar, b\n  : c }\n",
+        ),
+        (
+            "{ 'foo' # c\n  # d\n  :bar }\n",
+            "{ 'foo' # c\n  # d\n  :bar }\n",
+        ),
+        ("k: 'v' # c", "k: v # c"),
+    ] {
+        assert_eq!(
+            quoted_strings::fix(input, &cfg).unwrap_or_else(|| input.to_owned()),
+            expected,
+            "{input:?}"
+        );
+    }
 }

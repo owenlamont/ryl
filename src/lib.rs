@@ -14,6 +14,7 @@ pub mod decoder;
 pub mod directives;
 pub mod discover;
 pub mod fix;
+pub mod format;
 pub mod lint;
 #[cfg(feature = "lsp")]
 pub mod lsp;

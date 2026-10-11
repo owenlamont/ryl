@@ -15,7 +15,7 @@ file, at the start of the file, and at the end of the file.
 ## Configuration
 
 ```toml
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "error"
 max = 2
 max-start = 0
@@ -70,7 +70,9 @@ and `max-end` for the leading and trailing run). The fix is **partial**
 by design: blank lines that fall inside any multi-line scalar — literal
 or folded block scalars (`|`/`>`), multi-line single- or double-quoted
 scalars, or multi-line plain scalars — are left untouched, because
-those blank lines contribute to the parsed value.
+those blank lines contribute to the parsed value. Trailing blank lines in clip
+(`|`/`>`) and strip (`|-`/`>-`) block scalars are trimmed because chomping
+discards them. Keep (`|+`/`>+`) tails remain content and are preserved.
 
 The protected line set is computed via the YAML parser, so the fix
 bails (leaves the file untouched) when the input cannot be parsed.
@@ -78,10 +80,12 @@ bails (leaves the file untouched) when the input cannot be parsed.
 Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```
+
+`ryl format` trims runs of empty lines to two and removes them at the start and end of the file, under the same limits. It conflicts with a `max` below 2; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

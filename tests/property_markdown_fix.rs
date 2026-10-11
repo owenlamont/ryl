@@ -22,7 +22,9 @@ mod wrap;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
-use ryl::fix::{apply_safe_fixes_filtered, fix_markdown_str, suppressed_rules};
+use ryl::fix::{
+    Rewrite, apply_safe_fixes_filtered, fix_markdown_str, suppressed_rules,
+};
 use ryl::{EmbeddedRegion, MarkdownSources, extract_regions};
 
 use config::{parse_for_compare, safe_fix_configs, synthetic_base_dir, synthetic_path};
@@ -107,14 +109,24 @@ fn verify_regions(
 fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
     for prepared in safe_fix_configs() {
         let cfg = &prepared.cfg;
-        let fixed =
-            fix_markdown_str(markdown, synthetic_path(), cfg, synthetic_base_dir());
+        let fixed = fix_markdown_str(
+            markdown,
+            synthetic_path(),
+            cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix,
+        );
         let result = fixed.clone().unwrap_or_else(|| markdown.to_string());
         verify_host_preserved(markdown, &result, cfg)?;
         verify_regions(markdown, &result, cfg)?;
         if let Some(once) = fixed {
-            let twice =
-                fix_markdown_str(&once, synthetic_path(), cfg, synthetic_base_dir());
+            let twice = fix_markdown_str(
+                &once,
+                synthetic_path(),
+                cfg,
+                synthetic_base_dir(),
+                Rewrite::Fix,
+            );
             prop_assert!(
                 twice.is_none() || twice.as_deref() == Some(once.as_str()),
                 "fix not idempotent under '{}': once={:?} twice={:?}",
@@ -143,7 +155,13 @@ proptest! {
 
 fn fixed_with_default(markdown: &str) -> Option<String> {
     let cfg = &safe_fix_configs()[0].cfg;
-    fix_markdown_str(markdown, synthetic_path(), cfg, synthetic_base_dir())
+    fix_markdown_str(
+        markdown,
+        synthetic_path(),
+        cfg,
+        synthetic_base_dir(),
+        Rewrite::Fix,
+    )
 }
 
 #[test]
@@ -154,6 +172,25 @@ fn known_dirty_front_matter_and_indented_block_is_fixed() {
         fixed_with_default(markdown).as_deref(),
         Some("---\nfoo: [1, 2]\n---\n\ntext\n\n  ```yaml\n  bar: [3, 4]\n  ```\n"),
         "front matter and indented fenced block must both be fixed"
+    );
+}
+
+#[test]
+fn unquoting_cannot_close_a_tilde_fence() {
+    let cfg = YamlLintConfig::from_yaml_str(
+        "rules: {quoted-strings: {required: only-when-needed}}",
+    )
+    .unwrap();
+    let input = "~~~yaml\n\"~~~\"\n~~~\n";
+    assert!(
+        fix_markdown_str(
+            input,
+            synthetic_path(),
+            &cfg,
+            synthetic_base_dir(),
+            Rewrite::Fix
+        )
+        .is_none()
     );
 }
 

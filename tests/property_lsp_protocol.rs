@@ -9,7 +9,8 @@
 //! - **version echoing**: `publishDiagnostics` carries the document's version;
 //! - **clear-on-close**: closing a document publishes empty diagnostics;
 //! - **state faithfulness**: published diagnostics always equal a fresh lint of the
-//!   document's *current* text (no stale state across edits).
+//!   document's *current* text, and formatting a fresh `ryl format` of it (no stale
+//!   state across edits).
 //!
 //! It uses a small, focused driver rather than the example-test client in
 //! `lsp_server.rs` because the replay needs only raw send/await primitives, and
@@ -32,8 +33,8 @@ use lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentDiagnosticReport,
     DocumentFormattingParams, FormattingOptions, InitializeParams, PartialResultParams,
     Position, PublishDiagnosticsParams, Range, TextDocumentClientCapabilities,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Uri,
-    VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, TextEdit,
+    Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
 };
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
@@ -41,7 +42,8 @@ use serde_json::{Value, json, to_value};
 use tempfile::tempdir;
 
 use ryl::config::{Overrides, SourceKind, discover_config};
-use ryl::lsp::analysis::diagnostics;
+use ryl::fix::Rewrite;
+use ryl::lsp::analysis::{diagnostics, rewrite_edit};
 use ryl::lsp::encoding::PositionEncoding;
 
 use strategy::arb_document;
@@ -277,6 +279,14 @@ fn doc_uri(dir: &Path, index: u8) -> Uri {
     Uri::from_str(&format!("file://{path}")).expect("valid URI")
 }
 
+/// A generated document, sometimes behind a UTF-8 BOM, which an editor may keep in the
+/// buffer it sends.
+fn arb_buffer() -> impl Strategy<Value = String> {
+    (prop::bool::weighted(0.25), arb_document()).prop_map(|(bom, document)| {
+        format!("{}{}", if bom { "\u{feff}" } else { "" }, document.render())
+    })
+}
+
 #[derive(Debug, Clone)]
 enum Op {
     Open(u8, String),
@@ -292,16 +302,13 @@ fn arb_op() -> impl Strategy<Value = Op> {
     let index = 0u8..DOC_POOL;
     prop_oneof![
         // didOpen and didChange share server handling; one bool picks which.
-        (
-            index.clone(),
-            any::<bool>(),
-            arb_document().prop_map(|d| d.render())
-        )
-            .prop_map(|(i, is_open, text)| if is_open {
+        (index.clone(), any::<bool>(), arb_buffer()).prop_map(|(i, is_open, text)| {
+            if is_open {
                 Op::Open(i, text)
             } else {
                 Op::Change(i, text)
-            }),
+            }
+        }),
         index.clone().prop_map(Op::Close),
         index.clone().prop_map(Op::CodeAction),
         index.clone().prop_map(Op::Hover),
@@ -333,16 +340,13 @@ impl DocOp {
 fn arb_doc_op() -> impl Strategy<Value = DocOp> {
     let index = 0u8..DOC_POOL;
     prop_oneof![
-        (
-            index.clone(),
-            any::<bool>(),
-            arb_document().prop_map(|document| document.render())
-        )
-            .prop_map(|(index, is_open, text)| if is_open {
+        (index.clone(), any::<bool>(), arb_buffer()).prop_map(
+            |(index, is_open, text)| if is_open {
                 DocOp::Open(index, text)
             } else {
                 DocOp::Change(index, text)
-            }),
+            }
+        ),
         index.prop_map(DocOp::Close),
     ]
 }
@@ -362,6 +366,24 @@ fn fresh_lint(dir: &Path, index: u8, text: &str) -> Vec<Diagnostic> {
         SourceKind::Yaml,
         PositionEncoding::Utf16,
     )
+}
+
+/// The formatting response for `text` as the document at `dir/doc{index}.yaml`: the
+/// whole-document `ryl format` edit, or null when that changes nothing.
+fn fresh_format(dir: &Path, index: u8, text: &str) -> Option<Vec<TextEdit>> {
+    let path = doc_path(dir, index);
+    let context = discover_config(std::slice::from_ref(&path), &Overrides::default())
+        .expect("config discovers");
+    let edit = rewrite_edit(
+        text,
+        &path,
+        &context.config,
+        &context.base_dir,
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+        Rewrite::Format,
+    )?;
+    Some(vec![edit])
 }
 
 /// didOpen/didChange handling is identical server-side (store + publish); verify
@@ -425,22 +447,27 @@ proptest! {
         std::fs::write(dir.path().join(".ryl.toml"), CONFIG).expect("write config");
         let mut driver = Driver::start();
         let mut version = 0;
+        // The server's buffer store: a range-less change replaces the text, opened or not.
+        let mut open_text: HashMap<u8, String> = HashMap::new();
 
         for op in ops {
             match op {
                 Op::Open(index, text) => {
                     version += 1;
+                    open_text.insert(index, text.clone());
                     driver.open(&doc_uri(dir.path(), index), version, &text);
                     let published = driver.await_publish();
                     check_update(dir.path(), index, version, &text, &published)?;
                 }
                 Op::Change(index, text) => {
                     version += 1;
+                    open_text.insert(index, text.clone());
                     driver.change_full(&doc_uri(dir.path(), index), version, &text);
                     let published = driver.await_publish();
                     check_update(dir.path(), index, version, &text, &published)?;
                 }
                 Op::Close(index) => {
+                    open_text.remove(&index);
                     driver.close(&doc_uri(dir.path(), index));
                     let published = driver.await_publish();
                     prop_assert!(
@@ -462,7 +489,18 @@ proptest! {
                     let Message::Response(response) = driver.await_response(&id) else {
                         unreachable!("await_response returns a response");
                     };
-                    prop_assert!(response.response_result.is_ok(), "formatting never errors");
+                    let edits: Option<Vec<TextEdit>> = serde_json::from_value(
+                        response.response_result.expect("formatting never errors"),
+                    )
+                    .expect("a formatting result");
+                    let expected = open_text
+                        .get(&index)
+                        .and_then(|text| fresh_format(dir.path(), index, text));
+                    prop_assert_eq!(
+                        edits,
+                        expected,
+                        "formatting is a fresh `ryl format` of the current text"
+                    );
                 }
                 Op::Hover(index) => {
                     let params = json!({

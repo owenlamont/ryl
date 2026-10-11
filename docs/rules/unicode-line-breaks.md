@@ -38,13 +38,13 @@ Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
 ## Configuration
 
 `unicode-line-breaks` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[rules.unicode-line-breaks]` in
-`.ryl.toml`/`ryl.toml` or `[tool.ryl.rules.unicode-line-breaks]` in
+configured **only in TOML** &mdash; `[lint.rules.unicode-line-breaks]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.unicode-line-breaks]` in
 `pyproject.toml`. It is rejected in yamllint-compatible YAML config (including
 `-d` data) so the YAML namespace stays reserved for any future yamllint rule.
 
 ```toml
-[rules.unicode-line-breaks]
+[lint.rules.unicode-line-breaks]
 level = "error"
 ```
 

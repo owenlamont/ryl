@@ -11,12 +11,14 @@
 //!
 //! Sources: adrienverge/yamllint#141.
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{
+    Event, Parser, ScalarStyle, Scanner, Span, SpannedEventReceiver, StrInput,
+    TokenType,
+};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    block_scalar_marker_index, leading_whitespace_width, split_lines_preserve_endings,
-    strip_trailing_comment_preserving_quotes,
+    is_magic_first_line, leading_whitespace_width, split_lines_preserve_endings,
 };
 use crate::rules::support::span_utils::marker_byte_offset;
 
@@ -41,7 +43,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(allow_any_open_indent: bool) -> Self {
+    pub const fn new(allow_any_open_indent: bool) -> Self {
         Self {
             allow_any_open_indent,
         }
@@ -97,10 +99,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
                 last_comment_indent = Some(line.indent);
             }
+            LineKind::ScalarTrailingComment => last_comment_indent = Some(line.indent),
             LineKind::Other | LineKind::DirectiveComment => {
                 last_comment_indent = None;
             }
-            LineKind::Empty | LineKind::BlockScalarContent => {}
+            LineKind::Empty | LineKind::ScalarBody => {}
         }
     }
 
@@ -151,11 +154,15 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
                 output.push_str(&" ".repeat(target_indent));
                 output.push_str(raw_line.trim_start_matches([' ', '\t']));
             }
+            LineKind::ScalarTrailingComment => {
+                last_comment_indent = Some(line.indent);
+                output.push_str(raw_line);
+            }
             LineKind::Other | LineKind::DirectiveComment => {
                 last_comment_indent = None;
                 output.push_str(raw_line);
             }
-            LineKind::Empty | LineKind::BlockScalarContent => {
+            LineKind::Empty | LineKind::ScalarBody => {
                 output.push_str(raw_line);
             }
         }
@@ -176,23 +183,49 @@ fn comment_is_aligned(
         || open_indents.contains(&indent)
 }
 
-/// Classify every line once, shared by `check` and `fix`.
+/// Classify every line once, shared by `check` and `fix`. Scalar tokens come from the
+/// scanner rather than the parser, as in `comments_scan`, so a parse error degrades less.
 fn build_lines(buffer: &str) -> Vec<LineInfo> {
-    let mut block_tracker = BlockScalarTracker::default();
-    let mut lines: Vec<LineInfo> = Vec::new();
-    for (_, line, _) in split_lines_preserve_endings(buffer) {
-        let indent = leading_whitespace_width(line);
-        let content = &line[indent..];
-
-        let consumed = block_tracker.consume_line(indent, content);
-        let kind = if consumed {
-            LineKind::BlockScalarContent
-        } else {
-            classify_line_kind(content)
+    let mut lines: Vec<LineInfo> = split_lines_preserve_endings(buffer)
+        .map(|(idx, line, _)| {
+            let indent = leading_whitespace_width(line);
+            let kind = if idx == 0 && is_magic_first_line(line) {
+                LineKind::DirectiveComment
+            } else {
+                classify_line_kind(&line[indent..])
+            };
+            LineInfo { indent, kind }
+        })
+        .collect();
+    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
+        let (span, kind) = token.into_parts();
+        // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
+        // line content again, as yamllint indents by each token's start line.
+        if let Some(line) = lines.get_mut(span.start.line() - 1)
+            && line.kind == LineKind::ScalarBody
+        {
+            line.kind = LineKind::Other;
+        }
+        let TokenType::Scalar(style, _) = kind else {
+            continue;
         };
-
-        lines.push(LineInfo { indent, kind });
-        block_tracker.observe_indicator(indent, content);
+        // A block scalar's span starts on its first body line, and runs on to the
+        // indentation of the line after its body.
+        let first = span.start.line()
+            + usize::from(!matches!(style, ScalarStyle::Literal | ScalarStyle::Folded));
+        let run_on = lines
+            .get(span.end.line() - 1)
+            .is_some_and(|line| span.end.col() <= line.indent);
+        let last = span.end.line() - usize::from(run_on);
+        for line in lines.iter_mut().take(last).skip(first - 1) {
+            line.kind = LineKind::ScalarBody;
+        }
+        if let Some(line) = lines.get_mut(last)
+            && run_on
+            && line.kind == LineKind::Comment
+        {
+            line.kind = LineKind::ScalarTrailingComment;
+        }
     }
     lines
 }
@@ -275,8 +308,11 @@ struct LineInfo {
 enum LineKind {
     Empty,
     Comment,
+    /// yamllint reads a comment on the line a block scalar's span runs on to as
+    /// trailing that scalar, and never checks it.
+    ScalarTrailingComment,
     DirectiveComment,
-    BlockScalarContent,
+    ScalarBody,
     Other,
 }
 
@@ -291,58 +327,6 @@ fn classify_line_kind(content: &str) -> LineKind {
         LineKind::Comment
     } else {
         LineKind::Other
-    }
-}
-
-#[derive(Debug, Default)]
-struct BlockScalarTracker {
-    state: Option<BlockScalarState>,
-}
-
-#[derive(Debug)]
-struct BlockScalarState {
-    indicator_indent: usize,
-    content_indent: Option<usize>,
-}
-
-impl BlockScalarTracker {
-    fn consume_line(&mut self, indent: usize, content: &str) -> bool {
-        let Some(state) = self.state.as_mut() else {
-            return false;
-        };
-
-        if content.trim().is_empty() {
-            return true;
-        }
-
-        let updated_indent = if let Some(content_indent) = state.content_indent {
-            if indent >= content_indent {
-                return true;
-            }
-            if indent <= state.indicator_indent {
-                self.state = None;
-                return false;
-            }
-            content_indent.min(indent)
-        } else {
-            if indent <= state.indicator_indent {
-                self.state = None;
-                return false;
-            }
-            indent
-        };
-        state.content_indent = Some(updated_indent);
-        true
-    }
-
-    fn observe_indicator(&mut self, indent: usize, content: &str) {
-        let candidate = strip_trailing_comment_for_block(content).trim_end();
-        if is_block_scalar_indicator(candidate) {
-            self.state = Some(BlockScalarState {
-                indicator_indent: indent,
-                content_indent: None,
-            });
-        }
     }
 }
 
@@ -368,17 +352,4 @@ fn compute_next_content_indents(lines: &[LineInfo]) -> Vec<Option<usize>> {
         result[idx] = upcoming;
     }
     result
-}
-
-fn strip_trailing_comment_for_block(content: &str) -> &str {
-    strip_trailing_comment_preserving_quotes(content)
-}
-
-fn is_block_scalar_indicator(content: &str) -> bool {
-    let Some(marker_idx) = block_scalar_marker_index(content) else {
-        return false;
-    };
-    let trimmed = content.trim_end_matches(|ch: char| ch.is_whitespace());
-    let prefix = trimmed[..marker_idx].trim_end();
-    prefix.ends_with(':') || prefix.ends_with('-') || prefix.ends_with('?')
 }

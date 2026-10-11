@@ -1,11 +1,29 @@
 use std::process::Command;
 
 pub fn run(cmd: &mut Command) -> (i32, String, String) {
+    let is_ryl = cmd.get_program() == env!("CARGO_BIN_EXE_ryl");
     let out = cmd.output().expect("process");
     let code = out.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy_owned(out.stdout);
     let stderr = String::from_utf8_lossy_owned(out.stderr);
+    if is_ryl {
+        return (code, stdout, without_legacy_yaml_notice(&stderr));
+    }
     (code, stdout, stderr)
+}
+
+/// ryl's stderr minus its one warning that the YAML config is deprecated, which yamllint
+/// has no counterpart to.
+fn without_legacy_yaml_notice(stderr: &str) -> String {
+    let (notices, rest): (Vec<&str>, Vec<&str>) = stderr
+        .split_inclusive('\n')
+        .partition(|line| line.contains("yamllint YAML config is deprecated"));
+    assert_eq!(
+        notices.len(),
+        1,
+        "expected one deprecation notice: {stderr}"
+    );
+    rest.concat()
 }
 
 pub fn ensure_yamllint_installed() {
@@ -19,8 +37,30 @@ pub fn ensure_yamllint_installed() {
 
 pub fn normalize_output(stdout: String, stderr: String) -> String {
     let output = if stderr.is_empty() { stdout } else { stderr };
-    // Normalize line endings to LF for cross-platform compatibility
-    output.replace("\r\n", "\n")
+    output
+        .replace("\r\n", "\n")
+        .split_inclusive('\n')
+        .map(|line| {
+            if let Some((command, rest)) = line.split_once(" file=")
+                && matches!(command, "::error" | "::warning")
+                && let Some((path, metadata)) = rest.split_once(",line=")
+            {
+                format!("{command} file={},line={metadata}", github_file_path(path))
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect()
+}
+
+pub fn github_file_path(path: &str) -> String {
+    if path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        && path.get(1..4) == Some("%3A")
+    {
+        format!("{}:{}", &path[..1], &path[4..])
+    } else {
+        path.to_owned()
+    }
 }
 
 pub fn capture_with_env(

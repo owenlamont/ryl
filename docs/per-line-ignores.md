@@ -10,8 +10,9 @@ machine-managed markers that legitimately break a rule everywhere they appear.
 
 Two common cases:
 
-- `#cloud-config` directives must keep their exact spelling, so they trip
-  [`comments`](rules/comments.md) (`require-starting-space`).
+- `#cloud-config` directives must keep their exact spelling, so below line 1 (under a
+  `## template: jinja` header) they trip [`comments`](rules/comments.md)
+  (`require-starting-space`).
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](rules/line-length.md).
 
@@ -20,19 +21,19 @@ equivalent); it is rejected in yamllint-compatible YAML config.
 
 ## Configuration
 
-Each `[[per-line-ignores]]` entry suppresses its `rules` on a line when the
+Each `[[lint.per-line-ignores]]` entry suppresses its `rules` on a line when the
 entry's conditions match:
 
 ```toml
-[rules.comments]
-[rules.line-length]
+[lint.rules.comments]
+[lint.rules.line-length]
 max = 80
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '^#cloud-config$'   # match against the whole source line
 rules = ["comments"]
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '#\s*renovate:'
 rules = ["line-length"]
 ```
@@ -55,12 +56,12 @@ Use single-quoted TOML strings for patterns so backslashes need no escaping.
 
 ```toml
 # Let machine-generated marker lines break any rule
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = 'GENERATED — do not edit'
 rules = ["ALL"]
 
 # Allow Go-template braces, but only in template files
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 path = "*.tpl.yaml"
 regex = '\{\{.*\}\}'
 rules = ["braces"]

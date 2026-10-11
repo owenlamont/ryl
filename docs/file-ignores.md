@@ -10,26 +10,28 @@ Three mechanisms, narrowing from left to right:
 
 | What | Scope | Config format |
 | :--- | :--- | :--- |
-| [`ignore`](#ignore) | The file is never linted at all | YAML and TOML |
+| [`exclude`](#exclude) | The file is never linted or formatted | TOML (`ignore` in YAML) |
 | [`per-file-ignores`](#per-file-ignores) | Named rules, for paths matching a glob | TOML only |
 | [Per-rule `ignore`](#per-rule-ignore) | One rule, for paths matching a glob | YAML and TOML |
 
-## `ignore`
+## `exclude`
 
-A top-level `ignore` lists paths ryl skips entirely. No rule runs against them
-and they produce no diagnostics.
+A top-level `exclude` lists paths ryl skips entirely. No rule runs against them,
+`ryl format` leaves them alone, and they produce no diagnostics.
 
 ```toml
-[rules.document-start]
-present = true
-
-ignore = """
+exclude = """
 vendor/**
 generated/**
 """
+
+[lint.rules.document-start]
+present = true
 ```
 
-The same key works in yamllint-compatible YAML config:
+`exclude` replaces the deprecated top-level `ignore`, which still works but warns
+until `ryl --migrate-configs` renames it. yamllint-compatible YAML config keeps
+yamllint's `ignore` key:
 
 ```yaml
 rules:
@@ -40,21 +42,26 @@ ignore: |
   generated/**
 ```
 
-`ignore-from-file` reads the same patterns from a file instead, so a project can
-reuse its `.gitignore`:
+`exclude-from-file` (`ignore-from-file` in YAML) reads the same patterns from a
+file instead, so a project can reuse its `.gitignore`:
 
 <!-- ryl-config-check: skip -->
 ```toml
-[rules.document-start]
-present = true
+exclude-from-file = ".gitignore"
 
-ignore-from-file = ".gitignore"
+[lint.rules.document-start]
+present = true
 ```
 
 ### Glob semantics
 
 Patterns are gitignore-style: `**` crosses directory boundaries, a bare `*.yaml`
 matches at any depth, and a leading `!` negates an earlier pattern.
+
+On Windows and macOS, path globs and config filename comparisons ignore ASCII
+case. The policy applies to `exclude`, `[files]`, rule ignores, per-line path
+filters and key-ordering file selectors, including stdin filenames and the language
+server. Other platforms keep case-sensitive matching.
 
 A pattern with a directory in it is anchored at the directory holding the config
 file, whether discovered or passed with `-c`, or at the working directory for inline
@@ -63,20 +70,20 @@ matches by file name only, so `*.lock.yaml` still applies to it and
 `.github/workflows/*` does not &mdash; the same as ruff.
 
 ```toml
-[rules.document-start]
-present = true
-
-ignore = """
+exclude = """
 *.generated.yaml
 !schema.generated.yaml
 """
+
+[lint.rules.document-start]
+present = true
 ```
 
-### `ignore` also excludes files named on the command line
+### `exclude` also applies to files named on the command line
 
-Unlike a shell glob, `ignore` is not just a directory-walk filter: a path
+Unlike a shell glob, `exclude` is not just a directory-walk filter: a path
 matching it is skipped even when passed explicitly, so `ryl check vendor/a.yaml`
-reports nothing if `vendor/**` is ignored. This is the equivalent of ruff's
+reports nothing if `vendor/**` is excluded. This is the equivalent of ruff's
 `force-exclude`, always on. See [YAML in Markdown](markdown.md) for how it
 interacts with a pre-commit hook that passes filenames.
 
@@ -88,30 +95,30 @@ everything else &mdash; a Helm values file with no document start, a workflow
 file whose `on:` key trips [`truthy`](rules/truthy.md).
 
 ```toml
-[rules.document-start]
+[lint.rules.document-start]
 present = true
 
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/values.yaml" = ["document-start"]
 ".github/workflows/*" = ["truthy"]
 ```
 
-Each key is a path glob with the same semantics as `ignore`, including `!`
+Each key is a path glob with the same semantics as `exclude`, including `!`
 negation. Each value is a list of rule IDs, or `["ALL"]` to switch off every rule
 for the matching files:
 
 ```toml
-[rules]
+[lint.rules]
 truthy = "enable"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/pnpm-*.yaml" = ["ALL"]
 ```
 
 A file under `["ALL"]` is still parsed, so a syntax error in it is still
-reported and the run exits `1`. To skip the file entirely, use `ignore`.
+reported and the run exits `1`. To skip the file entirely, use `exclude`.
 
 `per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
 equivalent); it is rejected in yamllint-compatible YAML config.
@@ -122,13 +129,13 @@ Every rule accepts its own `ignore`, scoping that one rule to a subset of the
 tree. Other rules still run against the excluded paths.
 
 ```toml
-[rules.line-length]
+[lint.rules.line-length]
 max = 80
 ignore = """
 docs/**
 """
 
-[rules.colons]
+[lint.rules.colons]
 ```
 
 Here `docs/**` is exempt from `line-length` but still checked by `colons`.
@@ -137,7 +144,7 @@ Here `docs/**` is exempt from `line-length` but still checked by `colons`.
 
 | You want to | Use |
 | :--- | :--- |
-| Never see the file again | `ignore` |
+| Never see the file again | `exclude` |
 | Keep checking the file, minus one or two rules | `per-file-ignores` |
 | Check only that the file parses | `per-file-ignores` with `["ALL"]` |
 | Relax a single rule across a subtree | Per-rule `ignore` |
@@ -150,4 +157,4 @@ Here `docs/**` is exempt from `line-length` but still checked by `colons`.
 - [Inline directives](directives.md) &mdash; in-file suppression with
   `# ryl disable` / `disable-line`.
 - [Migrating from yamllint](getting-started/migrating-from-yamllint.md) &mdash;
-  how `ignore` and `ignore-from-file` resolve relative paths per config source.
+  how `exclude` and `exclude-from-file` resolve relative paths per config source.

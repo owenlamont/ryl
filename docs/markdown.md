@@ -156,12 +156,12 @@ check mode are also excluded from fixing, so a fragment never gains a `---`/`...
 marker or a trailing newline.
 
 Write-back is **conservative by construction**: ryl only rewrites a region when
-re-applying that prefix reproduces the region's original bytes exactly. A region it
+re-applying that prefix reproduces the region's original bytes exactly and parsing
+the rewritten Markdown recovers the full replacement region. A region it
 cannot reproduce — one whose lines do not share a single prefix (ragged indentation
 where content lines are indented less than the fence, or other non-uniform layouts)
-— is left **byte-for-byte untouched** while still being reported. This guarantees
-`--fix` can never corrupt a Markdown document: the worst case is that an unusual
-region is reported but not auto-fixed.
+— is left **byte-for-byte untouched** while still being reported. A rewrite that
+creates a closing fence is also refused, preserving the embedded YAML boundary.
 
 `--diff` previews these same fixes without writing: it emits one unified diff per
 Markdown file (at the host-file level, with the embedded edits shown in context)
@@ -173,12 +173,12 @@ and exits `1` if any file would change. A region `--fix` would leave untouched
 Markdown linting is normally enabled by listing `[files].markdown` globs, but it can
 also be turned on for a single run from the command line:
 
-- `--markdown` enables Markdown linting using default globs (`*.md`, `*.markdown`,
-  `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is a no-op when
-  `[files].markdown` is already set, and its injected globs **win** over the `yaml`
-  globs for an overlapping file (so the flag never aborts a run whose `yaml` globs
-  happen to match a Markdown extension). When linting stdin, `--markdown` forces the
-  input to be treated as Markdown regardless of `--stdin-filename`.
+- `--markdown` (on `ryl check` and `ryl format`) enables Markdown linting using default
+  globs (`*.md`, `*.markdown`, `*.mdx`, `*.qmd`, `*.Rmd`) without editing config. It is
+  a no-op when `[files].markdown` is already set, and its injected globs **win** over
+  the `yaml` globs for an overlapping file (so the flag never aborts a run whose `yaml`
+  globs happen to match a Markdown extension). When linting stdin, `--markdown` forces
+  the input to be treated as Markdown regardless of `--stdin-filename`.
 - Reading from stdin otherwise honours the source kind: `ryl check - --stdin-filename
   doc.md` lints the piped bytes as Markdown when `doc.md` matches the `markdown`
   globs (front matter and fenced blocks are extracted exactly as for a file on
@@ -228,7 +228,7 @@ hook passes a `.md` that no `[files]` glob matches, ryl reports an error (it was
 named explicitly) — add a `markdown` glob to `[files]` to lint it, or narrow the
 hook's file filter.
 
-`ryl` also applies its `ignore` patterns to **explicitly passed** files, not just
+`ryl` also applies its `exclude` patterns to **explicitly passed** files, not just
 to files found by scanning a directory. So a file pre-commit hands to `ryl` that
-matches `ignore` is skipped — the equivalent of ruff's `force-exclude`, always on,
+matches `exclude` is skipped — the equivalent of ruff's `force-exclude`, always on,
 with no separate flag to set.

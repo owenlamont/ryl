@@ -46,14 +46,14 @@ version: '1.0'  # needs quoting, but single-quoted where double is required
 ### :wrench: After `ryl check --fix`
 
 ```yaml
-name: plain
-version: "1.0"
+name: plain   # redundantly quoted: a plain string needs no quotes
+version: "1.0"  # needs quoting, but single-quoted where double is required
 ```
 
 ## Configuration
 
 ```toml
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 level = "warning"
 quote-type = "any"
 required = true
@@ -81,35 +81,26 @@ adds or removes quotes to satisfy `required`. The fix is conservative: it
 only changes scalars where the corrected form parses to the same value as
 the original.
 
-Disable the fix for this rule by adding it to `[fix].unfixable`:
+Disable the fix for this rule by adding it to `lint.unfixable`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
 
-## YAML 1.2 caveat with `required = "only-when-needed"`
+`ryl format` quotes strings by its own [quote style](../formatter.md#quote-style), set by `[format] quote-style`. This rule's defaults conflict with it; [Conflicting lint rules](../formatter.md#conflicting-lint-rules) lists the options that accept its output.
 
-A document with no version directive is resolved per YAML 1.2 when deciding
-whether a quoted scalar is redundantly quoted. Under YAML 1.2 the barewords
-`yes`, `no`, `on`, `off` and their case variants (`Yes`, `On`, ...) parse as
-plain strings, whereas YAML 1.1 treats them as booleans. (`true`, `True`,
-`TRUE`, `false`, `False`, and `FALSE` are booleans under both versions, so
-they are unaffected.) yamllint uses YAML 1.1 semantics, where the longer
-list is boolean.
+## YAML 1.1 values with `required = "only-when-needed"`
 
-The practical consequence is that `"yes"` (with `required:
-"only-when-needed"`, `quote-type: "double"`) is flagged by ryl as
-redundantly quoted but accepted by yamllint. To match yamllint's
-behaviour, set `required = true` so all string scalars are quoted
-regardless of type, or rely on the [`truthy`](truthy.md) rule to flag
-ambiguous barewords and keep `quoted-strings` off.
-
-A document that declares `%YAML 1.1` is resolved as YAML 1.1, so ryl keeps
-the quotes on these barewords (and on 1.1 integers, sexagesimals, and
-timestamps) and `--fix` leaves them in place &mdash; stripping them would
-change the value for a 1.1 consumer. See
+Whatever the document's `%YAML` directive, a quoted scalar that YAML 1.1
+reads as a non-string is not redundantly quoted, as in yamllint: `'no'`,
+`'on'`, `'yes'` and their case variants, 1.1 integers, floats, sexagesimals
+and timestamps keep their quotes, and `--fix` leaves them in place, since
+stripping them would change the value for a 1.1 consumer such as PyYAML.
+Unlike yamllint, `'y'`, `'Y'`, `'n'` and `'N'` keep their quotes too, since
+go-yaml v2, used by Kubernetes, loads them as booleans. Unless the document declares `%YAML 1.1`, quotes a YAML 1.2 reader
+needs (`'+.5'`, `'008'`) are kept too. `ryl format` keeps the same quotes. See
 [YAML version compatibility](../yaml-version.md) for more context.
 
 ## Related rules

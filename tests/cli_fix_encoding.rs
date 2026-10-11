@@ -8,7 +8,7 @@ use common::cli::run;
 fn write_config(dir: &std::path::Path) {
     fs::write(
         dir.join(".ryl.toml"),
-        r#"[rules]
+        r#"[lint.rules]
 new-line-at-end-of-file = "enable"
 document-start = "disable"
 "#,

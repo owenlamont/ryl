@@ -1,16 +1,16 @@
 //! `trailing-spaces`: report and strip trailing whitespace from lines.
 //!
-//! `--fix` leaves lines inside a literal/folded block scalar or a multi-line
-//! double-quoted scalar untouched: block scalars preserve trailing whitespace as
-//! literal value, and a double-quoted backslash + trailing whitespace + newline differs
+//! `--fix` strips space-only block-scalar lines up to its indentation.
+//! A double-quoted backslash + trailing whitespace + newline differs
 //! from `\<newline>` alone (a line-continuation escape that drops the folded space).
 //! Multi-line single-quoted and plain scalars fold trailing whitespace away, so they
 //! stay fixable. The protected line set comes from `granit_parser`, so the fix bails
 //! (returns `None`) on an unparsable buffer.
 use granit_parser::ScalarStyle;
 
+use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
-    protected_scalar_lines, split_lines_preserve_endings,
+    line_contents, protected_scalar_lines, split_lines_preserve_endings,
 };
 
 pub const ID: &str = "trailing-spaces";
@@ -39,11 +39,31 @@ pub fn check(buffer: &str) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str) -> Option<String> {
-    let protected = protected_scalar_lines(buffer, |style, span| match style {
+    let mut protected = protected_scalar_lines(buffer, |style, span| match style {
         ScalarStyle::Literal | ScalarStyle::Folded => true,
         ScalarStyle::DoubleQuoted => span.end.line() > span.start.line(),
         _ => false,
     })?;
+    let lines = line_contents(buffer);
+    for header in block_scalar_chomping::headers(buffer) {
+        protected.remove(&header.line);
+        let span = header.span;
+        let indent = span.indent.unwrap_or_else(|| {
+            // Blank-only spans have no content whose spaces need protection.
+            if span.is_empty() || span.start.line() == header.line {
+                usize::MAX
+            } else {
+                span.start.col()
+            }
+        });
+        for line in header.line + 1..=span.end.line() {
+            if lines.get(line - 1).is_some_and(|text| {
+                text.len() <= indent && text.bytes().all(|ch| ch == b' ')
+            }) {
+                protected.remove(&line);
+            }
+        }
+    }
     let mut output = String::with_capacity(buffer.len());
     let mut changed = false;
 

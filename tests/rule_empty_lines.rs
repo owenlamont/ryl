@@ -94,3 +94,124 @@ fn space_only_lines_are_not_blank() {
         "space-only lines should not be treated as blank"
     );
 }
+
+#[test]
+fn fix_keeps_blank_lines_that_belong_to_a_block_scalar() {
+    let cfg = resolve("rules:\n  empty-lines: {max: 0, max-start: 0, max-end: 0}\n");
+    for input in [
+        "a: |+\n\n\n\nb: 1\n",
+        "a: |\n\n\n\n  x\n",
+        "a: >-\n\n\n  x\n",
+        "a: >+\n\n\nb: 1\n",
+        "a: !!str |+\n\n\nb: 1\n",
+        "- |+\n\n\n- y\n",
+        "|+\n\n\n",
+        "a: |+\n\n\n",
+        "a: |+\n\n# c\nb: 1\n",
+        "|\n\n  x\n",
+        ">-\n\n\n  x\n",
+        "--- |\n\n  x\n",
+        "--- !!str >+\n\n\n",
+        "|\n\n  x\n...\n--- |\n\n  y\n",
+    ] {
+        for newline in ["\n", "\r\n"] {
+            let input = input.replace('\n', newline);
+            assert_eq!(empty_lines::fix(&input, &cfg), None, "{input:?}");
+        }
+    }
+    assert_eq!(
+        empty_lines::fix("a: |\n\n  x\nb: 1\n\nc: 2\n", &cfg),
+        Some("a: |\n\n  x\nb: 1\nc: 2\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("\n\n|+\n\n", &cfg),
+        Some("|+\n\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("a: |+\n\n# c\n\nb: 1\n", &cfg),
+        Some("a: |+\n\n# c\nb: 1\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("\n\n|\n\n  x\n", &cfg),
+        Some("|\n\n  x\n".to_string())
+    );
+    assert_eq!(
+        empty_lines::fix("a:\n\n  x\n", &cfg),
+        Some("a:\n  x\n".to_string())
+    );
+}
+
+#[test]
+fn fix_trims_only_chomped_block_scalar_tails() {
+    for header in ["|", ">", "|-", ">-", "|+", ">+", "|2-", ">-2", "|2+", ">+2"] {
+        for body in ["", "  café\n", "\n  café\n\n  fin\n"] {
+            for suffix in ["", "b: 1\n", "# after\nb: 1\n", "  b: 1\n"] {
+                let prefix = if suffix == "  b: 1\n" {
+                    "root:\n  a: "
+                } else {
+                    "a: "
+                };
+                let body = if suffix == "  b: 1\n" {
+                    body.replace("  ", "    ")
+                } else {
+                    body.to_string()
+                };
+                let cfg = Config::new(1, 0, 0);
+                let tail = if header.contains('+') {
+                    "\n\n\n"
+                } else if suffix.is_empty() {
+                    ""
+                } else {
+                    "\n"
+                };
+                for newline in ["\n", "\r\n", "\r"] {
+                    let input =
+                        format!("{prefix}{header} # header\n{body}\n\n\n{suffix}")
+                            .replace('\n', newline);
+                    let expected =
+                        format!("{prefix}{header} # header\n{body}{tail}{suffix}")
+                            .replace('\n', newline);
+                    let fixed =
+                        empty_lines::fix(&input, &cfg).unwrap_or_else(|| input.clone());
+                    assert_eq!(fixed, expected, "{input:?}");
+                    assert_eq!(
+                        ryl::yaml_dom::YamlOwned::load_from_str(&input).unwrap(),
+                        ryl::yaml_dom::YamlOwned::load_from_str(&fixed).unwrap(),
+                        "{input:?}"
+                    );
+                    assert_eq!(empty_lines::fix(&fixed, &cfg), None);
+                    assert!(
+                        header.contains('+')
+                            || empty_lines::check(&fixed, &cfg).is_empty(),
+                        "{fixed:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn chomped_tails_preserve_whitespace_content_and_document_boundaries() {
+    let cfg = Config::new(0, 0, 0);
+    for (input, expected) in [
+        ("|\n  café\n\n\n", "|\n  café\n"),
+        ("|-\n   \n\n\n", "|-\n   \n"),
+        ("|\n  café\n    \n\n\n", "|\n  café\n    \n"),
+        ("a: | # +\n  café\n\n", "a: | # +\n  café\n"),
+        ("'key|+': |\n  café\n\n", "'key|+': |\n  café\n"),
+        (
+            "--- |\n  café\n\n...\n--- >-\n  fin\n\n",
+            "--- |\n  café\n...\n--- >-\n  fin\n",
+        ),
+        ("a: |\n  café", "a: |\n  café"),
+        ("a: |\n  ", "a: |\n  "),
+    ] {
+        let output = empty_lines::fix(input, &cfg).unwrap_or_else(|| input.to_string());
+        assert_eq!(output, expected);
+        assert_eq!(
+            ryl::yaml_dom::YamlOwned::load_from_str(input).unwrap(),
+            ryl::yaml_dom::YamlOwned::load_from_str(&output).unwrap()
+        );
+    }
+}

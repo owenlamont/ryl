@@ -11,9 +11,9 @@ description: >-
 
 ## Precedence
 
-`config::discover_config_with`, high→low: `-d` (inline YAML) > `-c` (file: TOML/YAML by
-extension) > project config > `YAMLLINT_CONFIG_FILE` > user-global. Precedence diagram in
-`docs/getting-started/quickstart.md`.
+`config::discover_config_with`, high→low: `-d` (inline TOML when `is_inline_toml`, else
+YAML) > `-c` (file: TOML/YAML by extension) > project config > `YAMLLINT_CONFIG_FILE` >
+user-global. Precedence diagram in `docs/getting-started/quickstart.md`.
 
 `-d`/`-c`/a present `YAMLLINT_CONFIG_FILE` trigger run-wide resolution
 (`main::build_global_cfg`); otherwise project + user-global discovery is per file
@@ -32,11 +32,32 @@ Project candidates run every ancestor to `HOME`, TOML-first
 `.yamllint*` in a separate full ancestor walk (`find_first_yaml_candidate`), so any TOML
 config up-tree outranks even a nearer `.yamllint`.
 
-`.config/` is TOML-only and anchors path globs/`ignore-from-file` at its parent
+`.config/` is TOML-only and anchors path globs/`exclude-from-file` at its parent
 (`config_base_dir`, #218). `YAMLLINT_CONFIG_FILE` is yamllint-only: a `.toml` target
 errors (exit 2) before the existence check (`try_env_config_core`, #332); use
 `-c`/`-d`/project discovery for ryl TOML. User-global: ryl-native
 `<config-dir>/ryl/.ryl.toml` or `ryl.toml`, then yamllint `<config-dir>/yamllint/config`.
+
+## Notices and deprecated TOML keys
+
+`ConfigContext::notices` are stderr warnings, silenced by `--no-warnings` and shown in the
+LSP via `window/showMessage`. `finalize_context` adds one per deprecated TOML key
+(`config_schema::DEPRECATED_TOML_KEYS`, read by `TomlConfig::deprecated_keys`, which
+`--migrate-configs`/`--migrate-user-config` also use to pick the TOML files they rewrite
+in place; the warning names whichever of the two applies to its file).
+`TomlConfig::merged_lint` resolves each `[lint]` key and `merged_exclude` the top-level
+`exclude`/`exclude-from-file`, the current spelling winning over the deprecated one; a
+new deprecated key needs a row in the table, a pair in `deprecated_keys`, and a line in
+one of the two. The legacy YAML config stays flat and keeps yamllint's `ignore`.
+
+Every yamllint YAML config source adds one notice from its `LEGACY_YAML_SOURCES` row
+(`legacy_yaml_notice`): `ctx_from_config_path_core` for project/`-c`/env by its
+`LegacyYamlSource` origin, and the `-d` and yamllint user-global loaders directly. YAML
+parsing lives in `config::legacy_yaml`, whose `load` is the migrator's only reader.
+
+The top-level `line-length`/`indent-width` are TOML-only and never deprecated: an
+explicit `[lint.rules.<rule>]` option beats them, and they beat the rule's built-in
+default (`indentation.spaces` stays `consistent` when `indent-width` is unset).
 
 ## Nothing is enabled implicitly
 
@@ -47,12 +68,15 @@ cases exit `2`, both stricter than yamllint:
   (`ConfigContext::config_found == false`), not the `default` preset; reports
   `main::NO_CONFIG_ERROR`. yamllint lints with `extends: default`.
 - **A resolved config that enables no rules** — `rules: {}`, empty
-  `[rules]`/`[tool.ryl]`, a `[files]`-only TOML config, or one disabling everything;
-  reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently lints nothing.
+  `[lint.rules]`/`[tool.ryl.lint.rules]`, a `[files]`-only TOML config, or one
+  disabling everything; reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently
+  lints nothing.
 
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
-the message. The `default`/`relaxed`/`empty` presets stay available via `extends:` (YAML
-only). `--migrate-configs` (warns instead) and `--list-files` are exempt.
+the message. The `default`/`relaxed`/`empty` presets stay available via `extends:`
+(deprecated YAML only); both errors point at their TOML copies in
+`docs/config-presets.md`. `--migrate-configs` (warns instead) and `--list-files` are
+exempt.
 
 `--enable <RULES>` counts as explicitly turning rules on: `CliConfigFlags::apply` runs
 `YamlLintConfig::restrict_rules` on every resolved config (global, per-file before
