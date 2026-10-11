@@ -205,35 +205,40 @@ pub fn content_whitespace(
     }
 }
 
-struct SequenceBlockBefore {
+struct CollectionBlockBefore {
     line: usize,
-    depth: usize,
-    found: bool,
+    column: usize,
+    collections: Vec<bool>,
 }
 
-impl<'input> SpannedEventReceiver<'input> for SequenceBlockBefore {
+impl<'input> SpannedEventReceiver<'input> for CollectionBlockBefore {
     fn on_event(&mut self, event: Event<'input>, span: Span) {
-        if span.start.line() > self.line {
+        if span.start.line() > self.line
+            || (span.start.line() == self.line && span.start.col() + 1 > self.column)
+        {
             return;
         }
         match event {
-            Event::DocumentStart(..) => {
-                self.depth = 0;
-                self.found = false;
+            Event::DocumentStart(..) => self.collections.clear(),
+            Event::SequenceStart(..) | Event::MappingStart(..) => {
+                self.collections.push(false)
             }
-            Event::SequenceStart(..) => self.depth += 1,
-            Event::SequenceEnd => self.depth = self.depth.saturating_sub(1),
+            Event::SequenceEnd | Event::MappingEnd => {
+                self.collections.pop();
+            }
             Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
-                if self.depth > 0 && span.end.line() <= self.line =>
+                if span.end.line() <= self.line =>
             {
-                self.found = true
+                for collection in self.collections.iter_mut().skip(1) {
+                    *collection = true;
+                }
             }
             _ => {}
         }
     }
 }
 
-pub fn pending_sequence_block_tail(
+pub fn pending_collection_block_tail(
     output: &str,
     problem: &ryl::lint::LintProblem,
 ) -> bool {
@@ -251,15 +256,15 @@ pub fn pending_sequence_block_tail(
     }) {
         return false;
     }
-    let mut before = SequenceBlockBefore {
+    let mut before = CollectionBlockBefore {
         line: problem.line,
-        depth: 0,
-        found: false,
+        column: problem.column,
+        collections: Vec::new(),
     };
     if Parser::new_from_str(output)
         .load(&mut before, true)
         .is_err()
-        || !before.found
+        || !before.collections.iter().any(|seen| *seen)
     {
         return false;
     }

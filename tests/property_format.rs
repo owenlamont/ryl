@@ -8,7 +8,7 @@
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in position and concern.
-//! Trailing spaces after a block scalar within a sequence, outside scalar content, are tracked by #665; remove when it merges.
+//! Trailing spaces on later lines of a non-root collection after a block scalar, outside scalar content, are tracked by #665; remove when it merges.
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -162,7 +162,7 @@ proptest! {
         );
         let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_collection_block_tail(&output, problem));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -175,7 +175,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_collection_block_tail(&output, problem));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1172,7 +1172,7 @@ fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
 }
 
 #[test]
-fn g11_sequence_block_tail_exemption_requires_prior_sequence_scalar_and_equal_values() {
+fn g11_collection_block_tail_exemption_requires_non_root_ancestor_and_equal_values() {
     let cfg =
         YamlLintConfig::from_toml_str("[lint.rules]\ntrailing-spaces = 'enable'\n")
             .unwrap();
@@ -1183,7 +1183,10 @@ fn g11_sequence_block_tail_exemption_requires_prior_sequence_scalar_and_equal_va
         ("a:\n  - |\n  - |\n    a\n  #a \n", true),
         ("a: |\n#a \n", false),
         ("a:\n  - |\n    #a \n", false),
-        ("a:\n  - |\nb: a \n", true),
+        ("a:\n  - |\nb: a \n", false),
+        ("a:\n  a: |\n  b: b #c \n", true),
+        ("a:\n  a: >\n    x\n  b: b \n", true),
+        ("a:\n  a: |\nc: c \n", false),
         ("- a: |\n  b: b #c \n", true),
         ("- a: |\n    x\n  b: b \n", true),
         ("k:\n  - |\n  - b \n", true),
@@ -1197,13 +1200,13 @@ fn g11_sequence_block_tail_exemption_requires_prior_sequence_scalar_and_equal_va
         problem.line = input.lines().count();
         problem.column = input.lines().last().unwrap().trim_end().chars().count() + 1;
         assert_eq!(
-            consistency::pending_sequence_block_tail(input, &problem),
+            consistency::pending_collection_block_tail(input, &problem),
             expected,
             "{input:?}"
         );
         let mut other = problem;
         other.rule = Some("indentation");
-        assert!(!consistency::pending_sequence_block_tail(input, &other));
+        assert!(!consistency::pending_collection_block_tail(input, &other));
     }
 }
 
