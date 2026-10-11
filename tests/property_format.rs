@@ -5,6 +5,10 @@
 //! its node and every anchor and alias name. Folding also keeps the two
 //! parser-independent properties in `fold`: only lone spaces become line breaks, and
 //! every continuation is deeper than its scalar's owner.
+//! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
+//! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
+//! G11 exempts diagnostics matching an actual formatter refusal notice in position and concern.
+//! Trailing spaces on later lines of a non-root collection after a block scalar, outside scalar content, are tracked by #665; remove when it merges.
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -14,6 +18,8 @@ mod ast;
     reason = "shared with the safe-fix suite, which uses every item"
 )]
 mod config;
+#[path = "property_format/consistency.rs"]
+mod consistency;
 #[path = "common/encoding.rs"]
 mod encoding;
 #[path = "property_format/fold.rs"]
@@ -131,6 +137,59 @@ proptest! {
         };
         check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
     }
+
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_format_consistency.txt",
+        ))),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn random_format_config_agrees_with_lint_and_conflicts(
+        document in arb_document_with_properties(),
+        table in settings::arb_format_config(),
+    ) {
+        let agreeing = consistency::agreeing_lint(&table);
+        let cfg = YamlLintConfig::from_toml_str(&agreeing).expect(&agreeing);
+        let input = document.render();
+        let (formatted, refusals) = ryl::fix::rewrite_str(
+            &input, &cfg, synthetic_path(), synthetic_base_dir(),
+            ryl::config::SourceKind::Yaml, ryl::fix::Rewrite::Format,
+        );
+        let output = formatted.unwrap_or(input.clone());
+        let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_collection_block_tail(&output, problem));
+        let conflicts = ryl::format::conflicts(&cfg);
+        if !problems.is_empty() {
+            prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
+        }
+        prop_assert!(problems.is_empty(), "{agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}\nconflicts {conflicts:?}");
+        prop_assert!(conflicts.is_empty(), "{agreeing}\nconflicts {conflicts:?}");
+        let disagreeing = agreeing.replace(
+            "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 1",
+            "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 0",
+        );
+        let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
+        let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_collection_block_tail(&output, problem));
+        if !problems.is_empty() {
+            prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
+        }
+    }
+
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_format.txt",
+        ))),
+        ..ProptestConfig::default()
+    })]
 
     #[test]
     fn encoded_previews_match_decoded_formatting(
@@ -997,4 +1056,185 @@ fn bom_document_marker_keeps_g11_indentation_consistent() {
     for pass in format_passes() {
         check_pass(pass, input).unwrap();
     }
+}
+
+#[test]
+fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
+    use consistency::content_whitespace;
+    for (input, rule, line, column) in [
+        ("a: |\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: >\n  a \n", "trailing-spaces", 2, 4),
+        ("a: | # header\n  a \nb: b\n", "trailing-spaces", 2, 4),
+        ("a: |+\n  a\n\n", "empty-lines", 3, 1),
+        ("a: |\n  café \n", "trailing-spaces", 2, 7),
+        (
+            "---\na: |\n  a \n...\n\u{feff}---\n\na: 1\n...\n",
+            "trailing-spaces",
+            3,
+            4,
+        ),
+    ] {
+        assert!(
+            content_whitespace(input, Some(rule), line, column),
+            "{input:?}"
+        );
+    }
+    for (input, rule, line, column) in [
+        ("a: |\r\n \r\nFALSE: a\r\n", "trailing-spaces", 2, 1),
+        ("a: |\n\n", "empty-lines", 2, 1),
+        ("a: |3\n   \n   a\n", "trailing-spaces", 2, 1),
+        ("a: |-\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: |\n  a\n\n", "empty-lines", 3, 1),
+        ("a: |-\r\n  a\r\n\r\n", "empty-lines", 3, 1),
+        ("a: |\n  a\n\n...\n", "empty-lines", 3, 1),
+    ] {
+        assert!(
+            !content_whitespace(input, Some(rule), line, column),
+            "{input:?}"
+        );
+    }
+    for (input, rule, line, column) in [
+        ("a: plain ", "trailing-spaces", 1, 9),
+        ("a: | \n  a\n", "trailing-spaces", 1, 5),
+        ("a: |\n  a\nb: b \n", "trailing-spaces", 3, 5),
+        ("a: |\n  a\n# after\n\n", "empty-lines", 4, 1),
+        ("a: |\n  a\n...\n\n", "empty-lines", 4, 1),
+        ("a: |\n  a \n", "indentation", 2, 4),
+        ("a: |\n  a \n", "trailing-spaces", 2, 3),
+    ] {
+        assert!(
+            !content_whitespace(input, Some(rule), line, column),
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
+fn g11_refusal_exempts_only_the_reported_line_and_concern() {
+    let table = "[format]\ndash-on-own-line = true\ndocument-start = 'add'\n";
+    let cfg =
+        YamlLintConfig::from_toml_str(&consistency::agreeing_lint(table)).unwrap();
+    let input = "a:\n  - a: a #a\n";
+    let (formatted, refusals) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap_or_else(|| input.to_owned());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(!problems.is_empty());
+    assert!(
+        problems
+            .iter()
+            .all(|problem| consistency::refused(&output, problem, &refusals)),
+        "{problems:?}: {refusals:?}"
+    );
+    let mut other = problems[0].clone();
+    other.line += 1;
+    assert!(!consistency::refused(&output, &other, &refusals));
+    other.line = problems[0].line;
+    other.rule = Some("colons");
+    assert!(!consistency::refused(&output, &other, &refusals));
+    assert!(!consistency::refused(&output, &problems[0], &[]));
+}
+
+#[test]
+fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
+    use consistency::content_whitespace;
+    for (input, rule, line, column) in [
+        ("a:\n- a\n\n a", "empty-lines", 3, 1),
+        ("a: 'a\n\n  b'\n", "empty-lines", 2, 1),
+        ("a: \"a\n\n  b\"\n", "empty-lines", 2, 1),
+        ("a: |\n  a", "document-end", 2, 1),
+        ("a:\n  b: |2\n    café \n", "trailing-spaces", 3, 9),
+        ("bad: !!bool tRUE\na: |\n  a \n", "trailing-spaces", 3, 4),
+    ] {
+        assert!(
+            content_whitespace(input, Some(rule), line, column),
+            "{input:?}"
+        );
+    }
+    for (input, rule, line, column) in [
+        ("a: 'a\n  b  \n  c'\n", "trailing-spaces", 2, 4),
+        ("a: |-\n  a", "document-end", 2, 1),
+        ("a: |\n  a\n", "document-end", 2, 1),
+        ("a: plain", "document-end", 1, 1),
+        ("a: 'a\n\n b'\n", "indentation", 2, 1),
+    ] {
+        assert!(
+            !content_whitespace(input, Some(rule), line, column),
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
+fn g11_collection_block_tail_exemption_requires_non_root_ancestor_and_equal_values() {
+    let cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\ntrailing-spaces = 'enable'\n")
+            .unwrap();
+    for (input, expected) in [
+        ("a:\n  - |\n  #a \n", true),
+        ("a:\n  - >-\n\n  #a \n", true),
+        ("a:\n  - |\n    a\n  #a \n", true),
+        ("a:\n  - |\n  - |\n    a\n  #a \n", true),
+        ("a: |\n#a \n", false),
+        ("a:\n  - |\n    #a \n", false),
+        ("a:\n  - |\nb: a \n", false),
+        ("a:\n  a: |\n  b: b #c \n", true),
+        ("a:\n  a: >\n    x\n  b: b \n", true),
+        ("a:\n  a: |\nc: c \n", false),
+        ("- a: |\n  b: b #c \n", true),
+        ("- a: |\n    x\n  b: b \n", true),
+        ("k:\n  - |\n  - b \n", true),
+        ("- a: x\n  b: b #c \n", false),
+        ("- a: |\n...\n---\nb: b \n", false),
+    ] {
+        let mut problem =
+            lint_str("a: a \n", synthetic_path(), &cfg, synthetic_base_dir())
+                .pop()
+                .unwrap();
+        problem.line = input.lines().count();
+        problem.column = input.lines().last().unwrap().trim_end().chars().count() + 1;
+        assert_eq!(
+            consistency::pending_collection_block_tail(input, &problem),
+            expected,
+            "{input:?}"
+        );
+        let mut other = problem;
+        other.rule = Some("indentation");
+        assert!(!consistency::pending_collection_block_tail(input, &other));
+    }
+}
+
+#[test]
+fn review_refusal_hides_unrelated_bracket_spacing() {
+    let table = consistency::agreeing_lint("[format]\nsequence-style = 'block'\n");
+    let cfg = YamlLintConfig::from_toml_str(&table).unwrap();
+    let output = "[ x ]: a\n";
+    let refusals = ryl::format::refusals(output, &cfg);
+    let problems = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    let spacing: Vec<_> = problems
+        .iter()
+        .filter(|problem| problem.message == "too many spaces inside brackets")
+        .collect();
+    assert_eq!(spacing.len(), 2);
+    assert!(
+        spacing
+            .iter()
+            .all(|problem| !consistency::refused(output, problem, &refusals))
+    );
+    let mut same_position = spacing[0].clone();
+    same_position.column = refusals[0].column;
+    assert!(!consistency::refused(output, &same_position, &refusals));
+    same_position.message = ryl::rules::brackets::FORBID_MESSAGE.to_owned();
+    assert!(consistency::refused(output, &same_position, &refusals));
+    same_position.column += 1;
+    assert!(!consistency::refused(output, &same_position, &refusals));
+    let formatted = ryl::format::format_str(output, &cfg, synthetic_path(), &[]);
+    assert_eq!(formatted, "[x]: a\n");
+    check_values(output, &formatted).unwrap();
 }
