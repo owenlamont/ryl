@@ -125,17 +125,26 @@ impl Config {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    analyze(buffer, cfg, Mode::Check).0
+}
+
+pub(crate) fn has_fixed_explicit_indent(buffer: &str, cfg: &Config) -> bool {
+    analyze(buffer, cfg, Mode::Detect).1
+}
+
+fn analyze(buffer: &str, cfg: &Config, mode: Mode) -> (Vec<Violation>, bool) {
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let mut line_starts = build_line_starts(&chars);
     let tokens = scan(buffer, &chars, &mut line_starts);
-    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, Mode::Check);
+    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, mode);
     analyzer.run(&tokens);
-    analyzer.diagnostics
+    (analyzer.diagnostics, analyzer.fixed_explicit_indent)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Check,
+    Detect,
     /// Record each line's shift to where the check expects it, and expect what follows
     /// from the shifted columns.
     Target,
@@ -349,6 +358,7 @@ struct Analyzer<'a> {
     cur_line: usize,
     cur_line_indent: isize,
     spaces: Option<isize>,
+    fixed_explicit_indent: bool,
     indent_sequences: IndentSequencesSetting,
     diagnostics: Vec<Violation>,
     mode: Mode,
@@ -399,6 +409,7 @@ impl<'a> Analyzer<'a> {
                 SpacesSetting::Fixed(value) => Some(to_isize(value)),
                 SpacesSetting::Consistent => None,
             },
+            fixed_explicit_indent: false,
             indent_sequences: cfg.indent_sequences,
             diagnostics: Vec::new(),
             mode,
@@ -490,9 +501,10 @@ impl<'a> Analyzer<'a> {
                 delta: expected - found,
             });
         }
-        if self.mode == Mode::Target {
+        if self.mode != Mode::Check {
             self.close_gap(token, next, first_in_line);
-        } else if first_in_line {
+        }
+        if first_in_line && self.mode != Mode::Target {
             let expected = self.expected(token, found);
             if found != expected {
                 let message = if expected < 0 {
@@ -601,7 +613,7 @@ impl<'a> Analyzer<'a> {
                     ..Parent::new(ParentKind::Key, self.top().indent)
                 });
             }
-            Kind::Value => self.push_value(prev, next, nextnext)?,
+            Kind::Value => self.push_value(token, prev, next, nextnext)?,
             _ => {}
         }
         Ok(())
@@ -609,6 +621,7 @@ impl<'a> Analyzer<'a> {
 
     fn push_value(
         &mut self,
+        token: &Token,
         prev: Option<&Token>,
         next: &Token,
         nextnext: Option<&Token>,
@@ -634,6 +647,10 @@ impl<'a> Analyzer<'a> {
             return Ok(());
         }
         let next_column = self.column(next);
+        self.fixed_explicit_indent |= key.explicit_key
+            && self.below_top().kind == ParentKind::BlockMapping
+            && self.spaces.is_none()
+            && next.line == token.line;
         let indent = if key.explicit_key {
             self.detect_indent(key.indent, next_column)
         } else if next.line == prev_line {

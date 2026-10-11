@@ -222,12 +222,24 @@ pub fn line_length(cfg: &YamlLintConfig) -> u16 {
 }
 
 /// The indent width `ryl format` targets in `content`: the top-level `indent-width`, else
-/// the one width of [`DETECTED_WIDTHS`] whose re-indent changes the fewest lines, else
-/// [`DEFAULT_INDENT_WIDTH`].
+/// 2 where an inline explicit value fixes the step, else the one width of
+/// [`DETECTED_WIDTHS`] whose re-indent changes the fewest lines, else [`DEFAULT_INDENT_WIDTH`].
 #[must_use]
 pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
     if let Some(width) = cfg.indent_width() {
         return width.get();
+    }
+    let consistent = indentation::Config::new(
+        indentation::SpacesSetting::Consistent,
+        if cfg.format().targets().indent_sequences {
+            indentation::IndentSequencesSetting::True
+        } else {
+            indentation::IndentSequencesSetting::False
+        },
+        false,
+    );
+    if indentation::has_fixed_explicit_indent(content, &consistent) {
+        return 2;
     }
     let before: Vec<&str> = content.split_inclusive('\n').collect();
     let widths = DETECTED_WIDTHS.map(usize::from);

@@ -174,6 +174,34 @@ proptest! {
         }
     }
 
+    #[test]
+    fn explicit_keys_do_not_hide_inconsistent_detected_indentation(
+        width in 2usize..=8,
+        compact in any::<bool>(),
+        own_line in any::<bool>(),
+        nested in any::<bool>(),
+        indent_sequences in any::<bool>(),
+        key in prop::sample::select(vec!["a", "[a, b]", "|\n  key"]),
+    ) {
+        let body = if compact {
+            format!("? {key}\n: -  a: a\n     b: b\nb:\n{}- c\n", " ".repeat(width))
+        } else {
+            format!("? {key}\n: a\nb:\n{}- c\n", " ".repeat(width))
+        };
+        let input = if nested {
+            format!("root:\n{}", body.lines().map(|line| format!("  {line}\n")).collect::<String>())
+        } else {
+            body
+        };
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[format]\ndash-on-own-line = {own_line}\nindent-sequences = {indent_sequences}\n\
+             [lint.rules.indentation]\nindent-sequences = {indent_sequences}\n"
+        )).unwrap();
+        let format = |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+        check_invariants(&format, &input).map_err(TestCaseError::fail)?;
+        prop_assert!(lint_str(&format(&input), synthetic_path(), &cfg, synthetic_base_dir()).is_empty());
+    }
+
     /// Narrow or delete this property once a preview style exists.
     #[test]
     fn preview_matches_stable_while_no_preview_style_exists(
@@ -307,6 +335,18 @@ fn check_detection(input: &str, width: u8) -> Result<(), String> {
             break;
         }
         text = consistent.text;
+    }
+    let consistent = indentation::Config::new(
+        SpacesSetting::Consistent,
+        IndentSequencesSetting::True,
+        false,
+    );
+    let width_probe = format!(
+        "{text}\n---\nprobe:\n{}child: value\n",
+        " ".repeat(usize::from(width))
+    );
+    if !indentation::check(&width_probe, &consistent).is_empty() {
+        return Ok(());
     }
     let detected = file_indent_width(&YamlLintConfig::default(), &text);
     if indentation::reindent(&text, &reindent_target(detected)).text != text {
