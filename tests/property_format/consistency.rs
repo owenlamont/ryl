@@ -208,7 +208,7 @@ pub fn content_whitespace(
 struct CollectionBlockBefore {
     line: usize,
     column: usize,
-    collections: Vec<bool>,
+    collections: Vec<(usize, bool)>,
 }
 
 impl<'input> SpannedEventReceiver<'input> for CollectionBlockBefore {
@@ -221,7 +221,7 @@ impl<'input> SpannedEventReceiver<'input> for CollectionBlockBefore {
         match event {
             Event::DocumentStart(..) => self.collections.clear(),
             Event::SequenceStart(..) | Event::MappingStart(..) => {
-                self.collections.push(false)
+                self.collections.push((span.start.col(), false))
             }
             Event::SequenceEnd | Event::MappingEnd => {
                 self.collections.pop();
@@ -230,7 +230,7 @@ impl<'input> SpannedEventReceiver<'input> for CollectionBlockBefore {
                 if span.end.line() <= self.line =>
             {
                 for collection in self.collections.iter_mut().skip(1) {
-                    *collection = true;
+                    collection.1 = true;
                 }
             }
             _ => {}
@@ -264,7 +264,6 @@ pub fn pending_collection_block_tail(
     if Parser::new_from_str(output)
         .load(&mut before, true)
         .is_err()
-        || !before.collections.iter().any(|seen| *seen)
     {
         return false;
     }
@@ -276,6 +275,14 @@ pub fn pending_collection_block_tail(
         return false;
     };
     let content = raw.trim_end_matches(['\r', '\n']);
+    let indentation = content.chars().take_while(|ch| *ch == ' ').count();
+    if !before
+        .collections
+        .iter()
+        .any(|(entry_indent, seen)| *seen && indentation >= *entry_indent)
+    {
+        return false;
+    }
     let Some((offset, _)) =
         content.char_indices().nth(problem.column.saturating_sub(1))
     else {

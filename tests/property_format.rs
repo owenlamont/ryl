@@ -1211,6 +1211,26 @@ fn g11_collection_block_tail_exemption_requires_non_root_ancestor_and_equal_valu
 }
 
 #[test]
+fn g11_collection_block_tail_excludes_dedented_comments() {
+    let cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\ntrailing-spaces = 'enable'\n")
+            .unwrap();
+    for (input, expected) in [
+        ("a:\n  a: |\n    x\n# outside \n", false),
+        ("a:\n  a: |\n    x\n# outside \nb: b\n", false),
+        ("a:\n  a: |\n    x\n  # inside \n", true),
+    ] {
+        let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+        assert_eq!(problems.len(), 1, "{input:?}");
+        assert_eq!(
+            consistency::pending_collection_block_tail(input, &problems[0]),
+            expected,
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
 fn review_refusal_hides_unrelated_bracket_spacing() {
     let table = consistency::agreeing_lint("[format]\nsequence-style = 'block'\n");
     let cfg = YamlLintConfig::from_toml_str(&table).unwrap();
