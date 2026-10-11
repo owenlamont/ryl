@@ -225,3 +225,12 @@ fn declines_a_sort_that_moves_a_line_into_a_per_line_ignore() {
         "the sorted output failed verification"
     );
 }
+
+#[test]
+fn block_scalar_headers_ignore_indicators_inside_quoted_keys() {
+    for header in ["|2- # note", ">-2 # note", "|2", ">2"] {
+        let entry = format!("'b|+#>2#': {header}\n  body\n");
+        let input = format!("{entry}a: 1\n");
+        assert_eq!(fix(&input), Some(format!("a: 1\n{entry}")), "{header}");
+    }
+}
