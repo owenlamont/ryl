@@ -7,7 +7,7 @@
 //! every continuation is deeper than its scalar's owner.
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
-//! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
+//! G11 exempts diagnostics matching an actual formatter refusal notice in position and concern.
 //! Trailing spaces after a block scalar within a sequence, outside scalar content, are tracked by #665; remove when it merges.
 
 #[path = "property_safe_fix/ast.rs"]
@@ -162,7 +162,7 @@ proptest! {
         );
         let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -175,7 +175,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1129,16 +1129,16 @@ fn g11_refusal_exempts_only_the_reported_line_and_concern() {
     assert!(
         problems
             .iter()
-            .all(|problem| consistency::refused(problem, &refusals)),
+            .all(|problem| consistency::refused(&output, problem, &refusals)),
         "{problems:?}: {refusals:?}"
     );
     let mut other = problems[0].clone();
     other.line += 1;
-    assert!(!consistency::refused(&other, &refusals));
+    assert!(!consistency::refused(&output, &other, &refusals));
     other.line = problems[0].line;
     other.rule = Some("colons");
-    assert!(!consistency::refused(&other, &refusals));
-    assert!(!consistency::refused(&problems[0], &[]));
+    assert!(!consistency::refused(&output, &other, &refusals));
+    assert!(!consistency::refused(&output, &problems[0], &[]));
 }
 
 #[test]
@@ -1205,4 +1205,33 @@ fn g11_sequence_block_tail_exemption_requires_prior_sequence_scalar_and_equal_va
         other.rule = Some("indentation");
         assert!(!consistency::pending_sequence_block_tail(input, &other));
     }
+}
+
+#[test]
+fn review_refusal_hides_unrelated_bracket_spacing() {
+    let table = consistency::agreeing_lint("[format]\nsequence-style = 'block'\n");
+    let cfg = YamlLintConfig::from_toml_str(&table).unwrap();
+    let output = "[ x ]: a\n";
+    let refusals = ryl::format::refusals(output, &cfg);
+    let problems = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    let spacing: Vec<_> = problems
+        .iter()
+        .filter(|problem| problem.message == "too many spaces inside brackets")
+        .collect();
+    assert_eq!(spacing.len(), 2);
+    assert!(
+        spacing
+            .iter()
+            .all(|problem| !consistency::refused(output, problem, &refusals))
+    );
+    let mut same_position = spacing[0].clone();
+    same_position.column = refusals[0].column;
+    assert!(!consistency::refused(output, &same_position, &refusals));
+    same_position.message = ryl::rules::brackets::FORBID_MESSAGE.to_owned();
+    assert!(consistency::refused(output, &same_position, &refusals));
+    same_position.column += 1;
+    assert!(!consistency::refused(output, &same_position, &refusals));
+    let formatted = ryl::format::format_str(output, &cfg, synthetic_path(), &[]);
+    assert_eq!(formatted, "[x]: a\n");
+    check_values(output, &formatted).unwrap();
 }

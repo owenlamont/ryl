@@ -6,12 +6,62 @@ use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
 pub fn refused(
+    output: &str,
     problem: &ryl::lint::LintProblem,
     notices: &[ryl::lint::LintProblem],
 ) -> bool {
-    notices
-        .iter()
-        .any(|notice| notice.line == problem.line && notice.rule == problem.rule)
+    notices.iter().any(|notice| {
+        notice.line == problem.line
+            && refusal_column(output, notice) == Some(problem.column)
+            && notice.rule == problem.rule
+            && (notice.message == problem.message
+                || match notice.rule {
+                    Some("brackets") => notice.message.starts_with("cannot convert to block safely:")
+                        && problem.message == ryl::rules::brackets::FORBID_MESSAGE,
+                    Some("braces") => notice.message.starts_with("cannot convert to block safely:")
+                        && problem.message == ryl::rules::braces::FORBID_MESSAGE,
+                    Some("hyphens") => notice.message == "cannot move this mapping below its `-`: a comment follows the `-`"
+                        && problem.message == ryl::rules::hyphens::MESSAGE_DASH_ON_OWN_LINE,
+                    Some("indentation") => notice.message == "cannot re-indent this document safely"
+                        && problem.message.starts_with("wrong indentation:"),
+                    _ => false,
+                })
+    })
+}
+
+fn refusal_column(output: &str, notice: &ryl::lint::LintProblem) -> Option<usize> {
+    if notice.rule != Some("hyphens") {
+        return Some(notice.column);
+    }
+    let mut dash = None;
+    for token in Scanner::new(StrInput::new(output)).map_while(Result::ok) {
+        let (span, kind) = token.into_parts();
+        match kind {
+            TokenType::BlockEntry => {
+                let prefix: String = output
+                    .lines()
+                    .nth(span.start.line() - 1)
+                    .unwrap_or_default()
+                    .chars()
+                    .take(span.start.col())
+                    .collect();
+                let prefix = prefix.trim_end_matches([' ', '\t']);
+                dash = prefix
+                    .ends_with('-')
+                    .then(|| (span.start.line(), prefix.chars().count()));
+            }
+            TokenType::Anchor(_) | TokenType::Tag(..) | TokenType::Comment(_) => {}
+            TokenType::BlockMappingStart => {
+                if dash.take() == Some((notice.line, notice.column))
+                    && span.start.line() == notice.line
+                {
+                    return Some(span.start.col() + 1);
+                }
+            }
+            _ => dash = None,
+        }
+    }
+    None
 }
 
 fn scalar_tokens(output: &str) -> Vec<(granit_parser::Span, ScalarStyle)> {
