@@ -1,7 +1,4 @@
-use granit_parser::{
-    Event, Parser, ScalarStyle, Scanner, Span, SpannedEventReceiver, StrInput,
-    TokenType,
-};
+use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
@@ -203,104 +200,6 @@ pub fn content_whitespace(
         (Some(before), Some(after)) => before != after,
         _ => false,
     }
-}
-
-struct CollectionBlockBefore {
-    line: usize,
-    column: usize,
-    collections: Vec<(usize, bool)>,
-}
-
-impl<'input> SpannedEventReceiver<'input> for CollectionBlockBefore {
-    fn on_event(&mut self, event: Event<'input>, span: Span) {
-        if span.start.line() > self.line
-            || (span.start.line() == self.line && span.start.col() + 1 > self.column)
-        {
-            return;
-        }
-        match event {
-            Event::DocumentStart(..) => self.collections.clear(),
-            Event::SequenceStart(..) | Event::MappingStart(..) => {
-                self.collections.push((span.start.col(), false))
-            }
-            Event::SequenceEnd | Event::MappingEnd => {
-                self.collections.pop();
-            }
-            Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
-                if span.end.line() <= self.line =>
-            {
-                for collection in self.collections.iter_mut().skip(1) {
-                    collection.1 = true;
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-pub fn pending_collection_block_tail(
-    output: &str,
-    problem: &ryl::lint::LintProblem,
-) -> bool {
-    if problem.rule != Some("trailing-spaces") {
-        return false;
-    }
-    let tokens = scalar_tokens(output);
-    if tokens.iter().any(|(span, style)| {
-        matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-            && span.start.byte_offset() != span.end.byte_offset()
-            && problem.line >= first_content_line(output, span)
-            && (problem.line < span.end.line()
-                || (problem.line == span.end.line()
-                    && problem.column <= span.end.col()))
-    }) {
-        return false;
-    }
-    let mut before = CollectionBlockBefore {
-        line: problem.line,
-        column: problem.column,
-        collections: Vec::new(),
-    };
-    if Parser::new_from_str(output)
-        .load(&mut before, true)
-        .is_err()
-    {
-        return false;
-    }
-    let lines: Vec<_> = output.split_inclusive('\n').collect();
-    let Some(index) = problem.line.checked_sub(1) else {
-        return false;
-    };
-    let Some(raw) = lines.get(index) else {
-        return false;
-    };
-    let content = raw.trim_end_matches(['\r', '\n']);
-    let indentation = content.chars().take_while(|ch| *ch == ' ').count();
-    if !before
-        .collections
-        .iter()
-        .any(|(entry_indent, seen)| *seen && indentation >= *entry_indent)
-    {
-        return false;
-    }
-    let Some((offset, _)) =
-        content.char_indices().nth(problem.column.saturating_sub(1))
-    else {
-        return false;
-    };
-    if !content[offset..].chars().all(|ch| matches!(ch, ' ' | '\t')) {
-        return false;
-    }
-    let begin: usize = lines[..index].iter().map(|line| line.len()).sum();
-    let mut repaired = output.to_owned();
-    repaired.replace_range(begin + offset..begin + content.len(), "");
-    let after = scalar_tokens(&repaired);
-    tokens.len() == after.len()
-        && tokens.iter().zip(after.iter()).enumerate().all(|(index, ((old, _), (new, _)))| {
-            old.slice(output) == new.slice(&repaired)
-                || matches!((scalar_value(output, index), scalar_value(&repaired, index)), (Some(before), Some(after)) if before == after)
-        })
-        && super::representation::check_values(output, &repaired).is_ok()
 }
 
 pub fn agreeing_lint(config: &str) -> String {

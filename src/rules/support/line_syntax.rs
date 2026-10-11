@@ -57,8 +57,8 @@ pub(crate) fn first_line_break(buffer: &str) -> Option<(usize, &'static str)> {
 }
 
 /// 1-based line numbers of every `Scalar` event whose `style`/span satisfy `filter`.
-/// A block-scalar span ends at `(end.line, col=0)`, one past the last body line; that
-/// trailing line is dropped so callers don't protect content outside the scalar. Its
+/// A block-scalar span ends at the next token after consuming its indentation, or at
+/// EOF; only an EOF end line can contain scalar content and needs protection. Its
 /// span starts at the first non-blank body line, or is empty on the next token for a
 /// blank-only body, so the blank lines above it are added back up to the header.
 /// `None` (unparsable buffer) means bail, not fix on a partial view.
@@ -73,6 +73,7 @@ where
         protected: HashSet<usize>,
         filter: G,
         blank: Vec<bool>,
+        buffer_len: usize,
     }
     impl<G> Collector<G> {
         fn blank_run_start(&self, line: usize) -> usize {
@@ -88,17 +89,21 @@ where
             if let Event::Scalar(value, style, _, _) = event
                 && (self.filter)(style, span)
             {
+                let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
                 // A blank-only body running to the end of input is spanned from its header.
                 let start =
-                    if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-                        && (span.is_empty() || value.contains(|ch| ch != '\n'))
-                    {
+                    if block && (span.is_empty() || value.contains(|ch| ch != '\n')) {
                         self.blank_run_start(span.start.line())
                     } else {
                         span.start.line()
                     };
                 let end = span.end.line();
-                let last = if span.end.col() == 0 { end - 1 } else { end };
+                let last = end
+                    - usize::from(
+                        span.end.col() == 0
+                            || (block
+                                && span.end.byte_offset() != Some(self.buffer_len)),
+                    );
                 for line in start..=last {
                     self.protected.insert(line);
                 }
@@ -109,6 +114,7 @@ where
     let mut collector = Collector {
         protected: HashSet::new(),
         filter,
+        buffer_len: buffer.len(),
         blank: split_lines_preserve_endings(buffer)
             .map(|(_, line, _)| line.trim_matches([' ', '\t']).is_empty())
             .collect(),

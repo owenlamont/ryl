@@ -325,7 +325,7 @@ impl BlockScalarSpec {
             buffer.push_str(line_term);
             buffer
                 .push_str(&" ".repeat(indent - 1 - usize::from(short).min(indent - 1)));
-            buffer.push_str("# after");
+            buffer.push_str("# after \t");
         }
     }
 }

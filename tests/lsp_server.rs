@@ -2912,6 +2912,26 @@ fn disable_line_is_not_offered_where_it_would_extend_a_blank_only_root_scalar() 
 }
 
 #[test]
+fn disable_line_is_offered_for_a_sibling_after_a_nested_block_scalar() {
+    let dir = project(TRAILING);
+    let (mut client, _init) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "sibling.yaml");
+    client.did_open(doc.clone(), "a:\n  a: |\n    x\n  b: b \n");
+    let diagnostics = client.diagnostics();
+    let actions = client
+        .code_action_with_diagnostics(doc, diagnostics)
+        .expect("actions are offered");
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            CodeActionOrCommand::CodeAction(action)
+                if action.title == "Disable trailing-spaces for this line"
+        )),
+        "disable-line is offered outside scalar content: {actions:?}"
+    );
+}
+
+#[test]
 fn disable_line_is_not_offered_inside_a_multiline_quoted_scalar() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
