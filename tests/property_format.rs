@@ -8,7 +8,7 @@
 //! G11 excludes complementary line-length lint: docs/formatter.md defines a soft target.
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in line and concern.
-//! Comment trailing spaces after an empty sequence block scalar are tracked by #665; remove when it merges.
+//! Trailing spaces after a block scalar within a sequence, outside scalar content, are tracked by #665; remove when it merges.
 
 #[path = "property_safe_fix/ast.rs"]
 mod ast;
@@ -162,7 +162,7 @@ proptest! {
         );
         let output = formatted.unwrap_or(input.clone());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals) && !consistency::pending_empty_sequence_comment(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -175,7 +175,7 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals) && !consistency::pending_empty_sequence_comment(&output, problem));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(problem, &refusals) && !consistency::pending_sequence_block_tail(&output, problem));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -1172,18 +1172,23 @@ fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
 }
 
 #[test]
-fn g11_empty_sequence_comment_exemption_requires_empty_scalar_and_comment() {
+fn g11_sequence_block_tail_exemption_requires_prior_sequence_scalar_and_equal_values() {
     let cfg =
         YamlLintConfig::from_toml_str("[lint.rules]\ntrailing-spaces = 'enable'\n")
             .unwrap();
     for (input, expected) in [
         ("a:\n  - |\n  #a \n", true),
         ("a:\n  - >-\n\n  #a \n", true),
-        ("a:\n  - |\n    a\n  #a \n", false),
-        ("a:\n  - |\n  - |\n    a\n  #a \n", false),
+        ("a:\n  - |\n    a\n  #a \n", true),
+        ("a:\n  - |\n  - |\n    a\n  #a \n", true),
         ("a: |\n#a \n", false),
         ("a:\n  - |\n    #a \n", false),
-        ("a:\n  - |\nb: a \n", false),
+        ("a:\n  - |\nb: a \n", true),
+        ("- a: |\n  b: b #c \n", true),
+        ("- a: |\n    x\n  b: b \n", true),
+        ("k:\n  - |\n  - b \n", true),
+        ("- a: x\n  b: b #c \n", false),
+        ("- a: |\n...\n---\nb: b \n", false),
     ] {
         let mut problem =
             lint_str("a: a \n", synthetic_path(), &cfg, synthetic_base_dir())
@@ -1192,12 +1197,12 @@ fn g11_empty_sequence_comment_exemption_requires_empty_scalar_and_comment() {
         problem.line = input.lines().count();
         problem.column = input.lines().last().unwrap().trim_end().chars().count() + 1;
         assert_eq!(
-            consistency::pending_empty_sequence_comment(input, &problem),
+            consistency::pending_sequence_block_tail(input, &problem),
             expected,
             "{input:?}"
         );
         let mut other = problem;
         other.rule = Some("indentation");
-        assert!(!consistency::pending_empty_sequence_comment(input, &other));
+        assert!(!consistency::pending_sequence_block_tail(input, &other));
     }
 }

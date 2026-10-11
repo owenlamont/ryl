@@ -1,4 +1,7 @@
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
+use granit_parser::{
+    Event, Parser, ScalarStyle, Scanner, Span, SpannedEventReceiver, StrInput,
+    TokenType,
+};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
@@ -152,11 +155,62 @@ pub fn content_whitespace(
     }
 }
 
-pub fn pending_empty_sequence_comment(
+struct SequenceBlockBefore {
+    line: usize,
+    depth: usize,
+    found: bool,
+}
+
+impl<'input> SpannedEventReceiver<'input> for SequenceBlockBefore {
+    fn on_event(&mut self, event: Event<'input>, span: Span) {
+        if span.start.line() > self.line {
+            return;
+        }
+        match event {
+            Event::DocumentStart(..) => {
+                self.depth = 0;
+                self.found = false;
+            }
+            Event::SequenceStart(..) => self.depth += 1,
+            Event::SequenceEnd => self.depth = self.depth.saturating_sub(1),
+            Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
+                if self.depth > 0 && span.end.line() <= self.line =>
+            {
+                self.found = true
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn pending_sequence_block_tail(
     output: &str,
     problem: &ryl::lint::LintProblem,
 ) -> bool {
     if problem.rule != Some("trailing-spaces") {
+        return false;
+    }
+    let tokens = scalar_tokens(output);
+    if tokens.iter().any(|(span, style)| {
+        matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+            && span.start.byte_offset() != span.end.byte_offset()
+            && problem.line >= first_content_line(output, span)
+            && (problem.line < span.end.line()
+                || (problem.line == span.end.line()
+                    && problem.column <= span.end.col()))
+    }) {
+        return false;
+    }
+    let mut before = SequenceBlockBefore {
+        line: problem.line,
+        depth: 0,
+        found: false,
+    };
+    if Parser::new_from_str(output)
+        .load(&mut before, true)
+        .is_err()
+        || !before.found
+    {
         return false;
     }
     let lines: Vec<_> = output.split_inclusive('\n').collect();
@@ -167,9 +221,6 @@ pub fn pending_empty_sequence_comment(
         return false;
     };
     let content = raw.trim_end_matches(['\r', '\n']);
-    if !content.trim_start_matches(' ').starts_with('#') {
-        return false;
-    }
     let Some((offset, _)) =
         content.char_indices().nth(problem.column.saturating_sub(1))
     else {
@@ -178,37 +229,16 @@ pub fn pending_empty_sequence_comment(
     if !content[offset..].chars().all(|ch| matches!(ch, ' ' | '\t')) {
         return false;
     }
-    let Some(header) = lines[..index]
-        .iter()
-        .rposition(|line| !line.trim().is_empty())
-    else {
-        return false;
-    };
-    static HEADER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"^( *)- [|>][1-9+-]{0,2}[ \t]*(?:#.*)?$").unwrap()
-    });
-    let Some(captures) = HEADER.captures(lines[header].trim_end_matches(['\r', '\n']))
-    else {
-        return false;
-    };
-    if content.len() - content.trim_start_matches(' ').len() != captures[1].len() {
-        return false;
-    }
-    let fragment: String = lines[header..=index]
-        .iter()
-        .map(|line| line.strip_prefix(&captures[1]).unwrap_or(line))
-        .collect();
-    if !matches!(serde_yaml_ng::from_str::<Vec<String>>(&fragment), Ok(value) if value == [String::new()])
-    {
-        return false;
-    }
-    let mut repaired: String = lines[header..index]
-        .iter()
-        .map(|line| line.strip_prefix(&captures[1]).unwrap_or(line))
-        .collect();
-    repaired.push_str(content[captures[1].len()..offset].trim_end());
-    repaired.push('\n');
-    matches!((serde_yaml_ng::from_str::<Vec<String>>(&fragment), serde_yaml_ng::from_str::<Vec<String>>(&repaired)), (Ok(before), Ok(after)) if before == after)
+    let begin: usize = lines[..index].iter().map(|line| line.len()).sum();
+    let mut repaired = output.to_owned();
+    repaired.replace_range(begin + offset..begin + content.len(), "");
+    let after = scalar_tokens(&repaired);
+    tokens.len() == after.len()
+        && tokens.iter().zip(after.iter()).enumerate().all(|(index, ((old, _), (new, _)))| {
+            old.slice(output) == new.slice(&repaired)
+                || matches!((scalar_value(output, index), scalar_value(&repaired, index)), (Some(before), Some(after)) if before == after)
+        })
+        && super::representation::check_values(output, &repaired).is_ok()
 }
 
 pub fn agreeing_lint(config: &str) -> String {
