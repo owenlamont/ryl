@@ -162,12 +162,16 @@ def test_rust_oracle_value_loss_remains_a_hard_failure(tmp_path: Path) -> None:
 
 
 def _record(after: bytes, tmp_path: Path, before: bytes = BEFORE) -> gate.Result:
-    digest = (hashlib.sha256(BEFORE).hexdigest(), hashlib.sha256(REVIEWED).hexdigest())
+    reviewed = (
+        PATH,
+        hashlib.sha256(BEFORE).hexdigest(),
+        hashlib.sha256(REVIEWED).hexdigest(),
+    )
     repo = gate.Repo(
         url="https://example.com/o/r",
         sha="0" * 40,
-        rust_known_errors={PATH: digest},
-        yaml12_known_errors={PATH: digest},
+        rust_known_errors=frozenset({reviewed}),
+        yaml12_known_errors=frozenset({reviewed}),
     )
     result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
     gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
@@ -195,6 +199,49 @@ def test_corrupting_the_input_of_an_allow_listed_file_fails_the_gate(
 ) -> None:
     result = _record(REVIEWED, tmp_path, before=b"a: CORRUPTED\n")
     assert gate._hard_failures(result) == 4, result.errors
+
+
+def test_each_hash_pair_must_be_hit_to_avoid_staleness(tmp_path: Path) -> None:
+    other = b"---\na: z\n"
+    entries = [
+        {
+            "path": PATH,
+            "before-sha256": hashlib.sha256(BEFORE).hexdigest(),
+            "after-sha256": hashlib.sha256(after).hexdigest(),
+        }
+        for after in (REVIEWED, other)
+    ]
+    repo = gate.Repo(
+        url="https://example.com/o/r",
+        sha="0" * 40,
+        yaml12_known_errors=gate._known(entries, gate.Profile.STANDARD),
+    )
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(
+        result, repo, PATH, BEFORE, REVIEWED, pairs=[], pair_dir=tmp_path
+    )
+    assert len(result.yaml12_known_errors) == 1
+    assert len(gate._stale_known_errors([repo], [result])) == 1
+    second = gate.Result(repo=repo.name, mode=gate.Mode.FOLD)
+    gate._record_change(second, repo, PATH, BEFORE, other, pairs=[], pair_dir=tmp_path)
+    assert gate._stale_known_errors([repo], [result, second]) == []
+
+
+def test_known_errors_are_scoped_to_the_corpus_profile() -> None:
+    entries = [
+        {"path": PATH, "before-sha256": "a" * 64, "after-sha256": "b" * 64},
+        {
+            "profile": "block-crlf",
+            "path": PATH,
+            "before-sha256": "a" * 64,
+            "after-sha256": "c" * 64,
+        },
+    ]
+    assert len(gate._known(entries, gate.Profile.STANDARD)) == 1
+    assert len(gate._known(entries, gate.Profile.BLOCK_CRLF)) == 1
+    assert gate._known(entries, gate.Profile.STANDARD) != gate._known(
+        entries, gate.Profile.BLOCK_CRLF
+    )
 
 
 def test_a_dirty_cached_checkout_is_refused(tmp_path: Path) -> None:
