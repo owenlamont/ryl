@@ -319,6 +319,127 @@ fn many_siblings_converge_in_one_run() {
 }
 
 #[test]
+fn flow_conversion_waits_for_safe_document_reindent() {
+    let cases = [
+        (
+            "sequence, flush",
+            "[format]\nsequence-style = 'block'\nindent-sequences = false\n[lint.rules.indentation]\nindent-sequences = false\n",
+            "a: [a]\nb: >\n   x\n  #\n",
+        ),
+        (
+            "sequence, indented",
+            "[format]\nsequence-style = 'block'\nindent-sequences = true\n",
+            "a: [a]\nb: >\n   x\n  #\n",
+        ),
+        (
+            "mapping, flush",
+            "[format]\nmapping-style = 'block'\nindent-sequences = false\n",
+            "a: {b: c}\nd: >\n   x\n  #\n",
+        ),
+        (
+            "mapping, indented",
+            "[format]\nmapping-style = 'block'\nindent-sequences = true\n",
+            "a: {b: c}\nd: >\n   x\n  #\n",
+        ),
+    ];
+    for (name, toml, input) in cases {
+        let cfg = config(toml);
+        assert_eq!(
+            format_str(input, &cfg, Path::new("case.yaml"), &[]),
+            input,
+            "{name}"
+        );
+        assert!(
+            refusals(input, &cfg).iter().any(|problem| problem
+                .message
+                .contains("document cannot be re-indented")),
+            "{name} should explain why the collection stays flow"
+        );
+    }
+}
+
+#[test]
+fn flow_conversion_handles_each_reindent_refusal_cause() {
+    use ryl::rules::indentation::{
+        Cause, Config, IndentSequencesSetting, SpacesSetting, reindent,
+    };
+
+    let target = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    let cfg = config(
+        "indent-width = 2\n[format]\nsequence-style = 'block'\nindent-sequences = false\n",
+    );
+    for (cause, suffix) in [
+        (Cause::Changed, "b: >\n   x\n  #\n"),
+        (Cause::Tab, "b:\n  c: d\n \t\n"),
+        (
+            Cause::Disabled,
+            "b: c  # yamllint disable-line rule:indentation\n",
+        ),
+        (Cause::Unfollowable, ": value\n"),
+    ] {
+        let candidate = format!("a:\n  - a\n{suffix}");
+        assert_eq!(reindent(&candidate, &target).refused[0].cause, cause);
+        let input = format!("a: [a]\n{suffix}");
+        let formatted = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(
+            formatted.contains("a: [a]"),
+            cause != Cause::Tab,
+            "{cause:?}: {formatted:?}"
+        );
+    }
+}
+
+#[test]
+fn exact_repro_keeps_the_agreeing_indentation_config_clean() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let config = dir.path().join("config.toml");
+    let input = "a: [a]\nb: >\n   x\n  #\n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        &config,
+        "[format]\nsequence-style = 'block'\nindent-sequences = false\n[lint.rules.indentation]\nindent-sequences = false\n",
+    )
+    .unwrap();
+
+    let check = || {
+        run(ryl(dir.path())
+            .args(["check", "-c"])
+            .arg(&config)
+            .arg(&file))
+    };
+    assert_eq!(check().0, 0);
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args(["format", "-c"])
+        .arg(&config)
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("brackets not fixed: cannot convert to block safely"),
+        "{stderr}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    assert_eq!(check().0, 0);
+}
+
+#[test]
+fn a_reindent_refusal_does_not_block_another_document() {
+    let input =
+        "---\na: [a]\nb: c  # yamllint disable-line rule:indentation\n---\nc: [d]\n";
+    let expected =
+        "---\na: [a]\nb: c  # yamllint disable-line rule:indentation\n---\nc:\n  - d\n";
+    let cfg = config("indent-width = 2\n[format]\nsequence-style = 'block'\n");
+    assert_eq!(
+        format_str(input, &cfg, Path::new("case.yaml"), &[]),
+        expected
+    );
+}
+
+#[test]
 fn check_attributes_each_conversion_and_write_mode_reports_refusals() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), BOTH).unwrap();

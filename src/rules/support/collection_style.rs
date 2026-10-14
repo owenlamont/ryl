@@ -7,11 +7,13 @@ use granit_parser::{Event, Parser, ScalarStyle, StructureStyle};
 use crate::config_schema::CollectionStyleTarget;
 use crate::directives::{Directives, disables_file};
 use crate::lint::{LintProblem, Severity};
-use crate::rules::support::line_syntax::buffer_newline;
+use crate::rules::support::line_syntax::{
+    buffer_newline, split_lines_preserve_endings,
+};
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::{braces, brackets};
+use crate::rules::{braces, brackets, indentation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
@@ -50,7 +52,7 @@ impl Finding {
             level: Severity::Error,
             message: self.refused.map_or_else(
                 || format!("{from} {kind} would become {to}"),
-                |reason| format!("cannot convert to block safely: {reason}"),
+                |reason| format!("cannot convert to {to} safely: {reason}"),
             ),
             rule: Some(self.rule),
         }
@@ -60,8 +62,12 @@ impl Finding {
 /// `buffer` with every convertible collection restyled, and the rules whose collections
 /// changed; `None` when nothing changes.
 #[must_use]
-pub fn restyle(buffer: &str, cfg: Config) -> Option<(String, Vec<&'static str>)> {
-    let (edits, findings) = plan(buffer, cfg);
+pub fn restyle(
+    buffer: &str,
+    cfg: Config,
+    indent: Option<&indentation::Config>,
+) -> Option<(String, Vec<&'static str>)> {
+    let (edits, findings) = plan(buffer, cfg, indent);
     let restyled = apply_replacements(buffer, edits);
     (restyled != buffer && same_data(buffer, &restyled)).then(|| {
         let rules = findings
@@ -74,13 +80,21 @@ pub fn restyle(buffer: &str, cfg: Config) -> Option<(String, Vec<&'static str>)>
 }
 
 #[must_use]
-pub fn findings(buffer: &str, cfg: Config) -> Vec<Finding> {
-    plan(buffer, cfg).1
+pub fn findings(
+    buffer: &str,
+    cfg: Config,
+    indent: Option<&indentation::Config>,
+) -> Vec<Finding> {
+    plan(buffer, cfg, indent).1
 }
 
 type Edit = (BytePos, BytePos, String);
 
-fn plan(buffer: &str, cfg: Config) -> (Vec<Edit>, Vec<Finding>) {
+fn plan(
+    buffer: &str,
+    cfg: Config,
+    indent: Option<&indentation::Config>,
+) -> (Vec<Edit>, Vec<Finding>) {
     let directives = Directives::parse(buffer);
     let style = |target, rule| {
         (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)
@@ -125,7 +139,56 @@ fn plan(buffer: &str, cfg: Config) -> (Vec<Edit>, Vec<Finding>) {
         findings.push(finding(outcome.as_ref().err().copied(), false));
         edits.extend(outcome.ok());
     }
+    let Some(indent) = indent.filter(|_| !edits.is_empty()) else {
+        return (edits, findings);
+    };
+    let candidate = apply_replacements(buffer, edits.clone());
+    let refused = indentation::reindent(&candidate, indent).refused;
+    if refused.is_empty() {
+        return (edits, findings);
+    }
+    let candidate_starts = document_start_lines(&candidate);
+    let source_starts = document_start_lines(buffer);
+    let blocked: Vec<usize> = refused
+        .iter()
+        .filter_map(|refusal| {
+            candidate_starts
+                .iter()
+                .position(|start| *start == *refusal.lines.start())
+        })
+        .collect();
+    let document =
+        |line: usize| source_starts.partition_point(|start| *start <= line) - 1;
+    let edits = edits
+        .into_iter()
+        .filter(|edit| {
+            let prefix = &buffer[..edit.0.get()];
+            let line = split_lines_preserve_endings(prefix).count()
+                + usize::from(prefix.ends_with(['\n', '\r']));
+            let line = line.max(1);
+            !blocked.contains(&document(line))
+        })
+        .collect();
+    for finding in &mut findings {
+        if finding.refused.is_none() && blocked.contains(&document(finding.line)) {
+            finding.refused = Some("the document cannot be re-indented safely");
+        }
+    }
     (edits, findings)
+}
+
+fn document_start_lines(buffer: &str) -> Vec<usize> {
+    let mut starts: Vec<usize> = Parser::new_from_str(buffer)
+        .map_while(Result::ok)
+        .filter_map(|item| match item {
+            (Event::DocumentStart(..), span) => Some(span.start.line()),
+            _ => None,
+        })
+        .collect();
+    *starts
+        .first_mut()
+        .expect("a restyled collection has a document") = 1;
+    starts
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
