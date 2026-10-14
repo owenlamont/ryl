@@ -10,7 +10,7 @@ use granit_parser::ScalarStyle;
 
 use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
-    line_contents, protected_scalar_lines, split_lines_preserve_endings,
+    buffer_newline, line_contents, protected_scalar_lines, split_lines_preserve_endings,
 };
 
 pub const ID: &str = "trailing-spaces";
@@ -45,6 +45,7 @@ pub fn fix(buffer: &str) -> Option<String> {
         _ => false,
     })?;
     let lines = line_contents(buffer);
+    let mut keep_blank_eof = false;
     for header in block_scalar_chomping::headers(buffer) {
         protected.remove(&header.line);
         let span = header.span;
@@ -61,6 +62,12 @@ pub fn fix(buffer: &str) -> Option<String> {
                 text.len() <= indent && text.bytes().all(|ch| ch == b' ')
             }) {
                 protected.remove(&line);
+                if header.chomping == Some('+')
+                    && line == lines.len()
+                    && !buffer.ends_with(['\n', '\r'])
+                {
+                    keep_blank_eof = true;
+                }
             }
         }
     }
@@ -80,6 +87,10 @@ pub fn fix(buffer: &str) -> Option<String> {
         };
         output.push_str(stripped);
         output.push_str(ending);
+    }
+
+    if keep_blank_eof {
+        output.push_str(buffer_newline(buffer));
     }
 
     changed.then_some(output)

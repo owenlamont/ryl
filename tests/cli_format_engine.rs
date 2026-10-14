@@ -99,14 +99,17 @@ fn empty_block_scalar_headers_are_trimmed_and_terminated() {
 }
 
 #[test]
-fn unterminated_empty_block_scalar_indentation_is_trimmed_without_a_body_break() {
+fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
     for header in ["|", ">", "|-", ">-", "|+", ">+", "|4", ">4-", "|+4"] {
         for newline in ["\n", "\r\n", "\r"] {
             for width in [1, 4] {
                 let config = "[format]\nline-ending = 'auto'\n[lint.rules]\ntrailing-spaces = 'enable'\n";
                 let input = format!("a: {header}{newline}{}", " ".repeat(width));
                 let ending = if newline == "\r" { "\n" } else { newline };
-                let expected = format!("a: {header}{ending}");
+                let expected = format!(
+                    "a: {header}{ending}{}",
+                    if header.contains('+') { ending } else { "" }
+                );
                 let (code, _, stderr, formatted) =
                     format_file(Some(config), &input, &[]);
                 assert_eq!(code, 0, "{stderr}");
@@ -116,6 +119,44 @@ fn unterminated_empty_block_scalar_indentation_is_trimmed_without_a_body_break()
                 assert_eq!((code, again.as_str()), (0, expected.as_str()), "{stderr}");
                 let (code, _, stderr, _) = ryl_on(Some(config), &formatted, &["check"]);
                 assert_eq!(code, 0, "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
+fn keep_scalar_eof_preserves_its_break_with_document_markers() {
+    for newline in ["\n", "\r\n"] {
+        for input_marker in [false, true] {
+            for add_end in [false, true] {
+                let config = format!(
+                    "[format]\nline-ending = '{}'\ndocument-end = '{}'\n",
+                    if newline == "\n" { "lf" } else { "cr-lf" },
+                    if add_end { "add" } else { "preserve" },
+                );
+                let input = format!(
+                    "- |+{newline}   {}",
+                    if input_marker {
+                        format!("{newline}...{newline}")
+                    } else {
+                        String::new()
+                    },
+                );
+                let expected = format!(
+                    "- |+{newline}{newline}{}",
+                    if input_marker || add_end {
+                        format!("...{newline}")
+                    } else {
+                        String::new()
+                    },
+                );
+                let (code, _, stderr, formatted) =
+                    format_file(Some(&config), &input, &[]);
+                assert_eq!(
+                    (code, formatted.as_str()),
+                    (0, expected.as_str()),
+                    "{stderr}"
+                );
             }
         }
     }

@@ -1059,7 +1059,8 @@ impl<'cfg> FixState<'cfg> {
             return None;
         }
 
-        let replacement = self.compute_fix(style, value, resolves_to_string, span);
+        let replacement =
+            self.compute_fix(style, value, active_key, resolves_to_string, span);
 
         self.walker.finish_node(context);
         replacement
@@ -1100,6 +1101,7 @@ impl<'cfg> FixState<'cfg> {
         &mut self,
         style: ScalarStyle,
         value: &str,
+        active_key: bool,
         resolves_to_string: bool,
         span: Span,
     ) -> Option<Replacement> {
@@ -1114,10 +1116,11 @@ impl<'cfg> FixState<'cfg> {
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
         // A `:` before a non-space (`{'k':v}`, `{'k' :v}`) is a value indicator only
         // because the key is quoted, even with comments and line breaks in between.
-        if next_token(&self.buffer[end.get()..])
-            .strip_prefix(':')
-            .and_then(|after| after.chars().next())
-            .is_some_and(|next| !next.is_whitespace())
+        if active_key
+            && next_token(&self.buffer[end.get()..])
+                .strip_prefix(':')
+                .and_then(|after| after.chars().next())
+                .is_some_and(|next| !next.is_whitespace())
         {
             facts.quotes_needed = Flag::new(true);
         }

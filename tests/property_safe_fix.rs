@@ -31,8 +31,8 @@ use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 
 use ast::{
-    BlockEntry, ColonGap, Document, FlowStyle, InlineComment, Layout, NewlineStyle,
-    Node, Scalar,
+    BlockBodyLine, BlockEntry, ColonGap, Document, FlowStyle, InlineComment, Layout,
+    NewlineStyle, Node, Scalar,
 };
 use config::{
     named_config, parse_for_compare, safe_fix_configs, safe_fix_rule_diagnostics,
@@ -95,6 +95,15 @@ proptest! {
     #[test]
     fn safe_fix_preserves_parsed_value(document in arb_document()) {
         let input = document.render();
+        // granit counts this terminal blank; the reference parser clips it.
+        let clipped_blank_at_eof = !document.has_final_newline
+            && document.entries.last().is_some_and(|entry| {
+                matches!(&entry.value, Node::BlockScalar(spec)
+                    if matches!(spec.style, '|' | '>')
+                        && spec.chomp.is_none()
+                        && matches!(spec.body.last(), Some(BlockBodyLine::Spaces(_)))
+                        && spec.body.iter().any(|line| matches!(line, BlockBodyLine::Content { .. })))
+            });
         let Some(before) = parse_for_compare(&input) else {
             return Ok(());
         };
@@ -108,14 +117,25 @@ proptest! {
                     "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
                 ))
             })?;
-            prop_assert_eq!(
-                &before,
-                &after,
-                "safe fix changed parsed YAML value under config '{}'; input {:?}; fixed {:?}",
-                cfg_name,
-                input,
-                fixed
-            );
+            if before != after && clipped_blank_at_eof {
+                let reference_equal = noyalib::from_str::<noyalib::Value>(&input)
+                    .ok()
+                    .zip(noyalib::from_str::<noyalib::Value>(&fixed).ok())
+                    .is_some_and(|(before, after)| before == after);
+                prop_assert!(
+                    reference_equal,
+                    "safe fix changed reference YAML value under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
+                );
+            } else {
+                prop_assert_eq!(
+                    &before,
+                    &after,
+                    "safe fix changed parsed YAML value under config '{}'; input {:?}; fixed {:?}",
+                    cfg_name,
+                    input,
+                    fixed
+                );
+            }
         }
     }
 

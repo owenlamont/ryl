@@ -132,10 +132,14 @@ fn scalar_loader_resolves_yaml_12_core_values() {
 
 #[test]
 fn scalar_loader_matches_reference_block_values() {
+    let value: std::collections::BTreeMap<String, noyalib::Value> =
+        noyalib::from_str("a: |\n  a\n  ").unwrap();
+    assert_eq!(value.get("a"), Some(&noyalib::Value::from("a\n")));
     for (input, expected) in [
         ("a: |+", ""),
         ("a: |\n  a", "a\n"),
         ("a: |\n  a\n", "a\n"),
+        ("a: |\n  a\n  ", "a\n"),
         ("a: |-\n  a", "a"),
         ("a: |+\n  a", "a\n"),
         ("a: |+\n  \n  ", "\n\n"),
@@ -144,6 +148,7 @@ fn scalar_loader_matches_reference_block_values() {
         ("a: |+\n    \n", "\n"),
         ("a: >\n  a", "a\n"),
         ("a: >\n  a\n", "a\n"),
+        ("a: >\n  a\n  ", "a\n"),
     ] {
         assert_eq!(
             scalar_value(input, 1),
@@ -258,6 +263,15 @@ pub fn content_whitespace(
     }
     match (scalar_value(output, index), scalar_value(&repaired, index)) {
         (Some(before), Some(after)) => before != after,
+        (Some(_), None) => {
+            match (
+                noyalib::from_str::<noyalib::Value>(output),
+                noyalib::from_str::<noyalib::Value>(&repaired),
+            ) {
+                (Ok(before), Ok(after)) => before != after,
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
