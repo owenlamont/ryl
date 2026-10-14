@@ -159,7 +159,8 @@ oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/na
 one repo. The epic-to-main gate also passes `--proptest-cases 5120`, which then runs
 every property suite at 20×, one after another. `rust-known-errors` and
 `yaml12-known-errors` in the manifest list files an oracle's own parser misreads;
-PyYAML scans the final block scalar before an EOF difference is waived; an
+When py-yaml12 disagrees and both streams end in block scalars, PyYAML's scanner
+marks the py-yaml12 verdict unavailable; the Rust oracle still judges the pair. An
 entry waives that oracle's value verdict only while the original and formatted bytes
 match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
 gate as stale. Any ryl error, panic or timeout fails it too.

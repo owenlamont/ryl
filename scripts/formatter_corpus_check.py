@@ -11,8 +11,8 @@ config files) into a cache dir, formatted in place twice per mode, then reset. M
 
   - value: per changed file, the property suite's Rust oracle (`representation` and
     `annotations` in tests/property_format.rs) must find the values, tags, anchors and
-    comments unchanged, and py-yaml12 the loaded values (PyYAML scans a final block
-    scalar when py-yaml12 disagrees); a file that did not parse must not change;
+    comments unchanged, and py-yaml12 the loaded values (disputed final block scalars
+    are unavailable); a file that did not parse must not change;
   - idempotence: a second `ryl format` changes nothing;
   - panic or timeout.
 
@@ -262,64 +262,32 @@ def _compare(load: Callable[[bytes], Any], before: bytes, after: bytes) -> Loade
     return Loaded.EQUAL if equal else Loaded.UNEQUAL
 
 
-def _without_final_block_scalar(data: bytes) -> tuple[str, bytes] | None:
-    source = data.decode("utf-8")
+def _ends_in_block_scalar(data: bytes) -> bool:
     try:
-        tokens = list(yaml.scan(source))
+        tokens = list(yaml.scan(data.decode("utf-8")))
     except (ValueError, RecursionError, AssertionError, yaml.YAMLError):
-        return None
+        return False
     for index in range(len(tokens) - 1, -1, -1):
         token = tokens[index]
         if isinstance(token, yaml.ScalarToken):
-            if token.style not in ("|", ">") or any(
-                not isinstance(
+            return token.style in ("|", ">") and all(
+                isinstance(
                     tail,
                     (yaml.BlockEndToken, yaml.DocumentEndToken, yaml.StreamEndToken),
                 )
                 for tail in tokens[index + 1 :]
-            ):
-                return None
-            value = token.value
-            trailing = source[token.end_mark.index :]
-            if trailing and trailing.isspace() and not source.endswith(("\n", "\r")):
-                # PyYAML needs a terminal break to count a spaces-only keep line at EOF.
-                try:
-                    completed = list(yaml.scan(source + "\n"))
-                except (ValueError, RecursionError, AssertionError, yaml.YAMLError):
-                    return None
-                completed_scalar = next(
-                    (
-                        part
-                        for part in reversed(completed)
-                        if isinstance(part, yaml.ScalarToken)
-                    ),
-                    None,
-                )
-                if completed_scalar is None:
-                    return None
-                value = completed_scalar.value
-            masked = (
-                source[: token.start_mark.index]
-                + '""\n'
-                + source[token.end_mark.index :]
             )
-            return value, masked.encode("utf-8")
-    return None
+    return False
 
 
 def _compare12(before: bytes, after: bytes) -> Loaded:
     verdict = _compare(_load12, before, after)
-    if verdict is not Loaded.UNEQUAL:
-        return verdict
-    left = _without_final_block_scalar(before)
-    right = _without_final_block_scalar(after)
     if (
-        left
-        and right
-        and left[0] == right[0]
-        and _compare(_load12, left[1], right[1]) is Loaded.EQUAL
+        verdict is Loaded.UNEQUAL
+        and _ends_in_block_scalar(before)
+        and _ends_in_block_scalar(after)
     ):
-        return Loaded.EQUAL
+        return Loaded.UNAVAILABLE
     return verdict
 
 
