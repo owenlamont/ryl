@@ -374,7 +374,10 @@ No user-facing changes; release automation was updated.
 
 ## v0.3.4 - 2026-02-28
 
-No user-facing changes; release notes and benchmarks were automated.
+### Added
+
+- Published a performance benchmark comparison with yamllint in the README.
+  ([#138](https://github.com/owenlamont/ryl/pull/138))
 
 ## v0.3.3 - 2026-02-28
 
