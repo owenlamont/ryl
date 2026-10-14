@@ -69,6 +69,19 @@ fn detected_width_agrees_with_explicit_key_indentation() {
 }
 
 #[test]
+fn flush_sequence_explicit_key_does_not_override_scalar_indent_width() {
+    let config = "[format]\nindent-sequences = false\n";
+    let input = "a: |\n  \n   w\np:\n   -\n     ? b\n     : x\n";
+    let (code, _, stderr, once) = ryl_on(Some(config), input, &["format"]);
+    assert_eq!((code, stderr.as_str()), (0, ""));
+    let (code, _, stderr, twice) = ryl_on(Some(config), &once, &["format"]);
+    assert_eq!(
+        (code, stderr.as_str(), twice.as_str()),
+        (0, "", once.as_str())
+    );
+}
+
+#[test]
 fn format_check_fails_only_on_what_it_would_change() {
     let (code, stderr, _) = run_on(UNFOLLOWABLE, &["format", "--check"]);
     assert!(

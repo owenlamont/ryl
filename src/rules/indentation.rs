@@ -649,6 +649,7 @@ impl<'a> Analyzer<'a> {
         let next_column = self.column(next);
         self.fixed_explicit_indent |= key.explicit_key
             && self.below_top().kind == ParentKind::BlockMapping
+            && self.stack[self.stack.len() - 3].kind != ParentKind::BlockEntry
             && self.spaces.is_none()
             && next.line == token.line;
         let indent = if key.explicit_key {
