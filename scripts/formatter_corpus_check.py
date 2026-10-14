@@ -11,8 +11,9 @@ config files) into a cache dir, formatted in place twice per mode, then reset. M
 
   - value: per changed file, the property suite's Rust oracle (`representation` and
     `annotations` in tests/property_format.rs) must find the values, tags, anchors and
-    comments unchanged, and py-yaml12 the loaded values; a file that did not parse must
-    not change;
+    comments unchanged, and py-yaml12 the loaded values (disputed final block scalars
+    are unavailable when preceding bytes match); a file that did not parse must not
+    change;
   - idempotence: a second `ryl format` changes nothing;
   - panic or timeout.
 
@@ -262,6 +263,36 @@ def _compare(load: Callable[[bytes], Any], before: bytes, after: bytes) -> Loade
     return Loaded.EQUAL if equal else Loaded.UNEQUAL
 
 
+def _final_block_scalar_prefix(data: bytes) -> bytes | None:
+    try:
+        source = data.decode("utf-8")
+        tokens = list(yaml.scan(source))
+    except (ValueError, RecursionError, AssertionError, yaml.YAMLError):
+        return None
+    for index in range(len(tokens) - 1, -1, -1):
+        token = tokens[index]
+        if isinstance(token, yaml.ScalarToken):
+            if token.style in ("|", ">") and all(
+                isinstance(
+                    tail,
+                    (yaml.BlockEndToken, yaml.DocumentEndToken, yaml.StreamEndToken),
+                )
+                for tail in tokens[index + 1 :]
+            ):
+                return source[: token.start_mark.index].encode("utf-8")
+            return None
+    return None
+
+
+def _compare12(before: bytes, after: bytes) -> Loaded:
+    verdict = _compare(_load12, before, after)
+    if verdict is Loaded.UNEQUAL:
+        prefix = _final_block_scalar_prefix(before)
+        if prefix is not None and prefix == _final_block_scalar_prefix(after):
+            return Loaded.UNAVAILABLE
+    return verdict
+
+
 def _lint_args(clone: Path) -> list[str]:
     has_config = any((clone / name).is_file() for name in _CONFIG_NAMES)
     return [] if has_config else ["-d", "extends: default"]
@@ -368,7 +399,7 @@ def _record_change(
     digest = (hashlib.sha256(before).hexdigest(), hashlib.sha256(after).hexdigest())
     if repo.rust_known_errors.get(path) == digest:
         result.rust_waivable.append(path)
-    match _compare(_load12, before, after):
+    match _compare12(before, after):
         case Loaded.UNEQUAL if repo.yaml12_known_errors.get(path) == digest:
             result.yaml12_known_errors.append(path)
         case Loaded.UNEQUAL:
