@@ -579,4 +579,5 @@ changes to run alongside it.
 
 `.yamllint` and `.ryl.toml` can coexist for separate tools. When both are
 present in the same directory, ryl uses TOML exclusively and ignores `.yamllint`.
-Keep shared lint settings synchronized, or regenerate TOML after changing YAML.
+Keep shared lint settings synchronized: `--migrate-configs` skips `.yamllint` when
+a `.ryl.toml` already exists.
