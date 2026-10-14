@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.15"
 # dependencies = ["markdown-it-py>=4", "typer>=0.12"]
 # ///
 
