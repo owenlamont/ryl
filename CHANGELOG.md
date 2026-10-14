@@ -20,6 +20,12 @@ summarize user-visible changes from the tagged commits and published release rec
   [#606](https://github.com/owenlamont/ryl/pull/606))
 - `--output-format` names the output format for both `check` and `format`; `-f`
   remains an alias. ([#605](https://github.com/owenlamont/ryl/pull/605))
+- Editor Format Document uses `ryl format`, including for embedded YAML in Markdown.
+  ([#583](https://github.com/owenlamont/ryl/pull/583))
+- Top-level TOML `line-length` and `indent-width` provide shared defaults for lint
+  and format. ([#521](https://github.com/owenlamont/ryl/pull/521))
+- `check --fix` can repair `colons` and `hyphens` spacing.
+  ([#524](https://github.com/owenlamont/ryl/pull/524))
 
 ### Changed
 
@@ -33,9 +39,40 @@ summarize user-visible changes from the tagged commits and published release rec
   `ryl --migrate-configs --migrate-write` and user-global config with
   `ryl --migrate-user-config --migrate-write`; a later release will remove YAML
   config loading. ([#562](https://github.com/owenlamont/ryl/pull/562))
+- `-d` accepts inline TOML; legacy YAML preset names still work with a warning.
+  ([#562](https://github.com/owenlamont/ryl/pull/562))
 - `format` preserves document-start markers by default, including files migrated
   from yamllint's `default` preset.
   ([#584](https://github.com/owenlamont/ryl/pull/584))
+- Editor formatting and Fix All warn when lint settings conflict with formatting.
+  ([#615](https://github.com/owenlamont/ryl/pull/615))
+- `quoted-strings` and `format` keep quotes needed by YAML 1.1 readers, while a
+  declared `%YAML 1.1` follows the lint policy for redundant quotes.
+  ([#535](https://github.com/owenlamont/ryl/pull/535),
+  [#560](https://github.com/owenlamont/ryl/pull/560),
+  [#604](https://github.com/owenlamont/ryl/pull/604))
+
+### Fixed
+
+- A leading shebang or `#cloud-config` stays before an inserted document marker.
+  ([#531](https://github.com/owenlamont/ryl/pull/531))
+- `check --fix` and `format` add requested start and end markers to each document
+  in a stream. ([#566](https://github.com/owenlamont/ryl/pull/566),
+  [#587](https://github.com/owenlamont/ryl/pull/587))
+- Formatting preserves encoded stdin and BOMs; encoded `check --diff` input counts
+  pending fixes. ([#617](https://github.com/owenlamont/ryl/pull/617),
+  [#620](https://github.com/owenlamont/ryl/pull/620))
+- `format --check` writes empty reports when no files or changes are selected.
+  ([#614](https://github.com/owenlamont/ryl/pull/614))
+- Config migration leaves YAML sources shadowed by active TOML in place.
+  ([#632](https://github.com/owenlamont/ryl/pull/632))
+- Path matching respects Windows and macOS ASCII casing, and Windows diff paths apply
+  with `git apply -p0`. ([#653](https://github.com/owenlamont/ryl/pull/653),
+  [#655](https://github.com/owenlamont/ryl/pull/655))
+- Formatting preserves Markdown fence boundaries and block scalar values while
+  normalizing safe whitespace. ([#633](https://github.com/owenlamont/ryl/pull/633),
+  [#661](https://github.com/owenlamont/ryl/pull/661),
+  [#669](https://github.com/owenlamont/ryl/pull/669))
 
 ### Migrating from yamllint
 

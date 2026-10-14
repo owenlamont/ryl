@@ -48,6 +48,21 @@ def test_release_notes_extract_only_the_exact_version() -> None:
             "## v0.1.0\n\n## v0.1.0\n\nDuplicate.\n", "v0.1.0", id="duplicate version"
         ),
         pytest.param("## v0.1.0\n\n## v0.2.0\n\nNext.\n", "v0.1.0", id="empty section"),
+        pytest.param(
+            "## v0.1.0\n\n### Added\n\n## v0.2.0\n\nNext.\n",
+            "v0.1.0",
+            id="heading without content",
+        ),
+        pytest.param(
+            "## v0.1.0\n\n<!-- TODO -->\n\n## v0.2.0\n\nNext.\n",
+            "v0.1.0",
+            id="comment without content",
+        ),
+        pytest.param(
+            "## v0.1.0\n\n### Added\n\n- <!-- TODO -->\n",
+            "v0.1.0",
+            id="comment-only list item",
+        ),
     ],
 )
 def test_missing_duplicate_and_empty_sections_fail(source: str, version: str) -> None:
@@ -72,5 +87,7 @@ def test_draft_groups_merged_pr_titles_by_prefix() -> None:
 
 
 def test_a_heading_inside_a_code_fence_does_not_split_release_notes() -> None:
-    source = "## v0.2.0\n\n```md\n## v0.1.0\n```\n\n## v0.1.0\n\nOld.\n"
-    assert changelog.release_notes(source, "v0.2.0") == "```md\n## v0.1.0\n```\n"
+    source = "## v0.2.0\n\n```md\n## v0.1.0\n```\n\nReal notes.\n\n## v0.1.0\n\nOld.\n"
+    assert changelog.release_notes(source, "v0.2.0") == (
+        "```md\n## v0.1.0\n```\n\nReal notes.\n"
+    )

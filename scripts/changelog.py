@@ -47,7 +47,18 @@ def release_notes(changelog: str, version: str) -> str:
     lines = changelog.splitlines(keepends=True)
     end = sections[index + 1][1][0] if index + 1 < len(sections) else len(lines)
     notes = "".join(lines[bounds[1] : end]).strip()
-    if not notes:
+    note_tokens = MarkdownIt().parse(notes)
+    has_content = any(
+        token.type == "paragraph_open"
+        and note_tokens[index + 1].type == "inline"
+        and any(
+            child.type == "image"
+            or (child.type in {"text", "code_inline"} and child.content.strip())
+            for child in note_tokens[index + 1].children or []
+        )
+        for index, token in enumerate(note_tokens[:-1])
+    )
+    if not has_content:
         raise ValueError(f"empty changelog section for {version}")
     return f"{notes}\n"
 
