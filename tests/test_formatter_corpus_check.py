@@ -162,12 +162,16 @@ def test_rust_oracle_value_loss_remains_a_hard_failure(tmp_path: Path) -> None:
 
 
 def _record(after: bytes, tmp_path: Path, before: bytes = BEFORE) -> gate.Result:
-    digest = (hashlib.sha256(BEFORE).hexdigest(), hashlib.sha256(REVIEWED).hexdigest())
+    reviewed = (
+        PATH,
+        hashlib.sha256(BEFORE).hexdigest(),
+        hashlib.sha256(REVIEWED).hexdigest(),
+    )
     repo = gate.Repo(
         url="https://example.com/o/r",
         sha="0" * 40,
-        rust_known_errors={PATH: digest},
-        yaml12_known_errors={PATH: digest},
+        rust_known_errors=frozenset({reviewed}),
+        yaml12_known_errors=frozenset({reviewed}),
     )
     result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
     gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
@@ -183,6 +187,32 @@ def test_a_known_error_is_waived_for_its_reviewed_output(tmp_path: Path) -> None
     assert gate._hard_failures(_record(REVIEWED, tmp_path)) == 0
 
 
+@pytest.mark.parametrize(
+    ("verdict", "hard_failures"),
+    [("value-preservation", 0), ("comment/anchor fidelity", 1)],
+)
+def test_pinned_rust_pair_waives_only_value_preservation(
+    verdict: str, hard_failures: int, tmp_path: Path
+) -> None:
+    after = b"---\na: x\n"
+    reviewed = (
+        PATH,
+        hashlib.sha256(BEFORE).hexdigest(),
+        hashlib.sha256(after).hexdigest(),
+    )
+    repo = gate.Repo(
+        url="https://example.com/o/r",
+        sha="0" * 40,
+        rust_known_errors=frozenset({reviewed}),
+    )
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(result, repo, PATH, BEFORE, after, pairs=[], pair_dir=tmp_path)
+    gate._assign_verdicts([result], {f"{result.mode}\t{result.repo}\t{PATH}": verdict})
+    assert result.rust_known_errors == ([reviewed] if not hard_failures else [])
+    assert result.rust == ({verdict: [PATH]} if hard_failures else {})
+    assert gate._hard_failures(result) == hard_failures
+
+
 def test_corrupting_an_allow_listed_file_fails_the_gate(tmp_path: Path) -> None:
     result = _record(CORRUPTED, tmp_path)
     assert result.yaml12_unequal == [PATH]
@@ -195,6 +225,47 @@ def test_corrupting_the_input_of_an_allow_listed_file_fails_the_gate(
 ) -> None:
     result = _record(REVIEWED, tmp_path, before=b"a: CORRUPTED\n")
     assert gate._hard_failures(result) == 4, result.errors
+
+
+def test_each_hash_pair_must_be_hit_to_avoid_staleness(tmp_path: Path) -> None:
+    other = b"---\na: z\n"
+    entries = [
+        {
+            "path": PATH,
+            "before-sha256": hashlib.sha256(BEFORE).hexdigest(),
+            "after-sha256": hashlib.sha256(after).hexdigest(),
+        }
+        for after in (REVIEWED, other)
+    ]
+    repo = gate.Repo(
+        url="https://example.com/o/r",
+        sha="0" * 40,
+        yaml12_known_errors=gate._known(entries, gate.Profile.STANDARD),
+    )
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(
+        result, repo, PATH, BEFORE, REVIEWED, pairs=[], pair_dir=tmp_path
+    )
+    assert len(result.yaml12_known_errors) == 1
+    assert len(gate._stale_known_errors([repo], [result])) == 1
+    second = gate.Result(repo=repo.name, mode=gate.Mode.FOLD)
+    gate._record_change(second, repo, PATH, BEFORE, other, pairs=[], pair_dir=tmp_path)
+    assert gate._stale_known_errors([repo], [result, second]) == []
+
+
+def test_manifest_selects_only_the_active_profile_waivers() -> None:
+    name = "johnkoht/hassio-config"
+    standard = gate._manifest([name], gate.Profile.STANDARD)[0]
+    block = gate._manifest([name], gate.Profile.BLOCK_CRLF)[0]
+    assert len(standard.yaml12_known_errors) == 2
+    assert len(block.yaml12_known_errors) == 4
+    assert standard.yaml12_known_errors.isdisjoint(block.yaml12_known_errors)
+    result = gate.Result(
+        repo=name,
+        mode=gate.Mode.DEFAULT,
+        yaml12_known_errors=list(standard.yaml12_known_errors),
+    )
+    assert gate._stale_known_errors([standard], [result]) == []
 
 
 def test_a_dirty_cached_checkout_is_refused(tmp_path: Path) -> None:

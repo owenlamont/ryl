@@ -79,6 +79,7 @@ _SKIP_RE: Final = re.compile(r"^(.+?):\d+:\d+ skipped by ")
 # `unreadable` means a side is not UTF-8, so the Rust oracle could not judge the pair.
 _RUST_PASSES: Final = frozenset({"ok", "unreadable"})
 _DEFAULT_CACHE: Final = Path(platformdirs.user_cache_dir("ryl-corpus"))
+KnownError = tuple[str, str, str]
 
 
 class CorpusError(Exception):
@@ -88,6 +89,13 @@ class CorpusError(Exception):
 class Mode(StrEnum):
     DEFAULT = "default"
     FOLD = "fold"
+
+
+class Profile(StrEnum):
+    STANDARD = "standard"
+    BLOCK_CRLF = "block-crlf"
+    FLOW_NARROW = "flow-narrow"
+    PREVIEW_AUTO = "preview-auto"
 
 
 class Loaded(StrEnum):
@@ -105,8 +113,8 @@ class Repo:
     expected_skip_marker: Mapping[str, str] = field(default_factory=dict)
     tally: bool = True
     modes: tuple[Mode, ...] = tuple(Mode)
-    yaml12_known_errors: Mapping[str, tuple[str, str]] = field(default_factory=dict)
-    rust_known_errors: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    yaml12_known_errors: frozenset[KnownError] = frozenset()
+    rust_known_errors: frozenset[KnownError] = frozenset()
 
     @property
     def name(self) -> str:
@@ -127,9 +135,9 @@ class Result:
     not_idempotent: list[str] = field(default_factory=list)
     yaml12_unequal: list[str] = field(default_factory=list)
     yaml12_unavailable: list[str] = field(default_factory=list)
-    yaml12_known_errors: list[str] = field(default_factory=list)
-    rust_waivable: list[str] = field(default_factory=list)
-    rust_known_errors: list[str] = field(default_factory=list)
+    yaml12_known_errors: list[KnownError] = field(default_factory=list)
+    rust_waivable: dict[str, KnownError] = field(default_factory=dict)
+    rust_known_errors: list[KnownError] = field(default_factory=list)
     yaml11_drift: list[str] = field(default_factory=list)
     rust: dict[str, list[str]] = field(default_factory=dict)
     lint_rose: dict[str, list[int]] = field(default_factory=dict)
@@ -147,7 +155,7 @@ def _hard_failures(result: Result) -> int:
     return _value_failures(result) + len(result.not_idempotent) + len(result.errors)
 
 
-def _manifest(names: Iterable[str]) -> list[Repo]:
+def _manifest(names: Iterable[str], profile: Profile = Profile.STANDARD) -> list[Repo]:
     rows = tomllib.loads(_MANIFEST.read_text(encoding="utf-8"))["repo"]
     repos = [
         Repo(
@@ -158,8 +166,8 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
             expected_skip_marker=row.get("expected-skip-marker", {}),
             tally=row.get("tally", True),
             modes=tuple(Mode(m) for m in row.get("modes", Mode)),
-            yaml12_known_errors=_known(row.get("yaml12-known-errors", ())),
-            rust_known_errors=_known(row.get("rust-known-errors", ())),
+            yaml12_known_errors=_known(row.get("yaml12-known-errors", ()), profile),
+            rust_known_errors=_known(row.get("rust-known-errors", ()), profile),
         )
         for row in rows
     ]
@@ -170,8 +178,14 @@ def _manifest(names: Iterable[str]) -> list[Repo]:
     return [r for r in repos if not wanted or r.name in wanted]
 
 
-def _known(entries: Iterable[Mapping[str, str]]) -> dict[str, tuple[str, str]]:
-    return {e["path"]: (e["before-sha256"], e["after-sha256"]) for e in entries}
+def _known(
+    entries: Iterable[Mapping[str, str]], profile: Profile
+) -> frozenset[KnownError]:
+    return frozenset(
+        (e["path"], e["before-sha256"], e["after-sha256"])
+        for e in entries
+        if e.get("profile", "standard") == profile
+    )
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -396,12 +410,16 @@ def _record_change(
     stem.with_suffix(".before").write_bytes(before)
     stem.with_suffix(".after").write_bytes(after)
     pairs.append((f"{result.mode}\t{result.repo}\t{path}", stem))
-    digest = (hashlib.sha256(before).hexdigest(), hashlib.sha256(after).hexdigest())
-    if repo.rust_known_errors.get(path) == digest:
-        result.rust_waivable.append(path)
+    reviewed = (
+        path,
+        hashlib.sha256(before).hexdigest(),
+        hashlib.sha256(after).hexdigest(),
+    )
+    if reviewed in repo.rust_known_errors:
+        result.rust_waivable[path] = reviewed
     match _compare12(before, after):
-        case Loaded.UNEQUAL if repo.yaml12_known_errors.get(path) == digest:
-            result.yaml12_known_errors.append(path)
+        case Loaded.UNEQUAL if reviewed in repo.yaml12_known_errors:
+            result.yaml12_known_errors.append(reviewed)
         case Loaded.UNEQUAL:
             result.yaml12_unequal.append(path)
         case Loaded.UNAVAILABLE:
@@ -421,7 +439,7 @@ def _assign_verdicts(results: Iterable[Result], verdicts: Mapping[str, str]) -> 
                 continue
             path = key.removeprefix(prefix)
             if verdict == "value-preservation" and path in result.rust_waivable:
-                result.rust_known_errors.append(path)
+                result.rust_known_errors.append(result.rust_waivable[path])
             else:
                 result.rust.setdefault(verdict, []).append(path)
 
@@ -467,15 +485,18 @@ def _stale_known_errors(repos: Iterable[Repo], results: list[Result]) -> list[st
             (
                 "rust",
                 row.rust_known_errors,
-                {p for r in ran for p in r.rust_known_errors},
+                {entry for r in ran for entry in r.rust_known_errors},
             ),
             (
                 "yaml12",
                 row.yaml12_known_errors,
-                {p for r in ran for p in r.yaml12_known_errors},
+                {entry for r in ran for entry in r.yaml12_known_errors},
             ),
         ):
-            stale.extend(f"{oracle} {row.name}: {p}" for p in listed if p not in hit)
+            stale.extend(
+                f"{oracle} {row.name}: {entry[0]} ({entry[1]} -> {entry[2]})"
+                for entry in sorted(listed - hit)
+            )
     return stale
 
 
@@ -543,6 +564,9 @@ def fetch(cache_dir: _CacheOption = _DEFAULT_CACHE, repo: _RepoOption = None) ->
 def run(
     cache_dir: _CacheOption = _DEFAULT_CACHE,
     repo: _RepoOption = None,
+    profile: Annotated[
+        Profile, typer.Option(help="Select known errors for this corpus profile.")
+    ] = Profile.STANDARD,
     tally: Annotated[
         bool,
         typer.Option(
@@ -563,7 +587,7 @@ def run(
     Raises:
         Exit: 1 on any hard-gate failure.
     """
-    rows = _manifest(repo or ())
+    rows = _manifest(repo or (), profile)
     typer.echo(f"Corpus pinned on {TESTED_DATE}")
     subprocess.run(["cargo", "build", "--release"], cwd=_ROOT, check=True)
     work = cache_dir / "work"
