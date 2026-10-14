@@ -1116,6 +1116,9 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
     }
     for (input, rule, line, column) in [
         ("a: plain ", "trailing-spaces", 1, 9),
+        ("true ", "trailing-spaces", 1, 6),
+        ("null ", "trailing-spaces", 1, 6),
+        ("011 ", "trailing-spaces", 1, 5),
         ("a: | \n  a\n", "trailing-spaces", 1, 5),
         ("a: |\n  a\nb: b \n", "trailing-spaces", 3, 5),
         ("a: |\n  a\n# after\n\n", "empty-lines", 4, 1),
