@@ -82,8 +82,8 @@ summarize user-visible changes from the tagged commits and published release rec
 - `quoted-strings --fix` keeps quotes on flow keys whose colon follows whitespace
   or a comment, preserving the key's meaning.
   ([#555](https://github.com/owenlamont/ryl/pull/555))
-- Fixes preserve blank block-scalar content and header comments; editor disable-line
-  actions work inside blank-only scalars.
+- Fixes preserve blank block-scalar content and scalar values when headers have
+  comments; editor disable-line actions work inside blank-only scalars.
   ([#542](https://github.com/owenlamont/ryl/pull/542),
   [#543](https://github.com/owenlamont/ryl/pull/543),
   [#563](https://github.com/owenlamont/ryl/pull/563),
