@@ -54,7 +54,10 @@ pub fn refused(
 }
 
 fn refusal_column(output: &str, notice: &ryl::lint::LintProblem) -> Option<usize> {
-    if notice.rule != Some("hyphens") {
+    if notice.rule != Some("hyphens")
+        || notice.message
+            != "cannot move this mapping below its `-`: a comment follows the `-`"
+    {
         return Some(notice.column);
     }
     let mut dash = None;

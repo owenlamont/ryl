@@ -131,13 +131,13 @@ fn notices_count_lines_in_the_file_each_mode_leaves() {
     let input = "k: 1\n\n\n\n\n---\n: v\n";
     let (_, stderr, _) = run_on(input, &["format", "--check"]);
     assert!(
-        stderr.contains("a.yaml:6:1 indentation not fixed"),
+        stderr.contains("a.yaml:7:1 indentation not fixed"),
         "{stderr}"
     );
     let (_, stderr, formatted) = run_on(input, &["format"]);
     assert_eq!(formatted, "k: 1\n\n\n---\n: v\n");
     assert!(
-        stderr.contains("a.yaml:4:1 indentation not fixed"),
+        stderr.contains("a.yaml:5:1 indentation not fixed"),
         "{stderr}"
     );
 }
@@ -154,7 +154,7 @@ fn markdown_notices_count_lines_in_the_unchanged_host() {
     fs::write(&file, "```yaml\nk: 1\n\n\n\n---\n: v\n```\n").unwrap();
     let (_, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
     assert!(
-        stderr.contains("doc.md:6:1 indentation not fixed"),
+        stderr.contains("doc.md:7:1 indentation not fixed"),
         "{stderr}"
     );
 }
@@ -193,7 +193,7 @@ fn each_refused_document_is_named_in_line_order() {
         .collect();
     assert_eq!(lines.len(), 2, "{stderr}");
     assert!(
-        lines[0].starts_with("1:1") && lines[1].starts_with("2:1"),
+        lines[0].starts_with("1:1") && lines[1].starts_with("3:1"),
         "{stderr}"
     );
 }

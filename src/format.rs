@@ -67,8 +67,14 @@ impl Passes<'static> {
                 usize::from(table.comment_spacing.get()),
                 table.comment_starting_space == MarkerTarget::Add,
             )),
-            indentation: on(indentation::ID)
-                .then(|| indentation_target(cfg, layout.indent)),
+            indentation: on(indentation::ID).then(|| {
+                let target = indentation_target(cfg, layout.indent);
+                if cfg.indent_width().is_none() {
+                    target.requiring_consistent()
+                } else {
+                    target
+                }
+            }),
             comments_indentation: on(comments_indentation::ID)
                 .then_some(comments_indentation::Config::new(false)),
             commas: on(commas::ID).then_some(commas::Config::new(0, 1, 1)),
@@ -144,6 +150,7 @@ fn collection_style_config(
         mappings: style(table.mapping_style, braces::ID),
         indent,
         width: line_length(cfg),
+        infer_consistent_indent: cfg.indent_width().is_none(),
     }
 }
 
@@ -361,12 +368,15 @@ impl FormatCache {
         path: &Path,
         skip: &[&str],
     ) -> &(String, Vec<&'static str>) {
-        let layout = Layout::of(cfg, input, self.indent_width(cfg, input));
-        self.formatted.entry(input.to_string()).or_insert_with(|| {
+        let width = self.indent_width(cfg, input);
+        let layout = Layout::of(cfg, input, width);
+        let result = self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(input, cfg, layout, path, skip, &mut edited);
             (formatted, edited)
-        })
+        });
+        self.widths.entry(result.0.clone()).or_insert(width);
+        result
     }
 }
 
@@ -479,16 +489,18 @@ fn indentation_target(cfg: &YamlLintConfig, width: u8) -> indentation::Config {
     .with_dash_on_own_line(cfg.format().targets().dash_on_own_line)
 }
 
-/// Each document `ryl format` leaves un-re-indented in `content` for a reason other than an
-/// inline directive, at its first line, each `-` a comment keeps its mapping beside, and
-/// each collection-style refusal.
 pub(crate) fn unfixed(
     content: &str,
     cfg: &YamlLintConfig,
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
     let indent = cache.indent_width(cfg, content);
-    let reindented = indentation::reindent(content, &indentation_target(cfg, indent));
+    let mut target = indentation_target(cfg, indent);
+    if cfg.indent_width().is_none() {
+        target = target.requiring_consistent();
+    }
+    let reindented = indentation::reindent(content, &target);
+    let inconsistent = indentation::check(content, &target.with_consistent_spaces());
     let kept = reindented
         .kept_dash_lines
         .iter()
@@ -501,6 +513,13 @@ pub(crate) fn unfixed(
                     .to_string(),
             rule: Some(hyphens::ID),
         });
+    let notice = |line, column| LintProblem {
+        line,
+        column,
+        level: Severity::Error,
+        message: "cannot re-indent this document safely".to_string(),
+        rule: Some(indentation::ID),
+    };
     let mut problems: Vec<LintProblem> = reindented
         .refused
         .iter()
@@ -510,15 +529,21 @@ pub(crate) fn unfixed(
                 indentation::Cause::Disabled | indentation::Cause::KeepScalarEof
             )
         })
-        .map(|refusal| LintProblem {
-            line: *refusal.lines.start(),
-            column: 1,
-            level: Severity::Error,
-            message: "cannot re-indent this document safely".to_string(),
-            rule: Some(indentation::ID),
+        .flat_map(|refusal| {
+            let sites: Vec<_> = inconsistent
+                .iter()
+                .filter(|violation| refusal.lines.contains(&violation.line))
+                .map(|violation| notice(violation.line, violation.column))
+                .collect();
+            if sites.is_empty() {
+                vec![notice(*refusal.lines.start(), 1)]
+            } else {
+                sites
+            }
         })
         .chain(kept)
         .collect();
+    problems.extend(refused_spacing(content, cfg, &reindented.refused));
     problems.extend(refusals_at(content, cfg, indent));
     if let Some(line) = trailing_spaces::keep_blank_eof_line(content) {
         problems.push(LintProblem {
@@ -532,7 +557,54 @@ pub(crate) fn unfixed(
         });
     }
     problems.sort_by_key(|problem| (problem.line, problem.column));
+    problems.dedup();
     problems
+}
+
+fn refused_spacing(
+    content: &str,
+    cfg: &YamlLintConfig,
+    refused: &[indentation::Refusal],
+) -> Vec<LintProblem> {
+    let refused_line = |line| {
+        refused.iter().any(|refusal| {
+            !matches!(
+                refusal.cause,
+                indentation::Cause::Disabled | indentation::Cause::KeepScalarEof
+            ) && refusal.lines.contains(&line)
+        })
+    };
+    hyphens::check(content, &hyphens::Config::resolve(cfg))
+        .into_iter()
+        .map(|violation| {
+            (
+                violation.line,
+                violation.column,
+                violation.message,
+                hyphens::ID,
+            )
+        })
+        .chain(
+            colons::check(content, &colons::Config::resolve(cfg))
+                .into_iter()
+                .map(|violation| {
+                    (
+                        violation.line,
+                        violation.column,
+                        violation.message,
+                        colons::ID,
+                    )
+                }),
+        )
+        .filter(|(line, _, _, _)| refused_line(*line))
+        .map(|(line, column, message, rule)| LintProblem {
+            line,
+            column,
+            level: Severity::Error,
+            message,
+            rule: Some(rule),
+        })
+        .collect()
 }
 
 fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
