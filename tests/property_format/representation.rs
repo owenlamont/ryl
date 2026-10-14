@@ -346,7 +346,7 @@ pub(super) fn same_implicit_block_value(before: &str, after: &str) -> bool {
     let first = first_content_line(before, span);
     let Some(header) = first
         .checked_sub(2)
-        .and_then(|index| before.split_inclusive('\n').nth(index))
+        .and_then(|index| yaml_lines(before).get(index).copied())
         .and_then(|line| BLOCK_HEADER.captures(line.trim_end_matches(['\r', '\n'])))
     else {
         return false;
@@ -360,7 +360,7 @@ pub(super) fn same_implicit_block_value(before: &str, after: &str) -> bool {
 }
 
 pub(super) fn first_content_line(output: &str, span: &granit_parser::Span) -> usize {
-    let lines: Vec<_> = output.lines().collect();
+    let lines = yaml_lines(output);
     let mut first = span.start.line();
     if span.indent.is_none()
         && lines
@@ -370,10 +370,34 @@ pub(super) fn first_content_line(output: &str, span: &granit_parser::Span) -> us
     {
         return first + 1;
     }
-    while first > 1 && lines[first - 2].trim_matches([' ', '\t']).is_empty() {
+    while first > 1
+        && lines[first - 2]
+            .trim_matches([' ', '\t', '\r', '\n'])
+            .is_empty()
+    {
         first -= 1;
     }
     first
+}
+
+fn yaml_lines(content: &str) -> Vec<&str> {
+    let mut lines = Vec::new();
+    let mut remaining = content;
+    while let Some(index) = remaining.find(['\r', '\n']) {
+        let end = index
+            + if remaining[index..].starts_with("\r\n") {
+                2
+            } else {
+                1
+            };
+        let (line, rest) = remaining.split_at(end);
+        lines.push(line);
+        remaining = rest;
+    }
+    if !remaining.is_empty() {
+        lines.push(remaining);
+    }
+    lines
 }
 
 pub(super) fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
@@ -383,7 +407,7 @@ pub(super) fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value>
         return noyalib::from_str(span.slice(output)?).ok();
     }
     let first = first_content_line(output, span);
-    let lines: Vec<_> = output.split_inclusive('\n').collect();
+    let lines = yaml_lines(output);
     let header = *lines.get(first.checked_sub(2)?)?;
     let captures = BLOCK_HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
     let indicator = &captures[1];
@@ -426,7 +450,7 @@ fn value_representation(content: &str, assume_yaml_1_1: bool) -> Option<Vec<Node
 }
 
 fn without_ignored_terminal_spaces(content: &str) -> &str {
-    let Some((_, spaces)) = content.rsplit_once('\n') else {
+    let Some((_, spaces)) = content.rsplit_once(['\r', '\n']) else {
         return content;
     };
     if spaces.is_empty() || !spaces.bytes().all(|byte| byte == b' ') {
