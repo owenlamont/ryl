@@ -1084,6 +1084,11 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
     use consistency::content_whitespace;
     for (input, rule, line, column) in [
         ("a: |\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: |   \r\n  j9t643v  ", "new-line-at-end-of-file", 2, 12),
+        ("a: |\n  j9t643v  ", "new-line-at-end-of-file", 2, 12),
+        ("a: |+\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: >2\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: >+2\n  a", "new-line-at-end-of-file", 2, 4),
         ("a: >\n  a \n", "trailing-spaces", 2, 4),
         ("a: | # header\n  a \nb: b\n", "trailing-spaces", 2, 4),
         ("a: |+\n  a\n\n", "empty-lines", 3, 1),
@@ -1105,6 +1110,9 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
         ("a: |\n\n", "empty-lines", 2, 1),
         ("a: |3\n   \n   a\n", "trailing-spaces", 2, 1),
         ("a: |-\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: >-2\n  a", "new-line-at-end-of-file", 2, 4),
+        ("a: |\n  a\n", "new-line-at-end-of-file", 2, 4),
+        ("a: |\n  a", "new-line-at-end-of-file", 2, 1),
         ("a: |\n  a\n\n", "empty-lines", 3, 1),
         ("a: |-\r\n  a\r\n\r\n", "empty-lines", 3, 1),
         ("a: |\n  a\n\n...\n", "empty-lines", 3, 1),
@@ -1116,6 +1124,9 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
     }
     for (input, rule, line, column) in [
         ("a: plain ", "trailing-spaces", 1, 9),
+        ("true ", "trailing-spaces", 1, 6),
+        ("null ", "trailing-spaces", 1, 6),
+        ("011 ", "trailing-spaces", 1, 5),
         ("a: | \n  a\n", "trailing-spaces", 1, 5),
         ("a: |\n  a\nb: b \n", "trailing-spaces", 3, 5),
         ("a: |\n  a\n# after\n\n", "empty-lines", 4, 1),
@@ -1170,6 +1181,11 @@ fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
         ("a: 'a\n\n  b'\n", "empty-lines", 2, 1),
         ("a: \"a\n\n  b\"\n", "empty-lines", 2, 1),
         ("a: |\n  a", "document-end", 2, 1),
+        ("a: |   \r\n  j9t643v  ", "document-end", 2, 1),
+        ("a: |\n  j9t643v  ", "document-end", 2, 1),
+        ("a: |+\n  a", "document-end", 2, 1),
+        ("a: >2\n  a", "document-end", 2, 1),
+        ("a: >+2\n  a", "document-end", 2, 1),
         ("a:\n  b: |2\n    café \n", "trailing-spaces", 3, 9),
         ("bad: !!bool tRUE\na: |\n  a \n", "trailing-spaces", 3, 4),
     ] {
@@ -1181,6 +1197,7 @@ fn g11_scalar_exemptions_require_a_value_change_outside_block_content() {
     for (input, rule, line, column) in [
         ("a: 'a\n  b  \n  c'\n", "trailing-spaces", 2, 4),
         ("a: |-\n  a", "document-end", 2, 1),
+        ("a: >-2\n  a", "document-end", 2, 1),
         ("a: |\n  a\n", "document-end", 2, 1),
         ("a: plain", "document-end", 1, 1),
         ("a: 'a\n\n b'\n", "indentation", 2, 1),

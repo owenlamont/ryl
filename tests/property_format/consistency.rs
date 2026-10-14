@@ -2,6 +2,11 @@ use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
+static BLOCK_HEADER: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"([|>][1-9+-]{0,2})(?:[ \t]*(?:#.*)?)$").unwrap()
+    });
+
 pub fn refused(
     output: &str,
     problem: &ryl::lint::LintProblem,
@@ -88,19 +93,16 @@ fn first_content_line(output: &str, span: &granit_parser::Span) -> usize {
     first
 }
 
-fn scalar_value(output: &str, index: usize) -> Option<String> {
+fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
     let tokens = scalar_tokens(output);
     let (span, style) = tokens.get(index)?;
     if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-        return serde_yaml_ng::from_str(span.slice(output)?).ok();
+        return noyalib::from_str(span.slice(output)?).ok();
     }
     let first = first_content_line(output, span);
     let lines: Vec<_> = output.split_inclusive('\n').collect();
     let header = *lines.get(first.checked_sub(2)?)?;
-    static HEADER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"([|>][1-9+-]{0,2})(?:[ \t]*(?:#.*)?)$").unwrap()
-    });
-    let captures = HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
+    let captures = BLOCK_HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
     let indicator = &captures[1];
     let explicit = indicator.chars().find_map(|ch| ch.to_digit(10));
     let parent = explicit.map_or(0, |indent| {
@@ -110,10 +112,45 @@ fn scalar_value(output: &str, index: usize) -> Option<String> {
     });
     let begin: usize = lines[..first - 1].iter().map(|line| line.len()).sum();
     let body = output.get(begin..span.end.byte_offset()?)?;
-    let fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
-    let mut value: std::collections::BTreeMap<String, String> =
-        serde_yaml_ng::from_str(&fragment).ok()?;
+    let mut fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
+    // noyalib needs a terminal break to retain the final block line.
+    if !body.is_empty() && !body.ends_with(['\r', '\n']) {
+        fragment.push('\n');
+    }
+    let mut value: std::collections::BTreeMap<String, noyalib::Value> =
+        noyalib::from_str(&fragment).ok()?;
     value.remove("a")
+}
+
+#[test]
+fn scalar_loader_resolves_yaml_12_core_values() {
+    assert_eq!(scalar_value("true", 0), Some(noyalib::Value::Bool(true)));
+    assert_eq!(scalar_value("null", 0), Some(noyalib::Value::Null));
+    assert_eq!(scalar_value("011", 0), Some(noyalib::Value::from(11_i64)));
+    assert_eq!(scalar_value("on", 0), Some(noyalib::Value::from("on")));
+}
+
+#[test]
+fn scalar_loader_matches_reference_block_values() {
+    for (input, expected) in [
+        ("a: |+", ""),
+        ("a: |\n  a", "a\n"),
+        ("a: |\n  a\n", "a\n"),
+        ("a: |-\n  a", "a"),
+        ("a: |+\n  a", "a\n"),
+        ("a: |+\n  \n  ", "\n\n"),
+        ("a: |+\n  \n  \n", "\n\n"),
+        ("a: |+\n    ", "\n"),
+        ("a: |+\n    \n", "\n"),
+        ("a: >\n  a", "a\n"),
+        ("a: >\n  a\n", "a\n"),
+    ] {
+        assert_eq!(
+            scalar_value(input, 1),
+            Some(noyalib::Value::from(expected)),
+            "{input:?}"
+        );
+    }
 }
 
 pub fn content_whitespace(
@@ -133,22 +170,45 @@ pub fn content_whitespace(
     ) {
         return false;
     }
+    let tokens = scalar_tokens(output);
+    if matches!(rule, Some("new-line-at-end-of-file" | "document-end"))
+        && !output.ends_with(['\r', '\n'])
+        && tokens.last().is_some_and(|(span, style)| {
+            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+                && span.end.byte_offset() == Some(output.len())
+                && first_content_line(output, span) <= line
+                && output.lines().count() == line
+                && output
+                    .lines()
+                    .nth(first_content_line(output, span) - 2)
+                    .and_then(|header| BLOCK_HEADER.captures(header))
+                    .is_some_and(|captures| !captures[1].contains('-'))
+        })
+        && match rule {
+            Some("new-line-at-end-of-file") => output
+                .lines()
+                .last()
+                .is_some_and(|last| column == last.chars().count() + 1),
+            Some("document-end") => column == 1,
+            _ => false,
+        }
+    {
+        // Loaders disagree on the value of a break appended at block-scalar EOF.
+        return true;
+    }
     let Some((index, (_, style))) =
-        scalar_tokens(output)
-            .into_iter()
-            .enumerate()
-            .find(|(_, (span, style))| {
-                let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
-                let first = if block {
-                    first_content_line(output, span)
-                } else {
-                    span.start.line()
-                };
-                line >= first
-                    && (line < span.end.line()
-                        || (line == span.end.line() && span.end.col() > 0))
-                    && (block || line > span.start.line())
-            })
+        tokens.into_iter().enumerate().find(|(_, (span, style))| {
+            let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+            let first = if block {
+                first_content_line(output, span)
+            } else {
+                span.start.line()
+            };
+            line >= first
+                && (line < span.end.line()
+                    || (line == span.end.line() && span.end.col() > 0))
+                && (block || line > span.start.line())
+        })
     else {
         return false;
     };
