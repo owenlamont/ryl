@@ -26,6 +26,20 @@ summarize user-visible changes from the tagged commits and published release rec
   and format. ([#521](https://github.com/owenlamont/ryl/pull/521))
 - `check --fix` can repair `colons` and `hyphens` spacing.
   ([#524](https://github.com/owenlamont/ryl/pull/524))
+- `fold-long-lines` can wrap plain, quoted and folded block scalars.
+  ([#523](https://github.com/owenlamont/ryl/pull/523),
+  [#541](https://github.com/owenlamont/ryl/pull/541),
+  [#536](https://github.com/owenlamont/ryl/pull/536))
+- `sequence-style` and `mapping-style` can convert collections between flow and
+  block forms; `indent-width` reindents block collections.
+  ([#544](https://github.com/owenlamont/ryl/pull/544),
+  [#551](https://github.com/owenlamont/ryl/pull/551),
+  [#545](https://github.com/owenlamont/ryl/pull/545))
+- Formatting can choose quotes that avoid escapes and configure brace spacing,
+  comment spacing and blank-line limits.
+  ([#539](https://github.com/owenlamont/ryl/pull/539),
+  [#540](https://github.com/owenlamont/ryl/pull/540),
+  [#546](https://github.com/owenlamont/ryl/pull/546))
 
 ### Changed
 
@@ -51,6 +65,10 @@ summarize user-visible changes from the tagged commits and published release rec
   ([#535](https://github.com/owenlamont/ryl/pull/535),
   [#560](https://github.com/owenlamont/ryl/pull/560),
   [#604](https://github.com/owenlamont/ryl/pull/604))
+- Formatter previews reuse formatting and indentation detection, reducing work
+  on repeated `--check` and `--diff` passes.
+  ([#561](https://github.com/owenlamont/ryl/pull/561),
+  [#616](https://github.com/owenlamont/ryl/pull/616))
 
 ### Fixed
 
@@ -59,18 +77,47 @@ summarize user-visible changes from the tagged commits and published release rec
 - `check --fix` and `format` add requested start and end markers to each document
   in a stream. ([#566](https://github.com/owenlamont/ryl/pull/566),
   [#587](https://github.com/owenlamont/ryl/pull/587))
+- Editor diagnostics and fix actions stay positioned after a leading BOM.
+  ([#588](https://github.com/owenlamont/ryl/pull/588))
+- `quoted-strings --fix` keeps quotes on flow keys whose colon follows whitespace
+  or a comment, preserving the key's meaning.
+  ([#555](https://github.com/owenlamont/ryl/pull/555))
+- Fixes preserve blank block-scalar content and header comments; editor disable-line
+  actions work inside blank-only scalars.
+  ([#542](https://github.com/owenlamont/ryl/pull/542),
+  [#543](https://github.com/owenlamont/ryl/pull/543),
+  [#563](https://github.com/owenlamont/ryl/pull/563),
+  [#573](https://github.com/owenlamont/ryl/pull/573))
+- Formatting leaves lines after empty folded scalars intact and retains comments
+  on dash lines. ([#559](https://github.com/owenlamont/ryl/pull/559),
+  [#569](https://github.com/owenlamont/ryl/pull/569))
+- Block-scalar diagnostics no longer misread an apostrophe in a plain key as a
+  quote. ([#571](https://github.com/owenlamont/ryl/pull/571))
+- Formatting aligns block-scalar bodies and detects indentation around document
+  BOMs and explicit keys. ([#591](https://github.com/owenlamont/ryl/pull/591),
+  [#626](https://github.com/owenlamont/ryl/pull/626),
+  [#664](https://github.com/owenlamont/ryl/pull/664))
+- Multiline double-quoted scalars can use single quotes when no required escapes
+  prevent conversion. ([#662](https://github.com/owenlamont/ryl/pull/662))
 - Formatting preserves encoded stdin and BOMs; encoded `check --diff` input counts
   pending fixes. ([#617](https://github.com/owenlamont/ryl/pull/617),
   [#620](https://github.com/owenlamont/ryl/pull/620))
 - `format --check` writes empty reports when no files or changes are selected.
   ([#614](https://github.com/owenlamont/ryl/pull/614))
+- Formatter previews reject conflicting output targets before reading inputs.
+  ([#631](https://github.com/owenlamont/ryl/pull/631))
 - Config migration leaves YAML sources shadowed by active TOML in place.
   ([#632](https://github.com/owenlamont/ryl/pull/632))
+- Config migration preserves disabled formatting choices and handles custom YAML
+  paths without guessing an ambiguous user-global ignore file.
+  ([#556](https://github.com/owenlamont/ryl/pull/556),
+  [#557](https://github.com/owenlamont/ryl/pull/557))
 - Path matching respects Windows and macOS ASCII casing, and Windows diff paths apply
   with `git apply -p0`. ([#653](https://github.com/owenlamont/ryl/pull/653),
   [#655](https://github.com/owenlamont/ryl/pull/655))
 - Formatting preserves Markdown fence boundaries and block scalar values while
   normalizing safe whitespace. ([#633](https://github.com/owenlamont/ryl/pull/633),
+  [#654](https://github.com/owenlamont/ryl/pull/654),
   [#661](https://github.com/owenlamont/ryl/pull/661),
   [#669](https://github.com/owenlamont/ryl/pull/669))
 

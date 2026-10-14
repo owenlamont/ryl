@@ -49,14 +49,17 @@ def release_notes(changelog: str, version: str) -> str:
     notes = "".join(lines[bounds[1] : end]).strip()
     note_tokens = MarkdownIt().parse(notes)
     has_content = any(
-        token.type == "paragraph_open"
-        and note_tokens[index + 1].type == "inline"
-        and any(
-            child.type == "image"
-            or (child.type in {"text", "code_inline"} and child.content.strip())
-            for child in note_tokens[index + 1].children or []
+        (token.type == "fence" and token.content.strip())
+        or (
+            token.type == "paragraph_open"
+            and note_tokens[index + 1].type == "inline"
+            and any(
+                child.type == "image"
+                or (child.type in {"text", "code_inline"} and child.content.strip())
+                for child in note_tokens[index + 1].children or []
+            )
         )
-        for index, token in enumerate(note_tokens[:-1])
+        for index, token in enumerate(note_tokens)
     )
     if not has_content:
         raise ValueError(f"empty changelog section for {version}")
