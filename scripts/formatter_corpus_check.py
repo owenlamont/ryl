@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.14"
-# dependencies = ["typer", "py-yaml12", "pyyaml", "platformdirs"]
+# dependencies = ["typer", "py-yaml12", "ruamel.yaml", "pyyaml", "platformdirs"]
 # ///
 """Gate `ryl format` on the pinned real-world repos in scripts/formatter_corpus.toml.
 
@@ -11,8 +11,8 @@ config files) into a cache dir, formatted in place twice per mode, then reset. M
 
   - value: per changed file, the property suite's Rust oracle (`representation` and
     `annotations` in tests/property_format.rs) must find the values, tags, anchors and
-    comments unchanged, and py-yaml12 the loaded values; a file that did not parse must
-    not change;
+    comments unchanged, and py-yaml12 the loaded values (ruamel checks apparent value
+    changes); a file that did not parse must not change;
   - idempotence: a second `ryl format` changes nothing;
   - panic or timeout.
 
@@ -44,6 +44,8 @@ from typing import Annotated, Any, Final
 
 from formatter_compat import RULE_RE, values_equal
 import platformdirs
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError as RuamelYAMLError
 import tomllib
 import typer
 import yaml
@@ -250,6 +252,12 @@ def _load12(data: bytes) -> Any:
     return parse_yaml(data.decode("utf-8"), multi=True)
 
 
+def _load_ruamel(data: bytes) -> Any:
+    parser = YAML(typ="safe", pure=True)
+    parser.version = (1, 2)
+    return list(parser.load_all(data.decode("utf-8")))
+
+
 def _load11(data: bytes) -> Any:
     return list(yaml.safe_load_all(data.decode("utf-8")))
 
@@ -257,9 +265,19 @@ def _load11(data: bytes) -> Any:
 def _compare(load: Callable[[bytes], Any], before: bytes, after: bytes) -> Loaded:
     try:
         equal = values_equal(load(before), load(after))
-    except (ValueError, RecursionError, yaml.YAMLError):
+    except (ValueError, RecursionError, yaml.YAMLError, RuamelYAMLError):
         return Loaded.UNAVAILABLE
     return Loaded.EQUAL if equal else Loaded.UNEQUAL
+
+
+def _compare12(before: bytes, after: bytes) -> Loaded:
+    verdict = _compare(_load12, before, after)
+    if (
+        verdict is Loaded.UNEQUAL
+        and _compare(_load_ruamel, before, after) is Loaded.EQUAL
+    ):
+        return Loaded.EQUAL
+    return verdict
 
 
 def _lint_args(clone: Path) -> list[str]:
@@ -368,7 +386,7 @@ def _record_change(
     digest = (hashlib.sha256(before).hexdigest(), hashlib.sha256(after).hexdigest())
     if repo.rust_known_errors.get(path) == digest:
         result.rust_waivable.append(path)
-    match _compare(_load12, before, after):
+    match _compare12(before, after):
         case Loaded.UNEQUAL if repo.yaml12_known_errors.get(path) == digest:
             result.yaml12_known_errors.append(path)
         case Loaded.UNEQUAL:
