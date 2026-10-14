@@ -938,6 +938,19 @@ fn terminal_spaces_only_block_lines_follow_reference_values() {
 }
 
 #[test]
+fn bare_cr_terminal_spaces_do_not_mask_a_real_value_change() {
+    let same_value = "a: |\n  a\n";
+    let changed_value = "a: |\n  b\n";
+
+    for before in ["a: |\r  a\r  ", "a: |\r\n  a\r  ", "a: |\n  a\r  "] {
+        check_values(before, same_value).unwrap();
+        check_yaml_1_1_preserved(before, same_value).unwrap();
+        assert!(check_values(before, changed_value).is_err());
+        check_pass(named_pass("fix/yamllint-default"), before).unwrap();
+    }
+}
+
+#[test]
 fn terminal_spaces_after_a_block_scalar_are_outside_the_correction() {
     for before in ["a: |\n  x\n#tail\n  ", "a: |\n  x\n...\n  "] {
         let after = before.trim_end_matches(' ');
