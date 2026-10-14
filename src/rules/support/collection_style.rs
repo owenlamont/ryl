@@ -164,48 +164,20 @@ fn skip_reindent_dependent(
     }
     let candidate_starts = document_start_lines(&candidate);
     let source_starts = document_start_lines(buffer);
-    let candidate_document =
-        |line: usize| candidate_starts.partition_point(|start| *start <= line) - 1;
-    let mut invalid_lines: Vec<usize> = indentation::check(&candidate, indent)
-        .into_iter()
-        .map(|violation| violation.line)
-        .collect();
-    if invalid_lines.is_empty() {
-        return edits.into_iter().map(|(edit, _)| edit).collect();
-    }
-    invalid_lines.sort_unstable();
     let mut blocked = vec![false; source_starts.len()];
     for refusal in refused {
-        let document = candidate_document(*refusal.lines.start());
+        let document = candidate_starts
+            .partition_point(|start| *start <= *refusal.lines.start())
+            - 1;
         blocked[document] = true;
     }
     let source_lines = byte_line_starts(buffer);
-    let candidate_lines = byte_line_starts(&candidate);
-    let mut ordered: Vec<_> = edits.iter().collect();
-    ordered.sort_unstable_by_key(|(edit, _)| edit.0.get());
-    let mut needs_reindent = vec![false; findings.len()];
-    let (mut source_end, mut candidate_end) = (0, 0);
-    for (edit, finding) in ordered {
-        let start = candidate_end + edit.0.get() - source_end;
-        let end = start + edit.2.len();
-        let first = candidate_lines.partition_point(|offset| *offset <= start);
-        let last = candidate_lines.partition_point(|offset| *offset < end);
-        let first_invalid = invalid_lines.partition_point(|line| *line < first);
-        needs_reindent[*finding] = invalid_lines
-            .get(first_invalid)
-            .is_some_and(|line| *line <= last);
-        source_end = edit.1.get();
-        candidate_end = end;
-    }
     edits
         .into_iter()
         .filter_map(|(edit, finding)| {
             let line = source_lines.partition_point(|start| *start <= edit.0.get());
             let document = source_starts.partition_point(|start| *start <= line) - 1;
-            if blocked[document]
-                && !findings[finding].to_flow
-                && needs_reindent[finding]
-            {
+            if blocked[document] && !findings[finding].to_flow {
                 findings[finding].refused =
                     Some("the document cannot be re-indented safely");
                 None

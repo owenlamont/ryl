@@ -319,46 +319,41 @@ fn many_siblings_converge_in_one_run() {
 }
 
 #[test]
-fn flow_conversion_waits_only_when_reindent_is_needed() {
+fn flow_conversion_waits_for_document_reindent() {
     let cases = [
         (
             "sequence, flush",
             "[format]\nsequence-style = 'block'\nindent-sequences = false\n[lint.rules.indentation]\nindent-sequences = false\n",
-            "a: [a]\nb: >\n   x\n  #\n",
             "a: [a]\nb: >\n   x\n  #\n",
         ),
         (
             "sequence, indented",
             "[format]\nsequence-style = 'block'\nindent-sequences = true\n",
             "a: [a]\nb: >\n   x\n  #\n",
-            "a:\n  - a\nb: >\n   x\n  #\n",
         ),
         (
             "mapping, flush",
             "[format]\nmapping-style = 'block'\nindent-sequences = false\n",
             "a: {b: c}\nd: >\n   x\n  #\n",
-            "a:\n  b: c\nd: >\n   x\n  #\n",
         ),
         (
             "mapping, indented",
             "[format]\nmapping-style = 'block'\nindent-sequences = true\n",
             "a: {b: c}\nd: >\n   x\n  #\n",
-            "a:\n  b: c\nd: >\n   x\n  #\n",
         ),
     ];
-    for (name, toml, input, expected) in cases {
+    for (name, toml, input) in cases {
         let cfg = config(toml);
         assert_eq!(
             format_str(input, &cfg, Path::new("case.yaml"), &[]),
-            expected,
+            input,
             "{name}"
         );
-        assert_eq!(
+        assert!(
             refusals(input, &cfg).iter().any(|problem| problem
                 .message
                 .contains("document cannot be re-indented")),
-            expected == input,
-            "{name} should report a collection refusal only when it stays flow"
+            "{name} should report the collection refusal"
         );
     }
 }
@@ -386,19 +381,33 @@ fn block_to_flow_survives_unrelated_reindent_refusal() {
 }
 
 #[test]
-fn compliant_block_conversion_survives_another_conversion_refusal() {
+fn flow_conversion_waits_for_refused_dash_layout() {
+    let input = "items: [{a: b}]\nbad: >\n   x\n  #\n";
+    let cfg = config(
+        "[format]\nsequence-style = 'block'\nmapping-style = 'block'\nindent-sequences = true\ndash-on-own-line = true\n",
+    );
+    assert_eq!(format_str(input, &cfg, Path::new("case.yaml"), &[]), input);
+    assert!(
+        refusals(input, &cfg)
+            .iter()
+            .any(|problem| problem.message.contains("document cannot be re-indented"))
+    );
+    assert_eq!(
+        format_str("items: [{a: b}]\n", &cfg, Path::new("case.yaml"), &[]),
+        "items:\n  -\n    a: b\n"
+    );
+}
+
+#[test]
+fn flow_conversions_in_same_refused_document_stay_flow() {
     let input = "a: [a]\nm: {b: c}\nbad: >\n   x\n  #\n";
-    let expected = "a: [a]\nm:\n  b: c\nbad: >\n   x\n  #\n";
     let toml = "[format]\nsequence-style = 'block'\nmapping-style = 'block'\nindent-sequences = false\n";
     let cfg = config(toml);
-    assert_eq!(
-        format_str(input, &cfg, Path::new("case.yaml"), &[]),
-        expected
-    );
+    assert_eq!(format_str(input, &cfg, Path::new("case.yaml"), &[]), input);
     let found = refusals(input, &cfg);
     assert!(found.iter().any(|problem| problem.rule == Some("brackets")
         && problem.message.contains("document cannot be re-indented")));
-    assert!(!found.iter().any(|problem| problem.rule == Some("braces")
+    assert!(found.iter().any(|problem| problem.rule == Some("braces")
         && problem.message.contains("document cannot be re-indented")));
 }
 

@@ -204,9 +204,9 @@ metadata:
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style
 stays as written, and `ryl format` says why on stderr.
-If the document cannot be re-indented safely, a flow-to-block conversion that would
-leave an indentation error stays flow, with a refusal notice. Conversions that already
-meet the indentation setting, and block-to-flow conversions, can still proceed.
+If the document cannot be re-indented safely, flow collections in that document stay
+flow, with a refusal notice. Block-to-flow conversions and conversions in other
+documents can still proceed.
 
 With `"flow"`, a block collection of scalars and aliases that is not the document root
 becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
