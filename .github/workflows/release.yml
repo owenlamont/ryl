@@ -468,6 +468,11 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        with:
+          enable-cache: false
+          save-cache: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: release-binaries-*
@@ -496,6 +501,10 @@ jobs:
           fi
           sha256sum "${archives[@]}" > SHA256SUMS
           cat SHA256SUMS
+      - name: Read release notes from changelog
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: uv run --script scripts/changelog.py extract "$RELEASE_TAG" > release-notes.md
       - name: Ensure draft tag release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -510,7 +519,7 @@ jobs:
           if release_is_draft="$(gh release view "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' 2>"${release_query_err_file}")"; then
             :
           elif grep -Eq '404|not[[:space:]]+found' "${release_query_err_file}"; then
-            gh release create "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --verify-tag --title "${RELEASE_TAG}" --draft --generate-notes
+            gh release create "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --verify-tag --title "${RELEASE_TAG}" --draft --notes-file release-notes.md
             exit 0
           else
             echo "Failed to query release ${RELEASE_TAG}." >&2
@@ -518,6 +527,7 @@ jobs:
             exit 1
           fi
           if [ "${release_is_draft}" = "true" ]; then
+            gh release edit "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" --notes-file release-notes.md
             echo "Reusing existing draft release ${RELEASE_TAG}."
             exit 0
           fi
