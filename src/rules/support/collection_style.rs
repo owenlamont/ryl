@@ -126,7 +126,7 @@ fn plan(
         };
         if let Some(edit) = restyler.flowed(index) {
             findings.push(finding(None, true));
-            edits.push(edit);
+            edits.push((edit, findings.len() - 1));
         }
         if !restyler.to_block(index)
             || node
@@ -137,44 +137,91 @@ fn plan(
         }
         let outcome = restyler.outermost(index);
         findings.push(finding(outcome.as_ref().err().copied(), false));
-        edits.extend(outcome.ok());
+        if let Ok(edit) = outcome {
+            edits.push((edit, findings.len() - 1));
+        }
     }
+    let edits = skip_reindent_dependent(buffer, edits, &mut findings, indent);
+    (edits, findings)
+}
+
+fn skip_reindent_dependent(
+    buffer: &str,
+    edits: Vec<(Edit, usize)>,
+    findings: &mut [Finding],
+    indent: Option<&indentation::Config>,
+) -> Vec<Edit> {
     let Some(indent) = indent.filter(|_| !edits.is_empty()) else {
-        return (edits, findings);
+        return edits.into_iter().map(|(edit, _)| edit).collect();
     };
-    let candidate = apply_replacements(buffer, edits.clone());
+    let candidate = apply_replacements(
+        buffer,
+        edits.iter().map(|(edit, _)| edit.clone()).collect(),
+    );
     let refused = indentation::reindent(&candidate, indent).refused;
     if refused.is_empty() {
-        return (edits, findings);
+        return edits.into_iter().map(|(edit, _)| edit).collect();
     }
     let candidate_starts = document_start_lines(&candidate);
     let source_starts = document_start_lines(buffer);
-    let blocked: Vec<usize> = refused
-        .iter()
-        .filter_map(|refusal| {
-            candidate_starts
-                .iter()
-                .position(|start| *start == *refusal.lines.start())
-        })
-        .collect();
-    let document =
-        |line: usize| source_starts.partition_point(|start| *start <= line) - 1;
-    let edits = edits
+    let candidate_document =
+        |line: usize| candidate_starts.partition_point(|start| *start <= line) - 1;
+    let mut invalid_lines: Vec<usize> = indentation::check(&candidate, indent)
         .into_iter()
-        .filter(|edit| {
-            let prefix = &buffer[..edit.0.get()];
-            let line = split_lines_preserve_endings(prefix).count()
-                + usize::from(prefix.ends_with(['\n', '\r']));
-            let line = line.max(1);
-            !blocked.contains(&document(line))
-        })
+        .map(|violation| violation.line)
         .collect();
-    for finding in &mut findings {
-        if finding.refused.is_none() && blocked.contains(&document(finding.line)) {
-            finding.refused = Some("the document cannot be re-indented safely");
-        }
+    if invalid_lines.is_empty() {
+        return edits.into_iter().map(|(edit, _)| edit).collect();
     }
-    (edits, findings)
+    invalid_lines.sort_unstable();
+    let mut blocked = vec![false; source_starts.len()];
+    for refusal in refused {
+        let document = candidate_document(*refusal.lines.start());
+        blocked[document] = true;
+    }
+    let source_lines = byte_line_starts(buffer);
+    let candidate_lines = byte_line_starts(&candidate);
+    let mut ordered: Vec<_> = edits.iter().collect();
+    ordered.sort_unstable_by_key(|(edit, _)| edit.0.get());
+    let mut needs_reindent = vec![false; findings.len()];
+    let (mut source_end, mut candidate_end) = (0, 0);
+    for (edit, finding) in ordered {
+        let start = candidate_end + edit.0.get() - source_end;
+        let end = start + edit.2.len();
+        let first = candidate_lines.partition_point(|offset| *offset <= start);
+        let last = candidate_lines.partition_point(|offset| *offset < end);
+        let first_invalid = invalid_lines.partition_point(|line| *line < first);
+        needs_reindent[*finding] = invalid_lines
+            .get(first_invalid)
+            .is_some_and(|line| *line <= last);
+        source_end = edit.1.get();
+        candidate_end = end;
+    }
+    edits
+        .into_iter()
+        .filter_map(|(edit, finding)| {
+            let line = source_lines.partition_point(|start| *start <= edit.0.get());
+            let document = source_starts.partition_point(|start| *start <= line) - 1;
+            if blocked[document]
+                && !findings[finding].to_flow
+                && needs_reindent[finding]
+            {
+                findings[finding].refused =
+                    Some("the document cannot be re-indented safely");
+                None
+            } else {
+                Some(edit)
+            }
+        })
+        .collect()
+}
+
+fn byte_line_starts(buffer: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    for (_, content, ending) in split_lines_preserve_endings(buffer) {
+        starts.push(starts.last().copied().unwrap() + content.len() + ending.len());
+    }
+    starts
 }
 
 fn document_start_lines(buffer: &str) -> Vec<usize> {
