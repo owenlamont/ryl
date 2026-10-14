@@ -40,13 +40,15 @@ PATH: Final = "f.yaml"
     ],
 )
 @pytest.mark.parametrize("end_marker", [False, True], ids=["EOF", "document end"])
-def test_block_scalar_value_is_preserved_across_document_start(
+def test_document_start_before_block_scalar_keeps_yaml12_verdict(
     indicator: str, body: str, expected: str, end_marker: bool
 ) -> None:
     end = "...\n" if end_marker else ""
     source = f"k: {indicator}\n{body}{end}".encode()
     assert list(yaml.safe_load_all(source)) == [{"k": expected}]
-    assert gate._compare12(source, b"---\n" + source) is not gate.Loaded.UNEQUAL
+    assert gate._compare12(source, b"---\n" + source) is gate._compare(
+        gate._load12, source, b"---\n" + source
+    )
 
 
 @pytest.mark.parametrize(
@@ -55,7 +57,7 @@ def test_block_scalar_value_is_preserved_across_document_start(
         pytest.param(b"k: |\n", b"k: |\n...\n", id="empty clip at EOF"),
         pytest.param(b"k: |+\n", b"k: |+\n...\n", id="empty keep at EOF"),
         pytest.param(b"--- |1+", b"--- |1+\n", id="explicit indent at EOF"),
-        pytest.param(b"a: |\n  x\n  ", b"---\na: |\n  x\n", id="nonempty clip at EOF"),
+        pytest.param(b"a: |\n  x\n  ", b"a: |\n  x\n", id="nonempty clip at EOF"),
     ],
 )
 def test_false_eof_value_difference_abstains(
@@ -69,9 +71,26 @@ def test_false_eof_value_difference_abstains(
     assert result.yaml12_unavailable == [PATH]
 
 
+def test_changed_document_prefix_keeps_yaml12_verdict() -> None:
+    before = b"a: |\n  x\n  "
+    after = b"---\na: |\n  x\n"
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
 def test_real_non_eof_value_change_still_fails() -> None:
     before = b"k: x\n"
     after = b"k: y\n"
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
+@pytest.mark.parametrize(
+    "suffix", [b"", b"# comment\n", b"...\n"], ids=["EOF", "comment", "document end"]
+)
+def test_earlier_value_change_before_final_block_scalar_fails(suffix: bytes) -> None:
+    before = b"changed: 1\ntail: |\n  same\n" + suffix
+    after = b"changed: 2\ntail: |\n  same\n" + suffix
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
     assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
 
 
@@ -82,10 +101,10 @@ def test_yaml12_merge_key_value_change_still_fails() -> None:
     assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
 
 
-def test_yaml12_merge_key_change_with_eof_block_scalar_does_not_pass() -> None:
+def test_yaml12_merge_key_change_with_eof_block_scalar_fails() -> None:
     before = b"base: &b {a: x}\nout: {<<: *b}\ntail: |\n"
     after = b"base: &b {a: x}\nout: {a: x}\ntail: |\n...\n"
-    assert gate._compare12(before, after) is not gate.Loaded.EQUAL
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
 
 
 @pytest.mark.parametrize(
