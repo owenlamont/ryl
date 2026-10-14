@@ -938,6 +938,26 @@ fn terminal_spaces_only_block_lines_follow_reference_values() {
 }
 
 #[test]
+fn terminal_spaces_after_a_block_scalar_are_outside_the_correction() {
+    for before in ["a: |\n  x\n#tail\n  ", "a: |\n  x\n...\n  "] {
+        let after = before.trim_end_matches(' ');
+        assert!(
+            !representation::same_implicit_block_value(before, after),
+            "a block scalar ending before EOF must not authorize correction: {before:?}"
+        );
+    }
+    assert!(representation::same_implicit_block_value(
+        "|\n  x\n  ",
+        "|\n  x\n"
+    ));
+    assert!(!representation::same_implicit_block_value(
+        "- |+\n   ",
+        "- |+\n"
+    ));
+    assert!(check_values("- |+\n   ", "- |+\n").is_err());
+}
+
+#[test]
 fn a_pass_unquoting_a_yaml_1_1_boolean_fails_only_the_yaml_1_1_check() {
     let input = "k: 'no'\n";
     let unquote = |s: &str| s.replace("'no'", "no");

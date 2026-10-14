@@ -338,7 +338,9 @@ pub(super) fn same_implicit_block_value(before: &str, after: &str) -> bool {
     let Some((span, style)) = tokens.last() else {
         return false;
     };
-    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        || span.end.byte_offset() != Some(before.len())
+    {
         return false;
     }
     let first = first_content_line(before, span);
