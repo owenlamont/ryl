@@ -549,7 +549,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     required = "only-when-needed"
     ```
 
-!!! note "TOML configuration is flat"
+!!! note "TOML configuration is self-contained"
 
     TOML configuration does **not** support `extends`. Presets are expanded
     inline so the entire effective rule set is visible in one file. The
@@ -577,7 +577,7 @@ changes to run alongside it.
 
 ## Keeping both files
 
-`.yamllint` and `.ryl.toml` can coexist. ryl prefers TOML when both are
-present in the same directory, but a project that needs to remain
-compatible with yamllint in CI can keep the YAML file authoritative and
-treat the TOML file as supplemental for ryl-only features.
+`.yamllint` and `.ryl.toml` can coexist for separate tools. When both are
+present in the same directory, ryl uses TOML exclusively and ignores `.yamllint`.
+Keep shared lint settings synchronized: `--migrate-configs` skips `.yamllint` when
+a `.ryl.toml` already exists.

@@ -126,9 +126,11 @@ it is and named on stderr.
 
 ## Default profile
 
-With no `[format]` table, `ryl format` writes the profile below. Every default but
-`document-start` agrees with yamllint's `default` preset: `ryl check --fix` under that
-preset only adds a missing `---` to the output.
+With no `[format]` table, `ryl format` writes the profile below. Compared with
+`ryl check --fix` under yamllint's `default` preset, it does not add `---`, can
+remove redundant quotes or switch required double quotes to single, and can indent
+flush sequences. Migration writes `quote-style = "preserve"` because
+`quoted-strings` is disabled in the preset.
 
 | Default | Why |
 | :--- | :--- |

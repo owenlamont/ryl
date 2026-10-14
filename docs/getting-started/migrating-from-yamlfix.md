@@ -45,13 +45,13 @@ comment-spacing = 1
 | `section_whitelines` (0) | none, see [blank lines](#blank-lines) |
 | `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"preserve"` |
 | `indent_mapping` (2) | top-level `indent-width` |
-| `indent_sequence` (4), `indent_offset` (2) | planned in [#383](https://github.com/owenlamont/ryl/issues/383) |
+| `indent_sequence` (4), `indent_offset` (2) | top-level `indent-width` with `[format] indent-sequences` selects indented or flush sequences; independent sequence width and offset have no exact equivalent |
 | `line_length` (80) | top-level `line-length` with `[format] fold-long-lines = true` |
 | `preserve_quotes` (false) | `true` maps to `[format] quote-style = "preserve"`; for `false`, `quote-style = "single"` or `"double"` is the closest match, see [forcing quotes](#forcing-quotes) |
 | `quote_representation` (`'`) | `[lint.rules.quoted-strings] quote-type = "single"` or `"double"`, see [forcing quotes](#forcing-quotes) |
 | `quote_basic_values`, `quote_keys_and_basic_values` (false) | see [forcing quotes](#forcing-quotes) |
 | `none_representation` (`""`) | none: ryl keeps each null as written |
-| `sequence_style` (`flow_style`) | planned in [#446](https://github.com/owenlamont/ryl/issues/446) |
+| `sequence_style` (`flow_style`) | `[format] sequence-style`; `[format] mapping-style` controls mappings. See [collection style](../formatter.md#collection-style) for refusal cases |
 | `allow_duplicate_keys` (false) | none: not a formatting concern; the `key-duplicates` lint rule reports them |
 | `config_path` | none: ryl discovers its own config, or `-c` takes a translated config file |
 
