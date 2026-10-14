@@ -1,11 +1,9 @@
+use super::representation::{
+    BLOCK_HEADER, first_content_line, scalar_tokens, scalar_value,
+};
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
-
-static BLOCK_HEADER: std::sync::LazyLock<regex::Regex> =
-    std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"([|>][1-9+-]{0,2})(?:[ \t]*(?:#.*)?)$").unwrap()
-    });
 
 pub fn refused(
     output: &str,
@@ -64,62 +62,6 @@ fn refusal_column(output: &str, notice: &ryl::lint::LintProblem) -> Option<usize
         }
     }
     None
-}
-
-fn scalar_tokens(output: &str) -> Vec<(granit_parser::Span, ScalarStyle)> {
-    Scanner::new(StrInput::new(output))
-        .map_while(Result::ok)
-        .filter_map(|token| match token.into_parts() {
-            (span, TokenType::Scalar(style, _)) => Some((span, style)),
-            _ => None,
-        })
-        .collect()
-}
-
-fn first_content_line(output: &str, span: &granit_parser::Span) -> usize {
-    let lines: Vec<_> = output.lines().collect();
-    let mut first = span.start.line();
-    if span.indent.is_none()
-        && lines
-            .get(first - 1)
-            .and_then(|line| line.chars().nth(span.start.col()))
-            .is_some_and(|ch| matches!(ch, '|' | '>'))
-    {
-        return first + 1;
-    }
-    while first > 1 && lines[first - 2].trim_matches([' ', '\t']).is_empty() {
-        first -= 1;
-    }
-    first
-}
-
-fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
-    let tokens = scalar_tokens(output);
-    let (span, style) = tokens.get(index)?;
-    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-        return noyalib::from_str(span.slice(output)?).ok();
-    }
-    let first = first_content_line(output, span);
-    let lines: Vec<_> = output.split_inclusive('\n').collect();
-    let header = *lines.get(first.checked_sub(2)?)?;
-    let captures = BLOCK_HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
-    let indicator = &captures[1];
-    let explicit = indicator.chars().find_map(|ch| ch.to_digit(10));
-    let parent = explicit.map_or(0, |indent| {
-        span.indent
-            .unwrap_or(indent as usize)
-            .saturating_sub(indent as usize)
-    });
-    let begin: usize = lines[..first - 1].iter().map(|line| line.len()).sum();
-    let body = output.get(begin..span.end.byte_offset()?)?;
-    let mut fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
-    // noyalib needs a terminal break to retain the final block line.
-    if !body.is_empty() && !body.ends_with(['\r', '\n']) {
-        fragment.push('\n');
-    }
-    let mut value: std::collections::BTreeMap<String, noyalib::Value> =
-        noyalib::from_str(&fragment).ok()?;
-    value.remove("a")
 }
 
 #[test]
