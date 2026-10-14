@@ -2,9 +2,10 @@
 //! how it is laid out.
 //!
 //! Loading to plain values loses tags, aliases and duplicate keys, so [`representation`]
-//! keeps granit's event stream instead, with each scalar resolved against the version its
-//! document declares (or under YAML 1.1 throughout, for [`yaml_1_1_representation`]) and
-//! every layout-only detail dropped (scalar style, the `---` marker, collection style).
+//! keeps granit's event stream, correcting ignored spaces-only EOF block lines. It resolves
+//! each scalar against the version its document declares (or under YAML 1.1 throughout,
+//! for [`yaml_1_1_representation`]) and drops layout-only details (scalar style, the
+//! `---` marker, collection style).
 //! [`annotations`] separately records each comment, keyed to the data event it sits
 //! beside, and the anchor and alias names in source order.
 
@@ -317,14 +318,127 @@ pub fn check_yaml_1_1_preserved(input: &str, output: &str) -> Result<(), String>
     Ok(())
 }
 
+pub(super) static BLOCK_HEADER: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"([|>][1-9+-]{0,2})(?:[ \t]*(?:#.*)?)$").unwrap()
+    });
+
+pub(super) fn scalar_tokens(output: &str) -> Vec<(granit_parser::Span, ScalarStyle)> {
+    Scanner::new(StrInput::new(output))
+        .map_while(Result::ok)
+        .filter_map(|token| match token.into_parts() {
+            (span, TokenType::Scalar(style, _)) => Some((span, style)),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(super) fn same_implicit_block_value(before: &str, after: &str) -> bool {
+    let tokens = scalar_tokens(before);
+    let Some((span, style)) = tokens.last() else {
+        return false;
+    };
+    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        || span.end.byte_offset() != Some(before.len())
+    {
+        return false;
+    }
+    let first = first_content_line(before, span);
+    let Some(header) = first
+        .checked_sub(2)
+        .and_then(|index| before.split_inclusive('\n').nth(index))
+        .and_then(|line| BLOCK_HEADER.captures(line.trim_end_matches(['\r', '\n'])))
+    else {
+        return false;
+    };
+    if header[1].bytes().any(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let index = tokens.len() - 1;
+    let value = scalar_value(before, index);
+    value.is_some() && value == scalar_value(after, index)
+}
+
+pub(super) fn first_content_line(output: &str, span: &granit_parser::Span) -> usize {
+    let lines: Vec<_> = output.lines().collect();
+    let mut first = span.start.line();
+    if span.indent.is_none()
+        && lines
+            .get(first - 1)
+            .and_then(|line| line.chars().nth(span.start.col()))
+            .is_some_and(|ch| matches!(ch, '|' | '>'))
+    {
+        return first + 1;
+    }
+    while first > 1 && lines[first - 2].trim_matches([' ', '\t']).is_empty() {
+        first -= 1;
+    }
+    first
+}
+
+pub(super) fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
+    let tokens = scalar_tokens(output);
+    let (span, style) = tokens.get(index)?;
+    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        return noyalib::from_str(span.slice(output)?).ok();
+    }
+    let first = first_content_line(output, span);
+    let lines: Vec<_> = output.split_inclusive('\n').collect();
+    let header = *lines.get(first.checked_sub(2)?)?;
+    let captures = BLOCK_HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
+    let indicator = &captures[1];
+    let explicit = indicator.chars().find_map(|ch| ch.to_digit(10));
+    let parent = explicit.map_or(0, |indent| {
+        span.indent
+            .unwrap_or(indent as usize)
+            .saturating_sub(indent as usize)
+    });
+    let begin: usize = lines[..first - 1].iter().map(|line| line.len()).sum();
+    let body = output.get(begin..span.end.byte_offset()?)?;
+    let mut fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
+    // noyalib needs a terminal break to retain the final block line.
+    if !body.is_empty() && !body.ends_with(['\r', '\n']) {
+        fragment.push('\n');
+    }
+    let mut value: std::collections::BTreeMap<String, noyalib::Value> =
+        noyalib::from_str(&fragment).ok()?;
+    value.remove("a")
+}
+
 pub fn representation(content: &str) -> Option<Vec<Node>> {
-    record(content, false, false).map(|recorder| recorder.nodes)
+    value_representation(content, false)
 }
 
 /// [`representation`] as a YAML 1.1 reader such as PyYAML sees it, whatever the
 /// document's `%YAML` directive.
 pub fn yaml_1_1_representation(content: &str) -> Option<Vec<Node>> {
-    record(content, true, false).map(|recorder| recorder.nodes)
+    value_representation(content, true)
+}
+
+fn value_representation(content: &str, assume_yaml_1_1: bool) -> Option<Vec<Node>> {
+    let original = record(content, assume_yaml_1_1, false)?;
+    let corrected = without_ignored_terminal_spaces(content);
+    if corrected.len() == content.len() {
+        Some(original.nodes)
+    } else {
+        record(corrected, assume_yaml_1_1, false).map(|recorder| recorder.nodes)
+    }
+}
+
+fn without_ignored_terminal_spaces(content: &str) -> &str {
+    let Some((_, spaces)) = content.rsplit_once('\n') else {
+        return content;
+    };
+    if spaces.is_empty() || !spaces.bytes().all(|byte| byte == b' ') {
+        return content;
+    }
+    let shortened = &content[..content.len() - spaces.len()];
+    // granit includes an ignored EOF line; noyalib verifies the reference value.
+    if same_implicit_block_value(content, shortened) {
+        shortened
+    } else {
+        content
+    }
 }
 
 pub fn annotations(content: &str) -> Option<Annotations> {

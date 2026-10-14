@@ -868,6 +868,96 @@ fn representation_tells_apart_what_value_preservation_forbids() {
 }
 
 #[test]
+fn terminal_spaces_only_block_lines_follow_reference_values() {
+    for (before, after, index, before_value, after_value) in [
+        ("|\n  x\n  ", "|\n  x\n", 0, "x\n", "x\n"),
+        (
+            "- >\r\n    x\r\n    \r\n    ",
+            "- >\r\n    x\r\n    \r\n",
+            0,
+            "x\n",
+            "x\n",
+        ),
+        (
+            "key: |-\n    x\n    \n    ",
+            "key: |-\n    x\n    \n",
+            1,
+            "x",
+            "x",
+        ),
+        (
+            "key: >-\r\n    x\r\n    ",
+            "key: >-\r\n    x\r\n",
+            1,
+            "x",
+            "x",
+        ),
+        ("- |+\n    x\n    ", "- |+\n    x\n", 0, "x\n\n", "x\n"),
+        (
+            ">+\n  x\n  \n  ",
+            ">+\n  x\n  \n",
+            0,
+            "x\n\n\n\n\n\n",
+            "x\n\n\n",
+        ),
+        ("|2\n  x\n  ", "|2\n  x\n", 0, " x\n \n", " x\n"),
+        (
+            "- >-2\r\n    x\r\n    \r\n    ",
+            "- >-2\r\n    x\r\n    \r\n",
+            0,
+            "  x\n  \n  ",
+            "  x\n  ",
+        ),
+        (
+            "key: |+2\n    x\n    ",
+            "key: |+2\n    x\n",
+            1,
+            "  x\n  \n",
+            "  x\n",
+        ),
+        ("- |+\n   ", "- |+\n", 0, "\n", ""),
+    ] {
+        if before_value == after_value {
+            assert_eq!(
+                representation::scalar_value(before, index),
+                Some(noyalib::Value::from(before_value)),
+                "reference value before: {before:?}"
+            );
+            assert_eq!(
+                representation::scalar_value(after, index),
+                Some(noyalib::Value::from(after_value)),
+                "reference value after: {after:?}"
+            );
+        }
+        assert_eq!(
+            check_values(before, after).is_ok(),
+            before_value == after_value,
+            "oracle verdict: {before:?} -> {after:?}"
+        );
+    }
+}
+
+#[test]
+fn terminal_spaces_after_a_block_scalar_are_outside_the_correction() {
+    for before in ["a: |\n  x\n#tail\n  ", "a: |\n  x\n...\n  "] {
+        let after = before.trim_end_matches(' ');
+        assert!(
+            !representation::same_implicit_block_value(before, after),
+            "a block scalar ending before EOF must not authorize correction: {before:?}"
+        );
+    }
+    assert!(representation::same_implicit_block_value(
+        "|\n  x\n  ",
+        "|\n  x\n"
+    ));
+    assert!(!representation::same_implicit_block_value(
+        "- |+\n   ",
+        "- |+\n"
+    ));
+    assert!(check_values("- |+\n   ", "- |+\n").is_err());
+}
+
+#[test]
 fn a_pass_unquoting_a_yaml_1_1_boolean_fails_only_the_yaml_1_1_check() {
     let input = "k: 'no'\n";
     let unquote = |s: &str| s.replace("'no'", "no");
