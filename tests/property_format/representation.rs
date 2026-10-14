@@ -9,7 +9,7 @@
 //! beside, and the anchor and alias names in source order.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use granit_parser::{
@@ -65,7 +65,8 @@ pub struct Comment {
     /// comment counts only those before the first node on the line of the node it trails,
     /// so a flow collection turned block may keep its trailing comment on its key's line;
     /// a block node's start counts as first only alone, since joining or breaking a `-`
-    /// line moves a collection's.
+    /// line moves a collection's. A comment immediately after a sequence dash counts
+    /// before that sequence's start, regardless of when the parser emits the start.
     pub after_events: usize,
     pub inline: bool,
     /// Payload with whitespace trimmed around it and after its leading `#` run: the
@@ -88,6 +89,7 @@ struct Recorder {
     /// whether it is a block node's start.
     starts: Vec<(usize, usize, bool)>,
     comments: Vec<Comment>,
+    dash_comments: BTreeSet<(usize, usize)>,
     /// granit numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
     anchor_ordinals: BTreeMap<usize, usize>,
@@ -96,6 +98,23 @@ struct Recorder {
 }
 
 impl Recorder {
+    fn inline_after_events(&self, line: usize) -> usize {
+        let Some(&(last, ..)) = self.starts.last() else {
+            return self.counted;
+        };
+        let on_line = || {
+            self.starts
+                .iter()
+                .filter(|(start, ..)| *start == last.min(line))
+        };
+        on_line()
+            .find(|(.., block)| !block)
+            .or_else(|| on_line().next())
+            .or_else(|| self.starts.last())
+            .map(|&(_, before, _)| before)
+            .expect("the trailed node is among the starts")
+    }
+
     fn anchor(&mut self, id: usize) -> Option<usize> {
         (id > 0).then(|| {
             let next = self.anchor_ordinals.len();
@@ -163,20 +182,24 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
         let node = match event {
             Event::Comment(text, placement) => {
                 let inline = placement == Placement::Right;
-                let trailed = self.starts.last().filter(|_| inline);
-                let after_events = trailed.map_or(self.counted, |&(last, ..)| {
-                    let on_line = || {
-                        self.starts
-                            .iter()
-                            .filter(|(start, ..)| *start == last.min(line))
-                    };
-                    on_line()
-                        .find(|(.., block)| !block)
-                        .or_else(|| on_line().next())
-                        .or(trailed)
-                        .map(|&(_, before, _)| before)
-                        .expect("the trailed node is among the starts")
-                });
+                let after_events = if self
+                    .dash_comments
+                    .contains(&(line, span.start.col()))
+                {
+                    if matches!(self.nodes.last(), Some(Node::SequenceStart { .. }))
+                        && self.starts.last().is_some_and(|&(start, ..)| start == line)
+                    {
+                        self.counted - 1
+                    } else {
+                        self.counted
+                    }
+                } else {
+                    if inline {
+                        self.inline_after_events(line)
+                    } else {
+                        self.counted
+                    }
+                };
                 self.comments.push(Comment {
                     after_events,
                     inline,
@@ -228,9 +251,29 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
     }
 }
 
-fn record(content: &str, assume_yaml_1_1: bool) -> Option<Recorder> {
+fn record(
+    content: &str,
+    assume_yaml_1_1: bool,
+    with_comments: bool,
+) -> Option<Recorder> {
+    let mut dash_comments = BTreeSet::new();
+    let mut dash_line = None;
+    if with_comments {
+        for token in Scanner::new(StrInput::new(content)) {
+            let (span, kind) = token.ok()?.into_parts();
+            match kind {
+                TokenType::BlockEntry => dash_line = Some(span.start.line()),
+                TokenType::Comment(_) if dash_line == Some(span.start.line()) => {
+                    dash_comments.insert((span.start.line(), span.start.col()));
+                    dash_line = None;
+                }
+                _ => dash_line = None,
+            }
+        }
+    }
     let mut recorder = Recorder {
         assume_yaml_1_1,
+        dash_comments,
         ..Recorder::default()
     };
     Parser::new_from_str(block_scalar_eof::without_indentation(content))
@@ -277,17 +320,17 @@ pub fn check_yaml_1_1_preserved(input: &str, output: &str) -> Result<(), String>
 }
 
 pub fn representation(content: &str) -> Option<Vec<Node>> {
-    record(content, false).map(|recorder| recorder.nodes)
+    record(content, false, false).map(|recorder| recorder.nodes)
 }
 
 /// [`representation`] as a YAML 1.1 reader such as PyYAML sees it, whatever the
 /// document's `%YAML` directive.
 pub fn yaml_1_1_representation(content: &str) -> Option<Vec<Node>> {
-    record(content, true).map(|recorder| recorder.nodes)
+    record(content, true, false).map(|recorder| recorder.nodes)
 }
 
 pub fn annotations(content: &str) -> Option<Annotations> {
-    let recorder = record(content, false)?;
+    let recorder = record(content, false, true)?;
     let mut anchor_names = Vec::new();
     let mut alias_names = Vec::new();
     for token in Scanner::new(StrInput::new(content)) {

@@ -886,6 +886,35 @@ fn a_trailing_comment_keeps_its_node_on_the_key_line() {
 }
 
 #[test]
+fn a_dash_line_comment_survives_sequence_and_mapping_layout_changes() {
+    for (toml, input, expected) in [
+        (
+            "[format]\nindent-sequences = false\n",
+            "k:\n  - # c\n    a: b\n",
+            "k:\n-  # c\n    a: b\n",
+        ),
+        (
+            "[format]\nmapping-style = 'flow'\n",
+            "- a:\n    b: c\n- # c\n",
+            "- a: {b: c}\n-  # c\n",
+        ),
+    ] {
+        let cfg = YamlLintConfig::from_toml_str(toml).expect("format config loads");
+        let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+        assert_eq!(output, expected);
+        check_preserved(input, &output).expect("comment stays on its sequence item");
+    }
+}
+
+#[test]
+fn a_dash_line_comment_moved_to_another_item_is_detected() {
+    let input = "- # c\n  a: b\n- d: e\n";
+    let moved = "- a: b\n-  # c\n  d: e\n";
+    assert_ne!(annotations(input), annotations(moved));
+    assert!(check_annotations(input, moved).is_err());
+}
+
+#[test]
 fn an_empty_block_scalar_leaves_the_next_line_s_comment_to_its_node() {
     for (spread, joined) in [
         ("a: |  # note", "a: |  # note\n...\n"),
