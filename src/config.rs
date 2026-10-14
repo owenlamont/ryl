@@ -199,6 +199,7 @@ pub struct YamlLintConfig {
     path_case: PathCase,
     ignore_patterns: Vec<String>,
     ignore_from_files: Vec<String>,
+    ignore_from_file_key: &'static str,
     #[allow(clippy::struct_field_names)]
     ignore_matcher: Option<Gitignore>,
     per_file_ignores: BTreeMap<String, Vec<String>>,
@@ -563,6 +564,7 @@ impl Default for YamlLintConfig {
             path_case: CASE_INSENSITIVE_PATHS.into(),
             ignore_patterns: Vec::new(),
             ignore_from_files: Vec::new(),
+            ignore_from_file_key: "ignore-from-file",
             ignore_matcher: None,
             per_file_ignores: BTreeMap::new(),
             per_file_ignore_matchers: Vec::new(),
@@ -947,6 +949,11 @@ impl YamlLintConfig {
         let normalized = normalize_toml_config(config);
         let mut cfg = Self {
             deprecated_keys: config.deprecated_keys(),
+            ignore_from_file_key: if config.exclude_from_file.is_some() {
+                "exclude-from-file"
+            } else {
+                "ignore-from-file"
+            },
             format: FormatSettings::new(
                 config.format.clone().unwrap_or_default(),
                 explicit,
@@ -1062,6 +1069,7 @@ impl YamlLintConfig {
         let (matcher, extra_patterns) = build_ignore_matcher(
             &self.ignore_patterns,
             &self.ignore_from_files,
+            self.ignore_from_file_key,
             envx,
             base_dir,
         )?;
@@ -1123,8 +1131,13 @@ fn build_rule_filter(
     envx: &dyn Env,
     base_dir: &Path,
 ) -> Result<(), String> {
-    let (matcher, extra_patterns) =
-        build_ignore_matcher(&filter.patterns, &filter.from_files, envx, base_dir)?;
+    let (matcher, extra_patterns) = build_ignore_matcher(
+        &filter.patterns,
+        &filter.from_files,
+        "ignore-from-file",
+        envx,
+        base_dir,
+    )?;
     if !extra_patterns.is_empty() {
         filter.patterns.extend(extra_patterns);
     }
@@ -1155,6 +1168,7 @@ fn build_glob_matcher(
 fn build_ignore_matcher(
     patterns: &[String],
     from_files: &[String],
+    from_file_key: &str,
     envx: &dyn Env,
     base_dir: &Path,
 ) -> Result<(Option<Gitignore>, Vec<String>), String> {
@@ -1191,7 +1205,7 @@ fn build_ignore_matcher(
             Ok(text) => text,
             Err(err) => {
                 return Err(format!(
-                    "failed to read ignore-from-file {}: {err}",
+                    "failed to read {from_file_key} {}: {err}",
                     resolved.display()
                 ));
             }
@@ -1203,7 +1217,7 @@ fn build_ignore_matcher(
             }
             if let Err(err) = builder.add_line(Some(resolved.clone()), normalized) {
                 return Err(format!(
-                    "invalid config: ignore-from-file pattern in {} is invalid: {err}",
+                    "invalid config: {from_file_key} pattern in {} is invalid: {err}",
                     resolved.display()
                 ));
             }
@@ -1706,7 +1720,7 @@ pub(crate) fn locate_per_file(
 /// Project root for a config at `p`: normally its parent directory, but a `.config/`
 /// discovery candidate (`.config/.ryl.toml` or `.config/ryl.toml`) anchors at that
 /// directory's parent, since `.config/` is a config container by convention, never a
-/// content root: path-based `[files]`/`ignore` globs and relative `ignore-from-file`
+/// content root: path-based `[files]`/`exclude` globs and relative `exclude-from-file`
 /// paths then resolve against the project root, not `.config/`. Gated on the candidate
 /// *filenames* (not "any TOML in `.config/`") so an arbitrarily-named or explicitly
 /// pointed-at config inside `.config/` keeps its parent-directory base. An empty
