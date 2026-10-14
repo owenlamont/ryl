@@ -154,11 +154,15 @@ pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
-    collection_style::findings(content, collection_style_config(cfg, indent, &[]))
-        .into_iter()
-        .filter(|finding| finding.refused.is_some())
-        .map(collection_style::Finding::into_problem)
-        .collect()
+    collection_style::findings(
+        content,
+        collection_style_config(cfg, indent, &[]),
+        Some(&indentation_target(cfg, indent)),
+    )
+    .into_iter()
+    .filter(|finding| finding.refused.is_some())
+    .map(collection_style::Finding::into_problem)
+    .collect()
 }
 
 /// `input` formatted per `cfg`'s `[format]` table, skipping any rule in `skip`.
@@ -561,7 +565,9 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
         passes
             .collection_style
             .iter()
-            .flat_map(|cfg| collection_style::findings(content, *cfg))
+            .flat_map(|cfg| {
+                collection_style::findings(content, *cfg, passes.indentation.as_ref())
+            })
             .filter(|finding| finding.refused.is_none())
             .map(collection_style::Finding::into_problem),
     );

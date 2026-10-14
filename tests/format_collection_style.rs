@@ -319,6 +319,182 @@ fn many_siblings_converge_in_one_run() {
 }
 
 #[test]
+fn flow_conversion_waits_for_document_reindent() {
+    let cases = [
+        (
+            "sequence, flush",
+            "[format]\nsequence-style = 'block'\nindent-sequences = false\n[lint.rules.indentation]\nindent-sequences = false\n",
+            "a: [a]\nb: >\n   x\n  #\n",
+        ),
+        (
+            "sequence, indented",
+            "[format]\nsequence-style = 'block'\nindent-sequences = true\n",
+            "a: [a]\nb: >\n   x\n  #\n",
+        ),
+        (
+            "mapping, flush",
+            "[format]\nmapping-style = 'block'\nindent-sequences = false\n",
+            "a: {b: c}\nd: >\n   x\n  #\n",
+        ),
+        (
+            "mapping, indented",
+            "[format]\nmapping-style = 'block'\nindent-sequences = true\n",
+            "a: {b: c}\nd: >\n   x\n  #\n",
+        ),
+    ];
+    for (name, toml, input) in cases {
+        let cfg = config(toml);
+        assert_eq!(
+            format_str(input, &cfg, Path::new("case.yaml"), &[]),
+            input,
+            "{name}"
+        );
+        assert!(
+            refusals(input, &cfg).iter().any(|problem| problem
+                .message
+                .contains("document cannot be re-indented")),
+            "{name} should report the collection refusal"
+        );
+    }
+}
+
+#[test]
+fn block_to_flow_survives_unrelated_reindent_refusal() {
+    let input = "a:\n  - b\nbad: >\n   x\n  #\n";
+    let expected = "a: [b]\nbad: >\n   x\n  #\n";
+    let toml = "[format]\nsequence-style = 'flow'\n";
+    assert_eq!(
+        format_str(input, &config(toml), Path::new("case.yaml"), &[]),
+        expected
+    );
+
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), toml).unwrap();
+    let file = dir.path().join("case.yaml");
+    fs::write(&file, input).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("block sequence would become flow"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn flow_conversion_waits_for_refused_dash_layout() {
+    let input = "items: [{a: b}]\nbad: >\n   x\n  #\n";
+    let cfg = config(
+        "[format]\nsequence-style = 'block'\nmapping-style = 'block'\nindent-sequences = true\ndash-on-own-line = true\n",
+    );
+    assert_eq!(format_str(input, &cfg, Path::new("case.yaml"), &[]), input);
+    assert!(
+        refusals(input, &cfg)
+            .iter()
+            .any(|problem| problem.message.contains("document cannot be re-indented"))
+    );
+    assert_eq!(
+        format_str("items: [{a: b}]\n", &cfg, Path::new("case.yaml"), &[]),
+        "items:\n  -\n    a: b\n"
+    );
+}
+
+#[test]
+fn flow_conversions_in_same_refused_document_stay_flow() {
+    let input = "a: [a]\nm: {b: c}\nbad: >\n   x\n  #\n";
+    let toml = "[format]\nsequence-style = 'block'\nmapping-style = 'block'\nindent-sequences = false\n";
+    let cfg = config(toml);
+    assert_eq!(format_str(input, &cfg, Path::new("case.yaml"), &[]), input);
+    let found = refusals(input, &cfg);
+    assert!(found.iter().any(|problem| problem.rule == Some("brackets")
+        && problem.message.contains("document cannot be re-indented")));
+    assert!(found.iter().any(|problem| problem.rule == Some("braces")
+        && problem.message.contains("document cannot be re-indented")));
+}
+
+#[test]
+fn flow_conversion_handles_each_reindent_refusal_cause() {
+    use ryl::rules::indentation::{
+        Cause, Config, IndentSequencesSetting, SpacesSetting, reindent,
+    };
+
+    let target = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    let cfg = config(
+        "indent-width = 2\n[format]\nsequence-style = 'block'\nindent-sequences = false\n",
+    );
+    for (cause, suffix) in [
+        (Cause::Changed, "b: >\n   x\n  #\n"),
+        (Cause::Tab, "b:\n  c: d\n \t\n"),
+        (
+            Cause::Disabled,
+            "b: c  # yamllint disable-line rule:indentation\n",
+        ),
+        (Cause::Unfollowable, ": value\n"),
+    ] {
+        let candidate = format!("a:\n  - a\n{suffix}");
+        assert_eq!(reindent(&candidate, &target).refused[0].cause, cause);
+        let input = format!("a: [a]\n{suffix}");
+        let formatted = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(
+            formatted.contains("a: [a]"),
+            cause != Cause::Tab,
+            "{cause:?}: {formatted:?}"
+        );
+    }
+}
+
+#[test]
+fn exact_repro_keeps_the_agreeing_indentation_config_clean() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let config = dir.path().join("config.toml");
+    let input = "a: [a]\nb: >\n   x\n  #\n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        &config,
+        "[format]\nsequence-style = 'block'\nindent-sequences = false\n[lint.rules.indentation]\nindent-sequences = false\n",
+    )
+    .unwrap();
+
+    let check = || {
+        run(ryl(dir.path())
+            .args(["check", "-c"])
+            .arg(&config)
+            .arg(&file))
+    };
+    assert_eq!(check().0, 0);
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args(["format", "-c"])
+        .arg(&config)
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("brackets not fixed: cannot convert to block safely"),
+        "{stderr}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    assert_eq!(check().0, 0);
+}
+
+#[test]
+fn a_reindent_refusal_does_not_block_another_document() {
+    let input =
+        "---\na: [a]\nb: c  # yamllint disable-line rule:indentation\n---\nc: [d]\n";
+    let expected =
+        "---\na: [a]\nb: c  # yamllint disable-line rule:indentation\n---\nc:\n- d\n";
+    let cfg = config(
+        "indent-width = 2\n[format]\nsequence-style = 'block'\nindent-sequences = false\n",
+    );
+    assert_eq!(
+        format_str(input, &cfg, Path::new("case.yaml"), &[]),
+        expected
+    );
+}
+
+#[test]
 fn check_attributes_each_conversion_and_write_mode_reports_refusals() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), BOTH).unwrap();

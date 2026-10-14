@@ -934,7 +934,8 @@ impl FixContext<'_> {
         fix!(comments_indentation);
         fix!(commas);
         if let Some(cfg) = passes.collection_style
-            && let Some((restyled, rules)) = collection_style::restyle(&content, cfg)
+            && let Some((restyled, rules)) =
+                collection_style::restyle(&content, cfg, passes.indentation.as_ref())
         {
             changed_rules.extend(rules);
             content = restyled;
