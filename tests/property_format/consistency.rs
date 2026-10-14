@@ -4,6 +4,7 @@ use super::representation::{
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
+use similar::{DiffTag, TextDiff};
 
 pub fn refused(
     input: &str,
@@ -12,6 +13,15 @@ pub fn refused(
     notices: &[ryl::lint::LintProblem],
     before: &[ryl::lint::LintProblem],
 ) -> bool {
+    let input_lines: Vec<_> = input.lines().collect();
+    let output_lines: Vec<_> = output.lines().collect();
+    let unchanged_input_line = TextDiff::from_slices(&input_lines, &output_lines)
+        .ops()
+        .iter()
+        .find(|op| {
+            op.tag() == DiffTag::Equal && op.new_range().contains(&(problem.line - 1))
+        })
+        .map(|op| op.old_range().start + problem.line - op.new_range().start);
     notices.iter().any(|notice| {
         if notice.rule != problem.rule {
             return false;
@@ -20,8 +30,7 @@ pub fn refused(
             old.rule == problem.rule
                 && old.message == problem.message
                 && old.column == problem.column
-                && input.lines().nth(old.line - 1)
-                    == output.lines().nth(problem.line - 1)
+                && Some(old.line) == unchanged_input_line
         }) {
             return true;
         }

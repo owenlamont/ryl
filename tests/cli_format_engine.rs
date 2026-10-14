@@ -546,6 +546,29 @@ fn markdown_regions_format_without_file_shape_rules_and_ragged_ones_stay() {
 }
 
 #[test]
+fn markdown_keep_scalar_refusal_does_not_stop_other_regions() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "indent-width = 2\n[format]\n[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "```yaml\nq: 1\n```\n\n```yaml\na:\n   b: c\n---\nz: |+\n   ",
+    )
+    .unwrap();
+    let (code, _, stderr) =
+        run(ryl(dir.path()).args(["format", "--markdown"]).arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "```yaml\nq: 1\n```\n\n```yaml\na:\n  b: c\n---\nz: |+\n   "
+    );
+}
+
+#[test]
 fn symlinks_and_unparsable_files_are_skipped_and_utf16_keeps_its_encoding() {
     let dir = tempdir().unwrap();
     let target = dir.path().join("target.yaml");

@@ -838,6 +838,11 @@ fn every_pass_preserves_unterminated_keep_scalar_break() {
             check_pass(pass, input).unwrap();
         }
     }
+    let cfg = YamlLintConfig::from_toml_str("indent-width = 2\n[format]\n").unwrap();
+    let input = "a:\n   b: c\n---\nz: |+\n   ";
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_eq!(output, "a:\n  b: c\n---\nz: |+\n   ");
+    check_values(input, &output).unwrap();
 }
 
 #[test]
@@ -1508,6 +1513,43 @@ fn g11_document_refusal_does_not_exempt_a_new_violation() {
         output,
         problem,
         &[refusal],
+        &before
+    ));
+}
+
+#[test]
+fn g11_document_refusal_does_not_exempt_a_new_duplicate_line_violation() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nsequence-style = 'block'\nindent-sequences = false\n\
+         [lint.rules.indentation]\nindent-sequences = false\n",
+    )
+    .unwrap();
+    let input = "a: [a]\nb:\n  - a\nc: >\n   x\n  #\n";
+    let output = "a:\n  - a\nb:\n  - a\nc: >\n   x\n  #\n";
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let after = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    let new_problem = after
+        .iter()
+        .find(|problem| problem.rule == Some("indentation") && problem.line == 2)
+        .unwrap();
+    assert!(before.iter().any(|problem| {
+        problem.rule == new_problem.rule
+            && problem.message == new_problem.message
+            && problem.column == new_problem.column
+            && problem.line == 3
+    }));
+    let refusals = vec![ryl::lint::LintProblem {
+        line: 1,
+        column: 1,
+        level: ryl::lint::Severity::Error,
+        message: "cannot re-indent this document safely".to_owned(),
+        rule: Some("indentation"),
+    }];
+    assert!(!consistency::refused(
+        input,
+        output,
+        new_problem,
+        &refusals,
         &before
     ));
 }

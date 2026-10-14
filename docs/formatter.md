@@ -124,6 +124,7 @@ the spaces are not scalar content. A keep-chomped scalar (`|+` or `>+`) whose
 spaces-only final line has no line break
 keeps that line unchanged. The formatter reports why it left the trailing spaces;
 removing them or adding a break changes the value in at least one YAML parser.
+Other documents in the same file can still be re-indented.
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.

@@ -326,10 +326,7 @@ fn format_tracked(
     skip: &[&str],
     edited: &mut Vec<&'static str>,
 ) -> String {
-    let mut passes = Passes::format(cfg, layout, skip);
-    if trailing_spaces::keep_blank_eof_line(input).is_some() {
-        passes.indentation = None;
-    }
+    let passes = Passes::format(cfg, layout, skip);
     run_passes(
         input,
         &passes,
@@ -507,7 +504,12 @@ pub(crate) fn unfixed(
     let mut problems: Vec<LintProblem> = reindented
         .refused
         .iter()
-        .filter(|refusal| refusal.cause != indentation::Cause::Disabled)
+        .filter(|refusal| {
+            !matches!(
+                refusal.cause,
+                indentation::Cause::Disabled | indentation::Cause::KeepScalarEof
+            )
+        })
         .map(|refusal| LintProblem {
             line: *refusal.lines.start(),
             column: 1,
