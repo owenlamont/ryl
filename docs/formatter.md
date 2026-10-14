@@ -100,6 +100,7 @@ continuation indent under `fold-long-lines`.
 
 Without `indent-width`, an inline value under an explicit block key (`? key` followed by
 `: value`) uses 2 if the value establishes the file's consistent indentation step.
+An explicit key directly inside a sequence item does not establish that step.
 Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the one whose
 re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
 or a file the re-indent leaves alone at every width, falls back to 2.

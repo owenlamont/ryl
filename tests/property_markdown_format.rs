@@ -137,13 +137,35 @@ proptest! {
 
     #[test]
     fn markdown_format_preserves_regions_and_host(
-        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar()],
+        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar(), arb_blank_scalar_with_explicit_sequence_key()],
         table in settings::arb_format_config(),
     ) {
         run_invariants(&markdown)?;
         let cfg = ryl::config::YamlLintConfig::from_toml_str(&table).expect(&table);
         check_config(&markdown, &table, &cfg)?;
     }
+}
+
+fn arb_blank_scalar_with_explicit_sequence_key() -> impl Strategy<Value = String> {
+    (2usize..=8, 0usize..=3, prop::sample::select(vec!['`', '~'])).prop_map(
+        |(width, indent, marker)| {
+            let prefix = " ".repeat(indent);
+            let fence = marker.to_string().repeat(3);
+            let yaml = format!(
+                "a: |\n{}\n{}w\np:\n{}-\n{}? b\n{}: x\n",
+                " ".repeat(width - 1),
+                " ".repeat(width),
+                " ".repeat(width),
+                " ".repeat(width + 2),
+                " ".repeat(width + 2),
+            );
+            let body: String = yaml
+                .lines()
+                .map(|line| format!("{prefix}{line}\n"))
+                .collect();
+            format!("{prefix}{fence}yaml\n{body}{prefix}{fence}\n")
+        },
+    )
 }
 
 fn arb_fence_like_scalar() -> impl Strategy<Value = String> {
@@ -224,6 +246,31 @@ fn crlf_blockquotes_tabs_and_ragged_regions_keep_the_guarantee() {
     ] {
         run_invariants(&input).unwrap();
     }
+}
+
+#[test]
+fn blank_first_scalar_line_and_flush_explicit_key_stay_stable() {
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(
+        "[format]\nindent-sequences = false\n",
+    )
+    .unwrap();
+    let input = "x\n\n~~~yaml\na: |\n  \n   w\np:\n   -\n     ? b\n     : x\n~~~\n";
+    check_config(input, "flush sequence", &cfg).unwrap();
+    let formatted = format(input, &cfg);
+    let region = extract_regions(
+        &formatted,
+        MarkdownSources {
+            front_matter: true,
+            fenced_blocks: true,
+        },
+    );
+    let standalone = ryl::format::format_str(
+        "a: |\n  \n   w\np:\n   -\n     ? b\n     : x\n",
+        &cfg,
+        synthetic_path(),
+        &[],
+    );
+    assert_eq!(region[0].content, standalone);
 }
 
 #[test]
