@@ -20,6 +20,22 @@ fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
 }
 
 #[test]
+fn keep_chomped_spaces_at_eof_are_refused_by_format_and_safe_fix() {
+    let config = "[lint.rules]\ntrailing-spaces = 'enable'\n";
+    for input in ["a: |+\n   ", "a: >+\n   ", "a: |+2\n  ", "a: >2+\n  x\n  "] {
+        let (code, _, stderr, formatted) = ryl_on(Some(config), input, &["format"]);
+        assert_eq!(
+            (code, formatted.as_str()),
+            (0, input),
+            "{input:?}: {stderr}"
+        );
+        assert!(stderr.contains("trailing-spaces not fixed: cannot remove trailing spaces from keep-chomped scalar at EOF safely"), "{input:?}: {stderr}");
+        let (code, _, stderr, fixed) = ryl_on(Some(config), input, &["check", "--fix"]);
+        assert_eq!((code, fixed.as_str()), (1, input), "{input:?}: {stderr}");
+    }
+}
+
+#[test]
 fn format_respaces_and_reindents_compact_collections() {
     let (code, stderr, formatted) = run_on(DIRTY, &["format"]);
     assert_eq!(

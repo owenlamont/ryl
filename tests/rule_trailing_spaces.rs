@@ -142,16 +142,13 @@ fn fix_strips_unterminated_block_scalar_indentation() {
             for body in ["", "  x\n", "\n"] {
                 let body = body.replace('\n', newline);
                 let input = format!("a: {header}{newline}{body}  ");
-                let expected = format!(
-                    "a: {header}{newline}{body}{}",
-                    if header.contains('+') { newline } else { "" }
-                );
-                assert_eq!(
-                    trailing_spaces::fix(&input),
-                    Some(expected.clone()),
-                    "{input:?}"
-                );
-                assert!(trailing_spaces::fix(&expected).is_none());
+                if header.contains('+') {
+                    assert!(trailing_spaces::fix(&input).is_none(), "{input:?}");
+                } else {
+                    let expected = format!("a: {header}{newline}{body}");
+                    assert_eq!(trailing_spaces::fix(&input), Some(expected.clone()));
+                    assert!(trailing_spaces::fix(&expected).is_none());
+                }
             }
         }
     }
@@ -177,9 +174,9 @@ fn fix_handles_blank_only_block_scalars_and_unterminated_lines() {
         }
     }
     for (input, expected) in [
-        ("a: |+\n   ", "a: |+\n\n"),
+        ("a: |+\n   ", "a: |+\n   "),
         ("a: |3-\n   ", "a: |3-\n"),
-        ("a: |3+\n   x\n   ", "a: |3+\n   x\n\n"),
+        ("a: |3+\n   x\n   ", "a: |3+\n   x\n   "),
         ("a: |3+\n    ", "a: |3+\n    "),
         ("a: |3+\n   \t\n   x\n", "a: |3+\n   \t\n   x\n"),
         ("a:\n  a: |\n    café \t", "a:\n  a: |\n    café \t"),

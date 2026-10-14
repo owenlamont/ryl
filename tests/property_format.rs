@@ -139,7 +139,7 @@ proptest! {
 
     #[test]
     fn blank_only_block_scalar_at_eof_keeps_its_value(
-        header in prop::sample::select(vec!["|", "|-", "|+", ">", ">-", ">+", "|2", "|2-", "|+2"]),
+        header in prop::sample::select(vec!["|", "|-", "|+", ">", ">-", ">+", "|2", "|2-", "|+2", "|2+", ">+2", ">2+"]),
         width in 1usize..=5,
         newline in prop::sample::select(vec!["\n", "\r\n"]),
         marker in any::<bool>(),
@@ -178,8 +178,9 @@ proptest! {
             ryl::config::SourceKind::Yaml, ryl::fix::Rewrite::Format,
         );
         let output = formatted.unwrap_or(input.clone());
+        let before = lint_str(&input, synthetic_path(), &cfg, synthetic_base_dir());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -192,7 +193,8 @@ proptest! {
         );
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&output, problem, &refusals));
+        let before = lint_str(&input, synthetic_path(), &cfg, synthetic_base_dir());
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }
@@ -820,11 +822,69 @@ fn every_pass_preserves_unterminated_keep_scalar_break() {
         }, ..]) if value == "\n"
     ));
     for input in [input, "a: |+\r\n    ", "a: >+2\n   ", "a: |+\n  x\n  "] {
+        assert_eq!(
+            ryl::rules::trailing_spaces::fix(input).as_deref(),
+            None,
+            "keep-chomped EOF spaces must survive the safe fix: {input:?}"
+        );
+        let formatted = (named_pass("format/default").format)(input);
+        assert_eq!(
+            formatted.lines().last(),
+            input.lines().last(),
+            "keep-chomped EOF spaces must survive formatting: {input:?}"
+        );
         check_pass(named_pass("format/default"), input).unwrap();
         for pass in format_passes() {
             check_pass(pass, input).unwrap();
         }
     }
+    let cfg = YamlLintConfig::from_toml_str("indent-width = 2\n[format]\n").unwrap();
+    let input = "a:\n   b: c\n---\nz: |+\n   ";
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_eq!(output, "a:\n  b: c\n---\nz: |+\n   ");
+    check_values(input, &output).unwrap();
+}
+
+#[test]
+fn keep_scalar_eof_refusal_preserves_both_parser_groups() {
+    for (input, reference, loader, oracle) in [
+        ("a: |+\n   ", "\n", "", "\n"),
+        ("a: >+\n   ", "\n\n", "", "\n"),
+        ("a: |+2\n   ", " \n", " ", " \n"),
+        ("a: >2+\n   ", " \n", " ", " \n"),
+        ("a: |+\n  x\n  ", "x\n\n", "x\n", "x\n\n"),
+        ("a: >+\n  x\n  ", "x\n\n\n", "x\n", "x\n\n"),
+    ] {
+        assert_eq!(
+            representation::scalar_value(input, 1),
+            Some(noyalib::Value::from(oracle)),
+            "local representation oracle for {input:?}; reference parser {reference:?}"
+        );
+        assert_ne!(reference, loader, "the parser groups diverge on {input:?}");
+        assert_eq!(
+            (named_pass("format/default").format)(input),
+            input,
+            "unchanged bytes preserve the ruamel and PyYAML value {loader:?}"
+        );
+    }
+}
+
+#[test]
+fn clip_and_strip_scalar_eof_spaces_remain_fixable() {
+    for header in ["|", ">", "|-", ">-", "|2", ">2-"] {
+        let input = format!("a: {header}\n  ");
+        assert_eq!(
+            ryl::rules::trailing_spaces::fix(&input),
+            Some(format!("a: {header}\n")),
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
+fn an_empty_file_has_no_keep_scalar_eof_refusal() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    assert_eq!(ryl::format::format_str("", &cfg, synthetic_path(), &[]), "");
 }
 
 #[test]
@@ -1362,18 +1422,136 @@ fn g11_refusal_exempts_only_the_reported_line_and_concern() {
     let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
     assert!(!problems.is_empty());
     assert!(
-        problems
-            .iter()
-            .all(|problem| consistency::refused(&output, problem, &refusals)),
+        problems.iter().all(|problem| consistency::refused(
+            input,
+            &output,
+            problem,
+            &refusals,
+            &lint_str(input, synthetic_path(), &cfg, synthetic_base_dir())
+        )),
         "{problems:?}: {refusals:?}"
     );
     let mut other = problems[0].clone();
     other.line += 1;
-    assert!(!consistency::refused(&output, &other, &refusals));
+    assert!(!consistency::refused(
+        input,
+        &output,
+        &other,
+        &refusals,
+        &[]
+    ));
     other.line = problems[0].line;
     other.rule = Some("colons");
-    assert!(!consistency::refused(&output, &other, &refusals));
-    assert!(!consistency::refused(&output, &problems[0], &[]));
+    assert!(!consistency::refused(
+        input,
+        &output,
+        &other,
+        &refusals,
+        &[]
+    ));
+    assert!(!consistency::refused(
+        input,
+        &output,
+        &problems[0],
+        &[],
+        &[]
+    ));
+}
+
+#[test]
+fn g11_document_refusal_exempts_an_unchanged_indentation_violation() {
+    let table = "indent-width = 155\n[format]\n[lint.rules.indentation]\n";
+    let cfg = YamlLintConfig::from_toml_str(table).unwrap();
+    let input = "a:\n  - ? a\n    :  - |1\n       #";
+    let (formatted, refusals) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap_or_else(|| input.to_owned());
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let after = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    let problem = after
+        .iter()
+        .find(|problem| problem.rule == Some("indentation") && problem.line == 2)
+        .unwrap();
+    assert!(before.iter().any(|old| old == problem));
+    assert!(consistency::refused(
+        input, &output, problem, &refusals, &before
+    ));
+}
+
+#[test]
+fn g11_document_refusal_does_not_exempt_a_new_violation() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nsequence-style = 'block'\nindent-sequences = false\n\
+         [lint.rules.indentation]\nindent-sequences = false\n",
+    )
+    .unwrap();
+    let input = "a: [a]\nb: >\n   x\n  #\n";
+    let output = "a:\n  - a\nb: >\n   x\n  #\n";
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let after = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    let problem = after
+        .iter()
+        .find(|problem| problem.rule == Some("indentation") && problem.line == 2)
+        .unwrap();
+    let mut refusal = problem.clone();
+    refusal.line = 1;
+    refusal.column = 1;
+    refusal.message = "cannot re-indent this document safely".to_owned();
+    assert!(
+        !before
+            .iter()
+            .any(|old| old.rule == problem.rule && old.message == problem.message)
+    );
+    assert!(!consistency::refused(
+        input,
+        output,
+        problem,
+        &[refusal],
+        &before
+    ));
+}
+
+#[test]
+fn g11_document_refusal_does_not_exempt_a_new_duplicate_line_violation() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nsequence-style = 'block'\nindent-sequences = false\n\
+         [lint.rules.indentation]\nindent-sequences = false\n",
+    )
+    .unwrap();
+    let input = "a: [a]\nb:\n  - a\nc: >\n   x\n  #\n";
+    let output = "a:\n  - a\nb:\n  - a\nc: >\n   x\n  #\n";
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let after = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    let new_problem = after
+        .iter()
+        .find(|problem| problem.rule == Some("indentation") && problem.line == 2)
+        .unwrap();
+    assert!(before.iter().any(|problem| {
+        problem.rule == new_problem.rule
+            && problem.message == new_problem.message
+            && problem.column == new_problem.column
+            && problem.line == 3
+    }));
+    let refusals = vec![ryl::lint::LintProblem {
+        line: 1,
+        column: 1,
+        level: ryl::lint::Severity::Error,
+        message: "cannot re-indent this document safely".to_owned(),
+        rule: Some("indentation"),
+    }];
+    assert!(!consistency::refused(
+        input,
+        output,
+        new_problem,
+        &refusals,
+        &before
+    ));
 }
 
 #[test]
@@ -1424,18 +1602,38 @@ fn review_refusal_hides_unrelated_bracket_spacing() {
         .filter(|problem| problem.message == "too many spaces inside brackets")
         .collect();
     assert_eq!(spacing.len(), 2);
-    assert!(
-        spacing
-            .iter()
-            .all(|problem| !consistency::refused(output, problem, &refusals))
-    );
+    assert!(spacing.iter().all(|problem| !consistency::refused(
+        output,
+        output,
+        problem,
+        &refusals,
+        &[]
+    )));
     let mut same_position = spacing[0].clone();
     same_position.column = refusals[0].column;
-    assert!(!consistency::refused(output, &same_position, &refusals));
+    assert!(!consistency::refused(
+        output,
+        output,
+        &same_position,
+        &refusals,
+        &[]
+    ));
     same_position.message = ryl::rules::brackets::FORBID_MESSAGE.to_owned();
-    assert!(consistency::refused(output, &same_position, &refusals));
+    assert!(consistency::refused(
+        output,
+        output,
+        &same_position,
+        &refusals,
+        &[]
+    ));
     same_position.column += 1;
-    assert!(!consistency::refused(output, &same_position, &refusals));
+    assert!(!consistency::refused(
+        output,
+        output,
+        &same_position,
+        &refusals,
+        &[]
+    ));
     let formatted = ryl::format::format_str(output, &cfg, synthetic_path(), &[]);
     assert_eq!(formatted, "[x]: a\n");
     check_values(output, &formatted).unwrap();
