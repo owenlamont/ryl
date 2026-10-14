@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14"
+# requires-python = ">=3.15"
 # dependencies = ["typer", "py-yaml12", "pyyaml", "platformdirs"]
 # ///
 """Gate `ryl format` on the pinned real-world repos in scripts/formatter_corpus.toml.

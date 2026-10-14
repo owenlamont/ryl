@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.15"
 # dependencies = [
 #   "gitpython>=3.1,<4",
 #   "typer>=0.16,<1",

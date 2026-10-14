@@ -1,8 +1,6 @@
 # /// script
-# requires-python = ">=3.14"
-# dependencies = [
-#   "pytest", "typer", "py-yaml12", "pyyaml", "platformdirs",
-# ]
+# requires-python = ">=3.15"
+# dependencies = ["pytest", "typer", "py-yaml12", "pyyaml", "platformdirs"]
 # ///
 """Gate logic of scripts/formatter_corpus_check.py, run with:
 
