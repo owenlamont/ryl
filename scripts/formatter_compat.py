@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14"
+# requires-python = ">=3.15"
 # dependencies = ["typer", "py-yaml12"]
 # ///
 """Verify ryl's documented per-formatter recipes still coexist cleanly with the latest
