@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.14"
-# dependencies = ["typer", "py-yaml12", "ruamel.yaml", "pyyaml", "platformdirs"]
+# dependencies = ["typer", "py-yaml12", "pyyaml", "platformdirs"]
 # ///
 """Gate `ryl format` on the pinned real-world repos in scripts/formatter_corpus.toml.
 
@@ -11,8 +11,8 @@ config files) into a cache dir, formatted in place twice per mode, then reset. M
 
   - value: per changed file, the property suite's Rust oracle (`representation` and
     `annotations` in tests/property_format.rs) must find the values, tags, anchors and
-    comments unchanged, and py-yaml12 the loaded values (ruamel checks apparent value
-    changes); a file that did not parse must not change;
+    comments unchanged, and py-yaml12 the loaded values (PyYAML scans a final block
+    scalar when py-yaml12 disagrees); a file that did not parse must not change;
   - idempotence: a second `ryl format` changes nothing;
   - panic or timeout.
 
@@ -44,8 +44,6 @@ from typing import Annotated, Any, Final
 
 from formatter_compat import RULE_RE, values_equal
 import platformdirs
-from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError as RuamelYAMLError
 import tomllib
 import typer
 import yaml
@@ -252,12 +250,6 @@ def _load12(data: bytes) -> Any:
     return parse_yaml(data.decode("utf-8"), multi=True)
 
 
-def _load_ruamel(data: bytes) -> Any:
-    parser = YAML(typ="safe", pure=True)
-    parser.version = (1, 2)
-    return list(parser.load_all(data.decode("utf-8")))
-
-
 def _load11(data: bytes) -> Any:
     return list(yaml.safe_load_all(data.decode("utf-8")))
 
@@ -265,16 +257,67 @@ def _load11(data: bytes) -> Any:
 def _compare(load: Callable[[bytes], Any], before: bytes, after: bytes) -> Loaded:
     try:
         equal = values_equal(load(before), load(after))
-    except (ValueError, RecursionError, yaml.YAMLError, RuamelYAMLError):
+    except (ValueError, RecursionError, yaml.YAMLError):
         return Loaded.UNAVAILABLE
     return Loaded.EQUAL if equal else Loaded.UNEQUAL
 
 
+def _without_final_block_scalar(data: bytes) -> tuple[str, bytes] | None:
+    source = data.decode("utf-8")
+    try:
+        tokens = list(yaml.scan(source))
+    except (ValueError, RecursionError, AssertionError, yaml.YAMLError):
+        return None
+    for index in range(len(tokens) - 1, -1, -1):
+        token = tokens[index]
+        if isinstance(token, yaml.ScalarToken):
+            if token.style not in ("|", ">") or any(
+                not isinstance(
+                    tail,
+                    (yaml.BlockEndToken, yaml.DocumentEndToken, yaml.StreamEndToken),
+                )
+                for tail in tokens[index + 1 :]
+            ):
+                return None
+            value = token.value
+            trailing = source[token.end_mark.index :]
+            if trailing and trailing.isspace() and not source.endswith(("\n", "\r")):
+                # PyYAML needs a terminal break to count a spaces-only keep line at EOF.
+                try:
+                    completed = list(yaml.scan(source + "\n"))
+                except (ValueError, RecursionError, AssertionError, yaml.YAMLError):
+                    return None
+                completed_scalar = next(
+                    (
+                        part
+                        for part in reversed(completed)
+                        if isinstance(part, yaml.ScalarToken)
+                    ),
+                    None,
+                )
+                if completed_scalar is None:
+                    return None
+                value = completed_scalar.value
+            masked = (
+                source[: token.start_mark.index]
+                + '""\n'
+                + source[token.end_mark.index :]
+            )
+            return value, masked.encode("utf-8")
+    return None
+
+
 def _compare12(before: bytes, after: bytes) -> Loaded:
     verdict = _compare(_load12, before, after)
+    if verdict is not Loaded.UNEQUAL:
+        return verdict
+    left = _without_final_block_scalar(before)
+    right = _without_final_block_scalar(after)
     if (
-        verdict is Loaded.UNEQUAL
-        and _compare(_load_ruamel, before, after) is Loaded.EQUAL
+        left
+        and right
+        and left[0] == right[0]
+        and _compare(_load12, left[1], right[1]) is Loaded.EQUAL
     ):
         return Loaded.EQUAL
     return verdict

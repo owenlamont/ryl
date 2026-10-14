@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.14"
 # dependencies = [
-#   "pytest", "typer", "py-yaml12", "ruamel.yaml", "pyyaml", "platformdirs",
+#   "pytest", "typer", "py-yaml12", "pyyaml", "platformdirs",
 # ]
 # ///
 """Gate logic of scripts/formatter_corpus_check.py, run with:
@@ -16,6 +16,7 @@ from typing import Final
 
 import pytest
 import typer
+import yaml
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -44,7 +45,7 @@ def test_block_scalar_value_is_preserved_across_document_start(
 ) -> None:
     end = "...\n" if end_marker else ""
     source = f"k: {indicator}\n{body}{end}".encode()
-    assert gate._load_ruamel(source) == [{"k": expected}]
+    assert list(yaml.safe_load_all(source)) == [{"k": expected}]
     assert gate._compare12(source, b"---\n" + source) is gate.Loaded.EQUAL
 
 
@@ -54,6 +55,7 @@ def test_block_scalar_value_is_preserved_across_document_start(
         pytest.param(b"k: |\n", b"k: |\n...\n", id="empty clip at EOF"),
         pytest.param(b"k: |+\n", b"k: |+\n...\n", id="empty keep at EOF"),
         pytest.param(b"--- |1+", b"--- |1+\n", id="explicit indent at EOF"),
+        pytest.param(b"a: |\n  x\n  ", b"---\na: |\n  x\n", id="nonempty clip at EOF"),
     ],
 )
 def test_false_eof_value_difference_is_ignored(
@@ -70,6 +72,43 @@ def test_real_block_scalar_value_change_still_fails() -> None:
     before = b"k: |+\n  x\n"
     after = b"k: |+\n  y\n"
     assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
+def test_yaml12_merge_key_value_change_still_fails() -> None:
+    before = b"base: &b {a: x}\nout: {<<: *b}\n"
+    after = b"base: &b {a: x}\nout: {a: x}\n"
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
+def test_yaml12_merge_key_change_with_eof_block_scalar_still_fails() -> None:
+    before = b"base: &b {a: x}\nout: {<<: *b}\ntail: |\n"
+    after = b"base: &b {a: x}\nout: {a: x}\ntail: |\n...\n"
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        pytest.param(b"- |+\n   ", b"- |+\n...\n", id="empty keep"),
+        pytest.param(b"a: |+\n  x\n  ", b"a: |+\n  x\n", id="nonempty keep"),
+    ],
+)
+def test_blank_only_keep_scalar_value_change_still_fails(
+    before: bytes, after: bytes
+) -> None:
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
+def test_ruamel_assertion_keeps_yaml12_value_verdict(tmp_path: Path) -> None:
+    before = b"a: !!omap [{x: 1}, {x: 2}]\n"
+    after = b"a: !!omap [{x: 1}, {x: 3}]\n"
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
+    assert result.yaml12_unequal == [PATH]
 
 
 def test_rust_oracle_value_loss_remains_a_hard_failure(tmp_path: Path) -> None:
