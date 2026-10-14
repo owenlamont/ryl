@@ -326,9 +326,13 @@ fn format_tracked(
     skip: &[&str],
     edited: &mut Vec<&'static str>,
 ) -> String {
+    let mut passes = Passes::format(cfg, layout, skip);
+    if trailing_spaces::keep_blank_eof_line(input).is_some() {
+        passes.indentation = None;
+    }
     run_passes(
         input,
-        &Passes::format(cfg, layout, skip),
+        &passes,
         path,
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::stderr(),
@@ -514,6 +518,17 @@ pub(crate) fn unfixed(
         .chain(kept)
         .collect();
     problems.extend(refusals_at(content, cfg, indent));
+    if let Some(line) = trailing_spaces::keep_blank_eof_line(content) {
+        problems.push(LintProblem {
+            line,
+            column: 1,
+            level: Severity::Error,
+            message:
+                "cannot remove trailing spaces from keep-chomped scalar at EOF safely"
+                    .to_string(),
+            rule: Some(trailing_spaces::ID),
+        });
+    }
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems
 }

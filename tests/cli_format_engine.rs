@@ -108,7 +108,11 @@ fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
                 let ending = if newline == "\r" { "\n" } else { newline };
                 let expected = format!(
                     "a: {header}{ending}{}",
-                    if header.contains('+') { ending } else { "" }
+                    if header.contains('+') {
+                        " ".repeat(width)
+                    } else {
+                        String::new()
+                    }
                 );
                 let (code, _, stderr, formatted) =
                     format_file(Some(config), &input, &[]);
@@ -118,7 +122,7 @@ fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
                     format_file(Some(config), &formatted, &["--check"]);
                 assert_eq!((code, again.as_str()), (0, expected.as_str()), "{stderr}");
                 let (code, _, stderr, _) = ryl_on(Some(config), &formatted, &["check"]);
-                assert_eq!(code, 0, "{stderr}");
+                assert_eq!(code, i32::from(header.contains('+')), "{stderr}");
             }
         }
     }
@@ -142,14 +146,11 @@ fn keep_scalar_eof_preserves_its_break_with_document_markers() {
                         String::new()
                     },
                 );
-                let expected = format!(
-                    "- |+{newline}{newline}{}",
-                    if input_marker || add_end {
-                        format!("...{newline}")
-                    } else {
-                        String::new()
-                    },
-                );
+                let expected = if input_marker {
+                    format!("- |+{newline}{newline}...{newline}")
+                } else {
+                    format!("- |+{newline}   ")
+                };
                 let (code, _, stderr, formatted) =
                     format_file(Some(&config), &input, &[]);
                 assert_eq!(

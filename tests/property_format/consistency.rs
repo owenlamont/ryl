@@ -6,14 +6,27 @@ use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 
 pub fn refused(
+    input: &str,
     output: &str,
     problem: &ryl::lint::LintProblem,
     notices: &[ryl::lint::LintProblem],
+    before: &[ryl::lint::LintProblem],
 ) -> bool {
     notices.iter().any(|notice| {
+        if notice.rule != problem.rule {
+            return false;
+        }
+        if before.iter().any(|old| {
+            old.rule == problem.rule
+                && old.message == problem.message
+                && old.column == problem.column
+                && input.lines().nth(old.line - 1)
+                    == output.lines().nth(problem.line - 1)
+        }) {
+            return true;
+        }
         notice.line == problem.line
             && refusal_column(output, notice) == Some(problem.column)
-            && notice.rule == problem.rule
             && (notice.message == problem.message
                 || match notice.rule {
                     Some("brackets") => notice.message.starts_with("cannot convert to block safely:")
@@ -24,6 +37,8 @@ pub fn refused(
                         && problem.message == ryl::rules::hyphens::MESSAGE_DASH_ON_OWN_LINE,
                     Some("indentation") => notice.message == "cannot re-indent this document safely"
                         && problem.message.starts_with("wrong indentation:"),
+                    Some("trailing-spaces") => notice.message == "cannot remove trailing spaces from keep-chomped scalar at EOF safely"
+                        && problem.message == ryl::rules::trailing_spaces::MESSAGE,
                     _ => false,
                 })
     })
