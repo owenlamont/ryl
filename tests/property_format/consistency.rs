@@ -110,16 +110,13 @@ fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
     });
     let begin: usize = lines[..first - 1].iter().map(|line| line.len()).sum();
     let body = output.get(begin..span.end.byte_offset()?)?;
-    let fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
+    let mut fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
+    // noyalib needs a terminal break to retain the final block line.
+    if !body.is_empty() && !body.ends_with(['\r', '\n']) {
+        fragment.push('\n');
+    }
     let mut value: std::collections::BTreeMap<String, noyalib::Value> =
         noyalib::from_str(&fragment).ok()?;
-    // noyalib adds a final line break at EOF where YAML 1.2 has none.
-    if !body.ends_with(['\r', '\n'])
-        && let Some(noyalib::Value::String(text)) = value.get_mut("a")
-        && text.ends_with('\n')
-    {
-        text.pop();
-    }
     value.remove("a")
 }
 
@@ -129,18 +126,29 @@ fn scalar_loader_resolves_yaml_12_core_values() {
     assert_eq!(scalar_value("null", 0), Some(noyalib::Value::Null));
     assert_eq!(scalar_value("011", 0), Some(noyalib::Value::from(11_i64)));
     assert_eq!(scalar_value("on", 0), Some(noyalib::Value::from("on")));
-    assert_eq!(
-        scalar_value("a: |\n  a", 1),
-        Some(noyalib::Value::from("a"))
-    );
-    assert_eq!(
-        scalar_value("a: |\n  a\n", 1),
-        Some(noyalib::Value::from("a\n"))
-    );
-    assert_eq!(
-        scalar_value("a: |-\n  a", 1),
-        Some(noyalib::Value::from("a"))
-    );
+}
+
+#[test]
+fn scalar_loader_matches_reference_block_values() {
+    for (input, expected) in [
+        ("a: |+", ""),
+        ("a: |\n  a", "a\n"),
+        ("a: |\n  a\n", "a\n"),
+        ("a: |-\n  a", "a"),
+        ("a: |+\n  a", "a\n"),
+        ("a: |+\n  \n  ", "\n\n"),
+        ("a: |+\n  \n  \n", "\n\n"),
+        ("a: |+\n    ", "\n"),
+        ("a: |+\n    \n", "\n"),
+        ("a: >\n  a", "a\n"),
+        ("a: >\n  a\n", "a\n"),
+    ] {
+        assert_eq!(
+            scalar_value(input, 1),
+            Some(noyalib::Value::from(expected)),
+            "{input:?}"
+        );
+    }
 }
 
 pub fn content_whitespace(
