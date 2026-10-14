@@ -21,6 +21,7 @@ pub struct Config {
     pub mappings: CollectionStyleTarget,
     pub indent: u8,
     pub width: u16,
+    pub infer_consistent_indent: bool,
 }
 
 /// A collection the pass rewrites, or leaves alone for `refused`.
@@ -141,7 +142,13 @@ fn plan(
             edits.push((edit, findings.len() - 1));
         }
     }
-    let edits = skip_reindent_dependent(buffer, edits, &mut findings, indent);
+    let edits = skip_reindent_dependent(
+        buffer,
+        edits,
+        &mut findings,
+        indent,
+        cfg.infer_consistent_indent,
+    );
     (edits, findings)
 }
 
@@ -150,6 +157,7 @@ fn skip_reindent_dependent(
     edits: Vec<(Edit, usize)>,
     findings: &mut [Finding],
     indent: Option<&indentation::Config>,
+    infer_consistent_indent: bool,
 ) -> Vec<Edit> {
     let Some(indent) = indent.filter(|_| !edits.is_empty()) else {
         return edits.into_iter().map(|(edit, _)| edit).collect();
@@ -158,18 +166,29 @@ fn skip_reindent_dependent(
         buffer,
         edits.iter().map(|(edit, _)| edit.clone()).collect(),
     );
-    let refused = indentation::reindent(&candidate, indent).refused;
-    if refused.is_empty() {
+    let reindented = indentation::reindent(&candidate, indent);
+    let inconsistent = if infer_consistent_indent {
+        indentation::check(&reindented.text, &indent.with_consistent_spaces())
+    } else {
+        Vec::new()
+    };
+    if reindented.refused.is_empty() && inconsistent.is_empty() {
         return edits.into_iter().map(|(edit, _)| edit).collect();
     }
     let candidate_starts = document_start_lines(&candidate);
+    let output_starts = document_start_lines(&reindented.text);
     let source_starts = document_start_lines(buffer);
-    let mut blocked = vec![false; source_starts.len()];
-    for refusal in refused {
+    let mut blocked = vec![None; source_starts.len()];
+    for refusal in reindented.refused {
         let document = candidate_starts
             .partition_point(|start| *start <= *refusal.lines.start())
             - 1;
-        blocked[document] = true;
+        blocked[document] = Some("the document cannot be re-indented safely");
+    }
+    for violation in inconsistent {
+        let document =
+            output_starts.partition_point(|start| *start <= violation.line) - 1;
+        blocked[document].get_or_insert("the result would fail consistent indentation");
     }
     let source_lines = byte_line_starts(buffer);
     edits
@@ -177,9 +196,10 @@ fn skip_reindent_dependent(
         .filter_map(|(edit, finding)| {
             let line = source_lines.partition_point(|start| *start <= edit.0.get());
             let document = source_starts.partition_point(|start| *start <= line) - 1;
-            if blocked[document] && !findings[finding].to_flow {
-                findings[finding].refused =
-                    Some("the document cannot be re-indented safely");
+            if let Some(reason) =
+                blocked[document].filter(|_| !findings[finding].to_flow)
+            {
+                findings[finding].refused = Some(reason);
                 None
             } else {
                 Some(edit)

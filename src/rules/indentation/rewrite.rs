@@ -41,6 +41,7 @@ pub enum Cause {
     /// The analyzer met a token it cannot place.
     Unfollowable,
     KeepScalarEof,
+    Inconsistent,
     /// The re-indented document parses to different events.
     Changed,
 }
@@ -188,6 +189,16 @@ impl<'a> Prepared<'a> {
                 let changed = rewritten.get(index).map(|document| &document.events)
                     != Some(&self.original[index].events);
                 *cause = cause.or(changed.then_some(Cause::Changed));
+            }
+        }
+        if cfg.require_consistent {
+            let output = render(&refused);
+            let (output_documents, _) = documents(&output);
+            let output_starts = document_starts(&output, &output_documents);
+            for violation in super::check(&output, &cfg.with_consistent_spaces()) {
+                let document =
+                    output_starts.partition_point(|&start| start < violation.line) - 1;
+                refused[document].get_or_insert(Cause::Inconsistent);
             }
         }
         Reindented {

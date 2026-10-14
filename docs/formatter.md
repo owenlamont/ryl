@@ -105,6 +105,8 @@ Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the o
 re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
 or a file the re-indent leaves alone at every width, falls back to 2.
 A file mostly at 4 with one block at 2 is re-indented to 4.
+If the detected width would leave inconsistent indentation, `ryl format` keeps that
+document's indentation and reports the sites it cannot fix.
 
 The rest of the layout is fixed:
 
@@ -203,6 +205,11 @@ items:  # shopping
 metadata:
   name: example
 ```
+
+When the width is inferred, a conversion stays in flow style with a notice if the
+result would fail the `indentation` rule's consistent-width check. A compact sequence
+mapping with explicit keys can fix the lint rule's inferred step independently of the
+formatter's detected width.
 
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style

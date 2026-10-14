@@ -280,6 +280,35 @@ proptest! {
         prop_assert!(lint_str(&format(&input), synthetic_path(), &cfg, synthetic_base_dir()).is_empty());
     }
 
+    #[test]
+    fn converted_collections_keep_detected_width_lint_clean(
+        width in 3usize..=8,
+        mapping in any::<bool>(),
+        folded in any::<bool>(),
+        word in prop::sample::select(vec!["x", "long word", "café"]),
+    ) {
+        let scalar = if folded { '>' } else { '|' };
+        let (style, collection) = if mapping {
+            ("mapping", "{d: e}")
+        } else {
+            ("sequence", "[d, e]")
+        };
+        let input = format!(
+            "a:\n- v: {scalar}\n{}{word}\n  ? x\n  : y\nb:\n- c: {collection}\n",
+            " ".repeat(width + 2)
+        );
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[format]\n{style}-style = 'block'\nindent-sequences = false\n\
+             [lint.rules.indentation]\nindent-sequences = false\n"
+        )).unwrap();
+        let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+        check_values(&input, &output).map_err(TestCaseError::fail)?;
+        prop_assert!(
+            lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir()).is_empty(),
+            "width {width}, {style}, {scalar}: {output:?}"
+        );
+    }
+
     /// Narrow or delete this property once a preview style exists.
     #[test]
     fn preview_matches_stable_while_no_preview_style_exists(
@@ -433,6 +462,127 @@ fn check_detection(input: &str, width: u8) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+#[test]
+fn mixed_width_flow_conversion_keeps_consistent_indent_lint_clean() {
+    for width in 3..=8 {
+        for (style, value) in [("mapping", "{d: e}"), ("sequence", "[d, e]")] {
+            for scalar in ['>', '|'] {
+                let input = format!(
+                    "a:\n- v: {scalar}\n{}x\n  ? x\n  : y\nb:\n- c: {value}\n",
+                    " ".repeat(width + 2)
+                );
+                let cfg = YamlLintConfig::from_toml_str(&format!(
+                    "[format]\n{style}-style = 'block'\nindent-sequences = false\n\
+                     [lint.rules.indentation]\nindent-sequences = false\n"
+                ))
+                .unwrap();
+                assert_eq!(file_indent_width(&cfg, &input), width as u8);
+                let output =
+                    ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+                check_values(&input, &output).unwrap();
+                if width == 3 && style == "mapping" && scalar == '>' {
+                    assert_eq!(output, input);
+                    assert_consistent_indent_refusal(&output, &cfg);
+                }
+                assert!(
+                    lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir())
+                        .is_empty(),
+                    "width {width}, {style}, {scalar}: {output:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn detected_width_refuses_dash_split_that_would_fail_consistent_indent() {
+    let input =
+        "a:\n   - !!map\n     ? a\n     : [b]\n   -  c: [d]\n      ? e\n      : [f]\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n\
+         indent-sequences = false\ndash-on-own-line = true\n\
+         [lint.rules.indentation]\nindent-sequences = false\n\
+         [lint.rules.hyphens]\nmax-spaces-after = 1\ndash-on-own-line = true\n",
+    )
+    .unwrap();
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.as_deref().unwrap_or(input);
+    check_values(input, output).unwrap();
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(problems.iter().all(|problem| {
+        consistency::refused(input, output, problem, &notices, &before)
+    }));
+}
+
+#[test]
+fn clean_document_reports_a_detected_width_refusal() {
+    let mut input =
+        "a:\n- !!map\n  ? a\n  : [b]\n- c: [d]\n  ? e\n  : [f]\n".to_string();
+    for index in 1..=6 {
+        input.push_str(&format!("x{index}: >\n        value\n"));
+    }
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nindent-sequences = false\ndash-on-own-line = true\n\
+         [lint.rules.indentation]\nindent-sequences = false\n",
+    )
+    .unwrap();
+    assert!(lint_str(&input, synthetic_path(), &cfg, synthetic_base_dir()).is_empty());
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        &input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    assert!(formatted.is_none());
+    assert!(notices.iter().any(|notice| {
+        notice.line == 1 && notice.message == "cannot re-indent this document safely"
+    }));
+}
+
+#[test]
+fn refused_dash_split_reports_nested_colon_gap() {
+    let input = "!!str :\n  - a: b #a\n    ? a\n    :  -   b: {r_o: c}\n           ha_r: {d: e} # z\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nindent-sequences = false\ndash-on-own-line = true\n\
+         [lint.rules.indentation]\nindent-sequences = false\n\
+         [lint.rules.colons]\nmax-spaces-after = 1\n",
+    )
+    .unwrap();
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.as_deref().unwrap_or(input);
+    check_values(input, output).unwrap();
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(problems.iter().all(|problem| {
+        consistency::refused(input, output, problem, &notices, &before)
+    }));
+}
+
+fn assert_consistent_indent_refusal(output: &str, cfg: &YamlLintConfig) {
+    assert!(
+        ryl::format::refusals(output, cfg)
+            .iter()
+            .any(|problem| problem.message.contains("fail consistent indentation"))
+    );
 }
 
 fn check_fold(input: &str, output: &str) -> Result<(), String> {

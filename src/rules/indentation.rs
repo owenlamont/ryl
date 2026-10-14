@@ -28,6 +28,7 @@ pub struct Config {
     check_multi_line_strings: bool,
     /// Where [`reindent`] puts a block mapping in a block sequence; `None` leaves it.
     dash_on_own_line: Option<bool>,
+    require_consistent: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +91,7 @@ impl Config {
             indent_sequences,
             check_multi_line_strings,
             dash_on_own_line: None,
+            require_consistent: false,
         }
     }
 
@@ -104,12 +106,23 @@ impl Config {
             indent_sequences,
             check_multi_line_strings,
             dash_on_own_line: None,
+            require_consistent: false,
         }
     }
 
     #[must_use]
     pub const fn with_dash_on_own_line(mut self, value: bool) -> Self {
         self.dash_on_own_line = Some(value);
+        self
+    }
+
+    pub(crate) const fn with_consistent_spaces(mut self) -> Self {
+        self.spaces = SpacesSetting::Consistent;
+        self
+    }
+
+    pub(crate) const fn requiring_consistent(mut self) -> Self {
+        self.require_consistent = true;
         self
     }
 
