@@ -137,6 +137,24 @@ proptest! {
         check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
     }
 
+    #[test]
+    fn blank_only_block_scalar_at_eof_keeps_its_value(
+        header in prop::sample::select(vec!["|", "|-", "|+", ">", ">-", ">+", "|2", "|2-", "|+2"]),
+        width in 1usize..=5,
+        newline in prop::sample::select(vec!["\n", "\r\n"]),
+        marker in any::<bool>(),
+    ) {
+        let mut input = format!("- {header}{newline}{}", " ".repeat(width));
+        if marker {
+            input.push_str(newline);
+            input.push_str("...");
+            input.push_str(newline);
+        }
+        for pass in [named_pass("format/default"), named_pass("format/non-defaults")] {
+            check_pass(pass, &input).map_err(TestCaseError::fail)?;
+        }
+    }
+
 }
 
 proptest! {
@@ -792,6 +810,24 @@ fn every_pass_preserves_header_only_block_scalars() {
 }
 
 #[test]
+fn every_pass_preserves_unterminated_keep_scalar_break() {
+    let input = "- |+\n   ";
+    assert!(matches!(
+        representation(input).as_deref(),
+        Some([_, _, representation::Node::Scalar {
+            value: representation::Value::Core(ryl::yaml_dom::ScalarOwned::String(value)),
+            ..
+        }, ..]) if value == "\n"
+    ));
+    for input in [input, "a: |+\r\n    ", "a: >+2\n   ", "a: |+\n  x\n  "] {
+        check_pass(named_pass("format/default"), input).unwrap();
+        for pass in format_passes() {
+            check_pass(pass, input).unwrap();
+        }
+    }
+}
+
+#[test]
 fn every_pass_keeps_a_trailing_comment_at_the_end_of_its_document() {
     for input in ["a: 1\n# tail\n", "a: 1\n\n# tail\n", "a: [1]\n# tail"] {
         for pass in format_passes() {
@@ -817,8 +853,9 @@ fn representation_tells_apart_what_value_preservation_forbids() {
             "%YAML 1.1\n---\na: !!int 11\n",
         ),
         ("a: [1]\n", "a: {1: }\n"),
-        ("a: |+\r\n    ", "a: |+\r\n    \r\n"),
+        ("a: |+\r\n    ", "a: |+\r\n"),
         ("a: |2+\n   ", "a: |2+\n"),
+        ("- |+\n   ", "- |+\n"),
         ("a: |2+\n  |\n   ", "a: |2+\n  |\n"),
         ("a: |+\n  x\n  ", "a: |+\n  y\n"),
     ] {
@@ -856,10 +893,10 @@ fn representation_ignores_layout() {
         ("%YAML 1.2\n---\na: 'no'\n", "%YAML 1.2\n---\na: no\n"),
         ("a: &x 1\nb: *x\n", "a: &y 1\nb: *y\n"),
         ("%YAML 1.1\n---\na: 1e3\n", "%YAML 1.1\n---\na: '1e3'\n"),
-        ("a: |+\r\n    ", "a: |+\r\n"),
+        ("a: |+\r\n    ", "a: |+\r\n\r\n"),
         ("a: |-\n  ", "a: |-\n"),
         ("a: >+\n\n  ", "a: >+\n\n"),
-        ("a: |+\n  x\n  ", "a: |+\n  x\n"),
+        ("a: |+\n  x\n  ", "a: |+\n  x\n\n"),
     ] {
         assert_eq!(
             representation(left),
@@ -1122,6 +1159,8 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
         ("a: | # header\n  a \nb: b\n", "trailing-spaces", 2, 4),
         ("a: |+\n  a\n\n", "empty-lines", 3, 1),
         ("a: |\n  café \n", "trailing-spaces", 2, 7),
+        ("a: |2\r\n    \r\n\r\n # after\r\n", "trailing-spaces", 2, 1),
+        ("a: |2\r\n    \r\n # after\r\n", "trailing-spaces", 2, 1),
         (
             "---\na: |\n  a \n...\n\u{feff}---\n\na: 1\n...\n",
             "trailing-spaces",
@@ -1138,6 +1177,7 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
         ("a: |\r\n \r\nFALSE: a\r\n", "trailing-spaces", 2, 1),
         ("a: |\n\n", "empty-lines", 2, 1),
         ("a: |3\n   \n   a\n", "trailing-spaces", 2, 1),
+        ("a: |2\n  \n", "trailing-spaces", 2, 1),
         ("a: |-\n  a", "new-line-at-end-of-file", 2, 4),
         ("a: >-2\n  a", "new-line-at-end-of-file", 2, 4),
         ("a: |\n  a\n", "new-line-at-end-of-file", 2, 4),
@@ -1168,6 +1208,37 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
             "{input:?}"
         );
     }
+}
+
+#[test]
+fn g11_exempts_value_bearing_spaces_after_formatting_header_and_comment() {
+    let input = "a: |2  \r\n    \r\n # after \t";
+    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint(
+        "[format]\nline-ending = 'cr-lf'\n",
+    ))
+    .unwrap();
+    let (formatted, _) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap_or_else(|| input.to_owned());
+    assert_eq!(output, "a: |2\r\n    \r\n # after\r\n");
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(problems.iter().any(|problem| {
+        problem.rule == Some("trailing-spaces")
+            && problem.line == 2
+            && problem.column == 1
+            && consistency::content_whitespace(
+                &output,
+                problem.rule,
+                problem.line,
+                problem.column,
+            )
+    }));
 }
 
 #[test]

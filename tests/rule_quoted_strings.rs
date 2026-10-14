@@ -921,6 +921,10 @@ fn fix_keeps_quotes_on_a_key_whose_colon_needs_them() {
             "{ 'foo' # c\n  # d\n  :bar }\n",
         ),
         ("k: 'v' # c", "k: v # c"),
+        (
+            "? a\n: -\n    '#': 'b]'\n    :&*?1!: dn_b\n",
+            "? a\n: -\n    '#': b]\n    :&*?1!: dn_b\n",
+        ),
     ] {
         assert_eq!(
             quoted_strings::fix(input, &cfg).unwrap_or_else(|| input.to_owned()),
