@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
@@ -173,37 +172,25 @@ pub fn apply_migration_entries(
             && entry.is_rewrite()
         {
             let backup = rename_destination(&entry.source, suffix);
-            fs::read(&entry.source)
-                .and_then(|original| {
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&backup)
-                        .and_then(|mut file| file.write_all(&original))
-                })
-                .map_err(|err| {
-                    format!(
-                        "failed to back up {} to {}: {err}",
-                        entry.source.display(),
-                        backup.display()
-                    )
-                })?;
-        }
-        // `create_new` atomically refuses (without following a symlink) to overwrite an
-        // existing target, so a target appearing between planning and writing can never be
-        // clobbered by a stale plan.
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(!entry.is_rewrite())
-            .truncate(entry.is_rewrite())
-            .open(&entry.target)
-            .and_then(|mut file| file.write_all(entry.toml.as_bytes()))
-            .map_err(|err| {
+            crate::atomic_write::copy_new(&entry.source, &backup).map_err(|err| {
                 format!(
-                    "failed to write migrated config {}: {err}",
-                    entry.target.display()
+                    "failed to back up {} to {}: {err}",
+                    entry.source.display(),
+                    backup.display()
                 )
             })?;
+        }
+        crate::atomic_write::write(
+            &entry.target,
+            entry.toml.as_bytes(),
+            entry.is_rewrite(),
+        )
+        .map_err(|err| {
+            format!(
+                "failed to write migrated config {}: {err}",
+                entry.target.display()
+            )
+        })?;
     }
 
     for source in cleanup_sources(entries, cleanup_only_sources) {

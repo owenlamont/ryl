@@ -261,6 +261,57 @@ fn migrate_skips_a_symlinked_legacy_toml() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn migrate_failed_rewrite_keeps_original_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".ryl.toml");
+    fs::write(&path, LEGACY).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o500)).unwrap();
+
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(code, 2, "{stderr}");
+    assert_eq!(fs::read(&path).unwrap(), LEGACY.as_bytes());
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn migrate_rewrite_preserves_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".ryl.toml");
+    fs::write(&path, LEGACY).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+
+    let (code, _, stderr) = migrate(
+        dir.path(),
+        &["--migrate-write", "--migrate-rename-old", ".bak"],
+    );
+
+    assert_eq!(code, 0, "{stderr}");
+    assert!(fs::read_to_string(&path).unwrap().contains("[lint.rules]"));
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    let backup = dir.path().join(".ryl.toml.bak");
+    assert_eq!(fs::read(&backup).unwrap(), LEGACY.as_bytes());
+    assert_eq!(
+        fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+}
+
 #[test]
 fn yaml_config_rejects_the_toml_only_lint_table() {
     let dir = tempdir().unwrap();

@@ -111,7 +111,7 @@ impl Rewrite {
     }
 }
 
-/// `std::fs::write` follows symlinks, so `--fix` (and `--diff`, its preview) skips a
+/// File reads follow symlinks, so `--fix` (and `--diff`, its preview) skips a
 /// symlinked input with a warning rather than let an untrusted tree redirect the write
 /// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
 /// final component is checked, not atomically (a full defense needs `O_NOFOLLOW`).

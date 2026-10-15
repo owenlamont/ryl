@@ -89,10 +89,9 @@ follow a symlink for either the source or the target (mirroring `--fix`). It als
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.
 
-Known limitation: if a write is interrupted (for example, the disk fills mid
-write), migration may leave a partial config file behind. The next run reports it
-via the "a ryl-native config already exists" skip warning, so delete the partial
-file and re-run.
+Migration writes a temporary file beside each destination and replaces the
+destination only after the write succeeds. An interrupted write leaves an
+existing config intact. Rewriting a TOML config keeps its file permissions.
 
 Migration produces a self-contained config. yamllint's top-level `ignore` and
 `ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an

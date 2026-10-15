@@ -106,9 +106,9 @@ impl DecodedFile {
     }
 
     pub(crate) fn write(&self, path: &Path, content: &str) -> Result<(), String> {
-        std::fs::write(path, self.encoding.encode(content)).map_err(|err| {
-            format!("failed to write fixed file {}: {err}", path.display())
-        })
+        crate::atomic_write::write(path, &self.encoding.encode(content), true).map_err(
+            |err| format!("failed to write fixed file {}: {err}", path.display()),
+        )
     }
 }
 

@@ -58,8 +58,10 @@ The rules that keep the outputs unambiguous (each a usage error, exit code 2):
 - an output file that is also a linted input (or the `--stdin-filename`) is refused, so a
   report can never truncate the source it just linted.
 
-Otherwise an `--output-file` overwrites its destination, so do not point it at a file you
-want to keep. `--diff` previews fixes and ignores `--output-format`, so it combines with
+Otherwise an `--output-file` replaces its destination after the report is written, so do
+not point it at a file you want to keep. A failed write leaves an existing regular file
+intact; a symlink destination is refused. `--diff` previews fixes and ignores
+`--output-format`, so it combines with
 neither `--output-file` nor `--output-format junit`/`--output-format gitlab`. A clean or
 empty project still produces a valid empty report for each report target (`[]` for
 GitLab, an empty `<testsuites>` for JUnit), so a CI step that ingests the artifact never
