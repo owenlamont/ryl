@@ -409,15 +409,20 @@ fn settle(lines: &[(&str, &str)], shifts: &[Option<Shift>]) -> Vec<isize> {
         Some(Shift::Token { found, delta }) => Some((found, delta)),
         _ => None,
     };
+    let mut following = vec![None; lines.len()];
+    let mut nearest = None;
+    for line in (0..lines.len()).rev() {
+        following[line] = nearest;
+        nearest = token(line).or(nearest);
+    }
     let mut deltas = Vec::with_capacity(lines.len());
+    let mut previous = None;
     for (line, (content, _)) in lines.iter().enumerate() {
         let column = super::to_isize(content.len() - content.trim_start().len());
         let delta = match shifts[line] {
             Some(shift) => shift.delta(),
             None if content.trim_start().starts_with('#') => {
-                let next = (line + 1..lines.len()).find_map(token);
-                let previous = (0..line).rev().find_map(token);
-                match (next, previous) {
+                match (following[line], previous) {
                     (Some((found, delta)), _) if found == column => delta,
                     (_, Some((found, delta))) if found == column => delta,
                     (Some((found, delta)), _) => found + delta - column,
@@ -427,6 +432,7 @@ fn settle(lines: &[(&str, &str)], shifts: &[Option<Shift>]) -> Vec<isize> {
             None => deltas.last().copied().unwrap_or(0),
         };
         deltas.push(delta.max(-column));
+        previous = token(line).or(previous);
     }
     deltas
 }
