@@ -176,10 +176,10 @@ the rule-enabled gate.
 
 ## How ryl differs from yamllint
 
-ryl is a drop-in replacement, but it intentionally diverges from yamllint in a
-small number of places. Every divergence is deliberate: ryl is **more correct
-against the YAML 1.2.2 specification**, it **fails loudly instead of silently**, or
-it **avoids redundant output**. The complete list:
+ryl reads yamllint configs and directives, but behaves differently in a small number
+of places. Each difference is deliberate: ryl follows the YAML 1.2.2 specification and
+its reference parser, reports a problem rather than ignoring it, or avoids repeated
+output. The complete list:
 
 ### Rules with no yamllint equivalent
 
