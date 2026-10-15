@@ -418,8 +418,9 @@ def test_markdown_files_include_non_ascii_tracked_names(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("operation", ["markdown-format", "markdown-fix"])
+@pytest.mark.parametrize("mode", list(gate.Mode))
 def test_noop_markdown_operation_fails_positive_control(
-    operation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    operation: str, mode: gate.Mode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clone = tmp_path / "clone"
     clone.mkdir()
@@ -464,13 +465,7 @@ def test_noop_markdown_operation_fails_positive_control(
     pair_dir = tmp_path / "pairs"
     pair_dir.mkdir()
     result = gate._run_markdown(
-        repo,
-        clone,
-        gate.Mode.DEFAULT,
-        operation,
-        pairs=[],
-        pair_dir=pair_dir,
-        timeout_s=1,
+        repo, clone, mode, operation, pairs=[], pair_dir=pair_dir, timeout_s=1
     )
     assert result.files == 1
     assert result.regions == 1

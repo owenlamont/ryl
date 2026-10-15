@@ -503,8 +503,7 @@ def _run_markdown(
     files = _markdown_files(repo, clone)
     result.files = len(files)
     if not files:
-        if mode is Mode.DEFAULT:
-            result.errors.append(f"{operation}: no Markdown files visited")
+        result.errors.append(f"{operation}: no Markdown files visited")
         return result
     ryl = partial(_ryl, clone, result, timeout_s=timeout_s)
     config = (
@@ -555,7 +554,7 @@ def _run_markdown(
     _record_markdown_regions(
         repo, result, files, manifest, pairs=pairs, pair_dir=pair_dir
     )
-    if mode is Mode.DEFAULT and not result.changed_regions:
+    if not result.changed_regions:
         result.errors.append(f"{operation}: no YAML regions changed")
     result.changed = changed
     return result
