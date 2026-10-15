@@ -3,12 +3,12 @@ name = "ryl"
 version = "0.24.0"
 edition = "2024"
 rust-version = "1.99.0"
-description = "Fast YAML linter inspired by yamllint"
+description = "Fast YAML linter and formatter inspired by yamllint"
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/owenlamont/ryl"
 categories = ["command-line-utilities", "development-tools"]
-keywords = ["yaml", "lint", "cli", "rust"]
+keywords = ["yaml", "lint", "formatter", "cli", "rust"]
 include = [
   "/Cargo.lock",
   "/Cargo.toml",

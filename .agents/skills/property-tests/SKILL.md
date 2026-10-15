@@ -209,8 +209,8 @@ idempotent. Deterministic siblings pin known-dirty / CRLF / ragged /
 fence-crossing-front-matter cases.
 
 Extend this suite only when the Markdown extractor/wrapper grows new region shapes:
-add a `wrap.rs` variant and a deterministic sibling. Failing inputs persist to the
-committed `tests/proptest-regressions/property_markdown_fix.txt`; run with
+add a `wrap.rs` variant and a deterministic sibling. A failure creates
+`tests/proptest-regressions/property_markdown_fix.txt`; commit the seed and run
 `cargo test --test property_markdown_fix`.
 
 ## Property Tests For Markdown Formatting
@@ -221,8 +221,8 @@ plus a random profile from `property_format/settings.rs` per case.
 The shared Markdown wrapper embeds the formatter's decorated YAML generator; each region
 must preserve its core and YAML 1.1 representation, comments and anchor names, while
 host bytes stay identical and formatting is idempotent. Deterministic dirty-region and
-oracle-mutation tests prevent vacuous passes. Seeds persist to
-`tests/proptest-regressions/property_markdown_format.txt`; run with
+oracle-mutation tests prevent vacuous passes. A failure creates
+`tests/proptest-regressions/property_markdown_format.txt`; commit the seed and run
 `cargo test --test property_markdown_format`.
 
 ## Property Tests For Config Parsing

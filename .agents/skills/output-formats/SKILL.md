@@ -13,7 +13,7 @@ User docs: `docs/output-formats.md`.
 
 ## Formats and default streams
 
-Selected with `--output-format`/`-f` (`--format` is a visible alias, kept for yamllint).
+For `check`, select with `--output-format`/`-f` (`--format` is a visible yamllint alias).
 The streaming console formats
 `standard`/`colored`/`github`/`parsable` default to **stderr**; the whole-document
 report formats `junit` (JUnit XML via `quick-xml`) and `gitlab` (GitLab Code Quality

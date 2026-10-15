@@ -1,6 +1,6 @@
 # ryl
 
-ryl - the Rust YAML linter - implements the rules of
+ryl - the Rust YAML linter and formatter - implements the rules of
 [yamllint](https://github.com/adrienverge/yamllint) and converts yamllint
 configs to its own TOML. It is usable today, but parity and edge-case behaviour
 are still maturing.
@@ -38,10 +38,10 @@ remove it, so prefer `ryl check`.
 
 ```bash
 # Using uv (Python)
-uvx ryl check -d 'extends: default' .
+uvx ryl check --enable ALL .
 
 # Using npx (Node.js)
-npx @owenlamont/ryl check -d 'extends: default' .
+npx @owenlamont/ryl check --enable ALL .
 
 # Format in place, or check formatting in CI
 uvx ryl format .
@@ -67,6 +67,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 
 ## Status and scope
 
+- `ryl format` formats YAML in place without enabling lint rules. Its `--check`
+  and `--diff` modes preview changes without writing; `[format]` in TOML controls
+  the style. It also formats embedded YAML in Markdown with `--markdown`.
 - All 23 yamllint rules are implemented, plus four ryl-only rules with no
   yamllint equivalent (`tags`, `merge-keys`, `block-scalar-chomping`, and
   `unicode-line-breaks`), configured in TOML only. The current rule reference
@@ -114,7 +117,7 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   stdin, but `--diff` can.
 - `ryl server` runs ryl as a Language Server (LSP) over stdio, giving
   editors inline diagnostics, a `source.fixAll.ryl` code action, and
-  formatting (= apply safe fixes). It complements Red Hat's
+  formatting via `ryl format`. It complements Red Hat's
   `yaml-language-server` rather than replacing it, and is built in by
   default (a minimal binary without it builds with
   `cargo install ryl --no-default-features`). See

@@ -25,7 +25,8 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    — and in `RYL_ONLY_RULE_IDS` when yamllint has no equivalent (that reserves it to
    TOML config; see the YAML-vs-TOML note in `AGENTS.md`).
 3. **Dispatch**: one `lint_rule!(...)` call in `src/lint.rs`, in the right
-   reported-order slot of the matching batch fn (`collect_layout` / `collect_value` /
+   reported-order slot of the matching batch fn (`collect_layout_diagnostics` /
+   `collect_value_diagnostics` /
    `collect_block_diagnostics`). Pick the arm matching the rule's shape (config or not,
    `Vec`/`Option`, per-violation or fixed `MESSAGE`).
 4. **TOML config wiring** (`src/config_schema.rs` + `config_schema/serialization.rs`):
