@@ -300,11 +300,6 @@ note = "Home Assistant / IoT; yamllint: .yamllint"
 
 # py-yaml12 misreads EOF block scalars after whitespace, quote, or style changes.
 [[repo.yaml12-known-errors]]
-path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml"
-before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b"
-after-sha256 = "359c08e9027efe56cfb23410406d0bb421773ee5e2b4b30486694848d148de5a"
-
-[[repo.yaml12-known-errors]]
 path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml"
 before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15"
 after-sha256 = "998935ee350c4683ae0eb40cd86e07c3d0a8c10e8d1223a0e91e900380586b5b"
