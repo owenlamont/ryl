@@ -1684,7 +1684,10 @@ by `[files].markdown`, as described in [YAML in Markdown](https://ryl-docs.pages
 given `--markdown`, as with `ryl check`.
 
 If formatting would create a line that closes a YAML fence, ryl leaves that region
-unchanged. Other regions still format. The same guard applies to editor formatting.
+unchanged and names the refusal on stderr. Other regions still format. The same guard
+applies to editor formatting. When formatting would change a region that mixes CRLF
+and LF line endings, ryl leaves the region unchanged with a notice and `--check` /
+`--diff` exit `1`. An already formatted mixed region is quiet.
 
 ## Suppression
 
@@ -1692,6 +1695,8 @@ unchanged. Other regions still format. The same guard applies to editor formatti
 `# yamllint disable-file` comment leaves the file alone, and
 `# yamllint disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
 that rule's formatting where it applies. There is no format-only directive.
+Lint configuration's `[[lint.per-line-ignores]]` and `[lint.per-file-ignores]` suppress
+lint findings and safe `check --fix` edits, but do not gate `ryl format`.
 
 ## Conflicting lint rules
 
@@ -1725,6 +1730,11 @@ says so.
 | [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
 | [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Never; folding is opt-in and leaves lines it cannot break |
+
+The table compares formatter settings with lint options; it does not promise every
+finding can be fixed. A keep-chomped (`|+`/`>+`) tail can exceed `empty-lines max`, and
+trailing spaces inside a block scalar can remain findings after `ryl format` and
+`ryl check --fix` because removing them would change the scalar value.
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
 or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
@@ -1847,8 +1857,8 @@ relying on the check that ran before formatting.
 
 | Code | `ryl format` | `ryl format --check` / `--diff` |
 | :--- | :--- | :--- |
-| `0` | Files formatted, or nothing to do | No file would change |
-| `1` | Not used | At least one file would change |
+| `0` | Files formatted, or nothing to do | No file would change; a symlinked input is refused on stderr but still exits `0` |
+| `1` | Not used | At least one file would change, a mixed-newline Markdown region needs formatting, or a ragged Markdown region retains layout findings |
 | `2` | A usage or config error, an unreadable file, or a file no `[files]` glob matches | Same |
 
 A file skipped for a syntax error does not change the exit code.
@@ -2144,8 +2154,8 @@ Source: https://ryl-docs.pages.dev/per-line-ignores/
 ## Suppressing rules from configuration
 
 [Inline directives](https://ryl-docs.pages.dev/directives/) switch rules off at a specific spot in a
-file. `per-line-ignores` does the same thing from configuration: it suppresses
-chosen rules on every line matching a pattern, across all files, without editing
+file. `per-line-ignores` suppresses lint findings and safe `check --fix` edits
+on every line matching a pattern, across all files, without editing
 them. It is the tool for recurring exceptions &mdash; tool-directive comments and
 machine-managed markers that legitimately break a rule everywhere they appear.
 
@@ -2215,6 +2225,8 @@ rules = ["braces"]
 - **`--fix`** never rewrites a suppressed line: an edit a fixer would make to a
   line whose rule is suppressed here is reverted, exactly as for an inline
   `# ryl disable-line`.
+- **`ryl format`** still formats matching lines. Neither `per-line-ignores` nor
+  [`per-file-ignores`](https://ryl-docs.pages.dev/file-ignores/) gates formatting; inline directives do.
 - **Embedded [YAML in Markdown](https://ryl-docs.pages.dev/markdown/)**: `path` matches the host Markdown
   file, while `regex` matches the embedded YAML line (after any list/blockquote
   prefix is stripped), so the same pattern works for standalone and embedded YAML.
@@ -4494,6 +4506,8 @@ scalars, or multi-line plain scalars — are left untouched, because
 those blank lines contribute to the parsed value. Trailing blank lines in clip
 (`|`/`>`) and strip (`|-`/`>-`) block scalars are trimmed because chomping
 discards them. Keep (`|+`/`>+`) tails remain content and are preserved.
+If such a tail exceeds `max`, the finding remains after both `ryl check --fix`
+and `ryl format`; removing it would change the scalar value.
 
 The protected line set is computed via the YAML parser, so the fix
 bails (leaves the file untouched) when the input cannot be parsed.
@@ -5871,6 +5885,8 @@ unfixable = ["trailing-spaces"]
 ```
 
 `ryl format` applies the same fix, and no option of this rule conflicts with it.
+Trailing spaces inside a block scalar can remain findings after either fixer
+because removing them would change the scalar value.
 Later keys, sequence items and comments outside a block scalar have their trailing
 whitespace stripped, including within the same indented collection.
 

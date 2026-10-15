@@ -272,7 +272,10 @@ by `[files].markdown`, as described in [YAML in Markdown](markdown.md), or every
 given `--markdown`, as with `ryl check`.
 
 If formatting would create a line that closes a YAML fence, ryl leaves that region
-unchanged. Other regions still format. The same guard applies to editor formatting.
+unchanged and names the refusal on stderr. Other regions still format. The same guard
+applies to editor formatting. When formatting would change a region that mixes CRLF
+and LF line endings, ryl leaves the region unchanged with a notice and `--check` /
+`--diff` exit `1`. An already formatted mixed region is quiet.
 
 ## Suppression
 
@@ -280,6 +283,8 @@ unchanged. Other regions still format. The same guard applies to editor formatti
 `# yamllint disable-file` comment leaves the file alone, and
 `# yamllint disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
 that rule's formatting where it applies. There is no format-only directive.
+Lint configuration's `[[lint.per-line-ignores]]` and `[lint.per-file-ignores]` suppress
+lint findings and safe `check --fix` edits, but do not gate `ryl format`.
 
 ## Conflicting lint rules
 
@@ -313,6 +318,11 @@ says so.
 | [`hyphens`](rules/hyphens.md) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
 | [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](rules/line-length.md) | Never; folding is opt-in and leaves lines it cannot break |
+
+The table compares formatter settings with lint options; it does not promise every
+finding can be fixed. A keep-chomped (`|+`/`>+`) tail can exceed `empty-lines max`, and
+trailing spaces inside a block scalar can remain findings after `ryl format` and
+`ryl check --fix` because removing them would change the scalar value.
 
 `quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
 or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
@@ -435,8 +445,8 @@ relying on the check that ran before formatting.
 
 | Code | `ryl format` | `ryl format --check` / `--diff` |
 | :--- | :--- | :--- |
-| `0` | Files formatted, or nothing to do | No file would change |
-| `1` | Not used | At least one file would change |
+| `0` | Files formatted, or nothing to do | No file would change; a symlinked input is refused on stderr but still exits `0` |
+| `1` | Not used | At least one file would change, a mixed-newline Markdown region needs formatting, or a ragged Markdown region retains layout findings |
 | `2` | A usage or config error, an unreadable file, or a file no `[files]` glob matches | Same |
 
 A file skipped for a syntax error does not change the exit code.

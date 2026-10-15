@@ -73,6 +73,8 @@ scalars, or multi-line plain scalars — are left untouched, because
 those blank lines contribute to the parsed value. Trailing blank lines in clip
 (`|`/`>`) and strip (`|-`/`>-`) block scalars are trimmed because chomping
 discards them. Keep (`|+`/`>+`) tails remain content and are preserved.
+If such a tail exceeds `max`, the finding remains after both `ryl check --fix`
+and `ryl format`; removing it would change the scalar value.
 
 The protected line set is computed via the YAML parser, so the fix
 bails (leaves the file untouched) when the input cannot be parsed.

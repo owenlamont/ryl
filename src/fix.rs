@@ -9,7 +9,8 @@ use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
 use crate::format::FormatCache;
 use crate::markdown_embed::{
-    EmbeddedRegion, MarkdownSources, extract_regions, markdown_region_problems,
+    EmbeddedRegion, MarkdownSources, RegionKind, extract_regions,
+    markdown_region_problems,
 };
 use crate::rules::support::collection_style;
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
@@ -178,11 +179,12 @@ pub fn rewrite_str(
         }
         SourceKind::Markdown => {
             let mut cache = FormatCache::default();
-            let fixed =
-                fix_markdown_cached(content, path, cfg, base_dir, rewrite, &mut cache);
+            let (fixed, refusals) = fix_markdown_cached(
+                content, path, cfg, base_dir, rewrite, true, &mut cache,
+            );
             // Read from the *fixed* bytes (what gets written) so the reported line stays
             // correct after an earlier region's fix shifts the line count.
-            let skipped = markdown_region_problems(
+            let mut skipped = markdown_region_problems(
                 fixed.as_deref().unwrap_or(content),
                 cfg,
                 |region| {
@@ -196,6 +198,7 @@ pub fn rewrite_str(
                     )
                 },
             );
+            skipped.extend(refusals.into_iter().map(|refusal| refusal.problem));
             (fixed, skipped)
         }
     }
@@ -365,8 +368,9 @@ pub fn diff_outcome(
     let mut outcome =
         diff_and_skips(content, cfg, path, base_dir, kind, rewrite, &mut cache);
     if rewrite == Rewrite::Format && outcome.changed {
-        outcome.problems =
-            crate::format::problems(content, cfg, path, kind, &mut cache);
+        outcome.problems.extend(crate::format::problems(
+            content, cfg, path, kind, &mut cache,
+        ));
     }
     if path_unrepresentable_in_diff(path) {
         outcome.diff = None;
@@ -426,8 +430,9 @@ fn diff_and_skips(
         SourceKind::Markdown => {
             // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
             // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
-            let fixed =
-                fix_markdown_cached(content, path, cfg, base_dir, rewrite, cache);
+            let (fixed, refusals) = fix_markdown_cached(
+                content, path, cfg, base_dir, rewrite, false, cache,
+            );
             // Report skips against the *original* content: `--diff` never writes, so the file
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
@@ -437,19 +442,25 @@ fn diff_and_skips(
                 })
             };
             let mut skipped = skips(content);
+            skipped.extend(refusals.iter().map(|refusal| refusal.problem.clone()));
             // `key-ordering` notices describe the fixed text, so they come from it.
             if let Some(fixed) = fixed.as_ref().filter(|_| rewrite == Rewrite::Fix) {
                 skipped.retain(|problem| problem.rule.is_none());
                 skipped.extend(skips(fixed).into_iter().filter(|p| p.rule.is_some()));
             }
-            let changed = fixed.is_some();
+            let changed = fixed.is_some()
+                || refusals.iter().any(|refusal| refusal.blocks_preview);
             let diff =
                 fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
             DiffOutcome {
                 changed,
                 diff,
                 skipped,
-                ..DiffOutcome::default()
+                problems: refusals
+                    .into_iter()
+                    .filter(|refusal| refusal.blocks_preview)
+                    .map(|refusal| refusal.problem)
+                    .collect(),
             }
         }
     }
@@ -614,8 +625,36 @@ pub fn fix_markdown_str(
         cfg,
         base_dir,
         rewrite,
+        false,
         &mut FormatCache::default(),
     )
+    .0
+}
+
+struct MarkdownRefusal {
+    problem: crate::lint::LintProblem,
+    blocks_preview: bool,
+}
+
+fn markdown_refusal(
+    region: &EmbeddedRegion,
+    reason: &str,
+    blocks_preview: bool,
+) -> MarkdownRefusal {
+    let kind = match region.kind {
+        RegionKind::FrontMatter => "front matter",
+        RegionKind::FencedBlock => "fenced YAML block",
+    };
+    MarkdownRefusal {
+        problem: crate::lint::LintProblem {
+            line: region.line_offset + 1,
+            column: region.col_offset + 1,
+            level: crate::lint::Severity::Error,
+            message: format!("{kind} {reason}"),
+            rule: None,
+        },
+        blocks_preview,
+    }
 }
 
 fn fix_markdown_cached(
@@ -624,10 +663,11 @@ fn fix_markdown_cached(
     cfg: &YamlLintConfig,
     base_dir: &Path,
     rewrite: Rewrite,
+    refusal_lines_in_output: bool,
     cache: &mut FormatCache,
-) -> Option<String> {
+) -> (Option<String>, Vec<MarkdownRefusal>) {
     if crate::markdown_embed::markdown_has_unsupported_cr(markdown) {
-        return None;
+        return (None, Vec::new());
     }
     let sources = MarkdownSources {
         front_matter: cfg.markdown_front_matter(),
@@ -638,6 +678,7 @@ fn fix_markdown_cached(
 
     let mut out = markdown.to_string();
     let mut changed = false;
+    let mut refusals = Vec::new();
     for region in &regions {
         if region.content.trim().is_empty() {
             continue;
@@ -654,6 +695,16 @@ fn fix_markdown_cached(
             continue;
         }
         let Some((prefix, newline)) = region_prefix(markdown, region) else {
+            let raw = &markdown[region.raw_span.clone()];
+            if raw.contains("\r\n")
+                && raw.matches('\n').count() > raw.matches("\r\n").count()
+            {
+                refusals.push(markdown_refusal(
+                    region,
+                    "mixes CRLF and LF line endings; cannot write it back safely",
+                    rewrite == Rewrite::Format,
+                ));
+            }
             continue;
         };
         let replacement = reindent(&fixed, &prefix, newline);
@@ -666,12 +717,32 @@ fn fix_markdown_cached(
                 && updated.raw_span == expected_span
                 && updated.content.replace("\r\n", "\n") == fixed.replace("\r\n", "\n")
         }) {
+            if rewrite == Rewrite::Format {
+                refusals.push(markdown_refusal(
+                    region,
+                    "would change Markdown fence boundaries; left unchanged",
+                    false,
+                ));
+            }
             continue;
+        }
+        if refusal_lines_in_output {
+            let line_delta = replacement.matches('\n').count().cast_signed()
+                - markdown[region.raw_span.clone()]
+                    .matches('\n')
+                    .count()
+                    .cast_signed();
+            for refusal in &mut refusals {
+                refusal.problem.line =
+                    refusal.problem.line.checked_add_signed(line_delta).expect(
+                        "rewritten region shifts a later refusal within the document",
+                    );
+            }
         }
         out = candidate;
         changed = true;
     }
-    changed.then_some(out)
+    (changed.then_some(out), refusals)
 }
 
 /// The prefix the parser stripped from each line of `region` and the host's line ending, or
