@@ -8,6 +8,7 @@ uv run tests/test_formatter_corpus_check.py
 """
 
 import hashlib
+import json
 from pathlib import Path
 import sys
 from typing import Final
@@ -309,6 +310,222 @@ def test_a_ryl_usage_error_is_a_hard_failure(tmp_path: Path) -> None:
     result = gate.Result(repo="o/r", mode=gate.Mode.DEFAULT)
     gate._ryl(tmp_path, result, "check", "--no-such-flag", timeout_s=60.0)
     assert gate._hard_failures(result) == 1, result.errors
+
+
+def test_markdown_region_verdicts_keep_host_and_value_failures(tmp_path: Path) -> None:
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    before = tmp_path / "0.before"
+    after = tmp_path / "0.after"
+    before.write_bytes(b"a: 1\n")
+    after.write_bytes(b"a: 2\n")
+    rows = [
+        {
+            "file": 0,
+            "region": 0,
+            "kind": "FrontMatter",
+            "before": str(before),
+            "after": str(after),
+        },
+        {"file": 0, "host_equal": False, "regions": 1},
+    ]
+    manifest = tmp_path / "regions.json"
+    manifest.write_text(json.dumps(rows))
+    pairs: list[tuple[str, Path]] = []
+    gate._record_markdown_regions(
+        repo, result, ["doc.md"], manifest, pairs=pairs, pair_dir=tmp_path
+    )
+    assert result.regions == 1
+    assert result.changed_regions == 1
+    assert result.front_matter == 1
+    assert result.fences == 0
+    assert result.host_changed == ["doc.md"]
+    assert result.yaml12_unequal == ["doc.md#front-matter-1"]
+    assert pairs[0][0] == ("default\to/r\tdoc.md#front-matter-1")
+    assert gate._hard_failures(result) >= 2
+
+
+def test_markdown_region_count_mismatch_is_a_hard_failure(tmp_path: Path) -> None:
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    manifest = tmp_path / "regions.json"
+    manifest.write_text('[{"file": 0, "host_equal": false, "regions": 2}]')
+    gate._record_markdown_regions(
+        repo, result, ["doc.md"], manifest, pairs=[], pair_dir=tmp_path
+    )
+    assert result.errors
+
+
+def test_markdown_oracle_verdicts_do_not_cross_operations(tmp_path: Path) -> None:
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    pairs: list[tuple[str, Path]] = []
+    formatted = gate.Result(
+        repo=repo.name, mode=gate.Mode.FOLD, operation="markdown-format"
+    )
+    fixed = gate.Result(repo=repo.name, mode=gate.Mode.FOLD, operation="markdown-fix")
+    gate._record_change(
+        formatted,
+        repo,
+        "doc.md#front-matter-1",
+        BEFORE,
+        REVIEWED,
+        pairs=pairs,
+        pair_dir=tmp_path,
+    )
+    gate._record_change(
+        fixed,
+        repo,
+        "doc.md#front-matter-1",
+        BEFORE,
+        CORRUPTED,
+        pairs=pairs,
+        pair_dir=tmp_path,
+    )
+    gate._assign_verdicts(
+        [formatted, fixed], {pairs[0][0]: "ok", pairs[1][0]: "value-preservation"}
+    )
+    assert formatted.rust == {"ok": ["doc.md#front-matter-1"]}
+    assert fixed.rust == {"value-preservation": ["doc.md#front-matter-1"]}
+
+
+def test_markdown_sparse_patterns_are_opt_in() -> None:
+    old = gate._manifest(["kubernetes/examples"])[0]
+    yaml_mkdocs = gate._manifest(["squidfunk/mkdocs-material"])[0]
+    new = gate._manifest(["squidfunk/mkdocs-material"], markdown=True)[0]
+    assert old.markdown_sparse == ()
+    assert yaml_mkdocs.sha == "6d3dc570d51064a3f55d189bd22c2390b07d46fe"
+    assert yaml_mkdocs.markdown_sparse == ()
+    assert new.sha == "a0f2a2a70ee978c2b0afc80347fed6eb4cec7867"
+    assert new.markdown_sparse
+    assert len(gate._manifest(())) == 40
+    assert len(gate._manifest((), markdown=True)) == 6
+
+
+def test_markdown_files_include_non_ascii_tracked_names(tmp_path: Path) -> None:
+    gate._git(tmp_path, "init", "-q")
+    (tmp_path / "français.md").write_text("---\na: 1\n---\n")
+    (tmp_path / "plain.md").write_text("---\na: 1\n---\n")
+    (tmp_path / " leading.md").write_text("---\na: 1\n---\n")
+    gate._git(tmp_path, "add", ".")
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha="0" * 40, markdown_sparse=("*.md",)
+    )
+    assert gate._markdown_files(repo, tmp_path) == [
+        " leading.md",
+        "français.md",
+        "plain.md",
+    ]
+
+
+@pytest.mark.parametrize("operation", ["markdown-format", "markdown-fix"])
+@pytest.mark.parametrize("mode", list(gate.Mode))
+def test_noop_markdown_operation_fails_positive_control(
+    operation: str, mode: gate.Mode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    gate._git(clone, "init", "-q")
+    source = clone / "doc.md"
+    source.write_text("---\na:  1\n---\n")
+    gate._git(clone, "add", ".")
+    gate._git(clone, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha="0" * 40, markdown_sparse=("*.md",)
+    )
+
+    def noop_ryl(
+        _clone: Path, _result: gate.Result, *args: str, **_kwargs: object
+    ) -> gate.subprocess.CompletedProcess[str]:
+        return gate.subprocess.CompletedProcess(args, 0, "", "")
+
+    def unchanged_region(_stems: list[Path], work: Path) -> Path:
+        before = work / "region.before"
+        after = work / "region.after"
+        before.write_bytes(b"a:  1\n")
+        after.write_bytes(b"a:  1\n")
+        manifest = work / "regions.json"
+        manifest.write_text(
+            json.dumps(
+                [
+                    {
+                        "file": 0,
+                        "region": 0,
+                        "kind": "FrontMatter",
+                        "before": str(before),
+                        "after": str(after),
+                    },
+                    {"file": 0, "host_equal": True, "regions": 1},
+                ]
+            )
+        )
+        return manifest
+
+    monkeypatch.setattr(gate, "_ryl", noop_ryl)
+    monkeypatch.setattr(gate, "_markdown_regions", unchanged_region)
+    pair_dir = tmp_path / "pairs"
+    pair_dir.mkdir()
+    result = gate._run_markdown(
+        repo, clone, mode, operation, pairs=[], pair_dir=pair_dir, timeout_s=1
+    )
+    assert result.files == 1
+    assert result.regions == 1
+    assert result.changed_regions == 0
+    assert result.errors == [f"{operation}: no YAML regions changed"]
+    assert gate._hard_failures(result) == 1
+
+
+@pytest.mark.parametrize("operation", ["markdown-format", "markdown-fix"])
+@pytest.mark.parametrize("mode", list(gate.Mode))
+def test_markdown_run_uses_profile_and_detects_second_edit(
+    operation: str, mode: gate.Mode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    gate._git(clone, "init", "-q")
+    source = clone / "doc.md"
+    source.write_text("---\na: 1\n---\n")
+    gate._git(clone, "add", ".")
+    gate._git(clone, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha="0" * 40, markdown_sparse=("*.md",)
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def fake_ryl(
+        _clone: Path, _result: gate.Result, *args: str, **_kwargs: object
+    ) -> gate.subprocess.CompletedProcess[str]:
+        calls.append(args)
+        source.write_text(source.read_text() + "x")
+        return gate.subprocess.CompletedProcess(args, 0, "", "")
+
+    def fake_regions(_stems: list[Path], work: Path) -> Path:
+        manifest = work / "regions.json"
+        manifest.write_text('[{"file": 0, "host_equal": false, "regions": 0}]')
+        return manifest
+
+    monkeypatch.setattr(gate, "_ryl", fake_ryl)
+    monkeypatch.setattr(gate, "_markdown_regions", fake_regions)
+    pair_dir = tmp_path / "pairs"
+    pair_dir.mkdir()
+    result = gate._run_markdown(
+        repo, clone, mode, operation, pairs=[], pair_dir=pair_dir, timeout_s=1
+    )
+    assert len(calls) == 2
+    assert all("--markdown" in call for call in calls)
+    config = (
+        ("-d", "extends: default")
+        if mode is gate.Mode.DEFAULT
+        else ("-c", str(tmp_path / "fold.toml"))
+    )
+    assert all(call[-3:] == (*config, "doc.md") for call in calls)
+    assert calls[0][0] == ("format" if operation == "markdown-format" else "check")
+    if operation == "markdown-fix" and mode is gate.Mode.FOLD:
+        assert calls[0][2:4] == ("--enable", gate._DEFAULT_LINT_RULES)
+    else:
+        assert "--enable" not in calls[0]
+    assert result.not_idempotent == ["doc.md"]
+    assert result.host_changed == ["doc.md"]
+    assert source.read_text() == "---\na: 1\n---\n"
 
 
 if __name__ == "__main__":

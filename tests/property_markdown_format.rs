@@ -29,6 +29,75 @@ use ryl::{MarkdownSources, extract_regions};
 use config::{synthetic_base_dir, synthetic_path};
 use representation::{check_annotations, check_values, check_yaml_1_1_preserved};
 
+#[test]
+#[ignore = "driven by scripts/formatter_corpus_check.py over cloned real-world repos"]
+fn corpus_markdown_regions() {
+    let pairs = std::env::var("RYL_MARKDOWN_PAIRS").expect("RYL_MARKDOWN_PAIRS is set");
+    let output =
+        std::env::var("RYL_MARKDOWN_REGIONS").expect("RYL_MARKDOWN_REGIONS is set");
+    let sources = MarkdownSources {
+        front_matter: true,
+        fenced_blocks: true,
+    };
+    let mut rows = Vec::new();
+    for (file_index, line) in std::fs::read_to_string(pairs)
+        .expect("read Markdown pairs")
+        .lines()
+        .enumerate()
+    {
+        let (before_path, after_path) = line.split_once('\t').expect("a pair of paths");
+        let (Ok(before), Ok(after)) = (
+            std::fs::read_to_string(before_path),
+            std::fs::read_to_string(after_path),
+        ) else {
+            rows.push(
+                serde_json::json!({"file": file_index, "error": "non-UTF-8 Markdown"}),
+            );
+            continue;
+        };
+        let before_regions = extract_regions(&before, sources);
+        let after_regions = extract_regions(&after, sources);
+        let mut host_equal = before_regions.len() == after_regions.len();
+        let mut before_cursor = 0;
+        let mut after_cursor = 0;
+        for (region_index, (left, right)) in
+            before_regions.iter().zip(&after_regions).enumerate()
+        {
+            host_equal &= left.kind == right.kind
+                && before.as_bytes()[before_cursor..left.raw_span.start]
+                    == after.as_bytes()[after_cursor..right.raw_span.start];
+            let stem = format!("{output}.{file_index}.{region_index}");
+            let before_region = format!("{stem}.before");
+            let after_region = format!("{stem}.after");
+            std::fs::write(&before_region, &left.content)
+                .expect("write original region");
+            std::fs::write(&after_region, &right.content)
+                .expect("write formatted region");
+            rows.push(serde_json::json!({
+                "file": file_index,
+                "region": region_index,
+                "kind": format!("{:?}", left.kind),
+                "before": before_region,
+                "after": after_region,
+            }));
+            before_cursor = left.raw_span.end;
+            after_cursor = right.raw_span.end;
+        }
+        host_equal &=
+            before.as_bytes()[before_cursor..] == after.as_bytes()[after_cursor..];
+        rows.push(serde_json::json!({
+            "file": file_index,
+            "host_equal": host_equal,
+            "regions": before_regions.len(),
+        }));
+    }
+    std::fs::write(
+        output,
+        serde_json::to_vec(&rows).expect("serialize regions"),
+    )
+    .expect("write regions");
+}
+
 fn arb_markdown() -> impl Strategy<Value = String> {
     wrap::arb_markdown_doc().prop_flat_map(|host| {
         prop::collection::vec(
