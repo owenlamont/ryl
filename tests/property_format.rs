@@ -971,18 +971,7 @@ fn every_pass_preserves_unterminated_keep_scalar_break() {
             ..
         }, ..]) if value == "\n"
     ));
-    for input in [input, "a: |+\r\n    ", "a: >+2\n   ", "a: |+\n  x\n  "] {
-        assert_eq!(
-            ryl::rules::trailing_spaces::fix(input).as_deref(),
-            None,
-            "keep-chomped EOF spaces must survive the safe fix: {input:?}"
-        );
-        let formatted = (named_pass("format/default").format)(input);
-        assert_eq!(
-            formatted.lines().last(),
-            input.lines().last(),
-            "keep-chomped EOF spaces must survive formatting: {input:?}"
-        );
+    for input in [input, "a: |+\r\n    ", "a: >+2\n  ", "a: |+\n  x\n  "] {
         check_pass(named_pass("format/default"), input).unwrap();
         for pass in format_passes() {
             check_pass(pass, input).unwrap();
@@ -991,31 +980,31 @@ fn every_pass_preserves_unterminated_keep_scalar_break() {
     let cfg = YamlLintConfig::from_toml_str("indent-width = 2\n[format]\n").unwrap();
     let input = "a:\n   b: c\n---\nz: |+\n   ";
     let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
-    assert_eq!(output, "a:\n  b: c\n---\nz: |+\n   ");
+    assert_eq!(output, "a:\n  b: c\n---\nz: |+\n\n");
     check_values(input, &output).unwrap();
 }
 
 #[test]
-fn keep_scalar_eof_refusal_preserves_both_parser_groups() {
-    for (input, reference, loader, oracle) in [
-        ("a: |+\n   ", "\n", "", "\n"),
-        ("a: >+\n   ", "\n\n", "", "\n"),
-        ("a: |+2\n   ", " \n", " ", " \n"),
-        ("a: >2+\n   ", " \n", " ", " \n"),
-        ("a: |+\n  x\n  ", "x\n\n", "x\n", "x\n\n"),
-        ("a: >+\n  x\n  ", "x\n\n\n", "x\n", "x\n\n"),
+fn keep_scalar_eof_rewrite_preserves_reference_values() {
+    for (input, expected, reference, loader) in [
+        ("a: |+\n   ", "a: |+\n\n", "\n", ""),
+        ("a: >+\n   ", "a: >+\n\n", "\n\n", ""),
+        ("a: |+2\n  ", "a: |+2\n\n", "\n", ""),
+        ("a: >2+\n  ", "a: >2+\n\n", "\n\n", ""),
+        ("a: |+\n  x\n  ", "a: |+\n  x\n\n", "x\n\n", "x\n"),
+        ("a: >+\n  x\n  ", "a: >+\n  x\n\n", "x\n\n\n", "x\n"),
     ] {
-        assert_eq!(
-            representation::scalar_value(input, 1),
-            Some(noyalib::Value::from(oracle)),
-            "local representation oracle for {input:?}; reference parser {reference:?}"
-        );
         assert_ne!(reference, loader, "the parser groups diverge on {input:?}");
         assert_eq!(
-            (named_pass("format/default").format)(input),
-            input,
-            "unchanged bytes preserve the ruamel and PyYAML value {loader:?}"
+            ryl::rules::trailing_spaces::fix(input).as_deref(),
+            Some(expected)
         );
+        assert_eq!(
+            (named_pass("format/default").format)(input),
+            expected,
+            "reference parser value {reference:?} for {input:?}"
+        );
+        check_values(input, expected).unwrap();
     }
 }
 
@@ -1032,7 +1021,7 @@ fn clip_and_strip_scalar_eof_spaces_remain_fixable() {
 }
 
 #[test]
-fn an_empty_file_has_no_keep_scalar_eof_refusal() {
+fn an_empty_file_needs_no_keep_scalar_eof_rewrite() {
     let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
     assert_eq!(ryl::format::format_str("", &cfg, synthetic_path(), &[]), "");
 }

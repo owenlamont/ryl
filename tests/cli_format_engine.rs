@@ -109,7 +109,7 @@ fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
                 let expected = format!(
                     "a: {header}{ending}{}",
                     if header.contains('+') {
-                        " ".repeat(width)
+                        ending.to_string()
                     } else {
                         String::new()
                     }
@@ -122,7 +122,7 @@ fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
                     format_file(Some(config), &formatted, &["--check"]);
                 assert_eq!((code, again.as_str()), (0, expected.as_str()), "{stderr}");
                 let (code, _, stderr, _) = ryl_on(Some(config), &formatted, &["check"]);
-                assert_eq!(code, i32::from(header.contains('+')), "{stderr}");
+                assert_eq!(code, 0, "{stderr}");
             }
         }
     }
@@ -146,10 +146,10 @@ fn keep_scalar_eof_preserves_its_break_with_document_markers() {
                         String::new()
                     },
                 );
-                let expected = if input_marker {
+                let expected = if input_marker || add_end {
                     format!("- |+{newline}{newline}...{newline}")
                 } else {
-                    format!("- |+{newline}   ")
+                    format!("- |+{newline}{newline}")
                 };
                 let (code, _, stderr, formatted) =
                     format_file(Some(&config), &input, &[]);
@@ -546,7 +546,7 @@ fn markdown_regions_format_without_file_shape_rules_and_ragged_ones_stay() {
 }
 
 #[test]
-fn markdown_keep_scalar_refusal_does_not_stop_other_regions() {
+fn ragged_markdown_keep_scalar_region_stays_untouched() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),

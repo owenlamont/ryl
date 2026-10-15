@@ -7,13 +7,13 @@ use super::{
     Analyzer, Config, Gap, ID, Kind, Mode, Shift, SpacesSetting, locate, scan,
 };
 use crate::directives::Directives;
+use crate::rules::hyphens;
 use crate::rules::support::event_compare::{Document, documents};
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
 };
 use crate::rules::support::punctuation::build_line_starts;
 use crate::rules::support::span_utils::CharPos;
-use crate::rules::{hyphens, trailing_spaces};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reindented {
@@ -40,7 +40,6 @@ pub enum Cause {
     Tab,
     /// The analyzer met a token it cannot place.
     Unfollowable,
-    KeepScalarEof,
     Inconsistent,
     /// The re-indented document parses to different events.
     Changed,
@@ -248,9 +247,6 @@ impl<'a> Prepared<'a> {
         }
         for problem in &analyzer.diagnostics {
             refuse(origin[problem.line - 1], Cause::Unfollowable);
-        }
-        if let Some(line) = trailing_spaces::keep_blank_eof_line(self.buffer) {
-            refuse(line - 1, Cause::KeepScalarEof);
         }
         refused
     }

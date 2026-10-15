@@ -164,11 +164,6 @@ fn whole_line_comments_follow_the_line_they_sit_against() {
 fn an_unsafe_document_is_refused_and_the_rest_still_move() {
     for (input, expected, refused) in [
         (
-            "a:\n   b: c\n---\nz: |+\n   ",
-            "a:\n  b: c\n---\nz: |+\n   ",
-            refusal(3..=5, Cause::KeepScalarEof),
-        ),
-        (
             "k:\n    - a\n    -\tb\n",
             "k:\n    - a\n    -\tb\n",
             refusal(1..=3, Cause::Tab),

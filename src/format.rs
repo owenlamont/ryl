@@ -523,12 +523,7 @@ pub(crate) fn unfixed(
     let mut problems: Vec<LintProblem> = reindented
         .refused
         .iter()
-        .filter(|refusal| {
-            !matches!(
-                refusal.cause,
-                indentation::Cause::Disabled | indentation::Cause::KeepScalarEof
-            )
-        })
+        .filter(|refusal| !matches!(refusal.cause, indentation::Cause::Disabled))
         .flat_map(|refusal| {
             let sites: Vec<_> = inconsistent
                 .iter()
@@ -545,17 +540,6 @@ pub(crate) fn unfixed(
         .collect();
     problems.extend(refused_spacing(content, cfg, &reindented.refused));
     problems.extend(refusals_at(content, cfg, indent));
-    if let Some(line) = trailing_spaces::keep_blank_eof_line(content) {
-        problems.push(LintProblem {
-            line,
-            column: 1,
-            level: Severity::Error,
-            message:
-                "cannot remove trailing spaces from keep-chomped scalar at EOF safely"
-                    .to_string(),
-            rule: Some(trailing_spaces::ID),
-        });
-    }
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems.dedup();
     problems
@@ -568,10 +552,8 @@ fn refused_spacing(
 ) -> Vec<LintProblem> {
     let refused_line = |line| {
         refused.iter().any(|refusal| {
-            !matches!(
-                refusal.cause,
-                indentation::Cause::Disabled | indentation::Cause::KeepScalarEof
-            ) && refusal.lines.contains(&line)
+            !matches!(refusal.cause, indentation::Cause::Disabled)
+                && refusal.lines.contains(&line)
         })
     };
     hyphens::check(content, &hyphens::Config::resolve(cfg))
