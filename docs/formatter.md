@@ -447,6 +447,7 @@ relying on the check that ran before formatting.
 | :--- | :--- | :--- |
 | `0` | Files formatted, or nothing to do | No file would change; a symlinked input is refused on stderr but still exits `0` |
 | `1` | Not used | At least one file would change, a mixed-newline Markdown region needs formatting, or a ragged Markdown region retains layout findings |
-| `2` | A usage or config error, an unreadable file, or a file no `[files]` glob matches | Same |
+| `2` | A usage or config error, an unreadable or unwritable file, or a file no `[files]` glob matches | A usage or config error, an unreadable file, or a file no `[files]` glob matches |
 
+A failed write names the file on stderr; formatting continues with the remaining files.
 A file skipped for a syntax error does not change the exit code.

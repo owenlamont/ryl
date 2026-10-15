@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::process::Command;
 
 use tempfile::tempdir;
@@ -159,6 +159,9 @@ fn fix_handles_write_error() {
     let mut perms = fs::metadata(&file).unwrap().permissions();
     perms.set_readonly(true);
     fs::set_permissions(&file, perms).unwrap();
+    if OpenOptions::new().write(true).open(&file).is_ok() {
+        return;
+    }
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));

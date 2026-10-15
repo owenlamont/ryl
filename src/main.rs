@@ -1249,7 +1249,7 @@ fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
 ///
 /// # Errors
 ///
-/// Returns an error if a file cannot be read/written or an output destination fails.
+/// Returns an error if an output destination fails.
 fn lint_and_exit(
     files: &[LintFile],
     args: &LintArgs,
@@ -1259,13 +1259,13 @@ fn lint_and_exit(
 
     let no_warnings = args.lint.compatibility.no_warnings;
     let before_fix = if args.lint.fix.fix {
-        Some(apply_fixes_reporting_skips(files, no_warnings)?)
+        Some(apply_fixes_reporting_skips(files, no_warnings))
     } else {
         None
     };
 
     let results = lint_files(files);
-    let fixed = before_fix.map(|before| {
+    let fixed = before_fix.as_ref().map(|(before, _)| {
         let after = safe_fix_rule_counts(&results, no_warnings);
         before
             .iter()
@@ -1290,25 +1290,30 @@ fn lint_and_exit(
         );
     }
 
-    Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
+    if before_fix.is_some_and(|(_, failed)| failed) {
+        Ok(ExitCode::from(2))
+    } else {
+        Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
+    }
 }
 
-/// Apply safe fixes in place and report any files skipped (they do not parse), returning the
-/// pre-fix [`safe_fix_rule_counts`] for the summary.
+/// Apply safe fixes in place and report skips and errors, returning the pre-fix
+/// [`safe_fix_rule_counts`] for the summary.
 ///
-/// # Errors
-///
-/// Returns an error if any file cannot be read or written.
 fn apply_fixes_reporting_skips(
     files: &[LintFile],
     no_warnings: bool,
-) -> Result<Vec<SafeFixRuleCounts>, String> {
-    let before = safe_fix_rule_counts(&lint_files(files), no_warnings);
-    let fix_stats = rewrite_files(files, Rewrite::Fix)?;
+) -> (Vec<SafeFixRuleCounts>, bool) {
+    let mut before = safe_fix_rule_counts(&lint_files(files), no_warnings);
+    let fix_stats = rewrite_files(files, Rewrite::Fix);
     for (path, problem) in &fix_stats.skipped {
         eprint_skip_notice(path, problem, Rewrite::Fix.flag());
     }
-    Ok(before)
+    for (index, error) in &fix_stats.errors {
+        eprintln!("error: {}", sanitize_control(error));
+        before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
+    }
+    (before, !fix_stats.errors.is_empty())
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -1534,10 +1539,18 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         let stats = diff_files(&files, Rewrite::Format, preview.flag())?;
         return emit_format_preview(&stats, preview, &targets);
     }
-    for (path, problem) in &rewrite_files(&files, Rewrite::Format)?.skipped {
+    let stats = rewrite_files(&files, Rewrite::Format);
+    for (path, problem) in &stats.skipped {
         eprint_skip_notice(path, problem, Rewrite::Format.flag());
     }
-    Ok(ExitCode::SUCCESS)
+    for (_, error) in &stats.errors {
+        eprintln!("error: {}", sanitize_control(error));
+    }
+    Ok(if stats.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(2)
+    })
 }
 
 /// Under `--check`, `--output-format` beats `[output]`; `--diff` keeps the default target,

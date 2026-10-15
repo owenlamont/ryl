@@ -47,6 +47,8 @@ summarize user-visible changes from the tagged commits and published release rec
   names the refusal and `--check`/`--diff` fail; a fence-boundary refusal is also named.
 - Indentation conflict warnings identify `indent-width` as a TOML key and point
   YAML-configured users to config migration.
+- `format` and `check --fix` continue after a file write fails, report the file,
+  and exit `2` after processing the remaining inputs.
 - ryl TOML now separates `[lint]` and `[format]`. Run `ryl --migrate-configs`
   to preview existing configs, then add `--migrate-write` to update them.
   ([#508](https://github.com/owenlamont/ryl/pull/508))

@@ -333,6 +333,9 @@ fn fix_markdown_write_error_is_reported() {
     let mut perms = fs::metadata(&file).unwrap().permissions();
     perms.set_readonly(true);
     fs::set_permissions(&file, perms).unwrap();
+    if fs::OpenOptions::new().write(true).open(&file).is_ok() {
+        return;
+    }
 
     let (code, _out, err) = fix(&file);
 

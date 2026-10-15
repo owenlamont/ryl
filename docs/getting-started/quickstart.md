@@ -62,8 +62,8 @@ Exit codes:
 - `0` &mdash; no problems found.
 - `1` &mdash; lint errors, invalid YAML, or a path that could not be read
   (including nonexistent files).
-- `2` &mdash; CLI usage error (no inputs provided, bad flags), or
-  `--strict` was set and only warnings were produced.
+- `2` &mdash; CLI usage error (no inputs provided, bad flags), a failed
+  `check --fix` write, or `--strict` was set and only warnings were produced.
 
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
@@ -89,6 +89,10 @@ ryl check --fix .
 ```
 
 See the [Rules reference](../rules.md) for which rules are fixable.
+
+If a write fails, `--fix` names the file on stderr, continues with other files,
+and exits `2` even when other files have lint findings. Failed files do not count
+as fixed in the summary.
 
 `--fix` rewrites files in place but never writes through a symlink: a
 symlinked input is linted but skipped for fixing (with a warning on
