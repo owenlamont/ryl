@@ -46,8 +46,6 @@ pub fn refused(
                         && problem.message == ryl::rules::hyphens::MESSAGE_DASH_ON_OWN_LINE,
                     Some("indentation") => notice.message == "cannot re-indent this document safely"
                         && problem.message.starts_with("wrong indentation:"),
-                    Some("trailing-spaces") => notice.message == "cannot remove trailing spaces from keep-chomped scalar at EOF safely"
-                        && problem.message == ryl::rules::trailing_spaces::MESSAGE,
                     _ => false,
                 })
     })

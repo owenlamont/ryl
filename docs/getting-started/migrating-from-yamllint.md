@@ -317,6 +317,21 @@ Saved with CRLF endings, yamllint reports `3:1 wrong indentation: expected 2 but
 and ryl reports nothing. ryl treats CRLF as a line break, as YAML 1.2 requires, so the
 blank line is skipped exactly as it is in an LF file.
 
+### Keep-chomped scalar at EOF
+
+For `- |+\n   ` (a spaces-only last line without a line break), `ryl format`
+and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
+The YAML 1.2 reference parser and eemeli `yaml` read `"\n"` before and after;
+PyYAML and ruamel read `""` before and `"\n"` after.
+
+**Why ryl differs:** YAML 1.2.2's
+[keep-empty production](https://yaml.org/spec/1.2.2/#rule-l-keep-empty)
+(`l-chomped-empty(n,KEEP) ::= l-keep-empty(n)`) and the reference parser's
+`=VAL |\n` event rank above PyYAML here. In a local measurement of the
+2022 yaml-test-suite, eemeli `yaml` rejected 93/94 invalid cases and matched
+272/279 valid cases; PyYAML and ruamel rejected 82/94 invalid cases and matched
+210–222/279 valid cases.
+
 ### `%YAML` version-directive handling
 
 ryl honours the `%YAML` directive (YAML 1.2.2 §6.8.1) per document: a

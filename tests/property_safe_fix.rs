@@ -31,14 +31,35 @@ use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 
 use ast::{
-    BlockBodyLine, BlockEntry, ColonGap, Document, FlowStyle, InlineComment, Layout,
-    NewlineStyle, Node, Scalar,
+    BlockBodyLine, BlockEntry, BlockScalarSpec, ColonGap, Document, FlowStyle,
+    InlineComment, Layout, NewlineStyle, Node, Scalar, SeqBody,
 };
 use config::{
     named_config, parse_for_compare, safe_fix_configs, safe_fix_rule_diagnostics,
     synthetic_base_dir, synthetic_path,
 };
 use strategy::arb_document;
+
+fn last_block_scalar(node: &Node) -> Option<&BlockScalarSpec> {
+    match node {
+        Node::BlockScalar(spec) => Some(spec),
+        Node::BlockMap(entries) => entries
+            .last()
+            .and_then(|entry| last_block_scalar(&entry.value)),
+        Node::BlockSeq(items) => items.last().and_then(|item| match &item.body {
+            SeqBody::BlockScalar(spec) => Some(spec),
+            SeqBody::Inline(node) => last_block_scalar(node),
+            SeqBody::TaggedMap(_, entries) | SeqBody::CompactMap(entries) => entries
+                .last()
+                .and_then(|entry| last_block_scalar(&entry.value)),
+            SeqBody::CompactSeq(items) => {
+                items.last().and_then(|(_, node)| last_block_scalar(node))
+            }
+            _ => None,
+        }),
+        _ => None,
+    }
+}
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -104,6 +125,12 @@ proptest! {
                         && matches!(spec.body.last(), Some(BlockBodyLine::Spaces(_)))
                         && spec.body.iter().any(|line| matches!(line, BlockBodyLine::Content { .. })))
             });
+        let last_line = input.rsplit(['\n', '\r']).next().unwrap_or_default();
+        let keep_blank_at_eof = !document.has_final_newline
+            && !last_line.is_empty()
+            && last_line.bytes().all(|byte| byte == b' ')
+            && document.entries.last().and_then(|entry| last_block_scalar(&entry.value))
+                .is_some_and(|spec| spec.chomp == Some('+') && spec.trailing_comment.is_none());
         let Some(before) = parse_for_compare(&input) else {
             return Ok(());
         };
@@ -117,7 +144,19 @@ proptest! {
                     "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
                 ))
             })?;
-            if before != after && clipped_blank_at_eof {
+            if before != after && keep_blank_at_eof {
+                // The reference parser retains the keep-chomped EOF blank line that the loader drops.
+                let newline = match document.newline {
+                    NewlineStyle::Lf => "\n",
+                    NewlineStyle::Crlf => "\r\n",
+                    NewlineStyle::Cr => "\r",
+                };
+                let reference_input = format!("{}{newline}", &input[..input.len() - last_line.len()]);
+                prop_assert!(
+                    parse_for_compare(&reference_input).as_ref() == Some(&after),
+                    "safe fix changed reference YAML value under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
+                );
+            } else if before != after && clipped_blank_at_eof {
                 let reference_equal = noyalib::from_str::<noyalib::Value>(&input)
                     .ok()
                     .zip(noyalib::from_str::<noyalib::Value>(&fixed).ok())
@@ -237,6 +276,23 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
             "safe fix must be idempotent under config '{cfg_name}'"
         );
     }
+}
+
+#[test]
+fn keep_scalar_eof_uses_reference_value_when_loader_disagrees() {
+    let input = "a: |+\n  \n    ";
+    let fixed = apply_safe_fixes(
+        input,
+        named_config("yamllint-default"),
+        synthetic_path(),
+        synthetic_base_dir(),
+    );
+    assert_eq!(fixed, "---\na: |+\n\n\n...\n");
+    assert_ne!(parse_for_compare(input), parse_for_compare(&fixed));
+    assert_eq!(
+        parse_for_compare("a: |+\n  \n\n"),
+        parse_for_compare(&fixed)
+    );
 }
 
 #[test]
