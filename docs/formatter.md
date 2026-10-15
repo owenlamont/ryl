@@ -423,10 +423,11 @@ which enables only rules the formatter never touches and leaves layout to
 ## Running with `ryl check --fix`
 
 Run `ryl check --fix` before `ryl format`, in a pre-commit or prek config as on the
-command line, so the formatter has the last word on layout. With a lint config that
-agrees with `[format]` (`ryl format` prints no conflict warning), formatting adds no
-lint findings, so a later `ryl check` still passes. Without `--fix`, the order does not
-matter. Ruff gives the same order for `ruff check --fix` and `ruff format`.
+command line, so the formatter has the last word on layout; ruff gives the same order
+for `ruff check --fix` and `ruff format`. Re-indenting can still push a line past
+`line-length`, which the `line-length` rule then reports (see
+[Conflicting lint rules](#conflicting-lint-rules)), so lint a formatted file rather than
+relying on the check that ran before formatting.
 
 ## Exit codes
 
