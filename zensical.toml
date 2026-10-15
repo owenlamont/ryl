@@ -1,6 +1,6 @@
 [project]
 site_name = "ryl"
-site_description = "A fast YAML linter, written in Rust"
+site_description = "Fast YAML linter and formatter"
 site_author = "Owen Lamont"
 site_url = "https://ryl-docs.pages.dev/"
 copyright = """

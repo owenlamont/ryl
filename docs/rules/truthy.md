@@ -42,8 +42,8 @@ $ ryl check .github/workflows/ci.yml
 Quoting the key does not help. ryl resolves the YAML 1.2 core schema, where `on`
 is an ordinary string, so `'on':` then trips
 [`quoted-strings`](quoted-strings.md) under `required: only-when-needed`.
-yamllint accepts the quotes because PyYAML reads `on` as a YAML 1.1 boolean
-&mdash; see [YAML version compatibility](../yaml-version.md).
+See [YAML version compatibility](../yaml-version.md) for how implicit types
+affect quoting.
 
 Three ways to settle it, narrowest first:
 

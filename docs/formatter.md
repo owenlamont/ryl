@@ -54,7 +54,7 @@ bare carriage return or the filename cannot be represented in a diff header.
 ## Configuration
 
 `ryl format` reads the `[format]` table of the same `.ryl.toml`, `ryl.toml` or
-`pyproject.toml` (`[tool.ryl.format]`) that `ryl check` uses. A yamllint-style YAML
+`pyproject.toml` (`[tool.ryl.format]`) that `ryl check` uses. A YAML
 config cannot set it, so YAML-configured projects get the defaults.
 
 ```toml
@@ -134,29 +134,28 @@ it is and named on stderr.
 
 ## Default profile
 
-With no `[format]` table, `ryl format` writes the profile below. Compared with
-`ryl check --fix` under yamllint's `default` preset, it does not add `---`, can
-remove redundant quotes or switch required double quotes to single, and can indent
-flush sequences. Migration writes `quote-style = "preserve"` because
-`quoted-strings` is disabled in the preset.
+With no `[format]` table, `ryl format` writes the profile below. It preserves
+existing document start markers, can remove redundant quotes or switch required
+double quotes to single, and can indent flush sequences. Migration writes
+`quote-style = "preserve"` when `quoted-strings` is disabled in the source preset.
 
 | Default | Why |
 | :--- | :--- |
 | `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
-| `line-ending = "lf"` | The default of biome, prettier and yamllint's `new-lines` |
+| `line-ending = "lf"` | The default of biome and prettier |
 | `document-start = "preserve"` | prettier keeps a file's markers as written |
 | `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
 | `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
-| `brace-spacing = false` | yamllint's `braces` defaults and yamlfix; prettier and biome pad |
-| `comment-spacing = 2` | yamllint's `comments`, ruff and yamlfix |
-| `comment-starting-space = "add"` | yamllint's `comments` requires the space |
-| `max-blank-lines = 2` | yamllint's `empty-lines` and ruff |
+| `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier and biome pad |
+| `comment-spacing = 2` | The default of ruff and yamlfix |
+| `comment-starting-space = "add"` | Adds a space after `#` |
+| `max-blank-lines = 2` | Keeps short gaps between content |
 | `sequence-style = "preserve"` | Restyling a collection is opt-in |
 | `mapping-style = "preserve"` | Restyling a collection is opt-in |
-| `indent-sequences = true` | yamllint's `indentation` default; prettier indents them too |
+| `indent-sequences = true` | prettier also indents them |
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
-| `line-length = 80` | The default of prettier, biome and yamllint's `line-length` |
+| `line-length = 80` | The default of prettier and biome |
 | `indent-width = 2` | The default of prettier, biome and yamlfix, for a file that shows no width of its own |
 | Fixed layout above | Every formatter probed agrees |
 
@@ -296,8 +295,8 @@ and LF line endings, ryl leaves the region unchanged with a notice and `--check`
 ## Suppression
 
 `ryl format` honours the same [inline directives](directives.md) as `ryl check`: a
-`# yamllint disable-file` comment leaves the file alone, and
-`# yamllint disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
+`# ryl disable-file` comment leaves the file alone, and
+`# ryl disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
 that rule's formatting where it applies. There is no format-only directive.
 Lint configuration's `[[lint.per-line-ignores]]` and `[lint.per-file-ignores]` suppress
 lint findings and safe `check --fix` edits, but do not gate `ryl format`.

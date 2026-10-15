@@ -10,8 +10,7 @@ documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
 
 For configuration discovery, presets, and file selection, see
-[Configuration presets](config-presets.md). For migrating from yamllint, see
-[Migrating from yamllint](getting-started/migrating-from-yamllint.md).
+[Configuration presets](config-presets.md).
 
 ## Rule categories
 

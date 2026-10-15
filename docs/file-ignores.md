@@ -120,8 +120,7 @@ truthy = "enable"
 A file under `["ALL"]` is still parsed, so a syntax error in it is still
 reported and the run exits `1`. To skip the file entirely, use `exclude`.
 
-`per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config.
+`per-file-ignores` is configured in TOML only; YAML config rejects it.
 
 ## Per-rule `ignore`
 

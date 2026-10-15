@@ -1,27 +1,15 @@
 # ryl
 
-ryl - the Rust YAML linter and formatter - implements the rules of
-[yamllint](https://github.com/adrienverge/yamllint) and converts yamllint
-configs to its own TOML. It is usable today, but parity and edge-case behaviour
-are still maturing.
+ryl is a fast YAML linter and formatter written in Rust. It checks YAML style,
+applies safe lint fixes, and formats files with configurable layout. It is usable
+today, but edge-case behaviour is still maturing.
 
 Full documentation lives at <https://ryl-docs.pages.dev/>.
 
-## Compatibility note
+ryl targets YAML 1.2. See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
+for how version directives and implicit types affect linting and formatting.
 
-- `ryl` aims to match `yamllint` behaviour and includes many parity tests.
-- `ryl` uses the `granit-parser` parser stack, while `yamllint` uses the
-  `PyYAML` parser stack.
-- `granit-parser` and `PyYAML` do not always agree on which files are valid
-  YAML.
-- **`ryl` targets YAML 1.2 strictly.** `yamllint` defaults to YAML 1.1
-  semantics, so bareword booleans like `yes` / `no` / `on` / `off` (and
-  case variants) are plain strings in `ryl` and booleans in `yamllint`.
-  Leading-zero integers like `0755` are decimal in `ryl` and octal in
-  `yamllint`. The same 1.2 semantics also apply when `ryl` parses
-  `.yamllint` configuration files inherited from `yamllint`. See the
-  [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
-  page for the practical implications.
+Coming from yamllint? See the [migration guide](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/).
 
 ## Quick start
 
@@ -70,9 +58,8 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 - `ryl format` formats YAML in place without enabling lint rules. Its `--check`
   and `--diff` modes preview changes without writing; `[format]` in TOML controls
   the style. It also formats embedded YAML in Markdown with `--markdown`.
-- All 23 yamllint rules are implemented, plus four ryl-only rules with no
-  yamllint equivalent (`tags`, `merge-keys`, `block-scalar-chomping`, and
-  `unicode-line-breaks`), configured in TOML only. The current rule reference
+- ryl includes 27 rules, including `tags`, `merge-keys`,
+  `block-scalar-chomping`, and `unicode-line-breaks`. The rule reference
   and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.
 - Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `colons`,
   `commas`, `comments`, `comments-indentation`, `document-end`,
@@ -85,8 +72,8 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file
   would change.
-- TOML is the recommended configuration format and supports ryl-only
-  features that have no upstream equivalent: the `lint.fixable`/`lint.unfixable`
+- TOML is the recommended configuration format and supports
+  the `lint.fixable`/`lint.unfixable`
   fix policy, `[lint.per-file-ignores]`, and rule options such as
   `allow-double-quotes-for-escaping`.
 - TOML assigns each file a source kind via the `[files]` table
@@ -97,7 +84,7 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   to the Markdown file. It is off by default; `--fix` writes safe fixes back into
   the embedded blocks and `--diff` previews them at the host-file level. See
   <https://ryl-docs.pages.dev/markdown/>.
-- yamllint-style YAML configuration (`.yamllint`, `.yamllint.yml`,
+- YAML configuration (`.yamllint`, `.yamllint.yml`,
   `.yamllint.yaml`, including the `default`, `relaxed`, and `empty` presets via
   `extends`) still works but is deprecated and warns; convert it with
   `ryl --migrate-configs --migrate-write`.
@@ -151,9 +138,7 @@ linting and developer automation, especially:
   Rust tooling for Python development and inspiring the config and API
   for ryl.
 - [rumdl](https://github.com/rvben/rumdl) - for giving me another
-  template to follow for Rust tooling and showing me almost the only dev
-  tool I was still using after this that wasn't written in Rust was
-  yamllint (which inspired me to tackle this project).
+  template to follow for Rust tooling.
 - [saphyr](https://github.com/saphyr-rs/saphyr) - ryl's vendored YAML DOM
   is derived from saphyr, and saphyr's developers were very patient in
   showing some of the nuance and complexity of parsing YAML which I was

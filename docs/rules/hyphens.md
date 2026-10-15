@@ -26,8 +26,7 @@ dash-on-own-line = false
 | `max-spaces-after` | `1` | Maximum spaces between the `-` and the item value. |
 | `dash-on-own-line` | `false` | Require the `-` on its own line when the entry is a block mapping (ryl-only; TOML config only). |
 
-`dash-on-own-line` is a ryl-only extension with no yamllint counterpart, so it is
-configured in TOML config only and rejected in yamllint-compatible YAML config.
+`dash-on-own-line` is configured in TOML only; YAML config rejects it.
 
 ## Examples
 

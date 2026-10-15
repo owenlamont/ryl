@@ -5,8 +5,8 @@
 ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork). A
 document with no version directive is resolved per the YAML 1.2 core schema,
 matching the spec, which assumes a directive-less document conforms to 1.2.
-yamllint, by comparison, is built on [PyYAML][pyyaml], which defaults to YAML
-1.1 semantics for boolean and other implicit type resolution.
+Implicit type resolution can differ from tools built on YAML 1.1 loaders such
+as [PyYAML][pyyaml].
 
 Most YAML files do not exercise the parts of the language where the two
 versions disagree, so in practice the difference rarely shows up. The two
@@ -15,7 +15,7 @@ places it matters in ryl are:
 - The [`quoted-strings`](rules/quoted-strings.md) rule when used with
   `required: "only-when-needed"`.
 - Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
-  configuration files inherited from yamllint.
+  configuration files.
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
@@ -43,9 +43,9 @@ like, which are the same boolean under both versions.
 
 Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
 any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
-`'1_000'`), as yamllint does, so the output means the same to a 1.1 consumer
-such as PyYAML. The set is PyYAML's 1.1 resolver plus yamllint's `0o` octal,
-and `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads as
+`'1_000'`), so the output means the same to a 1.1 consumer such as PyYAML.
+The set is PyYAML's 1.1 resolver plus `0o` octal and `y`, `Y`, `n`, and `N`,
+which go-yaml v2 (used by Kubernetes) loads as
 booleans although PyYAML does not.
 Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
 `'008'`) are kept too.
@@ -64,10 +64,10 @@ files.
 
 ## Implications for the `quoted-strings` rule
 
-With `quote-type: double, required: only-when-needed`, yamllint considers
-`"yes"` to need quoting (because the bareword would parse as a boolean in
-1.1), so it accepts the quoted form. ryl does the same whatever the
-directive, since removing the quotes would change the value for a 1.1
+With `quote-type: double, required: only-when-needed`, ryl considers
+`"yes"` to need quoting because the bareword would parse as a boolean in
+1.1. The safeguard applies whatever the directive, since removing the
+quotes would change the value for a 1.1
 consumer.
 
 ## Implications for configuration files
@@ -100,8 +100,7 @@ syntax independent of YAML version.
 
 The rules below behave the way they do *because* ryl reads a directive-less
 input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
-1.1, as above). Most of these are intentional and align with yamllint when
-yamllint is configured for 1.2 explicitly:
+1.1, as above):
 
 - [`truthy`](rules/truthy.md) &mdash; the rule itself still recognises
   the 1.1 truthy word list as ambiguous and flags barewords like `yes`

@@ -22,7 +22,7 @@ ryl check .
 
 ryl does not enable any rules by default, so these commands report `no
 configuration found` (exit `2`) until a configuration or `--enable` turns on a rule.
-To lint with yamllint's standard rule set straight away, pass it inline:
+To use the built-in `default` YAML preset straight away, pass it inline:
 
 ```bash
 ryl check -d 'extends: default' .
@@ -70,15 +70,13 @@ cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, pass a
-  YAML config with `extends: default` for yamllint's standard rule set, or pass
+  YAML config with `extends: default`, or pass
   `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
   least one rule, use `extends: default`, or pass `--enable ALL`.
 
-This is stricter than yamllint, which lints with the `default` preset when no config
-is found and silently accepts a rule-less config. Give ryl a config containing
-`extends: default` to reproduce yamllint's out-of-the-box behaviour.
+To use the built-in YAML preset, give ryl a config containing `extends: default`.
 
 ## Apply auto-fixes
 
@@ -177,8 +175,8 @@ The recommended TOML config is deliberately **explicit** and **local**: it has
 no default-on rules and no `extends`/inheritance, so a single `.ryl.toml`
 (discovered by searching upward, and preferred over a `.yamllint`) is the
 entire ruleset for the files beneath it; a monorepo can have many, each
-governing its subtree. A yamllint-style YAML config instead keeps yamllint
-semantics, where `extends:` merges in a preset or another file. When no
+governing its subtree. A YAML config can use `extends:` to merge in a preset
+or another file. When no
 project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
@@ -218,11 +216,9 @@ line-length = 100
 indent-width = 4
 ```
 
-YAML configuration is also accepted for parity with yamllint and supports
-`extends:` for selecting a preset. Both `.yamllint` and `.ryl.toml` are
-discovered automatically. TOML is the recommended format for ryl-specific
-features (such as fix selection) that have no upstream yamllint
-equivalent.
+YAML configuration is also accepted and supports `extends:` for selecting a
+preset. Both `.yamllint` and `.ryl.toml` are discovered automatically. TOML is
+the recommended format for features such as fix selection.
 
 To keep config out of the project root, ryl also discovers a ryl-native TOML
 config inside a repo-local `.config/` directory (the RuboCop/rumdl convention).

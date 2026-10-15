@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "ryl"
 version = "0.24.0"
-description = "Fast YAML linter and formatter inspired by yamllint"
+description = "Fast YAML linter and formatter"
 requires-python = ">=3.10"
 readme = "README.md"
 classifiers = [

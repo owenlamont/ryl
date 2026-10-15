@@ -49,9 +49,8 @@ forbid-ambiguous-anchor-alias-names = false   # ryl-only
 | `forbid-unused-anchors` | `false` | Report anchors that are never referenced by an alias. |
 | `forbid-ambiguous-anchor-alias-names` | `false` | **ryl-only.** Report an anchor (`&name`) or alias (`*name`) whose name has a `:` welded to it &mdash; trailing (`&foo:`), internal (`&foo:bar`), or leading (`&:foo`) &mdash; the construct parsers disagree on. A space before the `:` (`*foo : bar`) is the unambiguous alias-key form and is never flagged. |
 
-`forbid-ambiguous-anchor-alias-names` is ryl-only and configurable only in
-TOML; a yamllint-compatible YAML config rejects it so the YAML `anchors`
-namespace stays reserved for any future yamllint option.
+`forbid-ambiguous-anchor-alias-names` is configurable only in TOML; YAML config
+rejects it.
 
 ## Examples
 
