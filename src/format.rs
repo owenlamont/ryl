@@ -328,20 +328,35 @@ impl Layout {
 fn format_tracked(
     input: &str,
     cfg: &YamlLintConfig,
-    layout: Layout,
+    mut layout: Layout,
     path: &Path,
     skip: &[&str],
     edited: &mut Vec<&'static str>,
 ) -> String {
-    let passes = Passes::format(cfg, layout, skip);
-    run_passes(
-        input,
-        &passes,
-        path,
-        FIX_PIPELINE_MAX_PASSES,
-        &mut std::io::stderr(),
-        edited,
-    )
+    let mut content = input.to_string();
+    let mut changes = Vec::new();
+    loop {
+        let passes = Passes::format(cfg, layout, skip);
+        let next = run_passes(
+            &content,
+            &passes,
+            path,
+            FIX_PIPELINE_MAX_PASSES,
+            &mut std::io::stderr(),
+            &mut changes,
+        );
+        if next == content || cfg.indent_width().is_some() {
+            edited.extend(changes);
+            return next;
+        }
+        let width = file_indent_width(cfg, &next);
+        if width == layout.indent {
+            edited.extend(changes);
+            return next;
+        }
+        layout = Layout::of(cfg, &next, width);
+        content = next;
+    }
 }
 
 /// Formatter output, edited rules and indent width by input text, so a preview that both
@@ -375,7 +390,9 @@ impl FormatCache {
             let formatted = format_tracked(input, cfg, layout, path, skip, &mut edited);
             (formatted, edited)
         });
-        self.widths.entry(result.0.clone()).or_insert(width);
+        self.widths
+            .entry(result.0.clone())
+            .or_insert_with(|| file_indent_width(cfg, &result.0));
         result
     }
 }

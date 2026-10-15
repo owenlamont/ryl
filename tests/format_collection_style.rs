@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use ryl::config::YamlLintConfig;
-use ryl::format::{FORMAT_RULE_IDS, format_str, refusals};
+use ryl::format::{FORMAT_RULE_IDS, file_indent_width, format_str, refusals};
 use tempfile::tempdir;
 
 mod common;
@@ -210,6 +210,35 @@ fn golden_rewrites() {
     for (name, toml, input, expected) in CASES {
         assert_eq!(restyle(input, toml), expected, "{name}");
         assert_eq!(restyle(expected, toml), expected, "{name} is idempotent");
+    }
+}
+
+#[test]
+fn flow_conversion_settles_inferred_indent_around_explicit_keys() {
+    for (toml, input, expected) in [
+        (
+            "[format]\nsequence-style = 'flow'\ndash-on-own-line = true\n",
+            "a:\r\n   - a\r\n?\r\n: - ?\r\n",
+            "a: [a]\n?\n: -\n    ?\n",
+        ),
+        (
+            "[format]\nsequence-style = 'flow'\n",
+            "a:\n   - a\n?\n: >+\n a",
+            "a: [a]\n?\n: >+\n    a",
+        ),
+    ] {
+        let cfg = config(toml);
+        assert_ne!(
+            file_indent_width(&cfg, input),
+            file_indent_width(&cfg, expected)
+        );
+        let once = format_str(input, &cfg, Path::new("example.yaml"), &[]);
+        assert_eq!(once, expected, "{input:?}");
+        assert_eq!(
+            format_str(&once, &cfg, Path::new("example.yaml"), &[]),
+            once,
+            "{input:?}"
+        );
     }
 }
 

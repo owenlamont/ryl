@@ -105,6 +105,8 @@ Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the o
 re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
 or a file the re-indent leaves alone at every width, falls back to 2.
 A file mostly at 4 with one block at 2 is re-indented to 4.
+If restyling a collection changes which width best fits the file, the formatter
+re-detects the width and completes the re-indent in the same run.
 If the detected width would leave inconsistent indentation, `ryl format` keeps that
 document's indentation and reports the sites it cannot fix.
 
