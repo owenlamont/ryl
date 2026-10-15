@@ -1118,12 +1118,12 @@ fn terminal_spaces_only_block_lines_follow_reference_values() {
     ] {
         if before_value == after_value {
             assert_eq!(
-                representation::scalar_value(before, index),
+                consistency::scalar_value(before, index),
                 Some(noyalib::Value::from(before_value)),
                 "reference value before: {before:?}"
             );
             assert_eq!(
-                representation::scalar_value(after, index),
+                consistency::scalar_value(after, index),
                 Some(noyalib::Value::from(after_value)),
                 "reference value after: {after:?}"
             );
@@ -1134,6 +1134,74 @@ fn terminal_spaces_only_block_lines_follow_reference_values() {
             "oracle verdict: {before:?} -> {after:?}"
         );
     }
+}
+
+#[test]
+fn keep_scalar_before_document_end_follows_reference_parser() {
+    for newline in ["\n", "\r\n"] {
+        let input = format!("'#hash': |+{newline}{newline}    ");
+        let expected = "'#hash': |+\n\n\n...\n";
+        let cfg =
+            YamlLintConfig::from_toml_str("[format]\ndocument-end = 'add'\n").unwrap();
+        assert_eq!(
+            ryl::format::format_str(&input, &cfg, synthetic_path(), &[]),
+            expected
+        );
+        check_values(&input, expected).unwrap();
+        check_yaml_1_1_preserved(&input, expected).unwrap();
+        assert!(check_values(&input, "'#hash': |+\n\n\n\n...\n").is_err());
+    }
+    assert!(check_values("a: |+\n  x\n    ", "a: |+\n  x\n\n").is_err());
+}
+
+#[derive(serde::Deserialize)]
+struct ReferenceTerminalBlockPair {
+    before: String,
+    after: String,
+    same: bool,
+    before_value: String,
+    after_value: String,
+}
+
+#[test]
+fn reference_parser_terminal_block_eof_matrix() {
+    // LF verdicts were checked with yaml-parser --events; CRLF and CR use equivalent breaks.
+    fn block_value(nodes: &[representation::Node]) -> Option<&str> {
+        nodes.iter().rev().find_map(|node| match node {
+            representation::Node::Scalar {
+                value: representation::Value::Core(ryl::yaml_dom::ScalarOwned::String(value)),
+                ..
+            } => Some(value.as_str()),
+            _ => None,
+        })
+    }
+    let mut checked = 0;
+    for line in include_str!("fixtures/reference_terminal_block_eof.jsonl").lines() {
+        let pair: ReferenceTerminalBlockPair = serde_json::from_str(line).unwrap();
+        for ending in ["\n", "\r\n", "\r"] {
+            let before = pair.before.replace('\n', ending);
+            let after = pair.after.replace('\n', ending);
+            let before_nodes = representation(&before).unwrap();
+            let after_nodes = representation(&after).unwrap();
+            assert_eq!(
+                block_value(&before_nodes),
+                Some(pair.before_value.as_str()),
+                "{before:?}"
+            );
+            assert_eq!(
+                block_value(&after_nodes),
+                Some(pair.after_value.as_str()),
+                "{after:?}"
+            );
+            assert_eq!(
+                check_values(&before, &after).is_ok(),
+                pair.same,
+                "{before:?} -> {after:?}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 2_631);
 }
 
 #[test]
@@ -1150,22 +1218,55 @@ fn bare_cr_terminal_spaces_do_not_mask_a_real_value_change() {
 }
 
 #[test]
+fn cr_only_keep_scalar_eof_preserves_two_breaks() {
+    let before = "a:\r  - |+\r\r      ";
+    let after = "---\na:\n- |+\n\n\n";
+    check_values(before, after).unwrap();
+    check_yaml_1_1_preserved(before, after).unwrap();
+}
+
+#[test]
+fn blank_only_clip_scalar_loses_a_reference_break_when_trimmed() {
+    assert!(check_values("a: |\n\n\n", "a: |\n").is_err());
+}
+
+#[test]
+fn tagged_sequence_scalar_uses_its_content_indent() {
+    let before = "a:\n  -  !!str |1 \n   #m9he9o8   \n";
+    let after = "a:\n  - !!str |1\n   #m9he9o8   \n...\n";
+    for ending in ["\n", "\r\n", "\r"] {
+        check_values(&before.replace('\n', ending), &after.replace('\n', ending))
+            .unwrap();
+    }
+}
+
+#[test]
+fn folded_interior_blank_line_matches_one_literal_break() {
+    let folded = "a: >\n  x\n\n  y\n";
+    let changed = "a: |\n  x\n\n  y\n";
+    let same = "a: |\n  x\n  y\n";
+    for ending in ["\n", "\r\n", "\r"] {
+        let folded = folded.replace('\n', ending);
+        assert!(check_values(&folded, &changed.replace('\n', ending)).is_err());
+        check_values(&folded, &same.replace('\n', ending)).unwrap();
+    }
+}
+
+#[test]
 fn terminal_spaces_after_a_block_scalar_are_outside_the_correction() {
+    let terminal_value = |source, loaded| {
+        let (span, style) = representation::scalar_tokens(source).pop().unwrap();
+        representation::reference_terminal_block_value(source, &span, style, loaded)
+    };
     for before in ["a: |\n  x\n#tail\n  ", "a: |\n  x\n...\n  "] {
-        let after = before.trim_end_matches(' ');
-        assert!(
-            !representation::same_implicit_block_value(before, after),
+        assert_eq!(
+            terminal_value(before, ""),
+            None,
             "a block scalar ending before EOF must not authorize correction: {before:?}"
         );
     }
-    assert!(representation::same_implicit_block_value(
-        "|\n  x\n  ",
-        "|\n  x\n"
-    ));
-    assert!(!representation::same_implicit_block_value(
-        "- |+\n   ",
-        "- |+\n"
-    ));
+    assert_eq!(terminal_value("|\n  x\n  ", "x\n"), Some("x\n".to_owned()));
+    assert_eq!(terminal_value("- |+\n   ", ""), Some("\n".to_owned()));
     assert!(check_values("- |+\n   ", "- |+\n").is_err());
 }
 
@@ -1197,7 +1298,7 @@ fn representation_ignores_layout() {
         ("%YAML 1.1\n---\na: 1e3\n", "%YAML 1.1\n---\na: '1e3'\n"),
         ("a: |+\r\n    ", "a: |+\r\n\r\n"),
         ("a: |-\n  ", "a: |-\n"),
-        ("a: >+\n\n  ", "a: >+\n\n"),
+        ("a: >+\n\n  ", "a: >+\n\n\n"),
         ("a: |+\n  x\n  ", "a: |+\n  x\n\n"),
     ] {
         assert_eq!(

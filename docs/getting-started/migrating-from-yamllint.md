@@ -334,6 +334,12 @@ and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
 The YAML 1.2 reference parser and eemeli `yaml` read `"\n"` before and after;
 PyYAML and ruamel read `""` before and `"\n"` after.
 
+With `[format] document-end = 'add'`, `'#hash': |+\n\n    ` (also
+with CRLF line breaks) becomes `'#hash': |+\n\n\n...\n`.
+The reference parser reads `"\n\n"` before and after; eemeli `yaml`, PyYAML,
+and ruamel read `"\n"` before and `"\n\n"` after. ryl follows the
+reference parser for this EOF shape.
+
 **Why ryl differs:** YAML 1.2.2's
 [keep-empty production](https://yaml.org/spec/1.2.2/#rule-l-keep-empty)
 (`l-chomped-empty(n,KEEP) ::= l-keep-empty(n)`) and the reference parser's
