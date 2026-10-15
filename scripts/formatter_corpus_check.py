@@ -789,8 +789,8 @@ def run(
     proptest_cases: Annotated[
         int,
         typer.Option(
-            help="Then run every property suite at this case count, one after another "
-            "(5120 for the epic-to-main gate); 0 skips them."
+            help="Then run every property suite at this case count, one after "
+            "another; 0 skips them."
         ),
     ] = 0,
 ) -> None:

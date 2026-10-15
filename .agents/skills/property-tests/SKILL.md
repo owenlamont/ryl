@@ -4,7 +4,7 @@ description: >-
   Use when adding or changing a rule's detection or safe-fix behaviour, or
   editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
   rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
-  each generator must be extended with, the 5–10 minute pre-commit run, the real-world
+  each generator must be extended with, the under-10-minute pre-commit run, the real-world
   corpus gate, and which rules intentionally have no safe `--fix`.
 ---
 
@@ -13,15 +13,19 @@ description: >-
 When implementing a new rule or changing an existing one, extend the relevant
 property-test generator(s) so the new/updated syntax is actually exercised (each suite
 below lists exactly what to extend and the deterministic guard to add), then
-before committing run every suite at its default count, plus a **20× run of the suites
-the change touches**: e.g. `PROPTEST_CASES=5120 cargo test --release --test
-property_check`. Local suites use proptest's default 256 cases unless they pin
-`cases` themselves; `PROPTEST_CASES` still overrides a pinned `cases`. Keep the whole
-step within **5–10 minutes**. Commit only once it is green, and keep any newly-persisted
-seeds in `tests/proptest-regressions/`.
+before committing run every suite at its default count. A **newly added `proptest!`
+function** also gets one 20× run on its own; new cases from an extended generator do not
+count. Multiply that function's own case count: 5120 for a default 256-case test, 10240
+for one pinned at 512, e.g. `PROPTEST_CASES=10240 cargo test --release --test
+property_check <test_name> -- --exact` (`--exact` stops the name matching as a
+substring). Existing suites never run at 20×.
+Local suites use proptest's default 256
+cases unless they pin `cases` themselves; `PROPTEST_CASES` still overrides a pinned
+`cases`. Keep the whole step **under 10 minutes**. Commit only once it is green, and keep
+any newly-persisted seeds in `tests/proptest-regressions/`.
 
-**A release gate, or an integration branch's tip, runs every suite at 20×**, not only the
-touched ones. A seed it finds becomes a regression test plus a fix.
+**A release gate, or an integration branch's tip, runs every suite at its default
+count**, not only the touched ones. A seed it finds becomes a regression test plus a fix.
 
 ## Coverage and CI
 
@@ -30,7 +34,7 @@ property case already reaches the region. Coverage runs with `PROPTEST_CASES=0` 
 `PROPTEST_DISABLE_FAILURE_PERSISTENCE=1`, so neither random cases nor saved seeds can
 satisfy the gate. CI replays committed seeds separately with `PROPTEST_CASES=0` and
 failure persistence enabled; proptest replays seeds before generating random cases.
-Local property runs and the 20× release/integration gates remain unchanged.
+Local property runs and the release/integration gates keep their default counts.
 
 ## Property Tests For Safe Fixes
 
@@ -157,8 +161,8 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 `fold-long-lines = true` modes, and exits 1 on a hard failure: a value, comment or anchor
 change (the ignored `corpus_pairs_keep_the_guarantee` test, which applies the same
 oracle, plus py-yaml12), a non-idempotent file, or a panic. Add `--repo owner/name` to run
-one repo. The epic-to-main gate also passes `--proptest-cases 5120`, which then runs
-every property suite at 20×, one after another. `rust-known-errors` and
+one repo. `--proptest-cases <n>` also runs every property suite at `n` cases, one after
+another. `rust-known-errors` and
 `yaml12-known-errors` in the manifest list files an oracle's own parser misreads;
 When py-yaml12 disagrees and both streams end in block scalars with identical bytes
 before the final scalar, PyYAML's scanner marks the py-yaml12 verdict unavailable;
