@@ -1830,6 +1830,14 @@ To lint alongside `ryl format`, start from the
 which enables only rules the formatter never touches and leaves layout to
 `ryl format --check`.
 
+## Running with `ryl check --fix`
+
+Run `ryl check --fix` before `ryl format`, in a pre-commit or prek config as on the
+command line, so the formatter has the last word on layout. With a lint config that
+agrees with `[format]` (`ryl format` prints no conflict warning), formatting adds no
+lint findings, so a later `ryl check` still passes. Without `--fix`, the order does not
+matter. Ruff gives the same order for `ruff check --fix` and `ruff format`.
+
 ## Exit codes
 
 | Code | `ryl format` | `ryl format --check` / `--diff` |
