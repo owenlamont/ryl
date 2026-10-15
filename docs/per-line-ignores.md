@@ -3,8 +3,8 @@
 ## Suppressing rules from configuration
 
 [Inline directives](directives.md) switch rules off at a specific spot in a
-file. `per-line-ignores` does the same thing from configuration: it suppresses
-chosen rules on every line matching a pattern, across all files, without editing
+file. `per-line-ignores` suppresses lint findings and safe `check --fix` edits
+on every line matching a pattern, across all files, without editing
 them. It is the tool for recurring exceptions &mdash; tool-directive comments and
 machine-managed markers that legitimately break a rule everywhere they appear.
 
@@ -74,6 +74,8 @@ rules = ["braces"]
 - **`--fix`** never rewrites a suppressed line: an edit a fixer would make to a
   line whose rule is suppressed here is reverted, exactly as for an inline
   `# ryl disable-line`.
+- **`ryl format`** still formats matching lines. Neither `per-line-ignores` nor
+  [`per-file-ignores`](file-ignores.md) gates formatting; inline directives do.
 - **Embedded [YAML in Markdown](markdown.md)**: `path` matches the host Markdown
   file, while `regex` matches the embedded YAML line (after any list/blockquote
   prefix is stripped), so the same pattern works for standalone and embedded YAML.

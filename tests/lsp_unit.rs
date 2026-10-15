@@ -573,6 +573,24 @@ fn rewrite_edit_format_refuses_an_unparsable_document() {
     );
 }
 
+#[test]
+fn rewrite_edit_format_refuses_mixed_newline_markdown_region() {
+    let input = "---\r\na:   1\nb:   2\r\n---\n";
+    assert!(
+        rewrite_edit(
+            input,
+            Path::new("/proj/doc.md"),
+            &yaml_cfg("[format]\n"),
+            Path::new("/proj"),
+            SourceKind::Markdown,
+            PositionEncoding::Utf16,
+            Rewrite::Format,
+        )
+        .is_none(),
+        "a mixed-newline region cannot be written back safely"
+    );
+}
+
 // --- offset_at: the inverse of the forward column conversion (incremental sync) ---
 
 #[test]

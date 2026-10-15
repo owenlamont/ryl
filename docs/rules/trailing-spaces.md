@@ -75,6 +75,8 @@ unfixable = ["trailing-spaces"]
 ```
 
 `ryl format` applies the same fix, and no option of this rule conflicts with it.
+Trailing spaces inside a block scalar can remain findings after either fixer
+because removing them would change the scalar value.
 Later keys, sequence items and comments outside a block scalar have their trailing
 whitespace stripped, including within the same indented collection.
 

@@ -546,6 +546,64 @@ fn markdown_regions_format_without_file_shape_rules_and_ragged_ones_stay() {
 }
 
 #[test]
+fn mixed_newlines_in_markdown_regions_fail_preview_with_a_reason() {
+    for input in [
+        "---\r\na:   1\nb:   2\r\n---\n",
+        "```yaml\na:   1\r\nb:   2\n```\n",
+    ] {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::write(&file, input).unwrap();
+        for flag in ["--check", "--diff"] {
+            let (code, stdout, stderr) = run(ryl(dir.path())
+                .args(["format", "--markdown", flag])
+                .arg(&file));
+            assert_eq!(code, 1, "{flag}: {stderr}");
+            assert!(stderr.contains("mixes CRLF and LF"), "{stderr}");
+            if flag == "--check" {
+                assert!(format!("{stdout}{stderr}").contains("error"));
+            }
+        }
+        let (code, _, stderr) =
+            run(ryl(dir.path()).args(["format", "--markdown"]).arg(&file));
+        assert_eq!(code, 0, "{stderr}");
+        assert!(stderr.contains("mixes CRLF and LF"), "{stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    }
+}
+
+#[test]
+fn ragged_markdown_region_keeps_format_check_red() {
+    let input = "- item\n\n  ```yaml\n  a:   1\n b:   2\n  ```\n";
+    let (code, stdout, stderr, formatted) =
+        format_file(None, input, &["--markdown", "--check"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(format!("{stdout}{stderr}").contains("colons"), "{stderr}");
+    assert_eq!(formatted, input);
+}
+
+#[test]
+fn markdown_fence_boundary_refusal_is_named_without_changing_preview_exit() {
+    let input = "```yaml\nk:\n    v: a\n     ```\n    w:   1\n```\n";
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, input).unwrap();
+    for args in [
+        &["format", "--markdown", "-d", "indent-width = 2"][..],
+        &["format", "--markdown", "-d", "indent-width = 2", "--check"],
+        &["format", "--markdown", "-d", "indent-width = 2", "--diff"],
+    ] {
+        let (code, _, stderr) = run(ryl(dir.path()).args(args).arg(&file));
+        assert_eq!(code, 0, "{stderr}");
+        assert!(
+            stderr.contains("fenced YAML block would change Markdown fence boundaries"),
+            "{stderr}"
+        );
+        assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    }
+}
+
+#[test]
 fn ragged_markdown_keep_scalar_region_stays_untouched() {
     let dir = tempdir().unwrap();
     fs::write(

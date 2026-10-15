@@ -789,7 +789,7 @@ fn remedy(rule: &str, cfg: &YamlLintConfig) -> &'static str {
              `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`"
         }
         (indentation::ID, _) if cfg.indent_width().is_none() => {
-            "set the top-level `indent-width` to its `spaces`"
+            "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs` first)"
         }
         (new_lines::ID, _) => {
             "set `[format] line-ending` to the ending its `type` names"

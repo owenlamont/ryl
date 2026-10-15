@@ -306,7 +306,7 @@ fn layout_rules_name_the_key_they_disagree_with() {
             "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 2\n\
              indent-sequences = false\n",
             "per-file indent width (`indent-width` unset). Disable indentation when \
-             using `ryl format`, or set the top-level `indent-width` to its `spaces`.",
+             using `ryl format`, or set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs` first).",
         ),
         (
             "[format]\nline-ending = 'auto'\n[lint.rules]\nnew-lines = 'enable'\n",
@@ -331,4 +331,12 @@ fn layout_rules_name_the_key_they_disagree_with() {
         assert_eq!(warnings.len(), 1, "{config}: {warnings:#?}");
         assert!(warnings[0].contains(expected), "{config}: {}", warnings[0]);
     }
+}
+
+#[test]
+fn yaml_indent_conflict_points_to_toml_migration() {
+    let warnings = conflicts("rules:\n  indentation:\n    spaces: 4\n", false, &[]);
+    assert_eq!(warnings.len(), 1, "{warnings:#?}");
+    assert!(warnings[0].contains("top-level TOML `indent-width`"));
+    assert!(warnings[0].contains("ryl --migrate-configs"));
 }
