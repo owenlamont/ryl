@@ -319,7 +319,15 @@ Saved with CRLF endings, yamllint reports `3:1 wrong indentation: expected 2 but
 and ryl reports nothing. ryl treats CRLF as a line break, as YAML 1.2 requires, so the
 blank line is skipped exactly as it is in an LF file.
 
-### Keep-chomped scalar at EOF
+### Block scalar at EOF
+
+An unterminated clip or keep block scalar body, such as `a: |\n  a`, gains a
+final newline under `ryl check --fix` or `ryl format`. With document ends enabled,
+it also gains `...`. The YAML 1.2 reference parser reads `=VAL |a\n` before and
+after; PyYAML reads `"a"` before and `"a\n"` after. ryl follows the reference
+parser for this value, including when the scalar stands alone.
+YAML 1.2.2 [production 165](https://yaml.org/spec/1.2.2/#rule-b-chomped-last)
+allows either `b-as-line-feed` or end of input for clip and keep chomping.
 
 For `- |+\n   ` (a spaces-only last line without a line break), `ryl format`
 and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.

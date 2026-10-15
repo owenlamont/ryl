@@ -857,7 +857,15 @@ Saved with CRLF endings, yamllint reports `3:1 wrong indentation: expected 2 but
 and ryl reports nothing. ryl treats CRLF as a line break, as YAML 1.2 requires, so the
 blank line is skipped exactly as it is in an LF file.
 
-### Keep-chomped scalar at EOF
+### Block scalar at EOF
+
+An unterminated clip or keep block scalar body, such as `a: |\n  a`, gains a
+final newline under `ryl check --fix` or `ryl format`. With document ends enabled,
+it also gains `...`. The YAML 1.2 reference parser reads `=VAL |a\n` before and
+after; PyYAML reads `"a"` before and `"a\n"` after. ryl follows the reference
+parser for this value, including when the scalar stands alone.
+YAML 1.2.2 [production 165](https://yaml.org/spec/1.2.2/#rule-b-chomped-last)
+allows either `b-as-line-feed` or end of input for clip and keep chomping.
 
 For `- |+\n   ` (a spaces-only last line without a line break), `ryl format`
 and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
@@ -1533,15 +1541,17 @@ The rest of the layout is fixed:
 | Own-line comments | Aligned with the content they precede |
 | Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
 | Blank lines | None at the start or end of the file |
-| Line ends | Remove trailing whitespace outside scalar content; add a final newline when value-safe |
+| Line ends | Remove trailing whitespace outside scalar content; add a final newline |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
 
-Block scalar headers lose trailing spaces and tabs. A header with no body at EOF gains
-a final newline and, with `document-end = "add"`, a `...` marker. Unterminated clip/keep
-scalar content stays protected when adding a newline could change its value.
+Block scalar headers lose trailing spaces and tabs. A header or body at EOF gains
+a final newline and, with `document-end = "add"`, a `...` marker.
 An indentation-only final line loses its spaces when they are not scalar content.
 For keep-chomped scalars (`|+` or `>+`), the formatter adds a line break after
 removing those spaces to preserve the YAML 1.2 reference parser's value.
+When adding a document end marker, it removes only indentation spaces from a final
+blank block-scalar line. A root explicit-indent scalar keeps value-bearing spaces;
+the marker is left unfixed if appending it would change the reference value.
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.
@@ -4329,8 +4339,11 @@ this: is the only document
 `ryl check --fix` adds a `...` end marker to every document that lacks one
 when `present: true`: before the `---` that opens the next document, and at
 the end of the stream. The `present: false` case (removing existing `...`
-markers) is never auto-fixed. A block scalar header with no body at EOF can gain the
-newline and marker; an unterminated clip/keep body is left alone to preserve its value.
+markers) is never auto-fixed. A block scalar header or body at EOF gains the
+newline and marker when the YAML 1.2 reference value is preserved. Spaces on a
+final blank block-scalar line are removed only when they are indentation. A
+root explicit-indent scalar with value-bearing final spaces keeps those spaces;
+if its chomping indicator makes a marker unsafe, the final marker is left unfixed.
 
 Disable with:
 
@@ -5426,8 +5439,9 @@ ryl appends a single newline when the file does not already end with one.
 ## Automatic fixing
 
 `ryl check --fix` appends a trailing newline when one is missing, including after a
-block scalar header with no body. An unterminated clip/keep block scalar body is left
-alone because appending a newline could change its value. Disable with:
+block scalar header or body. A spaces-only final block-scalar line keeps its spaces
+when only this rule runs; `document-end` can remove indentation spaces before adding
+`...`. Disable with:
 
 ```toml
 [lint]

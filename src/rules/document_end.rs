@@ -3,12 +3,14 @@
 //! `--fix` rewrites only `present: true`, inserting `...` before the `---` that follows
 //! each implicitly ended document and appending one at the end of the stream. Removing
 //! `...` (`present: false`) can collide with document boundaries, so it is not fixed.
-use granit_parser::{Event, Parser};
+use std::collections::HashMap;
+
+use granit_parser::{Event, Parser, ScalarStyle};
 
 use crate::config::YamlLintConfig;
 use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
-    buffer_newline, split_lines_preserve_endings,
+    buffer_newline, line_contents, split_lines_preserve_endings,
 };
 use crate::rules::support::span_utils::marker_byte_offset;
 
@@ -90,6 +92,12 @@ fn scan(buffer: &str, cfg: Config) -> Scan {
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let result = scan(buffer, *cfg);
+    let final_blank = if result.unended_at_stream_end {
+        final_blank_scalar_action(buffer)
+    } else {
+        FinalBlank::Keep
+    };
+    let final_line = line_contents(buffer).len();
     let newline = buffer_newline(buffer);
     let mut marker_lines = result.unended_before.iter().peekable();
     let mut output = String::with_capacity(buffer.len() + 4 * result.violations.len());
@@ -98,15 +106,17 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
             output.push_str("...");
             output.push_str(newline);
         }
-        output.push_str(content);
+        if final_blank == FinalBlank::Trim && idx + 1 == final_line {
+            output.push_str(content.trim_end_matches(' '));
+        } else {
+            output.push_str(content);
+        }
         output.push_str(ending);
     }
     // A `\r`-terminated file already ends in a break; checking `\n` only would insert a
     // spurious blank line before `...`.
     let ends_in_break = buffer.ends_with(['\n', '\r']);
-    if result.unended_at_stream_end
-        && (ends_in_break || !block_scalar_chomping::ends_in_unstripped_scalar(buffer))
-    {
+    if result.unended_at_stream_end && final_blank != FinalBlank::Refuse {
         if !ends_in_break {
             output.push_str(newline);
         }
@@ -114,6 +124,93 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
         output.push_str(newline);
     }
     (output != buffer).then_some(output)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FinalBlank {
+    Keep,
+    Trim,
+    Refuse,
+}
+
+fn final_blank_scalar_action(buffer: &str) -> FinalBlank {
+    let lines = line_contents(buffer);
+    let headers = block_scalar_chomping::headers(buffer);
+    let root_indents = root_explicit_content_indents(buffer, &headers, &lines);
+    let line = lines
+        .last()
+        .expect("a document with a missing end is nonempty");
+    headers
+        .into_iter()
+        .find_map(|header| {
+            let span = header.span;
+            if header.line >= lines.len()
+                || span
+                    .end
+                    .line()
+                    .saturating_sub(usize::from(span.end.col() == 0))
+                    != lines.len()
+                || line.is_empty()
+                || !line.bytes().all(|ch| ch == b' ')
+            {
+                return None;
+            }
+            let scanner_indent = span.indent.unwrap_or_else(|| {
+                if span.is_empty() || span.start.line() == header.line {
+                    usize::MAX
+                } else {
+                    span.start.col()
+                }
+            });
+            let root_indent = root_indents.get(&span.start.index()).copied();
+            let indent = root_indent.unwrap_or(scanner_indent);
+            Some(if line.len() <= indent {
+                FinalBlank::Trim
+            } else if root_indent.is_some() && header.chomping.is_some() {
+                FinalBlank::Refuse
+            } else {
+                FinalBlank::Keep
+            })
+        })
+        .unwrap_or(FinalBlank::Keep)
+}
+
+pub(crate) fn root_explicit_content_indents(
+    buffer: &str,
+    headers: &[block_scalar_chomping::Header],
+    lines: &[&str],
+) -> HashMap<usize, usize> {
+    if headers.is_empty() {
+        return HashMap::new();
+    }
+    let mut depth = 0usize;
+    let mut roots = HashMap::new();
+    for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
+        match event {
+            Event::MappingStart(..) | Event::SequenceStart(..) => depth += 1,
+            Event::MappingEnd | Event::SequenceEnd => depth -= 1,
+            Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
+                if depth == 0 =>
+            {
+                roots.insert(span.start.index(), span.end.index());
+            }
+            _ => {}
+        }
+    }
+    headers
+        .iter()
+        .filter(|header| {
+            roots.get(&header.span.start.index()) == Some(&header.span.end.index())
+        })
+        .filter_map(|header| {
+            lines[header.line - 1]
+                .chars()
+                .skip(header.column)
+                .take_while(|ch| !ch.is_whitespace() && *ch != '#')
+                .find_map(|ch| ch.to_digit(10).and_then(|n| n.checked_sub(1)))
+                .map(|n| (header.span.start.index(), n as usize))
+        })
+        .collect()
 }
 
 #[derive(Default)]

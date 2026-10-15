@@ -27,7 +27,10 @@ use ryl::fix::{
 };
 use ryl::{EmbeddedRegion, MarkdownSources, extract_regions};
 
-use config::{parse_for_compare, safe_fix_configs, synthetic_base_dir, synthetic_path};
+use config::{
+    parse_for_compare, reference_safe_eof_append, safe_fix_configs, synthetic_base_dir,
+    synthetic_path,
+};
 use wrap::arb_markdown_doc;
 
 fn regions_of(markdown: &str, cfg: &YamlLintConfig) -> Vec<EmbeddedRegion> {
@@ -82,7 +85,8 @@ fn verify_regions(
     for (orig, fixd) in regions_of(original, cfg).iter().zip(regions_of(fixed, cfg)) {
         if let Some(before) = parse_for_compare(&orig.content) {
             prop_assert!(
-                parse_for_compare(&fixd.content).as_ref() == Some(&before),
+                parse_for_compare(&fixd.content).as_ref() == Some(&before)
+                    || reference_safe_eof_append(&orig.content, &fixd.content),
                 "region parsed value changed: {:?} -> {:?}",
                 orig.content,
                 fixd.content

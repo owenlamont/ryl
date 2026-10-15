@@ -57,10 +57,10 @@ fn fix_ends_every_implicitly_ended_document() {
 }
 
 #[test]
-fn fix_inserts_ends_but_skips_the_append_after_an_unterminated_block_scalar() {
+fn fix_inserts_ends_after_an_unterminated_block_scalar() {
     assert_eq!(
         document_end::fix("a: 1\n---\nb: |\n  x", &Config::new(true)).as_deref(),
-        Some("a: 1\n...\n---\nb: |\n  x")
+        Some("a: 1\n...\n---\nb: |\n  x\n...\n")
     );
 }
 

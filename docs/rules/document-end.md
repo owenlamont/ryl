@@ -61,8 +61,11 @@ this: is the only document
 `ryl check --fix` adds a `...` end marker to every document that lacks one
 when `present: true`: before the `---` that opens the next document, and at
 the end of the stream. The `present: false` case (removing existing `...`
-markers) is never auto-fixed. A block scalar header with no body at EOF can gain the
-newline and marker; an unterminated clip/keep body is left alone to preserve its value.
+markers) is never auto-fixed. A block scalar header or body at EOF gains the
+newline and marker when the YAML 1.2 reference value is preserved. Spaces on a
+final blank block-scalar line are removed only when they are indentation. A
+root explicit-indent scalar with value-bearing final spaces keeps those spaces;
+if its chomping indicator makes a marker unsafe, the final marker is left unfixed.
 
 Disable with:
 

@@ -416,7 +416,8 @@ fn arb_block_entry() -> impl Strategy<Value = BlockEntry> {
 }
 
 pub fn arb_document() -> impl Strategy<Value = Document> {
-    (
+    prop_oneof![
+        4 => (
         prop_oneof![
             3 => Just(None),
             1 => Just(Some((1, 1))),
@@ -429,7 +430,7 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
             Just(NewlineStyle::Cr)
         ],
         any::<bool>(),
-    )
+        )
         .prop_map(|(version_directive, entries, newline, has_final_newline)| {
             Document {
                 version_directive,
@@ -437,5 +438,33 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
                 newline,
                 has_final_newline,
             }
-        })
+        }),
+        1 => (
+            prop_oneof![Just('|'), Just('>')],
+            prop_oneof![Just(None), Just(Some('+'))],
+            "[a-z][a-z0-9]{0,5}",
+        ).prop_map(|(style, chomp, text)| Document {
+            version_directive: None,
+            entries: vec![BlockEntry {
+                leading_comment: None,
+                key: "tail".to_string(),
+                colon: ColonGap::default(),
+                value: Node::BlockScalar(BlockScalarSpec {
+                    properties: "",
+                    style,
+                    chomp,
+                    explicit_indent: None,
+                    header_spaces: 0,
+                    offset: 2,
+                    leading_short: None,
+                    body: vec![BlockBodyLine::Content { text, trailing_ws: 0 }],
+                    trailing_comment: None,
+                }),
+                trailing_inline_comment: None,
+                layout: Layout::default(),
+            }],
+            newline: NewlineStyle::Lf,
+            has_final_newline: false,
+        }),
+    ]
 }

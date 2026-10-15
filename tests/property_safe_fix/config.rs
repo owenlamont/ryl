@@ -247,6 +247,21 @@ pub fn parse_for_compare(content: &str) -> Option<Vec<YamlOwned>> {
     Some(docs.into_iter().map(canonical).collect())
 }
 
+pub fn reference_safe_eof_append(input: &str, fixed: &str) -> bool {
+    if input.ends_with(['\r', '\n']) {
+        return false;
+    }
+    let Some(before) = noyalib::from_str::<noyalib::Value>(input).ok() else {
+        return false;
+    };
+    ["\n", "\r\n", "\r"].into_iter().any(|newline| {
+        let terminated = format!("{input}{newline}");
+        noyalib::from_str::<noyalib::Value>(&terminated).ok() == Some(before.clone())
+            && parse_for_compare(&terminated)
+                .is_some_and(|value| Some(value) == parse_for_compare(fixed))
+    })
+}
+
 fn canonical(node: YamlOwned) -> YamlOwned {
     match node {
         YamlOwned::Mapping(mapping) => {
