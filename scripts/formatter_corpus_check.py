@@ -329,7 +329,11 @@ def _compare12(before: bytes, after: bytes) -> Loaded:
     )
     if verdict is Loaded.UNEQUAL or eof_scalar_changed:
         try:
-            reference = reference_equal(before.decode("utf-8"), after.decode("utf-8"))
+            reference = reference_equal(
+                before.decode("utf-8"),
+                after.decode("utf-8"),
+                ignore_style=verdict is Loaded.EQUAL,
+            )
         except UnicodeDecodeError:
             reference = None
         if reference is not None:

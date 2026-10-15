@@ -575,3 +575,17 @@ def test_markdown_run_uses_profile_and_detects_second_edit(
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
+
+
+def test_style_only_change_before_an_eof_block_scalar_is_equal() -> None:
+    before = b'a: "128Mi"\nb: {c: [1]}\nd: |\n  t\n'
+    after = b"a: 128Mi\nb:\n  c:\n    - 1\nd: |\n  t\n"
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.EQUAL
+    assert gate.reference_equal(before.decode(), after.decode()) is False
+    assert gate._compare12(before, after) is gate.Loaded.EQUAL
+
+
+def test_quoted_to_typed_scalar_before_an_eof_block_scalar_still_fails() -> None:
+    before = b'a: "128"\nd: |\n  t\n'
+    after = b"a: 128\nd: |\n  t\n"
+    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL

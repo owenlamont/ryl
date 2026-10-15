@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import]
 
@@ -13,6 +14,14 @@ _PARSER = Path(
         / "Code/ryl_repos/yaml-reference-parser/parser-1.2/javascript/bin/yaml-parser",
     )
 )
+
+
+_SCALAR_STYLE = re.compile(r"^(=VAL (?:&\S+ )?(?:<[^>]*> )?)[:'\"|>]")
+_FLOW_STYLE = re.compile(r"^([+](?:MAP|SEQ)) (?:\{\}|\[\])")
+
+
+def _without_style(event: str) -> str:
+    return _FLOW_STYLE.sub(r"\1", _SCALAR_STYLE.sub(r"\1:", event))
 
 
 def _events(source: str) -> list[str] | None:
@@ -39,8 +48,18 @@ def _events(source: str) -> list[str] | None:
     ]
 
 
-def reference_equal(before: str, after: str) -> bool | None:
-    """Return None if the reference CLI cannot decide either side."""
+def reference_equal(
+    before: str, after: str, *, ignore_style: bool = False
+) -> bool | None:
+    """Return None if the reference CLI cannot decide either side.
+
+    ``ignore_style`` compares scalar text and structure only, so a quote or flow
+    style change counts as equal; callers must check resolved types separately.
+    """
     left = _events(before)
     right = _events(after)
-    return left == right if left is not None and right is not None else None
+    if left is None or right is None:
+        return None
+    if ignore_style:
+        left, right = map(_without_style, left), map(_without_style, right)
+    return list(left) == list(right)
