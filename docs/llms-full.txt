@@ -1830,6 +1830,15 @@ To lint alongside `ryl format`, start from the
 which enables only rules the formatter never touches and leaves layout to
 `ryl format --check`.
 
+## Running with `ryl check --fix`
+
+Run `ryl check --fix` before `ryl format`, in a pre-commit or prek config as on the
+command line, so the formatter has the last word on layout; ruff gives the same order
+for `ruff check --fix` and `ruff format`. Re-indenting can still push a line past
+`line-length`, which the `line-length` rule then reports (see
+[Conflicting lint rules](#conflicting-lint-rules)), so lint a formatted file rather than
+relying on the check that ran before formatting.
+
 ## Exit codes
 
 | Code | `ryl format` | `ryl format --check` / `--diff` |
