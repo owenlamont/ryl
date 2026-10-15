@@ -72,6 +72,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- `comments-indentation` now reports, and `--fix` moves, a comment indented to the
+  continuation of a multi-line quoted scalar, matching yamllint.
 - A leading shebang or `#cloud-config` stays before an inserted document marker.
   ([#531](https://github.com/owenlamont/ryl/pull/531))
 - `check --fix` and `format` add requested start and end markers to each document
