@@ -116,8 +116,8 @@ documentation, see the docs site.
 
 ## Performance
 
-`ryl` is significantly faster than `yamllint` on large trees. The figure
-below is from a 5x5 file-count × file-size matrix with 5 runs per point:
+The figure below times ryl and yamllint over a 5x5 file-count × file-size
+matrix with 5 runs per point:
 
 ![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 

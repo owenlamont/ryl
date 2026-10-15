@@ -181,6 +181,11 @@ small number of places. Every divergence is deliberate: ryl is **more correct
 against the YAML 1.2.2 specification**, it **fails loudly instead of silently**, or
 it **avoids redundant output**. The complete list:
 
+### Rules with no yamllint equivalent
+
+`block-scalar-chomping`, `merge-keys`, `tags` and `unicode-line-breaks` are ryl's own
+rules. They are configurable only in TOML; a YAML config that names one is rejected.
+
 ### No implicit default configuration
 
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it
