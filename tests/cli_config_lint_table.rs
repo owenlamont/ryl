@@ -263,6 +263,34 @@ fn migrate_skips_a_symlinked_legacy_toml() {
 
 #[cfg(unix)]
 #[test]
+fn migrate_rewrite_refuses_a_symlink_target() {
+    use ryl::migrate::{MigrationEntry, SourceCleanup, apply_migration_entries};
+
+    let dir = tempdir().unwrap();
+    let payload = dir.path().join("payload.toml");
+    let link = dir.path().join(".ryl.toml");
+    fs::write(&payload, LEGACY).unwrap();
+    std::os::unix::fs::symlink(&payload, &link).unwrap();
+    let entry = MigrationEntry {
+        source: link.clone(),
+        target: link.clone(),
+        toml: NESTED.to_string(),
+    };
+
+    let error =
+        apply_migration_entries(&[entry], &[], &SourceCleanup::Keep).unwrap_err();
+    assert!(error.contains("refusing to follow a symlink"), "{error}");
+    assert_eq!(fs::read(&payload).unwrap(), LEGACY.as_bytes());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn migrate_failed_rewrite_keeps_original_bytes() {
     use std::os::unix::fs::PermissionsExt;
 

@@ -93,15 +93,14 @@ fn write_temp(
 
 fn preserve_metadata(file: &File, metadata: &fs::Metadata) -> io::Result<()> {
     #[cfg(unix)]
-    {
+    let ownership = {
         use std::os::unix::fs::{MetadataExt, fchown};
 
-        fchown(file, Some(metadata.uid()), Some(metadata.gid())).map_err(|err| {
-            io::Error::new(
-                err.kind(),
-                format!("cannot preserve config owner and group: {err}"),
-            )
-        })?;
-    }
-    file.set_permissions(metadata.permissions())
+        fchown(file, Some(metadata.uid()), Some(metadata.gid())).or(Err(
+            io::Error::other("cannot preserve config owner and group"),
+        ))
+    };
+    #[cfg(not(unix))]
+    let ownership: io::Result<()> = Ok(());
+    ownership.and_then(|()| file.set_permissions(metadata.permissions()))
 }
