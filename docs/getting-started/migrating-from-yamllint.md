@@ -91,9 +91,10 @@ one.
 
 Migration writes a temporary file beside each destination and replaces the
 destination only after the write succeeds. An interrupted write leaves an
-existing config intact. Rewriting a TOML config and creating its backup keep the
-source file's owner, group, and permissions. Migration reports an error if it
-cannot preserve them.
+existing config intact. On Linux and macOS, rewriting a TOML config and creating
+its backup keep the source file's owner, group, and permissions, and migration
+reports an error if it cannot preserve them. On Windows they keep the read-only
+attribute; other access-control entries are not copied.
 
 Migration produces a self-contained config. yamllint's top-level `ignore` and
 `ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
