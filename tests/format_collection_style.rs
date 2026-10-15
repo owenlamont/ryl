@@ -224,7 +224,7 @@ fn flow_conversion_settles_inferred_indent_around_explicit_keys() {
         (
             "[format]\nsequence-style = 'flow'\n",
             "a:\n   - a\n?\n: >+\n a",
-            "a: [a]\n?\n: >+\n    a",
+            "a: [a]\n?\n: >+\n    a\n",
         ),
     ] {
         let cfg = config(toml);

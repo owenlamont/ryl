@@ -164,14 +164,14 @@ fn keep_scalar_eof_preserves_its_break_with_document_markers() {
 }
 
 #[test]
-fn unterminated_block_scalar_bodies_remain_protected() {
+fn unterminated_block_scalar_bodies_gain_a_final_newline_and_marker() {
     for header in ["|", ">", "|+", ">+", "|2", ">+2"] {
         for body in ["  café  ", "   "] {
             if body == "   " && !header.contains('2') {
                 continue;
             }
             let input = format!("a: {header} \t\n{body}");
-            let expected = format!("a: {header}\n{body}");
+            let expected = format!("a: {header}\n{body}\n...\n");
             let (code, _, stderr, formatted) =
                 format_file(Some("[format]\ndocument-end = 'add'\n"), &input, &[]);
             assert_eq!(code, 0, "{stderr}");

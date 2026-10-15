@@ -8,10 +8,10 @@
 //! (returns `None`) on an unparsable buffer.
 use granit_parser::ScalarStyle;
 
-use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, protected_scalar_lines, split_lines_preserve_endings,
 };
+use crate::rules::{block_scalar_chomping, document_end};
 
 pub const ID: &str = "trailing-spaces";
 pub const MESSAGE: &str = "trailing spaces";
@@ -46,10 +46,13 @@ pub fn fix(buffer: &str) -> Option<String> {
     })?;
     let lines = line_contents(buffer);
     let mut keep_blank_eof = false;
-    for header in block_scalar_chomping::headers(buffer) {
+    let headers = block_scalar_chomping::headers(buffer);
+    let root_indents =
+        document_end::root_explicit_content_indents(buffer, &headers, &lines);
+    for header in headers {
         protected.remove(&header.line);
         let span = header.span;
-        let indent = span.indent.unwrap_or_else(|| {
+        let scanner_indent = span.indent.unwrap_or_else(|| {
             // Blank-only spans have no content whose spaces need protection.
             if span.is_empty() || span.start.line() == header.line {
                 usize::MAX
@@ -57,6 +60,8 @@ pub fn fix(buffer: &str) -> Option<String> {
                 span.start.col()
             }
         });
+        let root_indent = root_indents.get(&span.start.index()).copied();
+        let indent = root_indent.unwrap_or(scanner_indent);
         for line in header.line + 1..=span.end.line() {
             if lines.get(line - 1).is_some_and(|text| {
                 text.len() <= indent && text.bytes().all(|ch| ch == b' ')
@@ -68,6 +73,12 @@ pub fn fix(buffer: &str) -> Option<String> {
                 {
                     keep_blank_eof = true;
                 }
+            } else if root_indent.is_some()
+                && lines
+                    .get(line - 1)
+                    .is_some_and(|text| text.bytes().all(|ch| ch == b' '))
+            {
+                protected.insert(line);
             }
         }
     }

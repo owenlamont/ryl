@@ -35,8 +35,8 @@ use ast::{
     InlineComment, Layout, NewlineStyle, Node, Scalar, SeqBody,
 };
 use config::{
-    named_config, parse_for_compare, safe_fix_configs, safe_fix_rule_diagnostics,
-    synthetic_base_dir, synthetic_path,
+    named_config, parse_for_compare, reference_safe_eof_append, safe_fix_configs,
+    safe_fix_rule_diagnostics, synthetic_base_dir, synthetic_path,
 };
 use strategy::arb_document;
 
@@ -144,7 +144,9 @@ proptest! {
                     "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
                 ))
             })?;
-            if before != after && keep_blank_at_eof {
+            if before != after && reference_safe_eof_append(&input, &fixed) {
+                continue;
+            } else if before != after && keep_blank_at_eof {
                 // The reference parser retains the keep-chomped EOF blank line that the loader drops.
                 let newline = match document.newline {
                     NewlineStyle::Lf => "\n",

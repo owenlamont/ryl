@@ -1,6 +1,4 @@
-use super::representation::{
-    BLOCK_HEADER, first_content_line, scalar_tokens, scalar_value,
-};
+use super::representation::{first_content_line, scalar_tokens, scalar_value};
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
@@ -143,31 +141,6 @@ pub fn content_whitespace(
         return false;
     }
     let tokens = scalar_tokens(output);
-    if matches!(rule, Some("new-line-at-end-of-file" | "document-end"))
-        && !output.ends_with(['\r', '\n'])
-        && tokens.last().is_some_and(|(span, style)| {
-            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-                && span.end.byte_offset() == Some(output.len())
-                && first_content_line(output, span) <= line
-                && output.lines().count() == line
-                && output
-                    .lines()
-                    .nth(first_content_line(output, span) - 2)
-                    .and_then(|header| BLOCK_HEADER.captures(header))
-                    .is_some_and(|captures| !captures[1].contains('-'))
-        })
-        && match rule {
-            Some("new-line-at-end-of-file") => output
-                .lines()
-                .last()
-                .is_some_and(|last| column == last.chars().count() + 1),
-            Some("document-end") => column == 1,
-            _ => false,
-        }
-    {
-        // Loaders disagree on the value of a break appended at block-scalar EOF.
-        return true;
-    }
     let Some((index, (_, style))) =
         tokens.into_iter().enumerate().find(|(_, (span, style))| {
             let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);

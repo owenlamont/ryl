@@ -39,8 +39,8 @@ use ryl::rules::{
 };
 
 use config::{
-    SAFE_FIX_RULES, named_config, parse_for_compare, safe_fix_configs,
-    synthetic_base_dir, synthetic_path,
+    SAFE_FIX_RULES, named_config, parse_for_compare, reference_safe_eof_append,
+    safe_fix_configs, synthetic_base_dir, synthetic_path,
 };
 use stack::{Decoration, Filler, FollowOn, StackedDocument, arb_stacked_document};
 
@@ -197,9 +197,9 @@ fn assert_converges(
                 input
             );
             if let Some(before) = parse_for_compare(input) {
-                prop_assert_eq!(
-                    Some(before),
-                    parse_for_compare(&fixed),
+                prop_assert!(
+                    parse_for_compare(&fixed).as_ref() == Some(&before)
+                        || reference_safe_eof_append(input, &fixed),
                     "safe fixes changed the loaded value under config '{}'; input {:?}",
                     cfg_name,
                     input

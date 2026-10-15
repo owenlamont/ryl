@@ -49,6 +49,11 @@ summarize user-visible changes from the tagged commits and published release rec
   YAML-configured users to config migration.
 - `format` and `check --fix` continue after a file write fails, report the file,
   and exit `2` after processing the remaining inputs.
+- `check --fix` and `ryl format` finish unterminated block scalars with a newline
+  and, when configured, a document end marker, following the YAML 1.2 reference parser.
+  Adding a marker removes value-neutral indentation spaces on a final blank
+  block-scalar line, but leaves a root explicit-indent marker unfixed when its
+  final spaces carry value and no preserving marker append is available.
 - ryl TOML now separates `[lint]` and `[format]`. Run `ryl --migrate-configs`
   to preview existing configs, then add `--migrate-write` to update them.
   ([#508](https://github.com/owenlamont/ryl/pull/508))

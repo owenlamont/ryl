@@ -13,9 +13,8 @@ and a host-byte check; each default-mode operation must change a YAML region. Mo
 
   - value: per changed file, the property suite's Rust oracle (`representation` and
     `annotations` in tests/property_format.rs) must find the values, tags, anchors and
-    comments unchanged, and py-yaml12 the loaded values (disputed final block scalars
-    are unavailable when preceding bytes match); a file that did not parse must not
-    change;
+    comments unchanged, and py-yaml12 the loaded values, with unequal readings
+    adjudicated by reference events; a file that did not parse must not change;
   - idempotence: a second `ryl format` changes nothing;
   - panic or timeout.
 
@@ -47,6 +46,7 @@ from typing import Annotated, Any, Final
 
 from formatter_compat import RULE_RE, values_equal
 import platformdirs
+from reference_events import reference_equal
 import tomllib
 import typer
 import yaml
@@ -323,9 +323,18 @@ def _final_block_scalar_prefix(data: bytes) -> bytes | None:
 
 def _compare12(before: bytes, after: bytes) -> Loaded:
     verdict = _compare(_load12, before, after)
-    if verdict is Loaded.UNEQUAL:
-        prefix = _final_block_scalar_prefix(before)
-        if prefix is not None and prefix == _final_block_scalar_prefix(after):
+    eof_scalar_changed = (
+        _final_block_scalar_prefix(before) is not None
+        or _final_block_scalar_prefix(after) is not None
+    )
+    if verdict is Loaded.UNEQUAL or eof_scalar_changed:
+        try:
+            reference = reference_equal(before.decode("utf-8"), after.decode("utf-8"))
+        except UnicodeDecodeError:
+            reference = None
+        if reference is not None:
+            return Loaded.EQUAL if reference else Loaded.UNEQUAL
+        if eof_scalar_changed and verdict is Loaded.EQUAL:
             return Loaded.UNAVAILABLE
     return verdict
 

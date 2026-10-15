@@ -59,7 +59,7 @@ def test_document_start_before_block_scalar_keeps_yaml12_verdict(
         pytest.param(b"a: |\n  x\n  ", b"a: |\n  x\n", id="nonempty clip at EOF"),
     ],
 )
-def test_false_eof_value_difference_abstains(
+def test_false_eof_value_difference_follows_reference(
     before: bytes, after: bytes, tmp_path: Path
 ) -> None:
     assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
@@ -67,14 +67,59 @@ def test_false_eof_value_difference_abstains(
     result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
     gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
     assert result.yaml12_unequal == []
-    assert result.yaml12_unavailable == [PATH]
+    assert result.yaml12_unavailable == []
+    assert gate._hard_failures(result) == 0
 
 
-def test_changed_document_prefix_keeps_yaml12_verdict() -> None:
+def test_changed_document_prefix_follows_reference_verdict() -> None:
     before = b"a: |\n  x\n  "
     after = b"---\na: |\n  x\n"
     assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
-    assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+    assert gate._compare12(before, after) is gate.Loaded.EQUAL
+
+
+def test_unwaived_py_yaml12_disagreement_is_adjudicated_by_reference(
+    tmp_path: Path,
+) -> None:
+    before = b"a: |\n  x\n  "
+    after = b"a: |\n  x\n"
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
+    assert result.yaml12_unequal == []
+    assert gate._hard_failures(result) == 0
+
+
+def test_py_yaml12_equal_eof_block_scalar_change_fails_reference_gate(
+    tmp_path: Path,
+) -> None:
+    before = b"a: |+\n  "
+    after = b"a: |+\n  \n...\n"
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.EQUAL
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
+    assert result.yaml12_unequal == [PATH]
+    assert gate._hard_failures(result) == 1
+
+
+@pytest.mark.parametrize(
+    "line_break", [pytest.param(b"\r\n", id="CRLF"), pytest.param(b"\r", id="bare CR")]
+)
+def test_cr_eof_block_scalar_change_is_a_hard_failure(
+    line_break: bytes, tmp_path: Path
+) -> None:
+    before = b"a: |" + line_break + b"  "
+    after = b"a: |" + line_break + b"  " + line_break + b"..." + line_break
+    assert gate._compare(gate._load12, before, after) is gate.Loaded.UNEQUAL
+    assert gate.reference_equal(before.decode(), after.decode()) is False
+    repo = gate.Repo(url="https://example.com/o/r", sha="0" * 40)
+    result = gate.Result(repo=repo.name, mode=gate.Mode.DEFAULT)
+    gate._record_change(result, repo, PATH, before, after, pairs=[], pair_dir=tmp_path)
+    assert result.yaml12_unequal == [PATH]
+    assert result.yaml12_unavailable == []
+    assert gate._hard_failures(result) == 1
 
 
 def test_real_non_eof_value_change_still_fails() -> None:
