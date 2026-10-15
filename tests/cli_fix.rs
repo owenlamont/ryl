@@ -34,6 +34,77 @@ fn fix_applies_safe_newline_and_comment_fixes() {
 }
 
 #[test]
+fn refused_scalar_reports_skip_and_keeps_the_whole_file() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let input = "---\n|+\n  x\n\n  #foo\n...\n---\na: 1  \n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _, stderr) = run(Command::new(exe).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    assert!(
+        stderr.contains("skipped by --fix")
+            && stderr.contains("block scalar value may change")
+            && stderr.contains(&format!("{}:2:1", file.display())),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn stream_disable_stays_active_after_refused_scalar_in_fix() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let input = "# ryl disable\n---\n|+\n  x\n\n  #foo\n...\n---\nb:  1  \n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--fix")
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), input);
+}
+
+#[test]
+fn refused_markdown_scalar_reports_host_file_and_line() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.md");
+    let input = "Intro\n\n```yaml\n|+\n  x\n\n  #foo\n```\n\n```yaml\na: 1  \n```\n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--fix")
+        .arg("--markdown")
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        input.replace("a: 1  ", "a: 1")
+    );
+    assert!(
+        stderr.contains(&format!("{}:4:1", file.display())),
+        "{stderr}"
+    );
+    assert!(stderr.contains("cannot fix this file safely"), "{stderr}");
+}
+
+#[test]
 fn fix_respects_toml_unfixable_rules() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
@@ -469,13 +540,44 @@ fn fix_strips_trailing_spaces_but_preserves_block_scalar_content() {
         "trailing space outside block scalar should be stripped, inside preserved: {fixed:?}"
     );
     assert_eq!(
-        code, 1,
-        "block-scalar trailing space should remain reported: stderr={stderr}"
+        code, 0,
+        "block-scalar content is not trailing space: {stderr}"
     );
     assert!(
-        stderr.contains("trailing-spaces"),
-        "block-scalar trailing space should still be flagged: {stderr}"
+        !stderr.contains("trailing-spaces"),
+        "block-scalar content should not be flagged: {stderr}"
     );
+}
+
+#[test]
+fn reference_block_scalar_spaces_are_not_trailing_spaces() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    for input in [
+        "a: |+\n  \nb: 1\n",
+        "a: |\n  \nb: 1\n",
+        "a: >+\n  \nb: 1\n",
+        "- |+\n   \n- x\n",
+        "|2\n  x\n  ",
+        "|-2\n  x\n  ",
+        ">2\n  x\n  ",
+        "|2+\n  x\n  ",
+        "&a |2\n  x\n  ",
+        "!foo |2\n  x\n  ",
+    ] {
+        fs::write(&file, input).unwrap();
+        let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .arg("check")
+            .arg("--fix")
+            .arg(&file));
+        assert_eq!(code, 0, "{input:?}: {stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    }
 }
 
 #[test]

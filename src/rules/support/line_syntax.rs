@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
+use crate::rules::block_scalar_chomping;
+
 /// Whether a line-1 comment, given as its text after the first `#`, is one another
 /// tool reads verbatim: a `#!` shebang or a cloud-init `#cloud-config` header.
 pub(crate) fn is_magic_first_line_comment(after_hash: &str) -> bool {
@@ -73,6 +75,7 @@ where
         protected: HashSet<usize>,
         filter: G,
         blank: Vec<bool>,
+        headers: Vec<(usize, usize)>,
         buffer_len: usize,
     }
     impl<G> Collector<G> {
@@ -86,17 +89,20 @@ where
     }
     impl<G: FnMut(ScalarStyle, Span) -> bool> SpannedEventReceiver<'_> for Collector<G> {
         fn on_event(&mut self, event: Event<'_>, span: Span) {
-            if let Event::Scalar(value, style, _, _) = event
+            if let Event::Scalar(_, style, _, _) = event
                 && (self.filter)(style, span)
             {
                 let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
-                // A blank-only body running to the end of input is spanned from its header.
-                let start =
-                    if block && (span.is_empty() || value.contains(|ch| ch != '\n')) {
-                        self.blank_run_start(span.start.line())
-                    } else {
-                        span.start.line()
-                    };
+                let start = if block {
+                    let header = self
+                        .headers
+                        .iter()
+                        .find(|(start, _)| *start == span.start.index())
+                        .map_or(span.start.line(), |(_, line)| *line);
+                    self.blank_run_start(span.start.line()).max(header)
+                } else {
+                    span.start.line()
+                };
                 let end = span.end.line();
                 let last = end
                     - usize::from(
@@ -117,6 +123,10 @@ where
         buffer_len: buffer.len(),
         blank: split_lines_preserve_endings(buffer)
             .map(|(_, line, _)| line.trim_matches([' ', '\t']).is_empty())
+            .collect(),
+        headers: block_scalar_chomping::headers(buffer)
+            .into_iter()
+            .map(|header| (header.span.start.index(), header.line))
             .collect(),
     };
     parser.load(&mut collector, true).ok()?;

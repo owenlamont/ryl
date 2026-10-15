@@ -131,8 +131,9 @@ and `key-ordering` are lint-owned and stay out), one per quoted-strings variant 
 TOML row for the ryl-only ladder options.
 
 - Value preservation compares granit's event stream (`property_format/representation.rs`),
-  correcting an ignored spaces-only EOF block line only when noyalib confirms its scalar
-  value. It retains document count, node kinds, entry order, duplicate keys, explicit
+  correcting block-scalar values where granit differs from the reference parser; the
+  terminal and blank-only reference fixtures pin those corrections. It retains document
+  count, node kinds, entry order, duplicate keys, explicit
   tags, the anchor/alias graph, and each scalar resolved against its document's declared
   version. A `%YAML 1.1` document resolves plain scalars through the suite's own 1.1
   table, written independently of `quoted-strings`'.

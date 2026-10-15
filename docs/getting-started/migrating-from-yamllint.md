@@ -334,6 +334,12 @@ and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
 The YAML 1.2 reference parser and eemeli `yaml` read `"\n"` before and after;
 PyYAML and ruamel read `""` before and `"\n"` after.
 
+With `[format] document-end = 'add'`, `'#hash': |+\n\n    ` (also
+with CRLF line breaks) becomes `'#hash': |+\n\n\n...\n`.
+The reference parser reads `"\n\n"` before and after; eemeli `yaml`, PyYAML,
+and ruamel read `"\n"` before and `"\n\n"` after. ryl follows the
+reference parser for this EOF shape.
+
 **Why ryl differs:** YAML 1.2.2's
 [keep-empty production](https://yaml.org/spec/1.2.2/#rule-l-keep-empty)
 (`l-chomped-empty(n,KEEP) ::= l-keep-empty(n)`) and the reference parser's
@@ -341,6 +347,33 @@ PyYAML and ruamel read `""` before and `"\n"` after.
 2022 yaml-test-suite, eemeli `yaml` rejected 93/94 invalid cases and matched
 272/279 valid cases; PyYAML and ruamel rejected 82/94 invalid cases and matched
 210–222/279 valid cases.
+
+### Spaces in a blank-only block scalar
+
+For `a: |+\n  \nb: 1\n`, the reference parser emits `=VAL | \n`: one
+space and a line break belong to the scalar. The same space survives with a
+bare `|`, folded `>`, or a nested `- |+` body. `ryl format` and
+`ryl check --fix` preserve it, and `trailing-spaces` does not report it;
+yamllint reports line 2 as trailing spaces. YAML 1.2.2's
+[auto-detected indentation](https://yaml.org/spec/1.2.2/#rule-s-indent-less-than)
+and [block scalar content](https://yaml.org/spec/1.2.2/#rule-c-l+literal)
+productions leave the spaces beyond the content indent in the value.
+For `a:\n  b: |-\n    \n\nc: x\n`, the reference parser reads
+`=VAL |    \n\nc: x`; ryl leaves the file containing this ambiguous nested scalar unchanged.
+It also refuses a blank-only scalar followed by a sibling key at the same
+indent when moving the sequence dash would change the reference value.
+ryl also refuses to normalize `? a\n:   -   >\n    \n    - x\n`:
+moving the scalar header would turn the blank line's spaces into content.
+
+### Root block scalar with an explicit indentation indicator
+
+For `|2\n  x\n  `, the reference parser emits `=VAL | x\n \n`:
+the second space on each body line is content. The same reading applies to
+`|-2`, `>2`, `|2+`, and a root scalar in a multi-document stream.
+`ryl format` and `ryl check --fix` preserve the final space, and
+`trailing-spaces` does not report it; yamllint reports that last line.
+YAML 1.2.2's [bare-document production](https://yaml.org/spec/1.2.2/#rule-l-bare-document)
+places the root node at indentation `-1`, so `|2` gives a content indent of one.
 
 ### `%YAML` version-directive handling
 

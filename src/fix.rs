@@ -71,9 +71,8 @@ pub struct FixStats {
     pub errors: Vec<(usize, String)>,
 }
 
-/// One file's in-place fix result. A file may both change and carry skips: a Markdown file
-/// can fix some embedded regions while skipping others that do not parse. For a plain YAML
-/// file `skipped` holds at most one entry (the whole-file parse error).
+/// One file's in-place fix result. Markdown can fix some regions while skipping others;
+/// YAML can apply key ordering while refusing unsafe block scalar edits.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FixOutcome {
     pub changed: bool,
@@ -470,8 +469,7 @@ fn diff_and_skips(
     }
 }
 
-/// Each finding `rewrite` left in fixed `content`, as a notice: for `--fix`, each mapping
-/// `key-ordering` left unsorted.
+/// Each refusal or unfixed key-ordering finding left in fixed `content`.
 fn unfixed_notices(
     content: &str,
     cfg: &YamlLintConfig,
@@ -486,23 +484,37 @@ fn unfixed_notices(
     if rewrite == Rewrite::Format {
         return crate::format::unfixed(content, cfg, cache);
     }
-    if !rule_enabled(key_ordering::ID, cfg, path, base_dir) {
-        return Vec::new();
-    }
-    let rule = key_ordering::Config::resolve(cfg, path);
-    key_ordering::unfixed(content, &rule, &cfg.per_line_applies(path))
-        .into_iter()
-        .map(|violation| crate::lint::LintProblem {
-            line: violation.line,
-            column: violation.column,
+    let mut notices = Vec::new();
+    if let Some(line) =
+        crate::rules::block_scalar_chomping::ambiguous_blank_body_line(content)
+    {
+        notices.push(crate::lint::LintProblem {
+            line,
+            column: 1,
             level: crate::lint::Severity::Error,
-            message: violation.message,
-            rule: Some(key_ordering::ID),
-        })
-        .collect()
+            message: "cannot fix this file safely: block scalar value may change"
+                .to_string(),
+            rule: None,
+        });
+    }
+    if rule_enabled(key_ordering::ID, cfg, path, base_dir) {
+        let rule = key_ordering::Config::resolve(cfg, path);
+        notices.extend(
+            key_ordering::unfixed(content, &rule, &cfg.per_line_applies(path))
+                .into_iter()
+                .map(|violation| crate::lint::LintProblem {
+                    line: violation.line,
+                    column: violation.column,
+                    level: crate::lint::Severity::Error,
+                    message: violation.message,
+                    rule: Some(key_ordering::ID),
+                }),
+        );
+    }
+    notices
 }
 
-/// A Markdown region's `--fix` skips: its parse error, else its unsorted mappings.
+/// A Markdown region's skips: its parse error, else unsafe scalar or unsorted mappings.
 fn region_skips(
     region: &str,
     cfg: &YamlLintConfig,
@@ -953,6 +965,20 @@ pub(crate) fn run_passes(
         passes,
         directives: Directives::parse_with_per_line(input, &passes.per_line),
     };
+    if crate::rules::block_scalar_chomping::ambiguous_blank_body_line(input).is_some() {
+        // Key ordering verifies its output before applying it.
+        let sorted = ctx.apply(
+            input.to_string(),
+            edited,
+            key_ordering::ID,
+            passes.key_ordering.as_ref(),
+            |buffer, cfg| key_ordering::fix(buffer, cfg, &passes.per_line),
+        );
+        if sorted != input && max_passes > 1 {
+            return run_passes(&sorted, passes, path, max_passes - 1, err, edited);
+        }
+        return sorted;
+    }
     let mut content = input.to_string();
     for _ in 0..max_passes {
         let next = ctx.pass(&content, edited);

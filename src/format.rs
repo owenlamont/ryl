@@ -161,6 +161,18 @@ pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
+    if let Some(line) =
+        crate::rules::block_scalar_chomping::ambiguous_blank_body_line(content)
+    {
+        return vec![LintProblem {
+            line,
+            column: 1,
+            level: Severity::Error,
+            message: "cannot format this file safely: block scalar value may change"
+                .to_string(),
+            rule: Some(indentation::ID),
+        }];
+    }
     collection_style::findings(
         content,
         collection_style_config(cfg, indent, &[]),

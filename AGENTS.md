@@ -73,8 +73,8 @@ ryl lints and formats YAML files
   formatter's behaviour turns on it, **decide against the YAML 1.2.2 spec grammar and
   the play.yaml.com reference parser.** PyYAML and ruamel are non-conformant and never
   outvote it, even split 2–2; eemeli's `yaml` (near-conformant) is the implementation to
-  cross-check. The reference parser alone against every implementation is a maintainer
-  call. Quote the spec production and event stream, and record any divergence (example +
+  cross-check. Follow the reference parser even when every implementation disagrees.
+  Quote the spec production and event stream, and record any divergence (example +
   rationale) in the "How ryl differs from yamllint" catalog in
   `docs/getting-started/migrating-from-yamllint.md`.
 - Keep YAML configuration aligned with what yamllint currently supports; put any

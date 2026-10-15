@@ -1,12 +1,13 @@
 //! `trailing-spaces`: report and strip trailing whitespace from lines.
 //!
-//! `--fix` strips space-only block-scalar lines up to its indentation.
+//! `--fix` strips space-only block-scalar lines only when their spaces are not content.
 //! A double-quoted backslash + trailing whitespace + newline differs
 //! from `\<newline>` alone (a line-continuation escape that drops the folded space).
 //! Multi-line single-quoted and plain scalars fold trailing whitespace away, so they
 //! stay fixable. The protected line set comes from `granit_parser`, so the fix bails
 //! (returns `None`) on an unparsable buffer.
 use granit_parser::ScalarStyle;
+use std::collections::HashSet;
 
 use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, protected_scalar_lines, split_lines_preserve_endings,
@@ -34,6 +35,25 @@ pub fn check(buffer: &str) -> Vec<Violation> {
             });
         }
     }
+    if !violations.is_empty() {
+        let mut content = content_blank_lines(buffer);
+        if let Some(protected) = protected_scalar_lines(buffer, |style, _span| {
+            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        }) {
+            let lines = line_contents(buffer);
+            let headers: HashSet<_> = block_scalar_chomping::headers(buffer)
+                .into_iter()
+                .map(|header| header.line)
+                .collect();
+            content.extend(protected.into_iter().filter(|line| {
+                lines
+                    .get(line - 1)
+                    .is_some_and(|text| !text.trim().is_empty())
+                    && !headers.contains(line)
+            }));
+        }
+        violations.retain(|violation| !content.contains(&violation.line));
+    }
     violations
 }
 
@@ -45,6 +65,7 @@ pub fn fix(buffer: &str) -> Option<String> {
         _ => false,
     })?;
     let lines = line_contents(buffer);
+    let content = content_blank_lines(buffer);
     let mut keep_blank_eof = false;
     let headers = block_scalar_chomping::headers(buffer);
     let root_indents =
@@ -64,7 +85,9 @@ pub fn fix(buffer: &str) -> Option<String> {
         let indent = root_indent.unwrap_or(scanner_indent);
         for line in header.line + 1..=span.end.line() {
             if lines.get(line - 1).is_some_and(|text| {
-                text.len() <= indent && text.bytes().all(|ch| ch == b' ')
+                text.len() <= indent
+                    && text.bytes().all(|ch| ch == b' ')
+                    && !content.contains(&line)
             }) {
                 protected.remove(&line);
                 if header.chomping == Some('+')
@@ -105,4 +128,47 @@ pub fn fix(buffer: &str) -> Option<String> {
     }
 
     changed.then_some(output)
+}
+
+pub(crate) fn content_blank_lines(buffer: &str) -> HashSet<usize> {
+    let lines = line_contents(buffer);
+    let mut content = HashSet::new();
+    let headers = block_scalar_chomping::headers(buffer);
+    let root_indents =
+        document_end::root_explicit_content_indents(buffer, &headers, &lines);
+    for header in headers {
+        let header_line = lines[header.line - 1];
+        let indicator = header_line
+            .chars()
+            .skip(header.column)
+            .take_while(|ch| !ch.is_whitespace() && *ch != '#')
+            .find_map(|ch| ch.to_digit(10));
+        let followed = header
+            .span
+            .end
+            .byte_offset()
+            .is_some_and(|offset| !buffer[offset..].trim().is_empty());
+        let blank_only = followed
+            && header.line < header.span.end.line()
+            && lines[header.line..header.span.end.line() - 1]
+                .iter()
+                .all(|line| line.bytes().all(|ch| ch == b' '));
+        let value_indent =
+            if let Some(indent) = root_indents.get(&header.span.start.index()) {
+                *indent
+            } else if blank_only {
+                header_line.bytes().take_while(|ch| *ch == b' ').count()
+                    + indicator.map_or(1, |digit| digit as usize)
+            } else {
+                continue;
+            };
+        for line in header.line + 1..=header.span.end.line() {
+            if lines.get(line - 1).is_some_and(|text| {
+                text.len() > value_indent && text.bytes().all(|ch| ch == b' ')
+            }) {
+                content.insert(line);
+            }
+        }
+    }
+    content
 }

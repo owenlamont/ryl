@@ -162,10 +162,25 @@ fn fix_rule_to_fixed_point(
 fn probe_pass(
     state: &str,
     rules: &[RuleFix],
+    cfg: &YamlLintConfig,
     cfg_name: &str,
 ) -> Result<String, TestCaseError> {
     if parse_for_compare(state).is_none() {
         return Ok(state.to_string());
+    }
+    if ryl::format::refusals(state, cfg).iter().any(|notice| {
+        notice.message
+            == "cannot format this file safely: block scalar value may change"
+    }) {
+        return rules
+            .iter()
+            .find(|(rule, _)| *rule == key_ordering::ID)
+            .map_or_else(
+                || Ok(state.to_string()),
+                |(rule, fix)| {
+                    fix_rule_to_fixed_point(rule, fix.as_ref(), state, cfg_name)
+                },
+            );
     }
     rules
         .iter()
@@ -187,7 +202,7 @@ fn assert_converges(
     let mut seen = vec![input.to_string()];
     for pass in 0..FIX_PIPELINE_MAX_PASSES {
         let state = &seen[pass];
-        let next = probe_pass(state, &rules, cfg_name)?;
+        let next = probe_pass(state, &rules, cfg, cfg_name)?;
         if &next == state {
             prop_assert_eq!(
                 &fixed,
@@ -262,6 +277,15 @@ fn probe_covers_every_safe_fix_rule() {
         sorted, expected,
         "probe rule table must match SAFE_FIX_RULES: {probed:?}"
     );
+}
+
+#[test]
+fn ambiguous_scalar_still_allows_verified_key_ordering() {
+    let cfg = named_config("yamllint-default");
+    let input = "gt: [1]\r\ng_0:\r\n  - !!str |1\r\n \r\n\r\n...\r\na: 1\r\n";
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    assert!(fixed.find("g_0:") < fixed.find("gt:"), "{fixed:?}");
+    assert_converges(input, cfg, "yamllint-default").unwrap();
 }
 
 #[test]

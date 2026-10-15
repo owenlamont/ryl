@@ -872,6 +872,12 @@ and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
 The YAML 1.2 reference parser and eemeli `yaml` read `"\n"` before and after;
 PyYAML and ruamel read `""` before and `"\n"` after.
 
+With `[format] document-end = 'add'`, `'#hash': |+\n\n    ` (also
+with CRLF line breaks) becomes `'#hash': |+\n\n\n...\n`.
+The reference parser reads `"\n\n"` before and after; eemeli `yaml`, PyYAML,
+and ruamel read `"\n"` before and `"\n\n"` after. ryl follows the
+reference parser for this EOF shape.
+
 **Why ryl differs:** YAML 1.2.2's
 [keep-empty production](https://yaml.org/spec/1.2.2/#rule-l-keep-empty)
 (`l-chomped-empty(n,KEEP) ::= l-keep-empty(n)`) and the reference parser's
@@ -879,6 +885,33 @@ PyYAML and ruamel read `""` before and `"\n"` after.
 2022 yaml-test-suite, eemeli `yaml` rejected 93/94 invalid cases and matched
 272/279 valid cases; PyYAML and ruamel rejected 82/94 invalid cases and matched
 210–222/279 valid cases.
+
+### Spaces in a blank-only block scalar
+
+For `a: |+\n  \nb: 1\n`, the reference parser emits `=VAL | \n`: one
+space and a line break belong to the scalar. The same space survives with a
+bare `|`, folded `>`, or a nested `- |+` body. `ryl format` and
+`ryl check --fix` preserve it, and `trailing-spaces` does not report it;
+yamllint reports line 2 as trailing spaces. YAML 1.2.2's
+[auto-detected indentation](https://yaml.org/spec/1.2.2/#rule-s-indent-less-than)
+and [block scalar content](https://yaml.org/spec/1.2.2/#rule-c-l+literal)
+productions leave the spaces beyond the content indent in the value.
+For `a:\n  b: |-\n    \n\nc: x\n`, the reference parser reads
+`=VAL |    \n\nc: x`; ryl leaves the file containing this ambiguous nested scalar unchanged.
+It also refuses a blank-only scalar followed by a sibling key at the same
+indent when moving the sequence dash would change the reference value.
+ryl also refuses to normalize `? a\n:   -   >\n    \n    - x\n`:
+moving the scalar header would turn the blank line's spaces into content.
+
+### Root block scalar with an explicit indentation indicator
+
+For `|2\n  x\n  `, the reference parser emits `=VAL | x\n \n`:
+the second space on each body line is content. The same reading applies to
+`|-2`, `>2`, `|2+`, and a root scalar in a multi-document stream.
+`ryl format` and `ryl check --fix` preserve the final space, and
+`trailing-spaces` does not report it; yamllint reports that last line.
+YAML 1.2.2's [bare-document production](https://yaml.org/spec/1.2.2/#rule-l-bare-document)
+places the root node at indentation `-1`, so `|2` gives a content indent of one.
 
 ### `%YAML` version-directive handling
 
@@ -1642,6 +1675,20 @@ stays as written, and `ryl format` says why on stderr.
 If the document cannot be re-indented safely, flow collections in that document stay
 flow, with a refusal notice. Block-to-flow conversions and conversions in other
 documents can still proceed.
+
+When a nested block scalar has only blank body lines before content dedents past its
+header, `ryl format` leaves the file unchanged and reports a refusal: the YAML
+reference parser can still read the dedented text as scalar content. A sibling key
+at the same indent can trigger the same refusal when a sequence dash may move. The same
+protection applies when indented `#` text and blank lines form scalar content.
+`ryl check --fix` also reports the file, line and reason on stderr and leaves the
+file unchanged, apart from independently safe key ordering. In Markdown the refusal
+covers only the embedded YAML region that holds the scalar; other regions are still
+formatted and fixed.
+Compact explicit-key sequences with blank scalar lines are refused when spacing the
+header would change the scalar's content indent.
+For other block scalars, re-indentation moves value-bearing blank-line spaces with
+the scalar header.
 
 With `"flow"`, a block collection of scalars and aliases that is not the document root
 becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
@@ -5883,13 +5930,12 @@ key: value
 
 `ryl check --fix` strips trailing spaces and tabs from each line. The fix is
 **partial** by design: space-only lines inside literal/folded block scalars
-(`|`/`>`) are stripped when no wider than the scalar's indentation. Spaces
-past that indentation are content and stay, as do trailing spaces on content
-lines and whitespace inside multi-line double-quoted scalars. The diagnostic still fires on those lines so the
-remaining trailing whitespace is visible after `--fix`; edit them by
-hand if you want them clean. Multi-line single-quoted and plain scalars
-fold trailing whitespace away at parse time, so the fix can safely
-strip those.
+(`|`/`>`) are stripped only when their spaces are not part of the reference
+parser's value. Value-bearing spaces, including trailing spaces on nonblank
+block scalar content lines, stay and are not reported. Whitespace inside
+multi-line double-quoted scalars stays because removing it can change the
+value; its diagnostic remains. Multi-line single-quoted and plain scalars
+fold trailing whitespace away at parse time, so the fix can safely strip those.
 
 An indentation-only final line is stripped without adding a scalar line break.
 For example, `a: |+\r\n    ` becomes `a: |+\r\n`; both load as an empty string.

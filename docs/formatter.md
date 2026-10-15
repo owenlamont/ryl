@@ -219,6 +219,20 @@ If the document cannot be re-indented safely, flow collections in that document 
 flow, with a refusal notice. Block-to-flow conversions and conversions in other
 documents can still proceed.
 
+When a nested block scalar has only blank body lines before content dedents past its
+header, `ryl format` leaves the file unchanged and reports a refusal: the YAML
+reference parser can still read the dedented text as scalar content. A sibling key
+at the same indent can trigger the same refusal when a sequence dash may move. The same
+protection applies when indented `#` text and blank lines form scalar content.
+`ryl check --fix` also reports the file, line and reason on stderr and leaves the
+file unchanged, apart from independently safe key ordering. In Markdown the refusal
+covers only the embedded YAML region that holds the scalar; other regions are still
+formatted and fixed.
+Compact explicit-key sequences with blank scalar lines are refused when spacing the
+header would change the scalar's content indent.
+For other block scalars, re-indentation moves value-bearing blank-line spaces with
+the scalar header.
+
 With `"flow"`, a block collection of scalars and aliases that is not the document root
 becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
 line fits `line-length`. Block scalars, multi-line or empty entries, and plain scalars

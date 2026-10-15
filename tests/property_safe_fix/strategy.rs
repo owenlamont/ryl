@@ -261,7 +261,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
         prop::option::of(arb_block_body_content()),
         prop::collection::vec(arb_block_body_line(), 0..=3),
         prop::option::weighted(0.2, 0u8..=1),
-        prop::bool::weighted(0.1),
+        prop::option::weighted(0.1, 0i8..=3),
         0usize..=3,
         0u8..=3,
     )
@@ -282,9 +282,9 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
             )| {
                 let mut body: Vec<_> = first.into_iter().collect();
                 body.extend(rest);
-                if blank_only {
+                if let Some(shift) = blank_only {
                     body.retain(|line| !matches!(line, BlockBodyLine::Content { .. }));
-                    body.push(BlockBodyLine::Spaces(2));
+                    body.push(BlockBodyLine::Spaces(shift));
                 }
                 body.extend(std::iter::repeat_n(BlockBodyLine::Blank, trailing_blanks));
                 BlockScalarSpec {

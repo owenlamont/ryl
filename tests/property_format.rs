@@ -54,9 +54,383 @@ use passes::{
 };
 use properties::arb_document_with_properties;
 use representation::{
-    annotations, check_annotations, check_values, check_yaml_1_1_preserved,
-    representation,
+    Node, Value, annotations, check_annotations, check_values,
+    check_yaml_1_1_preserved, representation,
 };
+
+#[test]
+fn reference_block_scalar_matrix_keeps_each_value() {
+    #[derive(serde::Deserialize)]
+    struct Case {
+        family: String,
+        input: String,
+        expected: String,
+        event: String,
+    }
+    let cases: Vec<Case> =
+        serde_json::from_str(include_str!("fixtures/reference_block_scalars.json"))
+            .expect("reference parser matrix is valid JSON");
+    let format_cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    let fix_cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\ntrailing-spaces = 'enable'\n")
+            .unwrap();
+    for case in cases {
+        let expected =
+            Value::Core(ryl::yaml_dom::ScalarOwned::String(case.expected.clone()));
+        let has_value = |text: &str| {
+            representation(text).is_some_and(|nodes| {
+                nodes.iter().any(|node| matches!(node, Node::Scalar { value, .. } if value == &expected))
+            })
+        };
+        assert!(
+            has_value(&case.input),
+            "{}: {:?}: {}: {:?}",
+            case.family,
+            case.input,
+            case.event,
+            representation(&case.input)
+        );
+        if case.expected.contains(' ') {
+            assert!(
+                ryl::rules::trailing_spaces::check(&case.input).is_empty(),
+                "{}: {:?}: {}",
+                case.family,
+                case.input,
+                case.event
+            );
+        }
+        let formatted =
+            ryl::format::format_str(&case.input, &format_cfg, synthetic_path(), &[]);
+        assert!(
+            has_value(&formatted),
+            "{}: {:?} -> {:?}: {}",
+            case.family,
+            case.input,
+            formatted,
+            case.event
+        );
+        check_values(&case.input, &formatted).unwrap();
+        let fixed = apply_safe_fixes(
+            &case.input,
+            &fix_cfg,
+            synthetic_path(),
+            synthetic_base_dir(),
+        );
+        assert!(
+            has_value(&fixed),
+            "{}: {:?} -> {:?}: {}",
+            case.family,
+            case.input,
+            fixed,
+            case.event
+        );
+        check_values(&case.input, &fixed).unwrap();
+    }
+}
+
+#[test]
+fn block_scalar_tab_after_indent_keeps_reference_value() {
+    let input = "k0: |\n  aaa aaa\n  \taaa |\n";
+    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String(
+        "aaa aaa\n\taaa |\n".into(),
+    ));
+    assert!(
+        representation(input).is_some_and(|nodes| {
+            nodes.iter().any(
+                |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
+            )
+        }),
+        "{:?}",
+        representation(input)
+    );
+    check_pass(named_pass("fix/yamllint-default"), input).unwrap();
+}
+
+#[test]
+fn root_explicit_block_scalar_properties_keep_reference_value() {
+    for (input, expected) in [
+        (
+            "&a |2\n  x\n  ",
+            Value::Core(ryl::yaml_dom::ScalarOwned::String(" x\n \n".into())),
+        ),
+        ("!foo |2\n  x\n  ", Value::Application(" x\n \n".into())),
+    ] {
+        let nodes = representation(input).expect("reference root scalar parses");
+        assert!(
+            nodes.iter().any(
+                |node| matches!(node, Node::Scalar { value, .. } if value == &expected)
+            ),
+            "{input:?}: reference event has scalar value {:?}; oracle {nodes:?}",
+            expected
+        );
+        let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+        let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+        check_values(input, &output).unwrap();
+    }
+}
+
+#[test]
+fn nested_blank_block_scalar_before_dedented_mapping_is_not_rewritten() {
+    let input = "a:\n  b: |-\n    \n\nc: x\n";
+    let format_cfg =
+        YamlLintConfig::from_toml_str("[format]\nmax-blank-lines = 0\n").unwrap();
+    let fix_cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules]\ntrailing-spaces = 'enable'\nempty-lines = 'enable'\n",
+    )
+    .unwrap();
+    assert_eq!(
+        ryl::format::format_str(input, &format_cfg, synthetic_path(), &[]),
+        input
+    );
+    assert_eq!(
+        apply_safe_fixes(input, &fix_cfg, synthetic_path(), synthetic_base_dir()),
+        input
+    );
+    assert!(
+        ryl::format::refusals(input, &format_cfg)
+            .iter()
+            .any(|notice| {
+                notice.message
+                    == "cannot format this file safely: block scalar value may change"
+            })
+    );
+}
+
+#[test]
+fn explicit_blank_scalar_before_document_end_uses_key_indent() {
+    let input = "? a\n:  a: |3+\n    \n\n\n...\n# gap\nvz: 1\n";
+    assert!(ryl::rules::trailing_spaces::check(input).is_empty());
+    assert!(ryl::rules::trailing_spaces::fix(input).is_none());
+    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String("\n\n\n\n".into()));
+    assert!(
+        representation(input).is_some_and(|nodes| {
+            nodes.iter().any(
+                |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
+            )
+        }),
+        "{:?}",
+        representation(input)
+    );
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    check_values(input, &output).unwrap();
+}
+
+#[test]
+fn compact_mapping_blank_scalar_before_document_end_keeps_reference_value() {
+    let input = "a:\n  - a: |\n      \n...\na: 1\n";
+    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String("      \n".into()));
+    assert!(representation(input).is_some_and(|nodes| {
+        nodes.iter().any(
+            |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
+        )
+    }));
+    let cfg = YamlLintConfig::from_toml_str("indent-width = 76\n[format]\n").unwrap();
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    check_values(input, &output).unwrap();
+}
+
+#[test]
+fn explicit_key_sequence_blank_scalar_uses_the_dash_indent() {
+    for input in [
+        "? a\n: - |1   \n    \n\n\n\n",
+        "---\n? a\n: - |1\n    \n\n\n\n...\n",
+    ] {
+        let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String(" \n".into()));
+        let nodes = representation(input).expect("explicit key scalar parses");
+        assert!(
+            nodes.iter().any(
+                |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
+            ),
+            "{input:?}: {nodes:?}"
+        );
+    }
+}
+
+#[test]
+fn compact_explicit_key_scalar_refuses_marker_shift() {
+    let input = "? a\r\n:   -   !!str >  \r\n    \r\n    -   !local\r\n      a: [p_0 ,tRUE ,'True']\r\n";
+    let format_cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    assert_eq!(
+        ryl::format::format_str(input, &format_cfg, synthetic_path(), &[]),
+        input
+    );
+    assert!(
+        ryl::format::refusals(input, &format_cfg)
+            .iter()
+            .any(|notice| {
+                notice.message
+                    == "cannot format this file safely: block scalar value may change"
+            })
+    );
+    let fix_cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules]\ncolons = 'enable'\nhyphens = 'enable'\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    assert_eq!(
+        apply_safe_fixes(input, &fix_cfg, synthetic_path(), synthetic_base_dir()),
+        input
+    );
+}
+
+#[test]
+fn nested_blank_scalar_before_sibling_key_refuses_reindent() {
+    let input =
+        "? a\n: -\n    a: &blk >\n      \n        \n\n         \n\n\n    a: x\n";
+    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String(
+        " \n   \n\n    \n".into(),
+    ));
+    assert!(representation(input).is_some_and(|nodes| {
+        nodes.iter().any(
+            |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
+        )
+    }));
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    assert_eq!(
+        ryl::format::format_str(input, &cfg, synthetic_path(), &[]),
+        input
+    );
+    assert!(ryl::format::refusals(input, &cfg).iter().any(|notice| {
+        notice.message
+            == "cannot format this file safely: block scalar value may change"
+    }));
+}
+
+#[test]
+fn keep_scalar_with_comment_shaped_content_refuses_rewrite() {
+    let input = "a:\n  - |+\n    #x \n\n  - y\n";
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    assert_eq!(
+        ryl::format::format_str(input, &cfg, synthetic_path(), &[]),
+        input
+    );
+    assert!(ryl::format::refusals(input, &cfg).iter().any(|notice| {
+        notice.message
+            == "cannot format this file safely: block scalar value may change"
+    }));
+}
+
+#[test]
+fn cr_only_scalar_refusal_exempts_unchanged_lint_findings() {
+    let input = "a:\r   - |+  \r     #grj  \r     paa5114   \r\r\r";
+    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint("[format]\n"))
+        .unwrap();
+    let (output, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    assert!(output.is_none());
+    let problems = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(
+        problems.iter().all(|problem| {
+            consistency::refused(input, input, problem, &notices, &problems)
+        }),
+        "{notices:?}: {problems:?}"
+    );
+}
+
+#[test]
+fn folded_keep_terminal_blank_line_matches_reference_value() {
+    for (input, expected) in [
+        ("a: >+2\n  ", "\n\n"),
+        ("a: >+2\n\n", "\n\n"),
+        ("a: >+\n  x\n  ", "x\n\n\n"),
+        ("a: >+\n  \n  ", "\n\n\n\n"),
+        ("a: >+\n  \n\n", "\n\n\n\n"),
+        ("a: >1+\n   \n\n", "  \n\n\n\n"),
+        ("- >+2\n ", "\n\n"),
+        ("- >+2\n  ", "\n\n"),
+        ("- >+2\n   ", " \n"),
+        ("'it''s': >1+\n    \n", "   \n"),
+        ("'it''s': >1+\n    \n\n", "   \n\n\n\n"),
+        ("---\nit's: >1+\n    \n\n...\n", "   \n\n\n\n"),
+    ] {
+        let nodes = representation(input).expect("folded keep scalar parses");
+        assert!(nodes.iter().any(|node| matches!(node, Node::Scalar { value: Value::Core(ryl::yaml_dom::ScalarOwned::String(value)), .. } if value == expected)),
+            "{input:?}: expected reference value {expected:?}, got {nodes:?}");
+    }
+}
+
+#[test]
+fn explicit_terminal_content_line_matches_reference_value() {
+    let input = "a: |1\n \n le4 ";
+    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String("\nle4 \n".into()));
+    assert!(representation(input).is_some_and(|nodes| {
+        nodes.iter().any(
+            |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
+        )
+    }));
+}
+
+#[test]
+fn wide_indent_with_blank_scalar_reports_a_refusal() {
+    let input = "a:\r\n  -  a :  !!str |3- \r\n       \r\n         \r\n\r\n\r\n     # h3\r\n     h0_: {  '<<' : [  kc''1 ,\"0x-1\" ,tail \t ,'a:,!['  ]  }\r\n";
+    let table = "indent-width = 188\nline-length = 18613\n[format]\nquote-style = 'preserve'\nline-ending = 'cr-lf'\ndocument-start = 'add'\ndocument-end = 'preserve'\nfold-long-lines = false\nbrace-spacing = false\npreview = false\ncomment-spacing = 145\ncomment-starting-space = 'preserve'\nmax-blank-lines = 137\nsequence-style = 'flow'\nmapping-style = 'preserve'\nindent-sequences = true\ndash-on-own-line = false\n";
+    let agreeing = consistency::agreeing_lint(table);
+    let cfg = YamlLintConfig::from_toml_str(&agreeing).unwrap();
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap_or_else(|| input.to_string());
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    problems.retain(|problem| {
+        !consistency::content_whitespace(
+            &output,
+            problem.rule,
+            problem.line,
+            problem.column,
+        ) && !consistency::refused(input, &output, problem, &notices, &before)
+    });
+    assert!(
+        problems.is_empty(),
+        "output {output:?}; problems {problems:?}; notices {notices:?}"
+    );
+}
+
+#[test]
+fn literal_clip_blank_only_eof_matches_reference_value() {
+    for input in ["a: |\n\n\n", "---\na: |\n\n\n...\n"] {
+        let nodes = representation(input).expect("literal clip scalar parses");
+        assert!(nodes.iter().any(|node| matches!(node, Node::Scalar { value: Value::Core(ryl::yaml_dom::ScalarOwned::String(value)), .. } if value == "\n")),
+            "{input:?}: reference event is =VAL |\\n, oracle {nodes:?}");
+        check_pass(named_pass("fix/yamllint-default"), input).unwrap();
+    }
+}
+
+#[test]
+fn one_terminal_blank_after_clipped_literal_is_removable() {
+    let input = "a:\r  a: |\r\r";
+    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint("[format]\n"))
+        .unwrap();
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert!(!output.ends_with("\n\n"), "{output:?}");
+    check_values(input, &output).unwrap();
+    assert!(lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir()).is_empty());
+}
+
+#[test]
+fn leading_space_before_header_only_scalar_is_fixable() {
+    let input = " \na: |";
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert!(!output.starts_with(" \n"), "{output:?}");
+    check_values(input, &output).unwrap();
+}
+
+#[test]
+fn tagged_header_only_scalar_keeps_its_yaml_1_1_value() {
+    check_yaml_1_1_preserved("a: !!str |", "a: !!str |\n...\n").unwrap();
+}
 
 /// yamllint's `default` preset, bar the lint-owned `truthy` and the preserved
 /// `document-start`, and the quoted-strings options the formatter page documents as
@@ -135,6 +509,21 @@ proptest! {
             }),
         };
         check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
+    fn root_explicit_block_scalar_keeps_reference_value(
+        style in prop::sample::select(vec!['|', '>']),
+        chomp in prop::sample::select(vec!["", "-", "+"]),
+        indent in 1usize..=4,
+        marker in any::<bool>(),
+    ) {
+        let input = format!("{}{style}{indent}{chomp}\n{}x\n{}\n",
+            if marker { "---\n" } else { "" },
+            " ".repeat(indent), " ".repeat(indent));
+        let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+        check_invariants(&|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]), &input)
+            .map_err(TestCaseError::fail)?;
     }
 
     #[test]
@@ -1067,6 +1456,14 @@ fn representation_tells_apart_what_value_preservation_forbids() {
 }
 
 #[test]
+fn nested_explicit_indent_uses_document_depth_in_value_oracle() {
+    let input = "a:\n  |2\n    x\n  ";
+    let trimmed = "a:\n  |2\n    x\n";
+    assert_eq!(representation(input), representation(trimmed));
+    assert_ne!(representation("|2\n  x\n  "), representation("|2\n  x\n"));
+}
+
+#[test]
 fn terminal_spaces_only_block_lines_follow_reference_values() {
     for (before, after, index, before_value, after_value) in [
         ("|\n  x\n  ", "|\n  x\n", 0, "x\n", "x\n"),
@@ -1118,12 +1515,12 @@ fn terminal_spaces_only_block_lines_follow_reference_values() {
     ] {
         if before_value == after_value {
             assert_eq!(
-                representation::scalar_value(before, index),
+                consistency::scalar_value(before, index),
                 Some(noyalib::Value::from(before_value)),
                 "reference value before: {before:?}"
             );
             assert_eq!(
-                representation::scalar_value(after, index),
+                consistency::scalar_value(after, index),
                 Some(noyalib::Value::from(after_value)),
                 "reference value after: {after:?}"
             );
@@ -1134,6 +1531,74 @@ fn terminal_spaces_only_block_lines_follow_reference_values() {
             "oracle verdict: {before:?} -> {after:?}"
         );
     }
+}
+
+#[test]
+fn keep_scalar_before_document_end_follows_reference_parser() {
+    for newline in ["\n", "\r\n"] {
+        let input = format!("'#hash': |+{newline}{newline}    ");
+        let expected = "'#hash': |+\n\n\n...\n";
+        let cfg =
+            YamlLintConfig::from_toml_str("[format]\ndocument-end = 'add'\n").unwrap();
+        assert_eq!(
+            ryl::format::format_str(&input, &cfg, synthetic_path(), &[]),
+            expected
+        );
+        check_values(&input, expected).unwrap();
+        check_yaml_1_1_preserved(&input, expected).unwrap();
+        assert!(check_values(&input, "'#hash': |+\n\n\n\n...\n").is_err());
+    }
+    assert!(check_values("a: |+\n  x\n    ", "a: |+\n  x\n\n").is_err());
+}
+
+#[derive(serde::Deserialize)]
+struct ReferenceTerminalBlockPair {
+    before: String,
+    after: String,
+    same: bool,
+    before_value: String,
+    after_value: String,
+}
+
+#[test]
+fn reference_parser_terminal_block_eof_matrix() {
+    // LF verdicts were checked with yaml-parser --events; CRLF and CR use equivalent breaks.
+    fn block_value(nodes: &[representation::Node]) -> Option<&str> {
+        nodes.iter().rev().find_map(|node| match node {
+            representation::Node::Scalar {
+                value: representation::Value::Core(ryl::yaml_dom::ScalarOwned::String(value)),
+                ..
+            } => Some(value.as_str()),
+            _ => None,
+        })
+    }
+    let mut checked = 0;
+    for line in include_str!("fixtures/reference_terminal_block_eof.jsonl").lines() {
+        let pair: ReferenceTerminalBlockPair = serde_json::from_str(line).unwrap();
+        for ending in ["\n", "\r\n", "\r"] {
+            let before = pair.before.replace('\n', ending);
+            let after = pair.after.replace('\n', ending);
+            let before_nodes = representation(&before).unwrap();
+            let after_nodes = representation(&after).unwrap();
+            assert_eq!(
+                block_value(&before_nodes),
+                Some(pair.before_value.as_str()),
+                "{before:?}"
+            );
+            assert_eq!(
+                block_value(&after_nodes),
+                Some(pair.after_value.as_str()),
+                "{after:?}"
+            );
+            assert_eq!(
+                check_values(&before, &after).is_ok(),
+                pair.same,
+                "{before:?} -> {after:?}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 2_631);
 }
 
 #[test]
@@ -1150,22 +1615,57 @@ fn bare_cr_terminal_spaces_do_not_mask_a_real_value_change() {
 }
 
 #[test]
+fn cr_only_keep_scalar_eof_preserves_two_breaks() {
+    let before = "a:\r  - |+\r\r      ";
+    let after = "---\na:\n- |+\n\n\n";
+    check_values(before, after).unwrap();
+    check_yaml_1_1_preserved(before, after).unwrap();
+}
+
+#[test]
+fn blank_only_clip_scalar_loses_a_reference_break_when_trimmed() {
+    assert!(check_values("a: |\n\n\n", "a: |\n").is_err());
+}
+
+#[test]
+fn tagged_sequence_scalar_uses_its_content_indent() {
+    let before = "a:\n  -  !!str |1 \n   #m9he9o8   \n";
+    let after = "a:\n  - !!str |1\n   #m9he9o8   \n...\n";
+    for ending in ["\n", "\r\n", "\r"] {
+        check_values(&before.replace('\n', ending), &after.replace('\n', ending))
+            .unwrap();
+    }
+}
+
+#[test]
+fn folded_interior_blank_line_matches_one_literal_break() {
+    let folded = "a: >\n  x\n\n  y\n";
+    let changed = "a: |\n  x\n\n  y\n";
+    let same = "a: |\n  x\n  y\n";
+    for ending in ["\n", "\r\n", "\r"] {
+        let folded = folded.replace('\n', ending);
+        assert!(check_values(&folded, &changed.replace('\n', ending)).is_err());
+        check_values(&folded, &same.replace('\n', ending)).unwrap();
+    }
+}
+
+#[test]
 fn terminal_spaces_after_a_block_scalar_are_outside_the_correction() {
+    let terminal_value = |source, loaded| {
+        let (span, style) = representation::scalar_tokens(source).pop().unwrap();
+        representation::reference_terminal_block_value(
+            source, &span, style, loaded, false, false,
+        )
+    };
     for before in ["a: |\n  x\n#tail\n  ", "a: |\n  x\n...\n  "] {
-        let after = before.trim_end_matches(' ');
-        assert!(
-            !representation::same_implicit_block_value(before, after),
+        assert_eq!(
+            terminal_value(before, ""),
+            None,
             "a block scalar ending before EOF must not authorize correction: {before:?}"
         );
     }
-    assert!(representation::same_implicit_block_value(
-        "|\n  x\n  ",
-        "|\n  x\n"
-    ));
-    assert!(!representation::same_implicit_block_value(
-        "- |+\n   ",
-        "- |+\n"
-    ));
+    assert_eq!(terminal_value("|\n  x\n  ", "x\n"), Some("x\n".to_owned()));
+    assert_eq!(terminal_value("- |+\n   ", ""), Some("\n".to_owned()));
     assert!(check_values("- |+\n   ", "- |+\n").is_err());
 }
 
@@ -1197,7 +1697,7 @@ fn representation_ignores_layout() {
         ("%YAML 1.1\n---\na: 1e3\n", "%YAML 1.1\n---\na: '1e3'\n"),
         ("a: |+\r\n    ", "a: |+\r\n\r\n"),
         ("a: |-\n  ", "a: |-\n"),
-        ("a: >+\n\n  ", "a: >+\n\n"),
+        ("a: >+\n\n  ", "a: >+\n\n\n"),
         ("a: |+\n  x\n  ", "a: |+\n  x\n\n"),
     ] {
         assert_eq!(
@@ -1510,7 +2010,7 @@ fn g11_content_whitespace_exempts_only_whitespace_repairs_inside_content() {
 }
 
 #[test]
-fn g11_exempts_value_bearing_spaces_after_formatting_header_and_comment() {
+fn g11_does_not_report_value_bearing_spaces_after_formatting_header_and_comment() {
     let input = "a: |2  \r\n    \r\n # after \t";
     let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint(
         "[format]\nline-ending = 'cr-lf'\n",
@@ -1527,16 +2027,8 @@ fn g11_exempts_value_bearing_spaces_after_formatting_header_and_comment() {
     let output = formatted.unwrap_or_else(|| input.to_owned());
     assert_eq!(output, "a: |2\r\n    \r\n # after\r\n");
     let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-    assert!(problems.iter().any(|problem| {
-        problem.rule == Some("trailing-spaces")
-            && problem.line == 2
-            && problem.column == 1
-            && consistency::content_whitespace(
-                &output,
-                problem.rule,
-                problem.line,
-                problem.column,
-            )
+    assert!(!problems.iter().any(|problem| {
+        problem.rule == Some("trailing-spaces") && problem.line == 2
     }));
 }
 

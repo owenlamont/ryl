@@ -1,8 +1,39 @@
-use super::representation::{first_content_line, scalar_tokens, scalar_value};
+use super::representation::{
+    BLOCK_HEADER, first_content_line, scalar_tokens, yaml_lines,
+};
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
 use similar::{DiffTag, TextDiff};
+
+pub(super) fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
+    let tokens = scalar_tokens(output);
+    let (span, style) = tokens.get(index)?;
+    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        return noyalib::from_str(span.slice(output)?).ok();
+    }
+    let first = first_content_line(output, span);
+    let lines = yaml_lines(output);
+    let header = *lines.get(first.checked_sub(2)?)?;
+    let captures = BLOCK_HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
+    let indicator = &captures[1];
+    let explicit = indicator.chars().find_map(|ch| ch.to_digit(10));
+    let parent = explicit.map_or(0, |indent| {
+        span.indent
+            .unwrap_or(indent as usize)
+            .saturating_sub(indent as usize)
+    });
+    let begin: usize = lines[..first - 1].iter().map(|line| line.len()).sum();
+    let body = output.get(begin..span.end.byte_offset()?)?;
+    let mut fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
+    // noyalib needs a terminal break to retain the final block line.
+    if !body.is_empty() && !body.ends_with(['\r', '\n']) {
+        fragment.push('\n');
+    }
+    let mut value: std::collections::BTreeMap<String, noyalib::Value> =
+        noyalib::from_str(&fragment).ok()?;
+    value.remove("a")
+}
 
 pub fn refused(
     input: &str,
@@ -13,23 +44,48 @@ pub fn refused(
 ) -> bool {
     let input_lines: Vec<_> = input.lines().collect();
     let output_lines: Vec<_> = output.lines().collect();
-    let unchanged_input_line = TextDiff::from_slices(&input_lines, &output_lines)
-        .ops()
-        .iter()
-        .find(|op| {
-            op.tag() == DiffTag::Equal && op.new_range().contains(&(problem.line - 1))
+    let unchanged_input_line = if input == output {
+        Some(problem.line)
+    } else {
+        TextDiff::from_slices(&input_lines, &output_lines)
+            .ops()
+            .iter()
+            .find(|op| {
+                op.tag() == DiffTag::Equal
+                    && op.new_range().contains(&(problem.line - 1))
+            })
+            .map(|op| op.old_range().start + problem.line - op.new_range().start)
+    }
+    .or_else(|| {
+        (output.lines().next() == Some("---")
+            && input.lines().next() != Some("---")
+            && notices.iter().any(|notice| {
+                notice.message == "cannot re-indent this document safely"
+            }))
+        .then(|| problem.line.checked_sub(1))
+        .flatten()
+    });
+    let unchanged_problem = before.iter().any(|old| {
+        old.rule == problem.rule
+            && old.message == problem.message
+            && old.column == problem.column
+            && Some(old.line) == unchanged_input_line
+    });
+    if unchanged_problem
+        && notices.iter().any(|notice| {
+            notice.message
+                == "cannot format this file safely: block scalar value may change"
+                || (notice.rule.is_none()
+                    && notice.message.starts_with("syntax error:"))
         })
-        .map(|op| op.old_range().start + problem.line - op.new_range().start);
+    {
+        return true;
+    }
     notices.iter().any(|notice| {
         if notice.rule != problem.rule {
             return false;
         }
-        if before.iter().any(|old| {
-            old.rule == problem.rule
-                && old.message == problem.message
-                && old.column == problem.column
-                && Some(old.line) == unchanged_input_line
-        }) {
+        if unchanged_problem {
             return true;
         }
         notice.line == problem.line

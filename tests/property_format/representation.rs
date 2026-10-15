@@ -2,7 +2,8 @@
 //! how it is laid out.
 //!
 //! Loading to plain values loses tags, aliases and duplicate keys, so [`representation`]
-//! keeps granit's event stream, correcting ignored spaces-only EOF block lines. It resolves
+//! keeps granit's event stream, correcting block scalar values where granit differs from
+//! the reference parser. It resolves
 //! each scalar against the version its document declares (or under YAML 1.1 throughout,
 //! for [`yaml_1_1_representation`]) and drops layout-only details (scalar style, the
 //! `---` marker, collection style).
@@ -92,6 +93,7 @@ struct Recorder {
     /// granit numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
     anchor_ordinals: BTreeMap<usize, usize>,
+    terminal_block_values: BTreeMap<usize, (String, Span, bool, bool)>,
     yaml_1_1: bool,
     assume_yaml_1_1: bool,
 }
@@ -224,11 +226,29 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 tag: tag_text(tag.as_ref()),
             },
             Event::MappingEnd => Node::MappingEnd,
-            Event::Scalar(value, style, anchor, tag) => Node::Scalar {
-                anchor: self.anchor(anchor),
-                tag: tag_text(tag.as_ref()),
-                value: self.resolve(value, style, tag.as_ref()),
-            },
+            Event::Scalar(value, style, anchor, tag) => {
+                let corrected =
+                    matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+                        .then(|| span.end.byte_offset())
+                        .flatten()
+                        .and_then(|end| self.terminal_block_values.remove(&end))
+                        .and_then(|(content, span, followed, marker_followed)| {
+                            reference_terminal_block_value(
+                                &content,
+                                &span,
+                                style,
+                                &value,
+                                followed,
+                                marker_followed,
+                            )
+                        });
+                let value = corrected.map_or(value, Cow::Owned);
+                Node::Scalar {
+                    anchor: self.anchor(anchor),
+                    tag: tag_text(tag.as_ref()),
+                    value: self.resolve(value, style, tag.as_ref()),
+                }
+            }
             Event::Alias(id) => Node::Alias(
                 self.anchor_ordinals
                     .get(&id)
@@ -254,6 +274,7 @@ fn record(
     content: &str,
     assume_yaml_1_1: bool,
     with_comments: bool,
+    terminal_block_values: BTreeMap<usize, (String, Span, bool, bool)>,
 ) -> Option<Recorder> {
     let mut dash_comments = BTreeSet::new();
     let mut dash_line = None;
@@ -273,6 +294,7 @@ fn record(
     let mut recorder = Recorder {
         assume_yaml_1_1,
         dash_comments,
+        terminal_block_values,
         ..Recorder::default()
     };
     Parser::new_from_str(content)
@@ -333,32 +355,6 @@ pub(super) fn scalar_tokens(output: &str) -> Vec<(granit_parser::Span, ScalarSty
         .collect()
 }
 
-pub(super) fn same_implicit_block_value(before: &str, after: &str) -> bool {
-    let tokens = scalar_tokens(before);
-    let Some((span, style)) = tokens.last() else {
-        return false;
-    };
-    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-        || span.end.byte_offset() != Some(before.len())
-    {
-        return false;
-    }
-    let first = first_content_line(before, span);
-    let Some(header) = first
-        .checked_sub(2)
-        .and_then(|index| yaml_lines(before).get(index).copied())
-        .and_then(|line| BLOCK_HEADER.captures(line.trim_end_matches(['\r', '\n'])))
-    else {
-        return false;
-    };
-    if header[1].bytes().any(|byte| byte.is_ascii_digit()) {
-        return false;
-    }
-    let index = tokens.len() - 1;
-    let value = scalar_value(before, index);
-    value.is_some() && value == scalar_value(after, index)
-}
-
 pub(super) fn first_content_line(output: &str, span: &granit_parser::Span) -> usize {
     let lines = yaml_lines(output);
     let mut first = span.start.line();
@@ -380,7 +376,7 @@ pub(super) fn first_content_line(output: &str, span: &granit_parser::Span) -> us
     first
 }
 
-fn yaml_lines(content: &str) -> Vec<&str> {
+pub(super) fn yaml_lines(content: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut remaining = content;
     while let Some(index) = remaining.find(['\r', '\n']) {
@@ -400,35 +396,6 @@ fn yaml_lines(content: &str) -> Vec<&str> {
     lines
 }
 
-pub(super) fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {
-    let tokens = scalar_tokens(output);
-    let (span, style) = tokens.get(index)?;
-    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-        return noyalib::from_str(span.slice(output)?).ok();
-    }
-    let first = first_content_line(output, span);
-    let lines = yaml_lines(output);
-    let header = *lines.get(first.checked_sub(2)?)?;
-    let captures = BLOCK_HEADER.captures(header.trim_end_matches(['\r', '\n']))?;
-    let indicator = &captures[1];
-    let explicit = indicator.chars().find_map(|ch| ch.to_digit(10));
-    let parent = explicit.map_or(0, |indent| {
-        span.indent
-            .unwrap_or(indent as usize)
-            .saturating_sub(indent as usize)
-    });
-    let begin: usize = lines[..first - 1].iter().map(|line| line.len()).sum();
-    let body = output.get(begin..span.end.byte_offset()?)?;
-    let mut fragment = format!("{}a: {indicator}\n{body}", " ".repeat(parent));
-    // noyalib needs a terminal break to retain the final block line.
-    if !body.is_empty() && !body.ends_with(['\r', '\n']) {
-        fragment.push('\n');
-    }
-    let mut value: std::collections::BTreeMap<String, noyalib::Value> =
-        noyalib::from_str(&fragment).ok()?;
-    value.remove("a")
-}
-
 pub fn representation(content: &str) -> Option<Vec<Node>> {
     value_representation(content, false)
 }
@@ -440,33 +407,259 @@ pub fn yaml_1_1_representation(content: &str) -> Option<Vec<Node>> {
 }
 
 fn value_representation(content: &str, assume_yaml_1_1: bool) -> Option<Vec<Node>> {
-    let original = record(content, assume_yaml_1_1, false)?;
-    let corrected = without_ignored_terminal_spaces(content);
-    if corrected.len() == content.len() {
-        Some(original.nodes)
-    } else {
-        record(corrected, assume_yaml_1_1, false).map(|recorder| recorder.nodes)
+    let mut values = BTreeMap::new();
+    for (span, style) in scalar_tokens(content) {
+        if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+            continue;
+        }
+        let Some((end, prefix)) = span
+            .end
+            .byte_offset()
+            .and_then(|end| content.get(..end).map(|prefix| (end, prefix)))
+        else {
+            continue;
+        };
+        let tail = content[end..].trim_start_matches([' ', '\r', '\n']);
+        let followed = !tail.is_empty();
+        let first = first_content_line(content, &span);
+        let lines = yaml_lines(prefix);
+        let blank_only = first
+            .checked_sub(1)
+            .and_then(|index| lines.get(index..))
+            .is_some_and(|body| body.iter().all(|line| line.trim().is_empty()));
+        if followed
+            && !tail.starts_with("...")
+            && !tail.starts_with("---")
+            && !blank_only
+        {
+            continue;
+        }
+        let marker_followed = tail.starts_with("...") || tail.starts_with("---");
+        values.insert(end, (prefix.to_owned(), span, followed, marker_followed));
     }
+    record(content, assume_yaml_1_1, false, values).map(|recorder| recorder.nodes)
 }
 
-fn without_ignored_terminal_spaces(content: &str) -> &str {
-    let Some((_, spaces)) = content.rsplit_once(['\r', '\n']) else {
-        return content;
-    };
-    if spaces.is_empty() || !spaces.bytes().all(|byte| byte == b' ') {
-        return content;
+pub(super) fn reference_terminal_block_value(
+    content: &str,
+    span: &granit_parser::Span,
+    style: ScalarStyle,
+    loaded: &str,
+    followed: bool,
+    marker_followed: bool,
+) -> Option<String> {
+    if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        || span.end.byte_offset() != Some(content.len())
+    {
+        return None;
     }
-    let shortened = &content[..content.len() - spaces.len()];
-    // granit includes an ignored EOF line; noyalib verifies the reference value.
-    if same_implicit_block_value(content, shortened) {
-        shortened
+    let lines = yaml_lines(content);
+    let first = first_content_line(content, span);
+    let (header_line, body) = first
+        .checked_sub(2)
+        .and_then(|index| lines.get(index).zip(lines.get(index + 1..)))?;
+    let body = if followed
+        && body
+            .last()
+            .is_some_and(|line| !line.ends_with(['\r', '\n']) && line.trim().is_empty())
+    {
+        &body[..body.len() - 1]
     } else {
-        content
-    }
+        body
+    };
+    let header = BLOCK_HEADER.captures(header_line.trim_end_matches(['\r', '\n']))?;
+    let indicator = &header[1];
+    let (indent, root_explicit) = if let Some(explicit) =
+        indicator.bytes().find(u8::is_ascii_digit)
+    {
+        let marker = header.get(1)?;
+        let prefix = &header_line[..marker.start()];
+        let leading = prefix.bytes().take_while(|byte| *byte == b' ').count();
+        let mut parent = leading;
+        let mut rest = &prefix[leading..];
+        let mut depth = 0usize;
+        let root = Parser::new_from_str(content).map_while(Result::ok).any(
+            |(event, event_span)| {
+                match event {
+                    Event::MappingStart(..) | Event::SequenceStart(..) => depth += 1,
+                    Event::MappingEnd | Event::SequenceEnd => depth -= 1,
+                    Event::Scalar(
+                        _,
+                        ScalarStyle::Literal | ScalarStyle::Folded,
+                        ..,
+                    ) => {
+                        return depth == 0
+                            && event_span.start.index() == span.start.index()
+                            && event_span.end.index() == span.end.index();
+                    }
+                    _ => {}
+                }
+                false
+            },
+        );
+        if root {
+            // A root scalar's indentation parameter starts at -1.
+            parent += usize::from(explicit - b'0') - 1;
+        } else {
+            while let Some(tail) = rest.strip_prefix('-') {
+                let blanks = tail.bytes().take_while(|byte| *byte == b' ').count();
+                if blanks == 0 {
+                    break;
+                }
+                rest = &tail[blanks..];
+                if !rest.trim().is_empty() {
+                    parent += blanks + 1;
+                }
+            }
+            parent += usize::from(explicit - b'0');
+        }
+        if root {
+            (parent, true)
+        } else if body
+            .iter()
+            .all(|line| line.trim_matches([' ', '\r', '\n']).is_empty())
+            && let Some(colon) = prefix.find(':')
+            && prefix[..colon].trim().is_empty()
+            && prefix[colon + 1..].contains(':')
+        {
+            let key = colon
+                + 1
+                + prefix[colon + 1..]
+                    .bytes()
+                    .take_while(|byte| *byte == b' ')
+                    .count();
+            (key + usize::from(explicit - b'0'), false)
+        } else if body
+            .iter()
+            .all(|line| line.trim_matches([' ', '\r', '\n']).is_empty())
+            && let Some(dash) = prefix.rfind("- ")
+            && prefix.rfind(':') < Some(dash)
+        {
+            (dash + usize::from(explicit - b'0'), false)
+        } else {
+            (span.indent.unwrap_or(parent), false)
+        }
+    } else if followed
+        && body
+            .iter()
+            .all(|line| line.trim_matches([' ', '\r', '\n']).is_empty())
+    {
+        let marker = header.get(1)?;
+        let prefix = &header_line[..marker.start()];
+        let leading = prefix.bytes().take_while(|byte| *byte == b' ').count();
+        let compact_mapping = prefix.rfind(':') > prefix.rfind('-')
+            && prefix.split_whitespace().any(|token| token == "-");
+        (
+            if marker_followed && compact_mapping {
+                0
+            } else {
+                leading + 1
+            },
+            false,
+        )
+    } else {
+        (
+            body.iter()
+                .find(|line| !line.trim_matches([' ', '\r', '\n']).is_empty())
+                .map(|line| line.bytes().take_while(|byte| *byte == b' ').count())
+                .unwrap_or_else(|| {
+                    body.iter()
+                        .map(|line| {
+                            line.bytes().take_while(|byte| *byte == b' ').count()
+                        })
+                        .max()
+                        .unwrap_or(0)
+                }),
+            false,
+        )
+    };
+    let chunks: Vec<_> = body
+        .iter()
+        .map(|line| {
+            let raw = line.trim_end_matches(['\r', '\n']);
+            (
+                raw.get(indent..).unwrap_or_default(),
+                raw.len() != line.len() || !raw.is_empty(),
+            )
+        })
+        .collect();
+    let loaded = if root_explicit {
+        // granit counts root explicit indentation one level deeper than the reference.
+        let mut adjusted = lines[..first - 1].concat();
+        for line in body {
+            adjusted.push(' ');
+            adjusted.push_str(line);
+        }
+        Cow::Owned(
+            Scanner::new(StrInput::new(&adjusted))
+                .map_while(Result::ok)
+                .find_map(|token| match token.into_parts().1 {
+                    TokenType::Scalar(
+                        ScalarStyle::Literal | ScalarStyle::Folded,
+                        value,
+                    ) => Some(value.into_owned()),
+                    _ => None,
+                })?,
+        )
+    } else {
+        Cow::Borrowed(loaded)
+    };
+    let mut value = if body
+        .iter()
+        .all(|line| line.trim_matches([' ', '\r', '\n']).is_empty())
+    {
+        let mut tail = String::new();
+        for &(text, has_break) in &chunks {
+            tail.push_str(text);
+            if has_break {
+                tail.push('\n');
+            }
+        }
+        tail.trim_end_matches('\n').to_owned()
+    } else {
+        loaded.trim_end_matches('\n').to_owned()
+    };
+    let last_content = chunks.iter().rposition(|(text, _)| !text.is_empty());
+    let trailing_blank =
+        last_content.map_or(chunks.len(), |index| chunks.len() - index - 1);
+    // The reference parser counts keep-chomped blank tails differently by style.
+    let breaks = if indicator.contains('-') {
+        0
+    } else if indicator.contains('+') {
+        match last_content {
+            None if style == ScalarStyle::Folded => {
+                if trailing_blank == 0 {
+                    1
+                } else {
+                    2 * trailing_blank
+                }
+            }
+            None => match trailing_blank {
+                0 => 0,
+                1 => 1,
+                count => 2 * count - 2,
+            },
+            Some(_) if trailing_blank == 0 => 1,
+            Some(index) => {
+                trailing_blank * if style == ScalarStyle::Folded { 3 } else { 2 }
+                    + usize::from(
+                        style == ScalarStyle::Folded
+                            && chunks[index].0.starts_with([' ', '\t']),
+                    )
+            }
+        }
+    } else {
+        usize::from(
+            last_content.is_some()
+                || (style == ScalarStyle::Literal && trailing_blank >= 2),
+        )
+    };
+    value.extend(std::iter::repeat_n('\n', breaks));
+    Some(value)
 }
 
 pub fn annotations(content: &str) -> Option<Annotations> {
-    let recorder = record(content, false, true)?;
+    let recorder = record(content, false, true, BTreeMap::new())?;
     let mut anchor_names = Vec::new();
     let mut alias_names = Vec::new();
     for token in Scanner::new(StrInput::new(content)) {

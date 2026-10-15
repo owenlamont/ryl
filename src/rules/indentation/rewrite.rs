@@ -151,7 +151,8 @@ impl<'a> Prepared<'a> {
                     (content, ending)
                 })
                 .collect();
-        let deltas = settle(&shaped_lines, &analyzer.shifts);
+        let mut deltas = settle(&shaped_lines, &analyzer.shifts);
+        self.carry_scalar_blank_lines(&shaped_lines, &mut deltas);
         let mut refused = self.refusals(&analyzer);
         let end_of =
             |index: usize| starts.get(index + 1).copied().unwrap_or(lines.len());
@@ -211,6 +212,38 @@ impl<'a> Prepared<'a> {
                     })
                 })
                 .collect(),
+        }
+    }
+
+    fn carry_scalar_blank_lines(
+        &self,
+        shaped_lines: &[(&str, &str)],
+        deltas: &mut [isize],
+    ) {
+        let headers = crate::rules::block_scalar_chomping::headers(self.buffer);
+        // These spaces are scalar content, so they move with the header.
+        for line in crate::rules::trailing_spaces::content_blank_lines(self.buffer) {
+            let header = headers
+                .iter()
+                .rev()
+                .find(|header| header.line < line && line <= header.span.end.line())
+                .expect("content line belongs to a block scalar");
+            let header_line = header.line - 1;
+            let header_index = self
+                .origin
+                .partition_point(|&source| source <= header_line)
+                .saturating_sub(1);
+            let original_indent = self.lines[header_line].0.len()
+                - self.lines[header_line].0.trim_start_matches(' ').len();
+            let shaped_indent = shaped_lines[header_index].0.len()
+                - shaped_lines[header_index].0.trim_start_matches(' ').len();
+            let shift = deltas[header_index] + super::to_isize(shaped_indent)
+                - super::to_isize(original_indent);
+            let first = self.origin.partition_point(|&source| source < line - 1);
+            let last = self.origin.partition_point(|&source| source < line);
+            for delta in &mut deltas[first..last] {
+                *delta = shift;
+            }
         }
     }
 

@@ -89,8 +89,12 @@ fn assert_yaml_preview(input: &str) -> Result<(), TestCaseError> {
         );
         if let Some(diff) = &outcome.diff {
             prop_assert!(
-                outcome.skipped.iter().all(|skip| skip.rule.is_some()),
-                "a diffed YAML file must not also be skipped under '{}'; input {:?}",
+                outcome.skipped.iter().all(|skip| {
+                    skip.rule.is_some()
+                        || skip.message
+                            == "cannot fix this file safely: block scalar value may change"
+                }),
+                "a diffed YAML file may only report its scalar refusal under '{}'; input {:?}",
                 prepared.name,
                 input
             );

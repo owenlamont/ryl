@@ -60,6 +60,62 @@ fn zero_config_formats_every_rule_and_is_idempotent() {
 }
 
 #[test]
+fn reference_block_scalar_spaces_survive_formatting() {
+    for input in [
+        "a: |+\n  \nb: 1\n",
+        "a: |\n  \nb: 1\n",
+        "a: >+\n  \nb: 1\n",
+        "- |+\n   \n- x\n",
+        "|2\n  x\n  ",
+        "|-2\n  x\n  ",
+        ">2\n  x\n  ",
+        "|2+\n  x\n  ",
+        "&a |2\n  x\n  ",
+        "!foo |2\n  x\n  ",
+        "---\n|2\n  x\n  \n...\n---\nq: v\n",
+    ] {
+        let (code, _, stderr, formatted) = format_file(None, input, &[]);
+        assert_eq!(code, 0, "{input:?}: {stderr}");
+        assert!(
+            formatted.contains("  \n") || formatted.ends_with("  "),
+            "{input:?}: {formatted:?}"
+        );
+    }
+}
+
+#[test]
+fn refused_scalar_keeps_the_whole_file() {
+    for input in [
+        "---\n|+\n  x\n\n  #foo\n...\n---\na:  1\n",
+        "---\n|+\n  x\n\n  #foo\n...\n%TAG !e! tag:example.com,2020:\n---\nc:  !e!foo hi  \n",
+    ] {
+        let (code, _, stderr, formatted) = format_file(Some("[format]"), input, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(formatted, input);
+        assert!(
+            stderr.contains("cannot format this file safely"),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn stream_disable_stays_active_after_refused_scalar() {
+    let input = "# ryl disable\n---\n|+\n  x\n\n  #foo\n...\n---\nb:  1\n";
+    let (code, _, stderr, formatted) = format_file(Some("[format]"), input, &[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(formatted, input);
+}
+
+#[test]
+fn nested_explicit_scalar_disposable_terminal_indent_formats_away() {
+    let input = "a:\n  |2\n    x\n  ";
+    let (code, _, stderr, formatted) = format_file(Some("[format]"), input, &[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(formatted, "a:\n  |2\n    x\n");
+}
+
+#[test]
 fn empty_block_scalar_headers_are_trimmed_and_terminated() {
     for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "|+2"] {
         for (prefix, suffix) in [
@@ -146,7 +202,9 @@ fn keep_scalar_eof_preserves_its_break_with_document_markers() {
                         String::new()
                     },
                 );
-                let expected = if input_marker || add_end {
+                let expected = if input_marker {
+                    format!("- |+{newline}   {newline}...{newline}")
+                } else if add_end {
                     format!("- |+{newline}{newline}...{newline}")
                 } else {
                     format!("- |+{newline}{newline}")
