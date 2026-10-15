@@ -4,8 +4,10 @@
 # ///
 """Gate `ryl format` on the pinned real-world repos in scripts/formatter_corpus.toml.
 
-Each repo is fetched shallow at its pinned commit (YAML files only, plus ignore and
-config files) into a cache dir, formatted in place twice per mode, then reset. Modes:
+Each repo is fetched shallow at its pinned commit into a cache dir, formatted in
+place twice per mode, then reset. Opted-in Markdown patterns also run through
+`format --markdown` and `check --fix --markdown` with the same YAML-region oracles
+and a host-byte check. Modes:
 `default` (the repo's own config, else built-in targets) and `fold`
 (`fold-long-lines = true`, no repo config). Hard gates, any of which exits 1:
 
@@ -53,7 +55,7 @@ from yaml12 import parse_yaml
 
 app = typer.Typer(add_completion=False, help=__doc__)
 
-TESTED_DATE: Final = "2026-10-07"
+TESTED_DATE: Final = "2026-10-15"
 _ROOT: Final = Path(__file__).resolve().parent.parent
 _MANIFEST: Final = Path(__file__).with_name("formatter_corpus.toml")
 _RYL: Final = _ROOT / "target" / "release" / ("ryl.exe" if os.name == "nt" else "ryl")
@@ -75,6 +77,11 @@ _CONFIG_NAMES: Final = (
     ".config/ryl.toml",
 )
 _FOLD_CONFIG: Final = "[format]\nfold-long-lines = true\n"
+_DEFAULT_LINT_RULES: Final = (
+    "anchors,braces,brackets,colons,commas,comments,comments-indentation,"
+    "document-start,empty-lines,hyphens,indentation,key-duplicates,line-length,"
+    "new-line-at-end-of-file,new-lines,trailing-spaces,truthy"
+)
 _SKIP_RE: Final = re.compile(r"^(.+?):\d+:\d+ skipped by ")
 # `unreadable` means a side is not UTF-8, so the Rust oracle could not judge the pair.
 _RUST_PASSES: Final = frozenset({"ok", "unreadable"})
@@ -109,6 +116,7 @@ class Repo:
     url: str
     sha: str
     sparse: tuple[str, ...] = _YAML_PATTERNS
+    markdown_sparse: tuple[str, ...] = ()
     expected_skip: tuple[str, ...] = ()
     expected_skip_marker: Mapping[str, str] = field(default_factory=dict)
     tally: bool = True
@@ -126,7 +134,12 @@ class Repo:
 class Result:
     repo: str
     mode: Mode
+    operation: str = "yaml-format"
     files: int = 0
+    regions: int = 0
+    front_matter: int = 0
+    fences: int = 0
+    host_changed: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
@@ -152,7 +165,12 @@ def _value_failures(result: Result) -> int:
 
 
 def _hard_failures(result: Result) -> int:
-    return _value_failures(result) + len(result.not_idempotent) + len(result.errors)
+    return (
+        _value_failures(result)
+        + len(result.not_idempotent)
+        + len(result.errors)
+        + len(result.host_changed)
+    )
 
 
 def _manifest(names: Iterable[str], profile: Profile = Profile.STANDARD) -> list[Repo]:
@@ -162,6 +180,7 @@ def _manifest(names: Iterable[str], profile: Profile = Profile.STANDARD) -> list
             url=row["url"],
             sha=row["sha"],
             sparse=tuple(row.get("sparse", _YAML_PATTERNS)),
+            markdown_sparse=tuple(row.get("markdown-sparse", ())),
             expected_skip=tuple(row.get("expected-skip", ())),
             expected_skip_marker=row.get("expected-skip-marker", {}),
             tally=row.get("tally", True),
@@ -206,7 +225,7 @@ def _fetch(repo: Repo, cache: Path) -> Path:
     _git(clone, "init", "-q")
     _git(clone, "config", "core.sparseCheckout", "true")
     _git(clone, "config", "core.sparseCheckoutCone", "false")
-    patterns = "\n".join((*_ALWAYS_CHECKED_OUT, *repo.sparse))
+    patterns = "\n".join((*_ALWAYS_CHECKED_OUT, *repo.sparse, *repo.markdown_sparse))
     (clone / ".git" / "info" / "sparse-checkout").write_text(f"{patterns}\n")
     _git(clone, "fetch", "-q", "--depth", "1", "--filter=blob:none", repo.url, repo.sha)
     _git(clone, "checkout", "-q", "FETCH_HEAD")
@@ -376,6 +395,159 @@ def _run(
     return result
 
 
+def _markdown_files(repo: Repo, clone: Path) -> list[str]:
+    return sorted(
+        path
+        for path in _git(clone, "ls-files").splitlines()
+        if (clone / path).is_file()
+        and any(fnmatch.fnmatch(path, pattern) for pattern in repo.markdown_sparse)
+    )
+
+
+def _markdown_regions(stems: list[Path], work: Path) -> Path:
+    pairs_file = work / "markdown-pairs.tsv"
+    regions_file = work / "markdown-regions.json"
+    pairs_file.write_text(
+        "".join(f"{stem}.before\t{stem}.after\n" for stem in stems), encoding="utf-8"
+    )
+    subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--release",
+            "--test",
+            "property_markdown_format",
+            "corpus_markdown_regions",
+            "--",
+            "--ignored",
+            "--exact",
+        ],
+        cwd=_ROOT,
+        env=os.environ
+        | {
+            "RYL_MARKDOWN_PAIRS": str(pairs_file),
+            "RYL_MARKDOWN_REGIONS": str(regions_file),
+        },
+        check=True,
+    )
+    return regions_file
+
+
+def _record_markdown_regions(
+    repo: Repo,
+    result: Result,
+    files: list[str],
+    manifest: Path,
+    *,
+    pairs: list[tuple[str, Path]],
+    pair_dir: Path,
+) -> None:
+    rows = json.loads(manifest.read_text(encoding="utf-8"))
+    by_file: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_file.setdefault(row["file"], []).append(row)
+    for index, path in enumerate(files):
+        entries = by_file.get(index, [])
+        if error := next((row["error"] for row in entries if "error" in row), None):
+            result.errors.append(f"{path}: {error}")
+            continue
+        summary = next((row for row in entries if "host_equal" in row), None)
+        regions = [row for row in entries if "region" in row]
+        if summary is None or summary["regions"] != len(regions):
+            result.errors.append(f"{path}: Markdown region extraction mismatch")
+            continue
+        result.regions += len(regions)
+        if not summary["host_equal"]:
+            result.host_changed.append(path)
+        for row in regions:
+            label = "front-matter" if row["kind"] == "FrontMatter" else "fence"
+            if label == "front-matter":
+                result.front_matter += 1
+            else:
+                result.fences += 1
+            region_path = f"{path}#{label}-{row['region'] + 1}"
+            before = Path(row["before"]).read_bytes()
+            after = Path(row["after"]).read_bytes()
+            if before != after:
+                _record_change(
+                    result,
+                    repo,
+                    region_path,
+                    before,
+                    after,
+                    pairs=pairs,
+                    pair_dir=pair_dir,
+                )
+
+
+def _run_markdown(
+    repo: Repo,
+    clone: Path,
+    mode: Mode,
+    operation: str,
+    *,
+    pairs: list[tuple[str, Path]],
+    pair_dir: Path,
+    timeout_s: float,
+) -> Result:
+    result = Result(repo=repo.name, mode=mode, operation=operation)
+    files = _markdown_files(repo, clone)
+    result.files = len(files)
+    if not files:
+        return result
+    ryl = partial(_ryl, clone, result, timeout_s=timeout_s)
+    config = (
+        ["-c", str(pair_dir.parent / "fold.toml")]
+        if mode is Mode.FOLD
+        else _lint_args(clone)
+    )
+    command = ["format"] if operation == "markdown-format" else ["check", "--fix"]
+    if operation == "markdown-fix" and mode is Mode.FOLD:
+        command.extend(("--enable", _DEFAULT_LINT_RULES))
+    before = _snapshot(clone, files)
+
+    def apply() -> str:
+        stderr = []
+        for start in range(0, len(files), 100):
+            proc = ryl(
+                *command,
+                "--markdown",
+                *config,
+                *files[start : start + 100],
+                ok=(0,) if operation == "markdown-format" else (0, 1),
+            )
+            stderr.append(proc.stderr)
+        return "\n".join(stderr)
+
+    start = time.monotonic()
+    first_stderr = apply()
+    result.seconds = round(time.monotonic() - start, 2)
+    after = _snapshot(clone, files)
+    apply()
+    twice = _snapshot(clone, files)
+    changed = [path for path in files if before[path] != after[path]]
+    result.not_idempotent = [path for path in files if after[path] != twice[path]]
+    result.skipped, result.unexpected_skips = _unexpected_skips(
+        repo, clone, first_stderr
+    )
+    stems = []
+    for index, path in enumerate(files):
+        stem = (
+            pair_dir
+            / f"markdown-{repo.name.replace('/', '-')}-{mode}-{operation}-{index}"
+        )
+        stem.with_suffix(".before").write_bytes(before[path])
+        stem.with_suffix(".after").write_bytes(after[path])
+        stems.append(stem)
+    _git(clone, "checkout", "--", ".")
+    manifest = _markdown_regions(stems, pair_dir.parent)
+    _record_markdown_regions(
+        repo, result, files, manifest, pairs=pairs, pair_dir=pair_dir
+    )
+    result.changed = changed
+    return result
+
+
 def _unexpected_skips(
     repo: Repo, clone: Path, stderr: str
 ) -> tuple[list[str], list[str]]:
@@ -409,7 +581,10 @@ def _record_change(
     stem = pair_dir / str(len(pairs))
     stem.with_suffix(".before").write_bytes(before)
     stem.with_suffix(".after").write_bytes(after)
-    pairs.append((f"{result.mode}\t{result.repo}\t{path}", stem))
+    key = str(result.mode)
+    if result.operation != "yaml-format":
+        key = f"{key}:{result.operation}"
+    pairs.append((f"{key}\t{result.repo}\t{path}", stem))
     reviewed = (
         path,
         hashlib.sha256(before).hexdigest(),
@@ -433,7 +608,10 @@ def _record_change(
 def _assign_verdicts(results: Iterable[Result], verdicts: Mapping[str, str]) -> None:
     """Only a value-preservation verdict on reviewed output is waivable."""
     for result in results:
-        prefix = f"{result.mode}\t{result.repo}\t"
+        key = str(result.mode)
+        if result.operation != "yaml-format":
+            key = f"{key}:{result.operation}"
+        prefix = f"{key}\t{result.repo}\t"
         for key, verdict in verdicts.items():
             if not key.startswith(prefix):
                 continue
@@ -518,8 +696,11 @@ def _summary(results: Iterable[Result]) -> str:
     columns = (
         "repo",
         "mode",
+        "operation",
         "files",
+        "regions",
         "changed",
+        "host changed",
         "skipped (unexpected)",
         "value failures",
         "not idempotent",
@@ -532,14 +713,15 @@ def _summary(results: Iterable[Result]) -> str:
     )
     header = f"| {' | '.join(columns)} |\n|{' --- |' * len(columns)}\n"
     rows = (
-        f"| {r.repo} | {r.mode} | {r.files} | {len(r.changed)} "
+        f"| {r.repo} | {r.mode} | {r.operation} | {r.files} | {r.regions} "
+        f"| {len(r.changed)} | {len(r.host_changed)} "
         f"| {len(r.skipped)} ({len(r.unexpected_skips)}) "
         f"| {_value_failures(r)} "
         f"| {len(r.not_idempotent)} | {len(r.errors)} "
         f"| {len(r.yaml12_unavailable)} ({len(r.yaml12_known_errors)}) "
         f"| {len(r.rust_known_errors)} | {len(r.yaml11_drift)} "
         f"| {', '.join(r.lint_rose)} | {r.seconds} |\n"
-        for r in sorted(results, key=lambda r: (r.repo.lower(), r.mode))
+        for r in sorted(results, key=lambda r: (r.repo.lower(), r.mode, r.operation))
     )
     return header + "".join(rows)
 
@@ -564,6 +746,12 @@ def fetch(cache_dir: _CacheOption = _DEFAULT_CACHE, repo: _RepoOption = None) ->
 def run(
     cache_dir: _CacheOption = _DEFAULT_CACHE,
     repo: _RepoOption = None,
+    markdown: Annotated[
+        bool,
+        typer.Option(
+            help="Also gate opted-in Markdown files with format and check --fix."
+        ),
+    ] = False,
     profile: Annotated[
         Profile, typer.Option(help="Select known errors for this corpus profile.")
     ] = Profile.STANDARD,
@@ -590,8 +778,7 @@ def run(
     rows = _manifest(repo or (), profile)
     typer.echo(f"Corpus pinned on {TESTED_DATE}")
     subprocess.run(["cargo", "build", "--release"], cwd=_ROOT, check=True)
-    work = cache_dir / "work"
-    shutil.rmtree(work, ignore_errors=True)
+    work = cache_dir / "work" / str(time.time_ns())
     pair_dir = work / "pairs"
     pair_dir.mkdir(parents=True)
     (work / "fold.toml").write_text(_FOLD_CONFIG, encoding="utf-8")
@@ -617,6 +804,27 @@ def run(
             typer.echo(f"{row.name} [{mode}]: {result.files} files, {changed} changed")
             for error in result.errors:
                 typer.secho(f"  {error}", err=True)
+            if markdown and row.markdown_sparse:
+                for operation in ("markdown-format", "markdown-fix"):
+                    md_result = _run_markdown(
+                        row,
+                        clone,
+                        mode,
+                        operation,
+                        pairs=pairs,
+                        pair_dir=pair_dir,
+                        timeout_s=timeout_s,
+                    )
+                    results.append(md_result)
+                    jsonl.write(json.dumps(asdict(md_result)) + "\n")
+                    jsonl.flush()
+                    typer.echo(
+                        f"{row.name} [{mode} {operation}]: "
+                        f"{md_result.files} files, {md_result.regions} regions, "
+                        f"{len(md_result.changed)} changed"
+                    )
+                    for error in md_result.errors:
+                        typer.secho(f"  {error}", err=True)
     jsonl.close()
     verdicts = _rust_oracle(pairs, work)
     _assign_verdicts(results, verdicts)
