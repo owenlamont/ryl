@@ -206,13 +206,61 @@ proptest! {
 
     #[test]
     fn markdown_format_preserves_regions_and_host(
-        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar(), arb_blank_scalar_with_explicit_sequence_key()],
+        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar(), arb_blank_scalar_with_explicit_sequence_key(), arb_reference_block_scalar()],
         table in settings::arb_format_config(),
     ) {
         run_invariants(&markdown)?;
         let cfg = ryl::config::YamlLintConfig::from_toml_str(&table).expect(&table);
         check_config(&markdown, &table, &cfg)?;
     }
+}
+
+fn arb_reference_block_scalar() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(vec!['|', '>']),
+        prop::sample::select(vec!["", "-", "+"]),
+        1usize..=4,
+        any::<bool>(),
+    )
+        .prop_map(|(style, chomp, width, root)| {
+            let yaml = if root {
+                format!(
+                    "{style}{width}{chomp}\n{}x\n{}\n",
+                    " ".repeat(width),
+                    " ".repeat(width)
+                )
+            } else {
+                format!("a: {style}{chomp}\n{}\nb: 1\n", " ".repeat(width + 1))
+            };
+            format!("```yaml\n{yaml}```\n")
+        })
+}
+
+#[test]
+fn block_scalar_blank_prefix_survives_markdown_format_profiles() {
+    let input = " ```yaml\n a: |\n\n\n ? FALSE\n :\t {\"!]\": t8 , o7e_z_: TRUE}\t\t\t# note\n ```\n";
+    run_invariants(input).unwrap();
+    let cfg =
+        ryl::config::YamlLintConfig::from_toml_str("[format]\nmax-blank-lines = 0\n")
+            .unwrap();
+    let output = format(input, &cfg);
+    let regions = extract_regions(
+        &output,
+        MarkdownSources {
+            front_matter: true,
+            fenced_blocks: true,
+        },
+    );
+    assert!(
+        regions[0].content.starts_with("a: |\n\n\n? FALSE\n"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn nested_blank_scalar_before_dedented_key_survives_markdown_profiles() {
+    let input = " ~~~yaml\n '011':\n     - |-  \n       \n\n l_h: {'-9223372036854775809': ! 'by:'}\n ~~~\n";
+    run_invariants(input).unwrap();
 }
 
 fn arb_blank_scalar_with_explicit_sequence_key() -> impl Strategy<Value = String> {

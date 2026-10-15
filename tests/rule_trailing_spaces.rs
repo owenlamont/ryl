@@ -1,6 +1,19 @@
 use ryl::rules::trailing_spaces::{self, Violation};
 
 #[test]
+fn nested_explicit_scalar_terminal_indent_is_disposable() {
+    let input = "a:\n  |2\n    x\n  ";
+    assert_eq!(
+        trailing_spaces::check(input),
+        vec![Violation { line: 4, column: 1 }]
+    );
+    assert_eq!(
+        trailing_spaces::fix(input).as_deref(),
+        Some("a:\n  |2\n    x\n")
+    );
+}
+
+#[test]
 fn fix_trims_siblings_after_nested_block_scalars_without_trimming_content() {
     for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "&a !!str |2"] {
         for (prefix, body, suffix) in [

@@ -157,7 +157,8 @@ fn fix_trims_only_chomped_block_scalar_tails() {
                     body.to_string()
                 };
                 let cfg = Config::new(1, 0, 0);
-                let tail = if header.contains('+') {
+                let tail = if header.contains('+') || (header == "|" && body.is_empty())
+                {
                     "\n\n\n"
                 } else if suffix.is_empty() {
                     ""

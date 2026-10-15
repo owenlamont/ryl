@@ -43,6 +43,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- Ambiguous block scalars leave the whole YAML file, or the Markdown region holding
+  them, unchanged by formatting and safe fixes apart from key ordering; both commands
+  name the file, line and reason on stderr.
 - When formatting would change a Markdown region with mixed line endings, `format`
   names the refusal and `--check`/`--diff` fail; a fence-boundary refusal is also named.
 - Indentation conflict warnings identify `indent-width` as a TOML key and point

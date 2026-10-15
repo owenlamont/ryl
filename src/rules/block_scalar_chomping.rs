@@ -14,6 +14,7 @@
 
 use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
 
+use crate::rules::support::line_syntax::line_contents;
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
 
@@ -74,6 +75,91 @@ pub(crate) fn headers(buffer: &str) -> Vec<Header> {
         previous_end = span.end.index();
     }
     headers
+}
+
+pub(crate) fn ambiguous_blank_body_line(buffer: &str) -> Option<usize> {
+    let lines = line_contents(buffer);
+    headers(buffer).into_iter().find_map(|header| {
+        let indent = lines[header.line - 1]
+            .bytes()
+            .take_while(|ch| *ch == b' ')
+            .count();
+        let body: Vec<_> = lines
+            .iter()
+            .skip(header.line)
+            .take_while(|line| {
+                line.trim().is_empty()
+                    || line.bytes().take_while(|ch| *ch == b' ').count() > indent
+            })
+            .collect();
+        let blank_body: Vec<_> = lines
+            .iter()
+            .skip(header.line)
+            .take_while(|line| line.trim().is_empty())
+            .collect();
+        let prefix: String = lines[header.line - 1]
+            .chars()
+            .take(header.column - 1)
+            .collect();
+        if prefix
+            .find(':')
+            .zip(prefix.rfind("- "))
+            .is_some_and(|(colon, dash)| colon < dash)
+            && blank_body.iter().any(|line| !line.is_empty())
+        {
+            return Some(header.line);
+        }
+        if blank_body.iter().any(|line| !line.is_empty())
+            && lines
+                .iter()
+                .skip(header.line + blank_body.len())
+                .find(|line| !line.trim().is_empty())
+                .is_some_and(|line| {
+                    let text = line.trim_start();
+                    text.starts_with("---") || text.starts_with("...")
+                })
+        {
+            return Some(header.line);
+        }
+        if header.chomping == Some('+')
+            && body.iter().any(|line| line.trim().is_empty())
+            && body.iter().any(|line| line.trim_start().starts_with('#'))
+        {
+            return Some(header.line);
+        }
+        if indent == 0 {
+            return None;
+        }
+        let movable_dash = prefix.split_whitespace().any(|token| token == "-")
+            || lines[..header.line - 1]
+                .iter()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .is_some_and(|line| line.trim_end().ends_with('-'));
+        let mut following = lines.iter().skip(header.line).peekable();
+        if !following.peek().is_some_and(|line| line.trim().is_empty()) {
+            return None;
+        }
+        if !following
+            .clone()
+            .take_while(|line| line.trim().is_empty())
+            .any(|line| !line.is_empty())
+        {
+            return None;
+        }
+        following
+            .find(|line| !line.trim().is_empty())
+            .filter(|line| {
+                let text = line.trim_start();
+                !text.starts_with("---")
+                    && !text.starts_with("...")
+                    && (line.bytes().take_while(|ch| *ch == b' ').count() < indent
+                        || (movable_dash
+                            && line.bytes().take_while(|ch| *ch == b' ').count()
+                                == indent))
+            })
+            .map(|_| header.line)
+    })
 }
 
 /// The char index of the first `|`/`>` at or past `from` outside a comment.
