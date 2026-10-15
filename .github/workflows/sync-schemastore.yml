@@ -190,7 +190,7 @@ jobs:
           )
           schemas.insert(insert_after, entry)
           catalog["schemas"] = schemas
-          catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
+          catalog_path.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n")
           PY
 
           npx prettier --write \
