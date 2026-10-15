@@ -22,7 +22,7 @@ use crate::lint::{LintProblem, Severity};
 // `expect` rather than a `?` that would leave a dead, uncovered error arm.
 const INFALLIBLE: &str = "writing report output to an in-memory buffer cannot fail";
 
-/// One linted file's contribution to a report. `error` (a failed read/parse) and
+/// One linted file's contribution to a report. `error` (a failed read/write) and
 /// `problems` are mutually exclusive; a clean file has both empty, which `JUnit` renders
 /// as a passing test and `GitLab` omits entirely.
 #[derive(Debug)]

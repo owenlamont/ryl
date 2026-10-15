@@ -326,22 +326,21 @@ fn fix_missing_markdown_file_reports_read_error() {
 }
 
 #[test]
-#[allow(clippy::permissions_set_readonly_false)]
 fn fix_markdown_write_error_is_reported() {
     let (_dir, file) = project(COMMAS, "doc.md", "```yaml\nnums: [1,2]\n```\n");
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
+    let original_permissions = fs::metadata(&file).unwrap().permissions();
+    let mut perms = original_permissions.clone();
     perms.set_readonly(true);
     fs::set_permissions(&file, perms).unwrap();
     if fs::OpenOptions::new().write(true).open(&file).is_ok() {
+        fs::set_permissions(&file, original_permissions).unwrap();
         return;
     }
 
     let (code, _out, err) = fix(&file);
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
-    perms.set_readonly(false);
-    let _ = fs::set_permissions(&file, perms);
+    fs::set_permissions(&file, original_permissions).unwrap();
 
     assert_eq!(code, 2, "read-only markdown fix must fail: {err}");
     assert!(err.contains("failed to write fixed file"), "{err}");

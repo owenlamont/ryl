@@ -1,4 +1,4 @@
-use std::fs::{self, OpenOptions};
+use std::fs::{self, OpenOptions, Permissions};
 use std::path::Path;
 
 use tempfile::tempdir;
@@ -6,15 +6,20 @@ use tempfile::tempdir;
 mod common;
 use common::cli::{run, ryl};
 
-fn make_read_only(path: &Path) -> bool {
-    let mut permissions = fs::metadata(path).unwrap().permissions();
+fn make_read_only(path: &Path) -> Option<Permissions> {
+    let original = fs::metadata(path).unwrap().permissions();
+    let mut permissions = original.clone();
     permissions.set_readonly(true);
     fs::set_permissions(path, permissions).unwrap();
-    OpenOptions::new().write(true).open(path).is_err()
+    if OpenOptions::new().write(true).open(path).is_ok() {
+        fs::set_permissions(path, original).unwrap();
+        None
+    } else {
+        Some(original)
+    }
 }
 
 #[test]
-#[allow(clippy::permissions_set_readonly_false)]
 fn write_failure_keeps_processing_explicit_yaml_inputs() {
     for command in ["format", "check"] {
         let dir = tempdir().unwrap();
@@ -23,9 +28,9 @@ fn write_failure_keeps_processing_explicit_yaml_inputs() {
         fs::write(&failed, "key: value").unwrap();
         let later = dir.path().join("later.yaml");
         fs::write(&later, "key: value").unwrap();
-        if !make_read_only(&failed) {
+        let Some(original_permissions) = make_read_only(&failed) else {
             continue;
-        }
+        };
 
         let mut cmd = ryl(dir.path());
         cmd.arg(command);
@@ -36,9 +41,7 @@ fn write_failure_keeps_processing_explicit_yaml_inputs() {
         let (code, _stdout, stderr) =
             run(cmd.args([dir.path().join("bad.yaml"), failed.clone(), later.clone()]));
 
-        let mut permissions = fs::metadata(&failed).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&failed, permissions).unwrap();
+        fs::set_permissions(&failed, original_permissions).unwrap();
 
         assert_eq!(code, 2, "{command}: {stderr}");
         assert!(stderr.contains("skipped by"), "{command}: {stderr}");
@@ -59,7 +62,6 @@ fn write_failure_keeps_processing_explicit_yaml_inputs() {
 }
 
 #[test]
-#[allow(clippy::permissions_set_readonly_false)]
 fn write_failure_keeps_processing_directory_markdown_inputs() {
     for command in ["format", "check"] {
         let dir = tempdir().unwrap();
@@ -68,9 +70,9 @@ fn write_failure_keeps_processing_directory_markdown_inputs() {
         let body = "```yaml\nnums: [1,2]\n```\n";
         fs::write(&failed, body).unwrap();
         fs::write(&later, body).unwrap();
-        if !make_read_only(&failed) {
+        let Some(original_permissions) = make_read_only(&failed) else {
             continue;
-        }
+        };
 
         let mut cmd = ryl(dir.path());
         cmd.arg(command).arg("--markdown");
@@ -80,9 +82,7 @@ fn write_failure_keeps_processing_directory_markdown_inputs() {
         }
         let (code, _stdout, stderr) = run(cmd.arg(dir.path()));
 
-        let mut permissions = fs::metadata(&failed).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&failed, permissions).unwrap();
+        fs::set_permissions(&failed, original_permissions).unwrap();
 
         assert_eq!(code, 2, "{command}: {stderr}");
         assert!(stderr.contains("failed.md"), "{command}: {stderr}");
@@ -94,5 +94,109 @@ fn write_failure_keeps_processing_directory_markdown_inputs() {
         if command == "check" {
             assert!(stderr.contains("1 fixed, 1 remaining"), "{stderr}");
         }
+    }
+}
+
+const WARNING_FIX: &str =
+    "[lint.rules]\nnew-line-at-end-of-file = { level = 'warning' }\n";
+
+#[test]
+fn junit_reports_failed_fix_write_with_warnings_hidden() {
+    let dir = tempdir().unwrap();
+    let failed = dir.path().join("failed.yaml");
+    fs::write(&failed, "key: value").unwrap();
+    let Some(original_permissions) = make_read_only(&failed) else {
+        return;
+    };
+
+    let (code, xml, _stderr) = run(ryl(dir.path())
+        .args([
+            "check",
+            "--fix",
+            "--no-warnings",
+            "-d",
+            WARNING_FIX,
+            "-f",
+            "junit",
+        ])
+        .arg(&failed));
+    fs::set_permissions(&failed, original_permissions).unwrap();
+
+    assert_eq!(code, 2, "{xml}");
+    assert!(xml.contains("errors=\"1\""), "{xml}");
+    assert!(xml.contains("<error "), "{xml}");
+    assert!(xml.contains("failed to write fixed file"), "{xml}");
+    assert!(xml.contains("failed.yaml"), "{xml}");
+}
+
+#[test]
+fn gitlab_reports_failed_fix_write_with_warnings_hidden() {
+    for configured_target in [false, true] {
+        let dir = tempdir().unwrap();
+        let failed = dir.path().join("failed.yaml");
+        fs::write(&failed, "key: value").unwrap();
+        fs::write(
+            dir.path().join(".ryl.toml"),
+            format!("{WARNING_FIX}[output.gitlab]\npath = 'gl.json'\n"),
+        )
+        .unwrap();
+        let Some(original_permissions) = make_read_only(&failed) else {
+            continue;
+        };
+
+        let mut cmd = ryl(dir.path());
+        cmd.current_dir(dir.path())
+            .args(["check", "--fix", "--no-warnings"]);
+        if !configured_target {
+            cmd.args(["-f", "gitlab"]);
+        }
+        let (code, stdout, _stderr) = run(cmd.arg(&failed));
+        fs::set_permissions(&failed, original_permissions).unwrap();
+
+        let report = if configured_target {
+            fs::read_to_string(dir.path().join("gl.json")).unwrap()
+        } else {
+            stdout
+        };
+        let issues: serde_json::Value = serde_json::from_str(&report).unwrap();
+        let issues = issues.as_array().unwrap();
+        assert_eq!(code, 2, "{report}");
+        assert_eq!(issues.len(), 1, "{report}");
+        assert_eq!(issues[0]["severity"], "blocker");
+        assert_eq!(issues[0]["check_name"], "error");
+        assert!(
+            issues[0]["description"]
+                .as_str()
+                .unwrap()
+                .contains("failed to write fixed file")
+        );
+        assert!(
+            issues[0]["location"]["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("failed.yaml")
+        );
+    }
+}
+
+#[test]
+fn junit_and_gitlab_report_failed_fix_reads() {
+    let dir = tempdir().unwrap();
+    let missing = dir.path().join("missing.yaml");
+    for format in ["junit", "gitlab"] {
+        let (code, report, _stderr) = run(ryl(dir.path())
+            .args([
+                "check",
+                "--fix",
+                "--no-warnings",
+                "-d",
+                WARNING_FIX,
+                "-f",
+                format,
+            ])
+            .arg(&missing));
+        assert_eq!(code, 2, "{format}: {report}");
+        assert!(report.contains("failed to read"), "{format}: {report}");
+        assert!(report.contains("missing.yaml"), "{format}: {report}");
     }
 }

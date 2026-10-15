@@ -1264,7 +1264,12 @@ fn lint_and_exit(
         None
     };
 
-    let results = lint_files(files);
+    let mut results = lint_files(files);
+    if let Some((_, errors)) = &before_fix {
+        for (index, error) in errors {
+            results[*index].1 = Err(error.clone());
+        }
+    }
     let fixed = before_fix.as_ref().map(|(before, _)| {
         let after = safe_fix_rule_counts(&results, no_warnings);
         before
@@ -1290,30 +1295,29 @@ fn lint_and_exit(
         );
     }
 
-    if before_fix.is_some_and(|(_, failed)| failed) {
+    if before_fix.is_some_and(|(_, errors)| !errors.is_empty()) {
         Ok(ExitCode::from(2))
     } else {
         Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
     }
 }
 
-/// Apply safe fixes in place and report skips and errors, returning the pre-fix
-/// [`safe_fix_rule_counts`] for the summary.
+/// Apply safe fixes in place and report skips, returning pre-fix rule counts and
+/// file errors for the shared report records.
 ///
 fn apply_fixes_reporting_skips(
     files: &[LintFile],
     no_warnings: bool,
-) -> (Vec<SafeFixRuleCounts>, bool) {
+) -> (Vec<SafeFixRuleCounts>, Vec<(usize, String)>) {
     let mut before = safe_fix_rule_counts(&lint_files(files), no_warnings);
     let fix_stats = rewrite_files(files, Rewrite::Fix);
     for (path, problem) in &fix_stats.skipped {
         eprint_skip_notice(path, problem, Rewrite::Fix.flag());
     }
-    for (index, error) in &fix_stats.errors {
-        eprintln!("error: {}", sanitize_control(error));
+    for (index, _) in &fix_stats.errors {
         before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
     }
-    (before, !fix_stats.errors.is_empty())
+    (before, fix_stats.errors)
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {

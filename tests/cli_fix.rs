@@ -144,7 +144,6 @@ fn fix_respects_toml_fixable_allowlist() {
 }
 
 #[test]
-#[allow(clippy::permissions_set_readonly_false)]
 fn fix_handles_write_error() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("read_only.yaml");
@@ -156,20 +155,19 @@ fn fix_handles_write_error() {
     )
     .unwrap();
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
+    let original_permissions = fs::metadata(&file).unwrap().permissions();
+    let mut perms = original_permissions.clone();
     perms.set_readonly(true);
     fs::set_permissions(&file, perms).unwrap();
     if OpenOptions::new().write(true).open(&file).is_ok() {
+        fs::set_permissions(&file, original_permissions).unwrap();
         return;
     }
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
 
-    // Reset permissions so tempdir can be cleaned up
-    let mut perms = fs::metadata(&file).unwrap().permissions();
-    perms.set_readonly(false);
-    let _ = fs::set_permissions(&file, perms);
+    fs::set_permissions(&file, original_permissions).unwrap();
 
     assert_eq!(
         code, 2,
