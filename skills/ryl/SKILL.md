@@ -70,10 +70,10 @@ Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only er
   notice and don't change the exit code. `--fix` writes in place, but an unparsable file
   is reported (not rewritten) and still exits `1`.
 
-`ryl format` formats YAML in place without enabling lint rules. Use `ryl format --check`
-to report changes without writing, or `ryl format --diff` to preview a patch. Either
-preview exits `1` if formatting would change a file. The formatter reads `[format]` in
-TOML and also handles Markdown with `--markdown`.
+`ryl format` formats YAML in place without enabling lint rules. Use `ryl format --diff`
+to preview a patch without writing; it exits `1` if formatting would change a file.
+The formatter also has a check mode that reports pending changes without a patch.
+It reads `[format]` in TOML and handles Markdown with `--markdown`.
 
 ## Machine-readable output
 
@@ -87,8 +87,9 @@ produced together:
 ryl check --output-format github --output-format gitlab -o code-quality.json .
 ```
 
-`ryl format --check --output-format` accepts one format. It has no `-f`, `--format`,
-or `-o` alias.
+Formatter check mode accepts one `--output-format`; it has no `-f`, `--format`, or
+`-o` alias. See the [formatter guide](https://ryl-docs.pages.dev/formatter/) for
+the check-mode command.
 
 ## Configuration: YAML vs TOML
 
