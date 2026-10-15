@@ -88,7 +88,7 @@ fast). An empty/all-ignored input set still emits a valid empty report per targe
 like ruff; forward-slashed, no `./` prefix; a path outside the root gets `..` segments),
 the kept problems, and an optional processing-error message.
 
-GitLab severity maps error->`major`, warning->`minor`, a read/parse failure->`blocker`;
+GitLab severity maps error->`major`, warning->`minor`, a file processing failure->`blocker`;
 its `fingerprint` is a stable SHA-256 (`sha2`) of `(path, rule, message)` — deliberately
 NOT line/column, so an edit that shifts the line keeps the issue tracked — salted to stay
 unique within a report (`DefaultHasher` would not be stable across toolchains). A clean

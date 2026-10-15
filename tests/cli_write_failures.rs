@@ -53,6 +53,11 @@ fn write_failure_keeps_processing_explicit_yaml_inputs() {
         assert_eq!(fs::read_to_string(&failed).unwrap(), "key: value");
         assert_eq!(fs::read_to_string(&later).unwrap(), "key: value\n");
         if command == "check" {
+            assert_eq!(
+                stderr.matches("error: failed to write fixed file").count(),
+                1,
+                "{stderr}"
+            );
             assert!(
                 stderr.contains("1 fixed, 2 remaining"),
                 "failed file must not count as fixed: {stderr}"
@@ -109,7 +114,7 @@ fn junit_reports_failed_fix_write_with_warnings_hidden() {
         return;
     };
 
-    let (code, xml, _stderr) = run(ryl(dir.path())
+    let (code, xml, stderr) = run(ryl(dir.path())
         .args([
             "check",
             "--fix",
@@ -127,6 +132,11 @@ fn junit_reports_failed_fix_write_with_warnings_hidden() {
     assert!(xml.contains("<error "), "{xml}");
     assert!(xml.contains("failed to write fixed file"), "{xml}");
     assert!(xml.contains("failed.yaml"), "{xml}");
+    assert!(
+        stderr.contains("error: failed to write fixed file")
+            && stderr.contains("failed.yaml"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -150,7 +160,7 @@ fn gitlab_reports_failed_fix_write_with_warnings_hidden() {
         if !configured_target {
             cmd.args(["-f", "gitlab"]);
         }
-        let (code, stdout, _stderr) = run(cmd.arg(&failed));
+        let (code, stdout, stderr) = run(cmd.arg(&failed));
         fs::set_permissions(&failed, original_permissions).unwrap();
 
         let report = if configured_target {
@@ -161,6 +171,11 @@ fn gitlab_reports_failed_fix_write_with_warnings_hidden() {
         let issues: serde_json::Value = serde_json::from_str(&report).unwrap();
         let issues = issues.as_array().unwrap();
         assert_eq!(code, 2, "{report}");
+        assert!(
+            stderr.contains("error: failed to write fixed file")
+                && stderr.contains("failed.yaml"),
+            "{stderr}"
+        );
         assert_eq!(issues.len(), 1, "{report}");
         assert_eq!(issues[0]["severity"], "blocker");
         assert_eq!(issues[0]["check_name"], "error");
@@ -184,7 +199,7 @@ fn junit_and_gitlab_report_failed_fix_reads() {
     let dir = tempdir().unwrap();
     let missing = dir.path().join("missing.yaml");
     for format in ["junit", "gitlab"] {
-        let (code, report, _stderr) = run(ryl(dir.path())
+        let (code, report, stderr) = run(ryl(dir.path())
             .args([
                 "check",
                 "--fix",
@@ -198,5 +213,9 @@ fn junit_and_gitlab_report_failed_fix_reads() {
         assert_eq!(code, 2, "{format}: {report}");
         assert!(report.contains("failed to read"), "{format}: {report}");
         assert!(report.contains("missing.yaml"), "{format}: {report}");
+        assert!(
+            stderr.contains("error: failed to read") && stderr.contains("missing.yaml"),
+            "{format}: {stderr}"
+        );
     }
 }

@@ -797,6 +797,14 @@ fn write_targets(
     sinks: &mut [OutputSink],
     records: &[FileRecord],
 ) -> Result<(), String> {
+    if !targets.iter().any(|target| {
+        target.format.is_streaming()
+            && matches!(&target.destination, Destination::Stderr)
+    }) {
+        for message in records.iter().filter_map(|record| record.error.as_deref()) {
+            eprintln!("error: {message}");
+        }
+    }
     let project_root = report_project_root();
     let entries = targets
         .iter()
@@ -855,7 +863,7 @@ fn render_streaming(
     let mut out: Vec<u8> = Vec::new();
     for record in records {
         if let Some(message) = &record.error {
-            writeln!(out, "{message}").expect(OUTPUT_INFALLIBLE);
+            writeln!(out, "error: {message}").expect(OUTPUT_INFALLIBLE);
         } else if !record.kept.is_empty() {
             append(&mut out, record.path, &record.kept);
         }
