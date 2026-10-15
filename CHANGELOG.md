@@ -18,8 +18,8 @@ summarize user-visible changes from the tagged commits and published release rec
   existing width; `line-ending = "auto"` keeps its prevailing line ending.
   ([#550](https://github.com/owenlamont/ryl/pull/550),
   [#606](https://github.com/owenlamont/ryl/pull/606))
-- `--output-format` names the output format for both `check` and `format`; `-f`
-  remains an alias. ([#605](https://github.com/owenlamont/ryl/pull/605))
+- `--output-format` selects output for `check` and `format --check`; only `check`
+  also accepts `-f`/`--format`. ([#605](https://github.com/owenlamont/ryl/pull/605))
 - Editor Format Document uses `ryl format`, including for embedded YAML in Markdown.
   ([#583](https://github.com/owenlamont/ryl/pull/583))
 - Top-level TOML `line-length` and `indent-width` provide shared defaults for lint

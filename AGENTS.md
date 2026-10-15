@@ -2,7 +2,7 @@
 
 ## What This Tool Does
 
-ryl is a CLI tool for linting yaml files
+ryl lints and formats YAML files
 
 ## Project Structure
 
@@ -100,7 +100,7 @@ Working on the codebase:
   Markdown embedding, `--fix`/`--diff`.
 - `.agents/skills/config-discovery/SKILL.md` — config precedence, the candidate walk, and
   the explicit-opt-in exit-2 cases.
-- `.agents/skills/output-formats/SKILL.md` — `--format`/`--output-file` targets, the
+- `.agents/skills/output-formats/SKILL.md` — `check` output targets, the
   `[output]` table, JUnit/GitLab reports.
 - `.agents/skills/lsp-server/SKILL.md` — `ryl server` diagnostics, code actions, and
   position encoding.
@@ -211,12 +211,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## CLI Behavior
 
-`ryl check <inputs>` (the lint subcommand) and bare `ryl <inputs>` lint identically;
-`check` is the recommended form; bare is deprecated and warns on stderr. Inputs are files,
-directories, or `-` for stdin. Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage
-error). ryl never enables a rule that wasn't explicitly turned on (by config or
-`--enable`), so without `--enable` a run with no config, or one enabling nothing, exits
-`2`.
+`ryl check <inputs>` lints files, directories or `-` for stdin. Bare `ryl <inputs>`
+still lints but is deprecated and warns. `check` exits `0` with no errors, `1` for
+errors or invalid YAML, and `2` for usage/config errors or `--strict` warnings.
+Without `--enable`, a missing config or one enabling no rules exits `2`.
 
 Each surface — inputs and `--fix`/`--diff`, config discovery, output formats, the
 language server — is documented in the matching dev skill above; user docs are in

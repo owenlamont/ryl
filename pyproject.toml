@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "ryl"
 version = "0.24.0"
-description = "Fast YAML linter inspired by yamllint"
+description = "Fast YAML linter and formatter inspired by yamllint"
 requires-python = ">=3.10"
 readme = "README.md"
 classifiers = [
@@ -30,7 +30,7 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Utilities",
 ]
-keywords = ["yaml", "linter", "lint", "cli", "rust"]
+keywords = ["yaml", "linter", "lint", "formatter", "cli", "rust"]
 
 [project.urls]
 Homepage = "https://github.com/owenlamont/ryl"

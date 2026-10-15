@@ -69,7 +69,8 @@ description: >-
     `docs/using-ryl-with-ai-agents.md` page for any behaviour, flag, format, or
     rule changes in this release. The `agent_skill_drift_guard` test catches a
     removed/renamed flag, but new flags or behaviour need a manual update. (The
-    `gen-llms-txt` prek hook keeps `docs/llms.txt` current automatically.)
+    `gen-llms-txt` prek hook keeps `docs/llms.txt` and `docs/llms-full.txt` current
+    automatically.)
   - Summarize notable changes in the PR description; the changelog is the release
     notes source.
 - Tag and push (when releasing):
