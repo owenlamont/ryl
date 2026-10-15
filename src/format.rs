@@ -240,6 +240,13 @@ pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
     if let Some(width) = cfg.indent_width() {
         return width.get();
     }
+    // Zero changed lines is the best possible score; ties already choose the default.
+    if indentation::reindent(content, &indentation_target(cfg, DEFAULT_INDENT_WIDTH))
+        .text
+        == content
+    {
+        return DEFAULT_INDENT_WIDTH;
+    }
     let consistent = indentation::Config::new(
         indentation::SpacesSetting::Consistent,
         if cfg.format().targets().indent_sequences {

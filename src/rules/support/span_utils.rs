@@ -97,6 +97,20 @@ pub fn apply_replacements(
     mut replacements: Vec<(BytePos, BytePos, String)>,
 ) -> String {
     replacements.sort_by_key(|(start, _, _)| std::cmp::Reverse(start.0));
+    if replacements
+        .windows(2)
+        .all(|pair| pair[1].1 <= pair[0].0 && pair[1].0 < pair[0].0)
+    {
+        let mut output = String::with_capacity(buffer.len());
+        let mut cursor = 0;
+        for (start, end, text) in replacements.into_iter().rev() {
+            output.push_str(&buffer[cursor..start.0]);
+            output.push_str(&text);
+            cursor = end.0;
+        }
+        output.push_str(&buffer[cursor..]);
+        return output;
+    }
     let mut output = buffer.to_owned();
     for (start, end, text) in replacements {
         output.replace_range(start.0..end.0, &text);
