@@ -200,7 +200,7 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
         ),
     ];
 
-    let stats = rewrite_files(&files, Rewrite::Fix).expect("fixes succeed");
+    let stats = rewrite_files(&files, Rewrite::Fix);
 
     assert_eq!(
         fs::read_to_string(&first).unwrap(),
@@ -208,6 +208,7 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
     );
     assert_eq!(fs::read_to_string(&second).unwrap(), "alpha: beta\n");
     assert_eq!(stats.changed_files, 2);
+    assert!(stats.errors.is_empty());
 }
 
 #[test]

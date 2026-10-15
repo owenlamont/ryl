@@ -65,9 +65,10 @@ pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,
-    /// Files left untouched because they do not parse, with the parse error so the caller can
-    /// say why `--fix` refused them.
+    /// Input or region problems that the rewrite skipped.
     pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
+    /// Input index and error for files that could not be read or written.
+    pub errors: Vec<(usize, String)>,
 }
 
 /// One file's in-place fix result. A file may both change and carry skips: a Markdown file
@@ -205,14 +206,17 @@ pub fn rewrite_str(
 }
 
 /// Apply `rewrite` to each file in place.
-///
-/// # Errors
-///
-/// Returns an error if any file cannot be read or any rewritten contents cannot be written.
-pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> Result<FixStats, String> {
+#[must_use]
+pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
-    for (path, base_dir, cfg, kind) in files {
-        let outcome = rewrite_in_place(path, cfg, base_dir, *kind, rewrite)?;
+    for (index, (path, base_dir, cfg, kind)) in files.iter().enumerate() {
+        let outcome = match rewrite_in_place(path, cfg, base_dir, *kind, rewrite) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                stats.errors.push((index, error));
+                continue;
+            }
+        };
         if outcome.changed {
             stats.changed_files += 1;
         }
@@ -220,7 +224,7 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> Result<FixStats, S
             stats.skipped.push((path.clone(), problem));
         }
     }
-    Ok(stats)
+    stats
 }
 
 /// A rewrite preview; formatting changes can have no applicable text diff.

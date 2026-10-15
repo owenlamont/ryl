@@ -17,8 +17,10 @@ for editors, CI, and Git forges.
 | `gitlab` | GitLab Code Quality JSON report | stdout |
 
 The exit code is the same for every format: `0` when clean, `1` when any error-level
-diagnostic is found (or `2` with `--strict` and only warnings), `2` for a usage or config
-error.
+diagnostic is found, and `2` for a usage or config error, a failed `check --fix`
+write, or `--strict` with only warnings.
+When `check --fix` cannot read or write an input, every selected output includes that
+file as a processing error; JUnit marks its testcase errored and GitLab emits a blocker.
 
 ## Choosing where output goes
 
