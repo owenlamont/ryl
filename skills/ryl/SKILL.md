@@ -1,7 +1,7 @@
 ---
 name: ryl
 description: >-
-  Lint and format YAML with ryl. Use when checking or formatting YAML, setting
+  Fast YAML linter and formatter. Use when checking or formatting YAML, setting
   up YAML tooling, or migrating from yamllint. Covers rule selection, exit codes,
   safe fixes versus formatting, TOML configuration, output formats, directives,
   and YAML embedded in Markdown.
@@ -21,8 +21,8 @@ Pre-commit via the `owenlamont/ryl-pre-commit` hook (`ryl` for YAML files,
 
 ryl never enables a rule unless a configuration or `--enable` turns it on. When it has a
 file to lint and neither `--enable` nor a config that enables a rule, it exits `2`, not
-`0` (an empty or fully-ignored input set still exits `0`). This is stricter than
-yamllint. Always give it a config or `--enable` first:
+`0` (an empty or fully-ignored input set still exits `0`). Always give it a
+config or `--enable` first:
 
 ```bash
 ryl check --enable ALL .                    # quick: every rule, including ryl-only rules

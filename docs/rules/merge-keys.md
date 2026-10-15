@@ -41,11 +41,9 @@ Sources: YAML 1.2.2 changes page; YAML merge type.
 
 ## Configuration
 
-`merge-keys` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[lint.rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.lint.rules.merge-keys]` in `pyproject.toml`. It is rejected in
-yamllint-compatible YAML config (including `-d` data) so the YAML namespace stays
-reserved for any future yamllint rule.
+`merge-keys` is configured **only in TOML** &mdash; `[lint.rules.merge-keys]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.merge-keys]` in `pyproject.toml`.
+YAML config (including `-d` data) rejects it.
 
 ```toml
 [lint.rules.merge-keys]

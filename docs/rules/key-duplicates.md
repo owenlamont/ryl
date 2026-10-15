@@ -35,8 +35,8 @@ forbid-merge-key-shadowing = false   # ryl-only
 | `check-canonical` | `false` | **ryl-only.** Compare keys by their YAML 1.2 core-schema canonical form, so `0xB`/`011`/`11` (integer 11) or `Null`/`~` collide, while a quoted `"11"` (a string) stays distinct from the integer `11`. A key carrying a local / non-core tag falls back to literal-text comparison. Also reports *merge-vs-merge* collisions: a `<<` whose merged mappings assign **different values** to the same key (sources that agree, or the same anchor merged twice, are not flagged). |
 | `forbid-merge-key-shadowing` | `false` | **ryl-only.** Also report a key that is set both by a merge and explicitly when the two **values differ** &mdash; the value-changing `<<: *defaults` + override pattern. A redundant override to the merged value is not flagged. (Merge-vs-merge collisions are reported whenever either ryl-only knob is on.) |
 
-`check-canonical` and `forbid-merge-key-shadowing` are ryl-only and configurable
-only in TOML; a yamllint-compatible YAML config rejects them.
+`check-canonical` and `forbid-merge-key-shadowing` are configurable only in TOML;
+YAML config rejects them.
 
 ## Examples
 

@@ -16,8 +16,7 @@ Two common cases:
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](rules/line-length.md).
 
-`per-line-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config.
+`per-line-ignores` is configured in TOML only; YAML config rejects it.
 
 ## Configuration
 

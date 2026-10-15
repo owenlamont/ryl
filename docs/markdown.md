@@ -13,8 +13,8 @@ diagnostic's line and column point back into the original Markdown file.
 
 This is a ryl-only capability, so it is configured exclusively in **TOML**
 (`ryl.toml`, `.ryl.toml`, or `[tool.ryl]` in `pyproject.toml`) and rejected in
-yamllint-compatible YAML config. The YAML (`yamllint`-compatible) configuration
-uses the legacy `yaml-files` key and has no markdown support.
+YAML config. YAML configuration uses the legacy `yaml-files` key and has no
+Markdown support.
 
 ## Source kinds and the `[files]` table
 

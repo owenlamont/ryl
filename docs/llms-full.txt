@@ -1,6 +1,6 @@
 # ryl
 
-> A fast YAML linter, written in Rust
+> Fast YAML linter and formatter
 
 ---
 
@@ -165,7 +165,7 @@ ryl check .
 
 ryl does not enable any rules by default, so these commands report `no
 configuration found` (exit `2`) until a configuration or `--enable` turns on a rule.
-To lint with yamllint's standard rule set straight away, pass it inline:
+To use the built-in `default` YAML preset straight away, pass it inline:
 
 ```bash
 ryl check -d 'extends: default' .
@@ -213,15 +213,13 @@ cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, pass a
-  YAML config with `extends: default` for yamllint's standard rule set, or pass
+  YAML config with `extends: default`, or pass
   `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
   least one rule, use `extends: default`, or pass `--enable ALL`.
 
-This is stricter than yamllint, which lints with the `default` preset when no config
-is found and silently accepts a rule-less config. Give ryl a config containing
-`extends: default` to reproduce yamllint's out-of-the-box behaviour.
+To use the built-in YAML preset, give ryl a config containing `extends: default`.
 
 ## Apply auto-fixes
 
@@ -320,8 +318,8 @@ The recommended TOML config is deliberately **explicit** and **local**: it has
 no default-on rules and no `extends`/inheritance, so a single `.ryl.toml`
 (discovered by searching upward, and preferred over a `.yamllint`) is the
 entire ruleset for the files beneath it; a monorepo can have many, each
-governing its subtree. A yamllint-style YAML config instead keeps yamllint
-semantics, where `extends:` merges in a preset or another file. When no
+governing its subtree. A YAML config can use `extends:` to merge in a preset
+or another file. When no
 project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
@@ -361,11 +359,9 @@ line-length = 100
 indent-width = 4
 ```
 
-YAML configuration is also accepted for parity with yamllint and supports
-`extends:` for selecting a preset. Both `.yamllint` and `.ryl.toml` are
-discovered automatically. TOML is the recommended format for ryl-specific
-features (such as fix selection) that have no upstream yamllint
-equivalent.
+YAML configuration is also accepted and supports `extends:` for selecting a
+preset. Both `.yamllint` and `.ryl.toml` are discovered automatically. TOML is
+the recommended format for features such as fix selection.
 
 To keep config out of the project root, ryl also discovers a ryl-native TOML
 config inside a repo-local `.config/` directory (the RuboCop/rumdl convention).
@@ -530,7 +526,7 @@ https://ryl-docs.pages.dev/llms-full.txt   # the full docs concatenated in one f
 ## No MCP server
 
 ryl is a CLI an agent can shell out to, so it intentionally ships no MCP server (as with
-ruff, Biome, Prettier, and yamllint). The skill plus `llms.txt` cover the agent use case.
+ruff, Biome, and Prettier). The skill plus `llms.txt` cover the agent use case.
 
 ---
 
@@ -714,10 +710,15 @@ the rule-enabled gate.
 
 ## How ryl differs from yamllint
 
-ryl is a drop-in replacement, but it intentionally diverges from yamllint in a
-small number of places. Every divergence is deliberate: ryl is **more correct
-against the YAML 1.2.2 specification**, it **fails loudly instead of silently**, or
-it **avoids redundant output**. The complete list:
+ryl reads yamllint configs and directives, but behaves differently in a small number
+of places. Each difference is deliberate: ryl follows the YAML 1.2.2 specification and
+its reference parser, reports a problem rather than ignoring it, or avoids repeated
+output. The complete list:
+
+### Rules with no yamllint equivalent
+
+`block-scalar-chomping`, `merge-keys`, `tags` and `unicode-line-breaks` are ryl's own
+rules. They are configurable only in TOML; a YAML config that names one is rejected.
 
 ### No implicit default configuration
 
@@ -1310,8 +1311,7 @@ documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
 
 For configuration discovery, presets, and file selection, see
-[Configuration presets](https://ryl-docs.pages.dev/config-presets/). For migrating from yamllint, see
-[Migrating from yamllint](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/).
+[Configuration presets](https://ryl-docs.pages.dev/config-presets/).
 
 ## Rule categories
 
@@ -1511,7 +1511,7 @@ bare carriage return or the filename cannot be represented in a diff header.
 ## Configuration
 
 `ryl format` reads the `[format]` table of the same `.ryl.toml`, `ryl.toml` or
-`pyproject.toml` (`[tool.ryl.format]`) that `ryl check` uses. A yamllint-style YAML
+`pyproject.toml` (`[tool.ryl.format]`) that `ryl check` uses. A YAML
 config cannot set it, so YAML-configured projects get the defaults.
 
 ```toml
@@ -1591,29 +1591,28 @@ it is and named on stderr.
 
 ## Default profile
 
-With no `[format]` table, `ryl format` writes the profile below. Compared with
-`ryl check --fix` under yamllint's `default` preset, it does not add `---`, can
-remove redundant quotes or switch required double quotes to single, and can indent
-flush sequences. Migration writes `quote-style = "preserve"` because
-`quoted-strings` is disabled in the preset.
+With no `[format]` table, `ryl format` writes the profile below. It preserves
+existing document start markers, can remove redundant quotes or switch required
+double quotes to single, and can indent flush sequences. Migration writes
+`quote-style = "preserve"` when `quoted-strings` is disabled in the source preset.
 
 | Default | Why |
 | :--- | :--- |
 | `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
-| `line-ending = "lf"` | The default of biome, prettier and yamllint's `new-lines` |
+| `line-ending = "lf"` | The default of biome and prettier |
 | `document-start = "preserve"` | prettier keeps a file's markers as written |
 | `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
 | `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
-| `brace-spacing = false` | yamllint's `braces` defaults and yamlfix; prettier and biome pad |
-| `comment-spacing = 2` | yamllint's `comments`, ruff and yamlfix |
-| `comment-starting-space = "add"` | yamllint's `comments` requires the space |
-| `max-blank-lines = 2` | yamllint's `empty-lines` and ruff |
+| `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier and biome pad |
+| `comment-spacing = 2` | The default of ruff and yamlfix |
+| `comment-starting-space = "add"` | Adds a space after `#` |
+| `max-blank-lines = 2` | Keeps short gaps between content |
 | `sequence-style = "preserve"` | Restyling a collection is opt-in |
 | `mapping-style = "preserve"` | Restyling a collection is opt-in |
-| `indent-sequences = true` | yamllint's `indentation` default; prettier indents them too |
+| `indent-sequences = true` | prettier also indents them |
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
-| `line-length = 80` | The default of prettier, biome and yamllint's `line-length` |
+| `line-length = 80` | The default of prettier and biome |
 | `indent-width = 2` | The default of prettier, biome and yamlfix, for a file that shows no width of its own |
 | Fixed layout above | Every formatter probed agrees |
 
@@ -1753,8 +1752,8 @@ and LF line endings, ryl leaves the region unchanged with a notice and `--check`
 ## Suppression
 
 `ryl format` honours the same [inline directives](https://ryl-docs.pages.dev/directives/) as `ryl check`: a
-`# yamllint disable-file` comment leaves the file alone, and
-`# yamllint disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
+`# ryl disable-file` comment leaves the file alone, and
+`# ryl disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
 that rule's formatting where it applies. There is no format-only directive.
 Lint configuration's `[[lint.per-line-ignores]]` and `[lint.per-file-ignores]` suppress
 lint findings and safe `check --fix` edits, but do not gate `ryl format`.
@@ -1954,11 +1953,10 @@ the scenes:
   tables below *are* the presets, so copy the one you want into your
   `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
   one explicit config.
-- **YAML config (yamllint parity):** a yamllint-style config may `extends:` a
+- **YAML config:** a YAML config may `extends:` a
   built-in preset (`default`, `relaxed`, `empty`) or another config file, and
   ryl merges the inherited settings in (with overrides under `rules:`). This
-  inheritance is the yamllint behaviour the recommended TOML format omits by
-  design.
+  inheritance is available in YAML config; TOML config is self-contained.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
 `relaxed`, `empty`) in `src/config/legacy_yaml.rs`.
@@ -2080,7 +2078,7 @@ Source: https://ryl-docs.pages.dev/directives/
 
 Sometimes a single line legitimately breaks a rule and changing the file is the
 wrong fix. ryl supports inline comment directives that switch rules off for part
-of a file, just like yamllint. The preferred spelling uses `ryl`:
+of a file. The preferred spelling uses `ryl`:
 
 ```yaml
 key:   value  # ryl disable-line rule:colons
@@ -2132,7 +2130,7 @@ untouched:
 this:   file: is: not: linted
 ```
 
-It must be the first line, with no `rule:` tokens. For yamllint parity the `#`
+It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
 
 ### Targeting rules
@@ -2170,15 +2168,14 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 
 ## yamllint compatibility
 
-For drop-in compatibility with projects migrating from yamllint, the
-`# yamllint …` spelling is accepted as an alias for every directive form, though
+The `# yamllint …` spelling is accepted as an alias for every directive form, though
 only as a whole comment (see above):
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons
 ```
 
-Both spellings follow yamllint's exact grammar. A comment (or, for
+Both spellings follow the same grammar. A comment (or, for
 `# ryl …`, one `#` part of it) is only treated as a directive when it matches
 precisely &mdash; a single space after `#`, single
 spaces between words, and `rule:` before each id. Near-misses are plain
@@ -2229,8 +2226,7 @@ Two common cases:
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](https://ryl-docs.pages.dev/rules/line-length/).
 
-`per-line-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config.
+`per-line-ignores` is configured in TOML only; YAML config rejects it.
 
 ## Configuration
 
@@ -2426,8 +2422,7 @@ truthy = "enable"
 A file under `["ALL"]` is still parsed, so a syntax error in it is still
 reported and the run exits `1`. To skip the file entirely, use `exclude`.
 
-`per-file-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config.
+`per-file-ignores` is configured in TOML only; YAML config rejects it.
 
 ## Per-rule `ignore`
 
@@ -2484,8 +2479,8 @@ diagnostic's line and column point back into the original Markdown file.
 
 This is a ryl-only capability, so it is configured exclusively in **TOML**
 (`ryl.toml`, `.ryl.toml`, or `[tool.ryl]` in `pyproject.toml`) and rejected in
-yamllint-compatible YAML config. The YAML (`yamllint`-compatible) configuration
-uses the legacy `yaml-files` key and has no markdown support.
+YAML config. YAML configuration uses the legacy `yaml-files` key and has no
+Markdown support.
 
 ## Source kinds and the `[files]` table
 
@@ -3036,7 +3031,7 @@ Source: https://ryl-docs.pages.dev/output-formats/
 # Output formats
 
 `ryl check` renders diagnostics in several formats, selected with `--output-format`
-(`-f` or yamllint's `--format` are aliases for `check` only). `ryl format --check`
+(`-f` and `--format` are aliases for `check` only). `ryl format --check`
 accepts `--output-format` without those aliases. The default, `auto`, picks a
 human-readable format for your environment; the machine-readable formats are opt-in
 for editors, CI, and Git forges.
@@ -3238,7 +3233,7 @@ hover only explains ryl's own diagnostics.
 | Formatting | `textDocument/formatting` | Runs [`ryl format`](https://ryl-docs.pages.dev/formatter/) on the document, under the `[format]` table; each YAML region of a Markdown file is formatted on its own |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
-| File watching | `workspace/didChangeWatchedFiles` | Watches ryl/yamllint config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
+| File watching | `workspace/didChangeWatchedFiles` | Watches supported config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
 The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrence "fix just
 this one" action, because its fix engine operates per file (the per-rule fix-all is the
@@ -3419,8 +3414,8 @@ Source: https://ryl-docs.pages.dev/yaml-version/
 ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork). A
 document with no version directive is resolved per the YAML 1.2 core schema,
 matching the spec, which assumes a directive-less document conforms to 1.2.
-yamllint, by comparison, is built on [PyYAML][pyyaml], which defaults to YAML
-1.1 semantics for boolean and other implicit type resolution.
+Implicit type resolution can differ from tools built on YAML 1.1 loaders such
+as [PyYAML][pyyaml].
 
 Most YAML files do not exercise the parts of the language where the two
 versions disagree, so in practice the difference rarely shows up. The two
@@ -3429,7 +3424,7 @@ places it matters in ryl are:
 - The [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) rule when used with
   `required: "only-when-needed"`.
 - Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
-  configuration files inherited from yamllint.
+  configuration files.
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
@@ -3457,9 +3452,9 @@ like, which are the same boolean under both versions.
 
 Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
 any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
-`'1_000'`), as yamllint does, so the output means the same to a 1.1 consumer
-such as PyYAML. The set is PyYAML's 1.1 resolver plus yamllint's `0o` octal,
-and `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads as
+`'1_000'`), so the output means the same to a 1.1 consumer such as PyYAML.
+The set is PyYAML's 1.1 resolver plus `0o` octal and `y`, `Y`, `n`, and `N`,
+which go-yaml v2 (used by Kubernetes) loads as
 booleans although PyYAML does not.
 Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
 `'008'`) are kept too.
@@ -3478,10 +3473,10 @@ files.
 
 ## Implications for the `quoted-strings` rule
 
-With `quote-type: double, required: only-when-needed`, yamllint considers
-`"yes"` to need quoting (because the bareword would parse as a boolean in
-1.1), so it accepts the quoted form. ryl does the same whatever the
-directive, since removing the quotes would change the value for a 1.1
+With `quote-type: double, required: only-when-needed`, ryl considers
+`"yes"` to need quoting because the bareword would parse as a boolean in
+1.1. The safeguard applies whatever the directive, since removing the
+quotes would change the value for a 1.1
 consumer.
 
 ## Implications for configuration files
@@ -3514,8 +3509,7 @@ syntax independent of YAML version.
 
 The rules below behave the way they do *because* ryl reads a directive-less
 input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
-1.1, as above). Most of these are intentional and align with yamllint when
-yamllint is configured for 1.2 explicitly:
+1.1, as above):
 
 - [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) &mdash; the rule itself still recognises
   the 1.1 truthy word list as ambiguous and flags barewords like `yes`
@@ -3639,9 +3633,8 @@ forbid-ambiguous-anchor-alias-names = false   # ryl-only
 | `forbid-unused-anchors` | `false` | Report anchors that are never referenced by an alias. |
 | `forbid-ambiguous-anchor-alias-names` | `false` | **ryl-only.** Report an anchor (`&name`) or alias (`*name`) whose name has a `:` welded to it &mdash; trailing (`&foo:`), internal (`&foo:bar`), or leading (`&:foo`) &mdash; the construct parsers disagree on. A space before the `:` (`*foo : bar`) is the unambiguous alias-key form and is never flagged. |
 
-`forbid-ambiguous-anchor-alias-names` is ryl-only and configurable only in
-TOML; a yamllint-compatible YAML config rejects it so the YAML `anchors`
-namespace stays reserved for any future yamllint option.
+`forbid-ambiguous-anchor-alias-names` is configurable only in TOML; YAML config
+rejects it.
 
 ## Examples
 
@@ -3740,11 +3733,10 @@ Sources: YAML 1.2.2 §8.1.1.2 (block chomping indicator);
 
 ## Configuration
 
-`block-scalar-chomping` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[lint.rules.block-scalar-chomping]` in
+`block-scalar-chomping` is configured **only in TOML** &mdash;
+`[lint.rules.block-scalar-chomping]` in
 `.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.block-scalar-chomping]` in
-`pyproject.toml`. It is rejected in yamllint-compatible YAML config (including `-d`
-data) so the YAML namespace stays reserved for any future yamllint rule.
+`pyproject.toml`. YAML config (including `-d` data) rejects it.
 
 ```toml
 [lint.rules.block-scalar-chomping]
@@ -4152,13 +4144,12 @@ allow-any-open-indent = false
 
 ### `allow-any-open-indent`
 
-A ryl-only option (configurable in TOML only; rejected in yamllint-compatible YAML
-config). When `true`, a standalone comment is also accepted if its indentation
-matches **any currently-open enclosing block level**, not just the content that
+This option is configurable in TOML only; YAML config rejects it. When `true`,
+a standalone comment is also accepted if its indentation matches **any
+currently-open enclosing block level**, not just the content that
 follows it &mdash; useful for a comment that marks where a nested block ends. A
 comment indented more deeply than every open level (or at a non-boundary indent) is
-still reported. The default `false` keeps the yamllint-compatible behaviour. Origin:
-[adrienverge/yamllint#141](https://github.com/adrienverge/yamllint/issues/141).
+still reported. The default is `false`.
 
 ## Examples
 
@@ -4780,8 +4771,7 @@ dash-on-own-line = false
 | `max-spaces-after` | `1` | Maximum spaces between the `-` and the item value. |
 | `dash-on-own-line` | `false` | Require the `-` on its own line when the entry is a block mapping (ryl-only; TOML config only). |
 
-`dash-on-own-line` is a ryl-only extension with no yamllint counterpart, so it is
-configured in TOML config only and rejected in yamllint-compatible YAML config.
+`dash-on-own-line` is configured in TOML only; YAML config rejects it.
 
 ## Examples
 
@@ -4992,8 +4982,8 @@ forbid-merge-key-shadowing = false   # ryl-only
 | `check-canonical` | `false` | **ryl-only.** Compare keys by their YAML 1.2 core-schema canonical form, so `0xB`/`011`/`11` (integer 11) or `Null`/`~` collide, while a quoted `"11"` (a string) stays distinct from the integer `11`. A key carrying a local / non-core tag falls back to literal-text comparison. Also reports *merge-vs-merge* collisions: a `<<` whose merged mappings assign **different values** to the same key (sources that agree, or the same anchor merged twice, are not flagged). |
 | `forbid-merge-key-shadowing` | `false` | **ryl-only.** Also report a key that is set both by a merge and explicitly when the two **values differ** &mdash; the value-changing `<<: *defaults` + override pattern. A redundant override to the merged value is not flagged. (Merge-vs-merge collisions are reported whenever either ryl-only knob is on.) |
 
-`check-canonical` and `forbid-merge-key-shadowing` are ryl-only and configurable
-only in TOML; a yamllint-compatible YAML config rejects them.
+`check-canonical` and `forbid-merge-key-shadowing` are configurable only in TOML;
+YAML config rejects them.
 
 ## Examples
 
@@ -5378,11 +5368,9 @@ Sources: YAML 1.2.2 changes page; YAML merge type.
 
 ## Configuration
 
-`merge-keys` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[lint.rules.merge-keys]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.lint.rules.merge-keys]` in `pyproject.toml`. It is rejected in
-yamllint-compatible YAML config (including `-d` data) so the YAML namespace stays
-reserved for any future yamllint rule.
+`merge-keys` is configured **only in TOML** &mdash; `[lint.rules.merge-keys]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.merge-keys]` in `pyproject.toml`.
+YAML config (including `-d` data) rejects it.
 
 ```toml
 [lint.rules.merge-keys]
@@ -5750,11 +5738,11 @@ unfixable = ["quoted-strings"]
 ## YAML 1.1 values with `required = "only-when-needed"`
 
 Whatever the document's `%YAML` directive, a quoted scalar that YAML 1.1
-reads as a non-string is not redundantly quoted, as in yamllint: `'no'`,
+reads as a non-string is not redundantly quoted: `'no'`,
 `'on'`, `'yes'` and their case variants, 1.1 integers, floats, sexagesimals
 and timestamps keep their quotes, and `--fix` leaves them in place, since
 stripping them would change the value for a 1.1 consumer such as PyYAML.
-Unlike yamllint, `'y'`, `'Y'`, `'n'` and `'N'` keep their quotes too, since
+`'y'`, `'Y'`, `'n'` and `'N'` keep their quotes too, since
 go-yaml v2, used by Kubernetes, loads them as booleans. Unless the document declares `%YAML 1.1`, quotes a YAML 1.2 reader
 needs (`'+.5'`, `'008'`) are kept too. `ryl format` keeps the same quotes. See
 [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/) for more context.
@@ -5799,11 +5787,9 @@ YAML Company.
 
 ## Configuration
 
-`tags` is a ryl-only rule (yamllint has no equivalent), so it is configured
-**only in TOML** &mdash; `[lint.rules.tags]` in `.ryl.toml`/`ryl.toml` or
-`[tool.ryl.lint.rules.tags]` in `pyproject.toml`. It is rejected in
-yamllint-compatible YAML config (including `-d` data) so the YAML `tags`
-namespace stays reserved for any future yamllint rule.
+`tags` is configured **only in TOML** &mdash; `[lint.rules.tags]` in
+`.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.tags]` in `pyproject.toml`.
+YAML config (including `-d` data) rejects it.
 
 ```toml
 [lint.rules.tags]
@@ -6012,8 +5998,8 @@ $ ryl check .github/workflows/ci.yml
 Quoting the key does not help. ryl resolves the YAML 1.2 core schema, where `on`
 is an ordinary string, so `'on':` then trips
 [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) under `required: only-when-needed`.
-yamllint accepts the quotes because PyYAML reads `on` as a YAML 1.1 boolean
-&mdash; see [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/).
+See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/) for how implicit types
+affect quoting.
 
 Three ways to settle it, narrowest first:
 
@@ -6145,11 +6131,10 @@ Sources: YAML 1.2.2 changes page; YAML 1.2.2 spec §5.1 (character set), §5.4
 
 ## Configuration
 
-`unicode-line-breaks` is a ryl-only rule (yamllint has no equivalent), so it is
-configured **only in TOML** &mdash; `[lint.rules.unicode-line-breaks]` in
+`unicode-line-breaks` is configured **only in TOML** &mdash;
+`[lint.rules.unicode-line-breaks]` in
 `.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.unicode-line-breaks]` in
-`pyproject.toml`. It is rejected in yamllint-compatible YAML config (including
-`-d` data) so the YAML namespace stays reserved for any future yamllint rule.
+`pyproject.toml`. YAML config (including `-d` data) rejects it.
 
 ```toml
 [lint.rules.unicode-line-breaks]

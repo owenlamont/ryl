@@ -40,4 +40,4 @@ https://ryl-docs.pages.dev/llms-full.txt   # the full docs concatenated in one f
 ## No MCP server
 
 ryl is a CLI an agent can shell out to, so it intentionally ships no MCP server (as with
-ruff, Biome, Prettier, and yamllint). The skill plus `llms.txt` cover the agent use case.
+ruff, Biome, and Prettier). The skill plus `llms.txt` cover the agent use case.

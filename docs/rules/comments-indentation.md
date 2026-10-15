@@ -26,13 +26,12 @@ allow-any-open-indent = false
 
 ### `allow-any-open-indent`
 
-A ryl-only option (configurable in TOML only; rejected in yamllint-compatible YAML
-config). When `true`, a standalone comment is also accepted if its indentation
-matches **any currently-open enclosing block level**, not just the content that
+This option is configurable in TOML only; YAML config rejects it. When `true`,
+a standalone comment is also accepted if its indentation matches **any
+currently-open enclosing block level**, not just the content that
 follows it &mdash; useful for a comment that marks where a nested block ends. A
 comment indented more deeply than every open level (or at a non-boundary indent) is
-still reported. The default `false` keeps the yamllint-compatible behaviour. Origin:
-[adrienverge/yamllint#141](https://github.com/adrienverge/yamllint/issues/141).
+still reported. The default is `false`.
 
 ## Examples
 

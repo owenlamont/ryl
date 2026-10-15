@@ -22,7 +22,7 @@ hover only explains ryl's own diagnostics.
 | Formatting | `textDocument/formatting` | Runs [`ryl format`](formatter.md) on the document, under the `[format]` table; each YAML region of a Markdown file is formatted on its own |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
-| File watching | `workspace/didChangeWatchedFiles` | Watches ryl/yamllint config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
+| File watching | `workspace/didChangeWatchedFiles` | Watches supported config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
 The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrence "fix just
 this one" action, because its fix engine operates per file (the per-rule fix-all is the

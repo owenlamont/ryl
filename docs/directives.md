@@ -4,7 +4,7 @@
 
 Sometimes a single line legitimately breaks a rule and changing the file is the
 wrong fix. ryl supports inline comment directives that switch rules off for part
-of a file, just like yamllint. The preferred spelling uses `ryl`:
+of a file. The preferred spelling uses `ryl`:
 
 ```yaml
 key:   value  # ryl disable-line rule:colons
@@ -56,7 +56,7 @@ untouched:
 this:   file: is: not: linted
 ```
 
-It must be the first line, with no `rule:` tokens. For yamllint parity the `#`
+It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
 
 ### Targeting rules
@@ -94,15 +94,14 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 
 ## yamllint compatibility
 
-For drop-in compatibility with projects migrating from yamllint, the
-`# yamllint …` spelling is accepted as an alias for every directive form, though
+The `# yamllint …` spelling is accepted as an alias for every directive form, though
 only as a whole comment (see above):
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons
 ```
 
-Both spellings follow yamllint's exact grammar. A comment (or, for
+Both spellings follow the same grammar. A comment (or, for
 `# ryl …`, one `#` part of it) is only treated as a directive when it matches
 precisely &mdash; a single space after `#`, single
 spaces between words, and `rule:` before each id. Near-misses are plain

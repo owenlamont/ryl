@@ -1,7 +1,7 @@
 # Output formats
 
 `ryl check` renders diagnostics in several formats, selected with `--output-format`
-(`-f` or yamllint's `--format` are aliases for `check` only). `ryl format --check`
+(`-f` and `--format` are aliases for `check` only). `ryl format --check`
 accepts `--output-format` without those aliases. The default, `auto`, picks a
 human-readable format for your environment; the machine-readable formats are opt-in
 for editors, CI, and Git forges.
