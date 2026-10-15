@@ -285,13 +285,26 @@ fn migrate_failed_rewrite_keeps_original_bytes() {
 
 #[cfg(unix)]
 #[test]
-fn migrate_rewrite_preserves_permissions() {
-    use std::os::unix::fs::PermissionsExt;
+fn migrate_rewrite_and_backup_preserve_metadata() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt, chown};
+    use std::process::Command;
 
     let dir = tempdir().unwrap();
     let path = dir.path().join(".ryl.toml");
     fs::write(&path, LEGACY).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+    let initial_gid = fs::metadata(&path).unwrap().gid();
+    let groups = Command::new("id").arg("-G").output().unwrap();
+    assert!(groups.status.success());
+    let other_gid = String::from_utf8(groups.stdout)
+        .unwrap()
+        .split_whitespace()
+        .filter_map(|group| group.parse::<u32>().ok())
+        .find(|&group| group != initial_gid);
+    if let Some(gid) = other_gid {
+        chown(&path, None, Some(gid)).unwrap();
+    }
+    let before = fs::metadata(&path).unwrap();
 
     let (code, _, stderr) = migrate(
         dir.path(),
@@ -304,12 +317,16 @@ fn migrate_rewrite_preserves_permissions() {
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o640
     );
+    assert_eq!(fs::metadata(&path).unwrap().uid(), before.uid());
+    assert_eq!(fs::metadata(&path).unwrap().gid(), before.gid());
     let backup = dir.path().join(".ryl.toml.bak");
     assert_eq!(fs::read(&backup).unwrap(), LEGACY.as_bytes());
     assert_eq!(
         fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
         0o640
     );
+    assert_eq!(fs::metadata(&backup).unwrap().uid(), before.uid());
+    assert_eq!(fs::metadata(&backup).unwrap().gid(), before.gid());
 }
 
 #[test]

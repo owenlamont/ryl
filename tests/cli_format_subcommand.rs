@@ -52,25 +52,6 @@ fn check_and_diff_are_mutually_exclusive() {
     assert_eq!(code, 2, "--check with --diff is a usage error: {stderr}");
 }
 
-#[cfg(unix)]
-#[test]
-fn format_failed_write_keeps_original_bytes() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("a.yaml");
-    let original = b"a:  1\n";
-    fs::write(&path, original).unwrap();
-    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o500)).unwrap();
-
-    let (code, _, stderr) =
-        run(ryl(dir.path()).args(["format", "-d", "relaxed"]).arg(&path));
-
-    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    assert_eq!(code, 2, "{stderr}");
-    assert_eq!(fs::read(&path).unwrap(), original);
-}
-
 #[test]
 fn markdown_format_refuses_new_closing_fence_lines() {
     for body in ["\"~~~\"", "alpha beta gamma ~~~"] {

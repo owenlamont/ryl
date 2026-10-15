@@ -57,8 +57,8 @@ keeps the default console target.
 `render_gitlab` over `build_entries` for reports, built once and shared) and `commit`s to
 each `open_destination`.
 
-An output file is opened without truncation, then atomically replaced at commit.
-An *existing* artifact survives a later target failing to open; a *freshly*-created
+A file is opened create+write **without** truncate, then truncated+written at commit, so
+an *existing* artifact survives a later target failing to open; a *freshly*-created
 destination may be left empty on a rejected run — cleaning it by path would race a
 concurrent writer, so it is left for the failed run, gate CI artifact use on the exit
 code. `open_targets` opens all destinations before `--fix` mutates (unopenable `-o` fails

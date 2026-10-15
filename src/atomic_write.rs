@@ -33,36 +33,27 @@ fn temp_file(path: &Path) -> io::Result<(TempPath, File)> {
     Ok((TempPath(temp), file))
 }
 
-/// Write a regular file through a sibling temporary file, preserving permissions when replacing.
-///
-/// # Errors
-/// Returns an error when the target is a symlink or any file operation fails.
-pub fn write(path: &Path, bytes: &[u8], replace: bool) -> io::Result<()> {
-    write_with_permissions(path, bytes, replace, None)
+pub(crate) fn write(path: &Path, bytes: &[u8], replace: bool) -> io::Result<()> {
+    write_with_metadata(path, bytes, replace, None)
 }
 
 pub(crate) fn copy_new(source: &Path, target: &Path) -> io::Result<()> {
     fs::read(source).and_then(|original| {
         fs::metadata(source).and_then(|metadata| {
-            write_with_permissions(
-                target,
-                &original,
-                false,
-                Some(metadata.permissions()),
-            )
+            write_with_metadata(target, &original, false, Some(metadata))
         })
     })
 }
 
-fn write_with_permissions(
+fn write_with_metadata(
     path: &Path,
     bytes: &[u8],
     replace: bool,
-    permissions: Option<fs::Permissions>,
+    metadata: Option<fs::Metadata>,
 ) -> io::Result<()> {
-    let permissions = if replace {
-        fs::symlink_metadata(path).and_then(|metadata| {
-            if metadata.file_type().is_symlink() {
+    let metadata = if replace {
+        fs::symlink_metadata(path).and_then(|source_metadata| {
+            if source_metadata.file_type().is_symlink() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "refusing to follow a symlink",
@@ -71,23 +62,23 @@ fn write_with_permissions(
             OpenOptions::new()
                 .write(true)
                 .open(path)
-                .map(|_| Some(metadata.permissions()))
+                .map(|_| Some(source_metadata))
         })
     } else {
-        Ok(permissions)
+        Ok(metadata)
     };
-    permissions.and_then(|permissions| write_temp(path, bytes, replace, permissions))
+    metadata.and_then(|metadata| write_temp(path, bytes, replace, metadata))
 }
 
 fn write_temp(
     path: &Path,
     bytes: &[u8],
     replace: bool,
-    permissions: Option<fs::Permissions>,
+    metadata: Option<fs::Metadata>,
 ) -> io::Result<()> {
     let (temp, mut file) = temp_file(path)?;
-    let written = permissions
-        .map_or(Ok(()), |permissions| file.set_permissions(permissions))
+    let written = metadata
+        .map_or(Ok(()), |metadata| preserve_metadata(&file, &metadata))
         .and_then(|()| file.write_all(bytes))
         .and_then(|()| file.sync_all());
     drop(file);
@@ -98,4 +89,19 @@ fn write_temp(
             fs::hard_link(&temp.0, path)
         }
     })
+}
+
+fn preserve_metadata(file: &File, metadata: &fs::Metadata) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, fchown};
+
+        fchown(file, Some(metadata.uid()), Some(metadata.gid())).map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!("cannot preserve config owner and group: {err}"),
+            )
+        })?;
+    }
+    file.set_permissions(metadata.permissions())
 }

@@ -709,30 +709,29 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
 }
 
 /// An opened output destination. A file is opened create+write but **not** truncate, so its
-/// contents survive until [`OutputSink::commit`] replaces it: a later target
+/// contents survive until [`OutputSink::commit`] truncates and rewrites it: a later target
 /// failing to open then cannot destroy an existing artifact (a freshly created one may be
 /// left empty if a later target aborts; see [`open_destination`]).
 enum OutputSink {
     /// stdout or stderr, written and flushed as-is.
     Stream(Box<dyn Write>),
-    /// A `--output-file` target, replaced at commit time.
-    File(File, PathBuf),
+    /// A `--output-file` target, truncated then written at commit time.
+    File(File),
 }
 
 impl OutputSink {
-    /// Write `bytes` as this sink's complete contents.
+    /// Write `bytes` as this sink's complete contents (a file is truncated first, clearing
+    /// any prior artifact). The only fallible output step (rendering is infallible, see
+    /// [`OUTPUT_INFALLIBLE`]); write and flush are chained into one coverable error.
     fn commit(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         match self {
             Self::Stream(writer) => {
                 writer.write_all(bytes).and_then(|()| writer.flush())
             }
-            Self::File(file, path) => file.metadata().and_then(|metadata| {
-                if metadata.is_file() {
-                    ryl::atomic_write::write(path, bytes, true)
-                } else {
-                    file.write_all(bytes).and_then(|()| file.flush())
-                }
-            }),
+            Self::File(file) => {
+                file.set_len(0).and_then(|()| file.write_all(bytes))?;
+                file.flush()
+            }
         }
     }
 }
@@ -764,7 +763,7 @@ fn open_destination(destination: &Destination) -> Result<OutputSink, String> {
                         sanitize_control(&path.display().to_string())
                     )
                 })?;
-            Ok(OutputSink::File(file, path.clone()))
+            Ok(OutputSink::File(file))
         }
     }
 }

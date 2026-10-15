@@ -6,7 +6,7 @@
     clippy::cognitive_complexity
 )]
 
-pub mod atomic_write;
+mod atomic_write;
 pub mod cli_support;
 pub mod conf;
 pub mod config;
