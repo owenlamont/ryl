@@ -191,9 +191,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - When implementing a new rule or changing an existing one, extend the relevant
   property-test generator(s) so the new/updated syntax is actually exercised. Before
   committing, run every suite at its default count, plus a **20× run of each new
-  property test only** (`PROPTEST_CASES=5120 cargo test --release --test <suite>
-  <test_name>`), under 10 minutes. Release gates run every suite at its default count.
-  See the `property-tests` dev skill.
+  `proptest!` function only** (`PROPTEST_CASES=<20 × its cases> cargo test --release
+  --test <suite> <name> -- --exact`), under 10 minutes. Release gates run every suite at
+  its default count. See the `property-tests` dev skill.
 - Several traps make a test pass vacuously or fail only in CI — config discovery walking
   out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
   `testing-traps` dev skill before writing a test that drives the binary.

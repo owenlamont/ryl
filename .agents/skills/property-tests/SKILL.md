@@ -13,9 +13,12 @@ description: >-
 When implementing a new rule or changing an existing one, extend the relevant
 property-test generator(s) so the new/updated syntax is actually exercised (each suite
 below lists exactly what to extend and the deterministic guard to add), then
-before committing run every suite at its default count. A **new** property test also
-gets one 20× run on its own: e.g. `PROPTEST_CASES=5120 cargo test --release --test
-property_check <test_name>`; existing suites never run at 20×.
+before committing run every suite at its default count. A **newly added `proptest!`
+function** also gets one 20× run on its own; new cases from an extended generator do not
+count. Multiply that function's own case count: 5120 for a default 256-case test, 10240
+for one pinned at 512, e.g. `PROPTEST_CASES=10240 cargo test --release --test
+property_check <test_name> -- --exact` (`--exact` stops the name matching as a
+substring). Existing suites never run at 20×.
 Local suites use proptest's default 256
 cases unless they pin `cases` themselves; `PROPTEST_CASES` still overrides a pinned
 `cases`. Keep the whole step **under 10 minutes**. Commit only once it is green, and keep
