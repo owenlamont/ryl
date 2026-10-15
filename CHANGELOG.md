@@ -43,8 +43,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
-- `format` names Markdown regions it cannot write back because of mixed line endings
-  and makes `--check`/`--diff` fail for them; a fence-boundary refusal is also named.
+- When formatting would change a Markdown region with mixed line endings, `format`
+  names the refusal and `--check`/`--diff` fail; a fence-boundary refusal is also named.
 - Indentation conflict warnings identify `indent-width` as a TOML key and point
   YAML-configured users to config migration.
 - ryl TOML now separates `[lint]` and `[format]`. Run `ryl --migrate-configs`

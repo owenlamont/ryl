@@ -273,8 +273,9 @@ given `--markdown`, as with `ryl check`.
 
 If formatting would create a line that closes a YAML fence, ryl leaves that region
 unchanged and names the refusal on stderr. Other regions still format. The same guard
-applies to editor formatting. A region that mixes CRLF and LF line endings is also
-left unchanged with a notice; `--check` and `--diff` exit `1` for it.
+applies to editor formatting. When formatting would change a region that mixes CRLF
+and LF line endings, ryl leaves the region unchanged with a notice and `--check` /
+`--diff` exit `1`. An already formatted mixed region is quiet.
 
 ## Suppression
 

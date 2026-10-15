@@ -179,8 +179,9 @@ pub fn rewrite_str(
         }
         SourceKind::Markdown => {
             let mut cache = FormatCache::default();
-            let (fixed, refusals) =
-                fix_markdown_cached(content, path, cfg, base_dir, rewrite, &mut cache);
+            let (fixed, refusals) = fix_markdown_cached(
+                content, path, cfg, base_dir, rewrite, true, &mut cache,
+            );
             // Read from the *fixed* bytes (what gets written) so the reported line stays
             // correct after an earlier region's fix shifts the line count.
             let mut skipped = markdown_region_problems(
@@ -429,8 +430,9 @@ fn diff_and_skips(
         SourceKind::Markdown => {
             // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
             // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
-            let (fixed, refusals) =
-                fix_markdown_cached(content, path, cfg, base_dir, rewrite, cache);
+            let (fixed, refusals) = fix_markdown_cached(
+                content, path, cfg, base_dir, rewrite, false, cache,
+            );
             // Report skips against the *original* content: `--diff` never writes, so the file
             // stays `content` and a skip notice must point at the original line (the in-place
             // path uses `fixed` because it writes it).
@@ -623,6 +625,7 @@ pub fn fix_markdown_str(
         cfg,
         base_dir,
         rewrite,
+        false,
         &mut FormatCache::default(),
     )
     .0
@@ -660,6 +663,7 @@ fn fix_markdown_cached(
     cfg: &YamlLintConfig,
     base_dir: &Path,
     rewrite: Rewrite,
+    refusal_lines_in_output: bool,
     cache: &mut FormatCache,
 ) -> (Option<String>, Vec<MarkdownRefusal>) {
     if crate::markdown_embed::markdown_has_unsupported_cr(markdown) {
@@ -721,6 +725,19 @@ fn fix_markdown_cached(
                 ));
             }
             continue;
+        }
+        if refusal_lines_in_output {
+            let line_delta = replacement.matches('\n').count().cast_signed()
+                - markdown[region.raw_span.clone()]
+                    .matches('\n')
+                    .count()
+                    .cast_signed();
+            for refusal in &mut refusals {
+                refusal.problem.line =
+                    refusal.problem.line.checked_add_signed(line_delta).expect(
+                        "rewritten region shifts a later refusal within the document",
+                    );
+            }
         }
         out = candidate;
         changed = true;

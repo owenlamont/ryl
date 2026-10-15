@@ -573,6 +573,60 @@ fn mixed_newlines_in_markdown_regions_fail_preview_with_a_reason() {
 }
 
 #[test]
+fn clean_mixed_newline_markdown_region_needs_no_refusal() {
+    let input = "```yaml\na: 1\r\nb: 2\n```\n";
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, input).unwrap();
+    for args in [
+        &["format", "--markdown"][..],
+        &["format", "--markdown", "--check"],
+        &["format", "--markdown", "--diff"],
+    ] {
+        let (code, stdout, stderr) = run(ryl(dir.path()).args(args).arg(&file));
+        assert_eq!((code, stdout.as_str(), stderr.as_str()), (0, "", ""));
+        assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    }
+}
+
+#[test]
+fn markdown_refusals_follow_earlier_in_place_expansion() {
+    let front_matter = "---\na: [x, y]\n---\n\n";
+    for (fence, reason) in [
+        ("```yaml\nb:   1\r\nc:   2\n```\n", "mixes CRLF and LF"),
+        (
+            "```yaml\nk:\n    v: a\n     ```\n    w:   1\n```\n",
+            "would change Markdown fence boundaries",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::write(&file, format!("{front_matter}{fence}")).unwrap();
+        let config = "indent-width = 2\n[format]\nsequence-style = 'block'";
+        let (code, _, stderr) = run(ryl(dir.path())
+            .args(["format", "--markdown", "--check", "-d", config])
+            .arg(&file));
+        assert_eq!(code, 1, "{stderr}");
+        assert!(stderr.contains("doc.md:6:1 skipped by --check"), "{stderr}");
+        let (code, _, stderr) = run(ryl(dir.path())
+            .args(["format", "--markdown", "-d", config])
+            .arg(&file));
+        assert_eq!(code, 0, "{stderr}");
+        assert!(stderr.contains(reason), "{stderr}");
+        assert!(
+            stderr.contains("doc.md:8:1 skipped by ryl format"),
+            "{stderr}"
+        );
+        let formatted = fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            formatted.lines().position(|line| line == "```yaml"),
+            Some(6)
+        );
+        assert!(formatted.ends_with(fence));
+    }
+}
+
+#[test]
 fn ragged_markdown_region_keeps_format_check_red() {
     let input = "- item\n\n  ```yaml\n  a:   1\n b:   2\n  ```\n";
     let (code, stdout, stderr, formatted) =
