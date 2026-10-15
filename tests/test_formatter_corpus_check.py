@@ -336,6 +336,7 @@ def test_markdown_region_verdicts_keep_host_and_value_failures(tmp_path: Path) -
         repo, result, ["doc.md"], manifest, pairs=pairs, pair_dir=tmp_path
     )
     assert result.regions == 1
+    assert result.changed_regions == 1
     assert result.front_matter == 1
     assert result.fences == 0
     assert result.host_changed == ["doc.md"]
@@ -389,9 +390,93 @@ def test_markdown_oracle_verdicts_do_not_cross_operations(tmp_path: Path) -> Non
 
 def test_markdown_sparse_patterns_are_opt_in() -> None:
     old = gate._manifest(["kubernetes/examples"])[0]
-    new = gate._manifest(["squidfunk/mkdocs-material"])[0]
+    yaml_mkdocs = gate._manifest(["squidfunk/mkdocs-material"])[0]
+    new = gate._manifest(["squidfunk/mkdocs-material"], markdown=True)[0]
     assert old.markdown_sparse == ()
+    assert yaml_mkdocs.sha == "6d3dc570d51064a3f55d189bd22c2390b07d46fe"
+    assert yaml_mkdocs.markdown_sparse == ()
+    assert new.sha == "a0f2a2a70ee978c2b0afc80347fed6eb4cec7867"
     assert new.markdown_sparse
+    assert len(gate._manifest(())) == 40
+    assert len(gate._manifest((), markdown=True)) == 6
+
+
+def test_markdown_files_include_non_ascii_tracked_names(tmp_path: Path) -> None:
+    gate._git(tmp_path, "init", "-q")
+    (tmp_path / "français.md").write_text("---\na: 1\n---\n")
+    (tmp_path / "plain.md").write_text("---\na: 1\n---\n")
+    (tmp_path / " leading.md").write_text("---\na: 1\n---\n")
+    gate._git(tmp_path, "add", ".")
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha="0" * 40, markdown_sparse=("*.md",)
+    )
+    assert gate._markdown_files(repo, tmp_path) == [
+        " leading.md",
+        "français.md",
+        "plain.md",
+    ]
+
+
+@pytest.mark.parametrize("operation", ["markdown-format", "markdown-fix"])
+def test_noop_markdown_operation_fails_positive_control(
+    operation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    gate._git(clone, "init", "-q")
+    source = clone / "doc.md"
+    source.write_text("---\na:  1\n---\n")
+    gate._git(clone, "add", ".")
+    gate._git(clone, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+    repo = gate.Repo(
+        url="https://example.com/o/r", sha="0" * 40, markdown_sparse=("*.md",)
+    )
+
+    def noop_ryl(
+        _clone: Path, _result: gate.Result, *args: str, **_kwargs: object
+    ) -> gate.subprocess.CompletedProcess[str]:
+        return gate.subprocess.CompletedProcess(args, 0, "", "")
+
+    def unchanged_region(_stems: list[Path], work: Path) -> Path:
+        before = work / "region.before"
+        after = work / "region.after"
+        before.write_bytes(b"a:  1\n")
+        after.write_bytes(b"a:  1\n")
+        manifest = work / "regions.json"
+        manifest.write_text(
+            json.dumps(
+                [
+                    {
+                        "file": 0,
+                        "region": 0,
+                        "kind": "FrontMatter",
+                        "before": str(before),
+                        "after": str(after),
+                    },
+                    {"file": 0, "host_equal": True, "regions": 1},
+                ]
+            )
+        )
+        return manifest
+
+    monkeypatch.setattr(gate, "_ryl", noop_ryl)
+    monkeypatch.setattr(gate, "_markdown_regions", unchanged_region)
+    pair_dir = tmp_path / "pairs"
+    pair_dir.mkdir()
+    result = gate._run_markdown(
+        repo,
+        clone,
+        gate.Mode.DEFAULT,
+        operation,
+        pairs=[],
+        pair_dir=pair_dir,
+        timeout_s=1,
+    )
+    assert result.files == 1
+    assert result.regions == 1
+    assert result.changed_regions == 0
+    assert result.errors == [f"{operation}: no YAML regions changed"]
+    assert gate._hard_failures(result) == 1
 
 
 @pytest.mark.parametrize("operation", ["markdown-format", "markdown-fix"])

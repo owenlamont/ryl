@@ -4,6 +4,7 @@
 # on huge files, and `modes` limits the runs. A `*-known-errors` entry waives that
 # oracle's value verdict on one file only while its bytes match both pinned hashes;
 # `profile` selects a mixed corpus profile, or defaults to the standard profile.
+# `--markdown` selects the separate `[[markdown-repo]]` pins; `[[repo]]` stays YAML-only.
 
 [[repo]]
 url = "https://github.com/kubernetes/examples"
@@ -129,34 +130,8 @@ sparse = ["/lib/gitlab/ci/templates/"]
 
 [[repo]]
 url = "https://github.com/squidfunk/mkdocs-material"
-sha = "a0f2a2a70ee978c2b0afc80347fed6eb4cec7867"
+sha = "6d3dc570d51064a3f55d189bd22c2390b07d46fe"
 note = "!!python/name: and !ENV tags in mkdocs.yml"
-markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
-
-[[repo]]
-url = "https://github.com/just-the-docs/just-the-docs"
-sha = "9a7e4031a83c115bffbd6b053f319ea74c66859a"
-markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
-
-[[repo]]
-url = "https://github.com/gohugoio/hugoDocs"
-sha = "91f38a9a5219d67273d870f8d4c5af866e35dcc2"
-markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
-
-[[repo]]
-url = "https://github.com/facebook/docusaurus"
-sha = "85ab1f44a4a99e5424bc06e21bdd19c9ed7dfb07"
-markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
-
-[[repo]]
-url = "https://github.com/withastro/docs"
-sha = "2819aab72a7d92bef929be3960e6e483b7c50469"
-markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
-
-[[repo]]
-url = "https://github.com/quarto-dev/quarto-web"
-sha = "6b054408467faf2ded1f7568d863e20eb7313ba6"
-markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
 
 [[repo]]
 url = "https://github.com/frenck/home-assistant-config"
@@ -507,3 +482,34 @@ expected-skip = ["**/templates/**"]
 url = "https://github.com/xunholy/k8s-gitops"
 sha = "620849ffade918858d3f7e3f54cd15597ab73119"
 note = "GitOps / homelab k8s; yamllint: .yamllint.yaml"
+
+[[markdown-repo]]
+url = "https://github.com/squidfunk/mkdocs-material"
+sha = "a0f2a2a70ee978c2b0afc80347fed6eb4cec7867"
+note = "!!python/name: and !ENV tags in mkdocs.yml"
+markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+
+[[markdown-repo]]
+url = "https://github.com/just-the-docs/just-the-docs"
+sha = "9a7e4031a83c115bffbd6b053f319ea74c66859a"
+markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+
+[[markdown-repo]]
+url = "https://github.com/gohugoio/hugoDocs"
+sha = "91f38a9a5219d67273d870f8d4c5af866e35dcc2"
+markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+
+[[markdown-repo]]
+url = "https://github.com/facebook/docusaurus"
+sha = "85ab1f44a4a99e5424bc06e21bdd19c9ed7dfb07"
+markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+
+[[markdown-repo]]
+url = "https://github.com/withastro/docs"
+sha = "2819aab72a7d92bef929be3960e6e483b7c50469"
+markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+
+[[markdown-repo]]
+url = "https://github.com/quarto-dev/quarto-web"
+sha = "6b054408467faf2ded1f7568d863e20eb7313ba6"
+markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]

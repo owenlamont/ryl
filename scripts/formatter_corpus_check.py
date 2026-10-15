@@ -5,9 +5,9 @@
 """Gate `ryl format` on the pinned real-world repos in scripts/formatter_corpus.toml.
 
 Each repo is fetched shallow at its pinned commit into a cache dir, formatted in
-place twice per mode, then reset. Opted-in Markdown patterns also run through
+place twice per mode, then reset. Separate Markdown pins run through
 `format --markdown` and `check --fix --markdown` with the same YAML-region oracles
-and a host-byte check. Modes:
+and a host-byte check; each default-mode operation must change a YAML region. Modes:
 `default` (the repo's own config, else built-in targets) and `fold`
 (`fold-long-lines = true`, no repo config). Hard gates, any of which exits 1:
 
@@ -137,6 +137,7 @@ class Result:
     operation: str = "yaml-format"
     files: int = 0
     regions: int = 0
+    changed_regions: int = 0
     front_matter: int = 0
     fences: int = 0
     host_changed: list[str] = field(default_factory=list)
@@ -173,8 +174,11 @@ def _hard_failures(result: Result) -> int:
     )
 
 
-def _manifest(names: Iterable[str], profile: Profile = Profile.STANDARD) -> list[Repo]:
-    rows = tomllib.loads(_MANIFEST.read_text(encoding="utf-8"))["repo"]
+def _manifest(
+    names: Iterable[str], profile: Profile = Profile.STANDARD, *, markdown: bool = False
+) -> list[Repo]:
+    section = "markdown-repo" if markdown else "repo"
+    rows = tomllib.loads(_MANIFEST.read_text(encoding="utf-8"))[section]
     repos = [
         Repo(
             url=row["url"],
@@ -396,9 +400,13 @@ def _run(
 
 
 def _markdown_files(repo: Repo, clone: Path) -> list[str]:
+    listed = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=clone, check=True, capture_output=True
+    ).stdout
     return sorted(
         path
-        for path in _git(clone, "ls-files").splitlines()
+        for raw in listed.split(b"\0")
+        if (path := os.fsdecode(raw))
         if (clone / path).is_file()
         and any(fnmatch.fnmatch(path, pattern) for pattern in repo.markdown_sparse)
     )
@@ -469,6 +477,7 @@ def _record_markdown_regions(
             before = Path(row["before"]).read_bytes()
             after = Path(row["after"]).read_bytes()
             if before != after:
+                result.changed_regions += 1
                 _record_change(
                     result,
                     repo,
@@ -494,6 +503,8 @@ def _run_markdown(
     files = _markdown_files(repo, clone)
     result.files = len(files)
     if not files:
+        if mode is Mode.DEFAULT:
+            result.errors.append(f"{operation}: no Markdown files visited")
         return result
     ryl = partial(_ryl, clone, result, timeout_s=timeout_s)
     config = (
@@ -544,6 +555,8 @@ def _run_markdown(
     _record_markdown_regions(
         repo, result, files, manifest, pairs=pairs, pair_dir=pair_dir
     )
+    if mode is Mode.DEFAULT and not result.changed_regions:
+        result.errors.append(f"{operation}: no YAML regions changed")
     result.changed = changed
     return result
 
@@ -736,10 +749,15 @@ _RepoOption = Annotated[
 
 
 @app.command()
-def fetch(cache_dir: _CacheOption = _DEFAULT_CACHE, repo: _RepoOption = None) -> None:
+def fetch(
+    cache_dir: _CacheOption = _DEFAULT_CACHE,
+    repo: _RepoOption = None,
+    markdown: Annotated[bool, typer.Option(help="Fetch Markdown corpus pins.")] = False,
+) -> None:
     """Fetch each pinned repo into the cache, without formatting anything."""
-    for row in _manifest(repo or ()):
-        typer.echo(f"{row.name}: {_fetch(row, cache_dir / 'repos')}")
+    clone_dir = cache_dir / ("markdown-repos" if markdown else "repos")
+    for row in _manifest(repo or (), markdown=markdown):
+        typer.echo(f"{row.name}: {_fetch(row, clone_dir)}")
 
 
 @app.command()
@@ -748,9 +766,7 @@ def run(
     repo: _RepoOption = None,
     markdown: Annotated[
         bool,
-        typer.Option(
-            help="Also gate opted-in Markdown files with format and check --fix."
-        ),
+        typer.Option(help="Use Markdown pins and gate their YAML and Markdown files."),
     ] = False,
     profile: Annotated[
         Profile, typer.Option(help="Select known errors for this corpus profile.")
@@ -775,7 +791,8 @@ def run(
     Raises:
         Exit: 1 on any hard-gate failure.
     """
-    rows = _manifest(repo or (), profile)
+    rows = _manifest(repo or (), profile, markdown=markdown)
+    clone_dir = cache_dir / ("markdown-repos" if markdown else "repos")
     typer.echo(f"Corpus pinned on {TESTED_DATE}")
     subprocess.run(["cargo", "build", "--release"], cwd=_ROOT, check=True)
     work = cache_dir / "work" / str(time.time_ns())
@@ -786,7 +803,7 @@ def run(
     pairs: list[tuple[str, Path]] = []
     jsonl = (work / "results.jsonl").open("w", encoding="utf-8")
     for row in rows:
-        clone = _fetch(row, cache_dir / "repos")
+        clone = _fetch(row, clone_dir)
         for mode in row.modes:
             result = _run(
                 row,
