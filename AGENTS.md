@@ -109,7 +109,7 @@ Working on the codebase:
 
 Verifying a change:
 
-- `.agents/skills/property-tests/SKILL.md` — the property suites and the 5–10 minute
+- `.agents/skills/property-tests/SKILL.md` — the property suites and the 10-minute
   pre-commit run.
 - `.agents/skills/testing-traps/SKILL.md` — traps that make a test pass vacuously, plus
   regenerating committed schemas and snapshots.
@@ -176,7 +176,7 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 - Deterministic tests own coverage: every covered region must have a named example test.
   CI disables random property cases; saved regression seeds replay separately from coverage.
-  Local property runs retain their default counts and the 20× requirements below.
+  Local property runs keep their default counts (see below for new tests).
 - Convey a test's purpose through function and variable names and assertion messages.
   Test comments meet the same bar as the rest of the codebase: keep one only for why an
   input is crafted a certain way (e.g. the `café` char-vs-byte column rationale), a
@@ -190,10 +190,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   tests in `tests/` instead.
 - When implementing a new rule or changing an existing one, extend the relevant
   property-test generator(s) so the new/updated syntax is actually exercised. Before
-  committing, run every suite at its default count, plus a **20× run of the suites the
-  change touches** (`PROPTEST_CASES=5120 cargo test --release --test property_check`),
-  keeping the whole step within 5–10 minutes. Release gates run every suite at that 20×
-  count. See the `property-tests` dev skill.
+  committing, run every suite at its default count, plus a **20× run of each new
+  property test only** (`PROPTEST_CASES=5120 cargo test --release --test <suite>
+  <test_name>`), under 10 minutes. Release gates run every suite at its default count.
+  See the `property-tests` dev skill.
 - Several traps make a test pass vacuously or fail only in CI — config discovery walking
   out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
   `testing-traps` dev skill before writing a test that drives the binary.
