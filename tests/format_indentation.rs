@@ -4,6 +4,7 @@
 //! left byte-identical.
 
 use std::ops::RangeInclusive;
+use std::time::Instant;
 
 use ryl::rules::indentation::{
     Cause, Config, IndentSequencesSetting, Refusal, SpacesSetting, check, fix, reindent,
@@ -157,6 +158,26 @@ fn whole_line_comments_follow_the_line_they_sit_against() {
             "k:\n    # leading\n    a: 1  # trailing\n        # odd comment\n    b: 2\n# top\n",
             "k:\n  # leading\n  a: 1  # trailing\n  # odd comment\n  b: 2\n# top\n",
         )],
+    );
+}
+
+#[test]
+fn long_comment_runs_reindent_in_linear_time() {
+    let measure = |count| {
+        let input = format!(
+            "first: value\n{}last: value\n",
+            "# a plain comment\n".repeat(count)
+        );
+        let start = Instant::now();
+        let output = reindent(&input, &target(2));
+        assert_eq!(output.text, input);
+        start.elapsed()
+    };
+    let small = measure(4_000);
+    let large = measure(16_000);
+    assert!(
+        large <= small * 5 + std::time::Duration::from_millis(50),
+        "comment-run scaling: 4,000 lines took {small:?}, 16,000 took {large:?}"
     );
 }
 
