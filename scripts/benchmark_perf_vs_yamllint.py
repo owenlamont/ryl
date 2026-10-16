@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import os
 from pathlib import Path
 import shutil
@@ -311,7 +311,7 @@ def main(
     require_command("uv")
     require_command("hyperfine")
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = output_dir / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
     dataset_root = run_dir / "datasets"

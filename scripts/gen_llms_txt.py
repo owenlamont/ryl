@@ -25,9 +25,9 @@ from __future__ import annotations
 from pathlib import Path
 import posixpath
 import re
+import tomllib
 from typing import Annotated, Final
 
-import tomllib
 import typer
 
 
