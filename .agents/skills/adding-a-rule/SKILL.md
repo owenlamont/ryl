@@ -44,9 +44,10 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    output, produce the `line:col`/message by **running ryl** on the shown input — not by
    hand (hand-written examples have shipped with wrong columns).
 
-## granit event/span gotchas (granit-parser 0.0.5)
+## granit event/span gotchas (verified on granit-parser 0.0.5)
 
-Facts the codebase relies on; re-verify on a granit bump:
+Facts the codebase relies on, recorded before the bump to granit-parser 1.x; re-verify
+any you depend on against the version in `Cargo.lock`:
 
 - Derive a token's position from `marker.byte_offset()` via
   `crate::rules::support::span_utils` (the pattern every span-using rule follows), rather

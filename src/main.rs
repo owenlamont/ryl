@@ -256,7 +256,7 @@ enum CliFormat {
 #[command(
     name = "ryl",
     version,
-    about = "Fast YAML linter written in Rust",
+    about = "Fast YAML linter and formatter",
     // The `--migrate-*` sub-flags require at least one migration trigger.
     group(clap::ArgGroup::new("migrate_mode")
         .args(["migrate_configs", "migrate_user_config"])

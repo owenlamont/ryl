@@ -15,6 +15,7 @@ summarize user-visible changes from the tagged commits and published release rec
   ([#730](https://github.com/owenlamont/ryl/issues/730),
   [#729](https://github.com/owenlamont/ryl/issues/729))
 - The ryl agent skill names the `ryl-check` and `ryl-format` pre-commit hooks.
+- `ryl --help` describes ryl as a YAML linter and formatter.
 
 ### Fixed
 

@@ -10,7 +10,8 @@ description: >-
 
 # Lint Pipeline
 
-Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
+Exit codes: `0` (no errors; warnings alone pass), `1` (lint errors or invalid YAML), `2`
+(usage or config error, no rule enabled, or warnings under `--strict`).
 
 ## Subcommand shape
 
