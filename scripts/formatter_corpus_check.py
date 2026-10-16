@@ -42,12 +42,12 @@ import re
 import shutil
 import subprocess
 import time
+import tomllib
 from typing import Annotated, Any, Final
 
 from formatter_compat import RULE_RE, values_equal
 import platformdirs
 from reference_events import reference_equal
-import tomllib
 import typer
 import yaml
 from yaml12 import parse_yaml
