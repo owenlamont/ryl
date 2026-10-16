@@ -154,8 +154,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, and `tokei` are
-  expected on `PATH` as global tools; raise it with the user if one is missing.
+- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, `cargo-nextest`,
+  `cargo-llvm-cov`, and `tokei` are expected on `PATH` as global tools; raise it with
+  the user if one is missing.
   `cargo-audit` backs the `cargo audit --deny warnings` hook
   (`cargo install cargo-audit --locked`); `tokei` backs `comment-ratio`
   (`pixi global install tokei`, pinned separately for CI in `ci.yml` — bump both

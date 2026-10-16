@@ -39,6 +39,8 @@ uv tool install typos
 uv tool install yamllint
 uv tool install zizmor
 cargo install cargo-audit --locked
+cargo install cargo-nextest --locked
+cargo install cargo-llvm-cov --locked
 pixi global install tokei
 ```
 
