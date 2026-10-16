@@ -30,8 +30,12 @@ See the [formatter settings](../formatter.md#configuration) for other options.
 | `indent: 2` | top-level `indent-width = 2` |
 | `pad_line_comments: 1` | `[format] comment-spacing = 1` |
 | `line_ending: lf` | `[format] line-ending = "lf"` (default) |
+| `line_ending: crlf` | `[format] line-ending = "cr-lf"` |
 | `include_document_start: false` | `[format] document-start = "preserve"`; see [markers](#document-markers) |
 | `max_line_length: 0` | `[format] fold-long-lines = false` (default) |
+| `max_line_length: 40` | Approximately: top-level `line-length = 40` and `[format] fold-long-lines = true` |
+
+At 40 columns, yamlfmt wraps plain scalars differently and wraps flow sequences that ryl leaves on one line.
 
 ## Deliberate differences
 
