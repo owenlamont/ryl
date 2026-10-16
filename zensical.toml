@@ -22,7 +22,6 @@ nav = [
     { "Migrating from yamlfix" = "getting-started/migrating-from-yamlfix.md" },
     { "Migrating from google/yamlfmt" = "getting-started/migrating-from-yamlfmt.md" },
     { "Migrating from Prettier" = "getting-started/migrating-from-prettier.md" },
-    { "Migrating from Biome YAML" = "getting-started/migrating-from-biome.md" },
   ]},
   { "Rules" = "rules.md" },
   { "Formatter" = "formatter.md" },
