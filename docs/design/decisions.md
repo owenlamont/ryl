@@ -8,7 +8,7 @@ These are current, load-bearing decisions confirmed by the maintainer. Follow th
 - **TOML is the native configuration model.** Shared settings live at the top level, lint settings under `[lint]`, and formatting targets under `[format]`. The nested shape replaced the original flat lint configuration; migration remains available. [Formatter epic](https://github.com/owenlamont/ryl/issues/374), [migration](https://github.com/owenlamont/ryl/pull/508)
 - **Legacy yamllint YAML configuration is on a deprecation path.** Migration remains available, and a removal release has not been set. The native TOML model supersedes treating yamllint YAML as a permanent peer format. [Decision](https://github.com/owenlamont/ryl/issues/478), [warning](https://github.com/owenlamont/ryl/pull/562)
 - **A warning names a usable migration target.** Deprecation warnings start only after the replacement exists; old configuration must not silently stop applying. [Formatter epic](https://github.com/owenlamont/ryl/issues/374)
-- **Migrated user configuration remains self-contained.** Relative includes are resolved against their original config before migration, preserving behaviour from another working directory. [Review decision](https://github.com/owenlamont/ryl/pull/307)
+- **Migration flattens relative `extends`.** The config directory wins over the current directory when both contain the referenced file, which can change the selected content. User-global migration refuses a relative `ignore-from-file` because its meaning depends on each linted file's directory. [Review decision](https://github.com/owenlamont/ryl/pull/307), [migration guide](../getting-started/migrating-from-yamllint.md#what-is-preserved)
 
 ## Rules
 
