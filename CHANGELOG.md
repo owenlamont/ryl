@@ -3,7 +3,7 @@
 Release dates below use the GitHub release publication date in UTC. Historical entries
 summarize user-visible changes from the tagged commits and published release records.
 
-## Unreleased
+## v0.25.0 - 2026-10-16
 
 ### Added
 
@@ -48,15 +48,20 @@ summarize user-visible changes from the tagged commits and published release rec
   name the file, line and reason on stderr.
 - When formatting would change a Markdown region with mixed line endings, `format`
   names the refusal and `--check`/`--diff` fail; a fence-boundary refusal is also named.
+  ([#713](https://github.com/owenlamont/ryl/pull/713))
 - Indentation conflict warnings identify `indent-width` as a TOML key and point
   YAML-configured users to config migration.
+  ([#713](https://github.com/owenlamont/ryl/pull/713))
 - `format` and `check --fix` continue after a file write fails, report the file,
   and exit `2` after processing the remaining inputs.
+  ([#714](https://github.com/owenlamont/ryl/pull/714))
 - `check --fix` and `ryl format` finish unterminated block scalars with a newline
   and, when configured, a document end marker, following the YAML 1.2 reference parser.
   Adding a marker removes value-neutral indentation spaces on a final blank
   block-scalar line, but leaves a root explicit-indent marker unfixed when its
   final spaces carry value and no preserving marker append is available.
+  ([#712](https://github.com/owenlamont/ryl/pull/712),
+  [#715](https://github.com/owenlamont/ryl/pull/715))
 - ryl TOML now separates `[lint]` and `[format]`. Run `ryl --migrate-configs`
   to preview existing configs, then add `--migrate-write` to update them.
   ([#508](https://github.com/owenlamont/ryl/pull/508))

@@ -1,7 +1,7 @@
 # Using ryl with AI agents
 
 ryl is built for programmatic use (stable exit codes, machine-readable output,
-`--fix`/`--diff`, stdin), so AI coding agents can drive it directly. This page points to
+`--fix`/`--diff`, `ryl format`, stdin), so AI coding agents can drive it directly. This page points to
 the agent-facing resources; the rest of these docs (start with
 [Quick start](getting-started/quickstart.md)) cover the CLI itself.
 
@@ -23,8 +23,8 @@ it. The skill is the canonical, tightened agent reference; this page only links 
 If a repo has an `AGENTS.md` (or `CLAUDE.md`), a one-line nudge helps agents reach for
 ryl and avoid its main gotcha:
 
-> Lint YAML with `ryl check`. It has no default-on rules, so make sure a config (`ryl.toml`
-> or a yamllint-style `.yamllint`) enables rules first, or pass `--enable <RULES>`;
+> Lint YAML with `ryl check` and format it with `ryl format`. `check` has no default-on
+> rules, so make sure `ryl.toml` enables rules first, or pass `--enable <RULES>`;
 > otherwise it exits `2`.
 
 ## Feeding the docs to an LLM
