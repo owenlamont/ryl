@@ -18,12 +18,6 @@ note = "Helm: template skip rate, comment-heavy values.yaml, large CRDs"
 expected-skip = ["**/templates/**"]
 
 # py-yaml12 misreads CRLF and collection-style changes.
-[[repo.yaml12-known-errors]]
-path = "charts/prometheus-nats-exporter/values.yaml"
-before-sha256 = "bc9d3fc6f3f268d3ebf2dc75abc3567ffe2e4044dc6a3a79fa7797193fdb5a74"
-after-sha256 = "f49cc43ae705d3cef9db4db0eba6ee7f4c76980386026c8fa18c0f3f443cf3c5"
-profile = "block-crlf"
-
 [[repo]]
 url = "https://github.com/bitnami/charts"
 sha = "bb5e98a6e3c5ca196420d2414769b681c9284101"
@@ -305,63 +299,15 @@ before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae1
 after-sha256 = "998935ee350c4683ae0eb40cd86e07c3d0a8c10e8d1223a0e91e900380586b5b"
 
 [[repo.yaml12-known-errors]]
-path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml"
-before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b"
-after-sha256 = "bcfdd883994fffbfb496539682e361e5fbca51665eef7201486836a6ad5c4457"
-profile = "block-crlf"
-
-[[repo.yaml12-known-errors]]
-path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml"
-before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15"
-after-sha256 = "940dbbf4b4787c4be9e8c8904fcf651f80a603048a1e5d4ad33a1457db463b78"
-profile = "block-crlf"
-
-[[repo.yaml12-known-errors]]
-path = "dashboards/templates/includes/kohbo_popup_styles.yaml"
-before-sha256 = "f376fe42ba3af9903cbdb5900db213500d1bcee1e81cdd42ac44933c00192649"
-after-sha256 = "1baf2c09317019dffe6b6583f2784c79d32480c686ac96ba4bcd2fafdcf0e799"
-profile = "block-crlf"
-
-[[repo.yaml12-known-errors]]
-path = "dashboards/templates/includes/rooms/kohbo_room_state_icon_color.yaml"
-before-sha256 = "6428b970a9d23c1fa1c9a79f471e879938ad254dc5c4d98a22755f70ebd3a52d"
-after-sha256 = "f72b21edfd0e1fc11089fce401583b8324304675cac399214ad9f736b9344816"
-profile = "block-crlf"
-
-[[repo.yaml12-known-errors]]
-path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml"
-before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b"
-after-sha256 = "d755a77a2139caa9027ec8d6b14d4c07c22e1886d188af1f4f10eaade217ec9e"
-profile = "flow-narrow"
-
-[[repo.yaml12-known-errors]]
 path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml"
 before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15"
 after-sha256 = "0ccb0a5135a87ce28d5d216ba9bd370afae74684bd0029d56f3adbb5d2ff2a16"
 profile = "flow-narrow"
 
 [[repo.yaml12-known-errors]]
-path = "dashboards/templates/button_cards/base/kohbo_horizontal_stack_room_devices.yaml"
-before-sha256 = "55c888e102179a030b05da96e494428b1e8b869227cafaa672fd69aae686125b"
-after-sha256 = "70617f31091018533772aac7663f6eaa5f0bc2806a877f27e17edefd7af78165"
-profile = "preview-auto"
-
-[[repo.yaml12-known-errors]]
 path = "dashboards/templates/button_cards/cards/rooms/kohbo_room_card_overview.yaml"
 before-sha256 = "0d9aa620049ecb15705ab8d713115db423434f6d3c9843b079893fa0f73cae15"
 after-sha256 = "f036f144a7d3aa6894ec0bfd191db09a0b2e07d1f7c9994bd7e5556dbe65706e"
-profile = "preview-auto"
-
-[[repo.yaml12-known-errors]]
-path = "dashboards/templates/includes/kohbo_popup_styles.yaml"
-before-sha256 = "f376fe42ba3af9903cbdb5900db213500d1bcee1e81cdd42ac44933c00192649"
-after-sha256 = "7e5b6b54ab1daa292de9e8e1effa3f5a516cb4432be79b86622f4b4e48004645"
-profile = "preview-auto"
-
-[[repo.yaml12-known-errors]]
-path = "dashboards/templates/includes/rooms/kohbo_room_state_icon_color.yaml"
-before-sha256 = "6428b970a9d23c1fa1c9a79f471e879938ad254dc5c4d98a22755f70ebd3a52d"
-after-sha256 = "2653d74b734ab414f1d55b4f220107ee3f4ba348ebb8710354e4dec735cb0854"
 profile = "preview-auto"
 
 [[repo]]
@@ -432,12 +378,6 @@ expected-skip = [
 ]
 
 # py-yaml12 misreads an empty EOF block scalar after collection-style changes.
-[[repo.yaml12-known-errors]]
-path = "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml"
-before-sha256 = "a2876dba90a3f1a525e893221d46977b9154f4cdd46056b51b199834f3ee0643"
-after-sha256 = "07f78521e1e90c4d3cd0cb6a430354edfc140120cc0ef539836b98a567850bba"
-profile = "flow-narrow"
-
 [[repo.yaml12-known-errors]]
 path = "ansible/roles_ocp_workloads/ocp4_workload_app_connectivity_workshop/files/user_workload_monitoring_configmap.yaml"
 before-sha256 = "a2876dba90a3f1a525e893221d46977b9154f4cdd46056b51b199834f3ee0643"
