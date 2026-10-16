@@ -215,6 +215,15 @@ keeps that for the `# yamllint …` spelling, so a migrated file behaves the
 same under both tools, but accepts `# ryl …` beside other `#` text in either
 order. See [Inline directives](../directives.md#alongside-other-comments).
 
+### Tabs separating explicit keys
+
+ryl accepts `{?\ta: b}` and `?\tkey\n: value\n`; yamllint reports a syntax error
+for both. YAML 1.2.2 [production 142](https://yaml.org/spec/1.2.2/#rule-ns-flow-map-entry)
+places `s-separate(n,c)` after `?`, and separation permits tabs outside indentation.
+The [reference parser](https://play.yaml.com/#ez8JYTogYn0=) reads `{?\ta: b}` as
+`+MAP`, `=VAL :a`, `=VAL :b`, `-MAP`; [the block form](https://play.yaml.com/#PwlrZXkKOiB2YWx1ZQo=)
+emits `+MAP`, `=VAL :key`, `=VAL :value`, `-MAP`. Tabs used as indentation remain invalid.
+
 ### Anchor and alias names containing a colon
 
 YAML 1.2.2 §6.9.2 defines an anchor/alias name as `ns-anchor-char+`, and

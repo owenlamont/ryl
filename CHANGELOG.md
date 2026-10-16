@@ -3,6 +3,16 @@
 Release dates below use the GitHub release publication date in UTC. Historical entries
 summarize user-visible changes from the tagged commits and published release records.
 
+## Unreleased
+
+### Changed
+
+- Bump granit-parser to 2.0.0, retaining comment events and relaxed indentation.
+  Parsing now accepts explicit `?` keys at end of input, quoted continuations one
+  column past the block indent, and tabs separating explicit keys; it also drops
+  spurious block-scalar line breaks after indentation-only EOF lines and corrects
+  end-of-input span positions.
+
 ## v0.25.1 - 2026-10-16
 
 ### Changed
