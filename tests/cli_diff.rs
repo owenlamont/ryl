@@ -15,8 +15,17 @@ use tempfile::tempdir;
 
 mod common;
 use common::cli::run;
+#[path = "common/encoding.rs"]
+mod encoding;
 
 const TRAILING: &str = "rules: {trailing-spaces: enable}";
+
+fn diff_header_path(path: &std::path::Path) -> String {
+    let label = path.display().to_string();
+    #[cfg(windows)]
+    let label = label.replace('\\', "/");
+    label
+}
 
 fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
     let mut child = cmd
@@ -60,8 +69,8 @@ fn diff_prints_unified_diff_and_leaves_file_unchanged() {
         "expected the trailing-space removal in the diff: {stdout}"
     );
     assert!(
-        stdout.contains(&format!("--- {}", file.display()))
-            && stdout.contains(&format!("+++ {}", file.display())),
+        stdout.contains(&format!("--- {}", diff_header_path(&file)))
+            && stdout.contains(&format!("+++ {}", diff_header_path(&file))),
         "diff header must carry the file path on both sides: {stdout}"
     );
     assert_eq!(
@@ -268,7 +277,7 @@ fn diff_rewrites_yaml_embedded_in_markdown_at_host_level() {
 
     assert_eq!(code, 1, "a fixable embedded block exits 1: {stderr}");
     assert!(
-        stdout.contains(&format!("--- {}", file.display())),
+        stdout.contains(&format!("--- {}", diff_header_path(&file))),
         "markdown diffs at the host-file level: {stdout}"
     );
     assert!(
@@ -411,23 +420,169 @@ fn diff_header_relativizes_absolute_path_under_cwd() {
     let file = root.join("input.yaml");
     fs::write(&file, "key:   value  \n").unwrap();
 
-    let exe = env!("CARGO_BIN_EXE_ryl");
-    let (code, stdout, stderr) = run(Command::new(exe)
-        .current_dir(&root)
-        .arg("--diff")
-        .arg("-d")
-        .arg(TRAILING)
-        .arg(&file)); // absolute path under the run directory
+    for subcommand in ["check", "format"] {
+        let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .current_dir(&root)
+            .args([subcommand, "--diff", "-d", TRAILING])
+            .arg(&file));
 
-    assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
-    assert!(
-        stdout.contains("--- input.yaml") && stdout.contains("+++ input.yaml"),
-        "an absolute path under cwd must be relativized in the header: {stdout}"
+        assert_eq!(code, 1, "a pending fix exits 1: {stderr}");
+        assert!(
+            stdout.starts_with("--- input.yaml\n+++ input.yaml\n"),
+            "an absolute path under cwd must be relativized in the header: {stdout}"
+        );
+        let (code, _, stderr) = run_with_stdin(
+            Command::new("git")
+                .current_dir(&root)
+                .args(["apply", "-p0", "--check", "-"]),
+            stdout.as_bytes(),
+        );
+        assert_eq!(code, 0, "the diff must apply from cwd: {stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "key:   value  \n");
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn drive_relative_diff_headers_are_relative_to_the_drive_directory() {
+    use std::path::{Component, Prefix};
+
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let Some(Component::Prefix(prefix)) = root.components().next() else {
+        panic!("temp directory must have a drive")
+    };
+    let (Prefix::Disk(drive) | Prefix::VerbatimDisk(drive)) = prefix.kind() else {
+        panic!("temp directory must be on a disk")
+    };
+    fs::write(root.join("input.yaml"), "key: value  \n").unwrap();
+    for drive in [char::from(drive), char::from(drive).to_ascii_lowercase()] {
+        for subcommand in ["check", "format"] {
+            let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+                .current_dir(&root)
+                .args([subcommand, "--diff", "-d", TRAILING])
+                .arg(format!("{drive}:input.yaml")));
+            assert_eq!(code, 1, "{stderr}");
+            assert!(
+                stdout.starts_with("--- input.yaml\n+++ input.yaml\n"),
+                "{stdout}"
+            );
+            let (code, _, stderr) = run_with_stdin(
+                Command::new("git")
+                    .current_dir(&root)
+                    .args(["apply", "-p0", "--check", "-"]),
+                stdout.as_bytes(),
+            );
+            assert_eq!(code, 0, "{stderr}");
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn verbatim_diff_headers_preserve_trailing_dots_and_spaces() {
+    let dir = tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let config = root.join("ryl.toml");
+    fs::write(
+        &config,
+        "[files]\nyaml = ['*']\n[lint.rules.trailing-spaces]\n",
+    )
+    .unwrap();
+    let sibling = root.join("input.yaml");
+    fs::write(&sibling, "sibling: untouched\n").unwrap();
+    for filename in ["input.yaml.", "input.yaml ", "input.yaml. "] {
+        let file = root.join(filename);
+        fs::write(&file, "key: value  \n").unwrap();
+        for subcommand in ["check", "format"] {
+            let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+                .current_dir(&root)
+                .args([subcommand, "--diff", "-c"])
+                .arg(&config)
+                .arg(&file));
+            assert_eq!(code, 1, "{stderr}");
+            assert!(
+                stdout.starts_with(&format!("--- {filename}\n+++ {filename}\n")),
+                "{stdout}"
+            );
+            assert_eq!(fs::read_to_string(&file).unwrap(), "key: value  \n");
+            assert_eq!(
+                fs::read_to_string(&sibling).unwrap(),
+                "sibling: untouched\n"
+            );
+        }
+    }
+}
+
+#[test]
+fn windows_diff_labels_preserve_component_text() {
+    for suffix in [".", " ", ". "] {
+        for (root, cwd) in [
+            (r"\\?\C:\work", "C:/work"),
+            ("//?/C:/work", r"\\?\C:\work"),
+            (r"\\?\UNC\server\share\work", "//server/share/work"),
+            ("//?/UNC/server/share/work", r"\\server\share\work"),
+        ] {
+            let filename = format!("input.yaml{suffix}");
+            assert_eq!(
+                ryl::fix::windows_diff_label(&format!("{root}/{filename}"), cwd),
+                filename
+            );
+        }
+    }
+    assert_eq!(ryl::fix::windows_diff_label("C:/work", "C:/work"), "");
+    assert_eq!(
+        ryl::fix::windows_diff_label("C:/work-sibling/input.yaml.", "C:/work"),
+        "C:/work-sibling/input.yaml."
     );
-    assert!(
-        !stdout.contains(&format!("--- {}", file.display())),
-        "the absolute path must not appear in the header: {stdout}"
+    assert_eq!(
+        ryl::fix::windows_diff_label("C:/input.yaml ", "C:/"),
+        "input.yaml "
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn diff_headers_strip_verbatim_prefixes_for_both_rewrites() {
+    use ryl::config::{SourceKind, YamlLintConfig};
+    use ryl::fix::{Rewrite, diff_outcome};
+    use std::path::Path;
+
+    let cwd = std::env::current_dir().unwrap();
+    let plain = cwd.join("input.yaml").display().to_string();
+    let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain);
+    let outside = format!("{}-sibling/input.yaml", cwd.display()).replace('\\', "/");
+    let cfg = YamlLintConfig::from_yaml_str(TRAILING).unwrap();
+    for (path, label) in [
+        (plain.to_owned(), "input.yaml"),
+        (format!(r"\\?\{plain}"), "input.yaml"),
+        (format!("//?/{}", plain.replace('\\', "/")), "input.yaml"),
+        (
+            r"\\?\UNC\server\share\input.yaml".to_owned(),
+            "//server/share/input.yaml",
+        ),
+        (
+            "//?/UNC/server/share/input.yaml".to_owned(),
+            "//server/share/input.yaml",
+        ),
+        (format!("//?/{outside}"), outside.as_str()),
+    ] {
+        for rewrite in [Rewrite::Fix, Rewrite::Format] {
+            let outcome = diff_outcome(
+                "key: value  \n",
+                &cfg,
+                Path::new(&path),
+                &cwd,
+                SourceKind::Yaml,
+                rewrite,
+            );
+            let diff = outcome.diff.unwrap();
+            assert!(
+                diff.starts_with(&format!("--- {label}\n+++ {label}\n")),
+                "{path}: {diff}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -460,9 +615,6 @@ fn diff_deduplicates_inputs_listed_under_multiple_spellings() {
 
 #[test]
 fn diff_skips_non_utf8_file_with_notice() {
-    // A textual diff of decoded content can't be applied back to BOM'd/transcoded
-    // bytes (git apply / hk would reject it), and a text diff can't round-trip the
-    // encoding the way --fix's re-encode does. So --diff skips non-plain-UTF-8 inputs.
     let dir = tempdir().unwrap();
     let file = dir.path().join("bom.yaml");
     let original: &[u8] = b"\xEF\xBB\xBFkey: value  \n"; // UTF-8 BOM + trailing spaces
@@ -475,7 +627,7 @@ fn diff_skips_non_utf8_file_with_notice() {
         .arg(TRAILING)
         .arg(&file));
 
-    assert_eq!(code, 0, "a skipped file yields no diff: {stderr}");
+    assert_eq!(code, 1, "a pending fix must exit 1: {stderr}");
     assert!(stdout.is_empty(), "no diff for a non-UTF-8 file: {stdout}");
     assert!(
         stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 or BOM"),
@@ -500,12 +652,94 @@ fn diff_skips_non_utf8_stdin_with_notice() {
         b"\xEF\xBB\xBFkey: value  \n",
     );
 
-    assert_eq!(code, 0, "skipped stdin yields no diff: {stderr}");
+    assert_eq!(code, 1, "a pending fix must exit 1: {stderr}");
     assert!(stdout.is_empty(), "no diff for non-UTF-8 stdin: {stdout}");
     assert!(
         stderr.contains("skipped by --diff") && stderr.contains("non-UTF-8 or BOM"),
         "non-UTF-8 stdin must be skipped with a notice: {stderr}"
     );
+}
+
+#[test]
+fn encoded_diff_detects_fixes_in_yaml_and_markdown_files_and_stdin() {
+    let dir = tempdir().unwrap();
+    for (name, dirty, clean, invalid, disabled, args) in [
+        (
+            "input.yaml",
+            "a:    café😀\n",
+            "a: café😀\n",
+            "a: [\n",
+            "# ryl disable-file\na:    café😀\n",
+            vec![],
+        ),
+        (
+            "input.md",
+            "---\na:    café😀\n---\n\n```yaml\nb:    2\n```\n",
+            "---\na: café😀\n---\n\n```yaml\nb: 2\n```\n",
+            "```yaml\na: [\n```\n",
+            "```yaml\n# ryl disable-file\na:    café😀\n```\n",
+            vec!["--markdown"],
+        ),
+    ] {
+        let path = dir.path().join(name);
+        for (width, little, bom) in [
+            (1, false, false),
+            (1, false, true),
+            (2, false, false),
+            (2, false, true),
+            (2, true, false),
+            (2, true, true),
+            (4, false, false),
+            (4, false, true),
+            (4, true, false),
+            (4, true, true),
+        ] {
+            for (text, expected) in
+                [(dirty, 1), (clean, 0), (invalid, 0), (disabled, 0)]
+            {
+                let bytes = encoding::encoded(text, width, little, bom);
+                fs::write(&path, &bytes).unwrap();
+                let command = || {
+                    let mut command = common::cli::ryl(dir.path());
+                    command
+                        .args(["check", "--diff", "-d", "[lint.rules.colons]"])
+                        .args(&args);
+                    command
+                };
+                assert_encoded_diff(
+                    run(command().arg(&path)),
+                    expected,
+                    width != 1 || bom,
+                );
+                assert_encoded_diff(
+                    run_with_stdin(command().arg("-"), &bytes),
+                    expected,
+                    width != 1 || bom,
+                );
+                assert_eq!(fs::read(&path).unwrap(), bytes);
+            }
+        }
+    }
+}
+
+fn assert_encoded_diff(
+    (code, stdout, stderr): (i32, String, String),
+    expected: i32,
+    encoded: bool,
+) {
+    assert_eq!(code, expected, "{stderr}");
+    if encoded {
+        assert!(
+            stdout.is_empty(),
+            "encoded input has no applicable patch: {stdout}"
+        );
+        assert!(
+            stderr.contains("non-UTF-8 or BOM") && stderr.contains("use --fix"),
+            "{stderr}"
+        );
+    } else {
+        assert_eq!(stdout.contains("@@"), expected == 1, "{stdout}");
+    }
 }
 
 #[test]

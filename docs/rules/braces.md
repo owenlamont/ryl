@@ -16,7 +16,7 @@ whitespace they may contain.
 ## Configuration
 
 ```toml
-[rules.braces]
+[lint.rules.braces]
 level = "error"
 forbid = false
 min-spaces-inside = 0
@@ -60,6 +60,8 @@ object: {key1: 4, key2: 8}
 is not auto-fixed because converting flow to block style requires
 re-flowing the surrounding document. A minimum above its maximum cannot be
 satisfied, so `--fix` leaves that spacing as it is.
+
+`ryl format` writes one space inside non-empty braces when `[format] brace-spacing = true`, and none when it is `false` (the default). Empty braces stay `{}`. The formatter keeps flow style under the default `[format] mapping-style = "preserve"`. The rule conflicts with `forbid` when `mapping-style` is not `"preserve"`, or when its spacing bounds exclude the formatter's padding; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

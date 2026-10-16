@@ -1,7 +1,7 @@
 use ryl::rules::commas::{self, Config, Violation};
 
 fn defaults() -> Config {
-    Config::new_for_tests(0, 1, 1)
+    Config::new(0, 1, 1)
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn ignores_commas_inside_scalars() {
 
 #[test]
 fn respects_relaxed_spacing_config() {
-    let cfg = Config::new_for_tests(-1, 0, -1);
+    let cfg = Config::new(-1, 0, -1);
     let diagnostics = commas::check("[1   ,2]\n", &cfg);
     assert!(
         diagnostics.is_empty(),
@@ -227,7 +227,7 @@ fn fix_ignores_commas_inside_scalars_and_comments() {
 
 #[test]
 fn fix_respects_relaxed_spacing_config() {
-    let cfg = Config::new_for_tests(-1, 0, -1);
+    let cfg = Config::new(-1, 0, -1);
     let fixed = commas::fix("[1   ,2]\n", &cfg);
     assert_eq!(fixed, None);
 }
@@ -271,7 +271,7 @@ fn column_counts_characters_not_bytes_before_comma() {
 
 #[test]
 fn fix_leaves_unsatisfiable_spacing_after_alone() {
-    let cfg = Config::new_for_tests(0, 3, 1);
+    let cfg = Config::new(0, 3, 1);
     let fixed = commas::fix("[1 ,2]\n", &cfg);
     assert_eq!(fixed, Some("[1,2]\n".to_string()));
 }

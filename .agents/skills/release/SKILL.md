@@ -13,6 +13,11 @@ description: >-
   - Cargo: update `Cargo.toml` `version`.
   - Python: update `pyproject.toml` `[project].version`.
   - NPM: update `package.json` `version`.
+  - If the release first ships a config deprecation, set its `deprecated_since` in
+    `config_schema::DEPRECATED_TOML_KEYS` (and the test pinning that table) to this
+    version. The repo's own `.ryl.toml` keeps the old shape until the `ryl-pre-commit`
+    pin in `prek.toml` reaches that release (the pinned binary rejects the new keys);
+    move it in the PR that bumps the pin.
 - Refresh both lockfiles and validate (five version-bearing files in total):
   - Run `cargo generate-lockfile` to refresh `Cargo.lock`. This deliberately sweeps in
     semver-compatible transitive bumps — the maintainer prefers staying current, so do
@@ -22,6 +27,13 @@ description: >-
   - Stage: `git add Cargo.toml Cargo.lock pyproject.toml package.json uv.lock`.
   - Run `prek run --all-files` (re-run if files were auto-fixed).
 - Docs and notes:
+  - Draft the next entry with `uv run --script scripts/changelog.py draft vX.Y.Z`.
+    It groups merged PR subjects by conventional-commit prefix; edit the draft into
+    one-line user-visible changes, omitting internal refactors and CI work. Move the
+    reviewed `Unreleased` items into a `## vX.Y.Z` section in `CHANGELOG.md` and
+    leave an empty `## Unreleased` section above it. Verify the entry with
+    `uv run --script scripts/changelog.py extract vX.Y.Z` before tagging. A missing
+    or empty version section stops `release.yml` before it creates the draft release.
   - Update README/AGENTS for behavior changes.
   - **Refresh the benchmark image** when the release changes timed code: any minor or
     major bump, or a patch that touches performance-relevant paths. Skip it for a
@@ -57,8 +69,10 @@ description: >-
     `docs/using-ryl-with-ai-agents.md` page for any behaviour, flag, format, or
     rule changes in this release. The `agent_skill_drift_guard` test catches a
     removed/renamed flag, but new flags or behaviour need a manual update. (The
-    `gen-llms-txt` prek hook keeps `docs/llms.txt` current automatically.)
-  - Summarize notable changes in the PR description or changelog (if present).
+    `gen-llms-txt` prek hook keeps `docs/llms.txt` and `docs/llms-full.txt` current
+    automatically.)
+  - Summarize notable changes in the PR description; the changelog is the release
+    notes source.
 - Tag and push (when releasing):
   - `git tag -a vX.Y.Z -m "vX.Y.Z"`
   - `git push && git push --tags`
@@ -91,9 +105,10 @@ description: >-
   failed dispatch delays the bump rather than losing it; nothing here needs re-running.
 - Publishing uses Trusted Publishing on all registries (crates.io via GitHub OIDC, PyPI
   via `pypa/gh-action-pypi-publish`, NPM via `actions/setup-node` OIDC). GitHub release
-  creation is deferred until after crates.io/PyPI/NPM publishing succeeds, kept as a
-  draft until assets upload, with auto-generated notes; reruns skip publish steps for a
-  version that already exists.
+  creation is deferred until after the binaries build, kept as a draft until
+  crates.io/PyPI/NPM publishing succeeds, with its body copied from that version's
+  `CHANGELOG.md` section. Reruns update an existing draft's body and skip publish steps
+  for a version that already exists.
 - The `publish-winget` job syncs the winget-pkgs fork with upstream before submitting,
   because `wingetcreate` cannot fast-forward it and `--submit` fails with "The forked
   repository could not be synced with the upstream commits" once it falls behind. If that

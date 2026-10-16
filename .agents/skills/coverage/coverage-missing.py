@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run
 # /// script
-# requires-python = ">=3.14"
+# requires-python = ">=3.15"
 # dependencies = []
 # ///
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -95,6 +96,8 @@ def generate_report_json(root: Path) -> dict:
     summary = subprocess.run(
         ["cargo", "llvm-cov", "nextest", "--summary-only"],
         cwd=root,
+        env=os.environ
+        | {"PROPTEST_CASES": "0", "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

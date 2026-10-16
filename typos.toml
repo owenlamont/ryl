@@ -1,2 +1,5 @@
+[default]
+extend-ignore-re = ['\bcaf\\xe9\b']
+
 [files]
 extend-exclude = ["img/*.svg"]

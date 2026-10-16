@@ -13,7 +13,8 @@ const SAMPLE: &str = "on: yes\nb: 1\na: 2   \n";
 
 #[test]
 fn all_enables_every_rule_at_error_level() {
-    let cfg = YamlLintConfig::from_toml_str("[rules]\nALL = \"enable\"\n").unwrap();
+    let cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\nALL = \"enable\"\n").unwrap();
     let mut names: Vec<&str> = cfg.rule_names().iter().map(String::as_str).collect();
     names.sort_unstable();
     let mut expected = ALL_RULE_IDS.to_vec();
@@ -28,10 +29,11 @@ fn all_enables_every_rule_at_error_level() {
 
 #[test]
 fn all_disable_is_stripped_and_enables_nothing() {
-    let cfg = YamlLintConfig::from_toml_str("[rules]\nALL = \"disable\"\n").unwrap();
+    let cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\nALL = \"disable\"\n").unwrap();
     assert!(!cfg.enables_any_rule());
     let cfg = YamlLintConfig::from_toml_str(
-        "[rules]\nALL = \"disable\"\ntruthy = \"enable\"\n",
+        "[lint.rules]\nALL = \"disable\"\ntruthy = \"enable\"\n",
     )
     .unwrap();
     assert_eq!(cfg.rule_names(), ["truthy"]);
@@ -45,7 +47,7 @@ fn explicit_rule_entries_win_over_all_in_either_order() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules]\ntruthy = \"disable\"\nALL = \"enable\"\n[rules.line-length]\nmax = 5\n",
+        "[lint.rules]\ntruthy = \"disable\"\nALL = \"enable\"\n[lint.rules.line-length]\nmax = 5\n",
     )
     .unwrap();
     let (code, stdout, stderr) = run(ryl(dir.path()).arg("check").arg(&file));
@@ -101,8 +103,8 @@ fn enable_flag_replaces_a_discovered_configs_selection() {
     fs::write(&file, SAMPLE).unwrap();
     fs::write(
         sub.join(".ryl.toml"),
-        "[rules]\ncolons = \"enable\"\ntruthy = \"disable\"\nkey-ordering = \"enable\"\n\
-         [rules.line-length]\nmax = 5\n",
+        "[lint.rules]\ncolons = \"enable\"\ntruthy = \"disable\"\nkey-ordering = \"enable\"\n\
+         [lint.rules.line-length]\nmax = 5\n",
     )
     .unwrap();
     let (code, stdout, stderr) = run(ryl(dir.path())
@@ -180,7 +182,7 @@ fn enable_flag_keeps_per_file_ignores() {
     fs::write(&file, SAMPLE).unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntruthy = \"enable\"\n[per-file-ignores]\n\"a.yaml\" = [\"ALL\"]\n",
+        "[lint.rules]\ntruthy = \"enable\"\n[lint.per-file-ignores]\n\"a.yaml\" = [\"ALL\"]\n",
     )
     .unwrap();
     let (code, stdout, stderr) = run(ryl(dir.path())
@@ -196,7 +198,7 @@ fn enable_flag_limits_fix_to_the_selected_rules() {
     fs::write(&file, "a: 1   \n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = \"enable\"\n",
+        "[lint.rules]\ndocument-start = \"enable\"\n",
     )
     .unwrap();
     let (code, stdout, stderr) = run(ryl(dir.path())

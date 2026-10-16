@@ -20,7 +20,7 @@ fn project_toml_overrides_yaml_and_emits_single_warning() {
     fs::write(root.join("dir/b.yaml"), "b: 2\n").unwrap();
     fs::write(
         root.join(".ryl.toml"),
-        "files = { yaml = ['**/a.yaml', '**/b.yaml'] }\n[rules]\nanchors = 'disable'\n",
+        "files = { yaml = ['**/a.yaml', '**/b.yaml'] }\n[lint.rules]\nanchors = 'disable'\n",
     )
     .unwrap();
     fs::write(root.join(".yamllint"), "yaml-files: ['**/a.yaml']\n").unwrap();
@@ -69,7 +69,7 @@ fn unrecognised_top_level_toml_key_is_rejected() {
     let cfg = root.join("ryl.toml");
     fs::write(
         &cfg,
-        "preset = 'relaxed'\n[rules]\ndocument-start = 'enable'\n",
+        "preset = 'relaxed'\n[lint.rules]\ndocument-start = 'enable'\n",
     )
     .unwrap();
     fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
@@ -127,7 +127,11 @@ fn global_config_notice_is_emitted_when_env_var_triggers_global_discovery() {
     let td = tempdir().unwrap();
     let root = td.path();
     fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
-    fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
+    fs::write(
+        root.join(".ryl.toml"),
+        "[lint.rules]\nanchors = 'disable'\n",
+    )
+    .unwrap();
     fs::write(root.join(".yamllint"), "rules: {}\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
@@ -146,7 +150,11 @@ fn explicit_file_discovery_emits_notice() {
     let td = tempdir().unwrap();
     let root = td.path();
     fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
-    fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
+    fs::write(
+        root.join(".ryl.toml"),
+        "[lint.rules]\nanchors = 'disable'\n",
+    )
+    .unwrap();
     fs::write(root.join(".yamllint"), "rules: {}\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");
@@ -167,7 +175,11 @@ fn explicit_notice_is_deduplicated_after_directory_notice() {
     fs::create_dir_all(root.join("two")).unwrap();
     fs::write(root.join("one/from_dir.yaml"), "a: 1\n").unwrap();
     fs::write(root.join("two/from_file.yaml"), "b: 2\n").unwrap();
-    fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
+    fs::write(
+        root.join(".ryl.toml"),
+        "[lint.rules]\nanchors = 'disable'\n",
+    )
+    .unwrap();
     fs::write(root.join(".yamllint"), "rules: {}\n").unwrap();
 
     let exe = env!("CARGO_BIN_EXE_ryl");

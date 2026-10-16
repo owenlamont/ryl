@@ -4,7 +4,7 @@ icon: lucide/braces
 
 # ryl
 
-## A fast YAML linter, written in Rust
+## A fast YAML linter and formatter, written in Rust
 
 <div class="grid cards" markdown>
 
@@ -16,12 +16,11 @@ icon: lucide/braces
 
     [:octicons-arrow-right-24: Getting started](getting-started/installation.md)
 
--   :mag:{ .lg .middle } **yamllint-compatible**
+-   :mag:{ .lg .middle } **Configurable rules**
 
     ---
 
-    Drop-in compatible rule set with the rules and behaviour of `yamllint`,
-    plus ryl-specific options.
+    Choose the YAML style checks your project needs and configure their options.
 
     [:octicons-arrow-right-24: View rules](rules.md)
 
@@ -30,9 +29,9 @@ icon: lucide/braces
     ---
 
     Apply safe automatic fixes for spacing, line endings, quoting, and more
-    with `ryl check --fix`.
+    with `ryl check --fix`, or format whole files with `ryl format`.
 
-    [:octicons-arrow-right-24: Configuration](config-presets.md)
+    [:octicons-arrow-right-24: Formatter](formatter.md)
 
 -   :package:{ .lg .middle } **Easy to install**
 
@@ -66,6 +65,9 @@ winget install owenlamont.ryl
 # Lint a file or directory
 ryl check path/to/file.yaml
 ryl check .
+
+# Format in place
+ryl format .
 ```
 
 ## YAML version compatibility
@@ -74,29 +76,16 @@ ryl targets **YAML 1.2** by default: it parses with
 [granit-parser](https://github.com/bourumir-wyngs/granit-parser) (a
 `saphyr-parser` fork) and resolves a directive-less document per the YAML 1.2
 core schema, while honouring an explicit `%YAML` version directive.
-yamllint defaults to YAML 1.1 semantics via PyYAML, so a handful of edge
-cases &mdash;
-notably bareword booleans like `yes` / `no` / `on` / `off` and
-leading-zero integers like `0755` &mdash; behave differently. The same
-1.2 semantics apply to `.yamllint` configuration files.
-
-See [YAML version compatibility](yaml-version.md) for the practical
-implications and how to adjust a configuration migrated from yamllint.
+See [YAML version compatibility](yaml-version.md) for how version directives
+and implicit types affect linting and formatting.
 
 ## Why ryl
 
-ryl started as a fast Rust port of [yamllint][yamllint] focused on parity with
-its rule set and message text. The aim is to keep yamllint compatibility as a
-foundation while adding ergonomic features yamllint does not currently offer
-&mdash; for example richer TOML configuration, auto-fix support for spacing
-and quoting rules, and tighter integration with SchemaStore.
+ryl combines configurable lint rules, safe fixes, and whole-file formatting.
+TOML configuration supports per-file rule selection, and SchemaStore helps
+editors validate that configuration.
 
-When a rule mirrors yamllint, the rule reference page links back to the
-upstream documentation so you can confirm exact semantics. ryl-specific
-options are called out explicitly so they cannot be mistaken for upstream
-behaviour.
-
-  [yamllint]: https://yamllint.readthedocs.io/
+Coming from yamllint? See the [migration guide](getting-started/migrating-from-yamllint.md).
 
 ## Next steps
 

@@ -25,9 +25,9 @@ fn fix(file: &std::path::Path) -> (i32, String, String) {
 }
 
 const TRAILING: &str =
-    "files = { markdown = [\"*.md\"] }\n[rules]\ntrailing-spaces = \"enable\"\n";
+    "files = { markdown = [\"*.md\"] }\n[lint.rules]\ntrailing-spaces = \"enable\"\n";
 const COMMAS: &str =
-    "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\n";
 
 #[test]
 fn fix_rewrites_indented_fenced_block_preserving_indent() {
@@ -87,7 +87,8 @@ fn fix_skip_notice_uses_post_fix_line_after_earlier_region_shrinks() {
     // An earlier region's empty-lines fix removes blank lines, shifting the later
     // unparsable region up; the skip notice must point at the alias's line in the
     // WRITTEN file (10), not its original line (12).
-    let config = "files = { markdown = [\"*.md\"] }\n[rules.empty-lines]\nmax = 1\n";
+    let config =
+        "files = { markdown = [\"*.md\"] }\n[lint.rules.empty-lines]\nmax = 1\n";
     let body = "# t\n\n```yaml\na: 1\n\n\n\nb: 2\n```\n\n```yaml\nc: *missing\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -120,7 +121,7 @@ fn fix_handles_front_matter_and_multiple_fenced_blocks() {
 
 #[test]
 fn fix_does_not_inject_document_start_or_final_newline() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ndocument-start = \"enable\"\ntrailing-spaces = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ndocument-start = \"enable\"\ntrailing-spaces = \"enable\"\n";
     let body = "---\nfoo: bar  \n---\n\n```yaml\nbaz: qux  \n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -232,8 +233,8 @@ fn fix_is_idempotent() {
 
 #[test]
 fn fix_reports_fixed_and_remaining_summary() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\ncolons = \"enable\"\n";
-    let body = "```yaml\nnums: [1,2]\nfoo:  bar\n```\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\nempty-values = \"enable\"\n";
+    let body = "```yaml\nnums: [1,2]\nfoo:\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
     let (code, _out, err) = fix(&file);
@@ -296,7 +297,7 @@ fn markdown_flag_scans_directory() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ncommas = \"enable\"\n",
+        "[lint.rules]\ncommas = \"enable\"\n",
     )
     .unwrap();
     fs::write(dir.path().join("doc.md"), "```yaml\nnums: [1,2]\n```\n").unwrap();
@@ -325,19 +326,21 @@ fn fix_missing_markdown_file_reports_read_error() {
 }
 
 #[test]
-#[allow(clippy::permissions_set_readonly_false)]
 fn fix_markdown_write_error_is_reported() {
     let (_dir, file) = project(COMMAS, "doc.md", "```yaml\nnums: [1,2]\n```\n");
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
+    let original_permissions = fs::metadata(&file).unwrap().permissions();
+    let mut perms = original_permissions.clone();
     perms.set_readonly(true);
     fs::set_permissions(&file, perms).unwrap();
+    if fs::OpenOptions::new().write(true).open(&file).is_ok() {
+        fs::set_permissions(&file, original_permissions).unwrap();
+        return;
+    }
 
     let (code, _out, err) = fix(&file);
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
-    perms.set_readonly(false);
-    let _ = fs::set_permissions(&file, perms);
+    fs::set_permissions(&file, original_permissions).unwrap();
 
     assert_eq!(code, 2, "read-only markdown fix must fail: {err}");
     assert!(err.contains("failed to write fixed file"), "{err}");
@@ -396,7 +399,7 @@ fn fix_drops_fence_crossing_front_matter_terminator() {
 
 #[test]
 fn fix_leaves_fence_inside_disabled_front_matter_untouched() {
-    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[rules]\ncommas = \"enable\"\n";
+    let config = "files = { markdown = [\"*.md\"] }\nmarkdown = { front-matter = false }\n[lint.rules]\ncommas = \"enable\"\n";
     let body = "---\ndesc: |\n  ```yaml\n  inner: [1,2]\n  ```\n---\n\ntext\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -429,7 +432,7 @@ fn fix_drops_fence_opening_on_last_front_matter_line() {
 
 #[test]
 fn markdown_flag_wins_over_overlapping_yaml_glob() {
-    let config = "files = { yaml = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    let config = "files = { yaml = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\n";
     let (_dir, file) = project(config, "doc.md", "```yaml\nnums: [1,2]\n```\n");
 
     let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
@@ -449,7 +452,7 @@ fn markdown_flag_enables_fix_without_files_glob() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ncommas = \"enable\"\n",
+        "[lint.rules]\ncommas = \"enable\"\n",
     )
     .unwrap();
     let file = dir.path().join("doc.md");
@@ -470,7 +473,7 @@ fn markdown_flag_enables_fix_without_files_glob() {
 
 #[test]
 fn fix_recases_truthy_in_front_matter_and_fenced_block() {
-    let config = "files = { markdown = [\"*.md\"] }\n[rules.truthy]\n";
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules.truthy]\n";
     let body = "---\nenabled: TRUE\n---\n\nTrue text\n\n```yaml\nvisible: False\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -486,7 +489,7 @@ fn fix_recases_truthy_in_front_matter_and_fenced_block() {
 #[test]
 fn fix_sorts_embedded_keys_and_maps_the_not_fixed_notice() {
     let config =
-        "files = { markdown = [\"*.md\"] }\n[rules]\nkey-ordering = \"enable\"\n";
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\nkey-ordering = \"enable\"\n";
     let body = "---\nb: 1\na: 2\n---\n\n# t\n\n```yaml\nd: 1\nc: 2\n```\n\n> ```yaml\n> {f: 1, e: 2}\n> ```\n";
     let (_dir, file) = project(config, "doc.md", body);
 
@@ -509,7 +512,7 @@ fn fix_sorts_embedded_keys_and_maps_the_not_fixed_notice() {
 #[test]
 fn diff_reports_embedded_not_fixed_notice_against_fixed_text() {
     let config =
-        "files = { markdown = [\"*.md\"] }\n[rules]\nkey-ordering = \"enable\"\n";
+        "files = { markdown = [\"*.md\"] }\n[lint.rules]\nkey-ordering = \"enable\"\n";
     let body = "```yaml\nd: 1\nc: 2\n```\n\n```yaml\n{f: 1, e: 2}\n```\n\n```yaml\na: *missing\n```\n";
     let (_dir, file) = project(config, "doc.md", body);
 

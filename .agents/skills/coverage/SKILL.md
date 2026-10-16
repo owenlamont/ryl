@@ -12,6 +12,9 @@ description: >-
 The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
 hunting through scattered tips:
 
+Deterministic tests own coverage. The helper disables random property cases and saved-seed
+replay; add named example tests for uncovered regions instead of relying on property cases.
+
 1. First run `prek run --all-files` and rerun it until all automatic fixes have
    stabilised and a full pass succeeds without modifying files.
 2. Quick status before pushing: run `uv run .agents/skills/coverage/coverage-missing.py`

@@ -16,7 +16,11 @@ hooks = [
   { id = "check-yaml" },
   { id = "check-added-large-files" },
   { id = "check-merge-conflict" },
-  { id = "no-commit-to-branch" },
+  {
+    id = "no-commit-to-branch",
+    # Temporary: drop epic/374-formatter before the epic merges to main.
+    args = ["--branch", "main", "--branch", "epic/374-formatter"]
+  },
   {
     id = "pretty-format-json",
     args = ["--autofix"]

@@ -74,10 +74,10 @@ fn forbidding_marker_allows_implicit_document() {
     let file = dir.path().join("implicit.yaml");
     fs::write(&file, "---\nname: value\n").unwrap();
 
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-end:\n    level: error\n    present: false\n",
+        "[lint.rules]\ndocument-end = { level = \"error\", present = false }\n",
     )
     .unwrap();
 

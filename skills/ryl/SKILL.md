@@ -1,19 +1,17 @@
 ---
 name: ryl
 description: >-
-  Lint and auto-fix YAML with the ryl CLI (a fast, yamllint-compatible linter).
-  Use when running or configuring ryl in a repo, fixing YAML lint errors, setting
-  up YAML linting, or migrating from yamllint. Covers the no-default-on-rules
-  gotcha (ryl exits 2 without a config or --enable), exit codes, --fix vs --diff,
-  machine-readable output, the YAML-vs-TOML config split, inline directives, and
-  YAML embedded in Markdown.
+  Fast YAML linter and formatter. Use when checking or formatting YAML, setting
+  up YAML tooling, or migrating from yamllint. Covers rule selection, exit codes,
+  safe fixes versus formatting, TOML configuration, output formats, directives,
+  and YAML embedded in Markdown.
 license: MIT
 ---
 
 # ryl
 
-ryl is a fast YAML linter (Rust, yamllint-compatible) built for programmatic use:
-stable exit codes, machine-readable output, in-place fixes, and stdin support.
+ryl is a fast YAML linter and formatter built for programmatic use: stable exit
+codes, machine-readable output, in-place edits, and stdin support.
 
 Install: `pip install ryl`, `cargo install ryl`, or `npm i -g @owenlamont/ryl`.
 Pre-commit via the `owenlamont/ryl-pre-commit` hook (`ryl` for YAML files,
@@ -23,11 +21,11 @@ Pre-commit via the `owenlamont/ryl-pre-commit` hook (`ryl` for YAML files,
 
 ryl never enables a rule unless a configuration or `--enable` turns it on. When it has a
 file to lint and neither `--enable` nor a config that enables a rule, it exits `2`, not
-`0` (an empty or fully-ignored input set still exits `0`). This is stricter than
-yamllint. Always give it a config or `--enable` first:
+`0` (an empty or fully-ignored input set still exits `0`). Always give it a
+config or `--enable` first:
 
 ```bash
-ryl check -d 'extends: default' .          # quick: yamllint's standard rule set
+ryl check --enable ALL .                    # quick: every rule, including ryl-only rules
 ryl check --enable truthy,line-length .     # run only these rules, config or not
 ```
 
@@ -35,16 +33,16 @@ ryl check --enable truthy,line-length .     # run only these rules, config or no
 and replaces the config's rule selection for that run.
 
 Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
-`tool.ryl`, so `[rules]` becomes `[tool.ryl.rules]`):
+`tool.ryl`, so `[lint.rules]` becomes `[tool.ryl.lint.rules]`):
 
 ```toml
 # ryl.toml
-[rules]
+[lint.rules]
 trailing-spaces = "enable"
 new-line-at-end-of-file = "enable"
 ```
 
-`ALL = "enable"` under `[rules]` turns on every rule at its defaults; an explicit entry
+`ALL = "enable"` under `[lint.rules]` turns on every rule at its defaults; an explicit entry
 for a rule wins over it.
 
 ## Run and branch on exit codes
@@ -65,32 +63,43 @@ Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only er
 
 ## Fix or preview
 
-- `--fix` applies safe fixes in place, then reports remaining problems.
-- `--diff` previews the fixes (unified diff on stdout), writes nothing, exits `1` if any
-  file would change. Use `--diff` for a non-mutating check, `--fix` to apply.
+- `ryl check --fix` applies safe lint fixes in place, then reports remaining problems.
+- `ryl check --diff` previews those fixes as a unified diff on stdout. It writes
+  nothing and exits `1` if any file would change.
 - `--diff` only previews: files it can't represent as a text diff are skipped with a
   notice and don't change the exit code. `--fix` writes in place, but an unparsable file
   is reported (not rewritten) and still exits `1`.
 
+`ryl format` formats YAML in place without enabling lint rules. Use `ryl format --diff`
+to preview a patch without writing; it exits `1` if formatting would change a file.
+The formatter also has a check mode that reports pending changes without a patch.
+It reads `[format]` in TOML and handles Markdown with `--markdown`.
+
 ## Machine-readable output
 
-`-f/--format`: `parsable` or `github` (line-oriented, stderr) for parsing diagnostics;
-`junit` or `gitlab` (stdout) for CI report artifacts. `--format` is repeatable and each
+`ryl check -f/--output-format`: `parsable` or `github` (line-oriented, stderr) for parsing
+diagnostics; `junit` or `gitlab` (stdout) for CI report artifacts. `--output-format` is
+repeatable and each
 `-o/--output-file` binds to the preceding format, so console + a report file can be
 produced together:
 
 ```bash
-ryl check --format github --format gitlab -o code-quality.json .
+ryl check --output-format github --output-format gitlab -o code-quality.json .
 ```
+
+Formatter check mode accepts one `--output-format`; it has no `-f`, `--format`, or
+`-o` alias. See the [formatter guide](https://ryl-docs.pages.dev/formatter/) for
+the check-mode command.
 
 ## Configuration: YAML vs TOML
 
-- **YAML** (`.yamllint`, `YAMLLINT_CONFIG_FILE`) is yamllint-compatible (`extends:
-  default`/`relaxed`, presets). `YAMLLINT_CONFIG_FILE` takes a YAML config only: a
+- **TOML** (`ryl.toml`, `.ryl.toml`, `[tool.ryl]`) is the native format and holds
+  `[lint.rules]`, `[format]`, `[files]` globs, `[markdown]` embedding, `[output]`
+  destinations, per-line ignores, and ryl-only rules.
+- **YAML** (`.yamllint`, `YAMLLINT_CONFIG_FILE`) is deprecated but remains
+  yamllint-compatible (`extends: default`/`relaxed`, presets). Loading YAML prints
+  a migration warning. `YAMLLINT_CONFIG_FILE` takes a YAML config only: a
   `.toml` target errors (use `-c`/`-d` or project discovery for ryl TOML).
-- **TOML** (`ryl.toml`, `.ryl.toml`, `[tool.ryl]`) holds ryl-only features: `[files]`
-  globs, `[markdown]` embedding, `[output]` destinations, per-line ignores, ryl-only
-  rules.
 
 Migrate a yamllint setup with `ryl --migrate-configs` (add `--migrate-write` to apply).
 

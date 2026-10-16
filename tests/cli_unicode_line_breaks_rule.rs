@@ -30,7 +30,7 @@ fn flags_nel_ls_ps_across_contexts_with_char_based_columns() {
     // anywhere and that columns count characters, not bytes (col 8 past `café`).
     let (code, output) = lint_with_toml_config(
         "key: \"a\u{2028}b\"\nplain: x\u{85}y\n# c\u{2029}d\ncafé: \"\u{2028}\"\n",
-        "[rules]\nunicode-line-breaks = \"enable\"\n",
+        "[lint.rules]\nunicode-line-breaks = \"enable\"\n",
     );
     assert_eq!(code, 1, "raw line-break characters should fail: {output}");
     assert!(
@@ -70,7 +70,7 @@ fn flags_chars_adjacent_to_cr_and_crlf_breaks() {
     // clean.
     let (code, output) = lint_with_toml_config(
         "# a\u{2028}\r\n# b\u{85}\r# c\n",
-        "[rules]\nunicode-line-breaks = \"enable\"\n",
+        "[lint.rules]\nunicode-line-breaks = \"enable\"\n",
     );
     assert_eq!(code, 1, "raw breaks adjacent to CRs should fail: {output}");
     assert!(
@@ -85,8 +85,10 @@ fn flags_chars_adjacent_to_cr_and_crlf_breaks() {
 
 #[test]
 fn rule_does_not_fire_when_not_enabled() {
-    let (code, output) =
-        lint_with_toml_config("a: \"x\u{2028}y\"\n", "[rules]\ntruthy = \"enable\"\n");
+    let (code, output) = lint_with_toml_config(
+        "a: \"x\u{2028}y\"\n",
+        "[lint.rules]\ntruthy = \"enable\"\n",
+    );
     assert_eq!(code, 0, "rule is off unless enabled: {output}");
     assert!(
         !output.contains("unicode-line-breaks"),
@@ -131,7 +133,7 @@ fn per_file_ignores_accept_the_rule_name() {
     fs::write(
         &config,
         format!(
-            "[rules]\nunicode-line-breaks = \"enable\"\n[per-file-ignores]\n'{}' = ['unicode-line-breaks']\n",
+            "[lint.rules]\nunicode-line-breaks = \"enable\"\n[lint.per-file-ignores]\n'{}' = ['unicode-line-breaks']\n",
             file.display()
         ),
     )

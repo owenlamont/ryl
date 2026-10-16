@@ -49,7 +49,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(
+    pub const fn new(
         max_spaces_before: i64,
         min_spaces_after: i64,
         max_spaces_after: i64,
@@ -311,6 +311,18 @@ pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<
 #[must_use]
 pub fn coverage_skip_zero_length_span() -> usize {
     collect_scalar_ranges("").len()
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn coverage_overlapping_replacements() -> String {
+    apply_replacements(
+        "abcd",
+        vec![
+            (BytePos::new(1), BytePos::new(3), "X".to_string()),
+            (BytePos::new(2), BytePos::new(4), "Y".to_string()),
+        ],
+    )
 }
 
 fn collect_comma_fixes(

@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::process::Command;
 
 use tempfile::tempdir;
@@ -13,7 +13,7 @@ fn fix_applies_safe_newline_and_comment_fixes() {
     fs::write(&file, "key: value #comment").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n",
     )
     .unwrap();
 
@@ -34,13 +34,84 @@ fn fix_applies_safe_newline_and_comment_fixes() {
 }
 
 #[test]
+fn refused_scalar_reports_skip_and_keeps_the_whole_file() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let input = "---\n|+\n  x\n\n  #foo\n...\n---\na: 1  \n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, _, stderr) = run(Command::new(exe).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    assert!(
+        stderr.contains("skipped by --fix")
+            && stderr.contains("block scalar value may change")
+            && stderr.contains(&format!("{}:2:1", file.display())),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn stream_disable_stays_active_after_refused_scalar_in_fix() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    let input = "# ryl disable\n---\n|+\n  x\n\n  #foo\n...\n---\nb:  1  \n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--fix")
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), input);
+}
+
+#[test]
+fn refused_markdown_scalar_reports_host_file_and_line() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.md");
+    let input = "Intro\n\n```yaml\n|+\n  x\n\n  #foo\n```\n\n```yaml\na: 1  \n```\n";
+    fs::write(&file, input).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--fix")
+        .arg("--markdown")
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        input.replace("a: 1  ", "a: 1")
+    );
+    assert!(
+        stderr.contains(&format!("{}:4:1", file.display())),
+        "{stderr}"
+    );
+    assert!(stderr.contains("cannot fix this file safely"), "{stderr}");
+}
+
+#[test]
 fn fix_respects_toml_unfixable_rules() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
     fs::write(&file, "key: value #comment").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n[fix]\nunfixable = ['comments']\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n[lint]\nunfixable = ['comments']\n",
     )
     .unwrap();
 
@@ -70,7 +141,7 @@ fn fix_never_mutates_unparsable_yaml() {
     fs::write(&file, original).unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ncommas = 'enable'\ntrailing-spaces = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n",
+        "[lint.rules]\ncommas = 'enable'\ntrailing-spaces = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n",
     )
     .unwrap();
 
@@ -99,7 +170,7 @@ fn fix_skips_and_reports_unparsable_file_with_undefined_alias() {
     fs::write(&file, original).unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nnew-lines = 'enable'\n",
+        "[lint.rules]\nnew-lines = 'enable'\n",
     )
     .unwrap();
 
@@ -124,7 +195,7 @@ fn fix_respects_toml_fixable_allowlist() {
     fs::write(&file, "key: value #comment").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n[fix]\nfixable = ['comments']\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\nnew-lines = 'enable'\nnew-line-at-end-of-file = 'enable'\n[lint]\nfixable = ['comments']\n",
     )
     .unwrap();
 
@@ -144,7 +215,6 @@ fn fix_respects_toml_fixable_allowlist() {
 }
 
 #[test]
-#[allow(clippy::permissions_set_readonly_false)]
 fn fix_handles_write_error() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("read_only.yaml");
@@ -152,21 +222,23 @@ fn fix_handles_write_error() {
     fs::write(&file, "key: value").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'enable'\n",
     )
     .unwrap();
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
+    let original_permissions = fs::metadata(&file).unwrap().permissions();
+    let mut perms = original_permissions.clone();
     perms.set_readonly(true);
     fs::set_permissions(&file, perms).unwrap();
+    if OpenOptions::new().write(true).open(&file).is_ok() {
+        fs::set_permissions(&file, original_permissions).unwrap();
+        return;
+    }
 
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run(Command::new(exe).arg("--fix").arg(&file));
 
-    // Reset permissions so tempdir can be cleaned up
-    let mut perms = fs::metadata(&file).unwrap().permissions();
-    perms.set_readonly(false);
-    let _ = fs::set_permissions(&file, perms);
+    fs::set_permissions(&file, original_permissions).unwrap();
 
     assert_eq!(
         code, 2,
@@ -185,7 +257,7 @@ fn fix_reports_summary_for_invalid_yaml() {
     fs::write(&file, "key: [\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nkey-duplicates = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\nkey-duplicates = 'enable'\n",
     )
     .unwrap();
 
@@ -210,7 +282,7 @@ fn fix_with_no_warnings_hides_warning_only_summary() {
     fs::write(&file, "key: value #comment").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n[rules.comments]\nlevel = 'warning'\n",
+        "[lint.rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n[lint.rules.comments]\nlevel = 'warning'\n",
     )
     .unwrap();
 
@@ -235,7 +307,7 @@ fn fix_missing_file_reports_read_error() {
     let file = dir.path().join("missing.yaml");
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nnew-line-at-end-of-file = 'enable'\n",
+        "[lint.rules]\nnew-line-at-end-of-file = 'enable'\n",
     )
     .unwrap();
 
@@ -264,7 +336,7 @@ fn fix_applies_new_safe_spacing_rules() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\ncomments-indentation = 'enable'\ncommas = 'enable'\nbraces = 'enable'\n[rules.brackets]\nmin-spaces-inside-empty = 1\nmax-spaces-inside-empty = 1\n",
+        "[lint.rules]\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\ncomments-indentation = 'enable'\ncommas = 'enable'\nbraces = 'enable'\n[lint.rules.brackets]\nmin-spaces-inside-empty = 1\nmax-spaces-inside-empty = 1\n",
     )
     .unwrap();
 
@@ -297,7 +369,7 @@ fn fix_comments_indentation_handles_crlf_blank_lines_without_newline_normalizati
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nnew-lines = 'disable'\nnew-line-at-end-of-file = 'disable'\ncomments-indentation = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\nnew-lines = 'disable'\nnew-line-at-end-of-file = 'disable'\ncomments-indentation = 'enable'\n",
     )
     .unwrap();
 
@@ -326,7 +398,7 @@ fn fix_under_best_practice_converges_in_one_invocation_for_escape_sequences() {
     fs::write(&file, "key: \"a\\ta\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.quoted-strings]\nquote-type = \"single\"\nrequired = \"only-when-needed\"\n",
+        "[lint.rules.quoted-strings]\nquote-type = \"single\"\nrequired = \"only-when-needed\"\n",
     )
     .unwrap();
 
@@ -344,7 +416,7 @@ fn fix_under_best_practice_converges_in_one_invocation_for_escape_sequences() {
 }
 
 #[test]
-fn fix_reindents_comment_left_by_joined_plain_scalar_in_one_invocation() {
+fn fix_reindents_comment_under_joined_plain_scalar_in_one_invocation() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("t.yaml");
     fs::write(&file, "a: b\n  c\n  # x\nd: e\n").unwrap();
@@ -357,7 +429,7 @@ fn fix_reindents_comment_left_by_joined_plain_scalar_in_one_invocation() {
     let (code, _, stderr) = run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
     assert_eq!(code, 0, "fix should succeed: {stderr}");
     assert!(
-        stderr.contains("(2 fixed, 0 remaining)"),
+        stderr.contains("(3 fixed, 0 remaining)"),
         "expected nothing left for a second --fix: {stderr}"
     );
     assert_eq!(
@@ -373,7 +445,7 @@ fn fix_with_toml_allow_double_quotes_for_escaping_silences_quoted_strings_diagno
     fs::write(&file, "message: \"line1\\nline2\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.quoted-strings]\nquote-type = \"single\"\nrequired = \"only-when-needed\"\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nquote-type = \"single\"\nrequired = \"only-when-needed\"\nallow-double-quotes-for-escaping = true\n",
     )
     .unwrap();
 
@@ -406,7 +478,7 @@ fn fix_handles_alias_value_without_desyncing_quoted_strings() {
     fs::write(&file, "anchor: &a 1\nref: *a\nval: \"x\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = \"disable\"\n[rules.quoted-strings]\nquote-type = \"consistent\"\nrequired = \"only-when-needed\"\n",
+        "[lint.rules]\ndocument-start = \"disable\"\n[lint.rules.quoted-strings]\nquote-type = \"consistent\"\nrequired = \"only-when-needed\"\n",
     )
     .unwrap();
 
@@ -430,7 +502,7 @@ fn fix_preserves_trailing_spaces_after_backslash_in_multiline_double_quoted_scal
     fs::write(&file, "key: \"a\\  \n  b\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
     )
     .unwrap();
 
@@ -455,7 +527,7 @@ fn fix_strips_trailing_spaces_but_preserves_block_scalar_content() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
     )
     .unwrap();
 
@@ -468,13 +540,44 @@ fn fix_strips_trailing_spaces_but_preserves_block_scalar_content() {
         "trailing space outside block scalar should be stripped, inside preserved: {fixed:?}"
     );
     assert_eq!(
-        code, 1,
-        "block-scalar trailing space should remain reported: stderr={stderr}"
+        code, 0,
+        "block-scalar content is not trailing space: {stderr}"
     );
     assert!(
-        stderr.contains("trailing-spaces"),
-        "block-scalar trailing space should still be flagged: {stderr}"
+        !stderr.contains("trailing-spaces"),
+        "block-scalar content should not be flagged: {stderr}"
     );
+}
+
+#[test]
+fn reference_block_scalar_spaces_are_not_trailing_spaces() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    for input in [
+        "a: |+\n  \nb: 1\n",
+        "a: |\n  \nb: 1\n",
+        "a: >+\n  \nb: 1\n",
+        "- |+\n   \n- x\n",
+        "|2\n  x\n  ",
+        "|-2\n  x\n  ",
+        ">2\n  x\n  ",
+        "|2+\n  x\n  ",
+        "&a |2\n  x\n  ",
+        "!foo |2\n  x\n  ",
+    ] {
+        fs::write(&file, input).unwrap();
+        let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .arg("check")
+            .arg("--fix")
+            .arg(&file));
+        assert_eq!(code, 0, "{input:?}: {stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), input);
+    }
 }
 
 #[test]
@@ -484,7 +587,7 @@ fn fix_inserts_document_start_marker_when_required() {
     fs::write(&file, "key: value\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'enable'\n",
     )
     .unwrap();
 
@@ -500,13 +603,13 @@ fn fix_inserts_document_start_marker_when_required() {
 }
 
 #[test]
-fn fix_skips_document_start_when_buffer_already_uses_document_markers() {
+fn fix_adds_document_start_after_an_end_marker_not_above_explicit_start() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
     fs::write(&file, "---\na: b\n...\nb: c\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'enable'\n",
     )
     .unwrap();
 
@@ -515,8 +618,8 @@ fn fix_skips_document_start_when_buffer_already_uses_document_markers() {
 
     let fixed = fs::read_to_string(&file).unwrap();
     assert_eq!(
-        fixed, "---\na: b\n...\nb: c\n",
-        "must not prepend `---` when stream already contains document markers: {fixed:?}"
+        fixed, "---\na: b\n...\n---\nb: c\n",
+        "`---` goes after the `...`, not above the explicit start: {fixed:?}"
     );
 }
 
@@ -527,7 +630,7 @@ fn fix_document_start_skips_buffer_without_document_events() {
     fs::write(&file, "# just a comment\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
+        "[lint.rules]\ndocument-start = 'enable'\nnew-line-at-end-of-file = 'disable'\n",
     )
     .unwrap();
 
@@ -548,7 +651,7 @@ fn fix_comments_preserves_top_level_tagged_inline_quoted_scalar() {
     fs::write(&file, "!!str \"a #b\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -573,7 +676,7 @@ fn fix_comments_preserves_tagged_inline_quoted_scalar_in_flow_contexts() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -594,7 +697,7 @@ fn fix_comments_preserves_tagged_inline_quoted_scalar_value() {
     fs::write(&file, "key: !!str \"a #b\"\nanc: &x \"c #d\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -615,7 +718,7 @@ fn fix_comments_preserves_quoted_value_after_flow_colon_without_space() {
     fs::write(&file, "flow: {\"a\":\"b #c\"}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -636,7 +739,7 @@ fn fix_preserves_top_level_tagged_block_scalar_body() {
     fs::write(&file, "!!str |\n  body   #c\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -661,7 +764,7 @@ fn fix_preserves_block_scalar_body_with_tag_and_anchor_headers() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\ntrailing-spaces = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\ntrailing-spaces = 'enable'\n",
     )
     .unwrap();
 
@@ -682,7 +785,7 @@ fn fix_does_not_skip_continuation_when_plain_scalar_ends_with_marker_like_suffix
     fs::write(&file, "desc: version >2\n  body   #c\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -703,7 +806,7 @@ fn fix_empty_lines_does_not_collapse_whitespace_only_lines() {
     fs::write(&file, "key: a\n   \nkey2: b\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -724,7 +827,7 @@ fn fix_empty_lines_preserves_blanks_inside_multiline_plain_scalar() {
     fs::write(&file, "key: a\n\n  b\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -745,7 +848,7 @@ fn fix_empty_lines_preserves_blanks_inside_flow_quoted_value_without_space() {
     fs::write(&file, "flow: {\"a\":\"b\n\nc\"}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -770,7 +873,7 @@ fn fix_comments_handles_quote_chars_at_line_start_and_in_plain_scalars() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ncomments = 'enable'\n",
     )
     .unwrap();
 
@@ -791,7 +894,7 @@ fn fix_skips_document_start_when_yaml_directive_present() {
     fs::write(&file, "%YAML 1.1\nkey: value\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'enable'\n",
     )
     .unwrap();
 
@@ -812,7 +915,7 @@ fn fix_appends_document_end_marker_when_required() {
     fs::write(&file, "---\nkey: value\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-end = 'enable'\n",
+        "[lint.rules]\ndocument-end = 'enable'\n",
     )
     .unwrap();
 
@@ -834,7 +937,7 @@ fn fix_document_end_appends_marker_when_leading_comments_precede_start_marker() 
     fs::write(&file, "# c\n---\nkey: value\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-end = 'enable'\n",
+        "[lint.rules]\ndocument-end = 'enable'\n",
     )
     .unwrap();
 
@@ -849,13 +952,13 @@ fn fix_document_end_appends_marker_when_leading_comments_precede_start_marker() 
 }
 
 #[test]
-fn fix_skips_document_end_for_multi_document_streams() {
+fn fix_adds_document_end_to_every_document_of_a_stream() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
     fs::write(&file, "key: a\n---\nkey: b\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\n",
+        "[lint.rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\n",
     )
     .unwrap();
 
@@ -863,10 +966,7 @@ fn fix_skips_document_end_for_multi_document_streams() {
     let _ = run(Command::new(exe).arg("--fix").arg(&file));
 
     let fixed = fs::read_to_string(&file).unwrap();
-    assert_eq!(
-        fixed, "key: a\n---\nkey: b\n",
-        "fix must leave multi-document streams untouched: {fixed:?}"
-    );
+    assert_eq!(fixed, "key: a\n...\n---\nkey: b\n...\n");
 }
 
 #[test]
@@ -876,7 +976,7 @@ fn fix_uses_crlf_when_buffer_uses_crlf_line_endings() {
     fs::write(&file, "key: value\r\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\ndocument-end = 'enable'\nnew-lines = 'disable'\n",
+        "[lint.rules]\ndocument-start = 'enable'\ndocument-end = 'enable'\nnew-lines = 'disable'\n",
     )
     .unwrap();
 
@@ -897,7 +997,7 @@ fn fix_appends_newline_when_buffer_lacks_final_newline() {
     fs::write(&file, "key: value").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n",
+        "[lint.rules]\ndocument-end = 'enable'\ndocument-start = 'disable'\nnew-line-at-end-of-file = 'disable'\n",
     )
     .unwrap();
 
@@ -922,7 +1022,7 @@ fn fix_preserves_block_scalar_body_when_marker_carries_indent_indicator() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
+        "[lint.rules]\ndocument-start = 'disable'\ntrailing-spaces = 'enable'\n",
     )
     .unwrap();
 
@@ -943,7 +1043,7 @@ fn fix_preserves_block_scalar_body_with_chomp_and_indent_indicator() {
     fs::write(&file, "folded: >-2\n   first\n\n   second\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -964,7 +1064,7 @@ fn fix_preserves_blank_lines_inside_multiline_double_quoted_scalar() {
     fs::write(&file, "key: \"a\n\nb\"\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -985,7 +1085,7 @@ fn fix_trims_blanks_after_plain_scalar_containing_apostrophe() {
     fs::write(&file, "key: it's\n\n\nkey2: b\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -1006,7 +1106,7 @@ fn fix_handles_doubled_quote_escape_in_multiline_single_quoted_scalar() {
     fs::write(&file, "key: 'a''b\n\nc'\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -1027,7 +1127,7 @@ fn fix_preserves_blank_lines_inside_multiline_single_quoted_scalar() {
     fs::write(&file, "key: 'a\n\nb'\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
+        "[lint.rules]\ndocument-start = 'disable'\nempty-lines = { max = 0, max-start = 0, max-end = 0 }\n",
     )
     .unwrap();
 
@@ -1052,7 +1152,7 @@ fn fix_trims_consecutive_blank_lines_outside_block_scalars() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nempty-lines = { max = 2, max-start = 0, max-end = 0 }\ndocument-start = 'disable'\n",
+        "[lint.rules]\nempty-lines = { max = 2, max-start = 0, max-end = 0 }\ndocument-start = 'disable'\n",
     )
     .unwrap();
 
@@ -1077,7 +1177,7 @@ fn fix_sorts_keys_and_reports_mappings_it_leaves_unsorted() {
     .unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nkey-ordering = 'enable'\n",
+        "[lint.rules]\nkey-ordering = 'enable'\n",
     )
     .unwrap();
 
@@ -1115,7 +1215,7 @@ fn unfixable_key_ordering_leaves_keys_and_prints_no_notice() {
     fs::write(&file, "b: 1\na: {d: 1, c: 2}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\nkey-ordering = 'enable'\n[fix]\nunfixable = ['key-ordering']\n",
+        "[lint.rules]\nkey-ordering = 'enable'\n[lint]\nunfixable = ['key-ordering']\n",
     )
     .unwrap();
 
@@ -1136,7 +1236,7 @@ fn fix_leaves_file_unchanged_when_min_spacing_exceeds_max() {
     fs::write(&file, "a: {x: 1}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.braces]\nmin-spaces-inside = 3\nmax-spaces-inside = 1\n",
+        "[lint.rules.braces]\nmin-spaces-inside = 3\nmax-spaces-inside = 1\n",
     )
     .unwrap();
 
@@ -1156,7 +1256,7 @@ fn fix_summary_counts_fixes_that_introduce_another_rules_problem() {
     fs::write(&file, "a: {x: 1}\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules.braces]\nmin-spaces-inside = 1\nmax-spaces-inside = 1\n[rules.line-length]\nmax = 10\n",
+        "[lint.rules.braces]\nmin-spaces-inside = 1\nmax-spaces-inside = 1\n[lint.rules.line-length]\nmax = 10\n",
     )
     .unwrap();
 

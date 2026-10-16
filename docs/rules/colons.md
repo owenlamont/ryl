@@ -15,7 +15,7 @@ Controls the number of spaces around mapping colons (`:`).
 ## Configuration
 
 ```toml
-[rules.colons]
+[lint.rules.colons]
 level = "error"
 max-spaces-before = 0
 max-spaces-after = 1
@@ -52,14 +52,14 @@ second: 2
 third:  3
 ```
 
-### Alias mapping keys
+### Alias, anchor and tag mapping keys
 
-A YAML anchor/alias name may legally contain `:`, so `*anchor:` welds into an alias to an
-anchor named `anchor:` (a parse error here, since no mapping colon remains). Using an
-alias as a mapping key therefore *requires* one separating space before the colon
-&mdash; `*anchor : value`. When exactly that one space is present the colon's spacing is
-not reported (the rule defers to the parser's view of the alias); more than one space
-before the colon is reported as usual.
+A YAML anchor/alias name or a tag may legally contain `:`, so `*anchor:` welds into an
+alias to an anchor named `anchor:` (a parse error here, since no mapping colon remains),
+and `&anchor: value` is the scalar `value` anchored `anchor:`. Using an alias as a
+mapping key, or an empty key carrying only an anchor or tag, therefore *requires* one
+separating space before the colon &mdash; `*anchor : value`, `&anchor : value`. That one
+space is not reported; more than one is reported as usual.
 
 ```yaml
 base: &a name
@@ -73,7 +73,21 @@ base: &a name
 
 ## Automatic fixing
 
-This rule does not auto-fix; correct spacing manually.
+`ryl check --fix` trims the spaces before `:` and after `:` or `?` to the configured
+maximum, never below the one space an alias, anchor or tag key needs before `:`, or the
+one space YAML needs after `:` or `?`. A space after `:` that leads to `,`, `]` or `}`
+is left to [`commas`](commas.md), [`braces`](braces.md) and [`brackets`](brackets.md).
+
+`ryl format` writes no space before `:` (one for those keys) and exactly one after `:`
+and `?`, turning a tab into a space. An explicit `?` or `:` that opens a block
+collection continuing below has its spaces set that collection's indentation, so
+`ryl check --fix` leaves it alone and `ryl format` re-indents the collection with it:
+
+```yaml
+? key
+:   - a      # ryl format: `: - a`, with `- b` under `- a`
+    - b
+```
 
 ## Related rules
 

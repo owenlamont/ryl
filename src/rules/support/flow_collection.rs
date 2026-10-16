@@ -29,12 +29,14 @@ macro_rules! define_rule {
 
         pub const ID: &str = $rule_id;
 
+        pub const FORBID_MESSAGE: &str = $forbid_message;
+
         const DESCRIPTOR:
             $crate::rules::support::flow_collection::FlowCollectionDescriptor =
             $crate::rules::support::flow_collection::FlowCollectionDescriptor {
                 open: $open,
                 close: $close,
-                forbid_message: $forbid_message,
+                forbid_message: FORBID_MESSAGE,
                 min_message: $min_message,
                 max_message: $max_message,
                 min_empty_message: $min_empty_message,
@@ -70,22 +72,20 @@ macro_rules! define_rule {
             }
 
             #[must_use]
-            pub const fn new_for_tests(
+            pub const fn new(
                 forbid: Forbid,
                 min_spaces_inside: i64,
                 max_spaces_inside: i64,
                 min_spaces_inside_empty: i64,
                 max_spaces_inside_empty: i64,
             ) -> Self {
-                Self(
-                    $crate::rules::support::flow_collection::Config::new_for_tests(
-                        forbid,
-                        min_spaces_inside,
-                        max_spaces_inside,
-                        min_spaces_inside_empty,
-                        max_spaces_inside_empty,
-                    ),
-                )
+                Self($crate::rules::support::flow_collection::Config::new(
+                    forbid,
+                    min_spaces_inside,
+                    max_spaces_inside,
+                    min_spaces_inside_empty,
+                    max_spaces_inside_empty,
+                ))
             }
 
             #[must_use]
@@ -180,7 +180,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn new_for_tests(
+    pub const fn new(
         forbid: Forbid,
         min_spaces_inside: i64,
         max_spaces_inside: i64,

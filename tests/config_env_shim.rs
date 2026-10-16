@@ -167,7 +167,10 @@ fn shim_env_var_rejects_toml_target_pointing_at_native_config() {
     // -c / project discovery instead of silently loading TOML.
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .add_file("/proj/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_file(
+            "/proj/ryl.toml",
+            "[lint.rules]\nkey-duplicates = 'enable'\n",
+        )
         .set_var("YAMLLINT_CONFIG_FILE", "/proj/ryl.toml");
     let err = discover_config_with(&[], &Overrides::default(), &env).unwrap_err();
     assert!(
@@ -231,11 +234,14 @@ fn shim_ryl_user_global_toml_applies_when_no_project_or_env() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_config_dir("/xdg")
-        .add_file("/xdg/ryl/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_file(
+            "/xdg/ryl/ryl.toml",
+            "[lint.rules]\nkey-duplicates = 'enable'\n",
+        )
         .add_exist("/xdg/ryl/ryl.toml");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/ryl.toml"));
-    // Confirms the file was parsed as TOML (a `[rules]` table), not YAML.
+    // Confirms the file was parsed as TOML (a `[lint.rules]` table), not YAML.
     assert!(
         ctx.config
             .rule_names()
@@ -249,9 +255,15 @@ fn shim_ryl_user_global_prefers_dotfile_over_plain() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_config_dir("/xdg")
-        .add_file("/xdg/ryl/.ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_file(
+            "/xdg/ryl/.ryl.toml",
+            "[lint.rules]\nkey-duplicates = 'enable'\n",
+        )
         .add_exist("/xdg/ryl/.ryl.toml")
-        .add_file("/xdg/ryl/ryl.toml", "[rules]\ntrailing-spaces = 'enable'\n")
+        .add_file(
+            "/xdg/ryl/ryl.toml",
+            "[lint.rules]\ntrailing-spaces = 'enable'\n",
+        )
         .add_exist("/xdg/ryl/ryl.toml");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/.ryl.toml"));
@@ -271,7 +283,10 @@ fn shim_ryl_user_global_takes_precedence_over_yamllint() {
         .with_cwd("/wd")
         .with_config_dir("/xdg")
         .set_var("XDG_CONFIG_HOME", "/xdg")
-        .add_file("/xdg/ryl/ryl.toml", "[rules]\nkey-duplicates = 'enable'\n")
+        .add_file(
+            "/xdg/ryl/ryl.toml",
+            "[lint.rules]\nkey-duplicates = 'enable'\n",
+        )
         .add_exist("/xdg/ryl/ryl.toml")
         .add_file("/xdg/yamllint/config", cfg_rules_empty())
         .add_exist("/xdg/yamllint/config");

@@ -16,7 +16,7 @@ Requires the file to end with a trailing newline character.
 ## Configuration
 
 ```toml
-[rules.new-line-at-end-of-file]
+[lint.rules.new-line-at-end-of-file]
 level = "error"
 ```
 
@@ -44,13 +44,18 @@ ryl appends a single newline when the file does not already end with one.
 
 ## Automatic fixing
 
-`ryl check --fix` appends a trailing newline when one is missing. Disable with:
+`ryl check --fix` appends a trailing newline when one is missing, including after a
+block scalar header or body. A spaces-only final block-scalar line keeps its spaces
+when only this rule runs; `document-end` can remove indentation spaces before adding
+`...`. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["new-line-at-end-of-file"]
 ```
+
+`ryl format` applies the same fix, ending the file with the `[format] line-ending`, and no option of this rule conflicts with it.
 
 ## Related rules
 

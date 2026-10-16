@@ -5,8 +5,8 @@
 ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork). A
 document with no version directive is resolved per the YAML 1.2 core schema,
 matching the spec, which assumes a directive-less document conforms to 1.2.
-yamllint, by comparison, is built on [PyYAML][pyyaml], which defaults to YAML
-1.1 semantics for boolean and other implicit type resolution.
+Implicit type resolution can differ from tools built on YAML 1.1 loaders such
+as [PyYAML][pyyaml].
 
 Most YAML files do not exercise the parts of the language where the two
 versions disagree, so in practice the difference rarely shows up. The two
@@ -15,7 +15,7 @@ places it matters in ryl are:
 - The [`quoted-strings`](rules/quoted-strings.md) rule when used with
   `required: "only-when-needed"`.
 - Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
-  configuration files inherited from yamllint.
+  configuration files.
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
@@ -38,10 +38,17 @@ Under an explicit `%YAML 1.1` the value-resolving rules follow 1.1:
 `quoted-strings` keeps quotes that are load-bearing under 1.1 and `truthy`
 flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 1.2: `--fix` only makes edits that preserve the value under the document's
-*declared* version, so it will not strip the quotes from `'no'` under
-`%YAML 1.1`, where the bareword `no` is the boolean false.
-The `truthy` fix only re-cases `True`/`FALSE` and the like, which are the
-same boolean under both versions.
+*declared* version. The `truthy` fix only re-cases `True`/`FALSE` and the
+like, which are the same boolean under both versions.
+
+Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
+any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
+`'1_000'`), so the output means the same to a 1.1 consumer such as PyYAML.
+The set is PyYAML's 1.1 resolver plus `0o` octal and `y`, `Y`, `n`, and `N`,
+which go-yaml v2 (used by Kubernetes) loads as
+booleans although PyYAML does not.
+Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
+`'008'`) are kept too.
 
 ## What is different in YAML 1.2
 
@@ -57,25 +64,11 @@ files.
 
 ## Implications for the `quoted-strings` rule
 
-With `quote-type: double, required: only-when-needed`, yamllint considers
-`"yes"` to need quoting (because the bareword would parse as a boolean in
-1.1), so it accepts the quoted form. With no version directive ryl resolves
-under 1.2, where `"yes"` is a string, so it reports the quotes as redundant.
-Under an explicit `%YAML 1.1` ryl keeps the quotes, matching yamllint, since
-removing them would change the value for a 1.1 consumer.
-
-If your project still wants quotes around YAML 1.1 truthy words in
-directive-less documents to protect consumers that use 1.1 parsers, either
-declare `%YAML 1.1` in those documents or set:
-
-```toml
-[rules.quoted-strings]
-required = true              # always quote, regardless of type
-quote-type = "double"
-```
-
-…or rely on the [`truthy`](rules/truthy.md) rule to flag bareword
-booleans instead and keep `quoted-strings` off.
+With `quote-type: double, required: only-when-needed`, ryl considers
+`"yes"` to need quoting because the bareword would parse as a boolean in
+1.1. The safeguard applies whatever the directive, since removing the
+quotes would change the value for a 1.1
+consumer.
 
 ## Implications for configuration files
 
@@ -107,8 +100,7 @@ syntax independent of YAML version.
 
 The rules below behave the way they do *because* ryl reads a directive-less
 input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
-1.1, as above). Most of these are intentional and align with yamllint when
-yamllint is configured for 1.2 explicitly:
+1.1, as above):
 
 - [`truthy`](rules/truthy.md) &mdash; the rule itself still recognises
   the 1.1 truthy word list as ambiguous and flags barewords like `yes`
@@ -119,7 +111,5 @@ yamllint is configured for 1.2 explicitly:
   the 1.2 spec.
 
 For documents that need to be portable between 1.1 and 1.2 consumers,
-the safest pattern is to quote any bareword that 1.1 would coerce. ryl
-will not get in your way as long as `quoted-strings.required` is `true`
-(or unset / disabled) rather than `"only-when-needed"`, or the document
-declares `%YAML 1.1` so ryl keeps those quotes for you.
+the safest pattern is to quote any bareword that 1.1 would coerce.
+`quoted-strings` and `ryl format` keep those quotes for you.

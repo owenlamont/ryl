@@ -17,11 +17,11 @@ fn toml_per_file_ignores_combine_matching_patterns() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        r#"[rules]
+        r#"[lint.rules]
 document-start = "enable"
 truthy = "enable"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "**/values.yaml" = ["document-start"]
 "*.yaml" = ["truthy"]
 "#,
@@ -64,10 +64,10 @@ fn toml_per_file_ignores_support_ruff_negated_patterns() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        r#"[rules]
+        r#"[lint.rules]
 document-start = "enable"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "!src/**.yaml" = ["document-start"]
 "#,
     )
@@ -101,7 +101,7 @@ fn toml_per_file_ignores_match_absolute_patterns() {
     fs::write(
         &config,
         format!(
-            "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'{}' = ['document-start']\n",
+            "[lint.rules]\ndocument-start = 'enable'\n[lint.per-file-ignores]\n'{}' = ['document-start']\n",
             file.display()
         ),
     )
@@ -125,7 +125,7 @@ fn toml_per_file_ignores_match_relative_cli_paths() {
     let config = dir.path().join(".ryl.toml");
     fs::write(
         &config,
-        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'relative.yaml' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n[lint.per-file-ignores]\n'relative.yaml' = ['document-start']\n",
     )
     .unwrap();
 
@@ -141,8 +141,8 @@ fn toml_per_file_ignores_match_relative_cli_paths() {
     );
 }
 
-const WORKFLOW_IGNORE_CONFIG: &str = "[rules]\ndocument-start = 'enable'\n\
-     [per-file-ignores]\n'.github/workflows/*' = ['document-start']\n";
+const WORKFLOW_IGNORE_CONFIG: &str = "[lint.rules]\ndocument-start = 'enable'\n\
+     [lint.per-file-ignores]\n'.github/workflows/*' = ['document-start']\n";
 
 fn workflow_tree() -> tempfile::TempDir {
     let dir = tempdir().unwrap();
@@ -182,8 +182,8 @@ fn toml_per_file_ignores_anchor_at_a_nested_discovered_config() {
     fs::write(svc.join("workflows/action.yml"), "on: push\n").unwrap();
     fs::write(
         svc.join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\n\
-         [per-file-ignores]\n'workflows/*' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n\
+         [lint.per-file-ignores]\n'workflows/*' = ['document-start']\n",
     )
     .unwrap();
 
@@ -228,8 +228,8 @@ fn toml_per_file_ignores_match_a_path_outside_the_config_dir_by_basename_only() 
         fs::write(
             conf.join("ryl.toml"),
             format!(
-                "[rules]\ndocument-start = 'enable'\n\
-                 [per-file-ignores]\n'{pattern}' = ['document-start']\n"
+                "[lint.rules]\ndocument-start = 'enable'\n\
+                 [lint.per-file-ignores]\n'{pattern}' = ['document-start']\n"
             ),
         )
         .unwrap();
@@ -253,8 +253,8 @@ fn toml_per_file_ignores_normalize_dot_segments_in_patterns() {
     let dir = workflow_tree();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ndocument-start = 'enable'\n\
-         [per-file-ignores]\n'./.github/../.github/workflows/*' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n\
+         [lint.per-file-ignores]\n'./.github/../.github/workflows/*' = ['document-start']\n",
     )
     .unwrap();
 
@@ -281,8 +281,8 @@ fn toml_per_file_ignores_all_silences_every_rule_but_not_syntax_errors() {
     fs::write(&own, "on: yes   \n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntruthy = \"enable\"\ntrailing-spaces = \"enable\"\n\n\
-         [per-file-ignores]\n\"pnpm-*.yaml\" = [\"ALL\"]\n",
+        "[lint.rules]\ntruthy = \"enable\"\ntrailing-spaces = \"enable\"\n\n\
+         [lint.per-file-ignores]\n\"pnpm-*.yaml\" = [\"ALL\"]\n",
     )
     .unwrap();
 
@@ -315,7 +315,7 @@ fn toml_per_file_ignores_reject_star_and_list_all() {
     fs::write(&file, "a: 1\n").unwrap();
     fs::write(
         dir.path().join(".ryl.toml"),
-        "[rules]\ntruthy = \"enable\"\n[per-file-ignores]\n\"a.yaml\" = [\"*\"]\n",
+        "[lint.rules]\ntruthy = \"enable\"\n[lint.per-file-ignores]\n\"a.yaml\" = [\"*\"]\n",
     )
     .unwrap();
     let (code, stdout, stderr) = run(ryl(dir.path()).arg("check").arg(&file));

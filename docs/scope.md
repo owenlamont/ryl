@@ -41,6 +41,7 @@ resolved value, comments and anchors. That rules out:
   have meant the string. One would only ever sit behind an explicit opt-in.
 - **Whole-document reprinting**, the way Prettier formats YAML. Use a
   reprinting formatter if that is what you want; ryl won't become one.
+  [`ryl format`](formatter.md) edits in place under the same guarantees.
 
 ## Not decided yet
 

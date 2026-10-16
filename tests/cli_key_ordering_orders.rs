@@ -24,7 +24,7 @@ const HOOK: &str = "repos:
 
 fn hooks_config(extra: &str) -> String {
     format!(
-        "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+        "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
          files = [\".pre-commit-config.yaml\"]\npath = \"$.repos[*].hooks[*]\"\n\
          {HOOK_KEYS}\n{extra}"
     )
@@ -108,9 +108,9 @@ fn orders_apply_only_where_files_and_path_both_match() {
 
 #[test]
 fn first_matching_entry_wins_and_excluded_files_fall_back() {
-    let config = "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+    let config = "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
                   files = [\"*.yaml\", \"!skip.yaml\"]\npath = \"$\"\nkeys = [\"z\", \"a\"]\n\n\
-                  [[rules.key-ordering.orders]]\nfiles = [\"*\"]\npath = \"$\"\n\
+                  [[lint.rules.key-ordering.orders]]\nfiles = [\"*\"]\npath = \"$\"\n\
                   keys = [\"a\", \"z\"]\n";
     assert_eq!(fixed(config, "doc.yaml", "a: 1\nz: 2\n"), "z: 2\na: 1\n");
     assert_eq!(fixed(config, "skip.yaml", "z: 2\na: 1\n"), "a: 1\nz: 2\n");
@@ -123,8 +123,8 @@ fn first_matching_entry_wins_and_excluded_files_fall_back() {
 
 #[test]
 fn ignored_keys_hold_their_slots_inside_a_listed_mapping() {
-    let config = "[rules.key-ordering]\nignored-keys = [\"^x$\"]\n\n\
-                  [[rules.key-ordering.orders]]\nfiles = [\"*\"]\npath = \"$\"\n\
+    let config = "[lint.rules.key-ordering]\nignored-keys = [\"^x$\"]\n\n\
+                  [[lint.rules.key-ordering.orders]]\nfiles = [\"*\"]\npath = \"$\"\n\
                   keys = [\"b\", \"a\"]\n";
     assert_eq!(
         fixed(config, "doc.yaml", "a: 1\nx: 0\nc: 3\nb: 2\n"),
@@ -134,7 +134,7 @@ fn ignored_keys_hold_their_slots_inside_a_listed_mapping() {
 
 #[test]
 fn paths_name_quoted_keys_items_and_each_document_root() {
-    let config = "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+    let config = "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
                   files = [\"*\"]\npath = \"$['my-key'][\\\"it's\\\"].*[*]\"\n\
                   keys = [\"b\", \"a\"]\n";
     let body = "my-key:\n  it's:\n    k:\n      - a: 1\n        b: 2\n---\n\
@@ -153,7 +153,7 @@ fn paths_name_quoted_keys_items_and_each_document_root() {
 
 #[test]
 fn values_of_non_scalar_keys_are_never_selected() {
-    let config = "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+    let config = "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
                   files = [\"*\"]\npath = \"$.*\"\nkeys = [\"b\", \"a\"]\n";
     let body = "k: &x v\n*x : {a: 1, b: 2}\n? [k]\n: a: 1\n  b: 2\n";
     let (out, after) = check(config, "doc.yaml", body, &["--fix"]);
@@ -167,7 +167,7 @@ fn stdin_needs_a_filename_to_match_files() {
     let config_path = dir.path().join(".ryl.toml");
     fs::write(
         &config_path,
-        "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+        "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
          files = [\"*\"]\npath = \"$\"\nkeys = [\"b\", \"a\"]\n",
     )
     .unwrap();
@@ -205,7 +205,7 @@ fn stdin_needs_a_filename_to_match_files() {
 
 #[test]
 fn markdown_matches_files_against_the_host_path() {
-    let config = "[rules.key-ordering]\n\n[[rules.key-ordering.orders]]\n\
+    let config = "[lint.rules.key-ordering]\n\n[[lint.rules.key-ordering.orders]]\n\
                   files = [\"README.md\"]\npath = \"$\"\nkeys = [\"b\", \"a\"]\n";
     let body = "# T\n\n```yaml\na: 1\nb: 2\n```\n";
     assert_eq!(

@@ -2,7 +2,7 @@ use ryl::rules::document_start::{self, Config, FORBIDDEN_MESSAGE, MISSING_MESSAG
 
 #[test]
 fn reports_missing_marker_at_start_of_file() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "foo: bar\n";
     let hits = document_start::check(input, &cfg);
     assert_eq!(hits.len(), 1, "expected a violation: {hits:?}");
@@ -14,7 +14,7 @@ fn reports_missing_marker_at_start_of_file() {
 
 #[test]
 fn reports_missing_marker_after_comment_block() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "# header\nfoo: bar\n";
     let hits = document_start::check(input, &cfg);
     assert_eq!(hits.len(), 1, "expected a violation: {hits:?}");
@@ -26,7 +26,7 @@ fn reports_missing_marker_after_comment_block() {
 
 #[test]
 fn explicit_marker_satisfies_requirement() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let input = "---\nfoo: bar\n";
     let hits = document_start::check(input, &cfg);
     assert!(hits.is_empty(), "explicit marker should pass: {hits:?}");
@@ -34,7 +34,7 @@ fn explicit_marker_satisfies_requirement() {
 
 #[test]
 fn forbidding_marker_flags_explicit_documents() {
-    let cfg = Config::new_for_tests(false);
+    let cfg = Config::new(false);
     let input = "---\nfoo: bar\n";
     let hits = document_start::check(input, &cfg);
     assert_eq!(hits.len(), 1, "expected a violation: {hits:?}");
@@ -46,7 +46,7 @@ fn forbidding_marker_flags_explicit_documents() {
 
 #[test]
 fn implicit_documents_respected_when_forbidden() {
-    let cfg = Config::new_for_tests(false);
+    let cfg = Config::new(false);
     let input = "foo: bar\n";
     let hits = document_start::check(input, &cfg);
     assert!(hits.is_empty(), "implicit document start allowed: {hits:?}");
@@ -54,7 +54,7 @@ fn implicit_documents_respected_when_forbidden() {
 
 #[test]
 fn empty_stream_has_no_diagnostics() {
-    let cfg = Config::new_for_tests(true);
+    let cfg = Config::new(true);
     let hits = document_start::check("", &cfg);
     assert!(hits.is_empty(), "empty stream should not warn: {hits:?}");
 }

@@ -17,7 +17,7 @@ Exit codes: `0` (ok/none), `1` (invalid YAML), `2` (usage error).
 `ryl check <inputs>` (the lint subcommand, #369) and bare `ryl <inputs>` lint
 identically: `LintArgs` (`clap::Args`) is flattened both at the top level and under
 `Commands::Check`, and the dispatch routes `check` through the subcommand's own
-`ArgMatches` so the repeatable `--format`/`--output-file` `indices_of` recovery reads
+`ArgMatches` so the repeatable `-f`/`--output-file` `indices_of` recovery reads
 the right scope. `check` is the recommended form; bare is deprecated: `run_cli` prints
 a one-line stderr warning (skipped under `--no-warnings` or with no inputs) after every
 meta-action has returned, and removal is a later sibling of the #238 lint/format split.
@@ -76,14 +76,15 @@ linted as its own document) and maps diagnostics back to the Markdown file. The
 Extractor in `src/markdown_embed/` (fenced blocks via `pulldown-cmark`, front matter via
 a line scan); each `EmbeddedRegion` carries the `raw_span` and per-line column remap.
 `document-start`/`document-end`/`new-line-at-end-of-file`/`new-lines` are suppressed in
-regions via `fix::suppressed_rules(kind)`.
+regions via `fix::suppressed_rules()`.
 
 `--fix` writes back (`fix::fix_markdown_str`): re-applies each line's stripped prefix
 (spaces, `> `, or a tab), preserves CRLF, and only rewrites a region when that reproduces
-the original bytes exactly — a ragged region (no single shared prefix) is reported but
-left untouched. A Markdown file with a bare `\r` (CR not in CRLF) anywhere is skipped
+the original bytes exactly and parsing the replacement recovers the complete rewritten
+region — ragged regions and rewrites that create closing fences are left untouched.
+A Markdown file with a bare `\r` (CR not in CRLF) anywhere is skipped
 loudly (`markdown_has_unsupported_cr` guards `lint_markdown_str`/`fix_markdown_str`/
-`markdown_parse_skips`: lint error + `--fix`/`--diff` notice): `pulldown-cmark` can't
+`markdown_region_problems`: lint error + `--fix`/`--diff` notice): `pulldown-cmark` can't
 find fences in a `\r` host and the `\n`-based remap can't place a region `\r`. LF/CRLF
 embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 
@@ -92,7 +93,7 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 `--fix` never mutates a file that does not fully parse: `fix::apply_safe_fixes_filtered`
 gates the whole pipeline on `lint::parse_error` (stricter than lint's
 `syntax_diagnostic` — it does *not* tolerate undefined aliases), so *any* granit parse
-error ⇒ the input is returned byte-for-byte unchanged and `apply_safe_fixes_in_place`
+error ⇒ the input is returned byte-for-byte unchanged and `rewrite_in_place`
 reports it in `FixOutcome::skipped`; the CLI prints a `<path>:L:C skipped by --fix:
 <error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
 pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES` = 100,
@@ -117,18 +118,46 @@ Markdown paths.
 
 `--diff` (#269) previews `--fix` without writing: prints a unified diff (3 lines of
 context) per changed file to **stdout** and exits `1` iff any file would change,
-mirroring `ruff check --diff`. `conflicts_with` `--fix`, ignores `--format`, supports
+mirroring `ruff check --diff`. `conflicts_with` `--fix`, ignores `-f`, supports
 stdin. Diff-only: remaining *unfixable* findings are neither printed nor counted (a file
 tripping only an unfixable rule exits `0`). Reuses the fix pipeline
-(`fix::diff_safe_fixes_for_files` → `fix::diff_outcome`), inheriting the parse-error gate
+(`fix::diff_files` → `fix::diff_outcome`), inheriting the parse-error gate
 and symlink skip (both → a `skipped by --diff` notice, no exit effect).
 
-A non-UTF-8/BOM input is likewise skipped (`fix::non_utf8_diff_skip`; files via
-`DecodedFile::is_plain_utf8`, stdin via decoded==raw bytes) — a text diff can't apply
-back to transcoded bytes, so `--fix` (which re-encodes) is the path for those — as is a
-filename with control characters (no representable header). Markdown diffs at host-file
-level. The diff *body* is verbatim (hk re-applies it byte-for-byte); the header path is
-sanitized and relativized to CWD (like ruff) so it applies via `git apply -p0`. A bare
+A non-UTF-8/BOM input runs through `fix::decoded_diff_outcome` for files and stdin:
+decoded-text changes count toward exit `1`, but the patch is suppressed with a notice
+because a text diff can't apply back to transcoded bytes; use `--fix` to re-encode.
+A filename with control characters is skipped (no representable header). Markdown diffs
+are at host-file level. The diff *body* is verbatim (hk re-applies it byte-for-byte);
+the header path is sanitized and relativized to CWD (like ruff) so it applies via
+`git apply -p0`. A bare
 `\r` is rendered as diff *content* (`render_unified_diff` splits hunk lines on `\n`
 only), so a mid-line/mixed `\r` round-trips; content that *ends* in a bare `\r` is
 skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).
+
+## `ryl format`
+
+`ryl format` reuses the `--fix` engine (`fix::run_passes`: parse gate, `disable-file`,
+fixed-point loop, convergence report) over a `fix::Passes` value. `ryl check --fix`
+builds its `Passes` from the lint config (rule selection, per-rule `ignore`,
+per-file-ignores, `fixable`/`unfixable`, per-line-ignores); `ryl format` builds its own
+from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those, so a
+zero-config run formats. Inline directives are honoured by both. A YAML config gets the
+`[format]` defaults.
+
+- `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
+  checkers on the original text, kept only for rules that actually edited and lines no
+  directive disables, plus a `1:1 would reformat` line per editing rule that no checker
+  explained. `--check` sends them through config `[output]`; `--diff` keeps stdout for
+  the patch and uses the default target. A ragged Markdown region gets none.
+- `format::conflicts` formats a fixed probe and lints it under the file's config; each
+  enabled formatting rule that rejects the output is a stderr warning, deduplicated by
+  text across configs, silenced by `--no-warnings`, never printed by `ryl check`.
+- `format::unfixed` names each `colons`/`hyphens` site the formatter leaves because
+  re-spacing it would re-indent a compact block collection. Every mode prints them as
+  `<path>:L:C <rule> not fixed: …` skip notices; they never change the exit code.
+- File and stdin output preserve the detected encoding and BOM. Encoded input still
+  runs through the formatter for `--check`/`--diff`: decoded-text changes determine
+  exit `1` and diagnostics, even when no applicable text patch can be emitted.
+  Formatting changes also count when a trailing bare CR or an unrepresentable filename
+  prevents a patch; `ryl check --diff` keeps those skips without an exit effect.

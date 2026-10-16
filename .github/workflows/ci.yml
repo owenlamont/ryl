@@ -17,6 +17,9 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
 
+      - name: Install Python 3.15 for inline scripts
+        run: uv python install 3.15
+
       - name: Install prek
         run: uv tool install prek --force
 
@@ -72,7 +75,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh skill publish --dry-run
 
+      - name: Replay saved property seeds
+        env:
+          PROPTEST_CASES: "0"
+        run: cargo nextest run --test 'property_*'
+
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
+        env:
+          PROPTEST_CASES: "0"
+          PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
         run: |-
           set -euo pipefail
           # Run the suite once; every report below is derived from this single run's
@@ -136,6 +147,54 @@ jobs:
           cargo llvm-cov report --summary-only \
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0
+
+  platform-tests:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-tests
+            os: windows-latest
+            cargo-args: ""
+          - name: linux-cli-tests
+            os: ubuntu-latest
+            cargo-args: --no-default-features
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_BUILD_JOBS: 4
+      RUST_TEST_THREADS: 4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+
+      - name: Install Python 3.15 for inline scripts
+        run: uv python install 3.15
+
+      - name: Install yamllint
+        run: |-
+          uv tool install yamllint --force
+          yamllint --version
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0
+        with:
+          tool: cargo-nextest
+
+      - name: Run tests
+        env:
+          PROPTEST_CASES: "0"
+        run: cargo nextest run ${{ matrix.cargo-args }}
 
   coverage-comment:
     # Posting the coverage comment needs `pull-requests: write`, so it is isolated here,

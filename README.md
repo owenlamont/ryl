@@ -1,46 +1,39 @@
 # ryl
 
-ryl - the Rust YAML linter - is intended to ultimately be a drop-in
-replacement for [yamllint](https://github.com/adrienverge/yamllint). It is
-usable today, but parity and edge-case behaviour are still maturing.
+ryl is a fast YAML linter and formatter written in Rust. It checks YAML style,
+applies safe lint fixes, and formats files with configurable layout. It is usable
+today, but edge-case behaviour is still maturing.
 
 Full documentation lives at <https://ryl-docs.pages.dev/>.
 
-## Compatibility note
+ryl targets YAML 1.2. See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
+for how version directives and implicit types affect linting and formatting.
 
-- `ryl` aims to match `yamllint` behaviour and includes many parity tests.
-- `ryl` uses the `granit-parser` parser stack, while `yamllint` uses the
-  `PyYAML` parser stack.
-- `granit-parser` and `PyYAML` do not always agree on which files are valid
-  YAML.
-- **`ryl` targets YAML 1.2 strictly.** `yamllint` defaults to YAML 1.1
-  semantics, so bareword booleans like `yes` / `no` / `on` / `off` (and
-  case variants) are plain strings in `ryl` and booleans in `yamllint`.
-  Leading-zero integers like `0755` are decimal in `ryl` and octal in
-  `yamllint`. The same 1.2 semantics also apply when `ryl` parses
-  `.yamllint` configuration files inherited from `yamllint`. See the
-  [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
-  page for the practical implications.
+Coming from yamllint? See the [migration guide](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/).
 
 ## Quick start
 
 ryl enables no rules by default, so it needs a configuration or `--enable` that
-turns rules on. `-d 'extends: default'` opts into yamllint's standard rule set for
-a one-off run, and `--enable <RULES>` runs just the named rules; for a project,
+turns rules on. `--enable ALL` runs every rule for a one-off run, and
+`--enable <RULES>` runs just the named rules; for a project,
 drop a `.ryl.toml` at the root (see
 [Configuration](https://ryl-docs.pages.dev/getting-started/quickstart/)).
 
-`ryl check` is the lint subcommand (a `ryl format` formatter is coming) and the
-recommended form. Bare `ryl <paths>` still lints identically but is deprecated: it
+`ryl check` is the lint subcommand and the recommended form; `ryl format` is the
+formatter. Bare `ryl <paths>` still lints identically but is deprecated: it
 prints a warning to stderr (silenced by `--no-warnings`) and a later release will
 remove it, so prefer `ryl check`.
 
 ```bash
 # Using uv (Python)
-uvx ryl check -d 'extends: default' .
+uvx ryl check --enable ALL .
 
 # Using npx (Node.js)
-npx @owenlamont/ryl check -d 'extends: default' .
+npx @owenlamont/ryl check --enable ALL .
+
+# Format in place, or check formatting in CI
+uvx ryl format .
+uvx ryl format --check .
 ```
 
 For `prek` / `pre-commit` integration, see
@@ -62,23 +55,26 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 
 ## Status and scope
 
-- All 23 yamllint rules are implemented, plus four ryl-only rules with no
-  yamllint equivalent (`tags`, `merge-keys`, `block-scalar-chomping`, and
-  `unicode-line-breaks`), configured in TOML only. The current rule reference
+- `ryl format` formats YAML in place without enabling lint rules. Its `--check`
+  and `--diff` modes preview changes without writing; `[format]` in TOML controls
+  the style. It also formats embedded YAML in Markdown with `--markdown`.
+- ryl includes 27 rules, including `tags`, `merge-keys`,
+  `block-scalar-chomping`, and `unicode-line-breaks`. The rule reference
   and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.
-- Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `commas`,
-  `comments`, `comments-indentation`, `document-end`, `document-start`,
-  `empty-lines`, `key-ordering`, `new-line-at-end-of-file`, `new-lines`,
-  `quoted-strings`, `trailing-spaces`, and `truthy` (case only, e.g. `True`
-  to `true`). The set of rules that may apply fixes is configurable via the
-  TOML `[fix]` table.
+- Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `colons`,
+  `commas`, `comments`, `comments-indentation`, `document-end`,
+  `document-start`, `empty-lines`, `hyphens`, `key-ordering`,
+  `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`,
+  and `truthy` (case only, e.g. `True` to `true`). The set of rules that may
+  apply fixes is configurable via the TOML `lint.fixable`/`lint.unfixable`
+  keys.
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file
   would change.
-- TOML is the recommended configuration format and supports ryl-only
-  features that have no upstream equivalent: the `[fix]` table,
-  `[per-file-ignores]`, and rule options such as
+- TOML is the recommended configuration format and supports
+  the `lint.fixable`/`lint.unfixable`
+  fix policy, `[lint.per-file-ignores]`, and rule options such as
   `allow-double-quotes-for-escaping`.
 - TOML assigns each file a source kind via the `[files]` table
   (`yaml = [...]`, `markdown = [...]`). The legacy `yaml-files` key is YAML-only;
@@ -88,10 +84,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   to the Markdown file. It is off by default; `--fix` writes safe fixes back into
   the embedded blocks and `--diff` previews them at the host-file level. See
   <https://ryl-docs.pages.dev/markdown/>.
-- yamllint-style YAML configuration is also accepted (`.yamllint`,
-  `.yamllint.yml`, `.yamllint.yaml`) for drop-in compatibility, including
-  the built-in `default`, `relaxed`, and `empty` presets via `extends`.
-  An existing yamllint configuration can be converted with
+- YAML configuration (`.yamllint`, `.yamllint.yml`,
+  `.yamllint.yaml`, including the `default`, `relaxed`, and `empty` presets via
+  `extends`) still works but is deprecated and warns; convert it with
   `ryl --migrate-configs --migrate-write`.
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`
@@ -109,7 +104,7 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   stdin, but `--diff` can.
 - `ryl server` runs ryl as a Language Server (LSP) over stdio, giving
   editors inline diagnostics, a `source.fixAll.ryl` code action, and
-  formatting (= apply safe fixes). It complements Red Hat's
+  formatting via `ryl format`. It complements Red Hat's
   `yaml-language-server` rather than replacing it, and is built in by
   default (a minimal binary without it builds with
   `cargo install ryl --no-default-features`). See
@@ -121,8 +116,8 @@ documentation, see the docs site.
 
 ## Performance
 
-`ryl` is significantly faster than `yamllint` on large trees. The figure
-below is from a 5x5 file-count × file-size matrix with 5 runs per point:
+The figure below times ryl and yamllint over a 5x5 file-count × file-size
+matrix with 5 runs per point:
 
 ![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 
@@ -143,9 +138,7 @@ linting and developer automation, especially:
   Rust tooling for Python development and inspiring the config and API
   for ryl.
 - [rumdl](https://github.com/rvben/rumdl) - for giving me another
-  template to follow for Rust tooling and showing me almost the only dev
-  tool I was still using after this that wasn't written in Rust was
-  yamllint (which inspired me to tackle this project).
+  template to follow for Rust tooling.
 - [saphyr](https://github.com/saphyr-rs/saphyr) - ryl's vendored YAML DOM
   is derived from saphyr, and saphyr's developers were very patient in
   showing some of the nuance and complexity of parsing YAML which I was

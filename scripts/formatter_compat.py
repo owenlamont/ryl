@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14"
+# requires-python = ">=3.15"
 # dependencies = ["typer", "py-yaml12"]
 # ///
 """Verify ryl's documented per-formatter recipes still coexist cleanly with the latest
@@ -12,7 +12,7 @@ invariants:
   1. it converges (no edit loop between the two tools);
   2. the settled file has no residual ryl findings (minus documented caveats); and
   3. the settled file resolves to the same YAML 1.2 values as the input (no silent value
-     change), checked with py-yaml12 (Rust/saphyr, matching ryl's 1.2 target).
+     change), checked with py-yaml12 and adjudicated by reference events on disagreement.
 
 Manual / opt-in: it shells out to the real tools and is NOT meant for CI. It needs `ryl`
 and `pixi` on PATH (plus `uv`, which launches this script); pixi fetches all three
@@ -44,6 +44,7 @@ import shutil
 import subprocess
 import tempfile
 
+from reference_events import reference_equal
 import typer
 from yaml12 import parse_yaml
 
@@ -277,7 +278,7 @@ MAX_ITERS = 6
 # regardless of env. Auto-detect would emit the GitHub "[rule]" format under GITHUB_* or an
 # ESC-reset-terminated colored line under FORCE_COLOR, either of which this trailing-parens
 # regex silently misses, making a complaint look clean.
-_RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
+RULE_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 
 
 class Runner:
@@ -352,11 +353,11 @@ class Runner:
         return [
             m.group(1)
             for ln in (proc.stdout + proc.stderr).splitlines()
-            if (m := _RULE_RE.search(ln))
+            if (m := RULE_RE.search(ln))
         ]
 
 
-def _values_equal(a: object, b: object) -> bool:
+def values_equal(a: object, b: object) -> bool:
     """Deep equality that treats two NaNs as equal (Python's `nan != nan` would otherwise
     make any file containing `.nan` look changed) and keeps int/bool/str distinct.
     """
@@ -365,22 +366,22 @@ def _values_equal(a: object, b: object) -> bool:
     if type(a) is not type(b):
         return False
     if isinstance(a, dict):
-        return a.keys() == b.keys() and all(_values_equal(a[k], b[k]) for k in a)
+        return a.keys() == b.keys() and all(values_equal(a[k], b[k]) for k in a)
     if isinstance(a, list):
-        return len(a) == len(b) and all(starmap(_values_equal, zip(a, b, strict=False)))
+        return len(a) == len(b) and all(starmap(values_equal, zip(a, b, strict=False)))
     return a == b
 
 
 def value_preserved(before: str, after: str) -> bool | None:
-    """True/False if the YAML 1.2 resolved values match; None (skip) if py-yaml12 cannot
-    parse EITHER side. Looks-wrong-but-isn't: py-yaml12 is an incomplete oracle that raises
-    on constructs it does not support (an unknown `!tag`, or some shapes a formatter emits
-    from one, e.g. yamlfmt's refs.yaml output), so a parse failure means "cannot verify",
-    not corruption. Returning False on an unparsable *output* would false-flag valid
-    formatter output. Genuinely invalid output is still caught by the ryl_lint syntax check.
+    """Compare py-yaml12 values, then adjudicate disagreements by reference events.
+
+    None means a parser could not verify either side. py-yaml12 cannot load every
+    construct a formatter emits; reference events compare normalized line breaks.
+    Genuinely invalid output is still caught by the ryl_lint syntax check.
     """
     try:
-        return _values_equal(parse_yaml(before), parse_yaml(after))
+        equal = values_equal(parse_yaml(before), parse_yaml(after))
+        return reference_equal(before, after) if not equal else True
     except Exception:
         return None
 
@@ -465,7 +466,9 @@ def verify() -> None:
                 if vp is False and (formatter, fname) in EXPECTED_VALUE_CHANGE:
                     notes.append("expected value change")
                 if vp is None:
-                    notes.append("value check skipped (py-yaml12 could not parse)")
+                    notes.append(
+                        "value check unavailable (py-yaml12 or reference parser)"
+                    )
 
                 if verdict == "loop":
                     status, failures = "FAIL: edit loop", failures + 1

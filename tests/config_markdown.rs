@@ -45,7 +45,7 @@ fn markdown_candidate_matches_only_with_files_pattern() {
     let outside_base = PathBuf::from("/elsewhere/notes.md");
     assert!(enabled.is_markdown_candidate(&outside_base, &base));
 
-    let disabled = config_from_toml("[rules]\ncolons = \"enable\"\n");
+    let disabled = config_from_toml("[lint.rules]\ncolons = \"enable\"\n");
     assert!(!disabled.is_markdown_candidate(&doc, &base));
 }
 

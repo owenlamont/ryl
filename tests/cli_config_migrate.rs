@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 use tempfile::tempdir;
@@ -58,7 +59,7 @@ fn migrate_configs_write_with_rename_flattens_extends() {
 
     let toml = fs::read_to_string(root.join(".ryl.toml")).unwrap();
     assert!(toml.contains("document-start = \"disable\""));
-    assert!(toml.contains("[rules.truthy]"));
+    assert!(toml.contains("[lint.rules.truthy]"));
     assert!(toml.contains("level = \"error\""));
     assert!(!root.join(".yamllint").exists());
     assert!(root.join(".yamllint.bak").exists());
@@ -178,7 +179,7 @@ fn migrate_configs_empty_default_root_prints_no_configs_message() {
         .current_dir(td.path())
         .arg("--migrate-configs"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
-    assert!(stdout.contains("No legacy YAML config files migrated under"));
+    assert!(stdout.contains("No legacy config files migrated under"));
 }
 
 #[test]
@@ -197,7 +198,7 @@ fn migrate_configs_stdout_prints_generated_toml() {
         .arg("--migrate-stdout"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(stdout.contains("# "));
-    assert!(stdout.contains("[rules]"));
+    assert!(stdout.contains("[lint.rules]"));
 }
 
 #[test]
@@ -270,7 +271,7 @@ fn migrate_user_config_absent_source_reports_message() {
         .arg("--migrate-user-config"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(
-        stdout.contains("No yamllint user-global config migrated"),
+        stdout.contains("No user-global config migrated"),
         "got: {stdout}"
     );
 }
@@ -345,7 +346,7 @@ fn migrate_combined_reports_absent_user_config_even_when_project_migrates() {
         "project migrated: {stdout}"
     );
     assert!(
-        stdout.contains("No yamllint user-global config migrated"),
+        stdout.contains("No user-global config migrated"),
         "absent user-global reported even though the project migrated: {stdout}"
     );
 }
@@ -369,4 +370,223 @@ fn migrate_rejects_positional_path() {
         );
     }
     assert!(!td.path().join("sub/.ryl.toml").exists());
+}
+
+fn user_config_with_ignore_files(rules_yaml: &str) -> (tempfile::TempDir, PathBuf) {
+    let td = tempdir().unwrap();
+    let yamllint_dir = td.path().join("xdg").join("yamllint");
+    let project = td.path().join("project");
+    fs::create_dir_all(&yamllint_dir).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    fs::write(yamllint_dir.join("config"), rules_yaml).unwrap();
+    fs::write(yamllint_dir.join("ignores.txt"), "beside-source/\n").unwrap();
+    fs::write(project.join("ignores.txt"), "from-cwd/\n").unwrap();
+    (td, project)
+}
+
+#[test]
+fn migrate_user_config_refuses_relative_rule_level_ignore_from_file() {
+    let (td, project) = user_config_with_ignore_files(
+        "rules:\n  key-duplicates:\n    ignore-from-file: ignores.txt\n",
+    );
+    let source = td.path().join("xdg").join("yamllint").join("config");
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .current_dir(&project)
+        .env("XDG_CONFIG_HOME", td.path().join("xdg"))
+        .args([
+            "--migrate-user-config",
+            "--migrate-write",
+            "--migrate-delete-old",
+        ]));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stderr.contains("relative ignore-from-file `ignores.txt`"),
+        "got: {stderr}"
+    );
+    assert!(
+        stdout.contains("No user-global config migrated."),
+        "got: {stdout}"
+    );
+    assert!(
+        source.exists(),
+        "a refused source is kept, even with --delete-old"
+    );
+}
+
+#[test]
+fn legacy_yaml_check_warns_unless_no_warnings() {
+    let td = tempdir().unwrap();
+    let config = td.path().join("lint.yaml");
+    fs::write(&config, "rules: { trailing-spaces: enable }\n").unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let check = |extra: &[&str]| {
+        run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .arg("check")
+            .args(extra)
+            .arg("-c")
+            .arg(&config)
+            .arg(&file))
+    };
+    let (code, _, stderr) = check(&[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("yamllint YAML config is deprecated"),
+        "{stderr}"
+    );
+    let (code, _, stderr) = check(&["--no-warnings"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "--no-warnings silences it: {stderr}");
+}
+
+#[test]
+fn config_data_preset_shorthand_still_loads() {
+    let td = tempdir().unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d", "relaxed"])
+        .arg(&file));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stderr.contains("yamllint YAML config is deprecated"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn migrate_configs_does_not_warn_about_its_own_source() {
+    let td = tempdir().unwrap();
+    fs::write(td.path().join(".yamllint"), "rules: { anchors: enable }\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("--migrate-configs")
+        .arg("--migrate-root")
+        .arg(td.path()));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(!stderr.contains("deprecated"), "{stderr}");
+}
+
+#[test]
+fn legacy_notice_beside_toml_is_reported_once_per_directory_walk() {
+    let td = tempdir().unwrap();
+    let project = td.path().join("p");
+    fs::create_dir_all(project.join("sub")).unwrap();
+    fs::write(
+        project.join(".ryl.toml"),
+        "[lint.rules]\nanchors = \"enable\"\n",
+    )
+    .unwrap();
+    fs::write(project.join(".yamllint"), "rules: { anchors: enable }\n").unwrap();
+    fs::write(project.join("a.yaml"), "a: 1\n").unwrap();
+    fs::write(project.join("sub").join("b.yaml"), "b: 1\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .current_dir(&project)
+        .env("HOME", td.path())
+        .args(["check", "."]));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert_eq!(
+        stderr.matches("ignoring legacy YAML config").count(),
+        1,
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_dotdot_spelling_of_one_project_config_warns_once() {
+    let td = tempdir().unwrap();
+    let other = td.path().join("other");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(
+        other.join(".yamllint.yaml"),
+        "rules: { trailing-spaces: enable }\n",
+    )
+    .unwrap();
+    fs::write(other.join("x.yaml"), "x: 1\n").unwrap();
+    fs::write(other.join("y.yaml"), "y: 1\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .current_dir(&other)
+        .env("HOME", td.path())
+        .args(["check", "x.yaml", "../other/y.yaml"]));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert_eq!(
+        stderr.matches("yamllint YAML config is deprecated").count(),
+        1,
+        "{stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_config_file_hint_runs_as_written_for_a_path_with_a_space() {
+    let td = tempdir().unwrap();
+    let dir = td.path().join("space dir");
+    fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("lint.yaml");
+    fs::write(&config, "rules: { trailing-spaces: enable }\n").unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (_, _, stderr) = run(Command::new(exe)
+        .arg("check")
+        .arg("-c")
+        .arg(&config)
+        .arg(&file));
+    let hint = stderr
+        .split('`')
+        .find(|part| part.starts_with("ryl --migrate-configs"))
+        .unwrap_or_else(|| panic!("no migrate command in: {stderr}"));
+    let script = format!("'{exe}'{}", hint.strip_prefix("ryl").unwrap());
+    let (code, stdout, stderr) = run(Command::new("sh").arg("-c").arg(&script));
+    assert_eq!(code, 0, "{script}: stdout={stdout} stderr={stderr}");
+    assert!(dir.join("lint.toml").exists(), "{script}: {stdout}");
+}
+
+/// Two projects whose `.yamllint` symlinks to one shared file anchored at `/nested/`.
+#[cfg(unix)]
+fn symlinked_projects() -> tempfile::TempDir {
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join("shared.yaml"),
+        "ignore: /nested/skip.yaml\nrules: { trailing-spaces: enable }\n",
+    )
+    .unwrap();
+    for project in ["a", "b"] {
+        let nested = td.path().join(project).join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("skip.yaml"), "a: 1 \n").unwrap();
+        std::os::unix::fs::symlink(
+            "../shared.yaml",
+            td.path().join(project).join(".yamllint"),
+        )
+        .unwrap();
+    }
+    td
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_shared_config_anchors_at_each_project() {
+    let td = symlinked_projects();
+    let check = |inputs: &[&str]| {
+        run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .current_dir(td.path())
+            .env("HOME", td.path())
+            .arg("check")
+            .args(inputs))
+    };
+    let (code, stdout, stderr) = check(&["b/nested/skip.yaml"]);
+    assert_eq!(
+        code, 0,
+        "ignored when checked alone: stdout={stdout} stderr={stderr}"
+    );
+    let (code, stdout, stderr) = check(&["a/nested/skip.yaml", "b/nested/skip.yaml"]);
+    assert_eq!(
+        code, 0,
+        "ignored in both projects: stdout={stdout} stderr={stderr}"
+    );
+    assert_eq!(
+        stderr.matches("yamllint YAML config is deprecated").count(),
+        1,
+        "one shared file warns once: {stderr}"
+    );
 }

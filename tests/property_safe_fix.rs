@@ -30,12 +30,36 @@ use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 
-use ast::{BlockEntry, Document, FlowStyle, InlineComment, NewlineStyle, Node, Scalar};
+use ast::{
+    BlockBodyLine, BlockEntry, BlockScalarSpec, ColonGap, Document, FlowStyle,
+    InlineComment, Layout, NewlineStyle, Node, Scalar, SeqBody,
+};
 use config::{
-    named_config, parse_for_compare, safe_fix_configs, safe_fix_rule_diagnostics,
-    synthetic_base_dir, synthetic_path,
+    named_config, parse_for_compare, reference_safe_eof_append, safe_fix_configs,
+    safe_fix_rule_diagnostics, synthetic_base_dir, synthetic_path,
 };
 use strategy::arb_document;
+
+fn last_block_scalar(node: &Node) -> Option<&BlockScalarSpec> {
+    match node {
+        Node::BlockScalar(spec) => Some(spec),
+        Node::BlockMap(entries) => entries
+            .last()
+            .and_then(|entry| last_block_scalar(&entry.value)),
+        Node::BlockSeq(items) => items.last().and_then(|item| match &item.body {
+            SeqBody::BlockScalar(spec) => Some(spec),
+            SeqBody::Inline(node) => last_block_scalar(node),
+            SeqBody::TaggedMap(_, entries) | SeqBody::CompactMap(entries) => entries
+                .last()
+                .and_then(|entry| last_block_scalar(&entry.value)),
+            SeqBody::CompactSeq(items) => {
+                items.last().and_then(|(_, node)| last_block_scalar(node))
+            }
+            _ => None,
+        }),
+        _ => None,
+    }
+}
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -92,6 +116,21 @@ proptest! {
     #[test]
     fn safe_fix_preserves_parsed_value(document in arb_document()) {
         let input = document.render();
+        // granit counts this terminal blank; the reference parser clips it.
+        let clipped_blank_at_eof = !document.has_final_newline
+            && document.entries.last().is_some_and(|entry| {
+                matches!(&entry.value, Node::BlockScalar(spec)
+                    if matches!(spec.style, '|' | '>')
+                        && spec.chomp.is_none()
+                        && matches!(spec.body.last(), Some(BlockBodyLine::Spaces(_)))
+                        && spec.body.iter().any(|line| matches!(line, BlockBodyLine::Content { .. })))
+            });
+        let last_line = input.rsplit(['\n', '\r']).next().unwrap_or_default();
+        let keep_blank_at_eof = !document.has_final_newline
+            && !last_line.is_empty()
+            && last_line.bytes().all(|byte| byte == b' ')
+            && document.entries.last().and_then(|entry| last_block_scalar(&entry.value))
+                .is_some_and(|spec| spec.chomp == Some('+') && spec.trailing_comment.is_none());
         let Some(before) = parse_for_compare(&input) else {
             return Ok(());
         };
@@ -105,14 +144,39 @@ proptest! {
                     "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
                 ))
             })?;
-            prop_assert_eq!(
-                &before,
-                &after,
-                "safe fix changed parsed YAML value under config '{}'; input {:?}; fixed {:?}",
-                cfg_name,
-                input,
-                fixed
-            );
+            if before != after && reference_safe_eof_append(&input, &fixed) {
+                continue;
+            } else if before != after && keep_blank_at_eof {
+                // The reference parser retains the keep-chomped EOF blank line that the loader drops.
+                let newline = match document.newline {
+                    NewlineStyle::Lf => "\n",
+                    NewlineStyle::Crlf => "\r\n",
+                    NewlineStyle::Cr => "\r",
+                };
+                let reference_input = format!("{}{newline}", &input[..input.len() - last_line.len()]);
+                prop_assert!(
+                    parse_for_compare(&reference_input).as_ref() == Some(&after),
+                    "safe fix changed reference YAML value under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
+                );
+            } else if before != after && clipped_blank_at_eof {
+                let reference_equal = noyalib::from_str::<noyalib::Value>(&input)
+                    .ok()
+                    .zip(noyalib::from_str::<noyalib::Value>(&fixed).ok())
+                    .is_some_and(|(before, after)| before == after);
+                prop_assert!(
+                    reference_equal,
+                    "safe fix changed reference YAML value under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
+                );
+            } else {
+                prop_assert_eq!(
+                    &before,
+                    &after,
+                    "safe fix changed parsed YAML value under config '{}'; input {:?}; fixed {:?}",
+                    cfg_name,
+                    input,
+                    fixed
+                );
+            }
         }
     }
 
@@ -154,13 +218,15 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
         entries: vec![BlockEntry {
             leading_comment: None,
             key: "items".to_string(),
+            colon: ColonGap::default(),
             value: Node::FlowSeq(
                 vec![plain("TRUE"), plain("false")],
                 FlowStyle {
                     inner_padding: 1,
                     spaces_before_comma: 1,
                     spaces_after_comma: 2,
-                    space_after_colon: true,
+                    spaces_before_colon: 0,
+                    spaces_after_colon: 1,
                 },
             ),
             trailing_inline_comment: Some(InlineComment {
@@ -168,6 +234,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
                 spaces_after_hash: 0,
                 text: "trailing".to_string(),
             }),
+            layout: Layout::default(),
         }],
         newline: NewlineStyle::Crlf,
         has_final_newline: false,
@@ -192,7 +259,14 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
             before, after,
             "safe fix must preserve parsed value under config '{cfg_name}'"
         );
-        let remaining = safe_fix_rule_diagnostics(&fixed, cfg);
+        // Zero tolerance still flags the space the grammar requires, which no fix removes.
+        let remaining: Vec<_> = safe_fix_rule_diagnostics(&fixed, cfg)
+            .into_iter()
+            .filter(|problem| {
+                cfg_name != "spacing-zero"
+                    || !matches!(problem.rule, Some("colons" | "hyphens"))
+            })
+            .collect();
         assert!(
             remaining.is_empty(),
             "safe-fix-rule diagnostics must clear after fix under config '{cfg_name}': {remaining:?}"
@@ -204,6 +278,23 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
             "safe fix must be idempotent under config '{cfg_name}'"
         );
     }
+}
+
+#[test]
+fn keep_scalar_eof_uses_reference_value_when_loader_disagrees() {
+    let input = "a: |+\n  \n    ";
+    let fixed = apply_safe_fixes(
+        input,
+        named_config("yamllint-default"),
+        synthetic_path(),
+        synthetic_base_dir(),
+    );
+    assert_eq!(fixed, "---\na: |+\n\n\n...\n");
+    assert_ne!(parse_for_compare(input), parse_for_compare(&fixed));
+    assert_eq!(
+        parse_for_compare("a: |+\n  \n\n"),
+        parse_for_compare(&fixed)
+    );
 }
 
 #[test]

@@ -21,6 +21,10 @@
 //!   `key-ordering` `orders`; a TOML config that validates is then loaded from a file
 //!   (which compiles its globs and paths) and linted with like a YAML one.
 //!
+//! - Each TOML config is rendered in both the deprecated top-level shape and the
+//!   nested `[lint]` shape, which must load to the same effective config (or both
+//!   fail), with only the deprecated shape reporting deprecated keys.
+//!
 //! Deterministic siblings pin the empty-config, invalid-regex, billion-laughs, and
 //! valid-config cases so the random invariant cannot pass vacuously if the generator
 //! drifts.
@@ -28,13 +32,18 @@
 #[path = "property_config/strategy.rs"]
 mod strategy;
 
+#[path = "common/mod.rs"]
+mod common;
+
 use std::path::Path;
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use ryl::config::{Overrides, YamlLintConfig, discover_config};
+use ryl::config::{Overrides, YamlLintConfig, discover_config, discover_config_with};
+use ryl::config_schema::TomlConfig;
 use ryl::config_schema::{
-    normalize_toml_config, parse_toml_config_str, validate_toml_config,
+    normalize_toml_config, parse_toml_config_str, toml_config_to_value,
+    validate_toml_config,
 };
 use ryl::lint::lint_str;
 
@@ -62,6 +71,10 @@ fn parse_toml_without_panicking(toml_config: &str) {
     if let Ok(Some(typed)) = parse_toml_config_str(toml_config, false)
         && validate_toml_config(&typed).is_ok()
     {
+        assert_eq!(
+            toml_config_to_value(&typed),
+            toml::from_str::<toml::Value>(toml_config).unwrap()
+        );
         let _ = normalize_toml_config(&typed);
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(".ryl.toml");
@@ -91,7 +104,55 @@ proptest! {
     #[test]
     fn config_parsing_and_linting_never_panics(model in arb_config()) {
         lint_with(&render_yaml(&model));
-        parse_toml_without_panicking(&render_toml(&model));
+        parse_toml_without_panicking(&render_toml(&model, "lint."));
+    }
+
+    #[test]
+    fn legacy_and_nested_toml_shapes_load_identically(model in arb_config()) {
+        let legacy = render_toml(&model, "");
+        let nested = render_toml(&model, "lint.");
+        let effective = |text: &str| {
+            YamlLintConfig::from_toml_str(text).map(|cfg| cfg.to_toml_string())
+        };
+        prop_assert_eq!(effective(&legacy).ok(), effective(&nested).ok());
+        let deprecated = |text: &str| {
+            parse_toml_config_str(text, false)
+                .ok()
+                .flatten()
+                .map(|cfg: TomlConfig| cfg.deprecated_keys().len())
+        };
+        prop_assert_eq!(deprecated(&nested).unwrap_or(0), 0);
+        if let Some(count) = deprecated(&legacy) {
+            prop_assert!(count > 0, "the legacy shape always sets `rules`");
+        }
+    }
+
+    #[test]
+    fn case_insensitive_config_paths_have_identical_effect(
+        folder in "[a-z]{1,12}", filename in "[a-z]{1,12}", negated in any::<bool>(),
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let env = common::fake_env::FakeEnv::new().with_cwd(dir.path())
+            .with_case_insensitive_paths(true);
+        let prefix = if negated { "!" } else { "" };
+        let config = format!(
+            "exclude = ['{folder}/skip/**']\n[files]\nyaml = ['{folder}/**/*.yaml']\n\
+             [lint.rules.truthy]\nignore = ['{folder}/rule/**']\n\
+             [lint.per-file-ignores]\n'{prefix}{folder}/ignored/**' = ['truthy']\n"
+        );
+        let ctx = discover_config_with(&[], &Overrides {
+            config_data: Some(config), config_file: None,
+        }, &env).unwrap();
+        for subdir in ["keep", "skip", "rule", "ignored"] {
+            let path = dir.path().join(format!("{folder}/{subdir}/{filename}.yaml"));
+            let alias = std::path::PathBuf::from(path.to_string_lossy().to_ascii_uppercase());
+            prop_assert_eq!(ctx.config.source_kind(&path, &ctx.base_dir).unwrap(),
+                ctx.config.source_kind(&alias, &ctx.base_dir).unwrap());
+            prop_assert_eq!(ctx.config.is_file_ignored(&path, &ctx.base_dir),
+                ctx.config.is_file_ignored(&alias, &ctx.base_dir));
+            prop_assert_eq!(lint_str("a: yes\n", &path, &ctx.config, &ctx.base_dir),
+                lint_str("a: yes\n", &alias, &ctx.config, &ctx.base_dir));
+        }
     }
 }
 

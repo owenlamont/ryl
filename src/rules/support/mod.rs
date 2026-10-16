@@ -1,4 +1,6 @@
+pub(crate) mod collection_style;
 pub(crate) mod comments_scan;
+pub(crate) mod event_compare;
 pub(crate) mod flow_collection;
 pub(crate) mod key_path;
 pub(crate) mod line_syntax;
@@ -7,4 +9,5 @@ pub(crate) mod mapping_layout;
 pub(crate) mod merge_key;
 pub(crate) mod punctuation;
 pub(crate) mod span_utils;
+pub(crate) mod token_spacing;
 pub(crate) mod yaml_version;

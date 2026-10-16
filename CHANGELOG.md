@@ -1,0 +1,527 @@
+# Changelog
+
+Release dates below use the GitHub release publication date in UTC. Historical entries
+summarize user-visible changes from the tagged commits and published release records.
+
+## v0.25.0 - 2026-10-16
+
+### Added
+
+- `ryl format` formats YAML in place, checks or previews changes, and formats YAML
+  embedded in Markdown with `--markdown`.
+  ([#519](https://github.com/owenlamont/ryl/pull/519),
+  [#520](https://github.com/owenlamont/ryl/pull/520),
+  [#538](https://github.com/owenlamont/ryl/pull/538),
+  [#605](https://github.com/owenlamont/ryl/pull/605))
+- `[format]` controls indentation, line endings, quotes, collections, comments,
+  blank lines, folding and document markers. Unset indentation detects the file's
+  existing width; `line-ending = "auto"` keeps its prevailing line ending.
+  ([#550](https://github.com/owenlamont/ryl/pull/550),
+  [#606](https://github.com/owenlamont/ryl/pull/606))
+- `--output-format` selects output for `check` and `format --check`; only `check`
+  also accepts `-f`/`--format`. ([#605](https://github.com/owenlamont/ryl/pull/605))
+- Editor Format Document uses `ryl format`, including for embedded YAML in Markdown.
+  ([#583](https://github.com/owenlamont/ryl/pull/583))
+- Top-level TOML `line-length` and `indent-width` provide shared defaults for lint
+  and format. ([#521](https://github.com/owenlamont/ryl/pull/521))
+- `check --fix` can repair `colons` and `hyphens` spacing.
+  ([#524](https://github.com/owenlamont/ryl/pull/524))
+- `fold-long-lines` can wrap plain, quoted and folded block scalars.
+  ([#523](https://github.com/owenlamont/ryl/pull/523),
+  [#541](https://github.com/owenlamont/ryl/pull/541),
+  [#536](https://github.com/owenlamont/ryl/pull/536))
+- `sequence-style` and `mapping-style` can convert collections between flow and
+  block forms; `indent-width` reindents block collections.
+  ([#544](https://github.com/owenlamont/ryl/pull/544),
+  [#551](https://github.com/owenlamont/ryl/pull/551),
+  [#545](https://github.com/owenlamont/ryl/pull/545))
+- Formatting can choose quotes that avoid escapes and configure brace spacing,
+  comment spacing and blank-line limits.
+  ([#539](https://github.com/owenlamont/ryl/pull/539),
+  [#540](https://github.com/owenlamont/ryl/pull/540),
+  [#546](https://github.com/owenlamont/ryl/pull/546))
+
+### Changed
+
+- Ambiguous block scalars leave the whole YAML file, or the Markdown region holding
+  them, unchanged by formatting and safe fixes apart from key ordering; both commands
+  name the file, line and reason on stderr.
+- When formatting would change a Markdown region with mixed line endings, `format`
+  names the refusal and `--check`/`--diff` fail; a fence-boundary refusal is also named.
+  ([#713](https://github.com/owenlamont/ryl/pull/713))
+- Indentation conflict warnings identify `indent-width` as a TOML key and point
+  YAML-configured users to config migration.
+  ([#713](https://github.com/owenlamont/ryl/pull/713))
+- `format` and `check --fix` continue after a file write fails, report the file,
+  and exit `2` after processing the remaining inputs.
+  ([#714](https://github.com/owenlamont/ryl/pull/714))
+- `check --fix` and `ryl format` finish unterminated block scalars with a newline
+  and, when configured, a document end marker, following the YAML 1.2 reference parser.
+  Adding a marker removes value-neutral indentation spaces on a final blank
+  block-scalar line, but leaves a root explicit-indent marker unfixed when its
+  final spaces carry value and no preserving marker append is available.
+  ([#712](https://github.com/owenlamont/ryl/pull/712),
+  [#715](https://github.com/owenlamont/ryl/pull/715))
+- ryl TOML now separates `[lint]` and `[format]`. Run `ryl --migrate-configs`
+  to preview existing configs, then add `--migrate-write` to update them.
+  ([#508](https://github.com/owenlamont/ryl/pull/508))
+- Top-level TOML `ignore` and `ignore-from-file` are deprecated. Replace them with
+  `exclude` and `exclude-from-file`, or use `--migrate-configs --migrate-write`.
+  ([#608](https://github.com/owenlamont/ryl/pull/608))
+- yamllint YAML configuration is deprecated. Convert project configs with
+  `ryl --migrate-configs --migrate-write` and user-global config with
+  `ryl --migrate-user-config --migrate-write`; a later release will remove YAML
+  config loading. ([#562](https://github.com/owenlamont/ryl/pull/562))
+- `-d` accepts inline TOML; legacy YAML preset names still work with a warning.
+  ([#562](https://github.com/owenlamont/ryl/pull/562))
+- `format` preserves document-start markers by default, including files migrated
+  from yamllint's `default` preset.
+  ([#584](https://github.com/owenlamont/ryl/pull/584))
+- Editor formatting and Fix All warn when lint settings conflict with formatting.
+  ([#615](https://github.com/owenlamont/ryl/pull/615))
+- `quoted-strings` and `format` keep quotes needed by YAML 1.1 readers, while a
+  declared `%YAML 1.1` follows the lint policy for redundant quotes.
+  ([#535](https://github.com/owenlamont/ryl/pull/535),
+  [#560](https://github.com/owenlamont/ryl/pull/560),
+  [#604](https://github.com/owenlamont/ryl/pull/604))
+- Formatter previews reuse formatting and indentation detection, reducing work
+  on repeated `--check` and `--diff` passes.
+  ([#561](https://github.com/owenlamont/ryl/pull/561),
+  [#616](https://github.com/owenlamont/ryl/pull/616))
+
+### Fixed
+
+- `comments-indentation` now reports, and `--fix` moves, a comment indented to the
+  continuation of a multi-line quoted scalar, matching yamllint.
+- A leading shebang or `#cloud-config` stays before an inserted document marker.
+  ([#531](https://github.com/owenlamont/ryl/pull/531))
+- `check --fix` and `format` add requested start and end markers to each document
+  in a stream. ([#566](https://github.com/owenlamont/ryl/pull/566),
+  [#587](https://github.com/owenlamont/ryl/pull/587))
+- Editor diagnostics and fix actions stay positioned after a leading BOM.
+  ([#588](https://github.com/owenlamont/ryl/pull/588))
+- `quoted-strings --fix` keeps quotes on flow keys whose colon follows whitespace
+  or a comment, preserving the key's meaning.
+  ([#555](https://github.com/owenlamont/ryl/pull/555))
+- Fixes preserve blank block-scalar content and scalar values when headers have
+  comments; editor disable-line actions work inside blank-only scalars.
+  ([#542](https://github.com/owenlamont/ryl/pull/542),
+  [#543](https://github.com/owenlamont/ryl/pull/543),
+  [#563](https://github.com/owenlamont/ryl/pull/563),
+  [#573](https://github.com/owenlamont/ryl/pull/573))
+- Formatting leaves lines after empty folded scalars intact and retains comments
+  on dash lines. ([#559](https://github.com/owenlamont/ryl/pull/559),
+  [#569](https://github.com/owenlamont/ryl/pull/569))
+- Block-scalar diagnostics no longer misread an apostrophe in a plain key as a
+  quote. ([#571](https://github.com/owenlamont/ryl/pull/571))
+- Formatting aligns block-scalar bodies and detects indentation around document
+  BOMs and explicit keys. ([#591](https://github.com/owenlamont/ryl/pull/591),
+  [#626](https://github.com/owenlamont/ryl/pull/626),
+  [#664](https://github.com/owenlamont/ryl/pull/664))
+- Multiline double-quoted scalars can use single quotes when no required escapes
+  prevent conversion. ([#662](https://github.com/owenlamont/ryl/pull/662))
+- Formatting preserves encoded stdin and BOMs; encoded `check --diff` input counts
+  pending fixes. ([#617](https://github.com/owenlamont/ryl/pull/617),
+  [#620](https://github.com/owenlamont/ryl/pull/620))
+- `format --check` writes empty reports when no files or changes are selected.
+  ([#614](https://github.com/owenlamont/ryl/pull/614))
+- Formatter previews reject conflicting output targets before reading inputs.
+  ([#631](https://github.com/owenlamont/ryl/pull/631))
+- Config migration leaves YAML sources shadowed by active TOML in place.
+  ([#632](https://github.com/owenlamont/ryl/pull/632))
+- Config migration preserves disabled formatting choices and handles custom YAML
+  paths without guessing an ambiguous user-global ignore file.
+  ([#556](https://github.com/owenlamont/ryl/pull/556),
+  [#557](https://github.com/owenlamont/ryl/pull/557))
+- Path matching respects Windows and macOS ASCII casing, and Windows diff paths apply
+  with `git apply -p0`. ([#653](https://github.com/owenlamont/ryl/pull/653),
+  [#655](https://github.com/owenlamont/ryl/pull/655))
+- Formatting preserves Markdown fence boundaries and block scalar values while
+  normalizing safe whitespace. ([#633](https://github.com/owenlamont/ryl/pull/633),
+  [#654](https://github.com/owenlamont/ryl/pull/654),
+  [#661](https://github.com/owenlamont/ryl/pull/661),
+  [#669](https://github.com/owenlamont/ryl/pull/669))
+
+### Migrating from yamllint
+
+The new formatter has no yamllint counterpart. For `check`, the existing deliberate
+differences are listed below so a migration can account for each one; see the
+[examples and rationale](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint).
+
+| Difference | Migration step |
+| :--- | :--- |
+| No implicit default rules | Enable `--enable ALL` or a TOML preset. |
+| Inline directives | Use `# ryl`; keep `# yamllint` standalone. |
+| Colon in anchor names | Review `:` in names; ryl follows YAML grammar. |
+| Duplicate input paths | Expect one check per file, even when inputs overlap. |
+| Bare `\r` line breaks | Normalize to LF or CRLF if relying on yamllint's line count. |
+| Document-prefix BOMs | Remove embedded BOMs if another parser rejects them. |
+| CRLF scalar blanks | Review block-scalar indentation. |
+| `%YAML` directives | Set the version or quote sensitive values. |
+| Block scalar header comments | Review `comments` diagnostics. |
+| `per-line-ignores` | Configure the ryl-only option in TOML, not yamllint YAML. |
+| Open-block comments | Keep default or set `allow-any-open-indent` in TOML. |
+| Own-line dash | Keep default or set `dash-on-own-line` in TOML. |
+| Inline-comment gap | Keep default or set `max-spaces-from-content` in TOML. |
+| JUnit and GitLab reports | Select ryl's output format for CI. |
+| ryl-native user-global config | Run `ryl --migrate-user-config --migrate-write`. |
+| `YAMLLINT_CONFIG_FILE` rejects TOML | Use YAML, or pass TOML with `-c`. |
+
+## v0.24.0 - 2026-10-05
+
+### Added
+
+- `--enable ALL` enables every rule; `key-ordering` accepts custom key orders and
+  sorts attached comments during `--fix`.
+  ([#490](https://github.com/owenlamont/ryl/pull/490),
+  [#494](https://github.com/owenlamont/ryl/pull/494),
+  [#492](https://github.com/owenlamont/ryl/pull/492))
+- `comments` accepts `max-spaces-from-content`; `truthy --fix` can recase boolean
+  spellings. ([#489](https://github.com/owenlamont/ryl/pull/489),
+  [#493](https://github.com/owenlamont/ryl/pull/493))
+- `# ryl` directives work beside other inline comments.
+  ([#488](https://github.com/owenlamont/ryl/pull/488))
+
+### Fixed
+
+- Corrected indentation diagnostics and ancestor config discovery when run from a
+  subdirectory. ([#483](https://github.com/owenlamont/ryl/pull/483),
+  [#473](https://github.com/owenlamont/ryl/pull/473))
+- Counted `--fix` changes per rule and printed TOML parse errors on one line.
+  ([#498](https://github.com/owenlamont/ryl/pull/498),
+  [#497](https://github.com/owenlamont/ryl/pull/497))
+
+## v0.23.0 - 2026-10-04
+
+### Changed
+
+- Bare `ryl <paths>` now warns; use `ryl check <paths>`.
+  ([#461](https://github.com/owenlamont/ryl/pull/461))
+
+### Fixed
+
+- `--fix` repeats until stable and reports a pipeline that cannot converge.
+  ([#465](https://github.com/owenlamont/ryl/pull/465),
+  [#467](https://github.com/owenlamont/ryl/pull/467))
+- Fixed `ignore` matching for absolute paths and `per-file-ignores` matching for
+  resolved paths. ([#459](https://github.com/owenlamont/ryl/pull/459),
+  [#460](https://github.com/owenlamont/ryl/pull/460))
+- Rejected TOML-only keys in yamllint-compatible YAML configs.
+  ([#441](https://github.com/owenlamont/ryl/pull/441))
+
+## v0.22.0 - 2026-09-06
+
+### Fixed
+
+- The language server keeps idle `workspace/diagnostic` requests open for changes.
+  ([#424](https://github.com/owenlamont/ryl/pull/424))
+
+## v0.21.0 - 2026-06-22
+
+### Added
+
+- `ryl check` explicitly selects linting; bare `ryl <paths>` still works.
+  ([#370](https://github.com/owenlamont/ryl/pull/370))
+
+## v0.20.0 - 2026-06-21
+
+### Added
+
+- Rules respect a document's `%YAML` version directive.
+  ([#363](https://github.com/owenlamont/ryl/pull/363))
+
+### Fixed
+
+- Closed a `%TAG`-split tag bypass in the `tags` rule.
+  ([#356](https://github.com/owenlamont/ryl/pull/356))
+
+## v0.19.1 - 2026-06-18
+
+- Re-enabled winget publishing for Windows installs.
+  ([#338](https://github.com/owenlamont/ryl/pull/338))
+
+## v0.19.0 - 2026-06-16
+
+### Added
+
+- Discover ryl configs under a repository's `.config/` directory.
+  ([#218](https://github.com/owenlamont/ryl/issues/218))
+
+### Changed
+
+- `YAMLLINT_CONFIG_FILE` accepts only yamllint YAML configs; use `-c` for TOML.
+  ([#333](https://github.com/owenlamont/ryl/pull/333))
+
+## v0.18.1 - 2026-06-15
+
+### Fixed
+
+- The language server sends one diagnostics channel per client.
+  ([#323](https://github.com/owenlamont/ryl/pull/323))
+
+## v0.18.0 - 2026-06-15
+
+### Added
+
+- `ryl server` provides language-server diagnostics and editor actions.
+  ([#316](https://github.com/owenlamont/ryl/pull/316),
+  [#318](https://github.com/owenlamont/ryl/pull/318))
+
+## v0.17.0 - 2026-06-14
+
+### Added
+
+- Added shell completions via `--generate-completions`.
+  ([#300](https://github.com/owenlamont/ryl/pull/300))
+- Added JUnit XML and GitLab code-quality output, plus repeatable output targets.
+  ([#301](https://github.com/owenlamont/ryl/pull/301),
+  [#303](https://github.com/owenlamont/ryl/pull/303))
+- Added ryl-native user-global config and `--migrate-user-config`.
+  ([#307](https://github.com/owenlamont/ryl/pull/307))
+
+## v0.16.0 - 2026-06-12
+
+### Added
+
+- Added `per-line-ignores`, `comments-indentation: allow-any-open-indent`, and
+  `hyphens: dash-on-own-line`.
+  ([#288](https://github.com/owenlamont/ryl/pull/288),
+  [#293](https://github.com/owenlamont/ryl/pull/293))
+
+### Fixed
+
+- Treat a bare carriage return as a YAML 1.2 line break.
+  ([#287](https://github.com/owenlamont/ryl/pull/287))
+
+## v0.15.0 - 2026-06-09
+
+### Added
+
+- `--diff` previews safe fixes as a unified diff; `block-scalar-chomping` checks
+  scalar endings. ([#282](https://github.com/owenlamont/ryl/pull/282),
+  [#286](https://github.com/owenlamont/ryl/pull/286))
+
+## v0.14.0 - 2026-06-08
+
+### Added
+
+- Added `merge-keys` and `unicode-line-breaks` rules.
+  ([#276](https://github.com/owenlamont/ryl/pull/276),
+  [#270](https://github.com/owenlamont/ryl/pull/270))
+- `anchors` can flag ambiguous names; `key-duplicates` detects canonical keys
+  and merge collisions.
+  ([#275](https://github.com/owenlamont/ryl/pull/275),
+  [#267](https://github.com/owenlamont/ryl/pull/267))
+
+### Fixed
+
+- Corrected a `colons` false positive on alias mapping keys.
+  ([#273](https://github.com/owenlamont/ryl/pull/273))
+
+## v0.13.0 - 2026-06-05
+
+### Added
+
+- Added the opt-in `tags` rule for unsafe and non-portable YAML tags.
+  ([#262](https://github.com/owenlamont/ryl/pull/262))
+
+## v0.12.0 - 2026-06-03
+
+### Changed
+
+- A config must explicitly enable at least one rule; ryl no longer applies the
+  default preset automatically.
+  ([#250](https://github.com/owenlamont/ryl/pull/250))
+
+### Fixed
+
+- Limited the effect of malicious YAML payloads.
+  ([#249](https://github.com/owenlamont/ryl/pull/249))
+
+## v0.11.0 - 2026-05-31
+
+### Added
+
+- Lint YAML embedded in Markdown, including stdin and `--fix` write-back; use
+  `--markdown` to select Markdown input.
+  ([#237](https://github.com/owenlamont/ryl/pull/237),
+  [#241](https://github.com/owenlamont/ryl/pull/241))
+- Inline directives can disable selected rules or files.
+  ([#243](https://github.com/owenlamont/ryl/pull/243))
+
+## v0.10.2 - 2026-05-29
+
+### Fixed
+
+- Corrected character-column and byte-offset handling across rules.
+  ([#234](https://github.com/owenlamont/ryl/pull/234))
+
+## v0.10.1 - 2026-05-27
+
+No user-facing changes; the YAML parser implementation changed.
+
+## v0.10.0 - 2026-05-24
+
+### Added
+
+- Read YAML from stdin with `-`.
+  ([#225](https://github.com/owenlamont/ryl/pull/225))
+- Added partial safe fixes for trailing spaces, document markers, and empty lines.
+  ([#223](https://github.com/owenlamont/ryl/pull/223))
+
+## v0.9.2 - 2026-05-18
+
+### Fixed
+
+- Restricted published package contents to runtime files.
+  ([#216](https://github.com/owenlamont/ryl/pull/216))
+
+## v0.9.1 - 2026-05-04
+
+### Fixed
+
+- Corrected `quoted-strings` autofix edge cases.
+  ([#207](https://github.com/owenlamont/ryl/pull/207))
+
+## v0.9.0 - 2026-05-03
+
+### Added
+
+- `quoted-strings` supports safe `--fix` rewrites.
+  ([#202](https://github.com/owenlamont/ryl/pull/202))
+
+## v0.8.0 - 2026-04-29
+
+### Added
+
+- Added `per-file-ignores` configuration.
+  ([#200](https://github.com/owenlamont/ryl/pull/200))
+
+### Fixed
+
+- `quoted-strings` with single quotes allows double-quoted escape sequences.
+  ([#201](https://github.com/owenlamont/ryl/pull/201))
+
+## v0.7.0 - 2026-04-27
+
+### Added
+
+- Published a JSON Schema for `.ryl.toml` configuration and connected it to
+  SchemaStore.
+  ([#195](https://github.com/owenlamont/ryl/pull/195),
+  [#196](https://github.com/owenlamont/ryl/pull/196))
+
+## v0.6.0 - 2026-04-12
+
+### Added
+
+- Added more safe `--fix` rules and support for root sequences.
+  ([#179](https://github.com/owenlamont/ryl/pull/179),
+  [#175](https://github.com/owenlamont/ryl/pull/175))
+
+## v0.5.0 - 2026-04-07
+
+### Added
+
+- `--fix` applies the first set of safe lint fixes.
+  ([#171](https://github.com/owenlamont/ryl/pull/171))
+
+## v0.4.4 - 2026-04-06
+
+### Fixed
+
+- Corrected the npm package executable bit.
+  ([#169](https://github.com/owenlamont/ryl/pull/169))
+
+## v0.4.3 - 2026-04-06
+
+### Fixed
+
+- Corrected the npm trusted-publishing runtime.
+  ([#168](https://github.com/owenlamont/ryl/pull/168))
+
+## v0.4.2 - 2026-04-06
+
+### Added
+
+- Added npm package publishing.
+  ([#167](https://github.com/owenlamont/ryl/pull/167))
+
+## v0.4.1 - 2026-03-04
+
+### Fixed
+
+- `indentation` detects unindented sequence entries with mapping values.
+  ([v0.4.1 release](https://github.com/owenlamont/ryl/releases/tag/v0.4.1))
+
+## v0.4.0 - 2026-03-02
+
+### Added
+
+- Added TOML configuration support.
+  ([#148](https://github.com/owenlamont/ryl/pull/148))
+
+### Fixed
+
+- `ignore-from-file` re-inclusion matches yamllint.
+  ([#146](https://github.com/owenlamont/ryl/pull/146))
+
+## v0.3.6 - 2026-03-02
+
+No user-facing changes; release automation was updated.
+
+## v0.3.5 - 2026-03-01
+
+### Fixed
+
+- Corrected lint parity regressions found against yamllint.
+  ([#143](https://github.com/owenlamont/ryl/pull/143))
+
+## v0.3.4 - 2026-02-28
+
+### Added
+
+- Published a performance benchmark comparison with yamllint in the README.
+  ([#138](https://github.com/owenlamont/ryl/pull/138))
+
+## v0.3.3 - 2026-02-28
+
+No user-facing changes; release publishing was repaired.
+
+## v0.3.2 - 2026-02-28
+
+### Fixed
+
+- Improved yamllint parity for comments, indentation, document-end and truthy
+  diagnostics. ([#87](https://github.com/owenlamont/ryl/pull/87))
+
+## v0.3.1 - 2025-10-12
+
+### Fixed
+
+- Corrected a false undeclared-alias diagnostic.
+  ([#83](https://github.com/owenlamont/ryl/pull/83))
+
+## v0.3.0 - 2025-10-12
+
+### Added
+
+- Added configuration discovery and CLI lint commands.
+  ([#17](https://github.com/owenlamont/ryl/pull/17))
+- Added yamllint-compatible rules for YAML structure, spacing, comments, scalar
+  values, ordering and document markers.
+  ([v0.3.0 tag](https://github.com/owenlamont/ryl/releases/tag/v0.3.0))
+- Added file-encoding support and the `anchors` rule.
+  ([#76](https://github.com/owenlamont/ryl/pull/76),
+  [#74](https://github.com/owenlamont/ryl/pull/74))
+
+## v0.2.0 - 2025-09-10
+
+No user-facing changes; publishing and coverage automation were updated.
+
+## v0.1.0 - 2025-09-07
+
+### Added
+
+- First release: search for YAML files and parse them.
+  ([#7](https://github.com/owenlamont/ryl/pull/7))

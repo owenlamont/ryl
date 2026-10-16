@@ -1,0 +1,877 @@
+{"before":"|\n  ","after":"|\n","same":true,"before_value":"","after_value":""}
+{"before":"|\n  ","after":"|\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"|\n    ","after":"|\n","same":true,"before_value":"","after_value":""}
+{"before":"|\n    ","after":"|\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"|\n  x\n  ","after":"|\n  x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"|\n  x\n  ","after":"|\n  x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"|\n  x\n    ","after":"|\n  x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"|\n  x\n    ","after":"|\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"|1\n ","after":"|1\n","same":false,"before_value":" \n","after_value":""}
+{"before":"|1\n ","after":"|1\n\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"|1\n   ","after":"|1\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"|1\n   ","after":"|1\n\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"|1\n x\n ","after":"|1\n x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"|1\n x\n ","after":"|1\n x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"|1\n x\n   ","after":"|1\n x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"|1\n x\n   ","after":"|1\n x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"|2\n  ","after":"|2\n","same":false,"before_value":" \n","after_value":""}
+{"before":"|2\n  ","after":"|2\n\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"|2\n    ","after":"|2\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"|2\n    ","after":"|2\n\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"|2\n  x\n  ","after":"|2\n  x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"|2\n  x\n  ","after":"|2\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"|2\n  x\n    ","after":"|2\n  x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"|2\n  x\n    ","after":"|2\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"|-\n  ","after":"|-\n","same":true,"before_value":"","after_value":""}
+{"before":"|-\n  ","after":"|-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"|-\n    ","after":"|-\n","same":true,"before_value":"","after_value":""}
+{"before":"|-\n    ","after":"|-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"|-\n  x\n  ","after":"|-\n  x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"|-\n  x\n  ","after":"|-\n  x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"|-\n  x\n    ","after":"|-\n  x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"|-\n  x\n    ","after":"|-\n  x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"|-1\n ","after":"|-1\n","same":false,"before_value":" ","after_value":""}
+{"before":"|-1\n ","after":"|-1\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"|-1\n   ","after":"|-1\n","same":false,"before_value":"   ","after_value":""}
+{"before":"|-1\n   ","after":"|-1\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"|-1\n x\n ","after":"|-1\n x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"|-1\n x\n ","after":"|-1\n x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"|-1\n x\n   ","after":"|-1\n x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"|-1\n x\n   ","after":"|-1\n x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"|-2\n  ","after":"|-2\n","same":false,"before_value":" ","after_value":""}
+{"before":"|-2\n  ","after":"|-2\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"|-2\n    ","after":"|-2\n","same":false,"before_value":"   ","after_value":""}
+{"before":"|-2\n    ","after":"|-2\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"|-2\n  x\n  ","after":"|-2\n  x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"|-2\n  x\n  ","after":"|-2\n  x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"|-2\n  x\n    ","after":"|-2\n  x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"|-2\n  x\n    ","after":"|-2\n  x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"|+\n  ","after":"|+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"|+\n  ","after":"|+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"|+\n    ","after":"|+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"|+\n    ","after":"|+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"|+\n  x\n  ","after":"|+\n  x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"|+\n  x\n  ","after":"|+\n  x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"|+\n  x\n    ","after":"|+\n  x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"|+\n  x\n    ","after":"|+\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"|+1\n ","after":"|+1\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"|+1\n ","after":"|+1\n\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"|+1\n   ","after":"|+1\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"|+1\n   ","after":"|+1\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"|+1\n x\n ","after":"|+1\n x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n"}
+{"before":"|+1\n x\n ","after":"|+1\n x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"|+1\n x\n   ","after":"|+1\n x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n"}
+{"before":"|+1\n x\n   ","after":"|+1\n x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"|+2\n  ","after":"|+2\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"|+2\n  ","after":"|+2\n\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"|+2\n    ","after":"|+2\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"|+2\n    ","after":"|+2\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"|+2\n  x\n  ","after":"|+2\n  x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n"}
+{"before":"|+2\n  x\n  ","after":"|+2\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"|+2\n  x\n    ","after":"|+2\n  x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n"}
+{"before":"|+2\n  x\n    ","after":"|+2\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":">\n  ","after":">\n","same":true,"before_value":"","after_value":""}
+{"before":">\n  ","after":">\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":">\n    ","after":">\n","same":true,"before_value":"","after_value":""}
+{"before":">\n    ","after":">\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":">\n  x\n  ","after":">\n  x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":">\n  x\n  ","after":">\n  x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":">\n  x\n    ","after":">\n  x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":">\n  x\n    ","after":">\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":">1\n ","after":">1\n","same":false,"before_value":" \n","after_value":""}
+{"before":">1\n ","after":">1\n\n\n","same":false,"before_value":" \n","after_value":""}
+{"before":">1\n   ","after":">1\n","same":false,"before_value":"   \n","after_value":""}
+{"before":">1\n   ","after":">1\n\n\n","same":false,"before_value":"   \n","after_value":""}
+{"before":">1\n x\n ","after":">1\n x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":">1\n x\n ","after":">1\n x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":">1\n x\n   ","after":">1\n x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":">1\n x\n   ","after":">1\n x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":">2\n  ","after":">2\n","same":false,"before_value":" \n","after_value":""}
+{"before":">2\n  ","after":">2\n\n\n","same":false,"before_value":" \n","after_value":""}
+{"before":">2\n    ","after":">2\n","same":false,"before_value":"   \n","after_value":""}
+{"before":">2\n    ","after":">2\n\n\n","same":false,"before_value":"   \n","after_value":""}
+{"before":">2\n  x\n  ","after":">2\n  x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":">2\n  x\n  ","after":">2\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":">2\n  x\n    ","after":">2\n  x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":">2\n  x\n    ","after":">2\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":">-\n  ","after":">-\n","same":true,"before_value":"","after_value":""}
+{"before":">-\n  ","after":">-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":">-\n    ","after":">-\n","same":true,"before_value":"","after_value":""}
+{"before":">-\n    ","after":">-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":">-\n  x\n  ","after":">-\n  x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":">-\n  x\n  ","after":">-\n  x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":">-\n  x\n    ","after":">-\n  x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":">-\n  x\n    ","after":">-\n  x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":">-1\n ","after":">-1\n","same":false,"before_value":" ","after_value":""}
+{"before":">-1\n ","after":">-1\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":">-1\n   ","after":">-1\n","same":false,"before_value":"   ","after_value":""}
+{"before":">-1\n   ","after":">-1\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":">-1\n x\n ","after":">-1\n x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":">-1\n x\n ","after":">-1\n x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":">-1\n x\n   ","after":">-1\n x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":">-1\n x\n   ","after":">-1\n x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":">-2\n  ","after":">-2\n","same":false,"before_value":" ","after_value":""}
+{"before":">-2\n  ","after":">-2\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":">-2\n    ","after":">-2\n","same":false,"before_value":"   ","after_value":""}
+{"before":">-2\n    ","after":">-2\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":">-2\n  x\n  ","after":">-2\n  x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":">-2\n  x\n  ","after":">-2\n  x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":">-2\n  x\n    ","after":">-2\n  x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":">-2\n  x\n    ","after":">-2\n  x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":">+\n  ","after":">+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":">+\n  ","after":">+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":">+\n    ","after":">+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":">+\n    ","after":">+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":">+\n  x\n  ","after":">+\n  x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":">+\n  x\n  ","after":">+\n  x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":">+\n  x\n    ","after":">+\n  x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":">+\n  x\n    ","after":">+\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":">+1\n ","after":">+1\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":">+1\n ","after":">+1\n\n\n","same":false,"before_value":" \n","after_value":"\n\n\n\n"}
+{"before":">+1\n   ","after":">+1\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":">+1\n   ","after":">+1\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n\n\n"}
+{"before":">+1\n x\n ","after":">+1\n x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":">+1\n x\n ","after":">+1\n x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":">+1\n x\n   ","after":">+1\n x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":">+1\n x\n   ","after":">+1\n x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":">+2\n  ","after":">+2\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":">+2\n  ","after":">+2\n\n\n","same":false,"before_value":" \n","after_value":"\n\n\n\n"}
+{"before":">+2\n    ","after":">+2\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":">+2\n    ","after":">+2\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n\n\n"}
+{"before":">+2\n  x\n  ","after":">+2\n  x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":">+2\n  x\n  ","after":">+2\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":">+2\n  x\n    ","after":">+2\n  x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":">+2\n  x\n    ","after":">+2\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"a: |\n  ","after":"a: |\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |\n  ","after":"a: |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"a: |\n    ","after":"a: |\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |\n    ","after":"a: |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"a: |\n  x\n  ","after":"a: |\n  x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: |\n  x\n  ","after":"a: |\n  x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: |\n  x\n    ","after":"a: |\n  x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: |\n  x\n    ","after":"a: |\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: |1\n ","after":"a: |1\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |1\n ","after":"a: |1\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"a: |1\n   ","after":"a: |1\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"a: |1\n   ","after":"a: |1\n\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"a: |1\n x\n ","after":"a: |1\n x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: |1\n x\n ","after":"a: |1\n x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: |1\n x\n   ","after":"a: |1\n x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: |1\n x\n   ","after":"a: |1\n x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: |2\n  ","after":"a: |2\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |2\n  ","after":"a: |2\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"a: |2\n    ","after":"a: |2\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"a: |2\n    ","after":"a: |2\n\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"a: |2\n  x\n  ","after":"a: |2\n  x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: |2\n  x\n  ","after":"a: |2\n  x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: |2\n  x\n    ","after":"a: |2\n  x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: |2\n  x\n    ","after":"a: |2\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: |-\n  ","after":"a: |-\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-\n  ","after":"a: |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-\n    ","after":"a: |-\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-\n    ","after":"a: |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-\n  x\n  ","after":"a: |-\n  x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: |-\n  x\n  ","after":"a: |-\n  x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: |-\n  x\n    ","after":"a: |-\n  x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: |-\n  x\n    ","after":"a: |-\n  x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: |-1\n ","after":"a: |-1\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-1\n ","after":"a: |-1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-1\n   ","after":"a: |-1\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: |-1\n   ","after":"a: |-1\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: |-1\n x\n ","after":"a: |-1\n x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: |-1\n x\n ","after":"a: |-1\n x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: |-1\n x\n   ","after":"a: |-1\n x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: |-1\n x\n   ","after":"a: |-1\n x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: |-2\n  ","after":"a: |-2\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-2\n  ","after":"a: |-2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: |-2\n    ","after":"a: |-2\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: |-2\n    ","after":"a: |-2\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: |-2\n  x\n  ","after":"a: |-2\n  x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: |-2\n  x\n  ","after":"a: |-2\n  x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: |-2\n  x\n    ","after":"a: |-2\n  x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: |-2\n  x\n    ","after":"a: |-2\n  x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: |+\n  ","after":"a: |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"a: |+\n  ","after":"a: |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"a: |+\n    ","after":"a: |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"a: |+\n    ","after":"a: |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"a: |+\n  x\n  ","after":"a: |+\n  x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"a: |+\n  x\n  ","after":"a: |+\n  x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"a: |+\n  x\n    ","after":"a: |+\n  x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"a: |+\n  x\n    ","after":"a: |+\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"a: |+1\n ","after":"a: |+1\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"a: |+1\n ","after":"a: |+1\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"a: |+1\n   ","after":"a: |+1\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"a: |+1\n   ","after":"a: |+1\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"a: |+1\n x\n ","after":"a: |+1\n x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"a: |+1\n x\n ","after":"a: |+1\n x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"a: |+1\n x\n   ","after":"a: |+1\n x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"a: |+1\n x\n   ","after":"a: |+1\n x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"a: |+2\n  ","after":"a: |+2\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"a: |+2\n  ","after":"a: |+2\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"a: |+2\n    ","after":"a: |+2\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"a: |+2\n    ","after":"a: |+2\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"a: |+2\n  x\n  ","after":"a: |+2\n  x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"a: |+2\n  x\n  ","after":"a: |+2\n  x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"a: |+2\n  x\n    ","after":"a: |+2\n  x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"a: |+2\n  x\n    ","after":"a: |+2\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"a: >\n  ","after":"a: >\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >\n  ","after":"a: >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >\n    ","after":"a: >\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >\n    ","after":"a: >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >\n  x\n  ","after":"a: >\n  x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: >\n  x\n  ","after":"a: >\n  x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: >\n  x\n    ","after":"a: >\n  x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: >\n  x\n    ","after":"a: >\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: >1\n ","after":"a: >1\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >1\n ","after":"a: >1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >1\n   ","after":"a: >1\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"a: >1\n   ","after":"a: >1\n\n\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"a: >1\n x\n ","after":"a: >1\n x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: >1\n x\n ","after":"a: >1\n x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: >1\n x\n   ","after":"a: >1\n x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: >1\n x\n   ","after":"a: >1\n x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: >2\n  ","after":"a: >2\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >2\n  ","after":"a: >2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >2\n    ","after":"a: >2\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"a: >2\n    ","after":"a: >2\n\n\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"a: >2\n  x\n  ","after":"a: >2\n  x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: >2\n  x\n  ","after":"a: >2\n  x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"a: >2\n  x\n    ","after":"a: >2\n  x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: >2\n  x\n    ","after":"a: >2\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"a: >-\n  ","after":"a: >-\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-\n  ","after":"a: >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-\n    ","after":"a: >-\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-\n    ","after":"a: >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-\n  x\n  ","after":"a: >-\n  x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: >-\n  x\n  ","after":"a: >-\n  x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: >-\n  x\n    ","after":"a: >-\n  x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: >-\n  x\n    ","after":"a: >-\n  x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: >-1\n ","after":"a: >-1\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-1\n ","after":"a: >-1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-1\n   ","after":"a: >-1\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: >-1\n   ","after":"a: >-1\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: >-1\n x\n ","after":"a: >-1\n x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: >-1\n x\n ","after":"a: >-1\n x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: >-1\n x\n   ","after":"a: >-1\n x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: >-1\n x\n   ","after":"a: >-1\n x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: >-2\n  ","after":"a: >-2\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-2\n  ","after":"a: >-2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"a: >-2\n    ","after":"a: >-2\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: >-2\n    ","after":"a: >-2\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"a: >-2\n  x\n  ","after":"a: >-2\n  x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: >-2\n  x\n  ","after":"a: >-2\n  x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"a: >-2\n  x\n    ","after":"a: >-2\n  x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: >-2\n  x\n    ","after":"a: >-2\n  x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"a: >+\n  ","after":"a: >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"a: >+\n  ","after":"a: >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"a: >+\n    ","after":"a: >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"a: >+\n    ","after":"a: >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"a: >+\n  x\n  ","after":"a: >+\n  x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"a: >+\n  x\n  ","after":"a: >+\n  x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"a: >+\n  x\n    ","after":"a: >+\n  x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"a: >+\n  x\n    ","after":"a: >+\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"a: >+1\n ","after":"a: >+1\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"a: >+1\n ","after":"a: >+1\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"a: >+1\n   ","after":"a: >+1\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"a: >+1\n   ","after":"a: >+1\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n\n\n"}
+{"before":"a: >+1\n x\n ","after":"a: >+1\n x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"a: >+1\n x\n ","after":"a: >+1\n x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"a: >+1\n x\n   ","after":"a: >+1\n x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"a: >+1\n x\n   ","after":"a: >+1\n x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"a: >+2\n  ","after":"a: >+2\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"a: >+2\n  ","after":"a: >+2\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"a: >+2\n    ","after":"a: >+2\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"a: >+2\n    ","after":"a: >+2\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n\n\n"}
+{"before":"a: >+2\n  x\n  ","after":"a: >+2\n  x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"a: >+2\n  x\n  ","after":"a: >+2\n  x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"a: >+2\n  x\n    ","after":"a: >+2\n  x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"a: >+2\n  x\n    ","after":"a: >+2\n  x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- |\n   ","after":"- |\n","same":true,"before_value":"","after_value":""}
+{"before":"- |\n   ","after":"- |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- |\n     ","after":"- |\n","same":true,"before_value":"","after_value":""}
+{"before":"- |\n     ","after":"- |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- |\n   x\n   ","after":"- |\n   x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- |\n   x\n   ","after":"- |\n   x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- |\n   x\n     ","after":"- |\n   x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- |\n   x\n     ","after":"- |\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- |1\n  ","after":"- |1\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- |1\n  ","after":"- |1\n\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- |1\n    ","after":"- |1\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- |1\n    ","after":"- |1\n\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- |1\n  x\n  ","after":"- |1\n  x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- |1\n  x\n  ","after":"- |1\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- |1\n  x\n    ","after":"- |1\n  x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- |1\n  x\n    ","after":"- |1\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- |2\n   ","after":"- |2\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- |2\n   ","after":"- |2\n\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- |2\n     ","after":"- |2\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- |2\n     ","after":"- |2\n\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- |2\n   x\n   ","after":"- |2\n   x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- |2\n   x\n   ","after":"- |2\n   x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- |2\n   x\n     ","after":"- |2\n   x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- |2\n   x\n     ","after":"- |2\n   x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- |-\n   ","after":"- |-\n","same":true,"before_value":"","after_value":""}
+{"before":"- |-\n   ","after":"- |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- |-\n     ","after":"- |-\n","same":true,"before_value":"","after_value":""}
+{"before":"- |-\n     ","after":"- |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- |-\n   x\n   ","after":"- |-\n   x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- |-\n   x\n   ","after":"- |-\n   x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- |-\n   x\n     ","after":"- |-\n   x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- |-\n   x\n     ","after":"- |-\n   x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- |-1\n  ","after":"- |-1\n","same":false,"before_value":" ","after_value":""}
+{"before":"- |-1\n  ","after":"- |-1\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- |-1\n    ","after":"- |-1\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- |-1\n    ","after":"- |-1\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- |-1\n  x\n  ","after":"- |-1\n  x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- |-1\n  x\n  ","after":"- |-1\n  x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- |-1\n  x\n    ","after":"- |-1\n  x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- |-1\n  x\n    ","after":"- |-1\n  x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- |-2\n   ","after":"- |-2\n","same":false,"before_value":" ","after_value":""}
+{"before":"- |-2\n   ","after":"- |-2\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- |-2\n     ","after":"- |-2\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- |-2\n     ","after":"- |-2\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- |-2\n   x\n   ","after":"- |-2\n   x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- |-2\n   x\n   ","after":"- |-2\n   x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- |-2\n   x\n     ","after":"- |-2\n   x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- |-2\n   x\n     ","after":"- |-2\n   x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- |+\n   ","after":"- |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- |+\n   ","after":"- |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- |+\n     ","after":"- |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- |+\n     ","after":"- |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- |+\n   x\n   ","after":"- |+\n   x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"- |+\n   x\n   ","after":"- |+\n   x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"- |+\n   x\n     ","after":"- |+\n   x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"- |+\n   x\n     ","after":"- |+\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"- |+1\n  ","after":"- |+1\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- |+1\n  ","after":"- |+1\n\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- |+1\n    ","after":"- |+1\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- |+1\n    ","after":"- |+1\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- |+1\n  x\n  ","after":"- |+1\n  x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n"}
+{"before":"- |+1\n  x\n  ","after":"- |+1\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- |+1\n  x\n    ","after":"- |+1\n  x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n"}
+{"before":"- |+1\n  x\n    ","after":"- |+1\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- |+2\n   ","after":"- |+2\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- |+2\n   ","after":"- |+2\n\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- |+2\n     ","after":"- |+2\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- |+2\n     ","after":"- |+2\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- |+2\n   x\n   ","after":"- |+2\n   x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n"}
+{"before":"- |+2\n   x\n   ","after":"- |+2\n   x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- |+2\n   x\n     ","after":"- |+2\n   x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n"}
+{"before":"- |+2\n   x\n     ","after":"- |+2\n   x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- >\n   ","after":"- >\n","same":true,"before_value":"","after_value":""}
+{"before":"- >\n   ","after":"- >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- >\n     ","after":"- >\n","same":true,"before_value":"","after_value":""}
+{"before":"- >\n     ","after":"- >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- >\n   x\n   ","after":"- >\n   x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- >\n   x\n   ","after":"- >\n   x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- >\n   x\n     ","after":"- >\n   x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- >\n   x\n     ","after":"- >\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- >1\n  ","after":"- >1\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- >1\n  ","after":"- >1\n\n\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- >1\n    ","after":"- >1\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- >1\n    ","after":"- >1\n\n\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- >1\n  x\n  ","after":"- >1\n  x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- >1\n  x\n  ","after":"- >1\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- >1\n  x\n    ","after":"- >1\n  x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- >1\n  x\n    ","after":"- >1\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- >2\n   ","after":"- >2\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- >2\n   ","after":"- >2\n\n\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- >2\n     ","after":"- >2\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- >2\n     ","after":"- >2\n\n\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- >2\n   x\n   ","after":"- >2\n   x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- >2\n   x\n   ","after":"- >2\n   x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- >2\n   x\n     ","after":"- >2\n   x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- >2\n   x\n     ","after":"- >2\n   x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- >-\n   ","after":"- >-\n","same":true,"before_value":"","after_value":""}
+{"before":"- >-\n   ","after":"- >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- >-\n     ","after":"- >-\n","same":true,"before_value":"","after_value":""}
+{"before":"- >-\n     ","after":"- >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- >-\n   x\n   ","after":"- >-\n   x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- >-\n   x\n   ","after":"- >-\n   x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- >-\n   x\n     ","after":"- >-\n   x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- >-\n   x\n     ","after":"- >-\n   x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- >-1\n  ","after":"- >-1\n","same":false,"before_value":" ","after_value":""}
+{"before":"- >-1\n  ","after":"- >-1\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- >-1\n    ","after":"- >-1\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- >-1\n    ","after":"- >-1\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- >-1\n  x\n  ","after":"- >-1\n  x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- >-1\n  x\n  ","after":"- >-1\n  x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- >-1\n  x\n    ","after":"- >-1\n  x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- >-1\n  x\n    ","after":"- >-1\n  x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- >-2\n   ","after":"- >-2\n","same":false,"before_value":" ","after_value":""}
+{"before":"- >-2\n   ","after":"- >-2\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- >-2\n     ","after":"- >-2\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- >-2\n     ","after":"- >-2\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- >-2\n   x\n   ","after":"- >-2\n   x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- >-2\n   x\n   ","after":"- >-2\n   x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- >-2\n   x\n     ","after":"- >-2\n   x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- >-2\n   x\n     ","after":"- >-2\n   x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- >+\n   ","after":"- >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- >+\n   ","after":"- >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- >+\n     ","after":"- >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- >+\n     ","after":"- >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- >+\n   x\n   ","after":"- >+\n   x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"- >+\n   x\n   ","after":"- >+\n   x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- >+\n   x\n     ","after":"- >+\n   x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"- >+\n   x\n     ","after":"- >+\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- >+1\n  ","after":"- >+1\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- >+1\n  ","after":"- >+1\n\n\n","same":false,"before_value":" \n","after_value":"\n\n\n\n"}
+{"before":"- >+1\n    ","after":"- >+1\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- >+1\n    ","after":"- >+1\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n\n\n"}
+{"before":"- >+1\n  x\n  ","after":"- >+1\n  x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- >+1\n  x\n  ","after":"- >+1\n  x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"- >+1\n  x\n    ","after":"- >+1\n  x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- >+1\n  x\n    ","after":"- >+1\n  x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"- >+2\n   ","after":"- >+2\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- >+2\n   ","after":"- >+2\n\n\n","same":false,"before_value":" \n","after_value":"\n\n\n\n"}
+{"before":"- >+2\n     ","after":"- >+2\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- >+2\n     ","after":"- >+2\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n\n\n"}
+{"before":"- >+2\n   x\n   ","after":"- >+2\n   x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- >+2\n   x\n   ","after":"- >+2\n   x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"- >+2\n   x\n     ","after":"- >+2\n   x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- >+2\n   x\n     ","after":"- >+2\n   x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"outer:\n  a: |\n    ","after":"outer:\n  a: |\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |\n    ","after":"outer:\n  a: |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"outer:\n  a: |\n      ","after":"outer:\n  a: |\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |\n      ","after":"outer:\n  a: |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"outer:\n  a: |\n    x\n    ","after":"outer:\n  a: |\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: |\n    x\n    ","after":"outer:\n  a: |\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: |\n    x\n      ","after":"outer:\n  a: |\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: |\n    x\n      ","after":"outer:\n  a: |\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: |1\n   ","after":"outer:\n  a: |1\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |1\n   ","after":"outer:\n  a: |1\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"outer:\n  a: |1\n     ","after":"outer:\n  a: |1\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"outer:\n  a: |1\n     ","after":"outer:\n  a: |1\n\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"outer:\n  a: |1\n   x\n   ","after":"outer:\n  a: |1\n   x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: |1\n   x\n   ","after":"outer:\n  a: |1\n   x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: |1\n   x\n     ","after":"outer:\n  a: |1\n   x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: |1\n   x\n     ","after":"outer:\n  a: |1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: |2\n    ","after":"outer:\n  a: |2\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |2\n    ","after":"outer:\n  a: |2\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"outer:\n  a: |2\n      ","after":"outer:\n  a: |2\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"outer:\n  a: |2\n      ","after":"outer:\n  a: |2\n\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"outer:\n  a: |2\n    x\n    ","after":"outer:\n  a: |2\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: |2\n    x\n    ","after":"outer:\n  a: |2\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: |2\n    x\n      ","after":"outer:\n  a: |2\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: |2\n    x\n      ","after":"outer:\n  a: |2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: |-\n    ","after":"outer:\n  a: |-\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-\n    ","after":"outer:\n  a: |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-\n      ","after":"outer:\n  a: |-\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-\n      ","after":"outer:\n  a: |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-\n    x\n    ","after":"outer:\n  a: |-\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: |-\n    x\n    ","after":"outer:\n  a: |-\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: |-\n    x\n      ","after":"outer:\n  a: |-\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: |-\n    x\n      ","after":"outer:\n  a: |-\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: |-1\n   ","after":"outer:\n  a: |-1\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-1\n   ","after":"outer:\n  a: |-1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-1\n     ","after":"outer:\n  a: |-1\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: |-1\n     ","after":"outer:\n  a: |-1\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: |-1\n   x\n   ","after":"outer:\n  a: |-1\n   x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: |-1\n   x\n   ","after":"outer:\n  a: |-1\n   x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: |-1\n   x\n     ","after":"outer:\n  a: |-1\n   x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: |-1\n   x\n     ","after":"outer:\n  a: |-1\n   x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: |-2\n    ","after":"outer:\n  a: |-2\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-2\n    ","after":"outer:\n  a: |-2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: |-2\n      ","after":"outer:\n  a: |-2\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: |-2\n      ","after":"outer:\n  a: |-2\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: |-2\n    x\n    ","after":"outer:\n  a: |-2\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: |-2\n    x\n    ","after":"outer:\n  a: |-2\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: |-2\n    x\n      ","after":"outer:\n  a: |-2\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: |-2\n    x\n      ","after":"outer:\n  a: |-2\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: |+\n    ","after":"outer:\n  a: |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"outer:\n  a: |+\n    ","after":"outer:\n  a: |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"outer:\n  a: |+\n      ","after":"outer:\n  a: |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"outer:\n  a: |+\n      ","after":"outer:\n  a: |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"outer:\n  a: |+\n    x\n    ","after":"outer:\n  a: |+\n    x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"outer:\n  a: |+\n    x\n    ","after":"outer:\n  a: |+\n    x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"outer:\n  a: |+\n    x\n      ","after":"outer:\n  a: |+\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"outer:\n  a: |+\n    x\n      ","after":"outer:\n  a: |+\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"outer:\n  a: |+1\n   ","after":"outer:\n  a: |+1\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"outer:\n  a: |+1\n   ","after":"outer:\n  a: |+1\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"outer:\n  a: |+1\n     ","after":"outer:\n  a: |+1\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"outer:\n  a: |+1\n     ","after":"outer:\n  a: |+1\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"outer:\n  a: |+1\n   x\n   ","after":"outer:\n  a: |+1\n   x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"outer:\n  a: |+1\n   x\n   ","after":"outer:\n  a: |+1\n   x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"outer:\n  a: |+1\n   x\n     ","after":"outer:\n  a: |+1\n   x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"outer:\n  a: |+1\n   x\n     ","after":"outer:\n  a: |+1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"outer:\n  a: |+2\n    ","after":"outer:\n  a: |+2\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"outer:\n  a: |+2\n    ","after":"outer:\n  a: |+2\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"outer:\n  a: |+2\n      ","after":"outer:\n  a: |+2\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"outer:\n  a: |+2\n      ","after":"outer:\n  a: |+2\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"outer:\n  a: |+2\n    x\n    ","after":"outer:\n  a: |+2\n    x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"outer:\n  a: |+2\n    x\n    ","after":"outer:\n  a: |+2\n    x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"outer:\n  a: |+2\n    x\n      ","after":"outer:\n  a: |+2\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"outer:\n  a: |+2\n    x\n      ","after":"outer:\n  a: |+2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"outer:\n  a: >\n    ","after":"outer:\n  a: >\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >\n    ","after":"outer:\n  a: >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >\n      ","after":"outer:\n  a: >\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >\n      ","after":"outer:\n  a: >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >\n    x\n    ","after":"outer:\n  a: >\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: >\n    x\n    ","after":"outer:\n  a: >\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: >\n    x\n      ","after":"outer:\n  a: >\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: >\n    x\n      ","after":"outer:\n  a: >\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: >1\n   ","after":"outer:\n  a: >1\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >1\n   ","after":"outer:\n  a: >1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >1\n     ","after":"outer:\n  a: >1\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"outer:\n  a: >1\n     ","after":"outer:\n  a: >1\n\n\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"outer:\n  a: >1\n   x\n   ","after":"outer:\n  a: >1\n   x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: >1\n   x\n   ","after":"outer:\n  a: >1\n   x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: >1\n   x\n     ","after":"outer:\n  a: >1\n   x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: >1\n   x\n     ","after":"outer:\n  a: >1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: >2\n    ","after":"outer:\n  a: >2\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >2\n    ","after":"outer:\n  a: >2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >2\n      ","after":"outer:\n  a: >2\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"outer:\n  a: >2\n      ","after":"outer:\n  a: >2\n\n\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"outer:\n  a: >2\n    x\n    ","after":"outer:\n  a: >2\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: >2\n    x\n    ","after":"outer:\n  a: >2\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"outer:\n  a: >2\n    x\n      ","after":"outer:\n  a: >2\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: >2\n    x\n      ","after":"outer:\n  a: >2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"outer:\n  a: >-\n    ","after":"outer:\n  a: >-\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-\n    ","after":"outer:\n  a: >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-\n      ","after":"outer:\n  a: >-\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-\n      ","after":"outer:\n  a: >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-\n    x\n    ","after":"outer:\n  a: >-\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: >-\n    x\n    ","after":"outer:\n  a: >-\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: >-\n    x\n      ","after":"outer:\n  a: >-\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: >-\n    x\n      ","after":"outer:\n  a: >-\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: >-1\n   ","after":"outer:\n  a: >-1\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-1\n   ","after":"outer:\n  a: >-1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-1\n     ","after":"outer:\n  a: >-1\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: >-1\n     ","after":"outer:\n  a: >-1\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: >-1\n   x\n   ","after":"outer:\n  a: >-1\n   x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: >-1\n   x\n   ","after":"outer:\n  a: >-1\n   x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: >-1\n   x\n     ","after":"outer:\n  a: >-1\n   x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: >-1\n   x\n     ","after":"outer:\n  a: >-1\n   x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: >-2\n    ","after":"outer:\n  a: >-2\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-2\n    ","after":"outer:\n  a: >-2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"outer:\n  a: >-2\n      ","after":"outer:\n  a: >-2\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: >-2\n      ","after":"outer:\n  a: >-2\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"outer:\n  a: >-2\n    x\n    ","after":"outer:\n  a: >-2\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: >-2\n    x\n    ","after":"outer:\n  a: >-2\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"outer:\n  a: >-2\n    x\n      ","after":"outer:\n  a: >-2\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: >-2\n    x\n      ","after":"outer:\n  a: >-2\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"outer:\n  a: >+\n    ","after":"outer:\n  a: >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"outer:\n  a: >+\n    ","after":"outer:\n  a: >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"outer:\n  a: >+\n      ","after":"outer:\n  a: >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"outer:\n  a: >+\n      ","after":"outer:\n  a: >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"outer:\n  a: >+\n    x\n    ","after":"outer:\n  a: >+\n    x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"outer:\n  a: >+\n    x\n    ","after":"outer:\n  a: >+\n    x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"outer:\n  a: >+\n    x\n      ","after":"outer:\n  a: >+\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"outer:\n  a: >+\n    x\n      ","after":"outer:\n  a: >+\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"outer:\n  a: >+1\n   ","after":"outer:\n  a: >+1\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"outer:\n  a: >+1\n   ","after":"outer:\n  a: >+1\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"outer:\n  a: >+1\n     ","after":"outer:\n  a: >+1\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"outer:\n  a: >+1\n     ","after":"outer:\n  a: >+1\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n\n\n"}
+{"before":"outer:\n  a: >+1\n   x\n   ","after":"outer:\n  a: >+1\n   x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"outer:\n  a: >+1\n   x\n   ","after":"outer:\n  a: >+1\n   x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"outer:\n  a: >+1\n   x\n     ","after":"outer:\n  a: >+1\n   x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"outer:\n  a: >+1\n   x\n     ","after":"outer:\n  a: >+1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"outer:\n  a: >+2\n    ","after":"outer:\n  a: >+2\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"outer:\n  a: >+2\n    ","after":"outer:\n  a: >+2\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"outer:\n  a: >+2\n      ","after":"outer:\n  a: >+2\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"outer:\n  a: >+2\n      ","after":"outer:\n  a: >+2\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n\n\n"}
+{"before":"outer:\n  a: >+2\n    x\n    ","after":"outer:\n  a: >+2\n    x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"outer:\n  a: >+2\n    x\n    ","after":"outer:\n  a: >+2\n    x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"outer:\n  a: >+2\n    x\n      ","after":"outer:\n  a: >+2\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"outer:\n  a: >+2\n    x\n      ","after":"outer:\n  a: >+2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- a: |\n    ","after":"- a: |\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |\n    ","after":"- a: |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- a: |\n      ","after":"- a: |\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |\n      ","after":"- a: |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- a: |\n    x\n    ","after":"- a: |\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: |\n    x\n    ","after":"- a: |\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: |\n    x\n      ","after":"- a: |\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: |\n    x\n      ","after":"- a: |\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: |1\n   ","after":"- a: |1\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |1\n   ","after":"- a: |1\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- a: |1\n     ","after":"- a: |1\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"- a: |1\n     ","after":"- a: |1\n\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"- a: |1\n   x\n   ","after":"- a: |1\n   x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: |1\n   x\n   ","after":"- a: |1\n   x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: |1\n   x\n     ","after":"- a: |1\n   x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: |1\n   x\n     ","after":"- a: |1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: |2\n    ","after":"- a: |2\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |2\n    ","after":"- a: |2\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- a: |2\n      ","after":"- a: |2\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"- a: |2\n      ","after":"- a: |2\n\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"- a: |2\n    x\n    ","after":"- a: |2\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: |2\n    x\n    ","after":"- a: |2\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: |2\n    x\n      ","after":"- a: |2\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: |2\n    x\n      ","after":"- a: |2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: |-\n    ","after":"- a: |-\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-\n    ","after":"- a: |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-\n      ","after":"- a: |-\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-\n      ","after":"- a: |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-\n    x\n    ","after":"- a: |-\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: |-\n    x\n    ","after":"- a: |-\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: |-\n    x\n      ","after":"- a: |-\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: |-\n    x\n      ","after":"- a: |-\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: |-1\n   ","after":"- a: |-1\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-1\n   ","after":"- a: |-1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-1\n     ","after":"- a: |-1\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: |-1\n     ","after":"- a: |-1\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: |-1\n   x\n   ","after":"- a: |-1\n   x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: |-1\n   x\n   ","after":"- a: |-1\n   x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: |-1\n   x\n     ","after":"- a: |-1\n   x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: |-1\n   x\n     ","after":"- a: |-1\n   x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: |-2\n    ","after":"- a: |-2\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-2\n    ","after":"- a: |-2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: |-2\n      ","after":"- a: |-2\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: |-2\n      ","after":"- a: |-2\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: |-2\n    x\n    ","after":"- a: |-2\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: |-2\n    x\n    ","after":"- a: |-2\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: |-2\n    x\n      ","after":"- a: |-2\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: |-2\n    x\n      ","after":"- a: |-2\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: |+\n    ","after":"- a: |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- a: |+\n    ","after":"- a: |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- a: |+\n      ","after":"- a: |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- a: |+\n      ","after":"- a: |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- a: |+\n    x\n    ","after":"- a: |+\n    x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"- a: |+\n    x\n    ","after":"- a: |+\n    x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"- a: |+\n    x\n      ","after":"- a: |+\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"- a: |+\n    x\n      ","after":"- a: |+\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"- a: |+1\n   ","after":"- a: |+1\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- a: |+1\n   ","after":"- a: |+1\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- a: |+1\n     ","after":"- a: |+1\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"- a: |+1\n     ","after":"- a: |+1\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"- a: |+1\n   x\n   ","after":"- a: |+1\n   x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"- a: |+1\n   x\n   ","after":"- a: |+1\n   x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"- a: |+1\n   x\n     ","after":"- a: |+1\n   x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"- a: |+1\n   x\n     ","after":"- a: |+1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"- a: |+2\n    ","after":"- a: |+2\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- a: |+2\n    ","after":"- a: |+2\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- a: |+2\n      ","after":"- a: |+2\n\n","same":false,"before_value":"  \n","after_value":"\n"}
+{"before":"- a: |+2\n      ","after":"- a: |+2\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"- a: |+2\n    x\n    ","after":"- a: |+2\n    x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"- a: |+2\n    x\n    ","after":"- a: |+2\n    x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"- a: |+2\n    x\n      ","after":"- a: |+2\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"- a: |+2\n    x\n      ","after":"- a: |+2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"- a: >\n    ","after":"- a: >\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >\n    ","after":"- a: >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >\n      ","after":"- a: >\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >\n      ","after":"- a: >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >\n    x\n    ","after":"- a: >\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: >\n    x\n    ","after":"- a: >\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: >\n    x\n      ","after":"- a: >\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: >\n    x\n      ","after":"- a: >\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: >1\n   ","after":"- a: >1\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >1\n   ","after":"- a: >1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >1\n     ","after":"- a: >1\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"- a: >1\n     ","after":"- a: >1\n\n\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"- a: >1\n   x\n   ","after":"- a: >1\n   x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: >1\n   x\n   ","after":"- a: >1\n   x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: >1\n   x\n     ","after":"- a: >1\n   x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: >1\n   x\n     ","after":"- a: >1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: >2\n    ","after":"- a: >2\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >2\n    ","after":"- a: >2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >2\n      ","after":"- a: >2\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"- a: >2\n      ","after":"- a: >2\n\n\n","same":false,"before_value":"  \n","after_value":""}
+{"before":"- a: >2\n    x\n    ","after":"- a: >2\n    x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: >2\n    x\n    ","after":"- a: >2\n    x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- a: >2\n    x\n      ","after":"- a: >2\n    x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: >2\n    x\n      ","after":"- a: >2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- a: >-\n    ","after":"- a: >-\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-\n    ","after":"- a: >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-\n      ","after":"- a: >-\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-\n      ","after":"- a: >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-\n    x\n    ","after":"- a: >-\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: >-\n    x\n    ","after":"- a: >-\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: >-\n    x\n      ","after":"- a: >-\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: >-\n    x\n      ","after":"- a: >-\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: >-1\n   ","after":"- a: >-1\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-1\n   ","after":"- a: >-1\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-1\n     ","after":"- a: >-1\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: >-1\n     ","after":"- a: >-1\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: >-1\n   x\n   ","after":"- a: >-1\n   x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: >-1\n   x\n   ","after":"- a: >-1\n   x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: >-1\n   x\n     ","after":"- a: >-1\n   x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: >-1\n   x\n     ","after":"- a: >-1\n   x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: >-2\n    ","after":"- a: >-2\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-2\n    ","after":"- a: >-2\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- a: >-2\n      ","after":"- a: >-2\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: >-2\n      ","after":"- a: >-2\n\n\n","same":false,"before_value":"  ","after_value":""}
+{"before":"- a: >-2\n    x\n    ","after":"- a: >-2\n    x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: >-2\n    x\n    ","after":"- a: >-2\n    x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- a: >-2\n    x\n      ","after":"- a: >-2\n    x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: >-2\n    x\n      ","after":"- a: >-2\n    x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- a: >+\n    ","after":"- a: >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- a: >+\n    ","after":"- a: >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- a: >+\n      ","after":"- a: >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- a: >+\n      ","after":"- a: >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- a: >+\n    x\n    ","after":"- a: >+\n    x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"- a: >+\n    x\n    ","after":"- a: >+\n    x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- a: >+\n    x\n      ","after":"- a: >+\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"- a: >+\n    x\n      ","after":"- a: >+\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- a: >+1\n   ","after":"- a: >+1\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- a: >+1\n   ","after":"- a: >+1\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- a: >+1\n     ","after":"- a: >+1\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"- a: >+1\n     ","after":"- a: >+1\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n\n\n"}
+{"before":"- a: >+1\n   x\n   ","after":"- a: >+1\n   x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"- a: >+1\n   x\n   ","after":"- a: >+1\n   x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- a: >+1\n   x\n     ","after":"- a: >+1\n   x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"- a: >+1\n   x\n     ","after":"- a: >+1\n   x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- a: >+2\n    ","after":"- a: >+2\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- a: >+2\n    ","after":"- a: >+2\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- a: >+2\n      ","after":"- a: >+2\n\n","same":false,"before_value":"  \n","after_value":"\n\n"}
+{"before":"- a: >+2\n      ","after":"- a: >+2\n\n\n","same":false,"before_value":"  \n","after_value":"\n\n\n\n"}
+{"before":"- a: >+2\n    x\n    ","after":"- a: >+2\n    x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"- a: >+2\n    x\n    ","after":"- a: >+2\n    x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- a: >+2\n    x\n      ","after":"- a: >+2\n    x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"- a: >+2\n    x\n      ","after":"- a: >+2\n    x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- - |\n     ","after":"- - |\n","same":true,"before_value":"","after_value":""}
+{"before":"- - |\n     ","after":"- - |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- - |\n       ","after":"- - |\n","same":true,"before_value":"","after_value":""}
+{"before":"- - |\n       ","after":"- - |\n\n\n","same":false,"before_value":"","after_value":"\n"}
+{"before":"- - |\n     x\n     ","after":"- - |\n     x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- - |\n     x\n     ","after":"- - |\n     x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- - |\n     x\n       ","after":"- - |\n     x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- - |\n     x\n       ","after":"- - |\n     x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- - |1\n    ","after":"- - |1\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- - |1\n    ","after":"- - |1\n\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- - |1\n      ","after":"- - |1\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- - |1\n      ","after":"- - |1\n\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- - |1\n    x\n    ","after":"- - |1\n    x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - |1\n    x\n    ","after":"- - |1\n    x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - |1\n    x\n      ","after":"- - |1\n    x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - |1\n    x\n      ","after":"- - |1\n    x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - |2\n     ","after":"- - |2\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- - |2\n     ","after":"- - |2\n\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- - |2\n       ","after":"- - |2\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- - |2\n       ","after":"- - |2\n\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- - |2\n     x\n     ","after":"- - |2\n     x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - |2\n     x\n     ","after":"- - |2\n     x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - |2\n     x\n       ","after":"- - |2\n     x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - |2\n     x\n       ","after":"- - |2\n     x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - |-\n     ","after":"- - |-\n","same":true,"before_value":"","after_value":""}
+{"before":"- - |-\n     ","after":"- - |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- - |-\n       ","after":"- - |-\n","same":true,"before_value":"","after_value":""}
+{"before":"- - |-\n       ","after":"- - |-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- - |-\n     x\n     ","after":"- - |-\n     x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- - |-\n     x\n     ","after":"- - |-\n     x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- - |-\n     x\n       ","after":"- - |-\n     x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- - |-\n     x\n       ","after":"- - |-\n     x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- - |-1\n    ","after":"- - |-1\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - |-1\n    ","after":"- - |-1\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - |-1\n      ","after":"- - |-1\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - |-1\n      ","after":"- - |-1\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - |-1\n    x\n    ","after":"- - |-1\n    x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - |-1\n    x\n    ","after":"- - |-1\n    x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - |-1\n    x\n      ","after":"- - |-1\n    x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - |-1\n    x\n      ","after":"- - |-1\n    x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - |-2\n     ","after":"- - |-2\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - |-2\n     ","after":"- - |-2\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - |-2\n       ","after":"- - |-2\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - |-2\n       ","after":"- - |-2\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - |-2\n     x\n     ","after":"- - |-2\n     x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - |-2\n     x\n     ","after":"- - |-2\n     x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - |-2\n     x\n       ","after":"- - |-2\n     x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - |-2\n     x\n       ","after":"- - |-2\n     x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - |+\n     ","after":"- - |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- - |+\n     ","after":"- - |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- - |+\n       ","after":"- - |+\n\n","same":true,"before_value":"\n","after_value":"\n"}
+{"before":"- - |+\n       ","after":"- - |+\n\n\n","same":false,"before_value":"\n","after_value":"\n\n"}
+{"before":"- - |+\n     x\n     ","after":"- - |+\n     x\n\n","same":true,"before_value":"x\n\n","after_value":"x\n\n"}
+{"before":"- - |+\n     x\n     ","after":"- - |+\n     x\n\n\n","same":false,"before_value":"x\n\n","after_value":"x\n\n\n\n"}
+{"before":"- - |+\n     x\n       ","after":"- - |+\n     x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n"}
+{"before":"- - |+\n     x\n       ","after":"- - |+\n     x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n"}
+{"before":"- - |+1\n    ","after":"- - |+1\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- - |+1\n    ","after":"- - |+1\n\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- - |+1\n      ","after":"- - |+1\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- - |+1\n      ","after":"- - |+1\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- - |+1\n    x\n    ","after":"- - |+1\n    x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n"}
+{"before":"- - |+1\n    x\n    ","after":"- - |+1\n    x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- - |+1\n    x\n      ","after":"- - |+1\n    x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n"}
+{"before":"- - |+1\n    x\n      ","after":"- - |+1\n    x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- - |+2\n     ","after":"- - |+2\n\n","same":false,"before_value":" \n","after_value":"\n"}
+{"before":"- - |+2\n     ","after":"- - |+2\n\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- - |+2\n       ","after":"- - |+2\n\n","same":false,"before_value":"   \n","after_value":"\n"}
+{"before":"- - |+2\n       ","after":"- - |+2\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- - |+2\n     x\n     ","after":"- - |+2\n     x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n"}
+{"before":"- - |+2\n     x\n     ","after":"- - |+2\n     x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- - |+2\n     x\n       ","after":"- - |+2\n     x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n"}
+{"before":"- - |+2\n     x\n       ","after":"- - |+2\n     x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- - >\n     ","after":"- - >\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >\n     ","after":"- - >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >\n       ","after":"- - >\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >\n       ","after":"- - >\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >\n     x\n     ","after":"- - >\n     x\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- - >\n     x\n     ","after":"- - >\n     x\n\n\n","same":true,"before_value":"x\n","after_value":"x\n"}
+{"before":"- - >\n     x\n       ","after":"- - >\n     x\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- - >\n     x\n       ","after":"- - >\n     x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n"}
+{"before":"- - >1\n    ","after":"- - >1\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- - >1\n    ","after":"- - >1\n\n\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- - >1\n      ","after":"- - >1\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- - >1\n      ","after":"- - >1\n\n\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- - >1\n    x\n    ","after":"- - >1\n    x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - >1\n    x\n    ","after":"- - >1\n    x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - >1\n    x\n      ","after":"- - >1\n    x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - >1\n    x\n      ","after":"- - >1\n    x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - >2\n     ","after":"- - >2\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- - >2\n     ","after":"- - >2\n\n\n","same":false,"before_value":" \n","after_value":""}
+{"before":"- - >2\n       ","after":"- - >2\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- - >2\n       ","after":"- - >2\n\n\n","same":false,"before_value":"   \n","after_value":""}
+{"before":"- - >2\n     x\n     ","after":"- - >2\n     x\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - >2\n     x\n     ","after":"- - >2\n     x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n"}
+{"before":"- - >2\n     x\n       ","after":"- - >2\n     x\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - >2\n     x\n       ","after":"- - >2\n     x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n"}
+{"before":"- - >-\n     ","after":"- - >-\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >-\n     ","after":"- - >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >-\n       ","after":"- - >-\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >-\n       ","after":"- - >-\n\n\n","same":true,"before_value":"","after_value":""}
+{"before":"- - >-\n     x\n     ","after":"- - >-\n     x\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- - >-\n     x\n     ","after":"- - >-\n     x\n\n\n","same":true,"before_value":"x","after_value":"x"}
+{"before":"- - >-\n     x\n       ","after":"- - >-\n     x\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- - >-\n     x\n       ","after":"- - >-\n     x\n\n\n","same":false,"before_value":"x\n  ","after_value":"x"}
+{"before":"- - >-1\n    ","after":"- - >-1\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - >-1\n    ","after":"- - >-1\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - >-1\n      ","after":"- - >-1\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - >-1\n      ","after":"- - >-1\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - >-1\n    x\n    ","after":"- - >-1\n    x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - >-1\n    x\n    ","after":"- - >-1\n    x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - >-1\n    x\n      ","after":"- - >-1\n    x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - >-1\n    x\n      ","after":"- - >-1\n    x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - >-2\n     ","after":"- - >-2\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - >-2\n     ","after":"- - >-2\n\n\n","same":false,"before_value":" ","after_value":""}
+{"before":"- - >-2\n       ","after":"- - >-2\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - >-2\n       ","after":"- - >-2\n\n\n","same":false,"before_value":"   ","after_value":""}
+{"before":"- - >-2\n     x\n     ","after":"- - >-2\n     x\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - >-2\n     x\n     ","after":"- - >-2\n     x\n\n\n","same":false,"before_value":" x\n ","after_value":" x"}
+{"before":"- - >-2\n     x\n       ","after":"- - >-2\n     x\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - >-2\n     x\n       ","after":"- - >-2\n     x\n\n\n","same":false,"before_value":" x\n   ","after_value":" x"}
+{"before":"- - >+\n     ","after":"- - >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- - >+\n     ","after":"- - >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- - >+\n       ","after":"- - >+\n\n","same":true,"before_value":"\n\n","after_value":"\n\n"}
+{"before":"- - >+\n       ","after":"- - >+\n\n\n","same":false,"before_value":"\n\n","after_value":"\n\n\n\n"}
+{"before":"- - >+\n     x\n     ","after":"- - >+\n     x\n\n","same":true,"before_value":"x\n\n\n","after_value":"x\n\n\n"}
+{"before":"- - >+\n     x\n     ","after":"- - >+\n     x\n\n\n","same":false,"before_value":"x\n\n\n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- - >+\n     x\n       ","after":"- - >+\n     x\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n"}
+{"before":"- - >+\n     x\n       ","after":"- - >+\n     x\n\n\n","same":false,"before_value":"x\n  \n","after_value":"x\n\n\n\n\n\n"}
+{"before":"- - >+1\n    ","after":"- - >+1\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- - >+1\n    ","after":"- - >+1\n\n\n","same":false,"before_value":" \n","after_value":"\n\n\n\n"}
+{"before":"- - >+1\n      ","after":"- - >+1\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- - >+1\n      ","after":"- - >+1\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n\n\n"}
+{"before":"- - >+1\n    x\n    ","after":"- - >+1\n    x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- - >+1\n    x\n    ","after":"- - >+1\n    x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"- - >+1\n    x\n      ","after":"- - >+1\n    x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- - >+1\n    x\n      ","after":"- - >+1\n    x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"- - >+2\n     ","after":"- - >+2\n\n","same":false,"before_value":" \n","after_value":"\n\n"}
+{"before":"- - >+2\n     ","after":"- - >+2\n\n\n","same":false,"before_value":" \n","after_value":"\n\n\n\n"}
+{"before":"- - >+2\n       ","after":"- - >+2\n\n","same":false,"before_value":"   \n","after_value":"\n\n"}
+{"before":"- - >+2\n       ","after":"- - >+2\n\n\n","same":false,"before_value":"   \n","after_value":"\n\n\n\n"}
+{"before":"- - >+2\n     x\n     ","after":"- - >+2\n     x\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n"}
+{"before":"- - >+2\n     x\n     ","after":"- - >+2\n     x\n\n\n","same":false,"before_value":" x\n \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"- - >+2\n     x\n       ","after":"- - >+2\n     x\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n"}
+{"before":"- - >+2\n     x\n       ","after":"- - >+2\n     x\n\n\n","same":false,"before_value":" x\n   \n","after_value":" x\n\n\n\n\n\n\n"}
+{"before":"a: >\n  x\n\n  y\n","after":"a: |\n  x\n\n  y\n","same":false,"before_value":"x\ny\n","after_value":"x\n\ny\n"}
+{"before":"a: >\n  x\n\n  y\n","after":"a: |\n  x\n  y\n","same":true,"before_value":"x\ny\n","after_value":"x\ny\n"}
+{"before":"a: >-\n  x\n\n  y\n","after":"a: |-\n  x\n  y\n","same":true,"before_value":"x\ny","after_value":"x\ny"}
+{"before":"a: >+\n  x\n\n  y\n\n","after":"a: |+\n  x\n  y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\ny\n\n"}
+{"before":"a: >\n  x\n    y\n  z\n","after":"a: |\n  x\n    y\n  z\n","same":true,"before_value":"x\n  y\nz\n","after_value":"x\n  y\nz\n"}
+{"before":"a: >+\n  x\n    y\n\n","after":"a: |+\n  x\n    y\n\n","same":false,"before_value":"x\n  y\n\n\n\n","after_value":"x\n  y\n\n"}
+{"before":"a: >+\n  x\n    y\n\n","after":"a: >+\n  x\n    y\n\n\n","same":false,"before_value":"x\n  y\n\n\n\n","after_value":"x\n  y\n\n\n\n\n\n\n"}
+{"before":"- >+\n  x\n\n  y\n\n","after":"- |+\n  x\n  y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\ny\n\n"}
+{"before":"- >+\n  x\n\n  y\n\n","after":"- |+\n  x\n\n  y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\n\ny\n\n"}
+{"before":">+\n  x\n\n  y\n\n","after":"|+\n  x\n  y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\ny\n\n"}
+{"before":">+\n  x\n\n  y\n\n","after":"|+\n  x\n\n  y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\n\ny\n\n"}
+{"before":"a: >1+\n x\n\n y\n\n","after":"a: |1+\n x\n y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\ny\n\n"}
+{"before":"a: >1+\n x\n\n y\n\n","after":"a: |1+\n x\n\n y\n\n","same":false,"before_value":"x\ny\n\n\n","after_value":"x\n\ny\n\n"}

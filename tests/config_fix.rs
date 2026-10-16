@@ -28,7 +28,7 @@ fn toml_config_parses_fix_policy() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['comments']\nunfixable = ['new-lines']\n",
+        "[lint]\nfixable = ['comments']\nunfixable = ['new-lines']\n",
     );
 
     let ctx = discover_config_with(
@@ -56,7 +56,7 @@ fn toml_config_parses_new_safe_fix_rules() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['braces', 'brackets', 'commas', 'comments-indentation']\nunfixable = ['braces']\n",
+        "[lint]\nfixable = ['braces', 'brackets', 'commas', 'comments-indentation']\nunfixable = ['braces']\n",
     );
 
     let ctx = discover_config_with(
@@ -90,7 +90,7 @@ fn toml_config_parses_exact_typed_fix_variants() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['new-line-at-end-of-file']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
+        "[lint]\nfixable = ['new-line-at-end-of-file']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
     );
 
     let ctx = discover_config_with(
@@ -125,7 +125,7 @@ fn toml_config_with_unrecognised_top_level_key_is_rejected() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "stamp = 1979-05-27T07:32:00Z\n[fix]\nfixable = ['ALL']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
+        "stamp = 1979-05-27T07:32:00Z\n[lint]\nfixable = ['ALL']\nunfixable = ['brackets', 'commas', 'comments-indentation']\n",
     );
 
     let err = discover_config_with(
@@ -184,7 +184,7 @@ fn toml_config_rejects_non_mapping_fix_table() {
 fn toml_config_rejects_unknown_fix_option() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nunknown = ['comments']\n");
+        .with_file(cfg.clone(), "[lint]\nunknown = ['comments']\n");
 
     let err = discover_config_with(
         &[],
@@ -203,7 +203,7 @@ fn toml_config_rejects_unknown_fix_option() {
 fn toml_config_rejects_non_list_fixable() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nfixable = 'comments'\n");
+        .with_file(cfg.clone(), "[lint]\nfixable = 'comments'\n");
 
     let err = discover_config_with(
         &[],
@@ -222,7 +222,7 @@ fn toml_config_rejects_non_list_fixable() {
 fn toml_config_rejects_non_string_fix_rule_entries() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nunfixable = [1]\n");
+        .with_file(cfg.clone(), "[lint]\nunfixable = [1]\n");
 
     let err = discover_config_with(
         &[],
@@ -241,7 +241,7 @@ fn toml_config_rejects_non_string_fix_rule_entries() {
 fn toml_config_rejects_unknown_fixable_rule_name() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nfixable = ['indentation']\n");
+        .with_file(cfg.clone(), "[lint]\nfixable = ['indentation']\n");
 
     let err = discover_config_with(
         &[],
@@ -260,7 +260,7 @@ fn toml_config_rejects_unknown_fixable_rule_name() {
 fn toml_config_rejects_all_in_unfixable() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nunfixable = ['ALL']\n");
+        .with_file(cfg.clone(), "[lint]\nunfixable = ['ALL']\n");
 
     let err = discover_config_with(
         &[],
@@ -279,7 +279,7 @@ fn toml_config_rejects_all_in_unfixable() {
 fn toml_config_rejects_non_list_unfixable() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nunfixable = 'comments'\n");
+        .with_file(cfg.clone(), "[lint]\nunfixable = 'comments'\n");
 
     let err = discover_config_with(
         &[],
@@ -298,7 +298,7 @@ fn toml_config_rejects_non_list_unfixable() {
 fn toml_config_rejects_non_string_fixable_entries() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nfixable = [1]\n");
+        .with_file(cfg.clone(), "[lint]\nfixable = [1]\n");
 
     let err = discover_config_with(
         &[],
@@ -326,7 +326,7 @@ fn yaml_extends_default_keeps_default_fix_policy() {
 fn toml_config_allows_quoted_strings_in_fixable() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new()
-        .with_file(cfg.clone(), "[fix]\nfixable = ['quoted-strings']\n");
+        .with_file(cfg.clone(), "[lint]\nfixable = ['quoted-strings']\n");
 
     let ctx = discover_config_with(
         &[],
@@ -350,7 +350,7 @@ fn to_toml_string_round_trips_quoted_strings_fix_config() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['quoted-strings']\nunfixable = ['quoted-strings', 'comments']\n\n[rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
+        "[lint]\nfixable = ['quoted-strings']\nunfixable = ['quoted-strings', 'comments']\n\n[lint.rules.quoted-strings]\nquote-type = 'single'\nrequired = 'only-when-needed'\n",
     );
 
     let ctx = discover_config_with(
@@ -372,7 +372,7 @@ fn to_toml_string_round_trips_trailing_spaces_fix_config() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['trailing-spaces']\nunfixable = ['trailing-spaces']\n",
+        "[lint]\nfixable = ['trailing-spaces']\nunfixable = ['trailing-spaces']\n",
     );
 
     let ctx = discover_config_with(
@@ -399,7 +399,7 @@ fn to_toml_string_round_trips_document_and_empty_lines_fix_config() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = common::fake_env::FakeEnv::new().with_file(
         cfg.clone(),
-        "[fix]\nfixable = ['document-start', 'document-end', 'empty-lines', 'key-ordering']\nunfixable = ['document-start', 'document-end', 'empty-lines', 'key-ordering']\n",
+        "[lint]\nfixable = ['document-start', 'document-end', 'empty-lines', 'key-ordering']\nunfixable = ['document-start', 'document-end', 'empty-lines', 'key-ordering']\n",
     );
 
     let ctx = discover_config_with(

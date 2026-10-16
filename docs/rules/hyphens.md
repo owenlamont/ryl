@@ -15,7 +15,7 @@ block sequences.
 ## Configuration
 
 ```toml
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "error"
 max-spaces-after = 1
 dash-on-own-line = false
@@ -26,8 +26,7 @@ dash-on-own-line = false
 | `max-spaces-after` | `1` | Maximum spaces between the `-` and the item value. |
 | `dash-on-own-line` | `false` | Require the `-` on its own line when the entry is a block mapping (ryl-only; TOML config only). |
 
-`dash-on-own-line` is a ryl-only extension with no yamllint counterpart, so it is
-configured in TOML config only and rejected in yamllint-compatible YAML config.
+`dash-on-own-line` is configured in TOML only; YAML config rejects it.
 
 ## Examples
 
@@ -79,9 +78,20 @@ items:
 
 ## Automatic fixing
 
-This rule does not auto-fix. Trim the extra spaces (`max-spaces-after`) or break the
-mapping onto the line below the `-` (`dash-on-own-line`) manually: re-indenting the
-mapping body is a structural change ryl will not make automatically.
+`ryl check --fix` trims the spaces after `-` to `max-spaces-after`, never below one.
+`ryl format` leaves exactly one. `ryl check --fix` leaves a `-` alone when the block
+mapping or sequence it opens continues on later lines, because the spaces set that
+collection's indentation; `ryl format` closes the gap and re-indents the collection
+with it:
+
+```yaml
+-   name: web    # ryl format: `- name: web`, with `port` under `name`
+    port: 80
+```
+
+`ryl check --fix` does not fix `dash-on-own-line`. `ryl format` joins `-` and its block
+mapping onto one line, or with `[format] dash-on-own-line = true` breaks the mapping
+onto the line below; a dash line carrying an anchor, tag or comment is left as it is.
 
 ## Related rules
 

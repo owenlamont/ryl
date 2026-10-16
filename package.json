@@ -14,7 +14,7 @@
     "ppc64",
     "s390x"
   ],
-  "description": "Fast YAML linter inspired by yamllint",
+  "description": "Fast YAML linter and formatter",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -28,6 +28,7 @@
   "keywords": [
     "yaml",
     "lint",
+    "formatter",
     "cli",
     "rust"
   ],
@@ -47,5 +48,5 @@
   },
   "sideEffects": false,
   "type": "commonjs",
-  "version": "0.24.0"
+  "version": "0.25.0"
 }

@@ -17,7 +17,7 @@ fn to_toml_includes_ignore_and_locale_and_rules() {
     )
     .unwrap();
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("ignore = ["));
+    assert!(toml.contains("exclude = ["));
     assert!(toml.contains("locale = \"en_US.UTF-8\""));
     assert!(toml.contains("document-start = \"disable\""));
 }
@@ -40,7 +40,7 @@ fn to_toml_includes_ignore_from_file_when_present() {
     )
     .unwrap();
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("ignore-from-file = ["));
+    assert!(toml.contains("exclude-from-file = ["));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn to_toml_includes_per_file_ignores_when_present() {
     let cfg = td.path().join(".ryl.toml");
     fs::write(
         &cfg,
-        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'values.yaml' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n[lint.per-file-ignores]\n'values.yaml' = ['document-start']\n",
     )
     .unwrap();
     let ctx = discover_config(
@@ -61,7 +61,7 @@ fn to_toml_includes_per_file_ignores_when_present() {
     )
     .unwrap();
     let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("[per-file-ignores]"));
+    assert!(toml.contains("[lint.per-file-ignores]"));
     assert!(toml.contains("\"values.yaml\" = ["));
     assert!(toml.contains("\"document-start\""));
 }
@@ -108,44 +108,54 @@ fn to_toml_errors_on_tagged_values() {
 }
 
 #[test]
-fn to_toml_includes_fix_policy() {
+fn to_toml_round_trips_every_fix_policy_rule() {
     let td = tempdir().unwrap();
     let cfg_path = td.path().join(".ryl.toml");
+    let rules = [
+        "braces",
+        "brackets",
+        "colons",
+        "commas",
+        "comments",
+        "comments-indentation",
+        "document-end",
+        "document-start",
+        "empty-lines",
+        "hyphens",
+        "key-ordering",
+        "new-line-at-end-of-file",
+        "new-lines",
+        "quoted-strings",
+        "trailing-spaces",
+        "truthy",
+    ];
+    let names = rules.map(|rule| format!("'{rule}'")).join(", ");
     fs::write(
         &cfg_path,
-        "[fix]\nfixable = ['ALL', 'braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-line-at-end-of-file', 'new-lines', 'truthy']\nunfixable = ['braces', 'brackets', 'commas', 'comments', 'comments-indentation', 'new-line-at-end-of-file', 'new-lines', 'truthy']\n",
+        format!("[lint]\nfixable = ['ALL', {names}]\nunfixable = [{names}]\n"),
     )
     .unwrap();
-
-    let ctx = discover_config(
-        &[],
-        &Overrides {
-            config_file: Some(cfg_path),
-            config_data: None,
-        },
-    )
-    .unwrap();
-
-    let toml = ctx.config.to_toml_string();
-    assert!(toml.contains("[files]"));
-    assert!(toml.contains("yaml = ["));
-    assert!(toml.contains("[fix]"));
-    assert!(toml.contains("fixable = ["));
-    assert!(toml.contains("\"ALL\""));
-    assert!(toml.contains("\"braces\""));
-    assert!(toml.contains("\"brackets\""));
-    assert!(toml.contains("\"commas\""));
-    assert!(toml.contains("\"comments\""));
-    assert!(toml.contains("\"comments-indentation\""));
-    assert!(toml.contains("\"new-line-at-end-of-file\""));
-    assert!(toml.contains("\"new-lines\""));
-    assert!(toml.contains("unfixable = ["));
-    assert!(toml.contains("\"braces\""));
-    assert!(toml.contains("\"brackets\""));
-    assert!(toml.contains("\"commas\""));
-    assert!(toml.contains("\"comments\""));
-    assert!(toml.contains("\"comments-indentation\""));
-    assert!(toml.contains("\"new-line-at-end-of-file\""));
-    assert!(toml.contains("\"new-lines\""));
-    assert!(toml.contains("\"truthy\""));
+    let overrides = Overrides {
+        config_file: Some(cfg_path.clone()),
+        config_data: None,
+    };
+    let ctx = discover_config(&[], &overrides).unwrap();
+    let rendered = ctx.config.to_toml_string();
+    let value: toml::Value = toml::from_str(&rendered).unwrap();
+    let expected: Vec<_> = rules.map(|rule| toml::Value::String(rule.into())).into();
+    assert_eq!(value["lint"]["unfixable"].as_array().unwrap(), &expected);
+    let mut fixable = vec![toml::Value::String("ALL".into())];
+    fixable.extend(expected);
+    assert_eq!(value["lint"]["fixable"].as_array().unwrap(), &fixable);
+    fs::write(&cfg_path, rendered).unwrap();
+    let reloaded = discover_config(&[], &overrides).unwrap();
+    assert_eq!(ctx.config.fix(), reloaded.config.fix());
+    for rule in rules {
+        assert!(!reloaded.config.fix().allows_rule(rule), "{rule}");
+    }
+    fs::write(&cfg_path, format!("[lint]\nfixable = [{names}]\n")).unwrap();
+    let allowed = discover_config(&[], &overrides).unwrap();
+    for rule in rules {
+        assert!(allowed.config.fix().allows_rule(rule), "{rule}");
+    }
 }

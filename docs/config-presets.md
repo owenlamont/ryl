@@ -23,15 +23,13 @@ the scenes:
   tables below *are* the presets, so copy the one you want into your
   `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
   one explicit config.
-- **YAML config (yamllint parity):** a yamllint-style config may `extends:` a
+- **YAML config:** a YAML config may `extends:` a
   built-in preset (`default`, `relaxed`, `empty`) or another config file, and
   ryl merges the inherited settings in (with overrides under `rules:`). This
-  inheritance is the yamllint behaviour the recommended TOML format omits by
-  design.
+  inheritance is available in YAML config; TOML config is self-contained.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
-`relaxed`, `empty`) from
-[src/conf/mod.rs](https://github.com/owenlamont/ryl/blob/main/src/conf/mod.rs).
+`relaxed`, `empty`) in `src/config/legacy_yaml.rs`.
 
 ## `default` (TOML equivalent)
 
@@ -43,7 +41,7 @@ yaml = [
     ".yamllint",
 ]
 
-[rules]
+[lint.rules]
 anchors = "enable"
 braces = "enable"
 brackets = "enable"
@@ -64,16 +62,16 @@ octal-values = "disable"
 quoted-strings = "disable"
 trailing-spaces = "enable"
 
-[rules.comments]
+[lint.rules.comments]
 level = "warning"
 
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "warning"
 
-[rules.document-start]
+[lint.rules.document-start]
 level = "warning"
 
-[rules.truthy]
+[lint.rules.truthy]
 level = "warning"
 ```
 
@@ -87,7 +85,7 @@ yaml = [
     ".yamllint",
 ]
 
-[rules]
+[lint.rules]
 anchors = "enable"
 comments = "disable"
 comments-indentation = "disable"
@@ -104,31 +102,31 @@ quoted-strings = "disable"
 trailing-spaces = "enable"
 truthy = "disable"
 
-[rules.braces]
+[lint.rules.braces]
 level = "warning"
 max-spaces-inside = 1
 
-[rules.brackets]
+[lint.rules.brackets]
 level = "warning"
 max-spaces-inside = 1
 
-[rules.colons]
+[lint.rules.colons]
 level = "warning"
 
-[rules.commas]
+[lint.rules.commas]
 level = "warning"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 level = "warning"
 
-[rules.hyphens]
+[lint.rules.hyphens]
 level = "warning"
 
-[rules.indentation]
+[lint.rules.indentation]
 level = "warning"
 indent-sequences = "consistent"
 
-[rules.line-length]
+[lint.rules.line-length]
 level = "warning"
 allow-non-breakable-inline-mappings = true
 ```
@@ -136,6 +134,6 @@ allow-non-breakable-inline-mappings = true
 ## `empty`
 
 There is no usable TOML equivalent: ryl requires at least one rule to be
-enabled, so an empty `[rules]` table is rejected with "configuration enables no
+enabled, so an empty `[lint.rules]` table is rejected with "configuration enables no
 rules". The `empty` preset survives only as a base to `extends:` in YAML config;
-in TOML, list the rules you want under `[rules]` directly.
+in TOML, list the rules you want under `[lint.rules]` directly.

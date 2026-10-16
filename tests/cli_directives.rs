@@ -67,9 +67,9 @@ fn project(
 }
 
 const MD_COLONS: &str =
-    "files = { markdown = [\"*.md\"] }\n[rules]\ncolons = \"enable\"\n";
+    "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncolons = \"enable\"\n";
 const MD_COMMAS: &str =
-    "files = { markdown = [\"*.md\"] }\n[rules]\ncommas = \"enable\"\n";
+    "files = { markdown = [\"*.md\"] }\n[lint.rules]\ncommas = \"enable\"\n";
 
 #[test]
 fn markdown_fenced_block_honours_directive() {

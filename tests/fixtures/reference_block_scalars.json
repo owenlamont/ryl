@@ -1,0 +1,1442 @@
+[
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |\n \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a: |\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "- |\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: |\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- |\n  \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: |\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- |\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a: |\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "- |\n   \n- x\n"
+  },
+  {
+    "event": "=VAL |  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a: |\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "- |\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL |  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |2\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |2\n \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |2\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a: |2\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "- |2\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |2\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |2\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |2\n  \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |2\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a: |2\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "- |2\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |2\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: |2\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- |2\n   \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |2\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: |2\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- |2\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |2\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |-\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |-\n \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |-\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |-\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |-\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |-\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a: |-\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL | ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "- |-\n  \n- x\n"
+  },
+  {
+    "event": "=VAL | ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a:\n  b: |-\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a: |-\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "- |-\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a:\n  b: |-\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |  ",
+    "expected": "  ",
+    "family": "blank-only",
+    "input": "a: |-\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL |  ",
+    "expected": "  ",
+    "family": "blank-only",
+    "input": "- |-\n   \n- x\n"
+  },
+  {
+    "event": "=VAL |  ",
+    "expected": "  ",
+    "family": "blank-only",
+    "input": "a:\n  b: |-\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n  ",
+    "expected": "  \n  ",
+    "family": "blank-only",
+    "input": "a: |-\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n  ",
+    "expected": "  \n  ",
+    "family": "blank-only",
+    "input": "- |-\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL |  \\n  ",
+    "expected": "  \n  ",
+    "family": "blank-only",
+    "input": "a:\n  b: |-\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |-2\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |-2\n \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |-2\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |-2\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |-2\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |-2\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |-2\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |-2\n  \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |-2\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: |-2\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- |-2\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL |",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: |-2\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a: |-2\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL | ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "- |-2\n   \n- x\n"
+  },
+  {
+    "event": "=VAL | ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a:\n  b: |-2\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a: |-2\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "- |-2\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a:\n  b: |-2\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a: |+\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "- |+\n \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a: |+\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "- |+\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: |+\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- |+\n  \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: |+\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- |+\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a: |+\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "- |+\n   \n- x\n"
+  },
+  {
+    "event": "=VAL |  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a: |+\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL |  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "- |+\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL |  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a: |+2\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "- |+2\n \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+2\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a: |+2\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "- |+2\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+2\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a: |+2\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "- |+2\n  \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n",
+    "expected": "\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+2\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a: |+2\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "- |+2\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL |\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+2\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: |+2\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- |+2\n   \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+2\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: |+2\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- |+2\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL | \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: |+2\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >\n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: >\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- >\n  \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: >\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- >\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a: >\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "- >\n   \n- x\n"
+  },
+  {
+    "event": "=VAL >  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a: >\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "- >\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL >  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >2\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >2\n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >2\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >2\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >2\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >2\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >2\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >2\n  \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >2\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >2\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >2\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >2\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: >2\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- >2\n   \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >2\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: >2\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- >2\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >2\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >-\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >-\n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >-\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >-\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >-\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >-\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a: >-\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL > ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "- >-\n  \n- x\n"
+  },
+  {
+    "event": "=VAL > ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a:\n  b: >-\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a: >-\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "- >-\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a:\n  b: >-\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >  ",
+    "expected": "  ",
+    "family": "blank-only",
+    "input": "a: >-\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL >  ",
+    "expected": "  ",
+    "family": "blank-only",
+    "input": "- >-\n   \n- x\n"
+  },
+  {
+    "event": "=VAL >  ",
+    "expected": "  ",
+    "family": "blank-only",
+    "input": "a:\n  b: >-\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n  ",
+    "expected": "  \n  ",
+    "family": "blank-only",
+    "input": "a: >-\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n  ",
+    "expected": "  \n  ",
+    "family": "blank-only",
+    "input": "- >-\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL >  \\n  ",
+    "expected": "  \n  ",
+    "family": "blank-only",
+    "input": "a:\n  b: >-\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >-2\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >-2\n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >-2\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >-2\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >-2\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >-2\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >-2\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >-2\n  \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >-2\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a: >-2\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "- >-2\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL >",
+    "expected": "",
+    "family": "blank-only",
+    "input": "a:\n  b: >-2\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a: >-2\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL > ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "- >-2\n   \n- x\n"
+  },
+  {
+    "event": "=VAL > ",
+    "expected": " ",
+    "family": "blank-only",
+    "input": "a:\n  b: >-2\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a: >-2\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "- >-2\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n ",
+    "expected": " \n ",
+    "family": "blank-only",
+    "input": "a:\n  b: >-2\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a: >+\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "- >+\n \n- x\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "a: >+\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "- >+\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: >+\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- >+\n  \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: >+\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- >+\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a: >+\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "- >+\n   \n- x\n"
+  },
+  {
+    "event": "=VAL >  \\n",
+    "expected": "  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a: >+\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL >  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "- >+\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL >  \\n  \\n",
+    "expected": "  \n  \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a: >+2\n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "- >+2\n \n- x\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+2\n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "a: >+2\n \n \nb: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "- >+2\n \n \n- x\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+2\n   \n   \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a: >+2\n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "- >+2\n  \n- x\n"
+  },
+  {
+    "event": "=VAL >\\n\\n",
+    "expected": "\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+2\n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "a: >+2\n  \n  \nb: 1\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "- >+2\n  \n  \n- x\n"
+  },
+  {
+    "event": "=VAL >\\n\\n\\n\\n",
+    "expected": "\n\n\n\n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+2\n    \n    \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a: >+2\n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "- >+2\n   \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n",
+    "expected": " \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+2\n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a: >+2\n   \n   \nb: 1\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "- >+2\n   \n   \n- x\n"
+  },
+  {
+    "event": "=VAL > \\n \\n",
+    "expected": " \n \n",
+    "family": "blank-only",
+    "input": "a:\n  b: >+2\n     \n     \n  c: 1\n"
+  },
+  {
+    "event": "=VAL | x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-explicit",
+    "input": "|2\n  x\n  "
+  },
+  {
+    "event": "=VAL | x\\n \\n \\n",
+    "expected": " x\n \n \n",
+    "family": "root-explicit",
+    "input": "|2\n  x\n  \n  "
+  },
+  {
+    "event": "=VAL | x\\n ",
+    "expected": " x\n ",
+    "family": "root-explicit",
+    "input": "|-2\n  x\n  "
+  },
+  {
+    "event": "=VAL | x\\n \\n ",
+    "expected": " x\n \n ",
+    "family": "root-explicit",
+    "input": "|-2\n  x\n  \n  "
+  },
+  {
+    "event": "=VAL | x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-explicit",
+    "input": "|+2\n  x\n  "
+  },
+  {
+    "event": "=VAL | x\\n \\n \\n",
+    "expected": " x\n \n \n",
+    "family": "root-explicit",
+    "input": "|+2\n  x\n  \n  "
+  },
+  {
+    "event": "=VAL > x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-explicit",
+    "input": ">2\n  x\n  "
+  },
+  {
+    "event": "=VAL > x\\n \\n \\n",
+    "expected": " x\n \n \n",
+    "family": "root-explicit",
+    "input": ">2\n  x\n  \n  "
+  },
+  {
+    "event": "=VAL > x\\n ",
+    "expected": " x\n ",
+    "family": "root-explicit",
+    "input": ">-2\n  x\n  "
+  },
+  {
+    "event": "=VAL > x\\n \\n ",
+    "expected": " x\n \n ",
+    "family": "root-explicit",
+    "input": ">-2\n  x\n  \n  "
+  },
+  {
+    "event": "=VAL > x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-explicit",
+    "input": ">+2\n  x\n  "
+  },
+  {
+    "event": "=VAL > x\\n \\n \\n",
+    "expected": " x\n \n \n",
+    "family": "root-explicit",
+    "input": ">+2\n  x\n  \n  "
+  },
+  {
+    "event": "=VAL | x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": "|2\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL | x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": "---\n|2\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL | x\\n ",
+    "expected": " x\n ",
+    "family": "root-stream",
+    "input": "|2-\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL | x\\n ",
+    "expected": " x\n ",
+    "family": "root-stream",
+    "input": "---\n|2-\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL | x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": "|2+\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL | x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": "---\n|2+\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL > x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": ">2\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL > x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": "---\n>2\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL > x\\n ",
+    "expected": " x\n ",
+    "family": "root-stream",
+    "input": ">2-\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL > x\\n ",
+    "expected": " x\n ",
+    "family": "root-stream",
+    "input": "---\n>2-\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL > x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": ">2+\n  x\n  \n...\n---\nq: v\n"
+  },
+  {
+    "event": "=VAL > x\\n \\n",
+    "expected": " x\n \n",
+    "family": "root-stream",
+    "input": "---\n>2+\n  x\n  \n...\n---\nq: v\n"
+  }
+]

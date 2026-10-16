@@ -33,16 +33,16 @@ use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::{FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes};
 use ryl::rules::{
-    braces, brackets, commas, comments, comments_indentation, document_end,
-    document_start, empty_lines, key_ordering, new_line_at_end_of_file, new_lines,
-    quoted_strings, trailing_spaces, truthy,
+    braces, brackets, colons, commas, comments, comments_indentation, document_end,
+    document_start, empty_lines, hyphens, key_ordering, new_line_at_end_of_file,
+    new_lines, quoted_strings, trailing_spaces, truthy,
 };
 
 use config::{
-    SAFE_FIX_RULES, named_config, parse_for_compare, safe_fix_configs,
-    synthetic_base_dir, synthetic_path,
+    SAFE_FIX_RULES, named_config, parse_for_compare, reference_safe_eof_append,
+    safe_fix_configs, synthetic_base_dir, synthetic_path,
 };
-use stack::{Decoration, Filler, StackedDocument, arb_stacked_document};
+use stack::{Decoration, Filler, FollowOn, StackedDocument, arb_stacked_document};
 
 type RuleFix = (&'static str, Box<dyn Fn(&str) -> Option<String>>);
 
@@ -60,6 +60,8 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let commas_cfg = commas::Config::resolve(cfg);
     let braces_cfg = braces::Config::resolve(cfg);
     let brackets_cfg = brackets::Config::resolve(cfg);
+    let colons_cfg = colons::Config::resolve(cfg);
+    let hyphens_cfg = hyphens::Config::resolve(cfg);
     let quoted_strings_cfg = quoted_strings::Config::resolve(cfg);
     let document_start_cfg = document_start::Config::resolve(cfg);
     let document_end_cfg = document_end::Config::resolve(cfg);
@@ -95,6 +97,14 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
         (
             brackets::ID,
             Box::new(move |buffer| brackets::fix(buffer, &brackets_cfg)),
+        ),
+        (
+            colons::ID,
+            Box::new(move |buffer| colons::fix(buffer, &colons_cfg)),
+        ),
+        (
+            hyphens::ID,
+            Box::new(move |buffer| hyphens::fix(buffer, &hyphens_cfg)),
         ),
         (
             new_line_at_end_of_file::ID,
@@ -152,10 +162,25 @@ fn fix_rule_to_fixed_point(
 fn probe_pass(
     state: &str,
     rules: &[RuleFix],
+    cfg: &YamlLintConfig,
     cfg_name: &str,
 ) -> Result<String, TestCaseError> {
     if parse_for_compare(state).is_none() {
         return Ok(state.to_string());
+    }
+    if ryl::format::refusals(state, cfg).iter().any(|notice| {
+        notice.message
+            == "cannot format this file safely: block scalar value may change"
+    }) {
+        return rules
+            .iter()
+            .find(|(rule, _)| *rule == key_ordering::ID)
+            .map_or_else(
+                || Ok(state.to_string()),
+                |(rule, fix)| {
+                    fix_rule_to_fixed_point(rule, fix.as_ref(), state, cfg_name)
+                },
+            );
     }
     rules
         .iter()
@@ -177,7 +202,7 @@ fn assert_converges(
     let mut seen = vec![input.to_string()];
     for pass in 0..FIX_PIPELINE_MAX_PASSES {
         let state = &seen[pass];
-        let next = probe_pass(state, &rules, cfg_name)?;
+        let next = probe_pass(state, &rules, cfg, cfg_name)?;
         if &next == state {
             prop_assert_eq!(
                 &fixed,
@@ -186,6 +211,15 @@ fn assert_converges(
                 cfg_name,
                 input
             );
+            if let Some(before) = parse_for_compare(input) {
+                prop_assert!(
+                    parse_for_compare(&fixed).as_ref() == Some(&before)
+                        || reference_safe_eof_append(input, &fixed),
+                    "safe fixes changed the loaded value under config '{}'; input {:?}",
+                    cfg_name,
+                    input
+                );
+            }
             let refixed =
                 apply_safe_fixes(&fixed, cfg, synthetic_path(), synthetic_base_dir());
             prop_assert_eq!(
@@ -246,6 +280,15 @@ fn probe_covers_every_safe_fix_rule() {
 }
 
 #[test]
+fn ambiguous_scalar_still_allows_verified_key_ordering() {
+    let cfg = named_config("yamllint-default");
+    let input = "gt: [1]\r\ng_0:\r\n  - !!str |1\r\n \r\n\r\n...\r\na: 1\r\n";
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    assert!(fixed.find("g_0:") < fixed.find("gt:"), "{fixed:?}");
+    assert_converges(input, cfg, "yamllint-default").unwrap();
+}
+
+#[test]
 fn stacked_input_engages_several_fixers_and_converges() {
     let document = dirty_stacked_document();
     let input = document.render();
@@ -275,7 +318,7 @@ fn stacked_input_engages_several_fixers_and_converges() {
 }
 
 #[test]
-fn comment_left_by_joined_plain_scalar_is_fixed_in_one_call() {
+fn comment_under_joined_plain_scalar_is_fixed_in_one_pass() {
     let passes = assert_converges(
         "a: b\n  c\n  # x\nd: e\n",
         named_config("yamllint-default"),
@@ -283,28 +326,32 @@ fn comment_left_by_joined_plain_scalar_is_fixed_in_one_call() {
     )
     .unwrap_or_else(|err| panic!("{err}"));
     assert_eq!(
-        passes, 2,
-        "quoted-strings joins the scalar after comments-indentation has run, so the \
-         comment is only re-indented on a second pass"
+        passes, 1,
+        "comments-indentation skips the continuation line quoted-strings joins, so the \
+         comment is re-indented in the same pass"
     );
 }
 
 fn dirty_stacked_document() -> StackedDocument {
     use ast::{
-        BlockEntry, Document, FlowStyle, InlineComment, NewlineStyle, Node, Scalar,
+        BlockEntry, ColonGap, Document, FlowStyle, InlineComment, NewlineStyle, Node,
+        Scalar,
     };
     let plain = |text: &str| Node::Scalar(Scalar::Plain(text.to_string()));
     let entry = |key: &str, value, comment| BlockEntry {
         leading_comment: None,
         key: key.to_string(),
+        colon: ColonGap::default(),
         value,
         trailing_inline_comment: comment,
+        layout: ast::Layout::default(),
     };
     let dirty_flow = FlowStyle {
         inner_padding: 1,
         spaces_before_comma: 1,
         spaces_after_comma: 2,
-        space_after_colon: true,
+        spaces_before_colon: 0,
+        spaces_after_colon: 1,
     };
     StackedDocument {
         document: Document {
@@ -349,6 +396,20 @@ fn dirty_stacked_document() -> StackedDocument {
         ],
         start_marker: false,
         end_marker: false,
+        follow_ons: vec![
+            FollowOn {
+                explicit: false,
+                comment: true,
+                bom: true,
+                key: "k".to_string(),
+            },
+            FollowOn {
+                explicit: true,
+                comment: false,
+                bom: false,
+                key: "m".to_string(),
+            },
+        ],
         trailing_blank_lines: 2,
     }
 }

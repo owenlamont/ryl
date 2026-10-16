@@ -32,7 +32,7 @@ fn assert_hits<C, V>(
 
 #[test]
 fn braces_rule_suite() {
-    let defaults = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let defaults = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
     assert_clean(&defaults, "", braces::check);
     assert_clean(&defaults, "object: {key: 1}\n", braces::check);
     assert_clean(&defaults, "mapping: {\n  key: value\n}\n", braces::check);
@@ -75,7 +75,7 @@ fn braces_rule_suite() {
         }],
     );
 
-    let forbid_all = BracesConfig::new_for_tests(Forbid::All, 0, 0, -1, -1);
+    let forbid_all = BracesConfig::new(Forbid::All, 0, 0, -1, -1);
     assert_hits(
         &forbid_all,
         "object: {key: 1}\n",
@@ -87,7 +87,7 @@ fn braces_rule_suite() {
         }],
     );
 
-    let forbid_non_empty = BracesConfig::new_for_tests(Forbid::NonEmpty, 0, 0, -1, -1);
+    let forbid_non_empty = BracesConfig::new(Forbid::NonEmpty, 0, 0, -1, -1);
     assert_clean(&forbid_non_empty, "object: {}\n", braces::check);
     assert_hits(
         &forbid_non_empty,
@@ -100,7 +100,7 @@ fn braces_rule_suite() {
         }],
     );
 
-    let min_inside = BracesConfig::new_for_tests(Forbid::None, 1, -1, -1, -1);
+    let min_inside = BracesConfig::new(Forbid::None, 1, -1, -1, -1);
     assert_hits(
         &min_inside,
         "object: {key: 1}\n",
@@ -119,7 +119,7 @@ fn braces_rule_suite() {
         ],
     );
 
-    let max_inside = BracesConfig::new_for_tests(Forbid::None, 0, 1, -1, -1);
+    let max_inside = BracesConfig::new(Forbid::None, 0, 1, -1, -1);
     assert_hits(
         &max_inside,
         "object: {  key: 1   }\n",
@@ -138,7 +138,7 @@ fn braces_rule_suite() {
         ],
     );
 
-    let empty_spacing = BracesConfig::new_for_tests(Forbid::None, 0, 0, 1, 2);
+    let empty_spacing = BracesConfig::new(Forbid::None, 0, 0, 1, 2);
     assert_hits(
         &empty_spacing,
         "object: {}\n",
@@ -163,7 +163,7 @@ fn braces_rule_suite() {
 
 #[test]
 fn brackets_rule_suite() {
-    let defaults = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let defaults = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     assert_clean(&defaults, "", brackets::check);
     assert_clean(&defaults, "object: [1, 2]\n", brackets::check);
     assert_clean(&defaults, "seq: [\n  1,\n  2\n]\n", brackets::check);
@@ -198,7 +198,7 @@ fn brackets_rule_suite() {
         }],
     );
 
-    let forbid_all = BracketsConfig::new_for_tests(Forbid::All, 0, 0, -1, -1);
+    let forbid_all = BracketsConfig::new(Forbid::All, 0, 0, -1, -1);
     assert_hits(
         &forbid_all,
         "object: [1, 2]\n",
@@ -210,8 +210,7 @@ fn brackets_rule_suite() {
         }],
     );
 
-    let forbid_non_empty =
-        BracketsConfig::new_for_tests(Forbid::NonEmpty, 0, 0, -1, -1);
+    let forbid_non_empty = BracketsConfig::new(Forbid::NonEmpty, 0, 0, -1, -1);
     assert_clean(&forbid_non_empty, "object: []\n", brackets::check);
     assert_hits(
         &forbid_non_empty,
@@ -224,7 +223,7 @@ fn brackets_rule_suite() {
         }],
     );
 
-    let min_inside = BracketsConfig::new_for_tests(Forbid::None, 1, -1, -1, -1);
+    let min_inside = BracketsConfig::new(Forbid::None, 1, -1, -1, -1);
     assert_hits(
         &min_inside,
         "object: [1, 2]\n",
@@ -243,7 +242,7 @@ fn brackets_rule_suite() {
         ],
     );
 
-    let max_inside = BracketsConfig::new_for_tests(Forbid::None, 0, 1, -1, -1);
+    let max_inside = BracketsConfig::new(Forbid::None, 0, 1, -1, -1);
     assert_hits(
         &max_inside,
         "object: [  1, 2   ]\n",
@@ -262,7 +261,7 @@ fn brackets_rule_suite() {
         ],
     );
 
-    let empty_spacing = BracketsConfig::new_for_tests(Forbid::None, 0, 0, 1, 2);
+    let empty_spacing = BracketsConfig::new(Forbid::None, 0, 0, 1, 2);
     assert_hits(
         &empty_spacing,
         "object: []\n",
@@ -287,77 +286,77 @@ fn brackets_rule_suite() {
 
 #[test]
 fn braces_fix_normalizes_spacing() {
-    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, 1, 2);
+    let cfg = BracesConfig::new(Forbid::None, 0, 0, 1, 2);
     let fixed = braces::fix("object: {  key: 1   }\nempty: {}\n", &cfg);
     assert_eq!(fixed, Some("object: {key: 1}\nempty: { }\n".to_string()));
 }
 
 #[test]
 fn braces_fix_skips_forbid_configs() {
-    let cfg = BracesConfig::new_for_tests(Forbid::All, 0, 0, -1, -1);
+    let cfg = BracesConfig::new(Forbid::All, 0, 0, -1, -1);
     let fixed = braces::fix("object: { key: 1 }\n", &cfg);
     assert_eq!(fixed, None);
 }
 
 #[test]
 fn brackets_fix_normalizes_spacing() {
-    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, 1, 2);
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, 1, 2);
     let fixed = brackets::fix("object: [  1, 2   ]\nempty: []\n", &cfg);
     assert_eq!(fixed, Some("object: [1, 2]\nempty: [ ]\n".to_string()));
 }
 
 #[test]
 fn brackets_fix_ignores_brackets_inside_multibyte_scalars() {
-    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = brackets::fix("a: [['é', \"—[ \"]]\n", &cfg);
     assert_eq!(fixed, None);
 }
 
 #[test]
 fn brackets_fix_ignores_comments_and_newlines() {
-    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = brackets::fix("object: [1, # comment\n  2]\n", &cfg);
     assert_eq!(fixed, None);
 }
 
 #[test]
 fn braces_fix_skips_template_double_curly_sequences() {
-    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = braces::fix("value: {{ github.token }}\n", &cfg);
     assert_eq!(fixed, None);
 }
 
 #[test]
 fn braces_fix_handles_nested_flow_collections() {
-    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = braces::fix("outer: { inner: {  key: 1 } }\n", &cfg);
     assert_eq!(fixed, Some("outer: {inner: {key: 1}}\n".to_string()));
 }
 
 #[test]
 fn brackets_fix_handles_crlf_and_unmatched_closing() {
-    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     assert_eq!(brackets::fix("object: [1,\r\n  2]\r\n", &cfg), None);
     assert_eq!(brackets::fix("]\n", &cfg), None);
 }
 
 #[test]
 fn braces_fix_returns_none_for_clean_multiline_collection() {
-    let cfg = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = braces::fix("object: {key: 1,\r\n  other: 2}\r\n", &cfg);
     assert_eq!(fixed, None);
 }
 
 #[test]
 fn brackets_fix_returns_none_for_multiline_collection() {
-    let cfg = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = brackets::fix("seq: [\n  1,\n  2\n]\n", &cfg);
     assert_eq!(fixed, None);
 }
 
 #[test]
 fn brace_columns_count_characters_not_bytes() {
-    let defaults = BracesConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let defaults = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
     assert_hits(
         &defaults,
         "{ééé: 1 }\n",
@@ -372,7 +371,7 @@ fn brace_columns_count_characters_not_bytes() {
 
 #[test]
 fn bracket_columns_count_characters_not_bytes() {
-    let defaults = BracketsConfig::new_for_tests(Forbid::None, 0, 0, -1, -1);
+    let defaults = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     assert_hits(
         &defaults,
         "[ 世界 ]\n",
@@ -394,14 +393,14 @@ fn bracket_columns_count_characters_not_bytes() {
 
 #[test]
 fn braces_fix_leaves_unsatisfiable_spacing_alone() {
-    let cfg = BracesConfig::new_for_tests(Forbid::None, 3, 1, 0, 0);
+    let cfg = BracesConfig::new(Forbid::None, 3, 1, 0, 0);
     let fixed = braces::fix("object: {key: 1}\nempty: { }\n", &cfg);
     assert_eq!(fixed, Some("object: {key: 1}\nempty: {}\n".to_string()));
 }
 
 #[test]
 fn brackets_fix_leaves_unsatisfiable_empty_spacing_alone() {
-    let cfg = BracketsConfig::new_for_tests(Forbid::None, 1, 1, 2, 1);
+    let cfg = BracketsConfig::new(Forbid::None, 1, 1, 2, 1);
     let fixed = brackets::fix("object: [1, 2]\nempty: []\n", &cfg);
     assert_eq!(fixed, Some("object: [ 1, 2 ]\nempty: []\n".to_string()));
 }

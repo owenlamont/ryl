@@ -17,11 +17,11 @@ fn fix_respects_new_lines_ignore_for_eof_newline() {
 
     fs::write(
         dir.path().join(".ryl.toml"),
-        r#"[rules]
+        r#"[lint.rules]
 new-line-at-end-of-file = "enable"
 document-start = "disable"
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "dos"
 ignore = ["input.yaml"]
 "#,

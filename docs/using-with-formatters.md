@@ -1,10 +1,9 @@
-# Using ryl with a YAML formatter
+# Using ryl with another YAML formatter
 
-The boundary between linting and formatting YAML is blurry. Many of ryl's rules are about
-layout (spacing, indentation, quote style, blank lines), and ryl already applies safe
-`--fix` edits to a good number of them, so it does some formatting today. What ryl does
-not do, for now, is reflow a whole document into one canonical layout the way a dedicated
-formatter does. Some projects therefore run ryl alongside a formatter such as
+ryl has its own formatter, [`ryl format`](formatter.md), which edits files in place
+rather than reprinting them. Start there unless you already use another formatter. ryl
+does not reflow a whole document into one canonical layout the way a reprinting formatter
+does, so some projects instead run ryl alongside a formatter such as
 [google/yamlfmt](https://github.com/google/yamlfmt),
 [Prettier](https://prettier.io/), or [yamlfix](https://lyz-code.github.io/yamlfix/) for
 that canonical layout, and rely on ryl for the broader checks (and safe fixes) it adds on
@@ -25,11 +24,11 @@ rules you want, and you can match their settings to whatever your formatter prod
 There are exactly two ways the two tools can disagree:
 
 - **A loop.** Only a rule with a safe fix can take part, because a loop needs both tools
-  to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `commas`,
-  `comments`, `comments-indentation`, `document-start`, `document-end`, `empty-lines`,
-  `key-ordering`, `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`, and
-  `truthy` (case only: `True` to `true`). If one
-  of these is set to enforce the opposite of what your formatter emits, they fight.
+  to edit the same construct. ryl's fixable rules are `braces`, `brackets`, `colons`,
+  `commas`, `comments`, `comments-indentation`, `document-start`, `document-end`,
+  `empty-lines`, `hyphens`, `key-ordering`, `new-line-at-end-of-file`, `new-lines`,
+  `quoted-strings`, `trailing-spaces`, and `truthy` (case only: `True` to `true`). If
+  one of these is set to enforce the opposite of what your formatter emits, they fight.
 - **A standing complaint.** A rule with no fix (for example `indentation`, `line-length`,
   or `truthy` on `yes`/`no`) can flag something the formatter produced but ryl cannot rewrite. There is no
   loop, but ryl warns on every run until you align the setting or turn the rule off.
@@ -71,7 +70,7 @@ not canonicalize truthy values. Its settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for google/yamlfmt
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -81,26 +80,26 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.document-start]
+[lint.rules.document-start]
 present = false              # yamlfmt removes `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # yamlfmt uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -108,7 +107,7 @@ Notes:
 
 - If you prefer to keep `---`, set yamlfmt's
   [`include_document_start: true`](https://github.com/google/yamlfmt/blob/main/docs/config-file.md#basic-formatter)
-  in its `.yamlfmt` config and change ryl to `[rules.document-start]` `present = true`. The
+  in its `.yamlfmt` config and change ryl to `[lint.rules.document-start]` `present = true`. The
   two markers must agree. yamlfmt strips the `...` document-end marker, so leave ryl's
   `document-end` rule off.
 - Leave `truthy` off (or expect warnings): yamlfmt keeps `yes`/`no`/`on`/`off` as written
@@ -131,7 +130,7 @@ padding this recipe relies on), [`singleQuote`](https://prettier.io/docs/options
 
 ```toml
 # .ryl.toml, tuned for Prettier
-[rules]
+[lint.rules]
 brackets = "enable"
 colons = "enable"
 commas = "enable"
@@ -140,29 +139,29 @@ hyphens = "enable"
 new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 
-[rules.braces]
+[lint.rules.braces]
 min-spaces-inside = 1        # Prettier pads `{ a: 1 }`
 max-spaces-inside = 1
 min-spaces-inside-empty = 0  # but keeps an empty `{}` tight
 max-spaces-inside-empty = 0
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 1  # Prettier uses one space before inline comments
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.quoted-strings]
+[lint.rules.quoted-strings]
 required = "only-when-needed"
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -199,7 +198,7 @@ settings are documented in the
 
 ```toml
 # .ryl.toml, tuned for yamlfix
-[rules]
+[lint.rules]
 braces = "enable"
 brackets = "enable"
 colons = "enable"
@@ -210,23 +209,23 @@ new-line-at-end-of-file = "enable"
 trailing-spaces = "enable"
 truthy = "enable"           # yamlfix canonicalizes block-style yes/no (see caveat)
 
-[rules.document-start]
+[lint.rules.document-start]
 present = true              # yamlfix adds `---`
 
-[rules.comments]
+[lint.rules.comments]
 min-spaces-from-content = 2  # yamlfix uses two spaces (ryl's default)
 
-[rules.new-lines]
+[lint.rules.new-lines]
 type = "unix"
 
-[rules.empty-lines]
+[lint.rules.empty-lines]
 max = 2
 
-[rules.indentation]
+[lint.rules.indentation]
 spaces = 2
 indent-sequences = true
 
-[rules.line-length]
+[lint.rules.line-length]
 max = 120
 ```
 
@@ -234,10 +233,7 @@ Notes:
 
 - Keep `document-end` off: it would loop. ryl's `document-end` fix adds `...`, yamlfix
   strips it back out on the next pass, and the two never settle.
-- Leave `quoted-strings` off. yamlfix already normalises quotes, and pairing ryl's
-  `quoted-strings` with it is unsafe: ryl (YAML 1.2) treats `'no'`/`'yes'`/`'on'` as
-  redundantly-quoted strings and strips the quotes, after which yamlfix's truthy pass
-  rewrites the bare word to a boolean, silently turning the string `'no'` into `false`.
+- Leave `quoted-strings` off: yamlfix already normalises quotes.
 - yamlfix canonicalises truthy words only in **block** style (`key: yes`, `- yes`); it
   leaves them untouched inside a pre-existing flow collection (`flags: [yes, no]`) or
   before a trailing comment (`x: yes  # ...`). ryl's `truthy` fix only re-cases `True`

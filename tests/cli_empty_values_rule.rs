@@ -47,10 +47,10 @@ fn empty_values_honors_flags() {
     let file = dir.path().join("ok.yaml");
     fs::write(&file, "block:\n  missing:\nflow: { missing: }\nseq:\n  -\n").unwrap();
 
-    let config = dir.path().join("config.yml");
+    let config = dir.path().join("config.toml");
     fs::write(
         &config,
-        "rules:\n  document-start: disable\n  empty-values:\n    forbid-in-block-mappings: false\n    forbid-in-flow-mappings: false\n    forbid-in-block-sequences: false\n",
+        "[lint.rules]\ndocument-start = \"disable\"\nempty-values = { forbid-in-block-mappings = false, forbid-in-flow-mappings = false, forbid-in-block-sequences = false }\n",
     )
     .unwrap();
 

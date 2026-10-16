@@ -6,6 +6,7 @@
     clippy::cognitive_complexity
 )]
 
+mod atomic_write;
 pub mod cli_support;
 pub mod conf;
 pub mod config;
@@ -14,6 +15,7 @@ pub mod decoder;
 pub mod directives;
 pub mod discover;
 pub mod fix;
+pub mod format;
 pub mod lint;
 #[cfg(feature = "lsp")]
 pub mod lsp;

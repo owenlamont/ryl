@@ -5,6 +5,8 @@
 Requires that standalone comment lines line up with the surrounding
 content. A comment must share the indentation of the line that follows it
 (or, when at the end of the file, the line that precedes it).
+A line-1 `#!` shebang or `#cloud-config` header is exempt, where yamllint
+checks it: moving it would break the file.
 
 ## Why this matters
 
@@ -16,7 +18,7 @@ content. A comment must share the indentation of the line that follows it
 ## Configuration
 
 ```toml
-[rules.comments-indentation]
+[lint.rules.comments-indentation]
 level = "error"
 # Accept a comment aligned to any still-open enclosing block level (default false).
 allow-any-open-indent = false
@@ -24,13 +26,12 @@ allow-any-open-indent = false
 
 ### `allow-any-open-indent`
 
-A ryl-only option (configurable in TOML only; rejected in yamllint-compatible YAML
-config). When `true`, a standalone comment is also accepted if its indentation
-matches **any currently-open enclosing block level**, not just the content that
+This option is configurable in TOML only; YAML config rejects it. When `true`,
+a standalone comment is also accepted if its indentation matches **any
+currently-open enclosing block level**, not just the content that
 follows it &mdash; useful for a comment that marks where a nested block ends. A
 comment indented more deeply than every open level (or at a non-boundary indent) is
-still reported. The default `false` keeps the yamllint-compatible behaviour. Origin:
-[adrienverge/yamllint#141](https://github.com/adrienverge/yamllint/issues/141).
+still reported. The default is `false`.
 
 ## Examples
 
@@ -75,10 +76,12 @@ parent:
 follows them. Disable with:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments-indentation"]
 ```
+
+`ryl format` applies the same fix, and no option of this rule conflicts with it.
 
 ## Related rules
 

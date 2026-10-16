@@ -18,7 +18,7 @@ truthy words (`yes`, `no`, `on`, `off`, `True`, `Yes`, ...) are flagged.
 ## Configuration
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 level = "error"
 allowed-values = ["true", "false"]
 check-keys = true
@@ -42,8 +42,8 @@ $ ryl check .github/workflows/ci.yml
 Quoting the key does not help. ryl resolves the YAML 1.2 core schema, where `on`
 is an ordinary string, so `'on':` then trips
 [`quoted-strings`](quoted-strings.md) under `required: only-when-needed`.
-yamllint accepts the quotes because PyYAML reads `on` as a YAML 1.1 boolean
-&mdash; see [YAML version compatibility](../yaml-version.md).
+See [YAML version compatibility](../yaml-version.md) for how implicit types
+affect quoting.
 
 Three ways to settle it, narrowest first:
 
@@ -56,9 +56,9 @@ Three ways to settle it, narrowest first:
 The recommended form scopes the exemption to the files that need it:
 
 ```toml
-[rules.truthy]
+[lint.rules.truthy]
 
-[per-file-ignores]
+[lint.per-file-ignores]
 ".github/workflows/*" = ["truthy"]
 ```
 

@@ -7,7 +7,11 @@ use tempfile::tempdir;
 fn discover_config_uses_project_toml() {
     let td = tempdir().unwrap();
     let root = td.path();
-    fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
+    fs::write(
+        root.join(".ryl.toml"),
+        "[lint.rules]\nanchors = 'disable'\n",
+    )
+    .unwrap();
     let file = root.join("file.yaml");
     fs::write(&file, "a: 1\n").unwrap();
 
@@ -42,7 +46,11 @@ fn discover_config_skips_pyproject_without_tool_ryl_in_project_search() {
 fn discover_per_file_uses_project_toml() {
     let td = tempdir().unwrap();
     let root = td.path();
-    fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
+    fs::write(
+        root.join(".ryl.toml"),
+        "[lint.rules]\nanchors = 'disable'\n",
+    )
+    .unwrap();
     let file = root.join("file.yaml");
     fs::write(&file, "a: 1\n").unwrap();
 
@@ -81,7 +89,7 @@ fn per_file_ignores_reject_invalid_pattern() {
     let cfg = td.path().join(".ryl.toml");
     fs::write(
         &cfg,
-        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'[' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n[lint.per-file-ignores]\n'[' = ['document-start']\n",
     )
     .unwrap();
 
@@ -106,7 +114,7 @@ fn per_file_ignores_treat_base_dir_glob_chars_as_literals() {
     fs::write(&file, "name: value\n").unwrap();
     fs::write(
         &cfg,
-        "[rules]\ndocument-start = 'enable'\n[per-file-ignores]\n'file.yaml' = ['document-start']\n",
+        "[lint.rules]\ndocument-start = 'enable'\n[lint.per-file-ignores]\n'file.yaml' = ['document-start']\n",
     )
     .unwrap();
 

@@ -38,9 +38,10 @@ fn resolve_reads_configured_value() {
 
 #[test]
 fn resolve_reads_dash_on_own_line_from_toml() {
-    let cfg =
-        YamlLintConfig::from_toml_str("[rules.hyphens]\ndash-on-own-line = true\n")
-            .expect("parse TOML config");
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.hyphens]\ndash-on-own-line = true\n",
+    )
+    .expect("parse TOML config");
     let resolved = Config::resolve(&cfg);
     // No bool getter is exposed; assert the resolved config drives the check.
     let diagnostics = hyphens::check("items:\n  - name: web\n", &resolved);

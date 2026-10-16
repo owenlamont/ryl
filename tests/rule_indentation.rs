@@ -8,7 +8,7 @@ fn config(
     indent_sequences: IndentSequencesSetting,
     multi: bool,
 ) -> Config {
-    Config::new_for_tests(spaces, indent_sequences, multi)
+    Config::new(spaces, indent_sequences, multi)
 }
 
 fn parse_config(yaml: &str) -> Config {

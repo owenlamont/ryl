@@ -9,9 +9,11 @@
 //!   >= code points), and monotone in the column.
 //! - diagnostics are identical across encodings except for the (consistently
 //!   ordered) column, and every range is well-formed.
+//! - a leading BOM leaves every diagnostic on the same character of the buffer.
 //! - `uri_to_path` is total (never panics, whatever the input).
-//! - the fix-all edit, applied via an *independent* position->byte converter,
-//!   reproduces `apply_safe_fixes` exactly (so `full_range` covers the document).
+//! - the fix-all and format edits, applied via an *independent* position->byte
+//!   converter, reproduce `apply_safe_fixes` and `ryl format` exactly (so
+//!   `full_range` covers the document).
 //! - `offset_at` (the inverse converter for incremental sync) is bounded, lands on a
 //!   char boundary, and is monotone in the column.
 //! - renaming an anchor rewrites every same-name occurrence in its document.
@@ -29,8 +31,8 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 
 use ryl::config::SourceKind;
-use ryl::fix::apply_safe_fixes;
-use ryl::lsp::analysis::{diagnostics, fix_all_edit};
+use ryl::fix::{Rewrite, apply_safe_fixes, rewrite_str};
+use ryl::lsp::analysis::{diagnostics, rewrite_edit};
 use ryl::lsp::encoding::{PositionEncoding, offset_at, problem_range, uri_to_path};
 use ryl::lsp::rename::rename_edits;
 
@@ -165,6 +167,27 @@ proptest! {
     }
 
     #[test]
+    fn later_document_bom_keeps_indentation_on_the_scalar(
+        spaces in 1usize..9,
+        crlf in any::<bool>(),
+        markdown in any::<bool>(),
+    ) {
+        let cfg = ryl::config::YamlLintConfig::from_toml_str(
+            "[lint.rules.indentation]\nspaces = 2\n",
+        ).unwrap();
+        let newline = if crlf { "\r\n" } else { "\n" };
+        let text = format!("a: a{newline}...{newline}\u{feff}{}scalar{newline}", " ".repeat(spaces));
+        let (text, kind, line) = if markdown {
+            (format!("```yaml{newline}{text}```{newline}"), SourceKind::Markdown, 3)
+        } else {
+            (text, SourceKind::Yaml, 2)
+        };
+        let diags = diagnostics(&text, lint_path(), &cfg, base(), kind, PositionEncoding::Utf16);
+        prop_assert_eq!(diags.len(), 1);
+        prop_assert_eq!(diags[0].range.start, Position::new(line, u32::try_from(spaces + 1).unwrap()));
+    }
+
+    #[test]
     fn diagnostics_are_consistent_across_encodings(document in arb_document()) {
         let content = document.render();
         let render = |enc| {
@@ -182,6 +205,38 @@ proptest! {
             prop_assert!(a.range.start.character >= b.range.start.character);
             prop_assert!(b.range.start.character >= c.range.start.character);
             prop_assert!(a.range.start.character <= a.range.end.character);
+        }
+    }
+
+    #[test]
+    fn a_bom_leaves_every_diagnostic_on_the_same_character(
+        document in arb_document(),
+        markdown in any::<bool>(),
+    ) {
+        let content = document.render();
+        let (text, path, kind) = if markdown {
+            (format!("---\n{content}\n---\n"), Path::new("in.md"), SourceKind::Markdown)
+        } else {
+            (content, lint_path(), SourceKind::Yaml)
+        };
+        let with_bom = format!("\u{feff}{text}");
+        for enc in ENCODINGS {
+            let plain = diagnostics(&text, path, trigger_all_config(), base(), kind, enc);
+            let shifted = diagnostics(&with_bom, path, trigger_all_config(), base(), kind, enc);
+            prop_assert_eq!(plain.len(), shifted.len());
+            for (a, b) in plain.iter().zip(&shifted) {
+                prop_assert_eq!(&a.code, &b.code);
+                prop_assert_eq!(&a.message, &b.message);
+                for (pa, pb) in [(a.range.start, b.range.start), (a.range.end, b.range.end)] {
+                    prop_assert_eq!(pa.line, pb.line);
+                    prop_assert_eq!(
+                        position_to_byte(&text, pa.line, pa.character, enc) + '\u{feff}'.len_utf8(),
+                        position_to_byte(&with_bom, pb.line, pb.character, enc),
+                        "{:?}: a BOM moves no diagnostic off its character",
+                        enc
+                    );
+                }
+            }
         }
     }
 
@@ -222,19 +277,32 @@ proptest! {
     }
 
     #[test]
-    fn fix_all_edit_round_trips(document in arb_document()) {
+    fn rewrite_edit_round_trips(document in arb_document()) {
         let text = document.render();
-        let expected =
-            apply_safe_fixes(&text, trigger_all_config(), lint_path(), base());
-        for enc in ENCODINGS {
-            let Some(edit) = fix_all_edit(
+        let fixed = apply_safe_fixes(&text, trigger_all_config(), lint_path(), base());
+        let formatted = rewrite_str(
+            &text,
+            trigger_all_config(),
+            lint_path(),
+            base(),
+            SourceKind::Yaml,
+            Rewrite::Format,
+        )
+        .0
+        .unwrap_or_else(|| text.clone());
+        let cases = [(Rewrite::Fix, fixed), (Rewrite::Format, formatted)];
+        let runs = cases.iter().flat_map(|case| ENCODINGS.map(|enc| (case, enc)));
+        for ((rewrite, expected), enc) in runs {
+            let Some(edit) = rewrite_edit(
                 &text,
                 lint_path(),
                 trigger_all_config(),
                 base(),
                 SourceKind::Yaml,
                 enc,
+                *rewrite,
             ) else {
+                prop_assert_eq!(&text, expected, "no {:?} edit means no change", rewrite);
                 continue;
             };
             let start =
@@ -244,9 +312,10 @@ proptest! {
             let mut applied = text.clone();
             applied.replace_range(start..end, &edit.new_text);
             prop_assert_eq!(
-                applied,
-                expected.clone(),
-                "applying the fix-all edit must reproduce apply_safe_fixes"
+                &applied,
+                expected,
+                "applying the {:?} edit must reproduce the CLI's output",
+                rewrite
             );
         }
     }

@@ -3,36 +3,36 @@
 ## Suppressing rules from configuration
 
 [Inline directives](directives.md) switch rules off at a specific spot in a
-file. `per-line-ignores` does the same thing from configuration: it suppresses
-chosen rules on every line matching a pattern, across all files, without editing
+file. `per-line-ignores` suppresses lint findings and safe `check --fix` edits
+on every line matching a pattern, across all files, without editing
 them. It is the tool for recurring exceptions &mdash; tool-directive comments and
 machine-managed markers that legitimately break a rule everywhere they appear.
 
 Two common cases:
 
-- `#cloud-config` directives must keep their exact spelling, so they trip
-  [`comments`](rules/comments.md) (`require-starting-space`).
+- `#cloud-config` directives must keep their exact spelling, so below line 1 (under a
+  `## template: jinja` header) they trip [`comments`](rules/comments.md)
+  (`require-starting-space`).
 - `# renovate:` markers can be long and cannot be wrapped, so they trip
   [`line-length`](rules/line-length.md).
 
-`per-line-ignores` is **ryl-only** and configured in TOML only (yamllint has no
-equivalent); it is rejected in yamllint-compatible YAML config.
+`per-line-ignores` is configured in TOML only; YAML config rejects it.
 
 ## Configuration
 
-Each `[[per-line-ignores]]` entry suppresses its `rules` on a line when the
+Each `[[lint.per-line-ignores]]` entry suppresses its `rules` on a line when the
 entry's conditions match:
 
 ```toml
-[rules.comments]
-[rules.line-length]
+[lint.rules.comments]
+[lint.rules.line-length]
 max = 80
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '^#cloud-config$'   # match against the whole source line
 rules = ["comments"]
 
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = '#\s*renovate:'
 rules = ["line-length"]
 ```
@@ -55,12 +55,12 @@ Use single-quoted TOML strings for patterns so backslashes need no escaping.
 
 ```toml
 # Let machine-generated marker lines break any rule
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 regex = 'GENERATED — do not edit'
 rules = ["ALL"]
 
 # Allow Go-template braces, but only in template files
-[[per-line-ignores]]
+[[lint.per-line-ignores]]
 path = "*.tpl.yaml"
 regex = '\{\{.*\}\}'
 rules = ["braces"]
@@ -73,6 +73,8 @@ rules = ["braces"]
 - **`--fix`** never rewrites a suppressed line: an edit a fixer would make to a
   line whose rule is suppressed here is reverted, exactly as for an inline
   `# ryl disable-line`.
+- **`ryl format`** still formats matching lines. Neither `per-line-ignores` nor
+  [`per-file-ignores`](file-ignores.md) gates formatting; inline directives do.
 - **Embedded [YAML in Markdown](markdown.md)**: `path` matches the host Markdown
   file, while `regex` matches the embedded YAML line (after any list/blockquote
   prefix is stripped), so the same pattern works for standalone and embedded YAML.

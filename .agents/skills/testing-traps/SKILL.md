@@ -35,10 +35,10 @@ CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environme
 
 Match the bare `line:col` (present verbatim in both formats) and the **bare rule id**
 (`colons`, never `(colons)` — the GitHub format renders it `[colons]`). Do not force
-`--format` to dodge this and do not assert a specific format's `(rule)` parens or ANSI.
+`-f` to dodge this and do not assert a specific format's `(rule)` parens or ANSI.
 The `cli_*_rule` tests follow this; only tests that exercise formatting itself
 (`cli_format_options`, `yamllint_compat_*`) pin or scrub the format via
-`--format`/`env_remove`.
+`-f`/`env_remove`.
 
 ## Unicode fixtures
 

@@ -20,7 +20,7 @@ fn unknown_rule_name_is_rejected() {
 
     let td = tempdir().unwrap();
     let cfg = td.path().join(".ryl.toml");
-    fs::write(&cfg, "[rules]\ntariling-spaces = \"enable\"\n").unwrap();
+    fs::write(&cfg, "[lint.rules]\ntariling-spaces = \"enable\"\n").unwrap();
     let err = discover_config(
         &[],
         &Overrides {
@@ -41,7 +41,7 @@ fn unknown_rule_with_float_and_datetime_options_is_rejected() {
     let cfg = td.path().join(".ryl.toml");
     fs::write(
         &cfg,
-        "[rules.made-up-rule]\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n",
+        "[lint.rules.made-up-rule]\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n",
     )
     .unwrap();
     let err = discover_config(

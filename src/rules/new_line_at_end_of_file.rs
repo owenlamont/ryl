@@ -38,5 +38,6 @@ pub fn check(buffer: &str) -> Option<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, newline: &str) -> Option<String> {
-    check(buffer).map(|_| format!("{buffer}{newline}"))
+    check(buffer)?;
+    Some(format!("{buffer}{newline}"))
 }

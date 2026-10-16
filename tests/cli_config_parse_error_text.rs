@@ -55,3 +55,38 @@ fn newline_in_a_config_key_stays_escaped() {
     assert!(err.contains("unknown field `a\\u{a}::error::x`"), "{err}");
     assert!(err.ends_with("in `output`"), "{err}");
 }
+
+#[test]
+fn pattern_file_errors_name_the_selected_toml_key() {
+    for (config, key) in [
+        (
+            "exclude-from-file = 'missing.ignore'\n",
+            "exclude-from-file",
+        ),
+        ("ignore-from-file = 'missing.ignore'\n", "ignore-from-file"),
+        (
+            "ignore-from-file = 'old.ignore'\nexclude-from-file = 'missing.ignore'\n",
+            "exclude-from-file",
+        ),
+    ] {
+        let err = config_error("bad.toml", config);
+        assert!(err.contains(&format!("failed to read {key} ")), "{err}");
+    }
+
+    let td = tempdir().unwrap();
+    fs::write(td.path().join("invalid.ignore"), "[\n").unwrap();
+    let cfg = td.path().join("bad.toml");
+    fs::write(&cfg, "exclude-from-file = 'invalid.ignore'\n").unwrap();
+    let file = td.path().join("a.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(
+        stderr.contains("invalid config: exclude-from-file pattern"),
+        "{stderr}"
+    );
+}

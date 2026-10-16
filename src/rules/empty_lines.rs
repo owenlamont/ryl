@@ -1,13 +1,14 @@
 //! `empty-lines` rule: limit consecutive blank lines (`max`/`max-start`/`max-end`).
 //!
-//! `--fix` leaves blank runs inside any multi-line scalar untouched (they contribute
-//! to the parsed value); the protected line set comes from `granit_parser`, so the fix
-//! bails (returns `None`) on an unparsable buffer.
+//! `--fix` preserves scalar content, but trims trailing blanks discarded by chomping.
+//! An unparsable buffer is left untouched.
+use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;
+use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
-    protected_scalar_lines, split_lines_preserve_endings,
+    line_contents, protected_scalar_lines, split_lines_preserve_endings,
 };
 
 pub const ID: &str = "empty-lines";
@@ -26,6 +27,15 @@ impl Config {
             max: cfg.rule_option_int(ID, "max", 2),
             max_start: cfg.rule_option_int(ID, "max-start", 0),
             max_end: cfg.rule_option_int(ID, "max-end", 0),
+        }
+    }
+
+    #[must_use]
+    pub const fn new(max: i64, max_start: i64, max_end: i64) -> Self {
+        Self {
+            max,
+            max_start,
+            max_end,
         }
     }
 
@@ -51,7 +61,7 @@ pub struct Violation {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let protected = protected_scalar_lines(buffer, |_style, _span| true)?;
+    let protected = preserved_scalar_lines(buffer)?;
     let mut output = String::with_capacity(buffer.len());
     let mut blank_run: Vec<(&str, &str)> = Vec::new();
     let mut seen_nonblank = false;
@@ -81,6 +91,40 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     flush_blank_run(&mut output, &mut blank_run, cfg.max_end(), &mut changed);
 
     changed.then_some(output)
+}
+
+fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
+    let mut protected = protected_scalar_lines(buffer, |_style, _span| true)?;
+    let lines = line_contents(buffer);
+    for header in block_scalar_chomping::headers(buffer) {
+        let blank_only_literal = lines[header.line - 1].chars().nth(header.column - 1)
+            == Some('|')
+            && header.chomping.is_none()
+            && lines
+                .iter()
+                .skip(header.line)
+                .take_while(|line| line.trim().is_empty())
+                .count()
+                >= 2;
+        if header.chomping == Some('+') || blank_only_literal {
+            continue;
+        }
+        let span = header.span;
+        let end_line = lines.get(span.end.line() - 1);
+        let next_token = end_line.is_some_and(|line| {
+            line.chars().take(span.end.col()).all(|ch| ch == ' ')
+                && line.chars().nth(span.end.col()).is_some()
+        });
+        let last = span.end.line()
+            - usize::from(span.end.col() == 0 || span.is_empty() || next_token);
+        for line in (header.line + 1..=last)
+            .rev()
+            .take_while(|line| lines[*line - 1].is_empty())
+        {
+            protected.remove(&line);
+        }
+    }
+    Some(protected)
 }
 
 fn middle_max(seen_nonblank: bool, cfg: &Config) -> i64 {
@@ -151,6 +195,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         }
     }
 
+    if !violations.is_empty()
+        && let Some(protected) = preserved_scalar_lines(buffer)
+    {
+        violations.retain(|violation| !protected.contains(&violation.line));
+    }
     violations
 }
 

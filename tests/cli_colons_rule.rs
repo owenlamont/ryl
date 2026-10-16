@@ -96,3 +96,19 @@ fn colons_reports_explicit_key_spacing() {
         "missing question mark message: {output}"
     );
 }
+
+#[test]
+fn fix_with_a_huge_tolerance_leaves_clean_input_alone() {
+    let dir = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    for (rule, content) in [("colons", "a: 1\n"), ("hyphens", "- x\n")] {
+        let file = dir.path().join(format!("{rule}.yaml"));
+        fs::write(&file, content).unwrap();
+        let config = format!("rules: {{{rule}: {{max-spaces-after: {}}}}}", i64::MAX);
+        let (code, _, stderr) = run(Command::new(exe)
+            .args(["check", "--fix", "-d", &config])
+            .arg(&file));
+        assert_eq!(code, 0, "{rule}: {stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), content, "{rule}");
+    }
+}

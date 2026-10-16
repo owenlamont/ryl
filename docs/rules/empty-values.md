@@ -15,7 +15,7 @@ mappings, flow mappings, and block sequences.
 ## Configuration
 
 ```toml
-[rules.empty-values]
+[lint.rules.empty-values]
 level = "error"
 forbid-in-block-mappings = true
 forbid-in-flow-mappings = true

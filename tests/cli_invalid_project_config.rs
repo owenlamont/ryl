@@ -42,7 +42,7 @@ fn invalid_output_config_with_no_lintable_files_causes_exit_2() {
     let root = td.path();
     fs::write(
         root.join("ryl.toml"),
-        "[rules]\ncolons = \"enable\"\n[output.gitlab]\npath = \"\"\n",
+        "[lint.rules]\ncolons = \"enable\"\n[output.gitlab]\npath = \"\"\n",
     )
     .unwrap();
     let empty = root.join("empty");

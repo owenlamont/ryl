@@ -6,7 +6,7 @@ fn invalid_yaml_data_errors() {
         &[],
         &Overrides {
             config_file: None,
-            config_data: Some("[1]".into()),
+            config_data: Some("- 1".into()),
         },
     )
     .expect_err("top-level sequence should error");

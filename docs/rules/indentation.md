@@ -21,7 +21,7 @@ Enforces consistent indentation throughout the document. Specifically:
 ## Configuration
 
 ```toml
-[rules.indentation]
+[lint.rules.indentation]
 level = "error"
 spaces = "consistent"
 indent-sequences = true
@@ -30,7 +30,7 @@ check-multi-line-strings = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `spaces` | `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
+| `spaces` | top-level `indent-width` if set, else `"consistent"` | An integer such as `2` for a fixed indent width, or `"consistent"` to lock the rest of the file to the first indent seen. |
 | `indent-sequences` | `true` | `true`, `false`, `"whatever"`, or `"consistent"`. Whether block sequence items are indented under the parent key. |
 | `check-multi-line-strings` | `false` | When `true`, apply indent checks inside block scalars and multi-line flow strings. |
 
@@ -72,8 +72,16 @@ parent:
 
 ## Automatic fixing
 
-This rule does not auto-fix; indentation changes can shift values into
-different parents, so corrections need human review.
+`ryl check --fix` does not fix this rule; indentation changes can shift values into
+different parents.
+
+`ryl format` re-indents each block level to the top-level `indent-width`, or without it
+to the width the file mostly uses (see [Configuration](../formatter.md#configuration)),
+with block sequences indented past their key unless `[format] indent-sequences = false`.
+Block scalar bodies, continuation lines and comments move with the line they belong to,
+and lines inside a flow collection go where this rule expects them. A document is left
+as it is, and reported, when a tab indents it or when re-indenting it would change what
+it parses to; an inline `disable` for this rule leaves it unreported.
 
 ## Related rules
 

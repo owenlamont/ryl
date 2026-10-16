@@ -1,20 +1,22 @@
 # Migrating from yamllint
 
-ryl is designed as a drop-in replacement for yamllint's existing rule set.
-If you are coming from yamllint you have two paths:
-
-- **Keep your existing YAML configuration.** ryl reads `.yamllint`,
-  `.yamllint.yml`, and `.yamllint.yaml` with the same semantics as upstream.
-  No changes needed to get started.
-- **Migrate to TOML.** TOML is the recommended format for ryl-specific
-  features that have no upstream equivalent &mdash; for example the
-  [`[fix]` table](#optional-configure-auto-fixes) controlling auto-fix
-  selection.
+ryl implements yamllint's rule set, and its own configuration is TOML.
+ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
+`.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
+user-global config) with the same semantics as upstream, but that support is
+deprecated: each one prints a warning naming the command that converts it, and
+a later release will stop reading YAML config. Migrate with
+[`ryl --migrate-configs`](#automatic-migration); TOML also carries the
+ryl-only features, such as
+[`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes).
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
 flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `yamllint -d 'extends: default' .` becomes `ryl check -d 'extends: default' .`.
+`-d` also takes a whole ryl config as inline TOML, such as
+`ryl check -d 'lint.rules.anchors = "enable"' .`, which avoids the YAML
+deprecation warning.
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
@@ -51,21 +53,20 @@ ryl --migrate-user-config --migrate-write
 ryl --migrate-configs --migrate-user-config --migrate-write
 ```
 
-Migrating the user-global config is optional: ryl still reads
-`<config-dir>/yamllint/config` directly, so an unmigrated yamllint user-global
-config keeps working.
+Until YAML config is removed, ryl still reads `<config-dir>/yamllint/config`
+directly, with a deprecation warning naming `ryl --migrate-user-config`.
 
 Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs |
-| `--migrate-user-config` | Migrate the user-global yamllint config |
-| `--migrate-root <DIR>` | Project search root (defaults to `.`) |
+| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
+| `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
+| `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout instead of writing |
 | `--migrate-write` | Write files (otherwise preview only) |
-| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration |
-| `--migrate-delete-old` | Delete source YAML configs after migration |
+| `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
+| `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
 
 The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 `--migrate-delete-old` flags apply to whichever migration trigger
@@ -73,28 +74,49 @@ The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
 applies to project migration only. Migration takes no positional paths: `ryl
 --migrate-configs sub/` exits 2, so scope it with `--migrate-root sub/` instead.
 
-Migration never overwrites or deletes through surprises: it skips (with a
-warning, leaving the source untouched) any config whose target directory already
-contains a ryl-native config (`.ryl.toml` or `ryl.toml`), and it refuses to
+A config passed to `-c` under any other name migrates by naming the file:
+`--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes
+in its place. Only an existing `ci/lint.toml` blocks that migration.
+
+Migration skips a legacy project YAML config when project discovery already picks
+a TOML config, including `.config/` candidates and `pyproject.toml` with `[tool.ryl]`,
+in the same directory or an ancestor up to `HOME`. The warning names the active
+TOML config; the YAML source and its lower-precedence siblings stay untouched,
+even with `--migrate-delete-old` or `--migrate-rename-old`. A `pyproject.toml`
+without `[tool.ryl]` does not block migration. User-global migration skips when
+a ryl-native user config already exists. Migration also refuses to
 follow a symlink for either the source or the target (mirroring `--fix`). It also
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.
 
-Known limitation: if a write is interrupted (for example, the disk fills mid
-write), migration may leave a partial config file behind. The next run reports it
-via the "a ryl-native config already exists" skip warning, so delete the partial
-file and re-run.
+Migration writes a temporary file beside each destination and replaces the
+destination only after the write succeeds. An interrupted write leaves an
+existing config intact. On Linux and macOS, rewriting a TOML config and creating
+its backup keep the source file's owner, group, and permissions, and migration
+reports an error if it cannot preserve them. On Windows they keep the read-only
+attribute; other access-control entries are not copied.
 
-Migration produces a self-contained config. A relative `extends` is flattened
+Migration produces a self-contained config. yamllint's top-level `ignore` and
+`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
+`ignore` key suppresses rules, never whole files. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
-then the current directory. The user-global config moves to a new directory
-(`<config-dir>/ryl/`), so a top-level `ignore-from-file` is inlined as `ignore`
-patterns there too, rather than left as a relative path that would no longer
-resolve. A user-global config with a *rule-level* `ignore-from-file` is skipped
-with a warning (inline those patterns or use an absolute path, then re-run),
-since its rule config cannot be relocated safely. Project migration keeps a
+then the current directory. A user-global config with a relative `ignore-from-file`,
+at either the top level or rule level, is skipped with a warning: the path resolves
+against each linted file's directory, which a single migrated config cannot express.
+Make the path absolute or move the setting into a project config, then re-run.
+Absolute top-level paths are inlined as `exclude` patterns; absolute rule-level
+paths are retained. Project migration keeps a
 relative `ignore-from-file` as-is, because the `.ryl.toml` stays in the same
 directory.
+
+Migration also keeps [`ryl format`](../formatter.md) from enforcing what the
+yamllint config left unchecked, by writing `"preserve"` for these `[format]`
+targets:
+
+| Target | When the yamllint config |
+| :--- | :--- |
+| `quote-style` | leaves `quoted-strings` off, as `extends: default` does |
+| `comment-starting-space` | leaves `comments` off, or sets its `require-starting-space: false` |
 
 After migration, run `ryl check .` to confirm diagnostics match what yamllint
 produced.
@@ -154,10 +176,15 @@ the rule-enabled gate.
 
 ## How ryl differs from yamllint
 
-ryl is a drop-in replacement, but it intentionally diverges from yamllint in a
-small number of places. Every divergence is deliberate: ryl is **more correct
-against the YAML 1.2.2 specification**, it **fails loudly instead of silently**, or
-it **avoids redundant output**. The complete list:
+ryl reads yamllint configs and directives, but behaves differently in a small number
+of places. Each difference is deliberate: ryl follows the YAML 1.2.2 specification and
+its reference parser, reports a problem rather than ignoring it, or avoids repeated
+output. The complete list:
+
+### Rules with no yamllint equivalent
+
+`block-scalar-chomping`, `merge-keys`, `tags` and `unicode-line-breaks` are ryl's own
+rules. They are configurable only in TOML; a YAML config that names one is rejected.
 
 ### No implicit default configuration
 
@@ -202,6 +229,15 @@ not permit. ryl follows the spec, so the `anchors` rule can diverge:
 The *unused* note in row 1 and the *duplicated* report in row 2 require the matching
 non-default `anchors` options (`forbid-unused-anchors`, `forbid-duplicated-anchors`); the
 colon-in-name parsing divergence the table illustrates is independent of them.
+
+The `colons` rule follows the same reading. It checks the colons the parser sees as
+mapping indicators:
+
+| Input | ryl | yamllint |
+| :--- | :--- | :--- |
+| `&a : v`, `!t : v` | the space before `:` is required: `&a: v` is the scalar `v` anchored `a:` | too many spaces before colon |
+| `*a :  v` | too many spaces after colon | nothing: an alias key exempts both sides |
+| `*a:  v` | a syntax error: `:` is part of the alias name | too many spaces after colon |
 
 **Why ryl differs:** the YAML specification and its reference parser are the
 authority, and PyYAML's narrowing at `:` is non-conformant (see
@@ -264,6 +300,14 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### Document-prefix byte order marks
+
+ryl accepts `a: a\n...\n\uFEFF---\na: 1\n` and treats the BOM as an encoding
+prefix, not indentation. yamllint rejects the later BOM-prefixed marker as a syntax
+error. YAML 1.2.2 [document-prefix production
+202](https://yaml.org/spec/1.2.2/#911-document-prefix) permits a BOM before each
+document; the reference parser emits two documents, with `+DOC ---` for the second.
+
 ### Blank CRLF lines in multi-line scalars
 
 With `indentation: check-multi-line-strings` enabled, yamllint flags a blank line inside
@@ -280,6 +324,62 @@ Saved with CRLF endings, yamllint reports `3:1 wrong indentation: expected 2 but
 and ryl reports nothing. ryl treats CRLF as a line break, as YAML 1.2 requires, so the
 blank line is skipped exactly as it is in an LF file.
 
+### Block scalar at EOF
+
+An unterminated clip or keep block scalar body, such as `a: |\n  a`, gains a
+final newline under `ryl check --fix` or `ryl format`. With document ends enabled,
+it also gains `...`. The YAML 1.2 reference parser reads `=VAL |a\n` before and
+after; PyYAML reads `"a"` before and `"a\n"` after. ryl follows the reference
+parser for this value, including when the scalar stands alone.
+YAML 1.2.2 [production 165](https://yaml.org/spec/1.2.2/#rule-b-chomped-last)
+allows either `b-as-line-feed` or end of input for clip and keep chomping.
+
+For `- |+\n   ` (a spaces-only last line without a line break), `ryl format`
+and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
+The YAML 1.2 reference parser and eemeli `yaml` read `"\n"` before and after;
+PyYAML and ruamel read `""` before and `"\n"` after.
+
+With `[format] document-end = 'add'`, `'#hash': |+\n\n    ` (also
+with CRLF line breaks) becomes `'#hash': |+\n\n\n...\n`.
+The reference parser reads `"\n\n"` before and after; eemeli `yaml`, PyYAML,
+and ruamel read `"\n"` before and `"\n\n"` after. ryl follows the
+reference parser for this EOF shape.
+
+**Why ryl differs:** YAML 1.2.2's
+[keep-empty production](https://yaml.org/spec/1.2.2/#rule-l-keep-empty)
+(`l-chomped-empty(n,KEEP) ::= l-keep-empty(n)`) and the reference parser's
+`=VAL |\n` event rank above PyYAML here. In a local measurement of the
+2022 yaml-test-suite, eemeli `yaml` rejected 93/94 invalid cases and matched
+272/279 valid cases; PyYAML and ruamel rejected 82/94 invalid cases and matched
+210–222/279 valid cases.
+
+### Spaces in a blank-only block scalar
+
+For `a: |+\n  \nb: 1\n`, the reference parser emits `=VAL | \n`: one
+space and a line break belong to the scalar. The same space survives with a
+bare `|`, folded `>`, or a nested `- |+` body. `ryl format` and
+`ryl check --fix` preserve it, and `trailing-spaces` does not report it;
+yamllint reports line 2 as trailing spaces. YAML 1.2.2's
+[auto-detected indentation](https://yaml.org/spec/1.2.2/#rule-s-indent-less-than)
+and [block scalar content](https://yaml.org/spec/1.2.2/#rule-c-l+literal)
+productions leave the spaces beyond the content indent in the value.
+For `a:\n  b: |-\n    \n\nc: x\n`, the reference parser reads
+`=VAL |    \n\nc: x`; ryl leaves the file containing this ambiguous nested scalar unchanged.
+It also refuses a blank-only scalar followed by a sibling key at the same
+indent when moving the sequence dash would change the reference value.
+ryl also refuses to normalize `? a\n:   -   >\n    \n    - x\n`:
+moving the scalar header would turn the blank line's spaces into content.
+
+### Root block scalar with an explicit indentation indicator
+
+For `|2\n  x\n  `, the reference parser emits `=VAL | x\n \n`:
+the second space on each body line is content. The same reading applies to
+`|-2`, `>2`, `|2+`, and a root scalar in a multi-document stream.
+`ryl format` and `ryl check --fix` preserve the final space, and
+`trailing-spaces` does not report it; yamllint reports that last line.
+YAML 1.2.2's [bare-document production](https://yaml.org/spec/1.2.2/#rule-l-bare-document)
+places the root node at indentation `-1`, so `|2` gives a content indent of one.
+
 ### `%YAML` version-directive handling
 
 ryl honours the `%YAML` directive (YAML 1.2.2 §6.8.1) per document: a
@@ -291,18 +391,21 @@ the directive, so the two disagree:
 
 | Input | ryl | yamllint |
 | :--- | :--- | :--- |
-| `'no'` with no directive, `quoted-strings: only-when-needed` | redundant (1.2 string) | kept (1.1 boolean) |
-| `'no'` under `%YAML 1.1`, same rule | kept (1.1 boolean) | kept |
-| `'y'` under `%YAML 1.1`, same rule | kept (`y` is a 1.1 boolean) | redundant (PyYAML omits `y`) |
+| `'+.5'` with no directive, `quoted-strings: only-when-needed` | kept (1.2 float) | redundant (1.1 string) |
+| `'no'` under any directive, same rule | kept (1.1 boolean) | kept |
+| `'y'` under any directive, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
 | `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
 | `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
 
 **Why ryl differs:** the spec is the authority. It assigns a directive-less
 document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
-rejecting a higher major version &mdash; and the 1.1 boolean set in the spec
-includes single `y`/`n`, which PyYAML's resolver omits. Resolving under the
-declared version also keeps `--fix` sound: it never strips the quotes from a
-scalar whose value would change under the document's own `%YAML 1.1`.
+rejecting a higher major version. `quoted-strings` uses PyYAML's 1.1 set
+under every directive, so `--fix` never strips quotes a 1.1 reader needs, nor,
+without a directive, quotes a 1.2 reader needs. ryl adds `y`, `Y`, `n` and `N`
+to that set: PyYAML loads them as strings, but go-yaml v2, which Kubernetes,
+Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
+`'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
+does a plain `no`.
 
 ### Comments after a block scalar header
 
@@ -401,10 +504,12 @@ option is configured in TOML and rejected in yamllint-compatible YAML config.
 ### JUnit and GitLab report formats
 
 yamllint offers `standard`, `parsable`, `colored`, `github`, and `auto` output formats.
-ryl keeps those and adds two machine-readable report formats: `--format junit` (JUnit XML)
-and `--format gitlab` (GitLab Code Quality JSON), which write to stdout (or to a file with
-`-o`/`--output-file`) so a Git forge can ingest them as a report artifact. Going beyond
-yamllint, `--format` is repeatable and each pairs with its own `--output-file`, so a single
+ryl keeps those and adds two machine-readable report formats: `--output-format junit`
+(JUnit XML) and `--output-format gitlab` (GitLab Code Quality JSON), which write to stdout
+(or to a file with `-o`/`--output-file`) so a Git forge can ingest them as a report
+artifact. ryl names the flag `--output-format`, like ruff, and keeps yamllint's
+`-f`/`--format` as aliases. Going beyond yamllint, `--output-format` is repeatable and
+each pairs with its own `--output-file`, so a single
 run can emit console diagnostics **and** one or more report files; the same targets can be
 set in a ryl-only TOML `[output]` table. See [Output formats](../output-formats.md).
 
@@ -469,7 +574,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
         ".yamllint",
     ]
 
-    [rules]
+    [lint.rules]
     anchors = "enable"
     braces = "enable"
     brackets = "enable"
@@ -489,25 +594,25 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
     trailing-spaces = "enable"
     truthy = "disable"
 
-    [rules.comments]
+    [lint.rules.comments]
     level = "warning"
 
-    [rules.comments-indentation]
+    [lint.rules.comments-indentation]
     level = "warning"
 
-    [rules.document-start]
+    [lint.rules.document-start]
     level = "warning"
 
-    [rules.line-length]
+    [lint.rules.line-length]
     max = 120
     allow-non-breakable-words = true
 
-    [rules.quoted-strings]
+    [lint.rules.quoted-strings]
     quote-type = "double"
     required = "only-when-needed"
     ```
 
-!!! note "TOML configuration is flat"
+!!! note "TOML configuration is self-contained"
 
     TOML configuration does **not** support `extends`. Presets are expanded
     inline so the entire effective rule set is visible in one file. The
@@ -520,7 +625,7 @@ outright, so failing loudly on the always-wrong `.toml` case is well-precedented
 TOML configurations can declare which rules are eligible for `ryl check --fix`:
 
 ```toml
-[fix]
+[lint]
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
@@ -528,9 +633,14 @@ unfixable = ["comments"]
 This is a ryl-only feature. See the [Rules reference](../rules.md) for the
 list of rules that support automatic fixing.
 
+yamllint has no formatter. ryl adds [`ryl format`](../formatter.md), which applies the
+layout fixes to every file without enabling the rules. yamllint's `default` preset
+conflicts with none of the formatter's default settings, so a migrated config needs no
+changes to run alongside it.
+
 ## Keeping both files
 
-`.yamllint` and `.ryl.toml` can coexist. ryl prefers TOML when both are
-present in the same directory, but a project that needs to remain
-compatible with yamllint in CI can keep the YAML file authoritative and
-treat the TOML file as supplemental for ryl-only features.
+`.yamllint` and `.ryl.toml` can coexist for separate tools. When both are
+present in the same directory, ryl uses TOML exclusively and ignores `.yamllint`.
+Keep shared lint settings synchronized: `--migrate-configs` skips `.yamllint` when
+a `.ryl.toml` already exists.

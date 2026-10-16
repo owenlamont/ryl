@@ -1,7 +1,8 @@
 mod serialization;
 mod validation;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::num::{NonZeroU8, NonZeroU16};
 
 use crate::yaml_dom::{MappingOwned, YamlOwned};
 use schemars::{JsonSchema, Schema, schema_for};
@@ -23,36 +24,388 @@ pub struct TomlConfig {
     pub markdown: Option<MarkdownTable>,
     /// Output targets: which format goes to which destination (file/stdout/stderr).
     pub output: Option<OutputTable>,
-    /// Ignore patterns, either as one multi-line string or a list of patterns.
+    /// Files to skip, as one multi-line string or a list of gitignore-style patterns.
+    pub exclude: Option<StringOrVec>,
+    /// Paths to files that contain exclude patterns, such as `.gitignore`.
+    #[serde(rename = "exclude-from-file")]
+    pub exclude_from_file: Option<StringOrVec>,
+    /// Deprecated: use `exclude`.
+    #[schemars(extend("deprecated" = true))]
     pub ignore: Option<StringOrVec>,
-    /// Paths to files that contain ignore patterns.
+    /// Deprecated: use `exclude-from-file`.
     #[serde(rename = "ignore-from-file")]
+    #[schemars(extend("deprecated" = true))]
     pub ignore_from_file: Option<StringOrVec>,
     /// Locale identifier used by diagnostics.
     pub locale: Option<String>,
-    /// Native fix policy.
+    /// The formatter's line length, and the default for `[lint.rules.line-length] max`.
+    #[serde(rename = "line-length")]
+    pub line_length: Option<NonZeroU16>,
+    /// The formatter's indent width, and the default for `[lint.rules.indentation] spaces`.
+    #[serde(rename = "indent-width")]
+    pub indent_width: Option<NonZeroU8>,
+    /// Linter settings: rule configuration, fix policy, and rule ignores.
+    pub lint: Option<LintTable>,
+    /// Formatter settings.
+    pub format: Option<FormatTable>,
+    /// Deprecated: use `lint.fixable` and `lint.unfixable`.
+    #[schemars(extend("deprecated" = true))]
     pub fix: Option<FixTable>,
+    /// Deprecated: use `lint.per-file-ignores`.
+    #[serde(rename = "per-file-ignores")]
+    #[schemars(extend("deprecated" = true))]
+    pub per_file_ignores: Option<BTreeMap<String, Vec<RuleSelector>>>,
+    /// Deprecated: use `lint.per-line-ignores`.
+    #[serde(rename = "per-line-ignores")]
+    #[schemars(extend("deprecated" = true))]
+    pub per_line_ignores: Option<Vec<PerLineIgnore>>,
+    /// Deprecated: use `lint.rules`.
+    #[schemars(extend("deprecated" = true))]
+    pub rules: Option<TomlRulesTable>,
+    #[serde(flatten, default)]
+    #[schemars(skip)]
+    extra: BTreeMap<String, toml::Value>,
+}
+
+/// The `[lint]` table.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LintTable {
+    /// Rule configuration table.
+    pub rules: Option<TomlRulesTable>,
+    /// Rules `--fix` may fix (default `["ALL"]`).
+    pub fixable: Option<Vec<FixableRuleSelector>>,
+    /// Rules `--fix` must not fix, overriding `fixable`.
+    pub unfixable: Option<Vec<FixRuleName>>,
     /// Per-file rule ignores.
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleSelector>>>,
     /// Per-line rule ignores: suppress rules on lines/files matching a pattern.
     #[serde(rename = "per-line-ignores")]
     pub per_line_ignores: Option<Vec<PerLineIgnore>>,
-    /// Rule configuration table.
-    pub rules: Option<
-        RulesTable<
-            TomlQuotedStringsOptions,
-            TomlKeyDuplicatesOptions,
-            TomlAnchorsOptions,
-            CommentsIndentationOptions,
-            TomlHyphensOptions,
-            TomlCommentsOptions,
-            TomlKeyOrderingOptions,
-        >,
-    >,
-    #[serde(flatten, default)]
-    #[schemars(skip)]
-    extra: BTreeMap<String, toml::Value>,
+}
+
+/// The `[format]` table: `ryl format`'s targets.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields, default, rename_all = "kebab-case")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent `[format]` key"
+)]
+pub struct FormatTable {
+    /// Preferred quote for strings that need quoting; `preserve` leaves quoting alone.
+    pub quote_style: QuoteStyleTarget,
+    /// Line ending; `native` is the platform's, `auto` the one most of the file uses.
+    pub line_ending: LineEndingTarget,
+    /// Whether to add a missing `---` document start marker.
+    pub document_start: MarkerTarget,
+    /// Whether to add a missing `...` document end marker.
+    pub document_end: MarkerTarget,
+    /// Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.
+    pub fold_long_lines: bool,
+    /// Whether to pad the inside of a non-empty flow mapping's braces with one space.
+    pub brace_spacing: bool,
+    /// Opt in to unstable style changes before a minor release promotes them to stable.
+    pub preview: bool,
+    /// Exact number of spaces between content and an inline comment.
+    pub comment_spacing: NonZeroU8,
+    /// Whether to add a missing space after a comment's `#`.
+    pub comment_starting_space: MarkerTarget,
+    /// Most consecutive blank lines kept between content lines.
+    pub max_blank_lines: u8,
+    /// Collection style for sequences; `preserve` leaves each as written.
+    pub sequence_style: CollectionStyleTarget,
+    /// Collection style for mappings; `preserve` leaves each as written.
+    pub mapping_style: CollectionStyleTarget,
+    /// Whether a block sequence under a mapping key is indented past the key.
+    pub indent_sequences: bool,
+    /// Whether a block mapping in a block sequence starts on the line after its `-`.
+    pub dash_on_own_line: bool,
+}
+
+impl Default for FormatTable {
+    fn default() -> Self {
+        Self {
+            quote_style: QuoteStyleTarget::Single,
+            line_ending: LineEndingTarget::Lf,
+            document_start: MarkerTarget::Preserve,
+            document_end: MarkerTarget::Preserve,
+            fold_long_lines: false,
+            brace_spacing: false,
+            preview: false,
+            comment_spacing: NonZeroU8::new(2).expect("2 is non-zero"),
+            comment_starting_space: MarkerTarget::Add,
+            max_blank_lines: 2,
+            sequence_style: CollectionStyleTarget::Preserve,
+            mapping_style: CollectionStyleTarget::Preserve,
+            indent_sequences: true,
+            dash_on_own_line: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum QuoteStyleTarget {
+    Single,
+    Double,
+    Preserve,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum LineEndingTarget {
+    Lf,
+    CrLf,
+    Native,
+    Auto,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerTarget {
+    Add,
+    Preserve,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum CollectionStyleTarget {
+    Preserve,
+    Block,
+    Flow,
+}
+
+pub type TomlRulesTable = RulesTable<
+    TomlQuotedStringsOptions,
+    TomlKeyDuplicatesOptions,
+    TomlAnchorsOptions,
+    CommentsIndentationOptions,
+    TomlHyphensOptions,
+    TomlCommentsOptions,
+    TomlKeyOrderingOptions,
+>;
+
+/// A ryl-native TOML key at a deprecated location, and the key that replaces it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeprecatedKey {
+    pub key: &'static str,
+    pub replacement: &'static str,
+    pub deprecated_since: &'static str,
+    pub removed_in: Option<&'static str>,
+}
+
+/// Placeholder until the release carrying the `[lint]` table is cut.
+const LINT_TABLE_SINCE: &str = "0.25.0";
+
+/// Every deprecated TOML key location, the single source the deprecation warnings and
+/// `--migrate-configs` read.
+pub const DEPRECATED_TOML_KEYS: [DeprecatedKey; 7] = [
+    DeprecatedKey {
+        key: "rules",
+        replacement: "lint.rules",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "fix.fixable",
+        replacement: "lint.fixable",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "fix.unfixable",
+        replacement: "lint.unfixable",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "per-file-ignores",
+        replacement: "lint.per-file-ignores",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "per-line-ignores",
+        replacement: "lint.per-line-ignores",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "ignore",
+        replacement: "exclude",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+    DeprecatedKey {
+        key: "ignore-from-file",
+        replacement: "exclude-from-file",
+        deprecated_since: LINT_TABLE_SINCE,
+        removed_in: None,
+    },
+];
+
+/// A way of supplying yamllint YAML config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyYamlSource {
+    Project,
+    ConfigFile,
+    ConfigData,
+    EnvVar,
+    UserGlobal,
+}
+
+/// How to replace one [`LegacyYamlSource`]; `{path}` in `replacement` is its file, as one
+/// shell word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LegacyYamlDeprecation {
+    pub source: LegacyYamlSource,
+    pub replacement: &'static str,
+    pub deprecated_since: &'static str,
+    pub removed_in: Option<&'static str>,
+}
+
+const LEGACY_YAML_SINCE: &str = LINT_TABLE_SINCE;
+
+pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::Project,
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` to \
+                      convert it to .ryl.toml",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::ConfigFile,
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` and \
+                      pass the TOML it writes to `-c`",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::ConfigData,
+        replacement: "pass inline TOML to `-d` instead",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::EnvVar,
+        replacement: "YAMLLINT_CONFIG_FILE is deprecated too: run `ryl --migrate-configs \
+                      --migrate-write --migrate-root {path}` and pass the TOML it writes to \
+                      `-c`",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+    LegacyYamlDeprecation {
+        source: LegacyYamlSource::UserGlobal,
+        replacement: "run `ryl --migrate-user-config` to convert it to ryl's own user config",
+        deprecated_since: LEGACY_YAML_SINCE,
+        removed_in: None,
+    },
+];
+
+/// A deprecated key found in a config; `overridden` when its replacement is also set,
+/// so the deprecated value is ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeprecatedKeyUse {
+    pub key: &'static DeprecatedKey,
+    pub overridden: bool,
+}
+
+impl TomlConfig {
+    /// The deprecated keys this config sets, in [`DEPRECATED_TOML_KEYS`] order.
+    #[must_use]
+    pub fn deprecated_keys(&self) -> Vec<DeprecatedKeyUse> {
+        let lint = self.lint.as_ref();
+        let fix = self.fix.as_ref();
+        // Positional: one `(legacy set, replacement set)` pair per `DEPRECATED_TOML_KEYS` row.
+        let presence: [(bool, bool); DEPRECATED_TOML_KEYS.len()] = [
+            (
+                self.rules.is_some(),
+                lint.is_some_and(|l| l.rules.is_some()),
+            ),
+            (
+                fix.is_some_and(|f| f.fixable.is_some()),
+                lint.is_some_and(|l| l.fixable.is_some()),
+            ),
+            (
+                fix.is_some_and(|f| f.unfixable.is_some()),
+                lint.is_some_and(|l| l.unfixable.is_some()),
+            ),
+            (
+                self.per_file_ignores.is_some(),
+                lint.is_some_and(|l| l.per_file_ignores.is_some()),
+            ),
+            (
+                self.per_line_ignores.is_some(),
+                lint.is_some_and(|l| l.per_line_ignores.is_some()),
+            ),
+            (self.ignore.is_some(), self.exclude.is_some()),
+            (
+                self.ignore_from_file.is_some(),
+                self.exclude_from_file.is_some(),
+            ),
+        ];
+        DEPRECATED_TOML_KEYS
+            .iter()
+            .zip(presence)
+            .filter(|(_, (legacy, _))| *legacy)
+            .map(|(key, (_, overridden))| DeprecatedKeyUse { key, overridden })
+            .collect()
+    }
+
+    /// The effective `[lint]` table: each key from `[lint]`, else from its deprecated
+    /// location.
+    #[must_use]
+    pub fn merged_lint(&self) -> LintTable {
+        let lint = self.lint.clone().unwrap_or_default();
+        let fix = self.fix.as_ref();
+        LintTable {
+            rules: lint.rules.or_else(|| self.rules.clone()),
+            fixable: lint
+                .fixable
+                .or_else(|| fix.and_then(|fix| fix.fixable.clone())),
+            unfixable: lint
+                .unfixable
+                .or_else(|| fix.and_then(|fix| fix.unfixable.clone())),
+            per_file_ignores: lint
+                .per_file_ignores
+                .or_else(|| self.per_file_ignores.clone()),
+            per_line_ignores: lint
+                .per_line_ignores
+                .or_else(|| self.per_line_ignores.clone()),
+        }
+    }
+
+    /// The effective `exclude` and `exclude-from-file`, each else its deprecated `ignore`
+    /// spelling.
+    #[must_use]
+    pub fn merged_exclude(&self) -> (Option<&StringOrVec>, Option<&StringOrVec>) {
+        (
+            self.exclude.as_ref().or(self.ignore.as_ref()),
+            self.exclude_from_file
+                .as_ref()
+                .or(self.ignore_from_file.as_ref()),
+        )
+    }
+
+    /// This config with every deprecated key moved to its replacement.
+    #[must_use]
+    pub fn to_nested(&self) -> Self {
+        let (exclude, exclude_from_file) = self.merged_exclude();
+        Self {
+            exclude: exclude.cloned(),
+            exclude_from_file: exclude_from_file.cloned(),
+            ignore: None,
+            ignore_from_file: None,
+            lint: Some(self.merged_lint()),
+            fix: None,
+            per_file_ignores: None,
+            per_line_ignores: None,
+            rules: None,
+            ..self.clone()
+        }
+    }
 }
 
 /// File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which
@@ -216,7 +569,7 @@ pub struct RuleOptions<T> {
 #[serde(deny_unknown_fields)]
 pub struct NoOptions {}
 
-/// TOML `[fix]` table.
+/// The deprecated `[fix]` table; its keys now live in `[lint]`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FixTable {
@@ -224,7 +577,7 @@ pub struct FixTable {
     pub unfixable: Option<Vec<FixRuleName>>,
 }
 
-/// A rule selector accepted by `fix.fixable`.
+/// A rule selector accepted by `lint.fixable`.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
 pub enum FixableRuleSelector {
     #[serde(rename = "ALL")]
@@ -233,6 +586,8 @@ pub enum FixableRuleSelector {
     Braces,
     #[serde(rename = "brackets")]
     Brackets,
+    #[serde(rename = "colons")]
+    Colons,
     #[serde(rename = "commas")]
     Commas,
     #[serde(rename = "comments")]
@@ -245,6 +600,8 @@ pub enum FixableRuleSelector {
     DocumentStart,
     #[serde(rename = "empty-lines")]
     EmptyLines,
+    #[serde(rename = "hyphens")]
+    Hyphens,
     #[serde(rename = "key-ordering")]
     KeyOrdering,
     #[serde(rename = "new-line-at-end-of-file")]
@@ -259,13 +616,15 @@ pub enum FixableRuleSelector {
     Truthy,
 }
 
-/// A fixable rule name accepted by `fix.unfixable`.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+/// A fixable rule name accepted by `lint.unfixable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 pub enum FixRuleName {
     #[serde(rename = "braces")]
     Braces,
     #[serde(rename = "brackets")]
     Brackets,
+    #[serde(rename = "colons")]
+    Colons,
     #[serde(rename = "commas")]
     Commas,
     #[serde(rename = "comments")]
@@ -278,6 +637,8 @@ pub enum FixRuleName {
     DocumentStart,
     #[serde(rename = "empty-lines")]
     EmptyLines,
+    #[serde(rename = "hyphens")]
+    Hyphens,
     #[serde(rename = "key-ordering")]
     KeyOrdering,
     #[serde(rename = "new-line-at-end-of-file")]
@@ -1048,19 +1409,29 @@ fn toml_error_text(mut err: toml::de::Error, input: Option<&str>) -> String {
 /// config, or the `[tool.ryl]` subtable for `pyproject.toml`. A document that fails to
 /// parse is not empty (so the real parse error surfaces); an absent `[tool.ryl]` likewise.
 fn toml_document_is_empty(input: &str, pyproject: bool) -> bool {
-    let Ok(table) = input.parse::<toml::Table>() else {
-        return false;
-    };
-    let config = if pyproject {
-        table
-            .get("tool")
-            .and_then(toml::Value::as_table)
-            .and_then(|tool| tool.get("ryl"))
-            .and_then(toml::Value::as_table)
-    } else {
-        Some(&table)
-    };
-    config.is_some_and(toml::map::Map::is_empty)
+    ryl_table(input, pyproject).is_some_and(|table| table.is_empty())
+}
+
+fn ryl_table(input: &str, pyproject: bool) -> Option<toml::Table> {
+    let table = input.parse::<toml::Table>().ok()?;
+    if !pyproject {
+        return Some(table);
+    }
+    table
+        .get("tool")
+        .and_then(|tool| tool.get("ryl"))
+        .and_then(toml::Value::as_table)
+        .cloned()
+}
+
+/// The `[format]` keys a TOML config sets explicitly.
+pub(crate) fn format_keys(input: &str, pyproject: bool) -> BTreeSet<String> {
+    ryl_table(input, pyproject)
+        .as_ref()
+        .and_then(|table| table.get("format"))
+        .and_then(toml::Value::as_table)
+        .map(|format| format.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// # Errors
@@ -1097,7 +1468,8 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
         ));
     }
 
-    if let Some(entries) = config.per_line_ignores.as_deref() {
+    let lint = config.merged_lint();
+    if let Some(entries) = lint.per_line_ignores.as_deref() {
         validation::validate_per_line_ignores(entries)?;
     }
 
@@ -1106,15 +1478,15 @@ pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
     }
 
     validation::validate_comments_rule(
-        config
-            .rules
+        lint.rules
             .as_ref()
             .and_then(|rules| rules.comments.as_ref()),
     )?;
+    let (exclude, exclude_from_file) = config.merged_exclude();
     validate_common_config(
-        config.ignore.as_ref(),
-        config.ignore_from_file.as_ref(),
-        config.rules.as_ref(),
+        ("exclude", exclude),
+        ("exclude-from-file", exclude_from_file),
+        lint.rules.as_ref(),
     )
 }
 
@@ -1139,8 +1511,8 @@ fn validate_output_table(output: &OutputTable) -> Result<(), String> {
 /// deserialization alone.
 pub fn validate_yaml_config(config: &YamlConfig) -> Result<(), String> {
     validate_common_config(
-        config.ignore.as_ref(),
-        config.ignore_from_file.as_ref(),
+        ("ignore", config.ignore.as_ref()),
+        ("ignore-from-file", config.ignore_from_file.as_ref()),
         config.rules.as_ref(),
     )
 }
@@ -1154,15 +1526,14 @@ fn validate_common_config<
     M,
     O: validation::KeyOrderingOptionSet,
 >(
-    ignore: Option<&StringOrVec>,
-    ignore_from_file: Option<&StringOrVec>,
+    (patterns_key, patterns): (&str, Option<&StringOrVec>),
+    (from_file_key, from_file): (&str, Option<&StringOrVec>),
     rules: Option<&RulesTable<Q, K, A, C, H, M, O>>,
 ) -> Result<(), String> {
-    if ignore.is_some() && ignore_from_file.is_some() {
-        return Err(
-            "invalid config: ignore and ignore-from-file keys cannot be used together"
-                .to_string(),
-        );
+    if patterns.is_some() && from_file.is_some() {
+        return Err(format!(
+            "invalid config: {patterns_key} and {from_file_key} keys cannot be used together"
+        ));
     }
 
     if let Some(rules) = rules {
@@ -1189,6 +1560,8 @@ pub struct NormalizedConfig {
     pub markdown: Option<NormalizedMarkdown>,
     pub output: Option<OutputTable>,
     pub locale: Option<String>,
+    pub line_length: Option<NonZeroU16>,
+    pub indent_width: Option<NonZeroU8>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
 }
@@ -1257,9 +1630,11 @@ fn parse_string_items(
 /// TOML rejects an unknown key structurally, while the yamllint-compatible YAML path
 /// tolerates one, so every ryl-native top-level key has to be listed here to be caught.
 /// `files` carries its YAML spelling because "use TOML" would be the wrong fix for it.
-const TOML_ONLY_CONFIG_KEYS: [(&str, Option<&str>); 6] = [
+const TOML_ONLY_CONFIG_KEYS: [(&str, Option<&str>); 8] = [
     ("files", Some("`yaml-files`")),
     ("fix", None),
+    ("format", None),
+    ("lint", None),
     ("markdown", None),
     ("output", None),
     ("per-file-ignores", None),
@@ -1307,7 +1682,7 @@ pub(crate) fn parse_yaml_config(doc: &YamlOwned) -> Result<ParsedYamlConfig, Str
     {
         return Err(format!(
             "invalid config: `{rule}` is a ryl-only rule and is not available in \
-             yamllint-compatible YAML config; configure it in TOML (`[rules.{rule}]`)"
+             yamllint-compatible YAML config; configure it in TOML (`[lint.rules.{rule}]`)"
         ));
     }
 

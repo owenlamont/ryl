@@ -13,7 +13,7 @@ fn project_toml_takes_precedence_over_yaml_and_adds_notice() {
         .with_cwd(PathBuf::from("/repo"))
         .with_file(
             PathBuf::from("/repo/.ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_file(
             PathBuf::from("/repo/.yamllint"),
@@ -52,11 +52,54 @@ fn explicit_pyproject_with_tool_ryl_section_loads() {
 }
 
 #[test]
+fn format_settings_record_the_keys_a_config_sets_even_at_their_default() {
+    for (file, text, explicit) in [
+        (
+            ".ryl.toml",
+            "[format]\nquote-style = 'single'\n",
+            vec!["quote-style"],
+        ),
+        (
+            "pyproject.toml",
+            "[tool.ryl.format]\npreview = false\nmax-blank-lines = 2\n",
+            vec!["max-blank-lines", "preview"],
+        ),
+        (".ryl.toml", "locale = 'en_GB.UTF-8'\n", vec![]),
+    ] {
+        let path = PathBuf::from("/repo").join(file);
+        let env = FakeEnv::new()
+            .with_cwd(PathBuf::from("/repo"))
+            .with_file(path.clone(), text);
+        let ctx = discover_config_with(
+            &[],
+            &Overrides {
+                config_file: Some(path),
+                config_data: None,
+            },
+            &env,
+        )
+        .expect("valid TOML config");
+        let format = ctx.config.format();
+        let set: Vec<&str> = [
+            "document-start",
+            "max-blank-lines",
+            "preview",
+            "quote-style",
+        ]
+        .into_iter()
+        .filter(|key| format.is_explicit(key))
+        .collect();
+        assert_eq!(set, explicit, "{text}");
+        assert_eq!(format.targets().max_blank_lines, 2, "{text}");
+    }
+}
+
+#[test]
 fn exact_typed_toml_preserves_runtime_matchers_and_rule_settings() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "files = { yaml = ['configs/**/*.yaml'] }\nignore = ['vendor/**']\nlocale = 'en_US.UTF-8'\n[rules]\ndocument-start = 'disable'\n[rules.comments]\nlevel = 'warning'\nrequire-starting-space = true\nignore = ['generated/**']\n",
+        "files = { yaml = ['configs/**/*.yaml'] }\nignore = ['vendor/**']\nlocale = 'en_US.UTF-8'\n[lint.rules]\ndocument-start = 'disable'\n[lint.rules.comments]\nlevel = 'warning'\nrequire-starting-space = true\nignore = ['generated/**']\n",
     );
     let ctx = discover_config_with(
         &[],
@@ -119,14 +162,32 @@ fn project_pyproject_without_tool_ryl_falls_back_to_yaml() {
     .expect("yaml fallback should load");
     assert_eq!(ctx.source.as_deref(), Some(Path::new("/repo/.yamllint")));
     assert_eq!(ctx.config.locale(), Some("en_US.UTF-8"));
-    assert!(ctx.notices.is_empty());
+    let path: PathBuf = Path::new("/repo/.yamllint").components().collect();
+    let argument = if cfg!(windows) {
+        format!("'{}'", path.display())
+    } else {
+        path.display().to_string()
+    };
+    assert_eq!(
+        ctx.notices,
+        [format!(
+            "warning: {}: yamllint YAML config is deprecated; run `ryl \
+             --migrate-configs --migrate-write --migrate-root {argument}` to convert \
+             it to .ryl.toml",
+            path.display()
+        )]
+    );
 }
 
 #[test]
 fn discover_per_file_finds_project_toml() {
     let td = tempdir().unwrap();
     let root = td.path();
-    std::fs::write(root.join(".ryl.toml"), "[rules]\nanchors = 'disable'\n").unwrap();
+    std::fs::write(
+        root.join(".ryl.toml"),
+        "[lint.rules]\nanchors = 'disable'\n",
+    )
+    .unwrap();
     std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
     let ctx = discover_per_file(&root.join("file.yaml")).expect("per-file discovery");
     assert_eq!(
@@ -145,7 +206,7 @@ fn project_skips_non_ryl_pyproject_and_uses_parent_toml() {
         )
         .with_file(
             PathBuf::from("/repo/.ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_exists(PathBuf::from("/repo/sub/file.yaml"));
     let ctx = discover_config_with(
@@ -243,7 +304,7 @@ fn toml_scalar_typed_unknown_keys_are_rejected() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "flag = true\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n[rules]\nanchors = 'disable'\n",
+        "flag = true\nratio = 1.5\nstamp = 1979-05-27T07:32:00Z\n[lint.rules]\nanchors = 'disable'\n",
     );
     let err = discover_config_with(
         &[],
@@ -266,9 +327,10 @@ fn toml_scalar_typed_unknown_keys_are_rejected() {
 #[test]
 fn toml_integer_unknown_key_is_rejected() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
-    let env = FakeEnv::new()
-        .with_cwd(PathBuf::from("/repo"))
-        .with_file(cfg.clone(), "answer = 42\n[rules]\nanchors = 'disable'\n");
+    let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
+        cfg.clone(),
+        "answer = 42\n[lint.rules]\nanchors = 'disable'\n",
+    );
     let err = discover_config_with(
         &[],
         &Overrides {
@@ -323,22 +385,22 @@ fn scalar_tool_ryl_pyproject_is_rejected() {
 }
 
 #[test]
-fn exact_typed_toml_supports_single_string_ignore_from_file() {
+fn exact_typed_toml_supports_single_string_exclude_from_file() {
     let td = tempdir().unwrap();
     let root = td.path();
     std::fs::write(root.join(".ignore-list"), "build/**\n").unwrap();
     std::fs::write(
         root.join(".ryl.toml"),
-        "ignore-from-file = '.ignore-list'\n",
+        "exclude-from-file = '.ignore-list'\n",
     )
     .unwrap();
     std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
 
     let ctx = discover_per_file(&root.join("file.yaml"))
-        .expect("typed TOML ignore-from-file should load");
+        .expect("typed TOML exclude-from-file should load");
     let rendered = ctx.config.to_toml_string();
 
-    assert!(rendered.contains("ignore-from-file = ["));
+    assert!(rendered.contains("exclude-from-file = ["));
     assert!(rendered.contains(".ignore-list"));
 }
 
@@ -348,7 +410,7 @@ fn exact_typed_toml_splits_multiline_scalar_ignore_patterns() {
     let root = td.path();
     std::fs::write(
         root.join(".ryl.toml"),
-        "ignore = \"\"\"\nvendor/**\ngenerated/**\n\"\"\"\n",
+        "exclude = \"\"\"\nvendor/**\ngenerated/**\n\"\"\"\n",
     )
     .unwrap();
     std::fs::write(root.join("file.yaml"), "a: 1\n").unwrap();
@@ -375,11 +437,11 @@ fn exact_typed_toml_splits_multiline_scalar_ignore_patterns() {
 }
 
 #[test]
-fn toml_ignore_and_ignore_from_file_conflict_errors() {
+fn toml_exclude_and_exclude_from_file_conflict_errors() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "ignore = ['vendor/**']\nignore-from-file = ['.ignore-list']\n",
+        "exclude = ['vendor/**']\nexclude-from-file = ['.ignore-list']\n",
     );
     let err = discover_config_with(
         &[],
@@ -393,7 +455,7 @@ fn toml_ignore_and_ignore_from_file_conflict_errors() {
 
     assert_eq!(
         err,
-        "invalid config: ignore and ignore-from-file keys cannot be used together"
+        "invalid config: exclude and exclude-from-file keys cannot be used together"
     );
 }
 
@@ -402,7 +464,7 @@ fn toml_quoted_strings_conflict_errors() {
     let cfg = PathBuf::from("/repo/.ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "[rules.quoted-strings]\nextra-required = ['^http']\n",
+        "[lint.rules.quoted-strings]\nextra-required = ['^http']\n",
     );
     let err = discover_config_with(
         &[],
@@ -487,7 +549,7 @@ fn config_dir_plain_toml_is_discovered() {
         .with_cwd(PathBuf::from("/repo"))
         .with_file(
             PathBuf::from("/repo/.config/ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_exists(PathBuf::from("/repo/file.yaml"));
     let ctx = discover_config_with(
@@ -509,7 +571,7 @@ fn config_dir_dotted_toml_is_discovered() {
         .with_cwd(PathBuf::from("/repo"))
         .with_file(
             PathBuf::from("/repo/.config/.ryl.toml"),
-            "locale = 'de_DE.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'de_DE.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_exists(PathBuf::from("/repo/file.yaml"));
     let ctx = discover_config_with(
@@ -533,11 +595,11 @@ fn config_dir_dotted_beats_plain() {
         .with_cwd(PathBuf::from("/repo"))
         .with_file(
             PathBuf::from("/repo/.config/.ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_file(
             PathBuf::from("/repo/.config/ryl.toml"),
-            "locale = 'de_DE.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'de_DE.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_exists(PathBuf::from("/repo/file.yaml"));
     let ctx = discover_config_with(
@@ -560,11 +622,11 @@ fn root_toml_beats_config_dir() {
         .with_cwd(PathBuf::from("/repo"))
         .with_file(
             PathBuf::from("/repo/ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_file(
             PathBuf::from("/repo/.config/.ryl.toml"),
-            "locale = 'de_DE.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'de_DE.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_exists(PathBuf::from("/repo/file.yaml"));
     let ctx = discover_config_with(
@@ -584,7 +646,7 @@ fn config_dir_beats_pyproject() {
         .with_cwd(PathBuf::from("/repo"))
         .with_file(
             PathBuf::from("/repo/.config/ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_file(
             PathBuf::from("/repo/pyproject.toml"),
@@ -613,7 +675,7 @@ fn config_dir_resolves_from_ancestor() {
         .with_var("HOME", "/repo")
         .with_file(
             PathBuf::from("/repo/.config/ryl.toml"),
-            "locale = 'fr_FR.UTF-8'\n[rules]\nanchors = 'disable'\n",
+            "locale = 'fr_FR.UTF-8'\n[lint.rules]\nanchors = 'disable'\n",
         )
         .with_exists(PathBuf::from("/repo/sub/deep/file.yaml"));
     let ctx = discover_config_with(
@@ -663,7 +725,7 @@ fn config_dir_anchors_path_globs_at_project_root() {
         .with_var("HOME", "/repo")
         .with_file(
             PathBuf::from("/repo/.config/ryl.toml"),
-            "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+            "[files]\nyaml = ['configs/**/*.yaml']\n[lint.rules]\ntrailing-spaces = 'enable'\n",
         )
         .with_exists(PathBuf::from("/repo/file.yaml"));
     let ctx = discover_config_with(
@@ -687,7 +749,7 @@ fn config_dir_explicit_c_anchors_at_project_root() {
     let cfg = PathBuf::from("/repo/.config/ryl.toml");
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         cfg.clone(),
-        "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+        "[files]\nyaml = ['configs/**/*.yaml']\n[lint.rules]\ntrailing-spaces = 'enable'\n",
     );
     let ctx = discover_config_with(
         &[],
@@ -712,7 +774,7 @@ fn config_dir_relative_explicit_c_anchors_at_cwd() {
     // resolves to the cwd (the directory the relative `.config/` sits in).
     let env = FakeEnv::new().with_cwd(PathBuf::from("/repo")).with_file(
         PathBuf::from(".config/ryl.toml"),
-        "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+        "[files]\nyaml = ['configs/**/*.yaml']\n[lint.rules]\ntrailing-spaces = 'enable'\n",
     );
     let ctx = discover_config_with(
         &[],
@@ -736,7 +798,7 @@ fn config_dir_non_candidate_configs_keep_parent_base() {
     for (name, body) in [
         (
             "custom.toml",
-            "[files]\nyaml = ['configs/**/*.yaml']\n[rules]\ntrailing-spaces = 'enable'\n",
+            "[files]\nyaml = ['configs/**/*.yaml']\n[lint.rules]\ntrailing-spaces = 'enable'\n",
         ),
         ("custom.yaml", "locale: en_US.UTF-8\nrules: {}\n"),
     ] {

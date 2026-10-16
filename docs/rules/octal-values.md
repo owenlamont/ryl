@@ -16,7 +16,7 @@ Reports octal integer literals. By default both YAML 1.1 implicit form
 ## Configuration
 
 ```toml
-[rules.octal-values]
+[lint.rules.octal-values]
 level = "error"
 forbid-implicit-octal = true
 forbid-explicit-octal = true
