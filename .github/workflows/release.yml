@@ -151,7 +151,7 @@ jobs:
           manylinux: auto
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels (manylinux)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: wheels-manylinux-${{ matrix.target }}
           path: dist
@@ -165,13 +165,13 @@ jobs:
         python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: wheels-manylinux-*
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           save-cache: false
       - name: Install wheel and run CLI
@@ -216,7 +216,7 @@ jobs:
           manylinux: musllinux_1_2
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels (musllinux)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: wheels-musllinux-${{ matrix.target }}
           path: dist
@@ -230,7 +230,7 @@ jobs:
         python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine", "3.14-alpine"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: wheels-musllinux-*
           merge-multiple: true
@@ -263,7 +263,7 @@ jobs:
           args: --release --out dist
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels (Windows)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: wheels-windows-${{ matrix.target }}
           path: dist
@@ -277,13 +277,13 @@ jobs:
         python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: wheels-windows-*
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           save-cache: false
       - name: Install wheel and run CLI
@@ -319,7 +319,7 @@ jobs:
           args: --release --out dist
           sccache: ${{ github.event_name != 'release' }}
       - name: Upload wheels (macOS)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: wheels-macos-${{ matrix.target }}
           path: dist
@@ -334,13 +334,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: wheels-macos-*
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           save-cache: false
       - name: Install wheel and run CLI
@@ -369,7 +369,7 @@ jobs:
           command: sdist
           args: --out dist
       - name: Upload sdist
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: wheels-sdist
           path: dist
@@ -421,7 +421,7 @@ jobs:
       # running `cargo install cross`, whose crates.io fetch is a transient-failure point.
       - name: Install cross
         if: startsWith(matrix.runner, 'ubuntu')
-        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe
         with:
           tool: cross
       - name: Build binaries for ${{ matrix.target }}
@@ -449,7 +449,7 @@ jobs:
             exit 1
           fi
       - name: Upload release assets for ${{ matrix.target }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-binaries-${{ matrix.target }}
           path: release-assets/*
@@ -469,11 +469,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           enable-cache: false
           save-cache: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: release-binaries-*
           merge-multiple: true
@@ -622,7 +622,7 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: wheels-*
           merge-multiple: true
@@ -694,14 +694,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: release-binaries-*
           merge-multiple: true
           path: release-assets
       - name: Build npm package directories
         run: python3 scripts/build_npm_packages.py --assets-dir release-assets --out-dir dist/npm
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Pack npm packages
@@ -732,7 +732,7 @@ jobs:
           )"
           echo "value=${matrix_json}" >> "${GITHUB_OUTPUT}"
       - name: Upload packed npm packages
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: npm-packages
           path: dist/npm-tarballs/*.tgz
@@ -756,11 +756,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: npm-packages
           path: dist/npm-tarballs
@@ -854,11 +854,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: npm-packages
           path: dist/npm-tarballs
