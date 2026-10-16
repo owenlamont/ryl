@@ -32,6 +32,7 @@ nav = [
     { "Using ryl with another formatter" = "using-with-formatters.md" },
   ]},
   { "Output formats" = "output-formats.md" },
+  { "pre-commit and prek" = "pre-commit.md" },
   { "Editor integration" = "editor-integration.md" },
   { "YAML version compatibility" = "yaml-version.md" },
   { "What ryl won't do" = "scope.md" },
