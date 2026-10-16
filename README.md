@@ -116,13 +116,25 @@ documentation, see the docs site.
 
 ## Performance
 
-The figure below times ryl and yamllint over a 5x5 file-count × file-size
-matrix with 5 runs per point:
+The figure times lint and in-place format on the same deliberately
+unformatted YAML in a 5×5 file-count × file-size matrix, with five
+hyperfine runs per point. Formatting starts from a fresh copy for every run.
 
-![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
+![YAML lint and format benchmark](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 
-The benchmark script is in `scripts/benchmark_perf_vs_yamllint.py`; run
-it with `--help` for the full option set.
+| Tool | Version | Configuration |
+| --- | --- | --- |
+| ryl | 0.25.1 | Lint: `extends: relaxed`; format: `[format]` defaults |
+| yamllint | 1.38.0 | `extends: relaxed` |
+| google/yamlfmt | 0.21.0 | Basic formatter, LF line endings |
+| Prettier | 3.9.10 | Defaults; no config, EditorConfig, or ignore rules |
+| dprint | 0.63.0 | `pretty_yaml` 0.6.0 defaults; incremental mode off |
+
+Run `uv run scripts/benchmark_yaml_tools.py --help` for the benchmark options.
+Each run writes the exact commands, binary hashes, versions, configuration,
+raw samples, and summary to `manual_outputs/benchmarks/`.
+[Biome](https://biomejs.dev/introduction/language-support/) 2.5.15 is absent
+because Biome does not process YAML files.
 
 ## Acknowledgements
 
