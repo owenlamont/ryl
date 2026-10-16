@@ -393,10 +393,9 @@ def main(
     ryl_bin: Path | None = typer.Option(
         None,
         "--ryl-bin",
-        help="ryl binary to benchmark and label (default: the `ryl` on PATH). "
+        help="ryl binary to benchmark (default: the `ryl` on PATH). "
         "Point at this branch's target/release/ryl so the image reflects the "
-        "release build rather than a stale global install; the version label is "
-        "read from this binary's --version, so it always matches what was timed.",
+        "release build rather than a stale global install.",
     ),
     yamllint_bin: Path | None = typer.Option(None, help="yamllint executable."),
     yamlfmt_bin: Path | None = typer.Option(None, help="yamlfmt executable."),
