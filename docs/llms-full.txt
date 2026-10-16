@@ -750,10 +750,12 @@ order. See [Inline directives](https://ryl-docs.pages.dev/directives/#alongside-
 
 ### Tabs separating explicit keys
 
-ryl accepts `{?\ta: b}` and `?\tkey\n: value\n`; yamllint reports a syntax error
-for both. YAML 1.2.2 [production 142](https://yaml.org/spec/1.2.2/#rule-ns-flow-map-entry)
+ryl accepts the YAML produced by `printf '%b' '{?\ta: b}\n'` and
+`printf '%b' '?\tkey\n: value\n'`; yamllint reports a syntax error for both.
+Here `\t` becomes a tab and `\n` becomes a newline. YAML 1.2.2
+[production 142](https://yaml.org/spec/1.2.2/#rule-ns-flow-map-entry)
 places `s-separate(n,c)` after `?`, and separation permits tabs outside indentation.
-The [reference parser](https://play.yaml.com/#ez8JYTogYn0=) reads `{?\ta: b}` as
+The [reference parser](https://play.yaml.com/#ez8JYTogYn0=) reads the flow form as
 `+MAP`, `=VAL :a`, `=VAL :b`, `-MAP`; [the block form](https://play.yaml.com/#PwlrZXkKOiB2YWx1ZQo=)
 emits `+MAP`, `=VAL :key`, `=VAL :value`, `-MAP`. Tabs used as indentation remain invalid.
 
