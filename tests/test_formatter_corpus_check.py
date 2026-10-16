@@ -302,10 +302,10 @@ def test_each_hash_pair_must_be_hit_to_avoid_staleness(tmp_path: Path) -> None:
 def test_manifest_selects_only_the_active_profile_waivers() -> None:
     name = "johnkoht/hassio-config"
     standard = gate._manifest([name], gate.Profile.STANDARD)[0]
-    block = gate._manifest([name], gate.Profile.BLOCK_CRLF)[0]
+    flow = gate._manifest([name], gate.Profile.FLOW_NARROW)[0]
     assert len(standard.yaml12_known_errors) == 1
-    assert len(block.yaml12_known_errors) == 4
-    assert standard.yaml12_known_errors.isdisjoint(block.yaml12_known_errors)
+    assert len(flow.yaml12_known_errors) == 1
+    assert standard.yaml12_known_errors.isdisjoint(flow.yaml12_known_errors)
     result = gate.Result(
         repo=name,
         mode=gate.Mode.DEFAULT,
