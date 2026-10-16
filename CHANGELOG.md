@@ -18,6 +18,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- The SchemaStore copy of the TOML config schema drops schemars' integer `format`
+  values, which SchemaStore's validator rejects.
+  ([#725](https://github.com/owenlamont/ryl/pull/725))
 - The quick start leads with `--enable`, inline TOML via `-d` and copying a preset
   into `.ryl.toml` instead of the deprecated YAML `extends: default`, and marks YAML
   config deprecated where it remains.
