@@ -23,10 +23,12 @@ the scenes:
   tables below *are* the presets, so copy the one you want into your
   `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
   one explicit config.
-- **YAML config:** a YAML config may `extends:` a
+- **YAML config (deprecated):** a YAML config may `extends:` a
   built-in preset (`default`, `relaxed`, `empty`) or another config file, and
   ryl merges the inherited settings in (with overrides under `rules:`). This
-  inheritance is available in YAML config; TOML config is self-contained.
+  inheritance is available in YAML config; TOML config is self-contained. See
+  [Migrating from yamllint](getting-started/migrating-from-yamllint.md) to
+  convert a YAML config to TOML.
 
 These TOML presets mirror the built-in YAML presets in `ryl` (`default`,
 `relaxed`, `empty`) in `src/config/legacy_yaml.rs`.

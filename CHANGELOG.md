@@ -11,6 +11,13 @@ summarize user-visible changes from the tagged commits and published release rec
   free-threaded 3.15t wheels.
   ([#726](https://github.com/owenlamont/ryl/issues/726))
 
+### Fixed
+
+- The quick start leads with `--enable`, inline TOML via `-d` and copying a preset
+  into `.ryl.toml` instead of the deprecated YAML `extends: default`, and marks YAML
+  config deprecated where it remains.
+  ([#731](https://github.com/owenlamont/ryl/issues/731))
+
 ## v0.25.0 - 2026-10-16
 
 ### Added

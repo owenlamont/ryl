@@ -69,7 +69,7 @@ documents:
 | --- | --- |
 | `enable` (bool, default `true`) | `false` turns ryl off: no diagnostics, no actions |
 | `configPath` (string) | Use this config file instead of discovering one (like `ryl check -c`) |
-| `configData` (string) | Inline YAML config text, highest precedence (like `ryl check -d`) |
+| `configData` (string) | Inline config text (TOML, or deprecated YAML), highest precedence (like `ryl check -d`) |
 
 These are the same precedence as the CLI: `configData` > `configPath` > the discovered
 project/user config.
