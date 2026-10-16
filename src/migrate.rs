@@ -260,7 +260,7 @@ fn discover_configs(root: &Path, is_config: fn(&Path) -> bool) -> Vec<PathBuf> {
 
 /// Whether `path`'s final component is a symlink (does not resolve parents), matching the
 /// `--fix`/`--diff` symlink check.
-fn is_symlink(path: &Path) -> bool {
+pub(crate) fn is_symlink(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 

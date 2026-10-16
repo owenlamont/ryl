@@ -219,6 +219,94 @@ fn migrate_reports_legacy_pyproject_without_rewriting_it() {
 }
 
 #[test]
+fn pyproject_deprecation_says_to_move_the_key_by_hand() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("pyproject.toml"),
+        "[tool.ryl.rules]\ntruthy = \"enable\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("a.yaml"), DOC).unwrap();
+    let (_, _, stderr) = check(dir.path(), &[]);
+    assert!(
+        stderr.contains(
+            "`rules` is deprecated; use `lint.rules` instead (move it to \
+             `tool.ryl.lint.rules` by hand)"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn deprecation_names_no_command_for_a_source_migration_cannot_rewrite() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("lint.toml"), LEGACY).unwrap();
+    fs::write(dir.path().join("a.yaml"), DOC).unwrap();
+    for source in [["-d", LEGACY], ["-c", "lint.toml"]] {
+        let (_, _, stderr) = check(dir.path(), &source);
+        assert!(
+            stderr.contains("`rules` is deprecated; use `lint.rules` instead\n"),
+            "{source:?}: {stderr}"
+        );
+        assert!(!stderr.contains("--migrate"), "{source:?}: {stderr}");
+    }
+}
+
+#[test]
+fn deprecation_hint_uses_a_placeholder_for_a_path_with_a_space() {
+    let dir = tempdir().unwrap();
+    let project = dir.path().join("space dir");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join(".ryl.toml"), LEGACY).unwrap();
+    fs::write(project.join("a.yaml"), DOC).unwrap();
+    let (_, _, stderr) = check(&project, &[]);
+    assert!(
+        stderr.contains(
+            "(run `ryl --migrate-configs --migrate-write --migrate-root <path to this \
+             config>` to update)"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn deprecation_hint_migrates_a_config_outside_the_working_directory() {
+    for (config, content) in [
+        (".ryl.toml", LEGACY),
+        (".yamllint", "rules:\n  trailing-spaces: enable\n"),
+    ] {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("proj");
+        let elsewhere = dir.path().join("elsewhere");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(&elsewhere).unwrap();
+        fs::write(project.join(config), content).unwrap();
+        fs::write(project.join("a.yaml"), DOC).unwrap();
+        let relative_config = format!("../proj/{config}");
+        let (_, _, stderr) = run(ryl(dir.path()).current_dir(&elsewhere).args([
+            "check",
+            "-c",
+            &relative_config,
+            "../proj/a.yaml",
+        ]));
+        let hint = stderr
+            .split('`')
+            .find(|part| part.starts_with("ryl --migrate-configs"))
+            .unwrap_or_else(|| panic!("no migrate command in: {stderr}"));
+        let (code, stdout, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .args(hint.split_whitespace().skip(1)));
+        assert_eq!(code, 0, "{hint}: stdout={stdout} stderr={stderr}");
+        assert!(
+            fs::read_to_string(project.join(".ryl.toml"))
+                .unwrap()
+                .contains("[lint.rules]"),
+            "{config}: {hint}: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn migrate_skips_an_unparsable_toml_config_with_a_warning() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("ryl.toml"), "rules = [\n").unwrap();
@@ -252,6 +340,15 @@ fn migrate_skips_a_symlinked_legacy_toml() {
         dir.path().join("ryl.toml"),
     )
     .unwrap();
+    fs::write(dir.path().join("a.yaml"), DOC).unwrap();
+    let (_, _, stderr) = check(dir.path(), &[]);
+    assert!(
+        stderr.contains(
+            "instead (migration skips symlinks: edit the link's target by hand)"
+        ),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("--migrate"), "{stderr}");
     let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stderr.contains("refusing to follow a symlink"), "{stderr}");
@@ -427,7 +524,7 @@ fn user_global_deprecation_names_the_user_config_migration() {
     assert!(
         stderr.contains(
             "`rules` is deprecated; use `lint.rules` instead (run \
-             `ryl --migrate-user-config` to update)"
+             `ryl --migrate-user-config --migrate-write` to update)"
         ),
         "{stderr}"
     );

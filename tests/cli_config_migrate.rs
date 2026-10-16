@@ -29,6 +29,12 @@ fn migrate_configs_dry_run_does_not_write_files() {
         .arg(root));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(stdout.contains(".yamllint ->"));
+    assert!(
+        stdout.contains(
+            "`--migrate-stdout` to see the migrated content, or `--migrate-write`"
+        ),
+        "{stdout}"
+    );
     assert!(!root.join(".ryl.toml").exists());
 }
 
@@ -180,6 +186,7 @@ fn migrate_configs_empty_default_root_prints_no_configs_message() {
         .arg("--migrate-configs"));
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(stdout.contains("No legacy config files migrated under"));
+    assert!(!stdout.contains("Preview only"), "{stdout}");
 }
 
 #[test]
@@ -199,6 +206,7 @@ fn migrate_configs_stdout_prints_generated_toml() {
     assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
     assert!(stdout.contains("# "));
     assert!(stdout.contains("[lint.rules]"));
+    assert!(!stdout.contains("Preview only"), "{stdout}");
 }
 
 #[test]
@@ -515,9 +523,8 @@ fn a_dotdot_spelling_of_one_project_config_warns_once() {
     );
 }
 
-#[cfg(unix)]
 #[test]
-fn the_config_file_hint_runs_as_written_for_a_path_with_a_space() {
+fn the_config_file_hint_uses_a_placeholder_for_a_path_with_a_space() {
     let td = tempdir().unwrap();
     let dir = td.path().join("space dir");
     fs::create_dir_all(&dir).unwrap();
@@ -531,14 +538,10 @@ fn the_config_file_hint_runs_as_written_for_a_path_with_a_space() {
         .arg("-c")
         .arg(&config)
         .arg(&file));
-    let hint = stderr
-        .split('`')
-        .find(|part| part.starts_with("ryl --migrate-configs"))
-        .unwrap_or_else(|| panic!("no migrate command in: {stderr}"));
-    let script = format!("'{exe}'{}", hint.strip_prefix("ryl").unwrap());
-    let (code, stdout, stderr) = run(Command::new("sh").arg("-c").arg(&script));
-    assert_eq!(code, 0, "{script}: stdout={stdout} stderr={stderr}");
-    assert!(dir.join("lint.toml").exists(), "{script}: {stdout}");
+    assert!(
+        stderr.contains("--migrate-root <path to this config>` and pass"),
+        "{stderr}"
+    );
 }
 
 /// Two projects whose `.yamllint` symlinks to one shared file anchored at `/nested/`.
@@ -589,4 +592,12 @@ fn a_symlinked_shared_config_anchors_at_each_project() {
         1,
         "one shared file warns once: {stderr}"
     );
+    assert!(
+        stderr.contains(
+            "yamllint YAML config is deprecated; migration skips symlinks: edit the \
+             link's target by hand"
+        ),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("--migrate"), "{stderr}");
 }

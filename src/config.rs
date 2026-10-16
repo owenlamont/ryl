@@ -1467,17 +1467,38 @@ fn finalize_context(
     cfg.finalize(envx, &base_dir)?;
     cfg.source.clone_from(&source);
     let config_path = source.as_deref().unwrap_or_else(|| Path::new("config"));
-    let migrate_command =
-        if ryl_user_global_dir(envx).as_deref() == config_path.parent() {
-            "ryl --migrate-user-config"
-        } else {
-            "ryl --migrate-configs"
+    let file_name = source
+        .as_deref()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str());
+    let symlink = source.as_deref().is_some_and(crate::migrate::is_symlink);
+    // Mirrors the files the migrator rewrites; it only reports pyproject.toml.
+    let migrate_command = match file_name {
+        _ if symlink => None,
+        Some(".ryl.toml" | "ryl.toml")
+            if ryl_user_global_dir(envx).as_deref() == config_path.parent() =>
+        {
+            Some("ryl --migrate-user-config --migrate-write".to_owned())
+        }
+        Some(".ryl.toml" | "ryl.toml") => Some(format!(
+            "ryl --migrate-configs --migrate-write --migrate-root {}",
+            migrate_root(config_path, &envx.current_dir())
+        )),
+        _ => None,
+    };
+    notices.extend(cfg.deprecated_keys.iter().map(|used| {
+        let remedy = match (&migrate_command, file_name) {
+            (Some(command), _) => format!(" (run `{command}` to update)"),
+            (None, Some("pyproject.toml")) => {
+                format!(" (move it to `tool.ryl.{}` by hand)", used.key.replacement)
+            }
+            (None, _) if symlink => {
+                format!(" ({SKIPS_SYMLINKS})")
+            }
+            (None, _) => String::new(),
         };
-    notices.extend(
-        cfg.deprecated_keys
-            .iter()
-            .map(|used| deprecation_notice(config_path, migrate_command, *used)),
-    );
+        deprecation_notice(config_path, &remedy, *used)
+    }));
     Ok(ConfigContext {
         config: cfg,
         base_dir,
@@ -1489,7 +1510,7 @@ fn finalize_context(
 
 fn deprecation_notice(
     config_path: &Path,
-    migrate_command: &str,
+    remedy: &str,
     used: DeprecatedKeyUse,
 ) -> String {
     let DeprecatedKey {
@@ -1503,13 +1524,16 @@ fn deprecation_notice(
         )
     } else {
         format!(
-            "warning: {path}: `{key}` is deprecated; use `{replacement}` instead (run \
-             `{migrate_command}` to update)"
+            "warning: {path}: `{key}` is deprecated; use `{replacement}` instead{remedy}"
         )
     }
 }
 
-fn legacy_yaml_notice(source: LegacyYamlSource, path: Option<&Path>) -> String {
+fn legacy_yaml_notice(
+    envx: &dyn Env,
+    source: LegacyYamlSource,
+    path: Option<&Path>,
+) -> String {
     let row = LEGACY_YAML_SOURCES
         .iter()
         .find(|row| row.source == source)
@@ -1518,21 +1542,37 @@ fn legacy_yaml_notice(source: LegacyYamlSource, path: Option<&Path>) -> String {
         || "-d/--config-data".to_string(),
         |path| path.display().to_string(),
     );
-    format!(
-        "warning: {label}: yamllint YAML config is deprecated; {}",
-        row.replacement.replace("{path}", &shell_word(&label))
-    )
+    let remedy = match path {
+        Some(path) if crate::migrate::is_symlink(path) => SKIPS_SYMLINKS.to_owned(),
+        _ => row.replacement.replace(
+            "{path}",
+            &path.map_or_else(String::new, |path| {
+                migrate_root(path, &envx.current_dir())
+            }),
+        ),
+    };
+    format!("warning: {label}: yamllint YAML config is deprecated; {remedy}")
 }
 
-/// `text` as one shell word: single-quoted, POSIX-style, unless every character is inert.
-fn shell_word(text: &str) -> String {
+const SKIPS_SYMLINKS: &str = "migration skips symlinks: edit the link's target by hand";
+
+/// `path` resolved against `cwd` with `/` separators, so the command runs from any
+/// directory, or a placeholder where a POSIX shell or PowerShell would need it quoted
+/// (both read these characters literally, `~` too since an absolute path never starts
+/// with it; POSIX eats `\`).
+fn migrate_root(path: &Path, cwd: &Path) -> String {
+    let text = cwd
+        .join(path)
+        .display()
+        .to_string()
+        .replace(std::path::MAIN_SEPARATOR, "/");
     if text
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-+:,=@".contains(c))
+        .all(|c| c.is_ascii_alphanumeric() || "/._-:~".contains(c))
     {
-        text.to_owned()
+        text
     } else {
-        format!("'{}'", text.replace('\'', "'\\''"))
+        "<path to this config>".to_owned()
     }
 }
 
@@ -1575,7 +1615,8 @@ pub fn discover_config_with(
             return finalize_context(envx, cfg, base_dir, None, Vec::new(), true);
         }
         let cfg = legacy_yaml::parse(data, Some(envx), Some(&base_dir))?;
-        let notices = vec![legacy_yaml_notice(LegacyYamlSource::ConfigData, None)];
+        let notices =
+            vec![legacy_yaml_notice(envx, LegacyYamlSource::ConfigData, None)];
         return finalize_context(envx, cfg, base_dir, None, notices, true);
     }
     if let Some(ref file) = overrides.config_file {
@@ -1751,7 +1792,7 @@ fn ctx_from_config_path_core(
 ) -> Result<ConfigContext, String> {
     let base = config_base_dir(envx, p);
     if !is_toml_path_with_case(p, envx.case_insensitive_paths()) {
-        notices.push(legacy_yaml_notice(origin, Some(p)));
+        notices.push(legacy_yaml_notice(envx, origin, Some(p)));
     }
     let allow_missing_pyproject = origin == LegacyYamlSource::Project;
     let cfg = load_config_from_path_core(envx, p, &base, allow_missing_pyproject)?
@@ -1869,8 +1910,11 @@ fn try_yamllint_user_global_core(
         .map(|p| {
             let data = envx.read_to_string(&p)?;
             let cfg = legacy_yaml::parse(&data, Some(envx), Some(base_dir))?;
-            let notices =
-                vec![legacy_yaml_notice(LegacyYamlSource::UserGlobal, Some(&p))];
+            let notices = vec![legacy_yaml_notice(
+                envx,
+                LegacyYamlSource::UserGlobal,
+                Some(&p),
+            )];
             finalize_context(envx, cfg, base_dir.to_path_buf(), Some(p), notices, true)
         })
         .transpose()

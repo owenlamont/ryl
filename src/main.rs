@@ -223,6 +223,12 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
             println!("No user-global config migrated.");
         }
     }
+    if !cli.migrate.write && !cli.migrate.stdout && !result.entries.is_empty() {
+        println!(
+            "Preview only: add `--migrate-stdout` to see the migrated content, or \
+             `--migrate-write` to apply it."
+        );
+    }
     if options.output_mode == MigrateOutputMode::IncludeToml {
         for entry in &result.entries {
             println!(

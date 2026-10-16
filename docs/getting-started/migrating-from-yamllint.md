@@ -25,8 +25,11 @@ prints a warning to stderr.
 ryl ships with a built-in converter. From the root of your project:
 
 ```bash
-# Preview the converted TOML (no files written)
+# List the configs that would be converted (no files written)
 ryl --migrate-configs
+
+# Print the converted TOML (no files written)
+ryl --migrate-configs --migrate-stdout
 
 # Write .ryl.toml next to each discovered .yamllint file
 ryl --migrate-configs --migrate-write
@@ -54,7 +57,8 @@ ryl --migrate-configs --migrate-user-config --migrate-write
 ```
 
 Until YAML config is removed, ryl still reads `<config-dir>/yamllint/config`
-directly, with a deprecation warning naming `ryl --migrate-user-config`.
+directly, with a deprecation warning naming
+`ryl --migrate-user-config --migrate-write`.
 
 Useful flags:
 
