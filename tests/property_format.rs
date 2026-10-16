@@ -1446,6 +1446,11 @@ fn representation_tells_apart_what_value_preservation_forbids() {
         ("- |+\n   ", "- |+\n"),
         ("a: |2+\n  |\n   ", "a: |2+\n  |\n"),
         ("a: |+\n  x\n  ", "a: |+\n  y\n"),
+        ("a: >1\n\n\n# tail\n", "a: |1\n\n\n# tail\n"),
+        (
+            "outer:\n  a: |-1\n   x\n\n\n     ",
+            "outer:\n  a: >-1\n   x\n\n\n     ",
+        ),
     ] {
         assert_ne!(
             representation(left),
@@ -1647,6 +1652,21 @@ fn folded_interior_blank_line_matches_one_literal_break() {
         assert!(check_values(&folded, &changed.replace('\n', ending)).is_err());
         check_values(&folded, &same.replace('\n', ending)).unwrap();
     }
+}
+
+#[test]
+fn folded_terminal_blank_run_matches_reference() {
+    for blanks in 0..=3 {
+        let suffix = format!("{}     ", "\n".repeat(blanks));
+        let literal = format!("outer:\n  a: |-1\n   x\n{suffix}");
+        let folded = format!("outer:\n  a: >-1\n   x\n{suffix}");
+        assert_eq!(
+            check_values(&literal, &folded).is_ok(),
+            blanks < 2,
+            "{blanks} blank lines"
+        );
+    }
+    check_values(">\n  x\n\n\n\n  ", ">\n  x\n").unwrap();
 }
 
 #[test]
