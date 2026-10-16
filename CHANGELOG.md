@@ -3,6 +3,14 @@
 Release dates below use the GitHub release publication date in UTC. Historical entries
 summarize user-visible changes from the tagged commits and published release records.
 
+## Unreleased
+
+### Changed
+
+- The PyPI package declares Python 3.15, and releases smoke-test 3.15 and
+  free-threaded 3.15t wheels.
+  ([#726](https://github.com/owenlamont/ryl/issues/726))
+
 ## v0.25.0 - 2026-10-16
 
 ### Added
