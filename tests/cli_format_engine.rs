@@ -786,7 +786,11 @@ fn stdin_formats_to_stdout_and_check_explains() {
     let config = config.to_str().unwrap();
     let run_stdin = |args: &[&str], input: &[u8]| {
         let out = stdin_output(
-            ryl(dir.path()).arg("format").args(args).arg("-"),
+            ryl(dir.path())
+                .current_dir(dir.path())
+                .arg("format")
+                .args(args)
+                .arg("-"),
             input,
             |_| {},
         );
