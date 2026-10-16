@@ -589,3 +589,14 @@ def test_quoted_to_typed_scalar_before_an_eof_block_scalar_still_fails() -> None
     before = b'a: "128"\nd: |\n  t\n'
     after = b"a: 128\nd: |\n  t\n"
     assert gate._compare12(before, after) is gate.Loaded.UNEQUAL
+
+
+def test_reference_events_keep_output_past_64_kib(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parser = tmp_path / "yaml-parser"
+    script = 'process.stdout.write("=VAL :x\\n".repeat(20000)); process.exit(0);'
+    parser.write_text(script)
+    events = sys.modules["reference_events"]
+    monkeypatch.setattr(events, "_PARSER", parser)
+    assert len(events._events("a: 1\n")) == 20000

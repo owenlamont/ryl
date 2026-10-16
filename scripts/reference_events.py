@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import tempfile
 
 
 _PARSER = Path(
@@ -29,22 +30,27 @@ def _events(source: str) -> list[str] | None:
     if not _PARSER.is_file() or node is None:
         return None
     source = source.replace("\r\n", "\n").replace("\r", "\n")
-    try:
-        proc = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
-            [node, str(_PARSER), "--events"],
-            input=source,
-            text=True,
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if proc.returncode:
-        return None
+    # Node truncates piped stdout at 64 KiB when the CLI exits; a file gets all of it.
+    with tempfile.TemporaryFile("w+", encoding="utf-8") as out:
+        try:
+            proc = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+                [node, str(_PARSER), "--events"],
+                input=source.encode("utf-8"),
+                stdout=out,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if proc.returncode:
+            return None
+        out.seek(0)
+        lines = out.read().split("\n")
     return [
         line.split(" ", 1)[0] if line.startswith(("+DOC", "-DOC")) else line
-        for line in proc.stdout.splitlines()
+        for line in lines
+        if line
     ]
 
 
