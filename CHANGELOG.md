@@ -3,7 +3,7 @@
 Release dates below use the GitHub release publication date in UTC. Historical entries
 summarize user-visible changes from the tagged commits and published release records.
 
-## Unreleased
+## v0.25.1 - 2026-10-16
 
 ### Changed
 
@@ -14,6 +14,7 @@ summarize user-visible changes from the tagged commits and published release rec
   and running a hook with `--verbose` to see config deprecation warnings.
   ([#730](https://github.com/owenlamont/ryl/issues/730),
   [#729](https://github.com/owenlamont/ryl/issues/729))
+- The ryl agent skill names the `ryl-check` and `ryl-format` pre-commit hooks.
 
 ### Fixed
 
