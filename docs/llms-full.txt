@@ -3671,7 +3671,7 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 - **User-global migration refuses relative `ignore-from-file`.** Its meaning depends on each linted file's directory, so one relocated TOML config cannot preserve it. [Decision](https://github.com/owenlamont/ryl/pull/630), [guide](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#what-is-preserved)
 - **Migration preserves disabled formatting intent.** A legacy rule that did not enforce a layout choice becomes an appropriate preserve target, avoiding a new formatting change. [Decision](https://github.com/owenlamont/ryl/pull/556)
 - **Top-level TOML file exclusion uses `exclude`.** `ignore` and `ignore-from-file` are deprecated there, while yamllint YAML and per-rule ignore spellings retain their meanings. [Decision](https://github.com/owenlamont/ryl/pull/608)
-- **Path matching follows the platform.** Configured paths compare case-insensitively on Windows and macOS and case-sensitively on Linux. [Decision](https://github.com/owenlamont/ryl/pull/653)
+- **Path matching follows the platform.** Configured paths compare ASCII case-insensitively on Windows and macOS and case-sensitively on Linux. [Decision](https://github.com/owenlamont/ryl/pull/653)
 - **Documentation examples use the real config loader.** CI validates examples through finalized configuration so misspelled rules and options fail. [Decision](https://github.com/owenlamont/ryl/pull/357)
 
 ## Rules
