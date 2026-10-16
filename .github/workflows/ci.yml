@@ -77,13 +77,13 @@ jobs:
 
       - name: Replay saved property seeds
         env:
-          PROPTEST_CASES: "0"
+          PROPTEST_CASES: '0'
         run: cargo nextest run --test 'property_*'
 
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
         env:
-          PROPTEST_CASES: "0"
-          PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
+          PROPTEST_CASES: '0'
+          PROPTEST_DISABLE_FAILURE_PERSISTENCE: '1'
         run: |-
           set -euo pipefail
           # Run the suite once; every report below is derived from this single run's
@@ -157,7 +157,7 @@ jobs:
         include:
           - name: windows-tests
             os: windows-latest
-            cargo-args: ""
+            cargo-args: ''
           - name: linux-cli-tests
             os: ubuntu-latest
             cargo-args: --no-default-features
@@ -193,7 +193,7 @@ jobs:
 
       - name: Run tests
         env:
-          PROPTEST_CASES: "0"
+          PROPTEST_CASES: '0'
         run: cargo nextest run ${{ matrix.cargo-args }}
 
   coverage-comment:

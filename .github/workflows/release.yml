@@ -2,11 +2,11 @@ name: Release Crate and Wheels
 
 on:
   push:
-    tags: ['v*']
+    tags: [v*]
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish to PyPI and crates.io"
+        description: Publish to PyPI and crates.io
         type: boolean
         required: false
         default: false
@@ -17,7 +17,7 @@ permissions:
 # Retry transient crates.io fetches across the cargo build/publish steps so a
 # network blip does not fail the release run.
 env:
-  CARGO_NET_RETRY: "10"
+  CARGO_NET_RETRY: '10'
 
 jobs:
   version-check:
@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python: ["3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
+        python: ['3.11', '3.12', '3.13', '3.14', 3.14t, '3.15', 3.15t]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -227,7 +227,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python_image: ["3.11-alpine", "3.12-alpine", "3.13-alpine", "3.14-alpine", "3.15-alpine"]
+        python_image: [3.11-alpine, 3.12-alpine, 3.13-alpine, 3.14-alpine, 3.15-alpine]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -274,7 +274,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
+        python: ['3.11', '3.12', '3.13', '3.14', 3.14t, '3.15', 3.15t]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -330,7 +330,7 @@ jobs:
     strategy:
       matrix:
         runner: [macos-latest]
-        python: ["3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
+        python: ['3.11', '3.12', '3.13', '3.14', 3.14t, '3.15', 3.15t]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -481,7 +481,7 @@ jobs:
       - name: Generate release asset attestation
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
-          subject-path: 'release-assets/*'
+          subject-path: release-assets/*
       # Publish one authoritative SHA256SUMS covering every per-target archive so
       # downstream consumers (the ryl-vscode extension, package managers, manual
       # installers) can verify and regenerate the hashes. Generated after the attestation
@@ -671,7 +671,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
-          subject-path: 'dist/*'
+          subject-path: dist/*
       - name: Publish to PyPI (Trusted Publishing)
         if: steps.pypi_exists.outputs.already_published != 'true'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
@@ -701,7 +701,7 @@ jobs:
           path: release-assets
       - name: Build npm package directories
         run: python3 scripts/build_npm_packages.py --assets-dir release-assets --out-dir dist/npm
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '24'
       - name: Pack npm packages
@@ -756,10 +756,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: https://registry.npmjs.org
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: npm-packages
@@ -854,10 +854,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: https://registry.npmjs.org
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: npm-packages
