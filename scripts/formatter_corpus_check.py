@@ -84,14 +84,14 @@ _DEFAULT_LINT_RULES: Final = (
     "new-line-at-end-of-file,new-lines,trailing-spaces,truthy"
 )
 _SKIP_RE: Final = re.compile(r"^(.+?):\d+:\d+ skipped by ")
-RULE_RE: Final = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
+_RULE_RE: Final = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 # `unreadable` means a side is not UTF-8, so the Rust oracle could not judge the pair.
 _RUST_PASSES: Final = frozenset({"ok", "unreadable"})
 _DEFAULT_CACHE: Final = Path(platformdirs.user_cache_dir("ryl-corpus"))
 KnownError = tuple[str, str, str]
 
 
-def _values_equal(a: object, b: object) -> bool:
+def _values_equal(a: Any, b: Any) -> bool:
     if isinstance(a, float) and isinstance(b, float):
         return a == b or (math.isnan(a) and math.isnan(b))
     if type(a) is not type(b):
@@ -294,7 +294,7 @@ def _rule_counts(output: str) -> Counter[str]:
     return Counter(
         m.group(1)
         for line in output.splitlines()
-        if (m := RULE_RE.search(line)) and m.group(1) != "syntax"
+        if (m := _RULE_RE.search(line)) and m.group(1) != "syntax"
     )
 
 
