@@ -20,8 +20,9 @@ ryl lints and formats YAML files
 - Code maintainability is the top priority: a new agent should get all needed context
   from the docs and code with no surprising behaviour (the pit-of-success principle —
   the most likely way to do something is also the correct way).
-- Before taking on a feature request, check it against `docs/scope.md` (what ryl
-  declines and why); a request it rules out goes back to the maintainer, not to code.
+- Before a feature request, check [`docs/scope.md`](docs/scope.md) and the public
+  [design decisions](docs/design/decisions.md). Bring requests outside scope to the
+  maintainer.
 - Before implementing a new or changed rule — or any non-trivial feature — propose a
   short plan and agree the approach before writing code; don't jump straight to
   implementation.
@@ -86,11 +87,8 @@ ryl lints and formats YAML files
 
 ## Dev Skills
 
-Task-scoped procedures and reference material live as on-demand skills in
-`.agents/skills/` (the shared project-scope skills dir most non-Claude agents auto-load);
-load the matching one when its task comes up rather than carrying it in this always-on
-file. Each is a self-contained `SKILL.md`; `coverage` also carries a `uv`-runnable
-helper script.
+Task-scoped procedures live in `.agents/skills/`; load the matching skill when
+needed. Each has a `SKILL.md`; `coverage` also has a `uv`-runnable helper.
 
 Working on the codebase:
 
