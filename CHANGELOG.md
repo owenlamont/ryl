@@ -10,6 +10,10 @@ summarize user-visible changes from the tagged commits and published release rec
 - The PyPI package declares Python 3.15, and releases smoke-test 3.15 and
   free-threaded 3.15t wheels.
   ([#726](https://github.com/owenlamont/ryl/issues/726))
+- A new pre-commit and prek docs page covers the `ryl-check` and `ryl-format` hooks
+  and running a hook with `--verbose` to see config deprecation warnings.
+  ([#730](https://github.com/owenlamont/ryl/issues/730),
+  [#729](https://github.com/owenlamont/ryl/issues/729))
 
 ### Fixed
 

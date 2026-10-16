@@ -188,37 +188,20 @@ also be turned on for a single run from the command line:
 
 ## Use with pre-commit
 
-`ryl` is published as a pre-commit hook at
-[ryl-pre-commit](https://github.com/owenlamont/ryl-pre-commit). The default `ryl`
-hook only sees YAML files. To also lint YAML embedded in Markdown, add the
-dedicated `ryl-markdown` hook — it runs `ryl check --markdown`, so it needs **no**
-`[files]` config:
+The `ryl-check-markdown` and `ryl-format-markdown` hooks run `ryl check --markdown`
+and `ryl format --markdown` on `.md`, `.markdown`, `.mdx`, `.qmd`, and `.Rmd` files,
+so they need **no** `[files]` config. [pre-commit and prek](pre-commit.md) has the
+full setup.
+
+Prefer a single hook? You can instead widen `ryl-check` to also pass Markdown files
+and opt them in via `[files]`:
 
 ```yaml
 - repo: https://github.com/owenlamont/ryl-pre-commit
-  rev: v0.11.0
+  rev: v0.25.0
   hooks:
-    - id: ryl
-    - id: ryl-markdown
-```
-
-The `ryl-markdown` hook targets `.md`, `.markdown`, `.mdx`, `.qmd`, and `.Rmd`
-files and requires `ryl >= 0.11.0`. To autofix the embedded YAML in place, add
-`args: [--fix]`:
-
-```yaml
-    - id: ryl-markdown
-      args: [--fix]
-```
-
-Prefer a single hook? You can instead widen the plain `ryl` hook to also pass
-Markdown files and opt them in via `[files]`:
-
-```yaml
-- repo: https://github.com/owenlamont/ryl-pre-commit
-  rev: v0.11.0
-  hooks:
-    - id: ryl
+    - id: ryl-check
+      types: [file] # replaces the hook's own types: [yaml]
       types_or: [yaml, markdown]
 ```
 
