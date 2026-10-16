@@ -35,7 +35,9 @@ from enum import StrEnum
 import fnmatch
 from functools import partial
 import hashlib
+from itertools import starmap
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -45,7 +47,6 @@ import time
 import tomllib
 from typing import Annotated, Any, Final
 
-from formatter_compat import RULE_RE, values_equal
 import platformdirs
 from reference_events import reference_equal
 import typer
@@ -83,10 +84,23 @@ _DEFAULT_LINT_RULES: Final = (
     "new-line-at-end-of-file,new-lines,trailing-spaces,truthy"
 )
 _SKIP_RE: Final = re.compile(r"^(.+?):\d+:\d+ skipped by ")
+RULE_RE: Final = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 # `unreadable` means a side is not UTF-8, so the Rust oracle could not judge the pair.
 _RUST_PASSES: Final = frozenset({"ok", "unreadable"})
 _DEFAULT_CACHE: Final = Path(platformdirs.user_cache_dir("ryl-corpus"))
 KnownError = tuple[str, str, str]
+
+
+def _values_equal(a: object, b: object) -> bool:
+    if isinstance(a, float) and isinstance(b, float):
+        return a == b or (math.isnan(a) and math.isnan(b))
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(_values_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list):
+        return len(a) == len(b) and all(starmap(_values_equal, zip(a, b, strict=False)))
+    return a == b
 
 
 class CorpusError(Exception):
@@ -294,7 +308,7 @@ def _load11(data: bytes) -> Any:
 
 def _compare(load: Callable[[bytes], Any], before: bytes, after: bytes) -> Loaded:
     try:
-        equal = values_equal(load(before), load(after))
+        equal = _values_equal(load(before), load(after))
     except (ValueError, RecursionError, yaml.YAMLError):
         return Loaded.UNAVAILABLE
     return Loaded.EQUAL if equal else Loaded.UNEQUAL
