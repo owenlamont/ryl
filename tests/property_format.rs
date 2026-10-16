@@ -1656,17 +1656,29 @@ fn folded_interior_blank_line_matches_one_literal_break() {
 
 #[test]
 fn folded_terminal_blank_run_matches_reference() {
-    for blanks in 0..=3 {
-        let suffix = format!("{}     ", "\n".repeat(blanks));
-        let literal = format!("outer:\n  a: |-1\n   x\n{suffix}");
-        let folded = format!("outer:\n  a: >-1\n   x\n{suffix}");
-        assert_eq!(
-            check_values(&literal, &folded).is_ok(),
-            blanks < 2,
-            "{blanks} blank lines"
-        );
+    for chomp in ["-", "", "+"] {
+        for blanks in 0..=3 {
+            let suffix = format!("{}     ", "\n".repeat(blanks));
+            let literal = format!("outer:\n  a: |{chomp}1\n   x\n{suffix}");
+            let folded = format!("outer:\n  a: >{chomp}1\n   x\n{suffix}");
+            for ending in ["\n", "\r\n", "\r"] {
+                assert_eq!(
+                    check_values(
+                        &literal.replace('\n', ending),
+                        &folded.replace('\n', ending)
+                    )
+                    .is_ok(),
+                    blanks < 2,
+                    "{literal:?} -> {folded:?} with {ending:?}"
+                );
+            }
+        }
     }
     check_values(">\n  x\n\n\n\n  ", ">\n  x\n").unwrap();
+    check_values("a: >\n  x\n   y\n\n\n   ", "a: |\n  x\n   y\n\n\n   ").unwrap();
+    for pass in format_passes() {
+        check_pass(pass, "a: >-\n  x\n\n\n  ").unwrap();
+    }
     assert!(
         check_values(
             "outer:\n  a: |-1\n   x\n\n\n     \n",

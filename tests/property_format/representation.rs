@@ -628,12 +628,15 @@ pub(super) fn reference_terminal_block_value(
         .take_while(|(text, _)| text.trim().is_empty())
         .count();
     if style == ScalarStyle::Folded
-        && indicator.contains('-')
         && final_blank_run >= 3
-        && body.last().is_some_and(|line| {
-            line.trim().is_empty()
-                && line.bytes().take_while(|byte| *byte == b' ').count() >= indent
-        })
+        && chunks
+            .iter()
+            .rev()
+            .find(|(text, _)| !text.trim().is_empty())
+            .is_some_and(|(text, _)| !text.starts_with([' ', '\t']))
+        && chunks
+            .last()
+            .is_some_and(|(text, _)| !text.is_empty() && text.trim().is_empty())
     {
         let tail_len = chunks.last()?.0.len();
         let at = value.len().checked_sub(tail_len)?;
