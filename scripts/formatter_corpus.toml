@@ -17,7 +17,6 @@ sha = "ab41ba85f05b872f075f98ca1436d06fda68fc6a"
 note = "Helm: template skip rate, comment-heavy values.yaml, large CRDs"
 expected-skip = ["**/templates/**"]
 
-# py-yaml12 misreads CRLF and collection-style changes.
 [[repo]]
 url = "https://github.com/bitnami/charts"
 sha = "bb5e98a6e3c5ca196420d2414769b681c9284101"
