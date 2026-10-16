@@ -201,6 +201,7 @@ and opt them in via `[files]`:
   rev: v0.25.0
   hooks:
     - id: ryl-check
+      types: [file] # replaces the hook's own types: [yaml]
       types_or: [yaml, markdown]
 ```
 
