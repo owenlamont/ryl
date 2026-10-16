@@ -194,12 +194,13 @@ fn printed_schemastore_toml_schema() -> Value {
     serde_json::from_str(&stdout).expect("schema output should be JSON")
 }
 
-fn schema_contains_int64_format(node: &Value) -> bool {
+fn schema_contains_format_keyword(node: &Value) -> bool {
     match node {
         Value::Object(map) => map.iter().any(|(key, value)| {
-            (key == "format" && value == "int64") || schema_contains_int64_format(value)
+            (key == "format" && value.is_string())
+                || schema_contains_format_keyword(value)
         }),
-        Value::Array(values) => values.iter().any(schema_contains_int64_format),
+        Value::Array(values) => values.iter().any(schema_contains_format_keyword),
         _ => false,
     }
 }
@@ -425,7 +426,7 @@ fn schemastore_toml_schema_sets_expected_metadata() {
             .and_then(Value::as_object)
             .map(|definitions| definitions.len())
     );
-    assert!(!schema_contains_int64_format(&schemastore_schema));
+    assert!(!schema_contains_format_keyword(&schemastore_schema));
 }
 
 #[test]

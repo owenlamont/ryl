@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -28,7 +29,7 @@ def transform_schema(node: object) -> object:
     if isinstance(node, dict):
         transformed: dict[str, object] = {}
         for key, value in node.items():
-            if key == "format" and value == "int64":
+            if key == "format" and re.fullmatch(r"u?int\d+", str(value)):
                 continue
             target_key = "definitions" if key == "$defs" else key
             target_value = transform_schema(value)
