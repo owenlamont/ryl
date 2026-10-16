@@ -21,6 +21,15 @@ summarize user-visible changes from the tagged commits and published release rec
   into `.ryl.toml` instead of the deprecated YAML `extends: default`, and marks YAML
   config deprecated where it remains.
   ([#731](https://github.com/owenlamont/ryl/issues/731))
+- Config deprecation warnings name a command that rewrites the file from any
+  directory, `ryl --migrate-configs --migrate-write --migrate-root <config>`, instead
+  of the preview-only command. Where migration cannot rewrite it (`pyproject.toml`,
+  a symlink, inline `-d`, a custom-named file), the warning says what to do instead.
+  ([#727](https://github.com/owenlamont/ryl/issues/727))
+- A `--migrate-configs` or `--migrate-user-config` preview that lists configs now
+  ends with a hint naming `--migrate-stdout` to see the migrated content and
+  `--migrate-write` to apply it.
+  ([#728](https://github.com/owenlamont/ryl/issues/728))
 
 ## v0.25.0 - 2026-10-16
 

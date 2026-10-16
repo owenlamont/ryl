@@ -108,7 +108,7 @@ fn yamllint_user_global_names_migrate_user_config() {
         notices(&env, &Overrides::default()),
         [format!(
             "warning: {}: yamllint YAML config is deprecated; run `ryl \
-             --migrate-user-config` to convert it to ryl's own user config",
+             --migrate-user-config --migrate-write` to convert it to ryl's own user config",
             path.display()
         )]
     );

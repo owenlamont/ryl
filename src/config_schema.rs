@@ -298,7 +298,8 @@ pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
     },
     LegacyYamlDeprecation {
         source: LegacyYamlSource::UserGlobal,
-        replacement: "run `ryl --migrate-user-config` to convert it to ryl's own user config",
+        replacement: "run `ryl --migrate-user-config --migrate-write` to convert it to ryl's \
+                      own user config",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
     },
