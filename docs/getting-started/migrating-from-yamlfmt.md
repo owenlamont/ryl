@@ -48,6 +48,6 @@ yamlfmt reprints the document, including removing blank lines. ryl edits the
 existing text and keeps any construct that cannot be safely restyled. In the
 comparison, yamlfmt kept existing flow collections and quote styles; ryl's
 `sequence-style = "preserve"` and `mapping-style = "preserve"` do likewise.
-For inputs involving tags, aliases, or unusual scalars, run `ryl format --diff`
+For inputs involving tags, aliases, or unusual scalars, run `ryl format --diff .`
 before replacing the formatter: ryl retains the parsed values, comments, and
 anchors rather than matching yamlfmt's reprint at any cost.

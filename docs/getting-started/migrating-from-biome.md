@@ -1,7 +1,8 @@
 # Migrating from Biome YAML
 
-Biome 2.5.15 does not format YAML: `biome format --stdin-file-path=sample.yaml
---write` reports that the formatter is disabled and leaves the input unchanged.
+Biome 2.5.15 does not format YAML. Running
+`biome format --stdin-file-path=sample.yaml --write` reports that the formatter
+is disabled and leaves the input unchanged.
 Biome's [language support](https://biomejs.dev/introduction/language-support/)
 lists YAML formatting as pending. There is no released Biome YAML output to
 reproduce with `[format]` settings yet.

@@ -12,7 +12,7 @@
 - [Migrating from yamlfix](https://ryl-docs.pages.dev/getting-started/migrating-from-yamlfix/): `ryl format` covers most of yamlfix's options through `[format]` keys and the top-level `line-length` and `indent-width`. Replace `yamlfix .` with `ryl format .`, and `yamlfix --check .` with `ryl format --check .`.
 - [Migrating from google/yamlfmt](https://ryl-docs.pages.dev/getting-started/migrating-from-yamlfmt/): Replace `yamlfmt .` with `ryl format .` and `yamlfmt -lint .` with `ryl format --check .`. The settings below approximate the default basic formatter in google/yamlfmt 0.21.0. They were compared on the same YAML inputs with `yamlfmt -in` and `ryl format -`.
 - [Migrating from Prettier](https://ryl-docs.pages.dev/getting-started/migrating-from-prettier/): For YAML files, run `ryl format .` to write changes and `ryl format --check .` in CI. Keep Prettier for other file types. The settings below follow Prettier 3.9.10's YAML output on the same inputs used with `ryl format -`. Prettier's general options can alter the starting profile.
-- [Migrating from Biome YAML](https://ryl-docs.pages.dev/getting-started/migrating-from-biome/): Biome 2.5.15 does not format YAML: `biome format --stdin-file-path=sample.yaml
+- [Migrating from Biome YAML](https://ryl-docs.pages.dev/getting-started/migrating-from-biome/): Biome 2.5.15 does not format YAML. Running `biome format --stdin-file-path=sample.yaml --write` reports that the formatter is disabled and leaves the input unchanged. Biome's language support lists YAML formatting as pending. There is no released Biome YAML output to reproduce with `[format]` settings yet.
 
 ## Configuration
 
