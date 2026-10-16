@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -227,7 +227,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine", "3.14-alpine"]
+        python_image: ["3.10-alpine", "3.11-alpine", "3.12-alpine", "3.13-alpine", "3.14-alpine", "3.15-alpine"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -274,7 +274,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -330,7 +330,7 @@ jobs:
     strategy:
       matrix:
         runner: [macos-latest]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
