@@ -1667,6 +1667,22 @@ fn folded_terminal_blank_run_matches_reference() {
         );
     }
     check_values(">\n  x\n\n\n\n  ", ">\n  x\n").unwrap();
+    assert!(
+        check_values(
+            "outer:\n  a: |-1\n   x\n\n\n     \n",
+            "outer:\n  a: >-1\n   x\n\n\n     \n",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn folded_scalar_ignores_outdented_terminal_spaces() {
+    let input = "outer:\n  a: >-1\n   x\n\n\n ";
+    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    let formatted = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_eq!(formatted, "outer:\n  a: >-1\n   x\n");
+    check_values(input, &formatted).unwrap();
 }
 
 #[test]
