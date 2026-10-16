@@ -31,8 +31,8 @@ def _events(source: str) -> list[str] | None:
         return None
     source = source.replace("\r\n", "\n").replace("\r", "\n")
     # Node truncates piped stdout at 64 KiB when the CLI exits; a file gets all of it.
-    with tempfile.TemporaryFile("w+", encoding="utf-8") as out:
-        try:
+    try:
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as out:
             proc = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
                 [node, str(_PARSER), "--events"],
                 input=source.encode("utf-8"),
@@ -41,12 +41,12 @@ def _events(source: str) -> list[str] | None:
                 timeout=10,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        if proc.returncode:
-            return None
-        out.seek(0)
-        lines = out.read().split("\n")
+            out.seek(0)
+            lines = out.read().split("\n")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode:
+        return None
     return [
         line.split(" ", 1)[0] if line.startswith(("+DOC", "-DOC")) else line
         for line in lines
