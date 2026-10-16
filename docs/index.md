@@ -62,9 +62,8 @@ pixi global install ryl
 # Or with winget (Windows)
 winget install owenlamont.ryl
 
-# Lint a file or directory
-ryl check path/to/file.yaml
-ryl check .
+# Lint with every rule, before adding a config (see Quick start)
+ryl check --enable ALL .
 
 # Format in place
 ryl format .

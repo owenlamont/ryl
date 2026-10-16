@@ -192,10 +192,12 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/owenlamont/ryl-pre-commit"
-rev = "v0.24.0"
+rev = "v0.25.0"
 hooks = [
-  { id = "ryl", args = ["--fix"] },
-  { id = "ryl-markdown", args = ["--fix"] }
+  { id = "ryl-check", args = ["--fix"] },
+  { id = "ryl-check-markdown", args = ["--fix"] },
+  { id = "ryl-format" },
+  { id = "ryl-format-markdown" },
 ]
 
 [[repos]]

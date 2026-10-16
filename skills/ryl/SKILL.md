@@ -14,8 +14,8 @@ ryl is a fast YAML linter and formatter built for programmatic use: stable exit
 codes, machine-readable output, in-place edits, and stdin support.
 
 Install: `pip install ryl`, `cargo install ryl`, or `npm i -g @owenlamont/ryl`.
-Pre-commit via the `owenlamont/ryl-pre-commit` hook (`ryl` for YAML files,
-`ryl-markdown` for embedded YAML).
+Pre-commit via `owenlamont/ryl-pre-commit`: `ryl-check` and `ryl-format`, plus
+`ryl-check-markdown` and `ryl-format-markdown` for embedded YAML.
 
 ## Critical: ryl has no default-on rules
 

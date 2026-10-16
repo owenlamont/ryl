@@ -3,7 +3,7 @@
 Release dates below use the GitHub release publication date in UTC. Historical entries
 summarize user-visible changes from the tagged commits and published release records.
 
-## Unreleased
+## v0.25.1 - 2026-10-16
 
 ### Changed
 
@@ -14,9 +14,14 @@ summarize user-visible changes from the tagged commits and published release rec
   and running a hook with `--verbose` to see config deprecation warnings.
   ([#730](https://github.com/owenlamont/ryl/issues/730),
   [#729](https://github.com/owenlamont/ryl/issues/729))
+- The ryl agent skill names the `ryl-check` and `ryl-format` pre-commit hooks.
+- `ryl --help` describes ryl as a YAML linter and formatter.
 
 ### Fixed
 
+- The SchemaStore copy of the TOML config schema drops schemars' integer `format`
+  values, which SchemaStore's validator rejects.
+  ([#725](https://github.com/owenlamont/ryl/pull/725))
 - The quick start leads with `--enable`, inline TOML via `-d` and copying a preset
   into `.ryl.toml` instead of the deprecated YAML `extends: default`, and marks YAML
   config deprecated where it remains.

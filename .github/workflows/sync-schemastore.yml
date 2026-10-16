@@ -5,7 +5,7 @@ on:
     inputs:
       source_ref:
         required: false
-        default: ""
+        default: ''
         type: string
       dry_run:
         required: false
@@ -19,12 +19,12 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: "Git ref or SHA to sync"
+        description: Git ref or SHA to sync
         required: false
-        default: ""
+        default: ''
         type: string
       dry_run:
-        description: "Dry run mode (compare only, no fork push)"
+        description: Dry run mode (compare only, no fork push)
         required: false
         default: false
         type: boolean

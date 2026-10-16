@@ -183,7 +183,7 @@ def plot_results(
 ) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     tools = ["ryl", "yamllint"]
-    sizes = sorted(int(value) for value in df["file_size_kib"].unique().to_list())
+    sizes = sorted({int(value) for value in df["file_size_kib"].to_list()})
     cmap = plt.cm.Blues
     min_tone = 0.35
     max_tone = 0.95

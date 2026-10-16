@@ -44,7 +44,7 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    output, produce the `line:col`/message by **running ryl** on the shown input — not by
    hand (hand-written examples have shipped with wrong columns).
 
-## granit event/span gotchas (granit-parser 0.0.5)
+## granit event/span gotchas (granit-parser 1.3.0)
 
 Facts the codebase relies on; re-verify on a granit bump:
 
