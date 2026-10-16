@@ -22,19 +22,22 @@ ryl check .
 
 ryl does not enable any rules by default, so these commands report `no
 configuration found` (exit `2`) until a configuration or `--enable` turns on a rule.
-To use the built-in `default` YAML preset straight away, pass it inline:
-
-```bash
-ryl check -d 'extends: default' .
-```
-
-or name the rules to run with `--enable`, which needs no config file:
+To start straight away, name the rules to run with `--enable`, which needs no config
+file:
 
 ```bash
 ryl check --enable ALL .
+ryl check --enable key-duplicates,truthy .
 ```
 
-Or drop a config in your project (see [Configure for your
+or pass a TOML config inline with `-d`:
+
+```bash
+ryl check -d 'lint.rules = { key-duplicates = "enable", truthy = "enable" }' .
+```
+
+For a fuller ruleset, copy the `default` or `relaxed` preset from [Configuration
+presets](../config-presets.md) into a `.ryl.toml` (see [Configure for your
 project](#configure-for-your-project) below).
 
 ## Lint from stdin
@@ -69,14 +72,11 @@ ryl never enables a rule unless a configuration or `--enable` explicitly turns i
 cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
-  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules, pass a
-  YAML config with `extends: default`, or pass
-  `--enable ALL`.
+  discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules,
+  copy a [preset](../config-presets.md), or pass `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
-  least one rule, use `extends: default`, or pass `--enable ALL`.
-
-To use the built-in YAML preset, give ryl a config containing `extends: default`.
+  least one rule, copy a [preset](../config-presets.md), or pass `--enable ALL`.
 
 ## Apply auto-fixes
 
@@ -175,8 +175,7 @@ The recommended TOML config is deliberately **explicit** and **local**: it has
 no default-on rules and no `extends`/inheritance, so a single `.ryl.toml`
 (discovered by searching upward, and preferred over a `.yamllint`) is the
 entire ruleset for the files beneath it; a monorepo can have many, each
-governing its subtree. A YAML config can use `extends:` to merge in a preset
-or another file. When no
+governing its subtree. When no
 project config is found, ryl falls back to a single user-global config (see
 below). Either way there are no default-on rules, so a config that enables
 nothing exits `2` without `--enable` rather than silently linting nothing.
@@ -216,9 +215,9 @@ line-length = 100
 indent-width = 4
 ```
 
-YAML configuration is also accepted and supports `extends:` for selecting a
-preset. Both `.yamllint` and `.ryl.toml` are discovered automatically. TOML is
-the recommended format for features such as fix selection.
+YAML configuration (`.yamllint`) is deprecated: ryl still discovers it, and its
+`extends:` can still merge in a preset, but each use warns. Convert it to
+`.ryl.toml` as described in [Migrating from yamllint](migrating-from-yamllint.md).
 
 To keep config out of the project root, ryl also discovers a ryl-native TOML
 config inside a repo-local `.config/` directory (the RuboCop/rumdl convention).
