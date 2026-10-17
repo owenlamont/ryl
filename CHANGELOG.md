@@ -5,6 +5,13 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Behaviour changes
+
+- `ryl format` infers a consistent structural indentation step before scoring
+  candidate rewrites, falling back to exact scoring for ambiguous files. Automatic
+  width choices can change where whole-file line diffs favor another width.
+  ([#758](https://github.com/owenlamont/ryl/issues/758))
+
 ### Fixed
 
 - `ryl format` and `ryl check --fix`/`--diff` print per-file notices in input

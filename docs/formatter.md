@@ -107,9 +107,20 @@ continuation indent under `fold-long-lines`.
 Without `indent-width`, an inline value under an explicit block key (`? key` followed by
 `: value`) uses 2 if the value establishes the file's consistent indentation step.
 An explicit key directly inside a sequence item does not establish that step.
-Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the one whose
+After the existing unchanged-at-width checks, `ryl format` first looks for a consistent
+structural step of 2 to 8 spaces between nested block collections. The scan uses the
+tokens prepared for the requested dash layout. Collections starting on their parent's
+line and flush sequences provide no step. Comments and flow contents provide no
+evidence. The first nonblank line of each implicit block scalar must agree with the
+collection step, measured from the containing block collection. Every positive step
+must agree; a scalar body alone does not establish a width.
+Mixed steps, indented root collections, explicit-indent block scalars, root block
+scalars with body lines, no positive step, or a refused width-2 rewrite fall back to
+exact scoring: the width whose
 re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
-or a file the re-indent leaves alone at every width, falls back to 2.
+or a file the re-indent leaves alone at every width, falls back to 2. The structural
+shortcut can choose a different width from exact scoring when comments, scalar
+continuations or repeated lines favor another alignment in the line diff.
 A file mostly at 4 with one block at 2 is re-indented to 4.
 If restyling a collection changes which width best fits the file, the formatter
 re-detects the width and completes the re-indent in the same run.

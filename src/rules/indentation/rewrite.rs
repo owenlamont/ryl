@@ -139,6 +139,70 @@ impl<'a> Prepared<'a> {
         }
     }
 
+    pub(crate) fn structural_width(&self) -> Option<u8> {
+        let mut parents: Vec<&super::Token> = Vec::new();
+        let mut width = None;
+        let mut nested = false;
+        let mut observe = |step: usize| {
+            let step = u8::try_from(step).ok()?;
+            if !(2..=8).contains(&step)
+                || width.replace(step).is_some_and(|previous| previous != step)
+            {
+                return None;
+            }
+            Some(())
+        };
+        for token in &self.tokens {
+            match token.kind {
+                Kind::BlockMappingStart | Kind::BlockSequenceStart => {
+                    if let Some(parent) = parents.last()
+                        && token.line != parent.line
+                        && token.column > parent.column
+                    {
+                        observe(token.column - parent.column)?;
+                        nested = true;
+                    } else if parents.is_empty() && token.column != 0 {
+                        return None;
+                    }
+                    parents.push(token);
+                }
+                Kind::BlockEnd => {
+                    parents.pop();
+                }
+                Kind::Scalar {
+                    style:
+                        granit_parser::ScalarStyle::Literal
+                        | granit_parser::ScalarStyle::Folded,
+                    ..
+                } => {
+                    if self.chars[token.start + 1..]
+                        .iter()
+                        .map(|&(_, ch)| ch)
+                        .take_while(|&ch| {
+                            ch.is_ascii_digit() || matches!(ch, '+' | '-')
+                        })
+                        .any(|ch| ch.is_ascii_digit())
+                    {
+                        return None;
+                    }
+                    let indent =
+                        (token.line + 1..=super::last_line(token)).find_map(|line| {
+                            let start = self.line_starts[line].get();
+                            let indent = super::count_spaces(&self.chars, start);
+                            (!super::char_at(&self.chars, start + indent)
+                                .is_some_and(super::is_break))
+                            .then_some(indent)
+                        });
+                    if let Some(indent) = indent {
+                        observe(indent.saturating_sub(parents.last()?.column))?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        width.filter(|_| nested)
+    }
+
     pub(crate) fn reindent(&self, cfg: &Config) -> Reindented {
         if !self.parsed {
             return Reindented {
