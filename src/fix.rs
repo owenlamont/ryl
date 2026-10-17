@@ -167,33 +167,6 @@ fn file_identity(path: &Path) -> Option<Handle> {
     Handle::from_path(path).ok()
 }
 
-/// Apply `rewrite` to `path` in place.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or the rewritten contents cannot be written.
-pub fn rewrite_in_place(
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-    kind: SourceKind,
-    rewrite: Rewrite,
-) -> Result<FixOutcome, String> {
-    if refuse_symlink(path, rewrite.flag()) {
-        return Ok(FixOutcome::default());
-    }
-    let decoded = decoder::read_file_lossless(path)?;
-    let (rewritten, skipped) =
-        rewrite_str(decoded.content(), cfg, path, base_dir, kind, rewrite);
-    if let Some(rewritten) = &rewritten {
-        decoded.write(path, rewritten)?;
-    }
-    Ok(FixOutcome {
-        changed: rewritten.is_some(),
-        skipped,
-    })
-}
-
 /// `content` after `rewrite` (`None` when unchanged), plus the skips to report against the
 /// rewritten text: unparsable YAML is left untouched with one skip; for Markdown, each
 /// region [`fix_markdown_str`] left alone.

@@ -117,7 +117,10 @@ Markdown paths.
 
 `fix::rewrite_files` and `fix::diff_files` read and rewrite files in parallel
 (`read_in_parallel`), then write, print notices and replay each file's captured stderr
-(`cli_support::capture_file_stderr`) serially in input order. Lexical de-duplication
+(`cli_support::capture_file_stderr`) serially in input order. Symlink skips print
+during that loop, but `run_format` prints parse skips and read errors after it, so a
+later symlink notice can precede an earlier file's error (as before parallelisation).
+Lexical de-duplication
 keeps hard links distinct, so `rewrite_files` splits inputs sharing a file identity into
 separate batches: the later path reads the earlier path's write, as a serial run would.
 
