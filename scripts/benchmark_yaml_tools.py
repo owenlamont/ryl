@@ -7,14 +7,34 @@
 #   "polars>=1.30,<2",
 #   "tqdm>=4.67,<5",
 #   "typer>=0.16,<1",
+#   "py-yaml12",
+#   "pyyaml",
+#   "platformdirs",
 # ]
 # ///
+
+"""Benchmark YAML tools on generated and pinned real-world files.
+
+Fairness
+--------
+| Tool | Cache or persisted state | Timed-run isolation |
+| --- | --- | --- |
+| ryl | Process-local config and format caches | Fresh process and empty XDG cache |
+| yamllint | Process-local lint cache and Python bytecode | Fresh process; no bytecode writes |
+| yamlfmt | No incremental cache; global config discovery | Fresh process, no global config, empty XDG cache |
+| Prettier | Opt-in cache in node_modules/.cache/prettier | --no-cache and empty XDG cache |
+| dprint | Incremental and compiled-plugin caches | --incremental=false, local plugin, empty DPRINT_CACHE_DIR |
+
+Each invocation gets a fresh temporary cache directory. Hyperfine warmups only warm
+the OS file cache and use the same wrapper as measured runs.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, UTC
+import fnmatch
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -22,9 +42,11 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import tomllib
 
+import formatter_corpus_check as corpus_gate
 import matplotlib.pyplot as plt
 import orjson
 import polars as pl
@@ -34,6 +56,7 @@ import typer
 
 @dataclass(frozen=True)
 class Case:
+    dataset: str
     file_count: int
     file_size_kib: int
     dataset_dir: Path
@@ -94,9 +117,9 @@ def require_idle_host() -> tuple[float, int]:
             raise RuntimeError("host load is unavailable on this platform")
         cpus = os.cpu_count() or 1
         load = os.getloadavg()[0]
-    if load > cpus / 2:
+    if load >= cpus / 2:
         raise RuntimeError(
-            f"host load {load:.2f} exceeds half of {cpus} CPUs; timing aborted"
+            f"host load {load:.2f} is not below half of {cpus} CPUs; timing aborted"
         )
     return load, cpus
 
@@ -126,14 +149,22 @@ def materialize_case(case: Case, seed: int, documents: list[bytes]) -> None:
 
 
 def iter_cases(
-    file_counts: Iterable[int], file_sizes_kib: Iterable[int], base_dir: Path
+    file_counts: Iterable[int],
+    file_sizes_kib: Iterable[int],
+    base_dir: Path,
+    dataset: str,
 ) -> list[Case]:
     cases: list[Case] = []
     for size_kib in file_sizes_kib:
         for count in file_counts:
-            case_dir = base_dir / f"files_{count:05d}__size_{size_kib:04d}kib"
+            case_dir = base_dir / dataset / f"files_{count:05d}__size_{size_kib:04d}kib"
             cases.append(
-                Case(file_count=count, file_size_kib=size_kib, dataset_dir=case_dir)
+                Case(
+                    dataset=dataset,
+                    file_count=count,
+                    file_size_kib=size_kib,
+                    dataset_dir=case_dir,
+                )
             )
     return cases
 
@@ -174,7 +205,7 @@ def make_tools(
         orjson.dumps(
             {
                 "includes": ["**/*.yaml"],
-                "plugins": [f"npm:dprint-plugin-yaml@{versions['pretty_yaml']}"],
+                "plugins": [str(run_dir / "plugin.wasm")],
                 "yaml": {},
             },
             option=orjson.OPT_INDENT_2,
@@ -211,6 +242,7 @@ def make_tools(
             config="defaults; no config or editorconfig; empty ignore file",
             format_args=(
                 "--write",
+                "--no-cache",
                 "--no-config",
                 "--no-editorconfig",
                 "--ignore-path",
@@ -221,7 +253,7 @@ def make_tools(
             name="dprint",
             binary=dprint_bin,
             version=run_checked([str(dprint_bin), "--version"]).stdout.strip(),
-            config=f"dprint.json; pretty_yaml {versions['pretty_yaml']} defaults; incremental=false",
+            config=f"dprint.json; local pretty_yaml {versions['pretty_yaml']}; incremental=false",
             format_args=(
                 "fmt",
                 "--config",
@@ -259,6 +291,44 @@ def install_tools(versions: dict[str, str], run_dir: Path) -> dict[str, Path]:
         "prettier": tool_dir / "node_modules/.bin/prettier",
         "dprint": tool_dir / "node_modules/.bin/dprint",
     }
+
+
+def install_plugin(version: str, run_dir: Path) -> None:
+    archive = (
+        run_checked(
+            [
+                "npm",
+                "pack",
+                f"dprint-plugin-yaml@{version}",
+                "--pack-destination",
+                str(run_dir),
+            ]
+        )
+        .stdout.strip()
+        .splitlines()[-1]
+    )
+    with tarfile.open(run_dir / archive) as package:
+        source = package.extractfile("package/plugin.wasm")
+        if source is None:
+            raise RuntimeError("pinned dprint YAML plugin has no wasm payload")
+        (run_dir / "plugin.wasm").write_bytes(source.read())
+
+
+def write_runner(run_dir: Path) -> Path:
+    runner = run_dir / "cold_run.py"
+    runner.write_text(
+        "import os, subprocess, sys, tempfile\n"
+        "with tempfile.TemporaryDirectory(prefix='ryl-tool-cache-') as cache:\n"
+        "    env = os.environ.copy()\n"
+        "    env.update(XDG_CACHE_HOME=cache, DPRINT_CACHE_DIR=cache, "
+        "PYTHONDONTWRITEBYTECODE='1')\n"
+        "    sys.exit(subprocess.run(sys.argv[1:], env=env, check=False).returncode)\n"
+    )
+    return runner
+
+
+def cold_command(command: list[str], runner: Path) -> list[str]:
+    return [sys.executable, str(runner), *command]
 
 
 def accepted_documents(
@@ -322,6 +392,140 @@ def accepted_documents(
     return accepted, attempted, accepted_indices
 
 
+def accepts_document(
+    document: bytes, probe: Path, tools: list[Tool], runner: Path
+) -> bool:
+    sample = probe / "file_00000.yaml"
+    checks = [
+        (tool, mode)
+        for tool in tools
+        for mode in ("lint", "format")
+        if (tool.lint_args if mode == "lint" else tool.format_args)
+    ]
+    for tool, mode in checks:
+        sample.write_bytes(document)
+        result = subprocess.run(
+            cold_command(tool_command(tool, mode, probe), runner),
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0 or (
+            mode == "format" and sample.read_bytes() == document
+        ):
+            return False
+    return True
+
+
+def real_world_pool(
+    *,
+    seed: int,
+    sizes: list[int],
+    count: int,
+    root: Path,
+    tools: list[Tool],
+    runner: Path,
+) -> tuple[dict[int, list[Path]], list[dict[str, str]], dict[int, int]]:
+    repos = corpus_gate._manifest(())
+    clone_dir = corpus_gate._DEFAULT_CACHE / "repos"
+    files: list[tuple[Path, int]] = []
+    for repo in repos:
+        clone = corpus_gate._fetch(repo, clone_dir)
+        for path in sorted(clone.rglob("*")):
+            if (
+                path.suffix.lower() not in {".yaml", ".yml"}
+                or ".git" in path.parts
+                or path.is_symlink()
+                or not path.is_file()
+            ):
+                continue
+            relative = path.relative_to(clone).as_posix()
+            if any(
+                fnmatch.fnmatch(relative, pattern) for pattern in repo.expected_skip
+            ):
+                continue
+            marker = repo.expected_skip_marker
+            if (
+                path.name == marker.get("file")
+                and (path.parent / marker.get("marker", "")).exists()
+            ):
+                continue
+            files.append((path, path.stat().st_size))
+    probe = root / "real-probe"
+    probe.mkdir()
+    chosen: dict[int, list[Path]] = {}
+    attempts: dict[int, int] = {}
+    for size in sizes:
+        target = size * 1024
+        candidates = [
+            path
+            for path, length in files
+            if target * 3 // 4 <= length <= target * 5 // 4
+        ]
+        candidates.sort(
+            key=lambda path: sha256(
+                f"{seed}:{size}:{path.relative_to(clone_dir)}".encode()
+            ).digest()
+        )
+        accepted: list[Path] = []
+        for path in candidates:
+            if accepts_document(path.read_bytes(), probe, tools, runner):
+                accepted.append(path)
+                if len(accepted) == count:
+                    break
+        if len(accepted) < count:
+            raise RuntimeError(
+                f"real-world {size} KiB bucket: {len(accepted)}/{count} accepted "
+                f"from {len(candidates)} candidates"
+            )
+        chosen[size] = accepted
+        attempts[size] = candidates.index(path) + 1
+    pins = [{"url": repo.url, "sha": repo.sha} for repo in repos]
+    return chosen, pins, attempts
+
+
+def materialize_real_case(case: Case, pool: dict[int, list[Path]]) -> None:
+    case.dataset_dir.mkdir(parents=True, exist_ok=True)
+    for index, source in enumerate(pool[case.file_size_kib][: case.file_count]):
+        shutil.copyfile(source, case.dataset_dir / f"file_{index:05d}.yaml")
+
+
+def cache_snapshot(paths: Iterable[Path]) -> list[tuple[str, int, int]]:
+    return sorted(
+        (str(file), file.stat().st_size, file.stat().st_mtime_ns)
+        for root in paths
+        if root.exists()
+        for file in root.rglob("*")
+        if file.is_file()
+    )
+
+
+def verify_cold_runs(
+    tools: list[Tool], document: bytes, root: Path, runner: Path
+) -> None:
+    persistent = [
+        Path(corpus_gate.platformdirs.user_cache_dir(name))
+        for name in ("ryl", "yamllint", "yamlfmt", "dprint")
+    ]
+    persistent.extend(
+        (
+            runner.parent / "tools" / "node_modules" / ".cache",
+            Path.cwd() / "node_modules" / ".cache" / "prettier",
+        )
+    )
+    probe = root / "cache-probe"
+    probe.mkdir()
+    for tool in tools:
+        for mode in ("lint", "format"):
+            if not (tool.lint_args if mode == "lint" else tool.format_args):
+                continue
+            before = cache_snapshot(persistent)
+            for _ in range(2):
+                (probe / "file_00000.yaml").write_bytes(document)
+                run_checked(cold_command(tool_command(tool, mode, probe), runner))
+            if cache_snapshot(persistent) != before:
+                raise RuntimeError(f"{tool.name} {mode} wrote to a persistent cache")
+
+
 def tool_command(tool: Tool, mode: str, dataset: Path) -> list[str]:
     args = tool.lint_args if mode == "lint" else tool.format_args
     input_path = str(dataset / "*.yaml") if tool.name == "Prettier" else str(dataset)
@@ -337,6 +541,7 @@ def benchmark_case(
     warmup: int,
     output_json_path: Path,
     work_dir: Path,
+    runner: Path,
 ) -> list[dict[str, float | int | str]]:
     selected = [
         tool
@@ -344,7 +549,9 @@ def benchmark_case(
         if (tool.lint_args if mode == "lint" else tool.format_args)
     ]
     dataset = case.dataset_dir if mode == "lint" else work_dir
-    commands = [tool_command(tool, mode, dataset) for tool in selected]
+    commands = [
+        cold_command(tool_command(tool, mode, dataset), runner) for tool in selected
+    ]
     for command in commands:
         if mode == "format":
             if work_dir.exists():
@@ -389,6 +596,7 @@ def benchmark_case(
     return [
         {
             "mode": mode,
+            "dataset": case.dataset,
             "tool": result["command"],
             "file_count": case.file_count,
             "file_size_kib": case.file_size_kib,
@@ -402,21 +610,33 @@ def benchmark_case(
 
 
 def format_profile(
-    case: Case, ryl_tool: Tool, root: Path, raw_dir: Path, runs: int, warmup: int
+    case: Case,
+    ryl_tool: Tool,
+    root: Path,
+    raw_dir: Path,
+    runs: int,
+    warmup: int,
+    runner: Path,
 ) -> dict[str, float | int]:
     clean_dir = root / "already-formatted"
     shutil.copytree(case.dataset_dir, clean_dir)
-    run_checked(tool_command(ryl_tool, "format", clean_dir))
+    run_checked(cold_command(tool_command(ryl_tool, "format", clean_dir), runner))
     commands = [
-        ("already_formatted", tool_command(ryl_tool, "format", clean_dir)),
+        (
+            "already_formatted",
+            cold_command(tool_command(ryl_tool, "format", clean_dir), runner),
+        ),
         (
             "check_dirty",
-            [
-                str(ryl_tool.binary),
-                *ryl_tool.format_args,
-                "--check",
-                str(case.dataset_dir),
-            ],
+            cold_command(
+                [
+                    str(ryl_tool.binary),
+                    *ryl_tool.format_args,
+                    "--check",
+                    str(case.dataset_dir),
+                ],
+                runner,
+            ),
         ),
     ]
     results: dict[str, float | int] = {
@@ -473,18 +693,19 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
     for axis, (mode, tool) in zip(panel_axes, panels, strict=True):
         tool_df = df.filter((pl.col("mode") == mode) & (pl.col("tool") == tool))
         for idx, size in enumerate(sizes):
-            size_df = tool_df.filter(pl.col("file_size_kib") == size).sort("file_count")
-            x_values = [int(value) for value in size_df["file_count"].to_list()]
-            y_values = [float(value) for value in size_df["mean_seconds"].to_list()]
-            color = cmap(tones[idx])
-            axis.plot(
-                x_values,
-                y_values,
-                color=color,
-                linewidth=2,
-                marker="o",
-                label=f"{size} KiB",
-            )
+            for dataset, style in (("real-world", "-"), ("stress", "--")):
+                size_df = tool_df.filter(
+                    (pl.col("file_size_kib") == size) & (pl.col("dataset") == dataset)
+                ).sort("file_count")
+                axis.plot(
+                    [int(value) for value in size_df["file_count"].to_list()],
+                    [float(value) for value in size_df["mean_seconds"].to_list()],
+                    color=cmap(tones[idx]),
+                    linestyle=style,
+                    linewidth=2,
+                    marker="o",
+                    label=f"{dataset}, {size} KiB",
+                )
         axis.set_title(f"{mode}: {tool}")
         axis.set_xlabel("Number of YAML files")
     for group in (panel_axes[:2], panel_axes[2:]):
@@ -493,7 +714,7 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
             axis.set_ylim(0, ceiling)
     panel_axes[0].set_ylabel("Mean runtime (seconds)")
     panel_axes[2].set_ylabel("Mean runtime (seconds)")
-    panel_axes[-1].legend(title="File size", loc="upper left")
+    panel_axes[-1].legend(title="Dataset and file size", loc="upper left")
     fig.suptitle(
         f"YAML lint and format (hyperfine, {runs} runs per point)", fontsize=13
     )
@@ -599,6 +820,8 @@ def main(
     raw_dir = run_dir / "hyperfine-json"
     raw_dir.mkdir(parents=True, exist_ok=True)
     installed = install_tools(versions, run_dir) if install_pinned_tools else {}
+    install_plugin(versions["pretty_yaml"], run_dir)
+    runner = write_runner(run_dir)
 
     def binary(value: Path | None, name: str) -> Path:
         path = value if value is not None else resolve_tool_path(name)
@@ -627,16 +850,41 @@ def main(
         documents, attempted, accepted_indices = accepted_documents(
             seed=seed, root=temporary_root, tools=tools
         )
-        cases = iter_cases(
-            file_counts_values, file_size_values, temporary_root / "datasets"
+        verify_cold_runs(tools, documents[0], temporary_root, runner)
+        real_pool, repo_pins, real_attempts = real_world_pool(
+            seed=seed,
+            sizes=file_size_values,
+            count=max(file_counts_values),
+            root=temporary_root,
+            tools=tools,
+            runner=runner,
         )
+        cases = [
+            *iter_cases(
+                file_counts_values,
+                file_size_values,
+                temporary_root / "datasets",
+                "stress",
+            ),
+            *iter_cases(
+                file_counts_values,
+                file_size_values,
+                temporary_root / "datasets",
+                "real-world",
+            ),
+        ]
         load, cpus = require_idle_host()
-        corpus_digest = sha256()
+        corpus_digests = {dataset: sha256() for dataset in ("stress", "real-world")}
         for case in tqdm(cases, desc="Benchmark cases", unit="case"):
-            materialize_case(case, seed=seed, documents=documents)
+            if case.dataset == "stress":
+                materialize_case(case, seed=seed, documents=documents)
+            else:
+                materialize_real_case(case, real_pool)
             for path in sorted(case.dataset_dir.glob("*.yaml")):
-                corpus_digest.update(str(path.relative_to(temporary_root)).encode())
-                corpus_digest.update(path.read_bytes())
+                corpus_digests[case.dataset].update(
+                    str(path.relative_to(temporary_root)).encode()
+                )
+                corpus_digests[case.dataset].update(path.read_bytes())
             for mode in ("lint", "format"):
                 rows.extend(
                     benchmark_case(
@@ -646,24 +894,29 @@ def main(
                         runs=runs,
                         warmup=warmup,
                         output_json_path=raw_dir
-                        / f"{mode}-{case.file_count}-{case.file_size_kib}.json",
+                        / f"{case.dataset}-{mode}-{case.file_count}-{case.file_size_kib}.json",
                         work_dir=temporary_root / "working",
+                        runner=runner,
                     )
                 )
         profile = None
         if profile_format:
             largest_case = max(
-                cases, key=lambda case: case.file_count * case.file_size_kib
+                (case for case in cases if case.dataset == "stress"),
+                key=lambda case: case.file_count * case.file_size_kib,
             )
             profile = format_profile(
-                largest_case, tools[0], temporary_root, raw_dir, runs, warmup
+                largest_case, tools[0], temporary_root, raw_dir, runs, warmup, runner
             )
-        corpus_hash = corpus_digest.hexdigest()
+        corpus_hashes = {
+            name: digest.hexdigest() for name, digest in corpus_digests.items()
+        }
 
     results_df = pl.DataFrame(rows).select(
         [
             "tool",
             "mode",
+            "dataset",
             "file_count",
             "file_size_kib",
             "mean_seconds",
@@ -689,7 +942,14 @@ def main(
                     "property_format::arb_document_with_properties",
                     "property_safe_fix::arb_document",
                 ],
-                "corpus_sha256": corpus_hash,
+                "corpus_sha256": corpus_hashes,
+                "real_world": {
+                    "repos": repo_pins,
+                    "selection_seed": seed,
+                    "accepted_after_candidates": real_attempts,
+                    "size_tolerance": "within 25% of target KiB",
+                },
+                "cache_probe": "two fresh-process runs per tool and mode; persistent cache snapshots unchanged",
                 "candidate_reject_rate": (attempted - len(documents)) / attempted,
                 "candidate_attempts": attempted,
                 "candidate_accepted": len(documents),
