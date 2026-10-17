@@ -136,24 +136,15 @@ fn is_symlink(path: &Path) -> bool {
 }
 
 #[cfg(unix)]
-type FileIdentity = (u64, u64);
-#[cfg(not(unix))]
-type FileIdentity = Handle;
+fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    Some((metadata.dev(), metadata.ino()))
+}
 
-fn file_identity(path: &Path) -> std::io::Result<Option<FileIdentity>> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        return Ok(None);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok(Some((metadata.dev(), metadata.ino())))
-    }
-    #[cfg(not(unix))]
-    {
-        Handle::from_path(path).map(Some)
-    }
+#[cfg(not(unix))]
+fn file_identity(path: &Path) -> Option<Handle> {
+    Handle::from_path(path).ok()
 }
 
 /// Apply `rewrite` to `path` in place.
@@ -237,98 +228,81 @@ pub fn rewrite_str(
 #[must_use]
 pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
-    let mut batches = Vec::new();
-    let mut start = 0;
-    let mut seen = HashSet::new();
-    for (index, (path, ..)) in files.iter().enumerate() {
-        match file_identity(path) {
-            Ok(None) => {}
-            Ok(Some(identity)) => {
-                if seen.contains(&identity) {
-                    batches.push(start..index);
-                    seen.clear();
-                    start = index;
-                }
-                seen.insert(identity);
+    for batch in hard_link_batches(files) {
+        let results = read_in_parallel(
+            &files[batch.clone()],
+            |decoded, (path, base_dir, cfg, kind)| {
+                let (rewritten, skipped) =
+                    rewrite_str(decoded.content(), cfg, path, base_dir, *kind, rewrite);
+                (decoded, rewritten, skipped)
+            },
+        );
+        for (index, (result, stderr)) in batch.zip(results) {
+            let path = &files[index].0;
+            if refuse_symlink(path, rewrite.flag()) {
+                continue;
             }
-            Err(_) => {
-                batches.push(start..index);
-                batches.push(index..index + 1);
-                seen.clear();
-                start = index + 1;
+            let _ = std::io::stderr().write_all(&stderr);
+            let written = result.and_then(|(decoded, rewritten, skipped)| {
+                if let Some(rewritten) = &rewritten {
+                    decoded.write(path, rewritten)?;
+                }
+                Ok((rewritten.is_some(), skipped))
+            });
+            match written {
+                Ok((changed, skipped)) => {
+                    stats.changed_files += usize::from(changed);
+                    stats.skipped.extend(
+                        skipped.into_iter().map(|problem| (path.clone(), problem)),
+                    );
+                }
+                Err(error) => stats.errors.push((index, error)),
             }
         }
-    }
-    batches.push(start..files.len());
-    drop(seen);
-    for batch in batches {
-        rewrite_batch(files, batch, rewrite, &mut stats);
     }
     stats
 }
 
-fn rewrite_batch(
-    files: &[LintFile],
-    batch: std::ops::Range<usize>,
-    rewrite: Rewrite,
-    stats: &mut FixStats,
-) {
-    let mut results: Vec<_> = files[batch.clone()]
-        .par_iter()
-        .enumerate()
-        .map(|(index, (path, base_dir, cfg, kind))| {
-            let (result, stderr) = crate::cli_support::capture_file_stderr(|| {
-                if is_symlink(path) {
-                    Err(format!("skipped symlink {}", path.display()))
-                } else {
-                    decoder::read_file_lossless(path).map(|decoded| {
-                        let (rewritten, skipped) = rewrite_str(
-                            decoded.content(),
-                            cfg,
-                            path,
-                            base_dir,
-                            *kind,
-                            rewrite,
-                        );
-                        (decoded, rewritten, skipped)
-                    })
-                }
-            });
-            (batch.start + index, result, stderr)
-        })
-        .collect();
-    results.sort_by_key(|(index, ..)| *index);
-    for (index, result, stderr) in results {
-        let (path, _, _, _) = &files[index];
-        if refuse_symlink(path, rewrite.flag()) {
+/// Input ranges in which no two paths name the same file, so the later path of a hard link
+/// is read only after the earlier one is written.
+fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut seen = HashSet::new();
+    for (index, (path, ..)) in files.iter().enumerate() {
+        let Some(identity) = file_identity(path) else {
             continue;
-        }
-        let _ = std::io::stderr().write_all(&stderr);
-        let outcome = match result {
-            Ok((decoded, rewritten, skipped)) => {
-                if let Some(rewritten) = &rewritten
-                    && let Err(error) = decoded.write(path, rewritten)
-                {
-                    stats.errors.push((index, error));
-                    continue;
-                }
-                FixOutcome {
-                    changed: rewritten.is_some(),
-                    skipped,
-                }
-            }
-            Err(error) => {
-                stats.errors.push((index, error));
-                continue;
-            }
         };
-        if outcome.changed {
-            stats.changed_files += 1;
+        if seen.contains(&identity) {
+            batches.push(start..index);
+            seen.clear();
+            start = index;
         }
-        for problem in outcome.skipped {
-            stats.skipped.push((path.clone(), problem));
-        }
+        seen.insert(identity);
     }
+    batches.push(start..files.len());
+    batches
+}
+
+/// `compute` over each file in parallel, never reading a symlink, paired with the stderr it
+/// produced so the caller can replay both in input order.
+fn read_in_parallel<T: Send>(
+    files: &[LintFile],
+    compute: impl Fn(decoder::DecodedFile, &LintFile) -> T + Sync,
+) -> Vec<(Result<T, String>, Vec<u8>)> {
+    files
+        .par_iter()
+        .map(|file| {
+            crate::cli_support::capture_file_stderr(|| {
+                if is_symlink(&file.0) {
+                    Err(format!("skipped symlink {}", file.0.display()))
+                } else {
+                    decoder::read_file_lossless(&file.0)
+                        .map(|decoded| compute(decoded, file))
+                }
+            })
+        })
+        .collect()
 }
 
 /// A rewrite preview; formatting changes can have no applicable text diff.
@@ -713,33 +687,15 @@ pub fn diff_files(
     flag: &str,
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
-    let mut results: Vec<_> = files
-        .par_iter()
-        .enumerate()
-        .map(|(index, (path, base_dir, cfg, kind))| {
-            let (result, stderr) = crate::cli_support::capture_file_stderr(|| {
-                if is_symlink(path) {
-                    Err(format!("skipped symlink {}", path.display()))
-                } else {
-                    decoder::read_file_lossless(path).map(|decoded| {
-                        decoded_diff_outcome(
-                            &decoded, cfg, path, base_dir, *kind, rewrite,
-                        )
-                    })
-                }
-            });
-            (index, result, stderr)
-        })
-        .collect();
-    results.sort_by_key(|(index, ..)| *index);
-    for (index, result, stderr) in results {
-        let (path, _, _, _) = &files[index];
+    let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
+        decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
+    });
+    for ((path, ..), (result, stderr)) in files.iter().zip(results) {
         if refuse_symlink(path, flag) {
             continue;
         }
         let _ = std::io::stderr().write_all(&stderr);
-        let outcome = result?;
-        stats.record(path, outcome);
+        stats.record(path, result?);
     }
     Ok(stats)
 }
