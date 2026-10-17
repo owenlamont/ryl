@@ -745,11 +745,30 @@ pub fn diff_files(
     rewrite: Rewrite,
     flag: &str,
 ) -> Result<DiffStats, String> {
+    diff_files_with_notices(files, rewrite, flag, &[])
+}
+
+/// As [`diff_files`], with notices for omitted cached files before each input and after
+/// the final input.
+///
+/// # Errors
+///
+/// Returns an error if any file cannot be read.
+pub fn diff_files_with_notices(
+    files: &[LintFile],
+    rewrite: Rewrite,
+    flag: &str,
+    preceding_notices: &[Vec<u8>],
+) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
     let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
         decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
     });
-    for ((path, ..), (result, stderr)) in files.iter().zip(results) {
+    for (index, ((path, ..), (result, stderr))) in files.iter().zip(results).enumerate()
+    {
+        if let Some(notices) = preceding_notices.get(index) {
+            stats.notices.extend_from_slice(notices);
+        }
         let notice_start = stats.notices.len();
         if let Some(notice) = symlink_notice(path, flag) {
             stats.notices.extend_from_slice(notice.as_bytes());
@@ -770,6 +789,9 @@ pub fn diff_files(
         stats
             .file_notices
             .push(stats.notices[notice_start..].to_vec());
+    }
+    if let Some(notices) = preceding_notices.get(files.len()) {
+        stats.notices.extend_from_slice(notices);
     }
     Ok(stats)
 }

@@ -32,7 +32,7 @@ use ryl::config_schema::{
 use ryl::decoder;
 use ryl::fix::{
     DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
-    rewrite_files, rewrite_str, skip_notice,
+    diff_files_with_notices, rewrite_files, rewrite_str, skip_notice,
 };
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
@@ -1600,8 +1600,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             &targets,
             files.iter().map(|(path, ..)| path.as_path()),
         )?;
-        let mut stats = diff_files(&pending, Rewrite::Format, preview.flag())?;
-        stats.notices = ordered_cache_notices(&cache_hits, &stats.file_notices);
+        let prefixes = cache_notice_prefixes(&cache_hits);
+        let stats = diff_files_with_notices(
+            &pending,
+            Rewrite::Format,
+            preview.flag(),
+            &prefixes,
+        )?;
         if preview == Preview::Check
             && stats.changed_files == 0
             && stats.skipped.is_empty()
@@ -1645,9 +1650,7 @@ fn ordered_cache_notices(cache_hits: &[bool], file_notices: &[Vec<u8>]) -> Vec<u
     let mut ordered = Vec::new();
     for hit in cache_hits {
         if *hit {
-            if std::env::var("YAMLLINT_FILE_ENCODING").is_ok() {
-                ordered.extend_from_slice(decoder::ENCODING_OVERRIDE_WARNING);
-            }
+            ordered.extend_from_slice(cache_hit_notice());
         } else {
             ordered.extend_from_slice(
                 pending.next().expect("each cache miss has notices"),
@@ -1655,6 +1658,29 @@ fn ordered_cache_notices(cache_hits: &[bool], file_notices: &[Vec<u8>]) -> Vec<u
         }
     }
     ordered
+}
+
+fn cache_notice_prefixes(cache_hits: &[bool]) -> Vec<Vec<u8>> {
+    let mut prefixes = vec![Vec::new()];
+    for hit in cache_hits {
+        if *hit {
+            prefixes
+                .last_mut()
+                .expect("the first notice bucket exists")
+                .extend_from_slice(cache_hit_notice());
+        } else {
+            prefixes.push(Vec::new());
+        }
+    }
+    prefixes
+}
+
+fn cache_hit_notice() -> &'static [u8] {
+    if std::env::var("YAMLLINT_FILE_ENCODING").is_ok() {
+        decoder::ENCODING_OVERRIDE_WARNING
+    } else {
+        &[]
+    }
 }
 
 /// Under `--check`, `--output-format` beats `[output]`; `--diff` keeps the default target,

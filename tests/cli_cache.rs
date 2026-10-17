@@ -126,6 +126,53 @@ fn cached_format_repeats_encoding_override_warning() {
 }
 
 #[test]
+fn cached_file_before_read_error_keeps_notices_in_every_mode() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let clean = dir.path().join("clean.yaml");
+    let bad = dir.path().join("bad.yaml");
+    fs::write(&clean, "name: value\n").unwrap();
+    fs::write(&bad, b"name: \xff\n").unwrap();
+
+    for mode in [
+        &["format"][..],
+        &["format", "--check"],
+        &["format", "--diff"],
+        &["check", "--fix"],
+        &["check", "--diff"],
+    ] {
+        let run_mode = |no_cache: bool, include_bad: bool| {
+            let mut cmd = ryl(dir.path());
+            cmd.current_dir(dir.path())
+                .env("YAMLLINT_FILE_ENCODING", "utf-8")
+                .args(mode);
+            if no_cache {
+                cmd.arg("--no-cache");
+            }
+            cmd.arg(&clean);
+            if include_bad {
+                cmd.arg(&bad);
+            }
+            run(&mut cmd)
+        };
+        assert_eq!(run_mode(false, false).0, 0, "{mode:?}");
+        let uncached = run_mode(true, true);
+        let cached = run_mode(false, true);
+        assert_eq!(cached.0, uncached.0, "{mode:?}");
+        assert_eq!(cached.2, uncached.2, "{mode:?}");
+        assert!(
+            cached.2.contains("invalid utf-8 data"),
+            "{mode:?}: {}",
+            cached.2
+        );
+    }
+}
+
+#[test]
 fn github_actions_renders_cached_problems_each_run() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("a.yaml");
