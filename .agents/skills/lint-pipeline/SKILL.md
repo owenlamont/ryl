@@ -116,10 +116,11 @@ yamllint); only `--fix` applies the stricter gate, through the in-place and per-
 Markdown paths.
 
 `fix::rewrite_files` and `fix::diff_files` read and rewrite files in parallel
-(`read_in_parallel`), then write, print notices and replay each file's captured stderr
-(`cli_support::capture_file_stderr`) serially in input order. Symlink skips print
-during that loop, but `run_format` prints parse skips and read errors after it, so a
-later symlink notice can precede an earlier file's error (as before parallelisation).
+(`read_in_parallel`), then write serially in input order. Symlink skips, captured stderr
+(`cli_support::capture_file_stderr`) and skip notices enter one ordered `notices`
+buffer. `format` adds read and write errors to that buffer; `check --fix` leaves errors
+for the ordered lint report after the notice block. `diff_files` flushes notices before
+returning a read error.
 Lexical de-duplication
 keeps hard links distinct, so `rewrite_files` splits inputs sharing a file identity into
 separate batches: the later path reads the earlier path's write, as a serial run would.

@@ -30,7 +30,7 @@ use ryl::config_schema::{
 use ryl::decoder;
 use ryl::fix::{
     DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
-    rewrite_files, rewrite_str,
+    rewrite_files, rewrite_str, skip_notice,
 };
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
@@ -807,8 +807,10 @@ fn write_targets(
         target.format.is_streaming()
             && matches!(&target.destination, Destination::Stderr)
     }) {
-        for message in records.iter().filter_map(|record| record.error.as_deref()) {
-            eprintln!("error: {message}");
+        for record in records {
+            if let Some(message) = &record.error {
+                eprintln!("error: {message}");
+            }
         }
     }
     let project_root = report_project_root();
@@ -845,14 +847,19 @@ fn render_target(
     records: &[FileRecord],
     entries: Option<&[ReportEntry]>,
 ) -> Vec<u8> {
-    match format {
-        OutputFormat::Standard => render_streaming(records, append_standard),
-        OutputFormat::Colored => render_streaming(records, append_colored),
-        OutputFormat::Github => render_streaming(records, append_github),
-        OutputFormat::Parsable => render_streaming(records, append_parsable),
-        OutputFormat::Junit => render_junit(entries.expect(REPORT_ENTRIES_BUILT)),
-        OutputFormat::Gitlab => render_gitlab(entries.expect(REPORT_ENTRIES_BUILT)),
-    }
+    let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
+        OutputFormat::Standard => append_standard,
+        OutputFormat::Colored => append_colored,
+        OutputFormat::Github => append_github,
+        OutputFormat::Parsable => append_parsable,
+        OutputFormat::Junit => {
+            return render_junit(entries.expect(REPORT_ENTRIES_BUILT));
+        }
+        OutputFormat::Gitlab => {
+            return render_gitlab(entries.expect(REPORT_ENTRIES_BUILT));
+        }
+    };
+    render_streaming(records, append)
 }
 
 // A report target means entries are built, so the junit/gitlab arms only see `Some`; the
@@ -1309,10 +1316,13 @@ fn lint_and_exit(
         );
     }
 
-    if before_fix.is_some_and(|(_, errors)| !errors.is_empty()) {
-        Ok(ExitCode::from(2))
-    } else {
+    if before_fix
+        .as_ref()
+        .is_none_or(|(_, errors)| errors.is_empty())
+    {
         Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
+    } else {
+        Ok(ExitCode::from(2))
     }
 }
 
@@ -1325,9 +1335,7 @@ fn apply_fixes_reporting_skips(
 ) -> (Vec<SafeFixRuleCounts>, Vec<(usize, String)>) {
     let mut before = safe_fix_rule_counts(&lint_files(files), no_warnings);
     let fix_stats = rewrite_files(files, Rewrite::Fix);
-    for (path, problem) in &fix_stats.skipped {
-        eprint_skip_notice(path, problem, Rewrite::Fix.flag());
-    }
+    let _ = std::io::stderr().write_all(&fix_stats.notices);
     for (index, _) in &fix_stats.errors {
         before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
     }
@@ -1348,17 +1356,7 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
 /// could not fix. Path and message are user-controlled, so both are sanitized; `action` is
 /// the literal flag name.
 fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
-    let what = problem.rule.map_or_else(
-        || format!("skipped by {action}"),
-        |rule| format!("{rule} not fixed"),
-    );
-    eprintln!(
-        "{}:{}:{} {what}: {}",
-        sanitize_control(&path.display().to_string()),
-        problem.line,
-        problem.column,
-        sanitize_control(&problem.message),
-    );
+    eprint!("{}", skip_notice(path, problem, action));
 }
 
 fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
@@ -1396,7 +1394,14 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     if args.lint.fix.diff {
-        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Fix)?;
+        let stats = stdin_diff_stats(
+            &path,
+            &base_dir,
+            &cfg,
+            kind,
+            Rewrite::Fix,
+            Preview::Diff,
+        )?;
         return Ok(emit_diff(&stats, Preview::Diff));
     }
 
@@ -1473,12 +1478,14 @@ fn stdin_diff_stats(
     cfg: &YamlLintConfig,
     kind: SourceKind,
     rewrite: Rewrite,
+    preview: Preview,
 ) -> Result<DiffStats, String> {
     let (decoded, _) = read_stdin_decoded(path)?;
     let mut stats = DiffStats::default();
     stats.record(
         path,
         decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite),
+        preview.flag(),
     );
     Ok(stats)
 }
@@ -1499,9 +1506,7 @@ impl Preview {
 }
 
 fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
-    for (path, problem) in &stats.skipped {
-        eprint_skip_notice(path, problem, preview.flag());
-    }
+    let _ = std::io::stderr().write_all(&stats.notices);
     if preview == Preview::Diff {
         // Each diff already carries its trailing newline, so concatenate and print once.
         print!("{}", stats.diffs.concat());
@@ -1558,12 +1563,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         return emit_format_preview(&stats, preview, &targets);
     }
     let stats = rewrite_files(&files, Rewrite::Format);
-    for (path, problem) in &stats.skipped {
-        eprint_skip_notice(path, problem, Rewrite::Format.flag());
-    }
-    for (_, error) in &stats.errors {
-        eprintln!("error: {}", sanitize_control(error));
-    }
+    let _ = std::io::stderr().write_all(&stats.notices);
     Ok(if stats.errors.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -1645,9 +1645,14 @@ fn run_stdin_format(
         let targets = format_targets(preview, output_format, cfg.output())?;
         reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
         let stats = match kind {
-            Some(kind) => {
-                stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?
-            }
+            Some(kind) => stdin_diff_stats(
+                &path,
+                &base_dir,
+                &cfg,
+                kind,
+                Rewrite::Format,
+                preview,
+            )?,
             None => DiffStats::default(),
         };
         return emit_format_preview(&stats, preview, &targets);
