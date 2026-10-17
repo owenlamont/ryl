@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -1115,9 +1115,12 @@ pub(crate) fn run_passes_with_events(
     ) {
         return input.to_string();
     }
-    let ctx = FixContext {
+    let mut ctx = FixContext {
         passes,
         directives: Directives::parse_with_per_line(input, &passes.per_line),
+        edit_epoch: 0,
+        clean_rules: HashMap::new(),
+        clean_syntax_epoch: None,
     };
     if crate::rules::block_scalar_chomping::ambiguous_blank_body_line(input).is_some() {
         // Key ordering verifies its output before applying it.
@@ -1187,13 +1190,16 @@ struct FixContext<'a> {
     /// Parsed once from the original input. `disables_any` is stable across fixes (no fixer
     /// adds or removes a directive comment), so the per-rule guard reads it without re-parsing.
     directives: Directives,
+    edit_epoch: usize,
+    clean_rules: HashMap<&'static str, usize>,
+    clean_syntax_epoch: Option<usize>,
 }
 
 impl FixContext<'_> {
     /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix
     /// changed the text.
     fn pass(
-        &self,
+        &mut self,
         input: &str,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
@@ -1215,11 +1221,17 @@ impl FixContext<'_> {
         fix!(comments);
         fix!(comments_indentation);
         fix!(commas);
-        content = if passes.collection_style.is_some() || passes.indentation.is_some() {
+        let syntax_epoch = self.edit_epoch;
+        content = if self.clean_syntax_epoch == Some(syntax_epoch) {
+            content
+        } else if passes.collection_style.is_some() || passes.indentation.is_some() {
             self.syntax_pass(content, input, changed_rules, events, reindented)
         } else {
             self.lint_syntax_pass(content, changed_rules)
         };
+        if self.edit_epoch == syntax_epoch {
+            self.clean_syntax_epoch = Some(syntax_epoch);
+        }
         fix!(
             trailing_spaces,
             passes.trailing_spaces.then_some(&()),
@@ -1238,12 +1250,13 @@ impl FixContext<'_> {
         {
             changed_rules.push(line_length::ID);
             content = folded;
+            self.edit_epoch += 1;
         }
         content
     }
 
     fn lint_syntax_pass(
-        &self,
+        &mut self,
         mut content: String,
         changed_rules: &mut Vec<&'static str>,
     ) -> String {
@@ -1277,7 +1290,7 @@ impl FixContext<'_> {
     }
 
     fn syntax_pass(
-        &self,
+        &mut self,
         mut content: String,
         input: &str,
         changed_rules: &mut Vec<&'static str>,
@@ -1319,6 +1332,7 @@ impl FixContext<'_> {
         {
             changed_rules.extend(rules);
             content = restyled;
+            self.edit_epoch += 1;
         }
         fix!(braces);
         fix!(brackets);
@@ -1381,7 +1395,7 @@ impl FixContext<'_> {
     }
 
     fn apply<C>(
-        &self,
+        &mut self,
         content: String,
         changed_rules: &mut Vec<&'static str>,
         rule: &'static str,
@@ -1391,6 +1405,9 @@ impl FixContext<'_> {
         let Some(cfg) = cfg else {
             return content;
         };
+        if self.clean_rules.get(rule) == Some(&self.edit_epoch) {
+            return content;
+        }
 
         // Run the fix to a fixed point: one pass is not enough where a fix exposes a follow-up
         // diagnostic (e.g. quoted-strings double-to-single leaves a now-redundant pair to
@@ -1414,6 +1431,7 @@ impl FixContext<'_> {
         }
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
             let Some(next) = fix(&current, cfg) else {
+                self.clean_rules.insert(rule, self.edit_epoch);
                 break;
             };
             let next = if guarded {
@@ -1422,10 +1440,12 @@ impl FixContext<'_> {
                 next
             };
             if next == current {
+                self.clean_rules.insert(rule, self.edit_epoch);
                 break;
             }
             current = next;
             changed_rules.push(rule);
+            self.edit_epoch += 1;
             if guarded {
                 directives = Directives::parse_with_per_line(&current, per_line);
             }
