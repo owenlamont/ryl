@@ -841,6 +841,9 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
 /// writes under `cfg`'s `[format]` table.
 #[must_use]
 pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
+    if !cfg.enables_any_rule() {
+        return Vec::new();
+    }
     let table = cfg.format().targets();
     let blanks = "\n".repeat(usize::from(table.max_blank_lines) + 1);
     let shebang = match table.comment_starting_space {

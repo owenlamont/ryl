@@ -232,6 +232,13 @@ fn warned(config: &str) -> Vec<String> {
         .collect()
 }
 
+#[test]
+fn no_enabled_lint_rule_has_no_format_conflict() {
+    for config in ["[format]\n", "[lint.rules]\ncomments = 'disable'\n"] {
+        assert!(warned(config).is_empty(), "{config}");
+    }
+}
+
 fn options_of(schema: &Value, rule: &str) -> BTreeSet<String> {
     let defs = &schema["$defs"];
     let reference = |entry: &Value, prefix: &str| -> String {

@@ -62,6 +62,7 @@ fn warned_rules(config: &str, toml: bool) -> Vec<String> {
 #[test]
 fn agreeing_configs_are_silent() {
     for (config, toml) in [
+        ("[format]\n", true),
         ("extends: default", false),
         (
             "rules: {document-start: {present: true}, document-end: {present: false}}",
