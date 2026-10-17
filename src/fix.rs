@@ -105,16 +105,35 @@ impl Rewrite {
         self,
         input: &str,
         cfg: &YamlLintConfig,
-        path: &Path,
-        base_dir: &Path,
+        (path, base_dir): (&Path, &Path),
         skip: &[&str],
         cache: &mut FormatCache,
+        events: Option<&[(Event<'_>, Span)]>,
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
-            Self::Format => cache.format(input, cfg, path, skip).0.clone(),
+            Self::Format => cache
+                .format_with_events(input, cfg, path, skip, events)
+                .0
+                .clone(),
         }
     }
+}
+
+fn rewrite_parse_gate(
+    content: &str,
+    rewrite: Rewrite,
+) -> Result<Option<Vec<(Event<'_>, Span)>>, crate::lint::LintProblem> {
+    if rewrite == Rewrite::Fix {
+        return crate::lint::parse_error(content).map_or(Ok(None), Err);
+    }
+    let parsed = Parser::new_from_str(content).collect::<Result<Vec<_>, _>>();
+    if let Some(problem) =
+        crate::lint::parse_error_from_result(content, parsed.as_ref().err())
+    {
+        return Err(problem);
+    }
+    Ok(Some(parsed.expect("the parse gate accepted these events")))
 }
 
 /// `std::fs::write` follows symlinks, so `--fix` (and `--diff`, its preview) skips a
@@ -189,11 +208,19 @@ pub fn rewrite_str(
 ) -> (Option<String>, Vec<crate::lint::LintProblem>) {
     match kind {
         SourceKind::Yaml => {
-            if let Some(problem) = crate::lint::parse_error(content) {
-                return (None, vec![problem]);
-            }
+            let events = match rewrite_parse_gate(content, rewrite) {
+                Ok(events) => events,
+                Err(problem) => return (None, vec![problem]),
+            };
             let mut cache = FormatCache::default();
-            let fixed = rewrite.apply(content, cfg, path, base_dir, &[], &mut cache);
+            let fixed = rewrite.apply(
+                content,
+                cfg,
+                (path, base_dir),
+                &[],
+                &mut cache,
+                events.as_deref(),
+            );
             let skipped =
                 unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
             ((fixed != content).then_some(fixed), skipped)
@@ -476,14 +503,24 @@ fn diff_and_skips(
 ) -> DiffOutcome {
     match kind {
         SourceKind::Yaml => {
-            if let Some(problem) = crate::lint::parse_error(content) {
-                return DiffOutcome {
-                    diff: None,
-                    skipped: vec![problem],
-                    ..DiffOutcome::default()
-                };
-            }
-            let fixed = rewrite.apply(content, cfg, path, base_dir, &[], cache);
+            let events = match rewrite_parse_gate(content, rewrite) {
+                Ok(events) => events,
+                Err(problem) => {
+                    return DiffOutcome {
+                        diff: None,
+                        skipped: vec![problem],
+                        ..DiffOutcome::default()
+                    };
+                }
+            };
+            let fixed = rewrite.apply(
+                content,
+                cfg,
+                (path, base_dir),
+                &[],
+                cache,
+                events.as_deref(),
+            );
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
                     changed: rewrite == Rewrite::Format,
@@ -783,10 +820,10 @@ fn fix_markdown_cached(
         let fixed = rewrite.apply(
             &region.content,
             cfg,
-            path,
-            base_dir,
+            (path, base_dir),
             suppressed_rules(),
             cache,
+            None,
         );
         if fixed == region.content {
             continue;

@@ -414,11 +414,29 @@ impl FormatCache {
         path: &Path,
         skip: &[&str],
     ) -> &(String, Vec<&'static str>) {
+        self.format_with_events(input, cfg, path, skip, None)
+    }
+
+    pub(crate) fn format_with_events(
+        &mut self,
+        input: &str,
+        cfg: &YamlLintConfig,
+        path: &Path,
+        skip: &[&str],
+        initial_events: Option<&[(Event<'_>, Span)]>,
+    ) -> &(String, Vec<&'static str>) {
         if self.formatted.contains_key(input) {
             return &self.formatted[input];
         }
-        let parsed = Parser::new_from_str(input).collect::<Result<Vec<_>, _>>();
-        let events = parsed.as_ref().ok().map(Vec::as_slice);
+        let parsed = initial_events
+            .is_none()
+            .then(|| Parser::new_from_str(input).collect::<Result<Vec<_>, _>>());
+        let events = initial_events.or_else(|| {
+            parsed
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .map(Vec::as_slice)
+        });
         let width = *self
             .widths
             .entry(input.to_string())
