@@ -80,6 +80,11 @@ and implicit types affect linting and formatting.
 
 ## Why ryl
 
+[ruff](https://github.com/astral-sh/ruff), [ty](https://github.com/astral-sh/ty),
+[prek](https://github.com/j178/prek) and [rumdl](https://github.com/rvben/rumdl)
+replaced Python linters and formatters with fast Rust tools, leaving yamllint as
+the last one. ryl is the Rust replacement for it, modelled on those tools.
+
 ryl combines configurable lint rules, safe fixes, and whole-file formatting.
 TOML configuration supports per-file rule selection, and SchemaStore helps
 editors validate that configuration.
