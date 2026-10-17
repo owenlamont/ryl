@@ -14,6 +14,7 @@ mod rewrite;
 
 pub(crate) use rewrite::Prepared;
 pub(crate) use rewrite::reindent_with_events;
+pub(crate) use rewrite::unchanged;
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
 
 pub const ID: &str = "indentation";

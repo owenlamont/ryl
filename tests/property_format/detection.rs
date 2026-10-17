@@ -15,6 +15,29 @@ pub fn detection_target(cfg: &YamlLintConfig, width: u8) -> indentation::Config 
     .with_dash_on_own_line(cfg.format().targets().dash_on_own_line)
 }
 
+pub fn check_settled_candidates(cfg: &YamlLintConfig, input: &str) {
+    for width in 2..=8 {
+        let target = detection_target(cfg, width);
+        let first = indentation::reindent(input, &target);
+        let actual = ryl::format::settled(first.text.clone(), input, cfg, width);
+        let mut expected = first;
+        let mut previous = input.to_owned();
+        for _ in 0..ryl::fix::FIX_PIPELINE_MAX_PASSES {
+            if expected.text == previous {
+                break;
+            }
+            let next = indentation::reindent(&expected.text, &target);
+            previous = std::mem::replace(&mut expected, next).text;
+        }
+        assert_eq!(actual, expected.text, "width {width}: {input:?}");
+        assert_eq!(
+            indentation::reindent(&actual, &target),
+            expected,
+            "settled refusal at width {width}: {input:?}",
+        );
+    }
+}
+
 pub fn original_indent_width(cfg: &YamlLintConfig, input: &str) -> u8 {
     if let Some(width) = cfg.indent_width() {
         return width.get();

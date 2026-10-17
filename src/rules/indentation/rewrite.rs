@@ -65,6 +65,37 @@ pub(crate) fn reindent_with_events(
     Prepared::new(buffer, cfg.dash_on_own_line, events).reindent(cfg)
 }
 
+pub(crate) fn unchanged(buffer: &str, cfg: &Config) -> bool {
+    // BOM-adjusted header columns can still move scalar blank-line spaces.
+    if buffer.contains('\u{feff}') {
+        return false;
+    }
+    let lines: Vec<_> = split_lines_preserve_endings(buffer)
+        .map(|(_, content, ending)| (content, ending))
+        .collect();
+    let chars: Vec<_> = buffer.char_indices().collect();
+    // Disabling a join or split cannot change a reshape that already preserves every byte.
+    let (shaped, _, _, scanned) = reshape(
+        buffer,
+        &lines,
+        cfg.dash_on_own_line,
+        &Directives::default(),
+        &chars,
+    );
+    if shaped != buffer {
+        return false;
+    }
+    let (tokens, line_starts) =
+        scanned.expect("width candidates specify dash placement");
+    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, Mode::Target);
+    analyzer.run(&tokens);
+    // Zero shifts also leave scalar blank lines fixed, and refusals only restore input bytes.
+    analyzer.gaps.iter().all(Vec::is_empty)
+        && settle(&lines, &analyzer.shifts)
+            .iter()
+            .all(|&delta| delta == 0)
+}
+
 /// What [`reindent`] derives from `buffer` alone, so several widths can share it.
 pub(crate) struct Prepared<'a> {
     buffer: &'a str,
@@ -105,17 +136,22 @@ impl<'a> Prepared<'a> {
             .map(|(_, content, ending)| (content, ending))
             .collect();
         let parsed = parsed && !original.is_empty();
+        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
         let starts = if parsed {
-            document_starts(buffer, &original)
+            document_starts(&chars, &original)
         } else {
             Vec::new()
         };
         let (shaped, origin, kept_dash_lines, scanned) = if parsed {
-            reshape(buffer, &lines, dash_on_own_line, &directives)
+            reshape(buffer, &lines, dash_on_own_line, &directives, &chars)
         } else {
             (String::new(), Vec::new(), Vec::new(), None)
         };
-        let chars: Vec<(usize, char)> = shaped.char_indices().collect();
+        let chars = if shaped == buffer {
+            chars
+        } else {
+            shaped.char_indices().collect()
+        };
         let (tokens, line_starts) =
             scanned.filter(|_| shaped == buffer).unwrap_or_else(|| {
                 let mut starts = build_line_starts(&chars);
@@ -209,7 +245,10 @@ impl<'a> Prepared<'a> {
         let mut text = if reverted { render(&refused) } else { attempt };
         if cfg.require_consistent {
             let (output_documents, _) = documents(&text);
-            let output_starts = document_starts(&text, &output_documents);
+            let output_starts = document_starts(
+                &text.char_indices().collect::<Vec<_>>(),
+                &output_documents,
+            );
             let mut inconsistent = false;
             for violation in super::check(&text, &cfg.with_consistent_spaces()) {
                 let document =
@@ -320,9 +359,8 @@ impl<'a> Prepared<'a> {
 }
 
 /// The 0-based line each of `documents` starts on, the first taking any lines before it.
-fn document_starts(buffer: &str, documents: &[Document<'_>]) -> Vec<usize> {
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
+fn document_starts(chars: &[(usize, char)], documents: &[Document<'_>]) -> Vec<usize> {
+    let line_starts = build_line_starts(chars);
     let mut starts: Vec<usize> = documents
         .iter()
         .map(|document| locate(&line_starts, document.start).0)
@@ -373,17 +411,17 @@ fn reshape(
     lines: &[(&str, &str)],
     dash_on_own_line: Option<bool>,
     directives: &Directives,
+    chars: &[(usize, char)],
 ) -> ReshapeResult {
     let mut joins = vec![None; lines.len()];
     let mut breaks = vec![None; lines.len()];
     let mut kept = Vec::new();
     let mut scanned = None;
     if let Some(own_line) = dash_on_own_line {
-        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-        let mut line_starts = build_line_starts(&chars);
+        let mut line_starts = build_line_starts(chars);
         let mut commented = HashSet::new();
         let tokens =
-            scan_with_comments(buffer, &chars, &mut line_starts, Some(&mut commented));
+            scan_with_comments(buffer, chars, &mut line_starts, Some(&mut commented));
         for pair in tokens.windows(2) {
             let (entry, start) = (pair[0], pair[1]);
             if entry.kind != Kind::BlockEntry

@@ -736,6 +736,25 @@ proptest! {
     }
 
     #[test]
+    fn every_width_settles_to_the_original_text_and_refusal(
+        document in arb_document_with_properties(),
+        mapping in arb_nested_mapping(),
+        indent_sequences in any::<bool>(),
+        dash_on_own_line in any::<bool>(),
+        ending in prop::sample::select(vec!["\n", "\r\n", "\r"]),
+        bom in any::<bool>(),
+    ) {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[format]\nindent-sequences = {indent_sequences}\ndash-on-own-line = {dash_on_own_line}\n"
+        )).unwrap();
+        for input in [document.render(), mapping] {
+            let input = input.replace('\n', ending);
+            let input = if bom { format!("\u{feff}{input}") } else { input };
+            detection::check_settled_candidates(&cfg, &input);
+        }
+    }
+
+    #[test]
     fn mixed_width_detection_matches_the_original_scorer(
         document in arb_document_with_properties(),
         widths in (2u8..=8, 2u8..=8),
@@ -941,6 +960,34 @@ fn repeated_comments_across_diff_boundaries_preserve_width_ties() {
 }
 
 #[test]
+fn settled_candidates_keep_boms_directives_and_dash_reshaping() {
+    for own_line in [false, true] {
+        for indent_sequences in [false, true] {
+            let cfg = YamlLintConfig::from_toml_str(&format!(
+                "[format]\ndash-on-own-line = {own_line}\nindent-sequences = {indent_sequences}\n"
+            )).unwrap();
+            for input in [
+                "\u{feff}root:\n    child: value\nother:\n  child: value\n",
+                "root:\n-\n    a:\n    -\n        b: value\n",
+                "root:\n- a: value # keep\n  b: value\n",
+                "root:\n-  a: value\n   b: value\n",
+                "root:\n # before\n    a: value\n # after\n",
+                "root:\n-\n    a: value # ryl disable-line rule:hyphens\n",
+                "root:\n  a: value\n---\nother:\n\tb: value\n",
+                "root:\n    a: |2+\n       \n    b: value\n",
+            ] {
+                for ending in ["\n", "\r\n", "\r"] {
+                    detection::check_settled_candidates(
+                        &cfg,
+                        &input.replace('\n', ending),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn width_scoring_preserves_ties_refusals_and_line_alignment() {
     let cfg = YamlLintConfig::default();
     for input in [
@@ -964,6 +1011,7 @@ fn width_scoring_preserves_ties_refusals_and_line_alignment() {
         "? a\n: a\nb:\n     - a\n",
         "a:\r\n    one: x\r\nb:\r\n  two: z\r\n",
     ] {
+        detection::check_settled_candidates(&cfg, input);
         assert_eq!(
             file_indent_width(&cfg, input),
             original_indent_width(&cfg, input),
@@ -994,6 +1042,7 @@ fn width_scoring_carries_cached_scalar_blanks() {
         "root:\n    body: |2+\n       \n    next: x\n# ryl disable rule:indentation\n",
     ] {
         for input in [body.to_owned(), body.replace('\n', "\r\n")] {
+            detection::check_settled_candidates(&cfg, &input);
             assert_eq!(
                 file_indent_width(&cfg, &input),
                 original_indent_width(&cfg, &input),
