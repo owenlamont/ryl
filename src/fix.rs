@@ -70,10 +70,8 @@ pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,
-    /// Per-file stderr in input order.
-    pub notices: Vec<Vec<u8>>,
-    /// Input or region problems that the rewrite skipped.
-    pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
+    /// Per-file stderr, including skip notices and errors, in input order.
+    pub notices: Vec<u8>,
     /// Input index and error for files that could not be read or written.
     pub errors: Vec<(usize, String)>,
 }
@@ -142,17 +140,13 @@ fn rewrite_parse_gate(
 /// symlinked input with a warning rather than let an untrusted tree redirect the write
 /// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
 /// final component is checked, not atomically (a full defense needs `O_NOFOLLOW`).
-fn symlink_notice(path: &Path, flag: &str) -> Option<Vec<u8>> {
-    if is_symlink(path) {
-        return Some(
-            format!(
-                "skipping {}: refusing to follow a symlink for {flag}\n",
-                crate::cli_support::sanitize_control(&path.display().to_string())
-            )
-            .into_bytes(),
-        );
-    }
-    None
+fn symlink_notice(path: &Path, flag: &str) -> Option<String> {
+    is_symlink(path).then(|| {
+        format!(
+            "skipping {}: refusing to follow a symlink for {flag}\n",
+            crate::cli_support::sanitize_control(&path.display().to_string())
+        )
+    })
 }
 
 /// Render the stderr notice for a skipped input or unfixed rule.
@@ -161,7 +155,7 @@ pub fn skip_notice(
     path: &Path,
     problem: &crate::lint::LintProblem,
     flag: &str,
-) -> Vec<u8> {
+) -> String {
     let what = problem.rule.map_or_else(
         || format!("skipped by {flag}"),
         |rule| format!("{rule} not fixed"),
@@ -173,7 +167,6 @@ pub fn skip_notice(
         problem.column,
         crate::cli_support::sanitize_control(&problem.message),
     )
-    .into_bytes()
 }
 
 fn is_symlink(path: &Path) -> bool {
@@ -266,10 +259,10 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
         for (index, (result, stderr)) in batch.zip(results) {
             let path = &files[index].0;
             if let Some(notice) = symlink_notice(path, rewrite.flag()) {
-                stats.notices.push(notice);
+                stats.notices.extend_from_slice(notice.as_bytes());
                 continue;
             }
-            stats.notices.push(stderr);
+            stats.notices.extend(stderr);
             let written = result.and_then(|(decoded, rewritten, skipped)| {
                 if let Some(rewritten) = &rewritten {
                     decoded.write(path, rewritten)?;
@@ -279,23 +272,17 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
             match written {
                 Ok((changed, skipped)) => {
                     stats.changed_files += usize::from(changed);
-                    stats.notices.extend(
-                        skipped
-                            .iter()
-                            .map(|problem| skip_notice(path, problem, rewrite.flag())),
-                    );
-                    stats.skipped.extend(
-                        skipped.into_iter().map(|problem| (path.clone(), problem)),
-                    );
+                    for problem in &skipped {
+                        stats.notices.extend_from_slice(
+                            skip_notice(path, problem, rewrite.flag()).as_bytes(),
+                        );
+                    }
                 }
                 Err(error) => {
-                    stats.notices.push(
-                        format!(
-                            "error: {}\n",
-                            crate::cli_support::sanitize_control(&error)
-                        )
-                        .into_bytes(),
-                    );
+                    let notice = crate::cli_support::sanitize_control(&error);
+                    stats
+                        .notices
+                        .extend_from_slice(format!("error: {notice}\n").as_bytes());
                     stats.errors.push((index, error));
                 }
             }
@@ -359,23 +346,22 @@ pub struct DiffOutcome {
 #[derive(Debug, Default)]
 pub struct DiffStats {
     pub changed_files: usize,
-    /// Per-file stderr in input order.
-    pub notices: Vec<Vec<u8>>,
+    /// Per-file stderr, including skip notices, in input order.
+    pub notices: Vec<u8>,
     /// Unified diffs for files that would change, in input order.
     pub diffs: Vec<String>,
-    /// Inputs or regions left without a patch, with skip notices.
-    pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
     pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>)>,
 }
 
 impl DiffStats {
-    pub fn record(&mut self, path: &Path, outcome: DiffOutcome) {
+    pub fn record(&mut self, path: &Path, outcome: DiffOutcome, flag: &str) {
         self.changed_files += usize::from(outcome.changed);
         if let Some(diff) = outcome.diff {
             self.diffs.push(diff);
         }
-        for problem in outcome.skipped {
-            self.skipped.push((path.to_path_buf(), problem));
+        for problem in &outcome.skipped {
+            self.notices
+                .extend_from_slice(skip_notice(path, problem, flag).as_bytes());
         }
         if !outcome.problems.is_empty() {
             self.problems.push((path.to_path_buf(), outcome.problems));
@@ -745,26 +731,17 @@ pub fn diff_files(
     });
     for ((path, ..), (result, stderr)) in files.iter().zip(results) {
         if let Some(notice) = symlink_notice(path, flag) {
-            stats.notices.push(notice);
+            stats.notices.extend_from_slice(notice.as_bytes());
             continue;
         }
-        stats.notices.push(stderr);
-        let outcome = match result {
-            Ok(outcome) => outcome,
+        stats.notices.extend(stderr);
+        match result {
+            Ok(outcome) => stats.record(path, outcome, flag),
             Err(error) => {
-                for notice in &stats.notices {
-                    let _ = std::io::stderr().write_all(notice);
-                }
+                let _ = std::io::stderr().write_all(&stats.notices);
                 return Err(error);
             }
-        };
-        stats.notices.extend(
-            outcome
-                .skipped
-                .iter()
-                .map(|problem| skip_notice(path, problem, flag)),
-        );
-        stats.record(path, outcome);
+        }
     }
     Ok(stats)
 }

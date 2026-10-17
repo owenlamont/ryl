@@ -802,16 +802,16 @@ fn write_targets(
     targets: &[OutputTarget],
     sinks: &mut [OutputSink],
     records: &[FileRecord],
-    reported_fix_errors: bool,
+    reported: &[usize],
 ) -> Result<(), String> {
-    if !reported_fix_errors
-        && !targets.iter().any(|target| {
-            target.format.is_streaming()
-                && matches!(&target.destination, Destination::Stderr)
-        })
-    {
-        for message in records.iter().filter_map(|record| record.error.as_deref()) {
-            eprintln!("error: {message}");
+    if !targets.iter().any(|target| {
+        target.format.is_streaming()
+            && matches!(&target.destination, Destination::Stderr)
+    }) {
+        for record in unreported(records, reported) {
+            if let Some(message) = &record.error {
+                eprintln!("error: {message}");
+            }
         }
     }
     let project_root = report_project_root();
@@ -820,12 +820,11 @@ fn write_targets(
         .any(|target| !target.format.is_streaming())
         .then(|| build_entries(records, &project_root));
     for (target, sink) in targets.iter().zip(sinks.iter_mut()) {
-        let bytes = render_target(
-            target.format,
-            records,
-            entries.as_deref(),
-            reported_fix_errors && matches!(target.destination, Destination::Stderr),
-        );
+        let reported = match target.destination {
+            Destination::Stderr => reported,
+            _ => &[],
+        };
+        let bytes = render_target(target.format, records, entries.as_deref(), reported);
         sink.commit(&bytes)
             .map_err(|err| write_output_error(&err))?;
     }
@@ -843,7 +842,7 @@ fn emit_targets(
     records: &[FileRecord],
 ) -> Result<(), String> {
     let mut sinks = open_targets(targets)?;
-    write_targets(targets, &mut sinks, records, false)
+    write_targets(targets, &mut sinks, records, &[])
 }
 
 /// Render `records` to bytes in `format`. The report arms serialize the pre-built `entries`,
@@ -852,24 +851,21 @@ fn render_target(
     format: OutputFormat,
     records: &[FileRecord],
     entries: Option<&[ReportEntry]>,
-    reported_fix_errors: bool,
+    reported: &[usize],
 ) -> Vec<u8> {
-    match format {
-        OutputFormat::Standard => {
-            render_streaming(records, append_standard, reported_fix_errors)
+    let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
+        OutputFormat::Standard => append_standard,
+        OutputFormat::Colored => append_colored,
+        OutputFormat::Github => append_github,
+        OutputFormat::Parsable => append_parsable,
+        OutputFormat::Junit => {
+            return render_junit(entries.expect(REPORT_ENTRIES_BUILT));
         }
-        OutputFormat::Colored => {
-            render_streaming(records, append_colored, reported_fix_errors)
+        OutputFormat::Gitlab => {
+            return render_gitlab(entries.expect(REPORT_ENTRIES_BUILT));
         }
-        OutputFormat::Github => {
-            render_streaming(records, append_github, reported_fix_errors)
-        }
-        OutputFormat::Parsable => {
-            render_streaming(records, append_parsable, reported_fix_errors)
-        }
-        OutputFormat::Junit => render_junit(entries.expect(REPORT_ENTRIES_BUILT)),
-        OutputFormat::Gitlab => render_gitlab(entries.expect(REPORT_ENTRIES_BUILT)),
-    }
+    };
+    render_streaming(records, append, reported)
 }
 
 // A report target means entries are built, so the junit/gitlab arms only see `Some`; the
@@ -882,19 +878,29 @@ const REPORT_ENTRIES_BUILT: &str =
 fn render_streaming(
     records: &[FileRecord],
     append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
-    reported_fix_errors: bool,
+    reported: &[usize],
 ) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
-    for record in records {
+    for record in unreported(records, reported) {
         if let Some(message) = &record.error {
-            if !reported_fix_errors {
-                writeln!(out, "error: {message}").expect(OUTPUT_INFALLIBLE);
-            }
+            writeln!(out, "error: {message}").expect(OUTPUT_INFALLIBLE);
         } else if !record.kept.is_empty() {
             append(&mut out, record.path, &record.kept);
         }
     }
     out
+}
+
+/// `records` minus those at `reported`, whose error `--fix` already printed.
+fn unreported<'a, 'r>(
+    records: &'a [FileRecord<'r>],
+    reported: &'a [usize],
+) -> impl Iterator<Item = &'a FileRecord<'r>> {
+    records
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !reported.contains(index))
+        .map(|(_, record)| record)
 }
 
 /// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
@@ -1314,14 +1320,11 @@ fn lint_and_exit(
             .sum::<usize>()
     });
     let (summary, records) = collect_records(files, results, no_warnings);
-    write_targets(
-        targets,
-        &mut sinks,
-        &records,
-        before_fix
-            .as_ref()
-            .is_some_and(|(_, errors)| !errors.is_empty()),
-    )?;
+    let reported: Vec<usize> = before_fix
+        .iter()
+        .flat_map(|(_, errors)| errors.iter().map(|(index, _)| *index))
+        .collect();
+    write_targets(targets, &mut sinks, &records, &reported)?;
 
     if let Some(fixed) = fixed
         && let found = fixed + summary.problem_count
@@ -1336,10 +1339,10 @@ fn lint_and_exit(
         );
     }
 
-    if before_fix.is_some_and(|(_, errors)| !errors.is_empty()) {
-        Ok(ExitCode::from(2))
-    } else {
+    if reported.is_empty() {
         Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
+    } else {
+        Ok(ExitCode::from(2))
     }
 }
 
@@ -1352,7 +1355,7 @@ fn apply_fixes_reporting_skips(
 ) -> (Vec<SafeFixRuleCounts>, Vec<(usize, String)>) {
     let mut before = safe_fix_rule_counts(&lint_files(files), no_warnings);
     let fix_stats = rewrite_files(files, Rewrite::Fix);
-    emit_file_notices(&fix_stats.notices);
+    let _ = std::io::stderr().write_all(&fix_stats.notices);
     for (index, _) in &fix_stats.errors {
         before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
     }
@@ -1373,13 +1376,7 @@ fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
 /// could not fix. Path and message are user-controlled, so both are sanitized; `action` is
 /// the literal flag name.
 fn eprint_skip_notice(path: &Path, problem: &LintProblem, action: &str) {
-    let _ = std::io::stderr().write_all(&skip_notice(path, problem, action));
-}
-
-fn emit_file_notices(notices: &[Vec<u8>]) {
-    for notice in notices {
-        let _ = std::io::stderr().write_all(notice);
-    }
+    eprint!("{}", skip_notice(path, problem, action));
 }
 
 fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
@@ -1417,7 +1414,14 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     if args.lint.fix.diff {
-        let stats = stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Fix)?;
+        let stats = stdin_diff_stats(
+            &path,
+            &base_dir,
+            &cfg,
+            kind,
+            Rewrite::Fix,
+            Preview::Diff,
+        )?;
         return Ok(emit_diff(&stats, Preview::Diff));
     }
 
@@ -1429,7 +1433,7 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     let mut sinks = open_targets(targets)?;
     let (summary, records) =
         collect_records(&files, results, args.lint.compatibility.no_warnings);
-    write_targets(targets, &mut sinks, &records, false)?;
+    write_targets(targets, &mut sinks, &records, &[])?;
     Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
 }
 
@@ -1494,12 +1498,14 @@ fn stdin_diff_stats(
     cfg: &YamlLintConfig,
     kind: SourceKind,
     rewrite: Rewrite,
+    preview: Preview,
 ) -> Result<DiffStats, String> {
     let (decoded, _) = read_stdin_decoded(path)?;
     let mut stats = DiffStats::default();
     stats.record(
         path,
         decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite),
+        preview.flag(),
     );
     Ok(stats)
 }
@@ -1520,13 +1526,7 @@ impl Preview {
 }
 
 fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
-    if stats.notices.is_empty() {
-        for (path, problem) in &stats.skipped {
-            eprint_skip_notice(path, problem, preview.flag());
-        }
-    } else {
-        emit_file_notices(&stats.notices);
-    }
+    let _ = std::io::stderr().write_all(&stats.notices);
     if preview == Preview::Diff {
         // Each diff already carries its trailing newline, so concatenate and print once.
         print!("{}", stats.diffs.concat());
@@ -1583,7 +1583,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         return emit_format_preview(&stats, preview, &targets);
     }
     let stats = rewrite_files(&files, Rewrite::Format);
-    emit_file_notices(&stats.notices);
+    let _ = std::io::stderr().write_all(&stats.notices);
     Ok(if stats.errors.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -1665,9 +1665,14 @@ fn run_stdin_format(
         let targets = format_targets(preview, output_format, cfg.output())?;
         reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
         let stats = match kind {
-            Some(kind) => {
-                stdin_diff_stats(&path, &base_dir, &cfg, kind, Rewrite::Format)?
-            }
+            Some(kind) => stdin_diff_stats(
+                &path,
+                &base_dir,
+                &cfg,
+                kind,
+                Rewrite::Format,
+                preview,
+            )?,
             None => DiffStats::default(),
         };
         return emit_format_preview(&stats, preview, &targets);

@@ -174,3 +174,33 @@ fn rewrite_notices_follow_input_order_with_read_parse_and_symlink_skips() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn fix_read_error_keeps_lint_read_error_of_skipped_symlink() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ncolons = 'enable'\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("invalid.yaml"), [0xff]).unwrap();
+    fs::write(dir.path().join("target.yaml"), [0xfe]).unwrap();
+    std::os::unix::fs::symlink("target.yaml", dir.path().join("link.yaml")).unwrap();
+
+    let output = ryl(dir.path())
+        .current_dir(dir.path())
+        .args(["check", "--fix", "invalid.yaml", "link.yaml"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    for path in ["invalid.yaml", "link.yaml"] {
+        assert_eq!(
+            stderr.matches(&format!("failed to read {path}")).count(),
+            1,
+            "{stderr}"
+        );
+    }
+}

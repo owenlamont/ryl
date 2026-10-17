@@ -36,7 +36,7 @@ fn apply_safe_fixes_in_place_reports_no_change() {
     let stats = rewrite_one_file(&file, cfg, dir.path());
 
     assert_eq!(stats.changed_files, 0);
-    assert!(stats.skipped.is_empty());
+    assert!(stats.notices.is_empty());
     assert!(stats.errors.is_empty());
     assert_eq!(fs::read_to_string(&file).unwrap(), "key: value\n");
 }
@@ -56,7 +56,10 @@ fn apply_safe_fixes_in_place_refuses_symlink() {
     let stats = rewrite_one_file(&link, cfg, dir.path());
 
     assert_eq!(stats.changed_files, 0);
-    assert!(stats.skipped.is_empty());
+    assert!(
+        String::from_utf8_lossy(&stats.notices)
+            .contains("refusing to follow a symlink")
+    );
     assert!(stats.errors.is_empty());
     assert_eq!(fs::read_to_string(&target).unwrap(), "key:  value\n");
 }
@@ -71,7 +74,7 @@ fn apply_safe_fixes_in_place_writes_changes() {
     let stats = rewrite_one_file(&file, cfg, dir.path());
 
     assert_eq!(stats.changed_files, 1);
-    assert!(stats.skipped.is_empty());
+    assert!(stats.notices.is_empty());
     assert!(stats.errors.is_empty());
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -90,12 +93,13 @@ fn apply_safe_fixes_in_place_skips_and_reports_unparsable_file() {
 
     assert_eq!(stats.changed_files, 0, "an unparsable file is not changed");
     assert!(stats.errors.is_empty());
-    assert_eq!(stats.skipped.len(), 1, "one whole-file parse error");
-    assert_eq!(stats.skipped[0].0, file);
+    let notices = String::from_utf8(stats.notices).unwrap();
     assert!(
-        stats.skipped[0].1.message.contains("unknown anchor"),
-        "skip carries the parse error: {}",
-        stats.skipped[0].1.message
+        notices.lines().count() == 1
+            && notices.starts_with(&format!("{}:1:", file.display()))
+            && notices.contains("skipped by --fix")
+            && notices.contains("unknown anchor"),
+        "one skip notice carries the parse error: {notices}"
     );
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -159,7 +163,6 @@ fn apply_safe_fixes_in_place_returns_read_error_for_missing_file() {
     let stats = rewrite_one_file(&file, cfg, dir.path());
 
     assert_eq!(stats.changed_files, 0);
-    assert!(stats.skipped.is_empty());
     assert_eq!(stats.errors.len(), 1);
     assert_eq!(stats.errors[0].0, 0);
     assert!(stats.errors[0].1.contains("failed to read"));
@@ -179,7 +182,6 @@ fn apply_safe_fixes_in_place_returns_write_error_for_read_only_file() {
     let stats = rewrite_one_file(&file, cfg, dir.path());
 
     assert_eq!(stats.changed_files, 0);
-    assert!(stats.skipped.is_empty());
     assert_eq!(stats.errors.len(), 1);
     assert_eq!(stats.errors[0].0, 0);
     assert!(stats.errors[0].1.contains("failed to write fixed file"));
