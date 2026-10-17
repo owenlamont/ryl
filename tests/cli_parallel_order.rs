@@ -151,7 +151,7 @@ fn rewrite_notices_follow_input_order_with_read_parse_and_symlink_skips() {
             let expected: Vec<String> = order
                 .iter()
                 .filter_map(|path| {
-                    if **path == invalid {
+                    if **path == invalid && !mode.contains(&"--fix") {
                         Some(format!("failed to read {}:", invalid.display()))
                     } else if **path == link {
                         Some("refusing to follow a symlink".to_string())
@@ -203,4 +203,11 @@ fn fix_read_error_keeps_lint_read_error_of_skipped_symlink() {
             "{stderr}"
         );
     }
+    let symlink_notice = stderr.find("refusing to follow a symlink").unwrap();
+    let invalid_report = stderr.find("error: failed to read invalid.yaml").unwrap();
+    let link_report = stderr.find("error: failed to read link.yaml").unwrap();
+    assert!(
+        symlink_notice < invalid_report && invalid_report < link_report,
+        "{stderr}"
+    );
 }

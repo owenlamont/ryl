@@ -70,7 +70,7 @@ pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,
-    /// Per-file stderr, including skip notices and errors, in input order.
+    /// Per-file skip notices and format errors, in input order.
     pub notices: Vec<u8>,
     /// Input index and error for files that could not be read or written.
     pub errors: Vec<(usize, String)>,
@@ -279,10 +279,12 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
                     }
                 }
                 Err(error) => {
-                    let notice = crate::cli_support::sanitize_control(&error);
-                    stats
-                        .notices
-                        .extend_from_slice(format!("error: {notice}\n").as_bytes());
+                    if rewrite == Rewrite::Format {
+                        let notice = crate::cli_support::sanitize_control(&error);
+                        stats
+                            .notices
+                            .extend_from_slice(format!("error: {notice}\n").as_bytes());
+                    }
                     stats.errors.push((index, error));
                 }
             }

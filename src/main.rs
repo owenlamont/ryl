@@ -802,13 +802,12 @@ fn write_targets(
     targets: &[OutputTarget],
     sinks: &mut [OutputSink],
     records: &[FileRecord],
-    reported: &[usize],
 ) -> Result<(), String> {
     if !targets.iter().any(|target| {
         target.format.is_streaming()
             && matches!(&target.destination, Destination::Stderr)
     }) {
-        for record in unreported(records, reported) {
+        for record in records {
             if let Some(message) = &record.error {
                 eprintln!("error: {message}");
             }
@@ -820,11 +819,7 @@ fn write_targets(
         .any(|target| !target.format.is_streaming())
         .then(|| build_entries(records, &project_root));
     for (target, sink) in targets.iter().zip(sinks.iter_mut()) {
-        let reported = match target.destination {
-            Destination::Stderr => reported,
-            _ => &[],
-        };
-        let bytes = render_target(target.format, records, entries.as_deref(), reported);
+        let bytes = render_target(target.format, records, entries.as_deref());
         sink.commit(&bytes)
             .map_err(|err| write_output_error(&err))?;
     }
@@ -842,7 +837,7 @@ fn emit_targets(
     records: &[FileRecord],
 ) -> Result<(), String> {
     let mut sinks = open_targets(targets)?;
-    write_targets(targets, &mut sinks, records, &[])
+    write_targets(targets, &mut sinks, records)
 }
 
 /// Render `records` to bytes in `format`. The report arms serialize the pre-built `entries`,
@@ -851,7 +846,6 @@ fn render_target(
     format: OutputFormat,
     records: &[FileRecord],
     entries: Option<&[ReportEntry]>,
-    reported: &[usize],
 ) -> Vec<u8> {
     let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
         OutputFormat::Standard => append_standard,
@@ -865,7 +859,7 @@ fn render_target(
             return render_gitlab(entries.expect(REPORT_ENTRIES_BUILT));
         }
     };
-    render_streaming(records, append, reported)
+    render_streaming(records, append)
 }
 
 // A report target means entries are built, so the junit/gitlab arms only see `Some`; the
@@ -878,10 +872,9 @@ const REPORT_ENTRIES_BUILT: &str =
 fn render_streaming(
     records: &[FileRecord],
     append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
-    reported: &[usize],
 ) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
-    for record in unreported(records, reported) {
+    for record in records {
         if let Some(message) = &record.error {
             writeln!(out, "error: {message}").expect(OUTPUT_INFALLIBLE);
         } else if !record.kept.is_empty() {
@@ -889,18 +882,6 @@ fn render_streaming(
         }
     }
     out
-}
-
-/// `records` minus those at `reported`, whose error `--fix` already printed.
-fn unreported<'a, 'r>(
-    records: &'a [FileRecord<'r>],
-    reported: &'a [usize],
-) -> impl Iterator<Item = &'a FileRecord<'r>> {
-    records
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !reported.contains(index))
-        .map(|(_, record)| record)
 }
 
 /// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
@@ -1320,11 +1301,7 @@ fn lint_and_exit(
             .sum::<usize>()
     });
     let (summary, records) = collect_records(files, results, no_warnings);
-    let reported: Vec<usize> = before_fix
-        .iter()
-        .flat_map(|(_, errors)| errors.iter().map(|(index, _)| *index))
-        .collect();
-    write_targets(targets, &mut sinks, &records, &reported)?;
+    write_targets(targets, &mut sinks, &records)?;
 
     if let Some(fixed) = fixed
         && let found = fixed + summary.problem_count
@@ -1339,7 +1316,10 @@ fn lint_and_exit(
         );
     }
 
-    if reported.is_empty() {
+    if before_fix
+        .as_ref()
+        .is_none_or(|(_, errors)| errors.is_empty())
+    {
         Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
     } else {
         Ok(ExitCode::from(2))
@@ -1433,7 +1413,7 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     let mut sinks = open_targets(targets)?;
     let (summary, records) =
         collect_records(&files, results, args.lint.compatibility.no_warnings);
-    write_targets(targets, &mut sinks, &records, &[])?;
+    write_targets(targets, &mut sinks, &records)?;
     Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
 }
 
