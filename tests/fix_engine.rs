@@ -29,6 +29,26 @@ fn apply_safe_fixes_in_place_reports_no_change() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "key: value\n");
 }
 
+#[cfg(unix)]
+#[test]
+fn apply_safe_fixes_in_place_refuses_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let target = dir.path().join("target.yaml");
+    let link = dir.path().join("link.yaml");
+    fs::write(&target, "key:  value\n").unwrap();
+    symlink(&target, &link).unwrap();
+    let cfg = config("rules:\n  colons: enable\n");
+
+    let outcome =
+        rewrite_in_place(&link, &cfg, dir.path(), SourceKind::Yaml, Rewrite::Fix)
+            .expect("symlink is skipped");
+
+    assert_eq!(outcome, FixOutcome::default());
+    assert_eq!(fs::read_to_string(&target).unwrap(), "key:  value\n");
+}
+
 #[test]
 fn apply_safe_fixes_in_place_writes_changes() {
     let dir = tempdir().unwrap();

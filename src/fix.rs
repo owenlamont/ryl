@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
 use similar::TextDiff;
 
 use crate::cli_support::LintFile;
@@ -117,7 +118,7 @@ impl Rewrite {
 /// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
 /// final component is checked, not atomically (a full defense needs `O_NOFOLLOW`).
 fn refuse_symlink(path: &Path, flag: &str) -> bool {
-    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+    if is_symlink(path) {
         eprintln!(
             "skipping {}: refusing to follow a symlink for {flag}",
             crate::cli_support::sanitize_control(&path.display().to_string())
@@ -125,6 +126,10 @@ fn refuse_symlink(path: &Path, flag: &str) -> bool {
         return true;
     }
     false
+}
+
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
 /// Apply `rewrite` to `path` in place.
@@ -208,9 +213,47 @@ pub fn rewrite_str(
 #[must_use]
 pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
-    for (index, (path, base_dir, cfg, kind)) in files.iter().enumerate() {
-        let outcome = match rewrite_in_place(path, cfg, base_dir, *kind, rewrite) {
-            Ok(outcome) => outcome,
+    let mut results: Vec<_> = files
+        .par_iter()
+        .enumerate()
+        .map(|(index, (path, base_dir, cfg, kind))| {
+            let result = if is_symlink(path) {
+                Err(format!("skipped symlink {}", path.display()))
+            } else {
+                decoder::read_file_lossless(path).map(|decoded| {
+                    let (rewritten, skipped) = rewrite_str(
+                        decoded.content(),
+                        cfg,
+                        path,
+                        base_dir,
+                        *kind,
+                        rewrite,
+                    );
+                    (decoded, rewritten, skipped)
+                })
+            };
+            (index, result)
+        })
+        .collect();
+    results.sort_by_key(|(index, _)| *index);
+    for (index, result) in results {
+        let (path, _, _, _) = &files[index];
+        if refuse_symlink(path, rewrite.flag()) {
+            continue;
+        }
+        let outcome = match result {
+            Ok((decoded, rewritten, skipped)) => {
+                if let Some(rewritten) = &rewritten
+                    && let Err(error) = decoded.write(path, rewritten)
+                {
+                    stats.errors.push((index, error));
+                    continue;
+                }
+                FixOutcome {
+                    changed: rewritten.is_some(),
+                    skipped,
+                }
+            }
             Err(error) => {
                 stats.errors.push((index, error));
                 continue;
@@ -608,13 +651,27 @@ pub fn diff_files(
     flag: &str,
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
-    for (path, base_dir, cfg, kind) in files {
+    let mut results: Vec<_> = files
+        .par_iter()
+        .enumerate()
+        .map(|(index, (path, base_dir, cfg, kind))| {
+            let result = if is_symlink(path) {
+                Err(format!("skipped symlink {}", path.display()))
+            } else {
+                decoder::read_file_lossless(path).map(|decoded| {
+                    decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
+                })
+            };
+            (index, result)
+        })
+        .collect();
+    results.sort_by_key(|(index, _)| *index);
+    for (index, result) in results {
+        let (path, _, _, _) = &files[index];
         if refuse_symlink(path, flag) {
             continue;
         }
-        let decoded = decoder::read_file_lossless(path)?;
-        let outcome =
-            decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite);
+        let outcome = result?;
         stats.record(path, outcome);
     }
     Ok(stats)

@@ -3,6 +3,14 @@
 Release dates below use the GitHub release publication date in UTC. Historical entries
 summarize user-visible changes from the tagged commits and published release records.
 
+## Unreleased
+
+### Changed
+
+- `ryl format` and `ryl check --fix`/`--diff` process file contents in parallel while
+  keeping writes, notices and diffs in input order.
+  ([#748](https://github.com/owenlamont/ryl/issues/748))
+
 ## v0.25.1 - 2026-10-16
 
 ### Changed

@@ -124,6 +124,22 @@ matrix with 5 runs per point:
 The benchmark script is in `scripts/benchmark_perf_vs_yamllint.py`; run
 it with `--help` for the full option set.
 
+### File rewrites
+
+Release builds on a 16-core Linux host, median of three runs per command.
+The larger files contain 460 mapping entries (9,200 bytes each); small files
+contain two entries. Each run starts with unformatted files. Cells show wall
+seconds / CPU percentage.
+
+| Inputs | Command | Serial | Parallel |
+| --- | --- | ---: | ---: |
+| 100 × 9 KiB | `format` | 2.59 / 100% | 0.41 / 1390% |
+| 100 × 9 KiB | `check --fix` | 0.25 / 191% | 0.07 / 1157% |
+| 100 × 9 KiB | `check --diff` | 0.47 / 100% | 0.08 / 1292% |
+| 1,000 small | `format` | 0.22 / 100% | 0.05 / 1031% |
+| 1,000 small | `check --fix` | 0.04 / 210% | 0.02 / 504% |
+| 1,000 small | `check --diff` | 0.03 / 99% | 0.01 / 517% |
+
 ## Acknowledgements
 
 This project exists thanks to the tooling and ecosystems around YAML
