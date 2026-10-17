@@ -104,16 +104,10 @@ they set the defaults for the `line-length` and `indentation` rules (see
 re-indents every block level to `indent-width`, and uses both as the fold width and
 continuation indent under `fold-long-lines`.
 
-Without `indent-width`, an inline value under an explicit block key (`? key` followed by
-`: value`) uses 2 if the value establishes the file's consistent indentation step.
-An explicit key directly inside a sequence item does not establish that step.
-Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the one whose
-re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
-or a file the re-indent leaves alone at every width, falls back to 2.
-A file mostly at 4 with one block at 2 is re-indented to 4.
-If restyling a collection changes which width best fits the file, the formatter
-re-detects the width and completes the re-indent in the same run.
-If the detected width would leave inconsistent indentation, `ryl format` keeps that
+Without `indent-width`, `ryl format` targets width 2. Set the top-level
+`indent-width` to keep another width; the formatter does not infer a width from the
+file. Linting still defaults to `spaces = "consistent"` when `indent-width` is unset.
+If re-indenting would leave inconsistent indentation, `ryl format` keeps that
 document's indentation and reports the sites it cannot fix.
 
 The rest of the layout is fixed:
@@ -162,7 +156,7 @@ double quotes to single, and can indent flush sequences. Migration writes
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
 | `line-length = 80` | The default of prettier |
-| `indent-width = 2` | The default of prettier and yamlfix, for a file that shows no width of its own |
+| `indent-width = 2` | The default of prettier and yamlfix |
 | Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
@@ -212,10 +206,10 @@ metadata:
   name: example
 ```
 
-When the width is inferred, a conversion stays in flow style with a notice if the
+When `indent-width` is unset, a conversion stays in flow style with a notice if the
 result would fail the `indentation` rule's consistent-width check. A compact sequence
 mapping with explicit keys can fix the lint rule's inferred step independently of the
-formatter's detected width.
+formatter's width-2 target.
 
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style
@@ -337,7 +331,7 @@ says so.
 | [`trailing-spaces`](rules/trailing-spaces.md) | Never |
 | [`colons`](rules/colons.md) | `max-spaces-after` is 0 |
 | [`hyphens`](rules/hyphens.md) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
-| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
+| [`indentation`](rules/indentation.md) | `spaces` is a number other than `indent-width` (2 when unset); or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](rules/line-length.md) | Never; folding is opt-in and leaves lines it cannot break |
 
 The table compares formatter settings with lint options; it does not promise every

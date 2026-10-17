@@ -51,7 +51,7 @@ fn format_respaces_and_reindents_compact_collections() {
 }
 
 #[test]
-fn detected_width_agrees_with_explicit_key_indentation() {
+fn default_width_agrees_with_explicit_key_indentation() {
     let config = "[format]\ndash-on-own-line = true\n\
                   [lint.rules.indentation]\nindent-sequences = true\n";
     for (input, expected) in [

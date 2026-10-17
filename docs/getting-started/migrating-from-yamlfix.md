@@ -9,6 +9,9 @@ ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
 `pyproject.toml`, or the file passed with `-c`. It does not read `YAMLFIX_*`
 environment variables.
 
+ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
+another width; ryl does not infer indentation from existing files.
+
 ## Example
 
 A yamlfix configuration:

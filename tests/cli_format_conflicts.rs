@@ -303,9 +303,9 @@ fn layout_rules_name_the_key_they_disagree_with() {
             "`indent-width = 2`",
         ),
         (
-            "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 2\n\
+            "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 4\n\
              indent-sequences = false\n",
-            "per-file indent width (`indent-width` unset). Disable indentation when \
+            "`indent-width = 2`. Disable indentation when \
              using `ryl format`, or set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs` first).",
         ),
         (
@@ -339,4 +339,9 @@ fn yaml_indent_conflict_points_to_toml_migration() {
     assert_eq!(warnings.len(), 1, "{warnings:#?}");
     assert!(warnings[0].contains("top-level TOML `indent-width`"));
     assert!(warnings[0].contains("ryl --migrate-configs"));
+}
+
+#[test]
+fn fixed_lint_width_two_accepts_the_unset_formatter_width() {
+    assert!(conflicts("[lint.rules.indentation]\nspaces = 2\n", true, &[]).is_empty());
 }

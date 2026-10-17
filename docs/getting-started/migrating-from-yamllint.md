@@ -20,6 +20,10 @@ deprecation warning.
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
+`ryl format` defaults to indent width 2 independently of lint `indentation.spaces`.
+To format at another width, migrate to TOML and set top-level `indent-width`.
+Without `indent-width`, the lint rule still defaults to `"consistent"`.
+
 ## Automatic migration
 
 ryl ships with a built-in converter. From the root of your project:

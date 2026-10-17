@@ -186,7 +186,7 @@ fn yaml_test_suite_gate() {
         } else {
             let target = ryl::rules::indentation::Config::new(
                 ryl::rules::indentation::SpacesSetting::Fixed(usize::from(
-                    ryl::format::file_indent_width(&cfg, &input),
+                    ryl::format::indent_width(&cfg),
                 )),
                 ryl::rules::indentation::IndentSequencesSetting::True,
                 false,
