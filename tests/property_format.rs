@@ -739,6 +739,7 @@ proptest! {
     fn mixed_width_detection_matches_the_original_scorer(
         document in arb_document_with_properties(),
         widths in (2u8..=8, 2u8..=8),
+        comment_indents in prop::collection::vec(0usize..=8, 2..8),
         indent_sequences in any::<bool>(),
         dash_on_own_line in any::<bool>(),
     ) {
@@ -748,7 +749,11 @@ proptest! {
         let original = document.render();
         let first = indentation::reindent(&original, &detection_target(&cfg, widths.0)).text;
         let second = indentation::reindent(&original, &detection_target(&cfg, widths.1)).text;
-        for input in [original, first.clone(), format!("{first}\n---\n{second}")] {
+        let comments = comment_indents.into_iter()
+            .map(|indent| format!("{}# same\n", " ".repeat(indent)))
+            .collect::<String>();
+        let repeated_comments = format!("root:\n{comments}{}child: value\n", " ".repeat(usize::from(widths.0)));
+        for input in [original, first.clone(), format!("{first}\n---\n{second}"), repeated_comments] {
             prop_assert_eq!(file_indent_width(&cfg, &input), original_indent_width(&cfg, &input), "{:?}", input);
         }
     }
@@ -909,6 +914,14 @@ fn inferred_width_falls_back_for_refusals_and_large_indents() {
     ] {
         assert_eq!(file_indent_width(&cfg, &input), scored_indent_width(&input));
     }
+}
+
+#[test]
+fn repeated_comments_across_diff_boundaries_preserve_width_ties() {
+    let cfg = YamlLintConfig::default();
+    let input = "root:\n  # same\n   # same\n   child: value\n";
+    assert_eq!(original_indent_width(&cfg, input), 2);
+    assert_eq!(file_indent_width(&cfg, input), 2);
 }
 
 #[test]

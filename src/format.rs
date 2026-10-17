@@ -399,10 +399,13 @@ fn changed_line_count(before: &[&str], after: &[&str]) -> usize {
     if old.is_empty() || new.is_empty() {
         return old.len().max(new.len());
     }
-    // Without a shared line, the trimmed region can only be one replacement.
+    // Disjoint middles form one replacement only if compaction cannot cross their boundaries.
     let old_lines: HashSet<_> = old.iter().copied().collect();
-    if !new.iter().any(|line| old_lines.contains(line)) {
-        return old.len().max(new.len());
+    if !after.iter().any(|line| old_lines.contains(line)) {
+        let new_lines: HashSet<_> = new.iter().copied().collect();
+        if !before.iter().any(|line| new_lines.contains(line)) {
+            return old.len().max(new.len());
+        }
     }
     TextDiff::from_slices(before, after)
         .ops()
