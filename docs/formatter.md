@@ -5,6 +5,8 @@ only the spans that are off-style rather than reprinting the document, so the fi
 on an existing project produces a small diff, and every later run on formatted files
 changes nothing.
 
+Biome does not format YAML, so there is no Biome YAML style to migrate.
+
 ## `ryl format`
 
 ```bash
@@ -142,11 +144,11 @@ double quotes to single, and can indent flush sequences. Migration writes
 | Default | Why |
 | :--- | :--- |
 | `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
-| `line-ending = "lf"` | The default of biome and prettier |
+| `line-ending = "lf"` | The default of prettier |
 | `document-start = "preserve"` | prettier keeps a file's markers as written |
 | `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
 | `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
-| `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier and biome pad |
+| `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier pads them |
 | `comment-spacing = 2` | The default of ruff and yamlfix |
 | `comment-starting-space = "add"` | Adds a space after `#` |
 | `max-blank-lines = 2` | Keeps short gaps between content |
@@ -155,8 +157,8 @@ double quotes to single, and can indent flush sequences. Migration writes
 | `indent-sequences = true` | prettier also indents them |
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
-| `line-length = 80` | The default of prettier and biome |
-| `indent-width = 2` | The default of prettier, biome and yamlfix, for a file that shows no width of its own |
+| `line-length = 80` | The default of prettier |
+| `indent-width = 2` | The default of prettier and yamlfix, for a file that shows no width of its own |
 | Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
