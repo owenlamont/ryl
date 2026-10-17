@@ -141,6 +141,7 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     let lint = config.merged_lint();
     let (exclude, exclude_from_file) = config.merged_exclude();
     NormalizedConfig {
+        cache_dir: config.cache_dir.clone(),
         ignore_patterns: exclude.map(ignore_patterns_from_string_or_vec),
         ignore_from_files: exclude_from_file.map(string_or_vec_items),
         per_file_ignores: lint
@@ -193,6 +194,7 @@ fn normalize_markdown_table(table: &MarkdownTable) -> NormalizedMarkdown {
 
 pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
     NormalizedConfig {
+        cache_dir: None,
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
         per_file_ignores: std::collections::BTreeMap::new(),
@@ -323,6 +325,13 @@ fn normalized_rules_to_toml_value(
 #[must_use]
 pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value {
     let mut table = toml::map::Map::new();
+
+    if let Some(cache_dir) = &config.cache_dir {
+        table.insert(
+            "cache-dir".to_string(),
+            toml::Value::String(cache_dir.clone()),
+        );
+    }
 
     if let Some(files) = normalized_files_to_toml_value(config) {
         table.insert("files".to_string(), files);

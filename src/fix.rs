@@ -72,6 +72,8 @@ pub struct FixStats {
     pub changed_files: usize,
     /// Per-file skip notices and format errors, in input order.
     pub notices: Vec<u8>,
+    pub file_notices: Vec<Vec<u8>>,
+    pub skipped: Vec<usize>,
     /// Input index and error for files that could not be read or written.
     pub errors: Vec<(usize, String)>,
 }
@@ -257,9 +259,14 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
             },
         );
         for (index, (result, stderr)) in batch.zip(results) {
+            let notice_start = stats.notices.len();
             let path = &files[index].0;
             if let Some(notice) = symlink_notice(path, rewrite.flag()) {
                 stats.notices.extend_from_slice(notice.as_bytes());
+                stats
+                    .file_notices
+                    .push(stats.notices[notice_start..].to_vec());
+                stats.skipped.push(index);
                 continue;
             }
             stats.notices.extend(stderr);
@@ -272,6 +279,9 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
             match written {
                 Ok((changed, skipped)) => {
                     stats.changed_files += usize::from(changed);
+                    if !skipped.is_empty() {
+                        stats.skipped.push(index);
+                    }
                     for problem in &skipped {
                         stats.notices.extend_from_slice(
                             skip_notice(path, problem, rewrite.flag()).as_bytes(),
@@ -288,6 +298,9 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
                     stats.errors.push((index, error));
                 }
             }
+            stats
+                .file_notices
+                .push(stats.notices[notice_start..].to_vec());
         }
     }
     stats
@@ -350,6 +363,8 @@ pub struct DiffStats {
     pub changed_files: usize,
     /// Per-file stderr, including skip notices, in input order.
     pub notices: Vec<u8>,
+    pub file_notices: Vec<Vec<u8>>,
+    pub skipped: Vec<PathBuf>,
     /// Unified diffs for files that would change, in input order.
     pub diffs: Vec<String>,
     pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>)>,
@@ -358,6 +373,9 @@ pub struct DiffStats {
 impl DiffStats {
     pub fn record(&mut self, path: &Path, outcome: DiffOutcome, flag: &str) {
         self.changed_files += usize::from(outcome.changed);
+        if !outcome.skipped.is_empty() {
+            self.skipped.push(path.to_path_buf());
+        }
         if let Some(diff) = outcome.diff {
             self.diffs.push(diff);
         }
@@ -727,13 +745,37 @@ pub fn diff_files(
     rewrite: Rewrite,
     flag: &str,
 ) -> Result<DiffStats, String> {
+    diff_files_with_notices(files, rewrite, flag, &[])
+}
+
+/// As [`diff_files`], with notices for omitted cached files before each input and after
+/// the final input.
+///
+/// # Errors
+///
+/// Returns an error if any file cannot be read.
+pub fn diff_files_with_notices(
+    files: &[LintFile],
+    rewrite: Rewrite,
+    flag: &str,
+    preceding_notices: &[Vec<u8>],
+) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
     let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
         decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
     });
-    for ((path, ..), (result, stderr)) in files.iter().zip(results) {
+    for (index, ((path, ..), (result, stderr))) in files.iter().zip(results).enumerate()
+    {
+        if let Some(notices) = preceding_notices.get(index) {
+            stats.notices.extend_from_slice(notices);
+        }
+        let notice_start = stats.notices.len();
         if let Some(notice) = symlink_notice(path, flag) {
             stats.notices.extend_from_slice(notice.as_bytes());
+            stats
+                .file_notices
+                .push(stats.notices[notice_start..].to_vec());
+            stats.skipped.push(path.clone());
             continue;
         }
         stats.notices.extend(stderr);
@@ -744,6 +786,12 @@ pub fn diff_files(
                 return Err(error);
             }
         }
+        stats
+            .file_notices
+            .push(stats.notices[notice_start..].to_vec());
+    }
+    if let Some(notices) = preceding_notices.get(files.len()) {
+        stats.notices.extend_from_slice(notices);
     }
     Ok(stats)
 }

@@ -18,6 +18,9 @@ pub use serialization::{
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(title = "ryl TOML config")]
 pub struct TomlConfig {
+    /// Directory for the on-disk result cache.
+    #[serde(rename = "cache-dir")]
+    pub cache_dir: Option<String>,
     /// Glob patterns assigning files to source kinds (`yaml`, `markdown`).
     pub files: Option<FilesTable>,
     /// Behaviour for YAML embedded in markdown (front matter and fenced blocks).
@@ -1552,6 +1555,7 @@ pub struct NormalizedFixConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct NormalizedConfig {
+    pub cache_dir: Option<String>,
     pub ignore_patterns: Option<Vec<String>>,
     pub ignore_from_files: Option<Vec<String>>,
     pub per_file_ignores: BTreeMap<String, Vec<String>>,

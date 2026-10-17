@@ -2404,6 +2404,13 @@
   "additionalProperties": false,
   "description": "JSON Schema root for `ryl` TOML configuration.",
   "properties": {
+    "cache-dir": {
+      "description": "Directory for the on-disk result cache.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "exclude": {
       "anyOf": [
         {

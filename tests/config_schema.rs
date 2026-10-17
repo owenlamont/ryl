@@ -779,6 +779,22 @@ fn normalized_config_to_toml_value_skips_yaml_files_when_absent() {
 }
 
 #[test]
+fn cache_dir_survives_config_normalization_and_rendering() {
+    let source =
+        "cache-dir = 'build/cache'\n[lint.rules]\ntrailing-spaces = 'enable'\n";
+    let config = ryl::config::YamlLintConfig::from_toml_str(source).unwrap();
+    assert!(
+        config
+            .to_toml_string()
+            .contains("cache-dir = \"build/cache\"")
+    );
+    let typed = parse_toml_config_str(source, false).unwrap().unwrap();
+    let normalized = ryl::config_schema::normalize_toml_config(&typed);
+    let value = normalized_config_to_toml_value(&normalized);
+    assert_eq!(value["cache-dir"].as_str(), Some("build/cache"));
+}
+
+#[test]
 fn typed_toml_parser_returns_none_for_missing_pyproject_section() {
     let parsed = parse_toml_config_str(
         r#"

@@ -94,6 +94,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   warning-only run into exit code `2`. `--enable <RULES>` runs exactly the
   listed rules (comma-separated IDs, or `ALL`) in place of the config's
   selection, and needs no config file.
+- `ryl check` and `ryl format` cache results by content and configuration.
+  Use `--no-cache` to bypass the cache or `--cache-dir PATH` to place it elsewhere.
+  See [caching](docs/getting-started/quickstart.md#caching).
 - Pass `-` as the input to read YAML from stdin (ruff convention). Add
   `--stdin-filename <PATH>` so diagnostics, project-config discovery,
   and path-based filtering (`yaml-files`, per-file-ignores, per-rule
@@ -144,6 +147,9 @@ Result caches are cold; install artifacts are warm. The
 [benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
 cache checks. On the real-world dataset, ryl format is slower than dprint and yamlfmt:
 ryl verifies value preservation and convergence ([formatter guarantees](docs/formatter.md#guarantees)).
+
+Run the benchmark with `--warm` to also record second-run timings with each
+tool's result cache enabled. Its warm view is separate from the cold chart above.
 
 ## Acknowledgements
 

@@ -196,12 +196,13 @@ impl Env for ClosureEnv<'_> {
 
 #[derive(Debug, Clone)]
 pub struct YamlLintConfig {
+    cache_dir: Option<PathBuf>,
     path_case: PathCase,
     ignore_patterns: Vec<String>,
     ignore_from_files: Vec<String>,
     ignore_from_file_key: &'static str,
     #[allow(clippy::struct_field_names)]
-    ignore_matcher: Option<Gitignore>,
+    ignore_matcher: Option<Compiled<Gitignore>>,
     per_file_ignores: BTreeMap<String, Vec<String>>,
     per_file_ignore_matchers: Vec<PerFileIgnore>,
     /// Kept alongside the compiled matchers so the config can serialize back to TOML for
@@ -212,9 +213,9 @@ pub struct YamlLintConfig {
     rule_names: Vec<String>,
     rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
-    yaml_matcher: Option<Gitignore>,
+    yaml_matcher: Option<Compiled<Gitignore>>,
     markdown_file_patterns: Vec<String>,
-    markdown_matcher: Option<Gitignore>,
+    markdown_matcher: Option<Compiled<Gitignore>>,
     /// Set when `--markdown` injected the default globs; lets markdown win over yaml for an
     /// overlapping file instead of hard-erroring, so the flag can't break a run whose yaml
     /// globs happen to match `.md`.
@@ -239,7 +240,26 @@ const DEFAULT_MARKDOWN_FILE_PATTERNS: [&str; 5] =
 struct RuleFilter {
     patterns: Vec<String>,
     from_files: Vec<String>,
-    matcher: Option<Gitignore>,
+    matcher: Option<Compiled<Gitignore>>,
+}
+
+/// A compiled matcher whose `Debug` omits the regex engine's match-time caches, because
+/// the result cache keys on the config's `Debug`; sibling fields hold its source patterns.
+#[derive(Clone)]
+struct Compiled<T>(T);
+
+impl<T> std::fmt::Debug for Compiled<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Compiled")
+    }
+}
+
+impl<T> std::ops::Deref for Compiled<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -276,8 +296,8 @@ impl PerFileIgnore {
 /// pattern by basename, as in ruff and yamllint.
 #[derive(Debug, Clone)]
 struct PathGlob {
-    basename: GlobMatcher,
-    absolute: GlobMatcher,
+    basename: Compiled<GlobMatcher>,
+    absolute: Compiled<GlobMatcher>,
     negated: bool,
     cwd: PathBuf,
 }
@@ -302,8 +322,8 @@ impl PathGlob {
             .expect("an escaped anchor keeps a valid pattern valid")
             .compile_matcher();
         Ok(Self {
-            basename,
-            absolute,
+            basename: Compiled(basename),
+            absolute: Compiled(absolute),
             negated,
             cwd,
         })
@@ -584,6 +604,7 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
+            cache_dir: None,
             format: FormatSettings::default(),
             source: None,
             line_length: None,
@@ -903,6 +924,11 @@ impl YamlLintConfig {
         self.output.as_ref()
     }
 
+    #[must_use]
+    pub fn cache_dir(&self) -> Option<&Path> {
+        self.cache_dir.as_deref()
+    }
+
     /// The resolved `[format]` settings (the defaults when the config declared none).
     #[must_use]
     pub fn format(&self) -> &FormatSettings {
@@ -979,6 +1005,9 @@ impl YamlLintConfig {
     }
 
     fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
+        if let Some(cache_dir) = &normalized.cache_dir {
+            self.cache_dir = Some(PathBuf::from(cache_dir));
+        }
         if let Some(ignore) = normalized.ignore_patterns {
             self.ignore_patterns.clear();
             self.ignore_from_files.clear();
@@ -1149,7 +1178,7 @@ fn build_glob_matcher(
     base_dir: &Path,
     patterns: &[String],
     case_insensitive: bool,
-) -> Option<Gitignore> {
+) -> Option<Compiled<Gitignore>> {
     if patterns.is_empty() {
         return None;
     }
@@ -1162,7 +1191,7 @@ fn build_glob_matcher(
         let normalized = pat.trim_end_matches(['\r']);
         let _ = builder.add_line(None, normalized);
     }
-    builder.build().ok()
+    builder.build().ok().map(Compiled)
 }
 
 fn build_ignore_matcher(
@@ -1171,7 +1200,7 @@ fn build_ignore_matcher(
     from_file_key: &str,
     envx: &dyn Env,
     base_dir: &Path,
-) -> Result<(Option<Gitignore>, Vec<String>), String> {
+) -> Result<(Option<Compiled<Gitignore>>, Vec<String>), String> {
     if patterns.is_empty() && from_files.is_empty() {
         return Ok((None, Vec::new()));
     }
@@ -1227,9 +1256,11 @@ fn build_ignore_matcher(
     }
 
     let matcher = any_pattern.then(|| {
-        builder
-            .build()
-            .expect("ignore matcher build should not fail after validation")
+        Compiled(
+            builder
+                .build()
+                .expect("ignore matcher build should not fail after validation"),
+        )
     });
     Ok((matcher, extra_patterns))
 }
@@ -1377,6 +1408,10 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
 
 fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
     NormalizedConfig {
+        cache_dir: config
+            .cache_dir
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned()),
         ignore_patterns: (!config.ignore_patterns.is_empty())
             .then(|| config.ignore_patterns.clone()),
         ignore_from_files: (!config.ignore_from_files.is_empty())

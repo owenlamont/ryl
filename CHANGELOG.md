@@ -13,6 +13,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl check` and `ryl format` now cache file results by content and resolved
+  configuration, with CLI, environment, and TOML controls.
+  ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` and `ryl check --fix` skip rule scans already clean for the
   unchanged text, while retrying when later edits expose another fix.
   ([#750](https://github.com/owenlamont/ryl/issues/750))

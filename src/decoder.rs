@@ -211,13 +211,19 @@ fn detect_utf32_endian(bytes: &[u8]) -> Option<Endian> {
 
 fn detect_encoding(bytes: &[u8]) -> Result<FileEncoding, String> {
     let override_label = env::var("YAMLLINT_FILE_ENCODING").map_or(None, |value| {
-        crate::cli_support::write_file_stderr(
-            &mut std::io::stderr(),
-            b"YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint.\n",
-        );
+        warn_encoding_override();
         Some(value)
     });
     detect_encoding_with_override(bytes, override_label.as_deref())
+}
+
+pub const ENCODING_OVERRIDE_WARNING: &[u8] = b"YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint.\n";
+
+pub fn warn_encoding_override() {
+    crate::cli_support::write_file_stderr(
+        &mut std::io::stderr(),
+        ENCODING_OVERRIDE_WARNING,
+    );
 }
 
 fn detect_encoding_with_override(

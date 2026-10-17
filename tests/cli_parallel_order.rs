@@ -211,3 +211,47 @@ fn fix_read_error_keeps_lint_read_error_of_skipped_symlink() {
         "{stderr}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn cache_keeps_mixed_input_output_identical_in_each_order() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ncolons = 'enable'\n",
+    )
+    .unwrap();
+    let valid = dir.path().join("valid.yaml");
+    let parse = dir.path().join("parse.yaml");
+    let link = dir.path().join("link.yaml");
+    fs::write(&valid, "key: value\n").unwrap();
+    fs::write(&parse, "key: [\n").unwrap();
+    symlink(&valid, &link).unwrap();
+
+    for mode in [&["format"][..], &["format", "--check"], &["check"]] {
+        for order in [
+            [&link, &parse, &valid],
+            [&valid, &link, &parse],
+            [&parse, &valid, &link],
+        ] {
+            let run = |no_cache: bool| {
+                let mut cmd = ryl(dir.path());
+                cmd.current_dir(dir.path())
+                    .env("YAMLLINT_FILE_ENCODING", "utf-8")
+                    .args(mode);
+                if no_cache {
+                    cmd.arg("--no-cache");
+                }
+                cmd.args(order).output().unwrap()
+            };
+            let cold = run(false);
+            for output in [run(false), run(true)] {
+                assert_eq!(output.status.code(), cold.status.code());
+                assert_eq!(output.stdout, cold.stdout);
+                assert_eq!(output.stderr, cold.stderr);
+            }
+        }
+    }
+}

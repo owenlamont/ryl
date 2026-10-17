@@ -6,6 +6,8 @@
     clippy::cognitive_complexity
 )]
 
+mod cache;
+
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
@@ -30,7 +32,7 @@ use ryl::config_schema::{
 use ryl::decoder;
 use ryl::fix::{
     DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
-    rewrite_files, rewrite_str, skip_notice,
+    diff_files_with_notices, rewrite_files, rewrite_str, skip_notice,
 };
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
@@ -379,6 +381,20 @@ struct SourceArgs {
     /// Inline configuration data (TOML, or deprecated yamllint YAML)
     #[arg(short = 'd', long = "config-data", value_name = "DATA")]
     config_data: Option<String>,
+
+    /// Disable the on-disk result cache
+    #[arg(long = "no-cache", default_value_t = false)]
+    no_cache: bool,
+
+    /// Directory for the on-disk result cache
+    #[arg(long = "cache-dir", value_name = "PATH")]
+    cache_dir: Option<PathBuf>,
+}
+
+impl SourceArgs {
+    fn cache_settings(&self) -> cache::Settings {
+        cache::Settings::new(self.no_cache, self.cache_dir.clone())
+    }
 }
 
 #[derive(clap::Args, Debug)]
@@ -1285,7 +1301,11 @@ fn lint_and_exit(
         None
     };
 
-    let mut results = lint_files(files);
+    let mut results = if args.lint.fix.fix {
+        lint_files(files)
+    } else {
+        lint_files_cached(files, &args.source.cache_settings())?
+    };
     if let Some((_, errors)) = &before_fix {
         for (index, error) in errors {
             results[*index].1 = Err(error.clone());
@@ -1547,6 +1567,27 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     }
     let (global_cfg, files, _) = collect_files(&args)?;
     warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
+    let settings = args.source.cache_settings();
+    let mut pending = Vec::new();
+    let mut entries = Vec::new();
+    let mut cache_hits = Vec::new();
+    for (path, base_dir, cfg, kind) in &files {
+        let symlink = std::fs::symlink_metadata(path)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink());
+        let entry = if format.diff || symlink {
+            None
+        } else {
+            settings
+                .entry(path, base_dir, cfg, *kind, "format")?
+                .map(|(path, _)| path)
+        };
+        let hit = entry.as_deref().is_some_and(cache::clean_hit);
+        cache_hits.push(hit);
+        if !hit {
+            pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
+            entries.push(entry);
+        }
+    }
     if let Some(preview) = preview {
         let output_config = if preview == Preview::Check {
             run_output_config(global_cfg.as_ref(), &args.source.inputs, &args)?
@@ -1559,16 +1600,87 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             &targets,
             files.iter().map(|(path, ..)| path.as_path()),
         )?;
-        let stats = diff_files(&files, Rewrite::Format, preview.flag())?;
+        let prefixes = cache_notice_prefixes(&cache_hits);
+        let stats = diff_files_with_notices(
+            &pending,
+            Rewrite::Format,
+            preview.flag(),
+            &prefixes,
+        )?;
+        if preview == Preview::Check
+            && stats.changed_files == 0
+            && stats.skipped.is_empty()
+        {
+            for entry in entries.into_iter().flatten() {
+                cache::mark_clean(&entry)?;
+            }
+        }
         return emit_format_preview(&stats, preview, &targets);
     }
-    let stats = rewrite_files(&files, Rewrite::Format);
+    let mut stats = rewrite_files(&pending, Rewrite::Format);
+    for (index, entry) in entries.into_iter().enumerate() {
+        if stats.errors.iter().any(|(failed, _)| *failed == index)
+            || stats.skipped.contains(&index)
+        {
+            continue;
+        }
+        if entry.is_some() {
+            let (path, base_dir, cfg, kind) = &pending[index];
+            settings
+                .entry(path, base_dir, cfg, *kind, "format")
+                .and_then(|current| {
+                    current
+                        .as_ref()
+                        .map(|(path, _)| cache::mark_clean(path))
+                        .transpose()
+                })?;
+        }
+    }
+    stats.notices = ordered_cache_notices(&cache_hits, &stats.file_notices);
     let _ = std::io::stderr().write_all(&stats.notices);
     Ok(if stats.errors.is_empty() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(2)
     })
+}
+
+fn ordered_cache_notices(cache_hits: &[bool], file_notices: &[Vec<u8>]) -> Vec<u8> {
+    let mut pending = file_notices.iter();
+    let mut ordered = Vec::new();
+    for hit in cache_hits {
+        if *hit {
+            ordered.extend_from_slice(cache_hit_notice());
+        } else {
+            ordered.extend_from_slice(
+                pending.next().expect("each cache miss has notices"),
+            );
+        }
+    }
+    ordered
+}
+
+fn cache_notice_prefixes(cache_hits: &[bool]) -> Vec<Vec<u8>> {
+    let mut prefixes = vec![Vec::new()];
+    for hit in cache_hits {
+        if *hit {
+            prefixes
+                .last_mut()
+                .expect("the first notice bucket exists")
+                .extend_from_slice(cache_hit_notice());
+        } else {
+            prefixes.push(Vec::new());
+        }
+    }
+    prefixes
+}
+
+fn cache_hit_notice() -> &'static [u8] {
+    if std::env::var("YAMLLINT_FILE_ENCODING").is_ok() {
+        decoder::ENCODING_OVERRIDE_WARNING
+    } else {
+        &[]
+    }
 }
 
 /// Under `--check`, `--output-format` beats `[output]`; `--diff` keeps the default target,
@@ -1717,8 +1829,10 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     }
 }
 
-fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
-    let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
+type IndexedLintResults = Vec<(usize, Result<Vec<LintProblem>, String>)>;
+
+fn lint_files(files: &[LintFile]) -> IndexedLintResults {
+    let mut results: IndexedLintResults = files
         .par_iter()
         .enumerate()
         .map(|(idx, (path, base_dir, cfg, kind))| {
@@ -1731,6 +1845,54 @@ fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String
         .collect();
     results.sort_by_key(|(idx, _)| *idx);
     results
+}
+
+fn lint_files_cached(
+    files: &[LintFile],
+    settings: &cache::Settings,
+) -> Result<IndexedLintResults, String> {
+    let mut results: Vec<_> = files
+        .par_iter()
+        .enumerate()
+        .map(|(idx, (path, base_dir, cfg, kind))| {
+            let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
+            if let Some(problems) =
+                entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
+            {
+                warn_cached_encoding_override();
+                return Ok((idx, Ok(problems), None));
+            }
+            let outcome = match entry.as_ref() {
+                Some((_, bytes)) => ryl::decoder::decode_bytes(bytes)
+                    .map_err(|err| format!("failed to read {}: {err}", path.display()))
+                    .map(|content| match kind {
+                        SourceKind::Markdown => {
+                            lint_markdown_str(&content, path, cfg, base_dir)
+                        }
+                        SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
+                    }),
+                None => match kind {
+                    SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+                    SourceKind::Yaml => lint_file(path, cfg, base_dir),
+                },
+            };
+            Ok((idx, outcome, entry.map(|(path, _)| path)))
+        })
+        .collect::<Result<_, String>>()?;
+    cache::store_lint_batch(results.iter().filter_map(|(_, outcome, entry)| {
+        Some((entry.as_deref()?, outcome.as_ref().ok()?.as_slice()))
+    }))?;
+    results.sort_by_key(|(idx, ..)| *idx);
+    Ok(results
+        .into_iter()
+        .map(|(idx, outcome, _)| (idx, outcome))
+        .collect())
+}
+
+fn warn_cached_encoding_override() {
+    if std::env::var("YAMLLINT_FILE_ENCODING").is_ok() {
+        ryl::decoder::warn_encoding_override();
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
