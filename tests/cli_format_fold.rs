@@ -78,6 +78,20 @@ fn a_fold_only_another_pass_makes_necessary_is_still_reported() {
 }
 
 #[test]
+fn rules_already_clean_rerun_on_the_text_a_fold_produces() {
+    let input = "---\n- u: x\n  r: aaa bbb ccc ddd eee # c\n  # d\n";
+    let (code, _, stderr, after) = ryl_on(Some(FOLD), input, &["format"]);
+    assert_eq!(
+        (code, after.as_str()),
+        (
+            0,
+            "---\n- u: x\n  r: aaa bbb ccc ddd\n    eee  # c\n    # d\n"
+        ),
+        "comments-indentation follows the fold's continuation: {stderr}"
+    );
+}
+
+#[test]
 fn disabled_lines_stay_whole_and_nothing_is_duplicated() {
     let input = "---\nj: aaa bbb ccc ddd eee fff\n\
                  n: aaa bbb ccc ddd eee fff  # ryl disable-line rule:line-length\n\
