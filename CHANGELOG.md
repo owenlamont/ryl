@@ -13,6 +13,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl format` scores short simple mappings without rendering every indent width,
+  reuses verified indentation renders, and skips line diffs for exact replacements.
+  ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` skips lint/format conflict probing when no lint rule is enabled.
   ([#758](https://github.com/owenlamont/ryl/issues/758))
 - Release binaries use fat link-time optimization and one codegen unit.

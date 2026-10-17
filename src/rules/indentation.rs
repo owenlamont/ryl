@@ -145,7 +145,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     analyze(buffer, cfg, Mode::Check).0
 }
 
-pub(crate) fn has_fixed_explicit_indent(buffer: &str, cfg: &Config) -> bool {
+#[must_use]
+pub fn has_fixed_explicit_indent(buffer: &str, cfg: &Config) -> bool {
     analyze(buffer, cfg, Mode::Detect).1
 }
 

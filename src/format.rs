@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZeroU16;
 use std::path::Path;
 
@@ -285,7 +285,8 @@ fn file_indent_width_with_events(
             return width;
         }
     }
-    if prepared.reindent(&target).text == content {
+    let default = prepared.reindent(&target);
+    if default.text == content {
         return DEFAULT_INDENT_WIDTH;
     }
     let consistent = indentation::Config::new(
@@ -300,20 +301,20 @@ fn file_indent_width_with_events(
     if indentation::has_fixed_explicit_indent(content, &consistent) {
         return 2;
     }
+    if let Some(width) = simple_mapping_width(content) {
+        return width;
+    }
     let before: Vec<&str> = content.split_inclusive('\n').collect();
-    let moved: Vec<(u8, usize)> = DETECTED_WIDTHS
-        .into_iter()
-        .map(|width| {
-            let reindented = prepared.reindent(&indentation_target(cfg, width));
+    let candidates = std::iter::once((DEFAULT_INDENT_WIDTH, default)).chain(
+        DETECTED_WIDTHS[1..]
+            .iter()
+            .map(|&width| (width, prepared.reindent(&indentation_target(cfg, width)))),
+    );
+    let moved: Vec<(u8, usize)> = candidates
+        .map(|(width, reindented)| {
             let text = settled(reindented.text, content, cfg, width);
             let after: Vec<&str> = text.split_inclusive('\n').collect();
-            let changed = TextDiff::from_slices(&before, &after)
-                .ops()
-                .iter()
-                .filter(|op| op.tag() != DiffTag::Equal)
-                .map(|op| op.old_range().len().max(op.new_range().len()))
-                .sum();
-            (width, changed)
+            (width, changed_line_count(&before, &after))
         })
         .collect();
     let fewest = moved.iter().map(|&(_, count)| count).min();
@@ -325,6 +326,93 @@ fn file_indent_width_with_events(
         [&(width, _)] => width,
         _ => DEFAULT_INDENT_WIDTH,
     }
+}
+
+fn simple_mapping_width(content: &str) -> Option<u8> {
+    // The short-input Myers path is exact; larger inputs may discard shared lines.
+    if content.contains('\r') || content.lines().count() > 64 {
+        return None;
+    }
+    let mut counts = [0usize; DETECTED_WIDTHS.len()];
+    // Unique child text keeps every possible equal line at its original position.
+    let mut children = HashSet::new();
+    let mut root = false;
+    for line in content.lines().filter(|line| !line.is_empty()) {
+        let rest = line.trim_start_matches(' ');
+        let indent = line.len() - rest.len();
+        let (key, value) = rest.split_once(':')?;
+        let word = |text: &str| {
+            !text.is_empty()
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        };
+        if !word(key) {
+            return None;
+        }
+        if indent == 0 {
+            if !value.is_empty() {
+                return None;
+            }
+            root = true;
+        } else {
+            if !root
+                || !value.starts_with(' ')
+                || !word(value.trim_start_matches(' '))
+                || !children.insert(rest)
+            {
+                return None;
+            }
+            if let Some(index) = DETECTED_WIDTHS
+                .iter()
+                .position(|&width| usize::from(width) == indent)
+            {
+                counts[index] += 1;
+            }
+        }
+    }
+    let most = *counts.iter().max().expect("candidate widths are nonempty");
+    let mut winners = DETECTED_WIDTHS
+        .into_iter()
+        .zip(counts)
+        .filter(|(_, count)| *count == most);
+    let (width, _) = winners.next().expect("a maximum has a candidate width");
+    Some(if winners.next().is_none() {
+        width
+    } else {
+        DEFAULT_INDENT_WIDTH
+    })
+}
+
+fn changed_line_count(before: &[&str], after: &[&str]) -> usize {
+    let prefix = before.iter().zip(after).take_while(|(a, b)| a == b).count();
+    let before_tail = &before[prefix..];
+    let after_tail = &after[prefix..];
+    let suffix = before_tail
+        .iter()
+        .rev()
+        .zip(after_tail.iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let old = &before_tail[..before_tail.len() - suffix];
+    let new = &after_tail[..after_tail.len() - suffix];
+    if old.is_empty() || new.is_empty() {
+        return old.len().max(new.len());
+    }
+    // Disjoint middles form one replacement only if compaction cannot cross their boundaries.
+    let old_lines: HashSet<_> = old.iter().copied().collect();
+    if !after.iter().any(|line| old_lines.contains(line)) {
+        let new_lines: HashSet<_> = new.iter().copied().collect();
+        if !before.iter().any(|line| new_lines.contains(line)) {
+            return old.len().max(new.len());
+        }
+    }
+    TextDiff::from_slices(before, after)
+        .ops()
+        .iter()
+        .filter(|op| op.tag() != DiffTag::Equal)
+        .map(|op| op.old_range().len().max(op.new_range().len()))
+        .sum()
 }
 
 fn observed_indent_width(content: &str) -> Option<u8> {

@@ -19,6 +19,8 @@ mod ast;
 mod config;
 #[path = "property_format/consistency.rs"]
 mod consistency;
+#[path = "property_format/detection.rs"]
+mod detection;
 #[path = "common/encoding.rs"]
 mod encoding;
 #[path = "property_format/fold.rs"]
@@ -45,9 +47,9 @@ use ryl::fix::apply_safe_fixes;
 use ryl::format::file_indent_width;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
-use similar::{DiffTag, TextDiff};
 
 use config::{synthetic_base_dir, synthetic_path};
+use detection::{detection_target, original_indent_width};
 use fold::{arb_fold_document, inserted_breaks, under_indented_break};
 use passes::{
     FOLD_TARGETS, FORMAT_OWNED_RULES, FormatPass, fold_alone, format_passes,
@@ -734,6 +736,29 @@ proptest! {
     }
 
     #[test]
+    fn mixed_width_detection_matches_the_original_scorer(
+        document in arb_document_with_properties(),
+        widths in (2u8..=8, 2u8..=8),
+        comment_indents in prop::collection::vec(0usize..=8, 2..8),
+        indent_sequences in any::<bool>(),
+        dash_on_own_line in any::<bool>(),
+    ) {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[format]\nindent-sequences = {indent_sequences}\ndash-on-own-line = {dash_on_own_line}\n"
+        )).unwrap();
+        let original = document.render();
+        let first = indentation::reindent(&original, &detection_target(&cfg, widths.0)).text;
+        let second = indentation::reindent(&original, &detection_target(&cfg, widths.1)).text;
+        let comments = comment_indents.into_iter()
+            .map(|indent| format!("{}# same\n", " ".repeat(indent)))
+            .collect::<String>();
+        let repeated_comments = format!("root:\n{comments}{}child: value\n", " ".repeat(usize::from(widths.0)));
+        for input in [original, first.clone(), format!("{first}\n---\n{second}"), repeated_comments] {
+            prop_assert_eq!(file_indent_width(&cfg, &input), original_indent_width(&cfg, &input), "{:?}", input);
+        }
+    }
+
+    #[test]
     fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
         input in arb_fold_document()
     ) {
@@ -838,7 +863,7 @@ fn arb_nested_mapping() -> impl Strategy<Value = String> {
             ][..],
         ),
     );
-    (
+    let mixed = (
         1usize..=10,
         prop::collection::vec(prop::collection::vec(entry, 1..4), 1..5),
     )
@@ -854,44 +879,21 @@ fn arb_nested_mapping() -> impl Strategy<Value = String> {
                 }
             }
             text
-        })
+        });
+    let simple = prop::collection::vec(1usize..=10, 1..=40).prop_map(|widths| {
+        widths
+            .into_iter()
+            .enumerate()
+            .map(|(index, width)| {
+                format!("root{index}:\n{}child{index}: value\n", " ".repeat(width))
+            })
+            .collect::<String>()
+    });
+    prop_oneof![mixed, simple]
 }
 
 fn scored_indent_width(input: &str) -> u8 {
-    if indentation::reindent(input, &reindent_target(2)).text == input {
-        return 2;
-    }
-    let before: Vec<&str> = input.split_inclusive('\n').collect();
-    let scores: Vec<(u8, usize)> = (2..=8)
-        .map(|width| {
-            let mut text = indentation::reindent(input, &reindent_target(width)).text;
-            let mut previous = input.to_string();
-            for _ in 0..ryl::fix::FIX_PIPELINE_MAX_PASSES {
-                if text == previous {
-                    break;
-                }
-                let next = indentation::reindent(&text, &reindent_target(width)).text;
-                previous = std::mem::replace(&mut text, next);
-            }
-            let after: Vec<&str> = text.split_inclusive('\n').collect();
-            let changed = TextDiff::from_slices(&before, &after)
-                .ops()
-                .iter()
-                .filter(|op| op.tag() != DiffTag::Equal)
-                .map(|op| op.old_range().len().max(op.new_range().len()))
-                .sum();
-            (width, changed)
-        })
-        .collect();
-    let fewest = scores.iter().map(|&(_, count)| count).min();
-    let winners: Vec<_> = scores
-        .iter()
-        .filter(|&&(_, count)| Some(count) == fewest)
-        .collect();
-    match winners[..] {
-        [&(width, _)] => width,
-        _ => 2,
-    }
+    original_indent_width(&YamlLintConfig::default(), input)
 }
 
 #[test]
@@ -912,6 +914,58 @@ fn inferred_width_falls_back_for_refusals_and_large_indents() {
     ] {
         assert_eq!(file_indent_width(&cfg, &input), scored_indent_width(&input));
     }
+}
+
+#[test]
+fn repeated_comments_across_diff_boundaries_preserve_width_ties() {
+    let cfg = YamlLintConfig::default();
+    let input = "root:\n  # same\n   # same\n   child: value\n";
+    assert_eq!(original_indent_width(&cfg, input), 2);
+    assert_eq!(file_indent_width(&cfg, input), 2);
+}
+
+#[test]
+fn width_scoring_preserves_ties_refusals_and_line_alignment() {
+    let cfg = YamlLintConfig::default();
+    for input in [
+        "a:\n    one: x\n    two: y\nb:\n  three: z\n",
+        "a:\n   one: x\nb:\n     two: y\n",
+        "a:\n one: x\nb:\n         two: y\n",
+        "a:\n    same: x\nb:\n  same: x\n",
+        "    a: x\n    b: y\n",
+        "a:\n    one: x\nb:\n  two: z\n# comment\n",
+        "a:\n    one: x\nb:\n  two: z",
+        "a:\n    one: x\nb:\n  two: z\n\n",
+        "a:\n    one: x\nb:\n  two: z\n   \n",
+        "a:\n    one: x\nb:\n  two: z\n'quoted': v\n",
+        "a:\n    one: x\nb:\n  two: z\nc: v\n",
+        "a:\n    one: x\nb:\n  two: [z]\n",
+        "a:\n    one: x\nb:\n  two: 'z'\n",
+        "a:\n    one: x\nb:\n  two: z\n---\n- [unclosed\n",
+        "a:\n    one: x\nb:\n  two: z\n---\nb: >\n   x\n  #\n",
+        "a:\n    one: x\nb:\n  two: z\n---\nk:\n   a: 1  # ryl disable-line rule:indentation\n",
+        "a:\n  -\n   b:\n   -\n     c: 1\nx:\n    y: 1\n",
+        "? a\n: a\nb:\n     - a\n",
+        "a:\r\n    one: x\r\nb:\r\n  two: z\r\n",
+    ] {
+        assert_eq!(
+            file_indent_width(&cfg, input),
+            original_indent_width(&cfg, input),
+            "{input:?}"
+        );
+    }
+    let large = (0..40)
+        .map(|index| {
+            format!(
+                "root{index}:\n{}child{index}: x\n",
+                " ".repeat(2 + index % 3)
+            )
+        })
+        .collect::<String>();
+    assert_eq!(
+        file_indent_width(&cfg, &large),
+        original_indent_width(&cfg, &large)
+    );
 }
 
 /// `input` re-indented as `ryl format` would at `width`, to a fixed point since a dash join
