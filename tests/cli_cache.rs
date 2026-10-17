@@ -288,6 +288,66 @@ fn cache_directory_precedence_and_diff_bypass() {
 }
 
 #[test]
+fn relative_cache_paths_use_their_source_directory() {
+    let dir = tempdir().unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    let config = project.join("ryl.toml");
+    let file = project.join("a.yaml");
+    fs::write(
+        &config,
+        "cache-dir = 'configured'\n[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    fs::write(&file, "a: b\n").unwrap();
+    let check = |args: &[&str], environment: Option<&str>| {
+        let mut cmd = ryl(dir.path());
+        cmd.current_dir(dir.path())
+            .args(["check", "-c"])
+            .arg(&config);
+        if let Some(directory) = environment {
+            cmd.env("RYL_CACHE_DIR", directory);
+        }
+        run(cmd.args(args).arg(&file)).0
+    };
+    assert_eq!(check(&[], None), 0);
+    assert_eq!(entries(&project.join("configured")).len(), 1);
+    assert_eq!(check(&[], Some("environment")), 0);
+    assert_eq!(entries(&dir.path().join("environment")).len(), 1);
+    assert!(!project.join("environment").exists());
+    assert_eq!(check(&["--cache-dir", "cli"], Some("environment")), 0);
+    assert_eq!(entries(&dir.path().join("cli")).len(), 1);
+    assert!(!project.join("cli").exists());
+}
+
+#[test]
+fn existing_gitignore_gains_final_ignore_marker() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "a: b\n").unwrap();
+    let root = dir.path().join("cache");
+    fs::create_dir(&root).unwrap();
+    let gitignore = root.join(".gitignore");
+    for old_contents in ["", "!keep"] {
+        fs::write(&gitignore, old_contents).unwrap();
+        let (code, _, stderr) = run(ryl(dir.path())
+            .args(["check", "--enable", "ALL", "--cache-dir"])
+            .arg(&root)
+            .arg(&file));
+        assert_ne!(code, 2, "{stderr}");
+        assert!(fs::read(&gitignore).unwrap().ends_with(b"*\n"));
+    }
+    fs::remove_file(&gitignore).unwrap();
+    fs::create_dir(&gitignore).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args(["check", "--enable", "ALL", "--cache-dir"])
+        .arg(&root)
+        .arg(&file));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains(".gitignore"), "{stderr}");
+}
+
+#[test]
 fn format_marks_clean_files_and_invalidates_changed_content() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), "[format]\n").unwrap();

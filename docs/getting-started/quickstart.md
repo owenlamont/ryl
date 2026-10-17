@@ -50,7 +50,8 @@ contains `.gitignore` and `CACHEDIR.TAG`; deleting it clears all results.
 Use `--no-cache` or `RYL_NO_CACHE=1` to bypass the cache. `--cache-dir PATH`,
 `RYL_CACHE_DIR`, and the TOML-only top-level `cache-dir = "PATH"` select another
 location, in that precedence order. A relative path in TOML is resolved from
-the project root. Cache directory failures exit 2; corrupt entries are
+the project root; a relative CLI or environment path uses the current directory.
+Cache directory failures exit 2; corrupt entries are
 recomputed. Stdin, diff output, and editor requests do not use the disk cache.
 Format results for encoded files or filenames unsuitable for diff headers are not
 cached, so `format --check` keeps their skip notices.

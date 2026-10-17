@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,6 +44,11 @@ impl Settings {
             return Ok(None);
         }
         let root = self.directory.as_deref().or_else(|| cfg.cache_dir());
+        let relative_to = if self.directory.is_some() {
+            std::env::current_dir().expect("cwd exists")
+        } else {
+            base_dir.to_path_buf()
+        };
         let root = root.map_or_else(
             || {
                 let project =
@@ -60,7 +66,7 @@ impl Settings {
                 if root.is_absolute() {
                     root.to_path_buf()
                 } else {
-                    base_dir.join(root)
+                    relative_to.join(root)
                 }
             },
         );
@@ -68,7 +74,7 @@ impl Settings {
         let mut checked = self.checked.lock().expect("cache lock not poisoned");
         if checked.insert(dir.clone()) {
             fs::create_dir_all(&dir).map_err(|err| cache_error(&dir, &err))?;
-            ensure_support_file(&root.join(".gitignore"), b"*\n")?;
+            ensure_gitignore(&root.join(".gitignore"))?;
             ensure_support_file(
                 &root.join("CACHEDIR.TAG"),
                 b"Signature: 8a477f597d28d172789f06886806bc55\n",
@@ -122,6 +128,32 @@ fn ensure_support_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
         return Ok(());
     }
     fs::write(path, bytes).map_err(|err| cache_error(path, &err))
+}
+
+fn ensure_gitignore(path: &Path) -> Result<(), String> {
+    let existing = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(err) => return Err(cache_error(path, &err)),
+    };
+    if existing == b"*"
+        || existing == b"*\n"
+        || existing.ends_with(b"\n*")
+        || existing.ends_with(b"\n*\n")
+    {
+        return Ok(());
+    }
+    let marker: &[u8] = if existing.is_empty() || existing.ends_with(b"\n") {
+        b"*\n"
+    } else {
+        b"\n*\n"
+    };
+    fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(marker))
+        .map_err(|err| cache_error(path, &err))
 }
 
 pub fn clean_hit(path: &Path) -> bool {
