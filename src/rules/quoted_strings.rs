@@ -3,6 +3,8 @@
 //! yamllint's `quoted-strings`. Safe `--fix` adds or normalises quoting only where the
 //! rewrite provably preserves the scalar's value.
 
+use std::collections::HashMap;
+
 use granit_parser::{
     Event, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
 };
@@ -277,6 +279,7 @@ struct QuotedStringsState<'cfg> {
     walker: Walker<(), bool>,
     consistent_quote_style: Option<QuoteStyle>,
     current_version: Option<Version>,
+    plain_scalar_cache: HashMap<String, Option<bool>>,
 }
 
 impl<'cfg> QuotedStringsState<'cfg> {
@@ -287,6 +290,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
             walker: Walker::new(),
             consistent_quote_style: None,
             current_version: None,
+            plain_scalar_cache: HashMap::new(),
         }
     }
 
@@ -368,6 +372,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
             style,
             value,
             span,
+            &mut self.plain_scalar_cache,
         );
 
         let message = match self.config.required {
@@ -580,6 +585,7 @@ fn scalar_quote_facts(
     style: ScalarStyle,
     value: &str,
     span: Span,
+    plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> ScalarQuoteFacts {
     ScalarQuoteFacts {
         style: quote_style(style),
@@ -599,7 +605,14 @@ fn scalar_quote_facts(
         ),
         quotes_needed: Flag::new(
             matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-                && quotes_are_needed(style, value, in_flow, buffer, span),
+                && quotes_are_needed(
+                    style,
+                    value,
+                    in_flow,
+                    buffer,
+                    span,
+                    plain_scalar_cache,
+                ),
         ),
     }
 }
@@ -686,6 +699,7 @@ fn quotes_are_needed(
     is_inside_flow: bool,
     buffer: &str,
     span: Span,
+    plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> bool {
     if is_inside_flow
         && value
@@ -711,7 +725,15 @@ fn quotes_are_needed(
         }
     }
 
-    plain_scalar_equivalent(value).is_none_or(|result| !result)
+    plain_scalar_cache
+        .get(value)
+        .copied()
+        .unwrap_or_else(|| {
+            let result = plain_scalar_equivalent(value);
+            plain_scalar_cache.insert(value.to_owned(), result);
+            result
+        })
+        .is_none_or(|result| !result)
 }
 
 fn plain_scalar_equivalent(value: &str) -> Option<bool> {
@@ -1000,6 +1022,7 @@ struct FixState<'cfg> {
     seeded_consistent_quote_style: Option<QuoteStyle>,
     consistent_quote_style: Option<QuoteStyle>,
     current_version: Option<Version>,
+    plain_scalar_cache: HashMap<String, Option<bool>>,
 }
 
 impl<'cfg> FixState<'cfg> {
@@ -1019,6 +1042,7 @@ impl<'cfg> FixState<'cfg> {
             seeded_consistent_quote_style: consistent_quote_style,
             consistent_quote_style,
             current_version: None,
+            plain_scalar_cache: HashMap::new(),
         }
     }
 
@@ -1127,6 +1151,7 @@ impl<'cfg> FixState<'cfg> {
             style,
             value,
             span,
+            &mut self.plain_scalar_cache,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
         // A `:` before a non-space (`{'k':v}`, `{'k' :v}`) is a value indicator only

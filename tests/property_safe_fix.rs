@@ -22,6 +22,8 @@
 mod ast;
 #[path = "property_safe_fix/config.rs"]
 mod config;
+#[path = "quote_cache.rs"]
+mod quote_cache;
 #[path = "property_safe_fix/strategy.rs"]
 mod strategy;
 
@@ -39,6 +41,20 @@ use config::{
     safe_fix_rule_diagnostics, synthetic_base_dir, synthetic_path,
 };
 use strategy::arb_document;
+
+#[test]
+fn repeated_quote_probe_matches_first_parse() {
+    for value in ["word", "", "a: b", "#hash", "can't", "[x]", "é"] {
+        quote_cache::assert_cached_quote_matches_fresh(value);
+    }
+}
+
+proptest! {
+    #[test]
+    fn quoted_payload_cache_matches_first_parse(value in strategy::arb_quoted_payload()) {
+        quote_cache::assert_cached_quote_matches_fresh(&value);
+    }
+}
 
 fn last_block_scalar(node: &Node) -> Option<&BlockScalarSpec> {
     match node {

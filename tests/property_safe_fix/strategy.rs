@@ -21,7 +21,7 @@ fn arb_plain_value() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_']{0,6}".prop_map(|value| value)
 }
 
-fn arb_quoted_payload() -> impl Strategy<Value = String> {
+pub fn arb_quoted_payload() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
             Just('a'),
