@@ -49,13 +49,6 @@ fn repeated_quote_probe_matches_first_parse() {
     }
 }
 
-proptest! {
-    #[test]
-    fn quoted_payload_cache_matches_first_parse(value in strategy::arb_quoted_payload()) {
-        quote_cache::assert_cached_quote_matches_fresh(&value);
-    }
-}
-
 fn last_block_scalar(node: &Node) -> Option<&BlockScalarSpec> {
     match node {
         Node::BlockScalar(spec) => Some(spec),

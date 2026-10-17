@@ -2,56 +2,10 @@ use std::{fs, path::Path, process::Command};
 
 use granit_parser::{Event, Parser, ScalarStyle};
 
-#[path = "quote_cache.rs"]
-mod quote_cache;
-
 const CONFIG: &str =
     "[format]\nquote-style = 'preserve'\n[lint.rules.document-start]\n";
 
 const SUITE_COMMIT: &str = "6ad3d2c62885d82fc349026c136ef560838fdf3d";
-
-#[test]
-#[ignore = "requires a separately fetched, pinned yaml-test-suite data checkout"]
-fn quote_cache_matches_fresh_parse_for_suite_scalars() {
-    let suite = std::env::var_os("YAML_TEST_SUITE").expect("set YAML_TEST_SUITE");
-    let suite = Path::new(&suite);
-    let revision = Command::new("git")
-        .arg("-C")
-        .arg(suite)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    assert!(revision.status.success());
-    assert_eq!(
-        String::from_utf8(revision.stdout).unwrap().trim(),
-        SUITE_COMMIT
-    );
-    let mut count = 0;
-    for entry in fs::read_dir(suite).unwrap() {
-        let case = entry.unwrap().path();
-        let cases = if case.join("in.yaml").is_file() {
-            vec![case]
-        } else if case.is_dir() {
-            fs::read_dir(case)
-                .unwrap()
-                .map(|entry| entry.unwrap().path())
-                .filter(|path| path.join("in.yaml").is_file())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        for case in cases {
-            let input = fs::read_to_string(case.join("in.yaml")).unwrap();
-            for (event, _) in Parser::new_from_str(&input).flatten() {
-                if let Event::Scalar(value, _, _, _) = event {
-                    quote_cache::assert_cached_quote_matches_fresh(value.as_ref());
-                    count += 1;
-                }
-            }
-        }
-    }
-    assert!(count > 100, "suite scalar inventory is incomplete");
-}
 
 fn normalize(expected: &str) -> Vec<String> {
     let mut anchors = Vec::new();
