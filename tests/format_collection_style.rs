@@ -664,8 +664,8 @@ fn nested_mapping_values_keep_their_collection_properties() {
 }
 
 #[test]
-fn comma_edit_refreshes_collection_events() {
-    let input = "items: [one,two]\n";
+fn comma_edit_refreshes_collection_and_quote_events() {
+    let input = "items: [one,'two']\n";
     assert_eq!(
         format_str(input, &config(SEQUENCES), Path::new("items.yaml"), &[]),
         "items:\n  - one\n  - two\n"
