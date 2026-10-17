@@ -94,6 +94,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   warning-only run into exit code `2`. `--enable <RULES>` runs exactly the
   listed rules (comma-separated IDs, or `ALL`) in place of the config's
   selection, and needs no config file.
+- `ryl check` and `ryl format` cache results by content and configuration.
+  Use `--no-cache` to bypass the cache or `--cache-dir PATH` to place it elsewhere.
+  See [caching](docs/getting-started/quickstart.md#caching).
 - Pass `-` as the input to read YAML from stdin (ruff convention). Add
   `--stdin-filename <PATH>` so diagnostics, project-config discovery,
   and path-based filtering (`yaml-files`, per-file-ignores, per-rule
@@ -116,14 +119,37 @@ documentation, see the docs site.
 
 ## Performance
 
-The figure below times ryl and yamllint over a 5x5 file-count × file-size
-matrix with 5 runs per point, with result caches disabled:
+The chart compares lint and format times on real-world YAML sampled from pinned
+repositories: 20–100 files × 1–9 KiB, with five runs per point.
 
-![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
+![Lint and format benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 
-The benchmark script is in `scripts/benchmark_yaml_tools.py`; run
-it with `--warm` to also chart second-run timings with each tool's cache
-enabled, or `--help` for the full option set.
+The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated stress dataset with `--datasets stress`.
+
+| Tool | Mode | Real-world mean, 100 × 9 KiB (s) |
+| --- | --- | ---: |
+| ryl | Lint | 0.054 |
+| yamllint | Lint | 2.378 |
+| ryl | Format | 0.365 |
+| yamlfmt | Format | 0.115 |
+| Prettier | Format | 1.161 |
+| dprint | Format | 0.073 |
+
+| Tool | Mode | Version |
+| --- | --- | --- |
+| ryl | Lint, format | 0.25.1 |
+| yamllint | Lint | 1.38.0 |
+| yamlfmt | Format | 0.21.0 |
+| Prettier | Format | 3.9.10 |
+| dprint + pretty_yaml plugin | Format | 0.63.0 + 0.6.0 |
+
+Result caches are cold; install artifacts are warm. The
+[benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
+cache checks. On the real-world dataset, ryl format is slower than dprint and yamlfmt:
+ryl verifies value preservation and convergence ([formatter guarantees](docs/formatter.md#guarantees)).
+
+Run the benchmark with `--warm` to also record second-run timings with each
+tool's result cache enabled. Its warm view is separate from the cold chart above.
 
 ## Acknowledgements
 

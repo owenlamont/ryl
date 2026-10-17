@@ -60,10 +60,17 @@ description: >-
     --install-pinned-tools --warm`. The defaults reproduce the committed 5x5/5-run
     matrix. The script checks load again after corpus validation; discard a run if
     other builds push load over the threshold during timing. If the hour yields no
-    stable run, leave the old chart and name that limit in the PR. Copy the run's
-    `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
-    `img/benchmark-5x5-5runs.svg`, and copy `benchmark-warm.svg` to
-    `img/benchmark-warm-5x5-5runs.svg`. The generated corpus stays in a temporary directory;
+    stable run, leave the old chart and name that limit in the PR. The README chart
+    shows the real-world dataset only. Re-plot the full run without
+    re-timing, then copy its SVG over the tracked image:
+
+    ```sh
+    uv run scripts/benchmark_yaml_tools.py --replot manual_outputs/benchmarks/<ts> --datasets real-world
+    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark-5x5-5runs.svg
+    cp manual_outputs/benchmarks/<ts>/benchmark-warm.svg img/benchmark-warm-5x5-5runs.svg
+    ```
+
+    The generated corpus stays in a temporary directory;
     `manual_outputs/benchmarks/` is gitignored. Check `meta.json` for binary versions,
     configs, corpus hash, seed, strategy, and rejection rate. Add or update the README
     tool table from the deliberate pins; the chart itself has no version labels.

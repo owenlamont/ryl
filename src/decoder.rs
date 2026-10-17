@@ -217,10 +217,12 @@ fn detect_encoding(bytes: &[u8]) -> Result<FileEncoding, String> {
     detect_encoding_with_override(bytes, override_label.as_deref())
 }
 
+pub const ENCODING_OVERRIDE_WARNING: &[u8] = b"YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint.\n";
+
 pub fn warn_encoding_override() {
     crate::cli_support::write_file_stderr(
         &mut std::io::stderr(),
-        b"YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint.\n",
+        ENCODING_OVERRIDE_WARNING,
     );
 }
 
