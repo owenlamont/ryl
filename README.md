@@ -121,7 +121,7 @@ matrix with 5 runs per point:
 
 ![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 
-The benchmark script is in `scripts/benchmark_perf_vs_yamllint.py`; run
+The benchmark script is in `scripts/benchmark_yaml_tools.py`; run
 it with `--help` for the full option set.
 
 ## Acknowledgements
