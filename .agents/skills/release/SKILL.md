@@ -53,8 +53,8 @@ description: >-
     `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
     `img/benchmark-5x5-5runs.svg`. The generated corpus stays in a temporary directory;
     `manual_outputs/benchmarks/` is gitignored. Check `meta.json` for binary versions,
-    configs, corpus hash, seed, strategy, and rejection rate. Update the README table
-    from the deliberate pins; the chart itself has no version labels.
+    configs, corpus hash, seed, strategy, and rejection rate. Add or update the README
+    tool table from the deliberate pins; the chart itself has no version labels.
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed
     in this release (a moved command, renamed test, new wiring step), and update
     the affected `SKILL.md`. If any `.agents/skills/` file changed, refresh the
