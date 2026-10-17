@@ -326,7 +326,8 @@ fn directory_run_reuses_every_entry() {
     fs::write(
         dir.path().join(".ryl.toml"),
         "exclude = ['skip/']\n[lint]\nper-file-ignores = { 'b*.yaml' = ['trailing-spaces'] }\n\
-         [lint.rules]\ntrailing-spaces = 'enable'\n",
+         [lint.rules]\ntrailing-spaces = 'enable'\n\
+         [[lint.per-line-ignores]]\nregex = '^x'\npath = 'b*.yaml'\nrules = ['ALL']\n",
     )
     .unwrap();
     for index in 0..40 {
