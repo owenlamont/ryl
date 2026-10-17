@@ -1575,7 +1575,9 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
                 .entry(path, base_dir, cfg, *kind, "format")?
                 .map(|(path, _)| path)
         };
-        if !entry.as_deref().is_some_and(cache::clean_hit) {
+        if entry.as_deref().is_some_and(cache::clean_hit) {
+            warn_cached_encoding_override();
+        } else {
             pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
             entries.push(entry);
         }
@@ -1809,6 +1811,7 @@ fn lint_files_cached(
             if let Some(problems) =
                 entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
             {
+                warn_cached_encoding_override();
                 return Ok((idx, Ok(problems), None));
             }
             let outcome = match entry.as_ref() {
@@ -1836,6 +1839,12 @@ fn lint_files_cached(
         .into_iter()
         .map(|(idx, outcome, _)| (idx, outcome))
         .collect())
+}
+
+fn warn_cached_encoding_override() {
+    if std::env::var("YAMLLINT_FILE_ENCODING").is_ok() {
+        ryl::decoder::warn_encoding_override();
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

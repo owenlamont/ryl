@@ -43,7 +43,7 @@ project](#configure-for-your-project) below).
 ## Caching
 
 `ryl check` and `ryl format` cache file results by content, resolved configuration,
-and ryl version. The default `.ryl_cache/<version>/` is in the current directory,
+`YAMLLINT_FILE_ENCODING`, and ryl version. The default `.ryl_cache/<version>/` is in the current directory,
 including when `-c` selects a config elsewhere. The cache directory
 contains `.gitignore` and `CACHEDIR.TAG`; deleting it clears all results.
 

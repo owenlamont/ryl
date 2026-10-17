@@ -61,6 +61,99 @@ fn check_reuses_diagnostics_and_invalidates_content_and_config() {
 }
 
 #[test]
+fn encoding_override_removal_invalidates_cached_lint_result() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, b"name: caf\xe9\n").unwrap();
+    let check = |encoding: Option<&str>| {
+        let mut cmd = ryl(dir.path());
+        cmd.current_dir(dir.path())
+            .args(["check", "--enable", "new-line-at-end-of-file"])
+            .arg(&file);
+        match encoding {
+            Some(label) => cmd.env("YAMLLINT_FILE_ENCODING", label),
+            None => cmd.env_remove("YAMLLINT_FILE_ENCODING"),
+        };
+        run(&mut cmd)
+    };
+    let (code, _, stderr) = check(Some("latin-1"));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.contains("YAMLLINT_FILE_ENCODING"), "{stderr}");
+    assert_eq!(entries(&dir.path().join(".ryl_cache")).len(), 1);
+
+    let (code, _, stderr) = check(None);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("invalid utf-8 data"), "{stderr}");
+}
+
+#[test]
+fn cached_lint_repeats_encoding_override_warning() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "name: value\n").unwrap();
+    let check = || {
+        run(ryl(dir.path())
+            .current_dir(dir.path())
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .args(["check", "--enable", "new-line-at-end-of-file"])
+            .arg(&file))
+    };
+    let first = check();
+    assert_eq!(first.0, 0, "{}", first.2);
+    assert!(first.2.contains("YAMLLINT_FILE_ENCODING"), "{}", first.2);
+    assert_eq!(check(), first);
+    assert_eq!(entries(&dir.path().join(".ryl_cache")).len(), 1);
+}
+
+#[test]
+fn cached_format_repeats_encoding_override_warning() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), "[format]\n").unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "name: value\n").unwrap();
+    let format = || {
+        run(ryl(dir.path())
+            .current_dir(dir.path())
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .arg("format")
+            .arg(&file))
+    };
+    let first = format();
+    assert_eq!(first.0, 0, "{}", first.2);
+    assert!(first.2.contains("YAMLLINT_FILE_ENCODING"), "{}", first.2);
+    assert_eq!(format(), first);
+    assert_eq!(entries(&dir.path().join(".ryl_cache")).len(), 1);
+}
+
+#[test]
+fn github_actions_renders_cached_problems_each_run() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "name: value").unwrap();
+    let check = |github: bool| {
+        let mut cmd = ryl(dir.path());
+        cmd.current_dir(dir.path())
+            .args(["check", "--enable", "new-line-at-end-of-file"])
+            .arg(&file);
+        if github {
+            cmd.env("GITHUB_ACTIONS", "true")
+                .env("GITHUB_WORKFLOW", "test");
+        } else {
+            cmd.env_remove("GITHUB_ACTIONS")
+                .env_remove("GITHUB_WORKFLOW");
+        }
+        run(&mut cmd)
+    };
+    let standard = check(false);
+    assert_eq!(standard.0, 1, "{}", standard.2);
+    let github = check(true);
+    assert_eq!(github.0, 1, "{}", github.2);
+    assert!(github.2.contains("::error file="), "{}", github.2);
+    assert!(github.2.contains("new-line-at-end-of-file"), "{}", github.2);
+    assert_eq!(entries(&dir.path().join(".ryl_cache")).len(), 1);
+}
+
+#[test]
 fn corrupt_entry_is_rebuilt_and_version_directory_isolated() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("a.yaml");

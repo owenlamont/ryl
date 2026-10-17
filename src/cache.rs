@@ -116,6 +116,12 @@ impl Settings {
                 hash.update([0]);
                 hash.update(base_dir.as_os_str().as_encoded_bytes());
                 hash.update([0]);
+                if let Some(encoding) = std::env::var_os("YAMLLINT_FILE_ENCODING") {
+                    hash.update([1]);
+                    hash.update(encoding.as_encoded_bytes());
+                } else {
+                    hash.update([0]);
+                }
                 hash
             })
             .clone();
