@@ -740,22 +740,19 @@ pub fn diff_files(
     flag: &str,
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
-    let mut notices_on_error = Vec::new();
     let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
         decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
     });
     for ((path, ..), (result, stderr)) in files.iter().zip(results) {
         if let Some(notice) = symlink_notice(path, flag) {
-            notices_on_error.push(notice.clone());
             stats.notices.push(notice);
             continue;
         }
-        notices_on_error.push(stderr.clone());
         stats.notices.push(stderr);
         let outcome = match result {
             Ok(outcome) => outcome,
             Err(error) => {
-                for notice in &notices_on_error {
+                for notice in &stats.notices {
                     let _ = std::io::stderr().write_all(notice);
                 }
                 return Err(error);

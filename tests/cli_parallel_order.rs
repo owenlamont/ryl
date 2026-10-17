@@ -135,7 +135,10 @@ fn rewrite_notices_follow_input_order_with_read_parse_and_symlink_skips() {
         symlink(&valid, &link).unwrap();
 
         let orders: Vec<Vec<_>> = if mode.contains(&"--diff") {
-            vec![vec![&parse, &link, &valid], vec![&link, &parse, &valid]]
+            vec![
+                vec![&parse, &link, &valid, &invalid],
+                vec![&link, &parse, &valid, &invalid],
+            ]
         } else {
             vec![
                 vec![&invalid, &link, &parse, &valid],
