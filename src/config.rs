@@ -196,6 +196,7 @@ impl Env for ClosureEnv<'_> {
 
 #[derive(Debug, Clone)]
 pub struct YamlLintConfig {
+    cache_dir: Option<PathBuf>,
     path_case: PathCase,
     ignore_patterns: Vec<String>,
     ignore_from_files: Vec<String>,
@@ -584,6 +585,7 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
+            cache_dir: None,
             format: FormatSettings::default(),
             source: None,
             line_length: None,
@@ -903,6 +905,11 @@ impl YamlLintConfig {
         self.output.as_ref()
     }
 
+    #[must_use]
+    pub fn cache_dir(&self) -> Option<&Path> {
+        self.cache_dir.as_deref()
+    }
+
     /// The resolved `[format]` settings (the defaults when the config declared none).
     #[must_use]
     pub fn format(&self) -> &FormatSettings {
@@ -979,6 +986,9 @@ impl YamlLintConfig {
     }
 
     fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
+        if let Some(cache_dir) = &normalized.cache_dir {
+            self.cache_dir = Some(PathBuf::from(cache_dir));
+        }
         if let Some(ignore) = normalized.ignore_patterns {
             self.ignore_patterns.clear();
             self.ignore_from_files.clear();
@@ -1377,6 +1387,10 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
 
 fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
     NormalizedConfig {
+        cache_dir: config
+            .cache_dir
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned()),
         ignore_patterns: (!config.ignore_patterns.is_empty())
             .then(|| config.ignore_patterns.clone()),
         ignore_from_files: (!config.ignore_from_files.is_empty())

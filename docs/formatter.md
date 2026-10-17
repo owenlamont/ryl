@@ -32,6 +32,10 @@ whose fix changes it, through the same reporters as `ryl check`, so it honours
 `--output-format` and [`[output]`](output-formats.md) and picks the GitHub format in
 GitHub Actions.
 
+Already formatted files are skipped on later runs through the
+[content-hash cache](getting-started/quickstart.md#caching). `--check` can also
+reuse a clean result; `--diff` always generates the requested diff.
+
 ## Guarantees
 
 Every edit `ryl format` makes is checked by property tests to be:

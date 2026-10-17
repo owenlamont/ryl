@@ -49,19 +49,21 @@ description: >-
     ```sh
     uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl \
       --install-pinned-tools --file-counts 1,10 --file-sizes-kib 1,9 \
-      --runs 2 --warmup 1 --ignore-load
+      --runs 2 --warmup 1 --warm --ignore-load
     ```
 
-    Check its `summary.csv`, `meta.json`, and SVG before the full run. Then check
+    Check its `summary.csv`, `warm-summary.csv`, `meta.json`, and both SVGs before
+    the full run. Then check
     `uptime` and `nproc`. Wait in five-minute steps, up to one hour, while the
     one-minute load exceeds half the CPU count. Once idle, run
     `uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl
-    --install-pinned-tools`. The defaults reproduce the committed 5x5/5-run
+    --install-pinned-tools --warm`. The defaults reproduce the committed 5x5/5-run
     matrix. The script checks load again after corpus validation; discard a run if
     other builds push load over the threshold during timing. If the hour yields no
     stable run, leave the old chart and name that limit in the PR. Copy the run's
     `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
-    `img/benchmark-5x5-5runs.svg`. The generated corpus stays in a temporary directory;
+    `img/benchmark-5x5-5runs.svg`, and copy `benchmark-warm.svg` to
+    `img/benchmark-warm-5x5-5runs.svg`. The generated corpus stays in a temporary directory;
     `manual_outputs/benchmarks/` is gitignored. Check `meta.json` for binary versions,
     configs, corpus hash, seed, strategy, and rejection rate. Add or update the README
     tool table from the deliberate pins; the chart itself has no version labels.

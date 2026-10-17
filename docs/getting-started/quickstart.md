@@ -40,6 +40,21 @@ For a fuller ruleset, copy the `default` or `relaxed` preset from [Configuration
 presets](../config-presets.md) into a `.ryl.toml` (see [Configure for your
 project](#configure-for-your-project) below).
 
+## Caching
+
+`ryl check` and `ryl format` cache file results by content, resolved configuration,
+and ryl version. The default `.ryl_cache/<version>/` sits beside the selected
+project config, or in the current directory without one. The cache directory
+contains `.gitignore` and `CACHEDIR.TAG`; deleting it clears all results.
+
+Use `--no-cache` or `RYL_NO_CACHE=1` to bypass the cache. `--cache-dir PATH`,
+`RYL_CACHE_DIR`, and the TOML-only top-level `cache-dir = "PATH"` select another
+location, in that precedence order. A relative path in TOML is resolved from
+the project root. Cache directory failures exit 2; corrupt entries are
+recomputed. Stdin, diff output, and editor requests do not use the disk cache.
+Format results for encoded files or filenames unsuitable for diff headers are not
+cached, so `format --check` keeps their skip notices.
+
 ## Lint from stdin
 
 Pass `-` as the input to read YAML from standard input &mdash; useful for

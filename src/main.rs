@@ -6,6 +6,8 @@
     clippy::cognitive_complexity
 )]
 
+mod cache;
+
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
@@ -379,6 +381,20 @@ struct SourceArgs {
     /// Inline configuration data (TOML, or deprecated yamllint YAML)
     #[arg(short = 'd', long = "config-data", value_name = "DATA")]
     config_data: Option<String>,
+
+    /// Disable the on-disk result cache
+    #[arg(long = "no-cache", default_value_t = false)]
+    no_cache: bool,
+
+    /// Directory for the on-disk result cache
+    #[arg(long = "cache-dir", value_name = "PATH")]
+    cache_dir: Option<PathBuf>,
+}
+
+impl SourceArgs {
+    fn cache_settings(&self) -> cache::Settings {
+        cache::Settings::new(self.no_cache, self.cache_dir.clone())
+    }
 }
 
 #[derive(clap::Args, Debug)]
@@ -1278,7 +1294,11 @@ fn lint_and_exit(
         None
     };
 
-    let mut results = lint_files(files);
+    let mut results = if args.lint.fix.fix {
+        lint_files(files)
+    } else {
+        lint_files_cached(files, &args.source.cache_settings())?
+    };
     if let Some((_, errors)) = &before_fix {
         for (index, error) in errors {
             results[*index].1 = Err(error.clone());
@@ -1542,6 +1562,22 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     }
     let (global_cfg, files, _) = collect_files(&args)?;
     warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
+    let settings = args.source.cache_settings();
+    let mut pending = Vec::new();
+    let mut entries = Vec::new();
+    for (path, base_dir, cfg, kind) in &files {
+        let symlink = std::fs::symlink_metadata(path)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink());
+        let entry = if format.diff || symlink {
+            None
+        } else {
+            settings.entry(path, base_dir, cfg, *kind, "format")?
+        };
+        if !entry.as_deref().is_some_and(cache::clean_hit) {
+            pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
+            entries.push(entry);
+        }
+    }
     if let Some(preview) = preview {
         let output_config = if preview == Preview::Check {
             run_output_config(global_cfg.as_ref(), &args.source.inputs, &args)?
@@ -1554,10 +1590,36 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             &targets,
             files.iter().map(|(path, ..)| path.as_path()),
         )?;
-        let stats = diff_files(&files, Rewrite::Format, preview.flag())?;
+        let stats = diff_files(&pending, Rewrite::Format, preview.flag())?;
+        if preview == Preview::Check
+            && stats.changed_files == 0
+            && stats.skipped.is_empty()
+        {
+            for entry in entries.into_iter().flatten() {
+                cache::mark_clean(&entry)?;
+            }
+        }
         return emit_format_preview(&stats, preview, &targets);
     }
-    let stats = rewrite_files(&files, Rewrite::Format);
+    let stats = rewrite_files(&pending, Rewrite::Format);
+    for (index, entry) in entries.into_iter().enumerate() {
+        if stats.errors.iter().any(|(failed, _)| *failed == index)
+            || stats
+                .skipped
+                .iter()
+                .any(|(path, _)| path == &pending[index].0)
+        {
+            continue;
+        }
+        if entry.is_some() {
+            let (path, base_dir, cfg, kind) = &pending[index];
+            settings
+                .entry(path, base_dir, cfg, *kind, "format")
+                .and_then(|current| {
+                    current.as_deref().map(cache::mark_clean).transpose()
+                })?;
+        }
+    }
     for (path, problem) in &stats.skipped {
         eprint_skip_notice(path, problem, Rewrite::Format.flag());
     }
@@ -1712,8 +1774,10 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     }
 }
 
-fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String>)> {
-    let mut results: Vec<(usize, Result<Vec<LintProblem>, String>)> = files
+type IndexedLintResults = Vec<(usize, Result<Vec<LintProblem>, String>)>;
+
+fn lint_files(files: &[LintFile]) -> IndexedLintResults {
+    let mut results: IndexedLintResults = files
         .par_iter()
         .enumerate()
         .map(|(idx, (path, base_dir, cfg, kind))| {
@@ -1726,6 +1790,32 @@ fn lint_files(files: &[LintFile]) -> Vec<(usize, Result<Vec<LintProblem>, String
         .collect();
     results.sort_by_key(|(idx, _)| *idx);
     results
+}
+
+fn lint_files_cached(
+    files: &[LintFile],
+    settings: &cache::Settings,
+) -> Result<IndexedLintResults, String> {
+    let mut results: Vec<_> = files
+        .par_iter()
+        .enumerate()
+        .map(|(idx, (path, base_dir, cfg, kind))| {
+            let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
+            if let Some(problems) = entry.as_deref().and_then(cache::lint_hit) {
+                return Ok((idx, Ok(problems)));
+            }
+            let outcome = match kind {
+                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+                SourceKind::Yaml => lint_file(path, cfg, base_dir),
+            };
+            if let (Some(entry), Ok(problems)) = (&entry, &outcome) {
+                cache::store_lint(entry, problems)?;
+            }
+            Ok((idx, outcome))
+        })
+        .collect::<Result<_, String>>()?;
+    results.sort_by_key(|(idx, _)| *idx);
+    Ok(results)
 }
 
 #[allow(clippy::too_many_arguments)]

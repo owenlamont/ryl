@@ -243,8 +243,8 @@ def make_tools(
             binary=ryl_bin,
             version=run_checked([str(ryl_bin), "--version"]).stdout.strip(),
             config="lint: extends relaxed; format: [format] defaults",
-            lint_args=("check", "-d", "extends: relaxed"),
-            format_args=("format", "-c", str(ryl_config)),
+            lint_args=("check", "--no-cache", "-d", "extends: relaxed"),
+            format_args=("format", "--no-cache", "-c", str(ryl_config)),
         ),
         Tool(
             name="yamllint",
@@ -389,6 +389,95 @@ def write_runner(run_dir: Path) -> Path:
 
 def cold_command(command: list[str], runner: Path) -> list[str]:
     return [sys.executable, str(runner), *command]
+
+
+def write_warm_runner(run_dir: Path) -> Path:
+    runner = run_dir / "warm_run.py"
+    runner.write_text(
+        "import os, subprocess, sys\n"
+        "from pathlib import Path\n"
+        "cache = Path(sys.argv[1])\n"
+        "cache.mkdir(parents=True, exist_ok=True)\n"
+        "env = os.environ.copy()\n"
+        "env.update(XDG_CACHE_HOME=str(cache), DPRINT_CACHE_DIR=str(cache))\n"
+        "sys.exit(subprocess.run(sys.argv[2:], env=env, check=False).returncode)\n"
+    )
+    return runner
+
+
+def warm_tool_command(tool: Tool, mode: str, dataset: Path, cache: Path) -> list[str]:
+    command = tool_command(tool, mode, dataset)
+    if tool.name == "ryl":
+        command.remove("--no-cache")
+        command[2:2] = ["--cache-dir", str(cache)]
+    elif tool.name == "Prettier":
+        command.remove("--no-cache")
+        command[1:1] = ["--cache", "--cache-location", str(cache / "prettier-cache")]
+    elif tool.name == "dprint":
+        command.remove("--incremental=false")
+    return command
+
+
+def benchmark_warm_case(
+    case: Case,
+    *,
+    mode: str,
+    tools: list[Tool],
+    runs: int,
+    output_json_path: Path,
+    root: Path,
+    runner: Path,
+) -> list[dict[str, float | int | str]]:
+    selected = [
+        tool
+        for tool in tools
+        if (tool.lint_args if mode == "lint" else tool.format_args)
+    ]
+    root.mkdir(parents=True, exist_ok=True)
+    commands = []
+    for tool in selected:
+        work = root / f"{tool.name}-{mode}-work"
+        cache = root / f"{tool.name}-{mode}-cache"
+        if work.exists():
+            shutil.rmtree(work)
+        if cache.exists():
+            shutil.rmtree(cache)
+        shutil.copytree(case.dataset_dir, work)
+        command = [
+            sys.executable,
+            str(runner),
+            str(cache),
+            *warm_tool_command(tool, mode, work, cache),
+        ]
+        run_checked(command)
+        commands.append(command)
+    hyperfine = [
+        "hyperfine",
+        "--runs",
+        str(runs),
+        "--warmup",
+        "0",
+        "--export-json",
+        str(output_json_path),
+    ]
+    for tool, command in zip(selected, commands, strict=True):
+        hyperfine.extend(["-n", tool.name, shell_command(command)])
+    run_checked(hyperfine)
+    raw = orjson.loads(output_json_path.read_bytes())
+    return [
+        {
+            "mode": mode,
+            "dataset": case.dataset,
+            "tool": result["command"],
+            "file_count": case.file_count,
+            "file_size_kib": case.file_size_kib,
+            "mean_seconds": float(result["mean"]),
+            "stddev_seconds": float(result["stddev"] or 0),
+            "min_seconds": float(result["min"]),
+            "max_seconds": float(result["max"]),
+        }
+        for result in raw["results"]
+    ]
 
 
 def accepted_documents(
@@ -756,7 +845,9 @@ def format_profile(
     return results
 
 
-def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
+def plot_results(
+    df: pl.DataFrame, out_svg: Path, *, runs: int, warm: bool = False
+) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     plt.rcParams["svg.fonttype"] = "none"
     panels = [
@@ -808,7 +899,8 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
     panel_axes[2].set_ylabel("Mean runtime (seconds)")
     panel_axes[-1].legend(title="Dataset and file size", loc="upper left")
     fig.suptitle(
-        f"YAML lint and format (hyperfine, {runs} runs per point)", fontsize=13
+        f"YAML lint and format ({'warm' if warm else 'cold'} cache, {runs} runs per point)",
+        fontsize=13,
     )
     fig.tight_layout()
     out_svg.parent.mkdir(parents=True, exist_ok=True)
@@ -864,6 +956,7 @@ def main(
     profile_format: bool = typer.Option(
         False, help="Also time ryl on formatted input and dirty --check input."
     ),
+    warm: bool = typer.Option(False, help="Also chart each tool's second, cached run."),
     ignore_load: bool = typer.Option(
         False, help="Ignore the host load guard for smoke tests only."
     ),
@@ -917,6 +1010,7 @@ def main(
     installed = install_tools(versions, run_dir) if install_pinned_tools else {}
     install_plugin(versions["pretty_yaml"], run_dir)
     runner = write_runner(run_dir)
+    warm_runner = write_warm_runner(run_dir) if warm else None
 
     def binary(value: Path | None, name: str) -> Path:
         path = value if value is not None else resolve_tool_path(name)
@@ -942,6 +1036,7 @@ def main(
                 f"{tool.name} version {tool.version!r} differs from pin {pin}"
             )
     rows: list[dict[str, float | int | str]] = []
+    warm_rows: list[dict[str, float | int | str]] = []
     with tempfile.TemporaryDirectory(prefix="ryl-benchmark-") as temporary:
         temporary_root = Path(temporary)
         documents, attempted, accepted_indices = accepted_documents(
@@ -1013,6 +1108,19 @@ def main(
                         runner=runner,
                     )
                 )
+                if warm_runner is not None:
+                    warm_rows.extend(
+                        benchmark_warm_case(
+                            case,
+                            mode=mode,
+                            tools=tools,
+                            runs=runs,
+                            output_json_path=raw_dir
+                            / f"warm-{case.dataset}-{mode}-{case.file_count}-{case.file_size_kib}.json",
+                            root=temporary_root / "warm",
+                            runner=warm_runner,
+                        )
+                    )
         profile = None
         if profile_format:
             largest_case = max(
@@ -1041,6 +1149,10 @@ def main(
     )
     csv_path = run_dir / "summary.csv"
     results_df.write_csv(csv_path)
+    if warm_rows:
+        warm_df = pl.DataFrame(warm_rows).select(results_df.columns)
+        warm_df.write_csv(run_dir / "warm-summary.csv")
+        plot_results(warm_df, run_dir / "benchmark-warm.svg", runs=runs, warm=True)
 
     meta_path = run_dir / "meta.json"
     meta_path.write_bytes(
@@ -1049,6 +1161,7 @@ def main(
                 "generated_at_utc": timestamp,
                 "runs": runs,
                 "warmup": warmup,
+                "warm_cache_view": warm,
                 "seed": seed,
                 "pre_run_load_1m": load,
                 "cpu_count": cpus,
