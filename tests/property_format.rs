@@ -1446,6 +1446,11 @@ fn representation_tells_apart_what_value_preservation_forbids() {
         ("- |+\n   ", "- |+\n"),
         ("a: |2+\n  |\n   ", "a: |2+\n  |\n"),
         ("a: |+\n  x\n  ", "a: |+\n  y\n"),
+        ("a: >1\n\n\n# tail\n", "a: |1\n\n\n# tail\n"),
+        (
+            "outer:\n  a: |-1\n   x\n\n\n     ",
+            "outer:\n  a: >-1\n   x\n\n\n     ",
+        ),
     ] {
         assert_ne!(
             representation(left),
@@ -1647,6 +1652,49 @@ fn folded_interior_blank_line_matches_one_literal_break() {
         assert!(check_values(&folded, &changed.replace('\n', ending)).is_err());
         check_values(&folded, &same.replace('\n', ending)).unwrap();
     }
+}
+
+#[test]
+fn folded_terminal_blank_run_matches_reference() {
+    for chomp in ["-", "", "+"] {
+        for blanks in 0..=3 {
+            let suffix = format!("{}     ", "\n".repeat(blanks));
+            let literal = format!("outer:\n  a: |{chomp}1\n   x\n{suffix}");
+            let folded = format!("outer:\n  a: >{chomp}1\n   x\n{suffix}");
+            for ending in ["\n", "\r\n", "\r"] {
+                assert_eq!(
+                    check_values(
+                        &literal.replace('\n', ending),
+                        &folded.replace('\n', ending)
+                    )
+                    .is_ok(),
+                    blanks < 2,
+                    "{literal:?} -> {folded:?} with {ending:?}"
+                );
+            }
+        }
+    }
+    check_values(">\n  x\n\n\n\n  ", ">\n  x\n").unwrap();
+    check_values("a: >\n  x\n   y\n\n\n   ", "a: |\n  x\n   y\n\n\n   ").unwrap();
+    for pass in format_passes() {
+        check_pass(pass, "a: >-\n  x\n\n\n  ").unwrap();
+    }
+    assert!(
+        check_values(
+            "outer:\n  a: |-1\n   x\n\n\n     \n",
+            "outer:\n  a: >-1\n   x\n\n\n     \n",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn folded_scalar_ignores_outdented_terminal_spaces() {
+    let input = "outer:\n  a: >-1\n   x\n\n\n ";
+    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    let formatted = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_eq!(formatted, "outer:\n  a: >-1\n   x\n");
+    check_values(input, &formatted).unwrap();
 }
 
 #[test]

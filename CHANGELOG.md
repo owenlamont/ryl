@@ -9,8 +9,13 @@ summarize user-visible changes from the tagged commits and published release rec
 
 - `ryl format` shares YAML events and indentation tokens across unchanged-text
   parse, layout and quote passes. ([#750](https://github.com/owenlamont/ryl/issues/750))
+- Bump granit-parser to 2.0.0, retaining comment events and relaxed indentation.
+  Parsing now accepts explicit `?` keys at end of input, quoted continuations one
+  column past the block indent, and tabs separating explicit keys; it also drops
+  spurious block-scalar line breaks after indentation-only EOF lines and corrects
+  end-of-input span positions.
 - `ryl format` and `ryl check --fix`/`--diff` process file contents in parallel while
-  keeping writes, notices and diffs in input order.
+  keeping writes and diffs in input order.
   ([#748](https://github.com/owenlamont/ryl/issues/748))
 
 ## v0.25.1 - 2026-10-16
