@@ -217,30 +217,33 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
         .par_iter()
         .enumerate()
         .map(|(index, (path, base_dir, cfg, kind))| {
-            let result = if is_symlink(path) {
-                Err(format!("skipped symlink {}", path.display()))
-            } else {
-                decoder::read_file_lossless(path).map(|decoded| {
-                    let (rewritten, skipped) = rewrite_str(
-                        decoded.content(),
-                        cfg,
-                        path,
-                        base_dir,
-                        *kind,
-                        rewrite,
-                    );
-                    (decoded, rewritten, skipped)
-                })
-            };
-            (index, result)
+            let (result, stderr) = crate::cli_support::capture_file_stderr(|| {
+                if is_symlink(path) {
+                    Err(format!("skipped symlink {}", path.display()))
+                } else {
+                    decoder::read_file_lossless(path).map(|decoded| {
+                        let (rewritten, skipped) = rewrite_str(
+                            decoded.content(),
+                            cfg,
+                            path,
+                            base_dir,
+                            *kind,
+                            rewrite,
+                        );
+                        (decoded, rewritten, skipped)
+                    })
+                }
+            });
+            (index, result, stderr)
         })
         .collect();
-    results.sort_by_key(|(index, _)| *index);
-    for (index, result) in results {
+    results.sort_by_key(|(index, ..)| *index);
+    for (index, result, stderr) in results {
         let (path, _, _, _) = &files[index];
         if refuse_symlink(path, rewrite.flag()) {
             continue;
         }
+        let _ = std::io::stderr().write_all(&stderr);
         let outcome = match result {
             Ok((decoded, rewritten, skipped)) => {
                 if let Some(rewritten) = &rewritten
@@ -655,22 +658,27 @@ pub fn diff_files(
         .par_iter()
         .enumerate()
         .map(|(index, (path, base_dir, cfg, kind))| {
-            let result = if is_symlink(path) {
-                Err(format!("skipped symlink {}", path.display()))
-            } else {
-                decoder::read_file_lossless(path).map(|decoded| {
-                    decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
-                })
-            };
-            (index, result)
+            let (result, stderr) = crate::cli_support::capture_file_stderr(|| {
+                if is_symlink(path) {
+                    Err(format!("skipped symlink {}", path.display()))
+                } else {
+                    decoder::read_file_lossless(path).map(|decoded| {
+                        decoded_diff_outcome(
+                            &decoded, cfg, path, base_dir, *kind, rewrite,
+                        )
+                    })
+                }
+            });
+            (index, result, stderr)
         })
         .collect();
-    results.sort_by_key(|(index, _)| *index);
-    for (index, result) in results {
+    results.sort_by_key(|(index, ..)| *index);
+    for (index, result, stderr) in results {
         let (path, _, _, _) = &files[index];
         if refuse_symlink(path, flag) {
             continue;
         }
+        let _ = std::io::stderr().write_all(&stderr);
         let outcome = result?;
         stats.record(path, outcome);
     }
@@ -1047,17 +1055,16 @@ pub(crate) fn run_passes(
     let mut changed_rules = Vec::new();
     if ctx.pass(&content, &mut changed_rules) != content {
         changed_rules.dedup();
-        // A failed write to stderr has nowhere better to go.
-        let _ = writeln!(
-            err,
+        let warning = format!(
             "\nerror: Failed to converge after {max_passes} iterations.\n\n\
              This indicates a bug in ryl. If you could open an issue at:\n\n    \
              https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D\n\n\
              ...quoting the contents of `{}`, the rule ids {}, along with the ryl config \
-             and executed command, we'd be very appreciative!\n",
+             and executed command, we'd be very appreciative!\n\n",
             cwd_relative_label(path),
             changed_rules.join(", "),
         );
+        crate::cli_support::write_file_stderr(err, warning.as_bytes());
     }
     content
 }

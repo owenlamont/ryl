@@ -133,12 +133,12 @@ seconds / CPU percentage.
 
 | Inputs | Command | Serial | Parallel |
 | --- | --- | ---: | ---: |
-| 100 × 9 KiB | `format` | 2.59 / 100% | 0.41 / 1390% |
-| 100 × 9 KiB | `check --fix` | 0.25 / 191% | 0.07 / 1157% |
-| 100 × 9 KiB | `check --diff` | 0.47 / 100% | 0.08 / 1292% |
-| 1,000 small | `format` | 0.22 / 100% | 0.05 / 1031% |
-| 1,000 small | `check --fix` | 0.04 / 210% | 0.02 / 504% |
-| 1,000 small | `check --diff` | 0.03 / 99% | 0.01 / 517% |
+| 100 × 9 KiB | `format` | 2.49 / 100% | 0.38 / 1437% |
+| 100 × 9 KiB | `check --fix` | 0.23 / 197% | 0.06 / 1208% |
+| 100 × 9 KiB | `check --diff` | 0.43 / 100% | 0.07 / 1360% |
+| 1,000 small | `format` | 0.21 / 100% | 0.04 / 1073% |
+| 1,000 small | `check --fix` | 0.04 / 203% | 0.02 / 482% |
+| 1,000 small | `check --diff` | 0.03 / 100% | 0.01 / 519% |
 
 ## Acknowledgements
 
