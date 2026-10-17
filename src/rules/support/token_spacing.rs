@@ -3,11 +3,13 @@
 //! node rather than the dash, so each run is found by scanning the source from the
 //! indicator and holds only spaces and tabs.
 
+use crate::text_version::Analysis;
 use std::ops::Range;
 
-use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
+use crate::text_version::lexical::Kind as LexicalKind;
+use granit_parser::{ScalarStyle, Span};
 
-use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::punctuation::line_and_column;
 use crate::rules::support::span_utils::{BytePos, CharPos, apply_replacements};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,32 +65,30 @@ impl Site {
     }
 }
 
-pub(crate) fn sites(buffer: &str) -> Vec<Site> {
-    let tokens: Vec<(Span, TokenType)> = Scanner::new(StrInput::new(buffer))
-        .map_while(Result::ok)
-        .map(granit_parser::Token::into_parts)
-        .collect();
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+pub(crate) fn sites_with_analysis(input: Analysis<'_>) -> Vec<Site> {
+    let buffer = input.text();
+    let tokens = input.tokens();
+    let chars = input.chars();
     let walk = Walk {
         buffer,
-        line_starts: build_line_starts(&chars),
+        line_starts: input.line_starts(),
         chars,
-        tokens: &tokens,
+        tokens,
     };
     let mut sites = Vec::new();
     for (idx, (span, token)) in tokens.iter().enumerate() {
         let at = span.start.index();
         match token {
-            TokenType::BlockEntry => {
+            LexicalKind::BlockEntry => {
                 let dash = walk.skip_ws_back(at).checked_sub(1);
                 if let Some(dash) = dash.filter(|&dash| walk.char_at(dash) == '-') {
                     sites.extend(walk.after(Indicator::Dash, dash, idx));
                 }
             }
-            TokenType::Key if span.end.index() > at => {
+            LexicalKind::Key if span.end.index() > at => {
                 sites.extend(walk.after(Indicator::Question, at, idx));
             }
-            TokenType::Value => {
+            LexicalKind::Value => {
                 sites.extend(walk.before_colon(at, idx));
                 sites.extend(walk.after(Indicator::Colon, at, idx));
             }
@@ -101,15 +101,17 @@ pub(crate) fn sites(buffer: &str) -> Vec<Site> {
 /// `buffer` with each safe site `tolerance` covers respaced: to `max(tolerance, the
 /// grammar minimum)` where it exceeds that, or under [`Mode::Format`] wherever it differs.
 pub(crate) fn fix(
-    buffer: &str,
+    input: Analysis<'_>,
     mode: Mode,
     tolerance: impl Fn(&Site) -> Option<i64>,
 ) -> Option<String> {
-    let replacements: Vec<_> = sites(buffer)
-        .into_iter()
+    let buffer = input.text();
+    let replacements: Vec<_> = input
+        .sites()
+        .iter()
         .filter(|site| site.fix == Fix::Safe)
         .filter_map(|site| {
-            let target = usize::try_from(tolerance(&site)?).ok()?.max(site.min);
+            let target = usize::try_from(tolerance(site)?).ok()?.max(site.min);
             let ws = &buffer[site.ws.clone()];
             let edit = match mode {
                 Mode::Lint => site.spaces > target,
@@ -129,9 +131,9 @@ pub(crate) fn fix(
 
 struct Walk<'a> {
     buffer: &'a str,
-    chars: Vec<(usize, char)>,
-    line_starts: Vec<CharPos>,
-    tokens: &'a [(Span, TokenType<'a>)],
+    chars: &'a [(usize, char)],
+    line_starts: &'a [CharPos],
+    tokens: &'a [(Span, LexicalKind)],
 }
 
 impl Walk<'_> {
@@ -153,7 +155,7 @@ impl Walk<'_> {
     }
 
     fn site(&self, indicator: Indicator, before: bool, ws: Range<usize>) -> Site {
-        let (line, column) = line_and_column(&self.line_starts, CharPos::new(ws.end));
+        let (line, column) = line_and_column(self.line_starts, CharPos::new(ws.end));
         Site {
             indicator,
             before,
@@ -190,12 +192,12 @@ impl Walk<'_> {
     fn before_colon(&self, at: usize, idx: usize) -> Option<Site> {
         let min = match idx.checked_sub(1).map(|prev| &self.tokens[prev].1) {
             Some(
-                TokenType::Scalar(..)
-                | TokenType::FlowMappingEnd
-                | TokenType::FlowSequenceEnd,
+                LexicalKind::Scalar { .. }
+                | LexicalKind::FlowMappingEnd
+                | LexicalKind::FlowSequenceEnd,
             ) => 0,
             // `:` is an anchor-name and tag char, so `&a: v` is a scalar `v` anchored `a:`.
-            Some(TokenType::Alias(_) | TokenType::Anchor(_) | TokenType::Tag(..)) => 1,
+            Some(LexicalKind::Alias | LexicalKind::Anchor | LexicalKind::Tag) => 1,
             _ => return None,
         };
         let start = self.skip_ws_back(at);
@@ -215,7 +217,7 @@ impl Walk<'_> {
             span.start.line() == line
                 && matches!(
                     token,
-                    TokenType::BlockMappingStart | TokenType::BlockSequenceStart
+                    LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart
                 )
         });
         let mut depth = 1usize;
@@ -223,21 +225,21 @@ impl Walk<'_> {
             && rest
                 .take_while(|(_, token)| {
                     match token {
-                        TokenType::BlockMappingStart
-                        | TokenType::BlockSequenceStart => {
+                        LexicalKind::BlockMappingStart
+                        | LexicalKind::BlockSequenceStart => {
                             depth += 1;
                         }
-                        TokenType::BlockEnd => depth -= 1,
+                        LexicalKind::BlockEnd => depth -= 1,
                         _ => {}
                     }
                     depth > 0
                 })
                 .any(|(span, token)| match token {
-                    TokenType::Comment(_) | TokenType::BlockEnd => false,
-                    TokenType::Scalar(
-                        ScalarStyle::Literal | ScalarStyle::Folded,
-                        _,
-                    ) => span.end.line() > line,
+                    LexicalKind::Comment { .. } | LexicalKind::BlockEnd => false,
+                    LexicalKind::Scalar {
+                        style: ScalarStyle::Literal | ScalarStyle::Folded,
+                        ..
+                    } => span.end.line() > line,
                     _ => span.start.line() > line,
                 })
     }

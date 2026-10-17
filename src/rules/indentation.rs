@@ -4,16 +4,18 @@
 
 use std::collections::HashSet;
 
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
+use crate::text_version::lexical::Kind as LexicalKind;
+use crate::text_version::{Analysis, TextVersion};
+use granit_parser::ScalarStyle;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::punctuation::line_and_column;
 use crate::rules::support::span_utils::CharPos;
 
 mod rewrite;
 
 pub(crate) use rewrite::Prepared;
-pub(crate) use rewrite::reindent_with_events;
+pub(crate) use rewrite::reindent_with_analysis;
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
 
 pub const ID: &str = "indentation";
@@ -150,11 +152,21 @@ pub(crate) fn has_fixed_explicit_indent(buffer: &str, cfg: &Config) -> bool {
 }
 
 fn analyze(buffer: &str, cfg: &Config, mode: Mode) -> (Vec<Violation>, bool) {
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let mut line_starts = build_line_starts(&chars);
-    let tokens = scan(buffer, &chars, &mut line_starts);
-    let mut analyzer = Analyzer::new(&chars, &line_starts, cfg, mode);
-    analyzer.run(&tokens);
+    analyze_with_analysis(TextVersion::new(buffer).analysis(), cfg, mode)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
+    analyze_with_analysis(input, cfg, Mode::Check).0
+}
+
+fn analyze_with_analysis(
+    input: Analysis<'_>,
+    cfg: &Config,
+    mode: Mode,
+) -> (Vec<Violation>, bool) {
+    let scanned = input.indentation();
+    let mut analyzer = Analyzer::new(input.chars(), &scanned.line_starts, cfg, mode);
+    analyzer.run(&scanned.tokens);
     (analyzer.diagnostics, analyzer.fixed_explicit_indent)
 }
 
@@ -202,23 +214,19 @@ impl Token {
     }
 }
 
-fn scan(
-    buffer: &str,
-    chars: &[(usize, char)],
-    line_starts: &mut [CharPos],
-) -> Vec<Token> {
-    scan_with_comments(buffer, chars, line_starts, None)
+pub(crate) struct Scanned {
+    tokens: Vec<Token>,
+    line_starts: Vec<CharPos>,
+    comments: HashSet<usize>,
 }
 
-fn scan_with_comments(
-    buffer: &str,
-    chars: &[(usize, char)],
-    line_starts: &mut [CharPos],
-    mut comments: Option<&mut HashSet<usize>>,
-) -> Vec<Token> {
+pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
+    let chars = input.chars();
+    let mut starts = input.line_starts().to_vec();
+    let line_starts = &mut starts;
+    let mut comments = HashSet::new();
     let mut tokens: Vec<Token> = Vec::new();
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, token_type) = token.into_parts();
+    for (span, token_type) in input.tokens() {
         for marker in [span.start, span.end] {
             let line_start = &mut line_starts[marker.line() - 1];
             if marker.index().saturating_sub(line_start.get()) > marker.col() {
@@ -227,20 +235,20 @@ fn scan_with_comments(
         }
         let (mut start, mut end) = (span.start.index(), span.end.index());
         let kind = match token_type {
-            TokenType::Comment(_) => {
-                if let Some(comments) = &mut comments {
-                    comments.insert(locate(line_starts, start).0);
-                }
+            LexicalKind::Comment { .. } => {
+                comments.insert(locate(line_starts, start).0);
                 continue;
             }
-            TokenType::FlowMappingStart | TokenType::FlowMappingEnd if start == end => {
+            LexicalKind::FlowMappingStart | LexicalKind::FlowMappingEnd
+                if start == end =>
+            {
                 continue;
             }
-            TokenType::StreamStart | TokenType::StreamEnd => Kind::StreamBoundary,
-            TokenType::BlockMappingStart => Kind::BlockMappingStart,
-            TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
-            TokenType::BlockEnd => Kind::BlockEnd,
-            TokenType::BlockEntry => {
+            LexicalKind::StreamStart | LexicalKind::StreamEnd => Kind::StreamBoundary,
+            LexicalKind::BlockMappingStart => Kind::BlockMappingStart,
+            LexicalKind::BlockSequenceStart => Kind::BlockSequenceStart,
+            LexicalKind::BlockEnd => Kind::BlockEnd,
+            LexicalKind::BlockEntry => {
                 // granit marks an entry past the dash's trailing blanks and comment.
                 start = match tokens.last() {
                     Some(prev) if prev.kind == Kind::BlockSequenceStart => prev.start,
@@ -253,18 +261,18 @@ fn scan_with_comments(
                 end = start + 1;
                 Kind::BlockEntry
             }
-            TokenType::FlowMappingStart => Kind::FlowMappingStart,
-            TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
-            TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
-            TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
-            TokenType::Key => Kind::Key {
+            LexicalKind::FlowMappingStart => Kind::FlowMappingStart,
+            LexicalKind::FlowMappingEnd => Kind::FlowMappingEnd,
+            LexicalKind::FlowSequenceStart => Kind::FlowSequenceStart,
+            LexicalKind::FlowSequenceEnd => Kind::FlowSequenceEnd,
+            LexicalKind::Key => Kind::Key {
                 explicit: char_at(chars, start) == Some('?')
                     && char_at(chars, start + 1)
                         .is_none_or(|ch| matches!(ch, ' ' | '\t') || is_break(ch)),
             },
-            TokenType::Value => Kind::Value,
-            TokenType::Anchor(_) | TokenType::Tag(..) => Kind::Property,
-            TokenType::Scalar(style, value) => {
+            LexicalKind::Value => Kind::Value,
+            LexicalKind::Anchor | LexicalKind::Tag => Kind::Property,
+            LexicalKind::Scalar { style, empty } => {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
                     let from = tokens.last().map_or(0, |prev| prev.end);
@@ -280,8 +288,8 @@ fn scan_with_comments(
                     }
                 }
                 Kind::Scalar {
-                    style,
-                    empty: value.is_empty(),
+                    style: *style,
+                    empty: *empty,
                 }
             }
             _ => Kind::Other,
@@ -298,7 +306,11 @@ fn scan_with_comments(
             end_column,
         });
     }
-    tokens
+    Scanned {
+        tokens,
+        line_starts: starts,
+        comments,
+    }
 }
 
 fn locate(line_starts: &[CharPos], idx: usize) -> (usize, usize) {

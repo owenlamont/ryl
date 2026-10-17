@@ -17,12 +17,13 @@
 //!
 //! Sources: YAML 1.2.2 block-sequence grammar; adrienverge/yamllint#527.
 
-use granit_parser::{Scanner, StrInput, TokenType};
+use crate::text_version::lexical::Kind as LexicalKind;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::punctuation::line_and_column;
 use crate::rules::support::span_utils::CharPos;
 use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "hyphens";
 pub const MESSAGE: &str = "too many spaces after hyphen";
@@ -91,11 +92,14 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut violations = violations(buffer, cfg, |fix| {
-        cfg.mode == Mode::Lint || fix == Fix::Safe
-    });
+    check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
+    let mut violations =
+        violations(input, cfg, |fix| cfg.mode == Mode::Lint || fix == Fix::Safe);
     if cfg.dash_on_own_line {
-        violations.extend(collect_dash_on_own_line(buffer));
+        violations.extend(collect_dash_on_own_line(input));
         // Two independent passes append out of document order; restore it (no later
         // per-rule sort exists in `lint`, and yamllint reports a file in line/col order).
         violations.sort_by_key(|a| (a.line, a.column));
@@ -105,7 +109,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    token_spacing::fix(buffer, cfg.mode, |site| {
+    fix_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
+    token_spacing::fix(input, cfg.mode, |site| {
         (site.indicator == Indicator::Dash).then_some(cfg.max_spaces_after)
     })
 }
@@ -113,16 +121,19 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 /// The violations `fix` leaves because respacing them would re-indent a collection.
 #[must_use]
 pub fn unfixed(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    violations(buffer, cfg, |fix| fix == Fix::Reindents)
+    violations(TextVersion::new(buffer).analysis(), cfg, |fix| {
+        fix == Fix::Reindents
+    })
 }
 
 fn violations(
-    buffer: &str,
+    input: Analysis<'_>,
     cfg: &Config,
     keep: impl Fn(Fix) -> bool,
 ) -> Vec<Violation> {
-    token_spacing::sites(buffer)
-        .into_iter()
+    input
+        .sites()
+        .iter()
         .filter(|site| {
             site.indicator == Indicator::Dash
                 && keep(site.fix)
@@ -139,26 +150,24 @@ fn violations(
 /// Flag every block-sequence entry whose block mapping opens on the dash's line (see
 /// module header for the token mechanics). The scanner is a lexer, so unparsable input
 /// just yields the tokens it can, no panic.
-fn collect_dash_on_own_line(buffer: &str) -> Vec<Violation> {
-    let char_indices: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&char_indices);
+fn collect_dash_on_own_line(input: Analysis<'_>) -> Vec<Violation> {
+    let line_starts = input.line_starts();
     let mut violations = Vec::new();
     let mut dash_line: Option<usize> = None;
 
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, token_type) = token.into_parts();
+    for (span, token_type) in input.tokens() {
         match token_type {
-            TokenType::BlockEntry => {
+            LexicalKind::BlockEntry => {
                 let (line, _) =
-                    line_and_column(&line_starts, CharPos::new(span.start.index()));
+                    line_and_column(line_starts, CharPos::new(span.start.index()));
                 dash_line = Some(line);
             }
             // Node properties decorate the entry's value without ending the dash.
-            TokenType::Anchor(_) | TokenType::Tag(..) | TokenType::Comment(_) => {}
-            TokenType::BlockMappingStart => {
+            LexicalKind::Anchor | LexicalKind::Tag | LexicalKind::Comment { .. } => {}
+            LexicalKind::BlockMappingStart => {
                 if let Some(dash) = dash_line.take() {
                     let (line, column) =
-                        line_and_column(&line_starts, CharPos::new(span.start.index()));
+                        line_and_column(line_starts, CharPos::new(span.start.index()));
                     if line == dash {
                         violations.push(Violation {
                             line,

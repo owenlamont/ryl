@@ -74,7 +74,7 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
                 _ => false,
             },
         )?;
-    let lines = line_contents(buffer);
+    let lines = input.line_contents();
     let content = content_blank_lines_with_analysis(input);
     let mut keep_blank_eof = false;
     let headers = input.headers();
@@ -118,7 +118,7 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
     let mut output = String::with_capacity(buffer.len());
     let mut changed = false;
 
-    for (idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
+    for (idx, raw_line, ending) in input.lines() {
         let line_no = idx + 1;
         let stripped = if protected.contains(&line_no) {
             raw_line
@@ -146,7 +146,7 @@ pub(crate) fn content_blank_lines(buffer: &str) -> HashSet<usize> {
 
 pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {
     let buffer = input.text();
-    let lines = line_contents(buffer);
+    let lines = input.line_contents();
     let mut content = HashSet::new();
     let headers = input.headers();
     let root_indents =

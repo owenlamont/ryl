@@ -162,7 +162,7 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
     }
 
     let scalar_ranges = crate::rules::support::punctuation::scalar_ranges(input);
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let chars = input.chars();
 
     let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
     let mut contexts: Vec<FlowKind> = Vec::new();
@@ -179,7 +179,7 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
         match chars[i].1 {
             '[' => contexts.push(FlowKind::Sequence),
             '{' => {
-                if let Some(next_idx) = template_double_curly_end(&chars, i) {
+                if let Some(next_idx) = template_double_curly_end(chars, i) {
                     i = next_idx;
                     continue;
                 }
@@ -189,11 +189,11 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
                 contexts.pop();
             }
             '#' => {
-                i = skip_comment(&chars, i);
+                i = skip_comment(chars, i);
                 continue;
             }
             ',' if !contexts.is_empty() => {
-                collect_comma_fixes(cfg, &chars, i, &mut replacements);
+                collect_comma_fixes(cfg, chars, i, &mut replacements);
             }
             _ => {}
         }

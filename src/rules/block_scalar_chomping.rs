@@ -12,10 +12,10 @@
 //!
 //! Sources: YAML 1.2.2 §8.1.1.2; <https://www.yaml.info/learn/quote#chomp>.
 
-use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
+use crate::text_version::lexical::Kind as LexicalKind;
+use granit_parser::{ScalarStyle, Span};
 
-use crate::rules::support::line_syntax::line_contents;
-use crate::rules::support::punctuation::{build_line_starts, line_and_column};
+use crate::rules::support::punctuation::line_and_column;
 use crate::rules::support::span_utils::CharPos;
 use crate::text_version::{Analysis, TextVersion};
 
@@ -48,26 +48,31 @@ pub(crate) struct Header {
 }
 
 pub(crate) fn headers(buffer: &str) -> Vec<Header> {
-    let chars: Vec<char> = buffer.chars().collect();
-    let line_starts = build_line_starts(&buffer.char_indices().collect::<Vec<_>>());
+    headers_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
+    let chars = input.chars();
+    let line_starts = input.line_starts();
     let mut headers = Vec::new();
     let mut previous_end = 0;
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, token_type) = token.into_parts();
+    for (span, token_type) in input.tokens() {
         match token_type {
-            TokenType::Comment(_) => continue,
-            TokenType::Scalar(ScalarStyle::Literal | ScalarStyle::Folded, _) => {
-                let marker = header_marker(&chars, previous_end);
-                let (line, column) =
-                    line_and_column(&line_starts, CharPos::new(marker));
+            LexicalKind::Comment { .. } => continue,
+            LexicalKind::Scalar {
+                style: ScalarStyle::Literal | ScalarStyle::Folded,
+                ..
+            } => {
+                let marker = header_marker(chars, previous_end);
+                let (line, column) = line_and_column(line_starts, CharPos::new(marker));
                 headers.push(Header {
-                    span,
+                    span: *span,
                     line,
                     column,
                     chomping: chars[marker + 1..]
                         .iter()
-                        .take_while(|ch| !ch.is_whitespace() && **ch != '#')
-                        .copied()
+                        .map(|&(_, ch)| ch)
+                        .take_while(|ch| !ch.is_whitespace() && *ch != '#')
                         .find(|ch| matches!(ch, '-' | '+')),
                 });
             }
@@ -85,8 +90,7 @@ pub(crate) fn ambiguous_blank_body_line(buffer: &str) -> Option<usize> {
 pub(crate) fn ambiguous_blank_body_line_with_analysis(
     input: Analysis<'_>,
 ) -> Option<usize> {
-    let buffer = input.text();
-    let lines = line_contents(buffer);
+    let lines = input.line_contents();
     input.headers().iter().find_map(|header| {
         let indent = lines[header.line - 1]
             .bytes()
@@ -171,11 +175,11 @@ pub(crate) fn ambiguous_blank_body_line_with_analysis(
 }
 
 /// The char index of the first `|`/`>` at or past `from` outside a comment.
-fn header_marker(chars: &[char], from: usize) -> usize {
+fn header_marker(chars: &[(usize, char)], from: usize) -> usize {
     let mut in_comment = false;
     from + chars[from..]
         .iter()
-        .position(|&ch| {
+        .position(|&(_, ch)| {
             in_comment = (in_comment || ch == '#') && !matches!(ch, '\n' | '\r');
             !in_comment && matches!(ch, '|' | '>')
         })

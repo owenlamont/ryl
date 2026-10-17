@@ -4,12 +4,11 @@
 //! after the last `...` that precedes it, else at the buffer start or after a line-1
 //! shebang or `#cloud-config`. Removing `---` (`present: false`) can collide with
 //! document boundaries, so it is not fixed.
-use granit_parser::{Event, Parser};
+use granit_parser::Event;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{
-    buffer_newline, is_magic_first_line, split_lines_preserve_endings,
-};
+use crate::rules::support::line_syntax::{buffer_newline, is_magic_first_line};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "document-start";
 pub const MISSING_MESSAGE: &str = "missing document start \"---\"";
@@ -48,12 +47,12 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    scan(buffer, *cfg).violations
+    scan(TextVersion::new(buffer).analysis(), *cfg).violations
 }
 
-fn scan(buffer: &str, cfg: Config) -> Scan {
+fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
     let mut result = Scan::default();
-    for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
+    for (event, span) in input.events() {
         if let Event::DocumentStart(explicit, _) = event
             && explicit != cfg.requires_marker()
         {
@@ -75,11 +74,17 @@ fn scan(buffer: &str, cfg: Config) -> Scan {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let content_lines = scan(buffer, *cfg).implicit_starts;
+    fix_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
+    let buffer = input.text();
+    let content_lines = scan(input, cfg).implicit_starts;
     if content_lines.is_empty() {
         return None;
     }
-    let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
+    let lines: Vec<(&str, &str)> = input
+        .lines()
         .map(|(_, content, ending)| (content, ending))
         .collect();
     let first_line = if is_magic_first_line(split_bom(lines[0].0).1) {

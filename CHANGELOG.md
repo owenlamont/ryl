@@ -13,6 +13,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl format` shares lexical scans and text indexes across unchanged passes
+  and carries verified parses into later fixers and refusal reporting.
+  ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` and `ryl check --fix` reuse scalar and block-header analysis
   while the source text is unchanged.
   ([#758](https://github.com/owenlamont/ryl/issues/758))
