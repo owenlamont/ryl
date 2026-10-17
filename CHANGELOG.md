@@ -7,8 +7,13 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- Bump granit-parser to 2.0.0, retaining comment events and relaxed indentation.
+  Parsing now accepts explicit `?` keys at end of input, quoted continuations one
+  column past the block indent, and tabs separating explicit keys; it also drops
+  spurious block-scalar line breaks after indentation-only EOF lines and corrects
+  end-of-input span positions.
 - `ryl format` and `ryl check --fix`/`--diff` process file contents in parallel while
-  keeping writes, notices and diffs in input order.
+  keeping writes and diffs in input order.
   ([#748](https://github.com/owenlamont/ryl/issues/748))
 
 ## v0.25.1 - 2026-10-16

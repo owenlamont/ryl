@@ -422,6 +422,7 @@ url = "https://github.com/squidfunk/mkdocs-material"
 sha = "a0f2a2a70ee978c2b0afc80347fed6eb4cec7867"
 note = "!!python/name: and !ENV tags in mkdocs.yml"
 markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+expected-skip = ["docs/setup/setting-up-navigation.md"]
 
 [[markdown-repo]]
 url = "https://github.com/just-the-docs/just-the-docs"
@@ -437,6 +438,13 @@ markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
 url = "https://github.com/facebook/docusaurus"
 sha = "85ab1f44a4a99e5424bc06e21bdd19c9ed7dfb07"
 markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+expected-skip = [
+  "packages/docusaurus-utils/src/__tests__/__fixtures__/dataFiles/dataFiles/invalid.yml",
+  "website/blog/releases/3.10/index.mdx",
+  "website/docs/blog.mdx",
+  "website/versioned_docs/*/blog.mdx",
+  "website/versioned_docs/*/deployment.mdx",
+]
 
 [[markdown-repo]]
 url = "https://github.com/withastro/docs"
@@ -447,3 +455,15 @@ markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
 url = "https://github.com/quarto-dev/quarto-web"
 sha = "6b054408467faf2ded1f7568d863e20eb7313ba6"
 markdown-sparse = ["*.md", "*.mdx", "*.qmd", "*.Rmd"]
+expected-skip = [
+  "_tools/screenshots/examples/quarto-demo/book-basics.md",
+  "_tools/screenshots/examples/quarto-demo/website-basics.md",
+  "_tools/screenshots/examples/quarto-demo/website-navigation.md",
+  "docs/journals/formats.qmd",
+  "docs/output-formats/_ssg-workflow.qmd",
+  "docs/presentations/revealjs/index.qmd",
+  "docs/presentations/revealjs/presenting.qmd",
+  "docs/reference/projects/_options.md",
+  "docs/websites/website-listings.qmd",
+  "docs/websites/website-navigation.qmd",
+]
