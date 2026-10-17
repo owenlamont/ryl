@@ -1071,7 +1071,40 @@ pub(crate) fn run_passes(
     err: &mut dyn Write,
     edited: &mut Vec<&'static str>,
 ) -> String {
-    run_passes_with_events(input, passes, path, max_passes, err, edited, None)
+    run_passes_with_events(
+        input,
+        passes,
+        path,
+        max_passes,
+        err,
+        &mut PassTracking {
+            edited,
+            reindented: None,
+        },
+        None,
+    )
+}
+
+pub(crate) struct PassTracking<'a> {
+    pub edited: &'a mut Vec<&'static str>,
+    pub reindented:
+        Option<&'a mut Option<(String, indentation::Config, indentation::Reindented)>>,
+}
+
+fn reindent_for_pass(
+    buffer: &str,
+    cfg: &indentation::Config,
+    events: Option<&[(Event<'_>, Span)]>,
+    cache: Option<&mut Option<(String, indentation::Config, indentation::Reindented)>>,
+) -> Option<String> {
+    let result = indentation::reindent_with_events(buffer, cfg, events);
+    if let Some(slot) = cache {
+        let next = (result.text != buffer).then(|| result.text.clone());
+        *slot = Some((buffer.to_string(), *cfg, result));
+        next
+    } else {
+        (result.text != buffer).then_some(result.text)
+    }
 }
 
 pub(crate) fn run_passes_with_events(
@@ -1080,7 +1113,7 @@ pub(crate) fn run_passes_with_events(
     path: &Path,
     max_passes: usize,
     err: &mut dyn Write,
-    edited: &mut Vec<&'static str>,
+    tracking: &mut PassTracking<'_>,
     initial_events: Option<&[(Event<'_>, Span)]>,
 ) -> String {
     if crate::directives::disables_file(input) {
@@ -1115,13 +1148,20 @@ pub(crate) fn run_passes_with_events(
         // Key ordering verifies its output before applying it.
         let sorted = ctx.apply(
             input.to_string(),
-            edited,
+            tracking.edited,
             key_ordering::ID,
             passes.key_ordering.as_ref(),
             |buffer, cfg| key_ordering::fix(buffer, cfg, &passes.per_line),
         );
         if sorted != input && max_passes > 1 {
-            return run_passes(&sorted, passes, path, max_passes - 1, err, edited);
+            return run_passes(
+                &sorted,
+                passes,
+                path,
+                max_passes - 1,
+                err,
+                tracking.edited,
+            );
         }
         return sorted;
     }
@@ -1137,14 +1177,19 @@ pub(crate) fn run_passes_with_events(
         } else {
             None
         };
-        let next = ctx.pass(&content, edited, events);
+        let next = ctx.pass(
+            &content,
+            tracking.edited,
+            events,
+            tracking.reindented.as_deref_mut(),
+        );
         if next == content {
             return content;
         }
         content = next;
     }
     let mut changed_rules = Vec::new();
-    if ctx.pass(&content, &mut changed_rules, None) != content {
+    if ctx.pass(&content, &mut changed_rules, None, None) != content {
         changed_rules.dedup();
         let warning = format!(
             "\nerror: Failed to converge after {max_passes} iterations.\n\n\
@@ -1177,6 +1222,9 @@ impl FixContext<'_> {
         input: &str,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
+        reindented: Option<
+            &mut Option<(String, indentation::Config, indentation::Reindented)>,
+        >,
     ) -> String {
         let passes = self.passes;
         let mut content = input.to_string();
@@ -1194,8 +1242,8 @@ impl FixContext<'_> {
         fix!(comments);
         fix!(comments_indentation);
         fix!(commas);
-        content = if passes.collection_style.is_some() {
-            self.syntax_pass(content, input, changed_rules, events)
+        content = if passes.collection_style.is_some() || passes.indentation.is_some() {
+            self.syntax_pass(content, input, changed_rules, events, reindented)
         } else {
             self.lint_syntax_pass(content, changed_rules)
         };
@@ -1261,6 +1309,9 @@ impl FixContext<'_> {
         input: &str,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
+        mut reindented: Option<
+            &mut Option<(String, indentation::Config, indentation::Reindented)>,
+        >,
     ) -> String {
         let passes = self.passes;
         macro_rules! fix {
@@ -1277,7 +1328,7 @@ impl FixContext<'_> {
                 content = self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
             };
         }
-        let snapshot = passes.collection_style.map(|_| content.clone());
+        let snapshot = Some(content.clone());
         let reparsed = snapshot.as_deref().and_then(|text| {
             (text != input || events.is_none())
                 .then(|| Parser::new_from_str(text).collect::<Result<Vec<_>, _>>())
@@ -1331,12 +1382,12 @@ impl FixContext<'_> {
             indentation::ID,
             passes.indentation.as_ref(),
             |buffer, cfg| {
-                let result = indentation::reindent_with_events(
+                reindent_for_pass(
                     buffer,
                     cfg,
                     events_after_spacing(buffer),
-                );
-                (result.text != buffer).then_some(result.text)
+                    reindented.as_deref_mut(),
+                )
             },
         );
         fix!(
@@ -1369,7 +1420,7 @@ impl FixContext<'_> {
         changed_rules: &mut Vec<&'static str>,
         rule: &'static str,
         cfg: Option<&C>,
-        fix: impl Fn(&str, &C) -> Option<String>,
+        mut fix: impl FnMut(&str, &C) -> Option<String>,
     ) -> String {
         let Some(cfg) = cfg else {
             return content;
