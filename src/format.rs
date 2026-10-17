@@ -11,8 +11,8 @@ use crate::config_schema::{
     QuoteStyleTarget,
 };
 use crate::fix::{
-    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, PassTracking, Passes, region_prefix,
-    run_passes, run_passes_with_events, suppressed_rules,
+    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, PassTracking, Passes, ReindentCache,
+    region_prefix, run_passes, run_passes_with_events, suppressed_rules,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
@@ -448,7 +448,7 @@ fn format_tracked(
 pub(crate) struct FormatCache {
     formatted: HashMap<String, (String, Vec<&'static str>)>,
     widths: HashMap<String, u8>,
-    reindented: Option<(String, indentation::Config, indentation::Reindented)>,
+    reindented: ReindentCache,
 }
 
 impl FormatCache {

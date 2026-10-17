@@ -64,7 +64,7 @@ preview = true
 # Self-contained CLI tooling that shells out to cargo/gh: relax the subprocess-security
 # rules and library-style docstring conventions that do not suit scripts.
 ".agents/skills/**/*.py" = ["D103", "D205", "DOC201", "DOC501", "E501", "S404", "S603", "S607"]
-"scripts/benchmark_perf_vs_yamllint.py" = [
+"scripts/benchmark_yaml_tools.py" = [
     "B008",
     "B904",
     "B905",
@@ -72,18 +72,6 @@ preview = true
     "E501",
     "S404",
     "S603",
-]
-# Shells out to ryl and ephemeral formatter runners and embeds long YAML fixtures
-# verbatim: relax the subprocess checks, line-length cap, and docstring conventions.
-"scripts/formatter_compat.py" = [
-    "D102",
-    "D205",
-    "DOC201",
-    "DOC501",
-    "E501",
-    "S404",
-    "S603",
-    "S607",
 ]
 # Shells out to `tokei` for the comment-to-code metrics: relax the subprocess checks.
 "scripts/source_size.py" = ["S404", "S603", "S607"]

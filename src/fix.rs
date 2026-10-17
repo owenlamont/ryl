@@ -1058,26 +1058,28 @@ pub(crate) fn run_passes(
     )
 }
 
+pub(crate) type ReindentCache =
+    Option<(String, indentation::Config, indentation::Reindented)>;
+
 pub(crate) struct PassTracking<'a> {
     pub edited: &'a mut Vec<&'static str>,
-    pub reindented:
-        Option<&'a mut Option<(String, indentation::Config, indentation::Reindented)>>,
+    pub reindented: Option<&'a mut ReindentCache>,
 }
 
 fn reindent_for_pass(
     buffer: &str,
     cfg: &indentation::Config,
     events: Option<&[(Event<'_>, Span)]>,
-    cache: Option<&mut Option<(String, indentation::Config, indentation::Reindented)>>,
+    cache: Option<&mut ReindentCache>,
 ) -> Option<String> {
     let result = indentation::reindent_with_events(buffer, cfg, events);
-    if let Some(slot) = cache {
-        let next = (result.text != buffer).then(|| result.text.clone());
-        *slot = Some((buffer.to_string(), *cfg, result));
-        next
-    } else {
-        (result.text != buffer).then_some(result.text)
+    if result.text != buffer {
+        return Some(result.text);
     }
+    if let Some(slot) = cache {
+        *slot = Some((buffer.to_string(), *cfg, result));
+    }
+    None
 }
 
 pub(crate) fn run_passes_with_events(
@@ -1195,9 +1197,7 @@ impl FixContext<'_> {
         input: &str,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
-        reindented: Option<
-            &mut Option<(String, indentation::Config, indentation::Reindented)>,
-        >,
+        reindented: Option<&mut ReindentCache>,
     ) -> String {
         let passes = self.passes;
         let mut content = input.to_string();
@@ -1282,9 +1282,7 @@ impl FixContext<'_> {
         input: &str,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
-        mut reindented: Option<
-            &mut Option<(String, indentation::Config, indentation::Reindented)>,
-        >,
+        mut reindented: Option<&mut ReindentCache>,
     ) -> String {
         let passes = self.passes;
         macro_rules! fix {
@@ -1301,21 +1299,16 @@ impl FixContext<'_> {
                 content = self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
             };
         }
-        let snapshot = Some(content.clone());
-        let reparsed = snapshot.as_deref().and_then(|text| {
-            (text != input || events.is_none())
-                .then(|| Parser::new_from_str(text).collect::<Result<Vec<_>, _>>())
+        let snapshot = content.clone();
+        let reparsed = (snapshot != input || events.is_none())
+            .then(|| Parser::new_from_str(&snapshot).collect::<Result<Vec<_>, _>>());
+        let shared = events.filter(|_| snapshot == input).or_else(|| {
+            reparsed
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .map(Vec::as_slice)
         });
-        let shared = events
-            .filter(|_| snapshot.as_deref() == Some(input))
-            .or_else(|| {
-                reparsed
-                    .as_ref()
-                    .and_then(|result| result.as_ref().ok())
-                    .map(Vec::as_slice)
-            });
-        let current_events =
-            |buffer: &str| shared.filter(|_| snapshot.as_deref() == Some(buffer));
+        let current_events = |buffer: &str| shared.filter(|_| snapshot == buffer);
         if let Some(cfg) = passes.collection_style
             && let Some((restyled, rules)) = collection_style::restyle(
                 &content,
@@ -1333,7 +1326,7 @@ impl FixContext<'_> {
         fix!(hyphens);
         let indent_snapshot = passes
             .indentation
-            .filter(|_| snapshot.as_deref() != Some(content.as_str()))
+            .filter(|_| snapshot != content)
             .map(|_| content.clone());
         let indent_reparsed = indent_snapshot
             .as_deref()
