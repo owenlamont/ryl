@@ -1,7 +1,10 @@
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
+#[cfg(not(unix))]
+use same_file::Handle;
 use similar::TextDiff;
 
 use crate::cli_support::LintFile;
@@ -132,6 +135,27 @@ fn is_symlink(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
+#[cfg(unix)]
+type FileIdentity = (u64, u64);
+#[cfg(not(unix))]
+type FileIdentity = Handle;
+
+fn file_identity(path: &Path) -> std::io::Result<Option<FileIdentity>> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(Some((metadata.dev(), metadata.ino())))
+    }
+    #[cfg(not(unix))]
+    {
+        Handle::from_path(path).map(Some)
+    }
+}
+
 /// Apply `rewrite` to `path` in place.
 ///
 /// # Errors
@@ -213,7 +237,43 @@ pub fn rewrite_str(
 #[must_use]
 pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
-    let mut results: Vec<_> = files
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut seen = HashSet::new();
+    for (index, (path, ..)) in files.iter().enumerate() {
+        match file_identity(path) {
+            Ok(None) => {}
+            Ok(Some(identity)) => {
+                if seen.contains(&identity) {
+                    batches.push(start..index);
+                    seen.clear();
+                    start = index;
+                }
+                seen.insert(identity);
+            }
+            Err(_) => {
+                batches.push(start..index);
+                batches.push(index..index + 1);
+                seen.clear();
+                start = index + 1;
+            }
+        }
+    }
+    batches.push(start..files.len());
+    drop(seen);
+    for batch in batches {
+        rewrite_batch(files, batch, rewrite, &mut stats);
+    }
+    stats
+}
+
+fn rewrite_batch(
+    files: &[LintFile],
+    batch: std::ops::Range<usize>,
+    rewrite: Rewrite,
+    stats: &mut FixStats,
+) {
+    let mut results: Vec<_> = files[batch.clone()]
         .par_iter()
         .enumerate()
         .map(|(index, (path, base_dir, cfg, kind))| {
@@ -234,7 +294,7 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
                     })
                 }
             });
-            (index, result, stderr)
+            (batch.start + index, result, stderr)
         })
         .collect();
     results.sort_by_key(|(index, ..)| *index);
@@ -269,7 +329,6 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
             stats.skipped.push((path.clone(), problem));
         }
     }
-    stats
 }
 
 /// A rewrite preview; formatting changes can have no applicable text diff.
