@@ -116,11 +116,21 @@ documentation, see the docs site.
 
 ## Performance
 
-The chart compares lint and format times on generated stress YAML and real-world
-YAML sampled from pinned repositories: 20–100 files × 1–9 KiB, with five runs
-per point.
+The chart compares lint and format times on real-world YAML sampled from pinned
+repositories: 20–100 files × 1–9 KiB, with five runs per point.
 
-![Lint and format benchmark on stress and real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
+![Lint and format benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
+
+The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated stress dataset with `--datasets stress`.
+
+| Tool | Mode | Real-world mean, 100 × 9 KiB (s) |
+| --- | --- | ---: |
+| ryl | Lint | 0.054 |
+| yamllint | Lint | 2.378 |
+| ryl | Format | 0.365 |
+| yamlfmt | Format | 0.115 |
+| Prettier | Format | 1.161 |
+| dprint | Format | 0.073 |
 
 | Tool | Mode | Version |
 | --- | --- | --- |
@@ -132,7 +142,7 @@ per point.
 
 Result caches are cold; install artifacts are warm. The
 [benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
-cache checks. On both datasets, ryl format is slower than dprint and yamlfmt:
+cache checks. On the real-world dataset, ryl format is slower than dprint and yamlfmt:
 ryl verifies value preservation and convergence ([formatter guarantees](docs/formatter.md#guarantees)).
 
 ## Acknowledgements

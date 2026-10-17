@@ -768,6 +768,7 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
         ("format", "dprint"),
     ]
     sizes = sorted({int(value) for value in df["file_size_kib"].to_list()})
+    plotted_datasets = set(df["dataset"].to_list())
     cmap = plt.cm.Blues
     min_tone = 0.35
     max_tone = 0.95
@@ -786,6 +787,8 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
         tool_df = df.filter((pl.col("mode") == mode) & (pl.col("tool") == tool))
         for idx, size in enumerate(sizes):
             for dataset, style in (("real-world", "-"), ("stress", "--")):
+                if dataset not in plotted_datasets:
+                    continue
                 size_df = tool_df.filter(
                     (pl.col("file_size_kib") == size) & (pl.col("dataset") == dataset)
                 ).sort("file_count")
@@ -796,7 +799,11 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
                     linestyle=style,
                     linewidth=2,
                     marker="o",
-                    label=f"{dataset}, {size} KiB",
+                    label=(
+                        f"{dataset}, {size} KiB"
+                        if len(plotted_datasets) > 1
+                        else f"{size} KiB"
+                    ),
                 )
         axis.set_title(f"{mode}: {tool}")
         axis.set_xlabel("Number of YAML files")
@@ -806,7 +813,8 @@ def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
             axis.set_ylim(0, ceiling)
     panel_axes[0].set_ylabel("Mean runtime (seconds)")
     panel_axes[2].set_ylabel("Mean runtime (seconds)")
-    panel_axes[-1].legend(title="Dataset and file size", loc="upper left")
+    legend_title = "Dataset and file size" if len(plotted_datasets) > 1 else "File size"
+    panel_axes[-1].legend(title=legend_title, loc="upper left")
     fig.suptitle(
         f"YAML lint and format (hyperfine, {runs} runs per point)", fontsize=13
     )
@@ -871,7 +879,28 @@ def main(
         Path("manual_outputs") / "benchmarks",
         help="Directory where all artifacts are written.",
     ),
+    datasets: str = typer.Option(
+        "real-world,stress", help="Comma-separated datasets: real-world, stress."
+    ),
+    replot: Path | None = typer.Option(
+        None, help="Rebuild benchmark.svg from an existing run's summary.csv."
+    ),
 ) -> None:
+    selected_datasets = {part.strip() for part in datasets.split(",")}
+    if not selected_datasets <= {"real-world", "stress"}:
+        raise typer.BadParameter("--datasets must contain real-world and/or stress")
+    if replot is not None:
+        run_dir = replot.resolve()
+        results_df = pl.read_csv(run_dir / "summary.csv").filter(
+            pl.col("dataset").is_in(selected_datasets)
+        )
+        if not selected_datasets <= set(results_df["dataset"].to_list()):
+            raise typer.BadParameter("selected datasets are missing from summary.csv")
+        runs = orjson.loads((run_dir / "meta.json").read_bytes())["runs"]
+        plot_svg = run_dir / "benchmark.svg"
+        plot_results(results_df, plot_svg, runs=runs)
+        print(f"Plot: {plot_svg}")
+        return
     if runs <= 0:
         raise typer.BadParameter("--runs must be > 0")
     if warmup < 0:
@@ -948,30 +977,31 @@ def main(
             seed=seed, root=temporary_root, tools=tools
         )
         verify_cold_runs(tools, documents[0], temporary_root, runner)
-        real_pool, repo_pins, real_attempts = real_world_pool(
-            seed=seed,
-            sizes=file_size_values,
-            count=max(file_counts_values),
-            root=temporary_root,
-            tools=tools,
-            runner=runner,
+        real_pool, repo_pins, real_attempts = (
+            real_world_pool(
+                seed=seed,
+                sizes=file_size_values,
+                count=max(file_counts_values),
+                root=temporary_root,
+                tools=tools,
+                runner=runner,
+            )
+            if "real-world" in selected_datasets
+            else ({}, [], {})
         )
         cases = [
-            *iter_cases(
+            case
+            for dataset in ("stress", "real-world")
+            if dataset in selected_datasets
+            for case in iter_cases(
                 file_counts_values,
                 file_size_values,
                 temporary_root / "datasets",
-                "stress",
-            ),
-            *iter_cases(
-                file_counts_values,
-                file_size_values,
-                temporary_root / "datasets",
-                "real-world",
-            ),
+                dataset,
+            )
         ]
         load, cpus = require_idle_host(ignore_load=ignore_load)
-        corpus_digests = {dataset: sha256() for dataset in ("stress", "real-world")}
+        corpus_digests = {dataset: sha256() for dataset in selected_datasets}
         bucket_sizes = []
         for case in tqdm(cases, desc="Benchmark cases", unit="case"):
             if case.dataset == "stress":
@@ -1016,8 +1046,7 @@ def main(
         profile = None
         if profile_format:
             largest_case = max(
-                (case for case in cases if case.dataset == "stress"),
-                key=lambda case: case.file_count * case.file_size_kib,
+                cases, key=lambda case: case.file_count * case.file_size_kib
             )
             profile = format_profile(
                 largest_case, tools[0], temporary_root, raw_dir, runs, warmup, runner
