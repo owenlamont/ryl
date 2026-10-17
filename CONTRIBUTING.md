@@ -44,19 +44,19 @@ cargo install cargo-llvm-cov --locked
 pixi global install tokei
 ```
 
-Install the Git hooks, then run the same checks as CI:
+Install the Git hooks, then run the lint gate and the tests your change touches:
 
 ```text
 prek install --install-hooks
 prek run --all-files
-cargo test --release
-uv run .agents/skills/coverage/coverage-missing.py
+cargo nextest run --test <suite>
 uv run --group docs zensical build --clean
 ```
 
-`cargo test --release` includes the property suites; use the
-[property-tests skill](.agents/skills/property-tests/SKILL.md) for targeted and
-20× runs. See [AGENTS.md](AGENTS.md#code-change-requirements) for when to run
+CI runs the full suite on Linux and Windows plus coverage; `cargo test --release` and
+`uv run .agents/skills/coverage/coverage-missing.py` reproduce them locally. CI skips
+random property cases, so a rule or formatter change also runs the
+[property-tests skill](.agents/skills/property-tests/SKILL.md)'s suites. See [AGENTS.md](AGENTS.md#code-change-requirements) for when to run
 each gate and the [dev skills](.agents/skills/) for task-specific procedures.
 The layout is `src/` (application and language server), `tests/` (checks),
 `docs/` (site), and `scripts/` (development helpers).
