@@ -29,6 +29,10 @@ include = [
 [lints.rust]
 unsafe_code = "forbid"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [[bin]]
 name = "ryl"
 path = "src/main.rs"
