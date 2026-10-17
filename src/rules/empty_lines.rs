@@ -6,10 +6,8 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;
-use crate::rules::block_scalar_chomping;
-use crate::rules::support::line_syntax::{
-    line_contents, protected_scalar_lines, split_lines_preserve_endings,
-};
+use crate::rules::support::line_syntax::{line_contents, split_lines_preserve_endings};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "empty-lines";
 
@@ -61,7 +59,12 @@ pub struct Violation {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let protected = preserved_scalar_lines(buffer)?;
+    fix_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
+    let buffer = input.text();
+    let protected = preserved_scalar_lines_with_analysis(input)?;
     let mut output = String::with_capacity(buffer.len());
     let mut blank_run: Vec<(&str, &str)> = Vec::new();
     let mut seen_nonblank = false;
@@ -94,9 +97,20 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
-    let mut protected = protected_scalar_lines(buffer, |_style, _span| true)?;
+    preserved_scalar_lines_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn preserved_scalar_lines_with_analysis(
+    input: Analysis<'_>,
+) -> Option<HashSet<usize>> {
+    let buffer = input.text();
+    let mut protected =
+        crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
+            input,
+            |_style, _span| true,
+        )?;
     let lines = line_contents(buffer);
-    for header in block_scalar_chomping::headers(buffer) {
+    for header in input.headers() {
         let blank_only_literal = lines[header.line - 1].chars().nth(header.column - 1)
             == Some('|')
             && header.chomping.is_none()

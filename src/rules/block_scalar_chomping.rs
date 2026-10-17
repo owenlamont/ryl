@@ -17,6 +17,7 @@ use granit_parser::{ScalarStyle, Scanner, Span, StrInput, TokenType};
 use crate::rules::support::line_syntax::line_contents;
 use crate::rules::support::punctuation::{build_line_starts, line_and_column};
 use crate::rules::support::span_utils::CharPos;
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "block-scalar-chomping";
 pub const MESSAGE: &str = "missing explicit chomping indicator (\"-\" or \"+\")";
@@ -78,8 +79,15 @@ pub(crate) fn headers(buffer: &str) -> Vec<Header> {
 }
 
 pub(crate) fn ambiguous_blank_body_line(buffer: &str) -> Option<usize> {
+    ambiguous_blank_body_line_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn ambiguous_blank_body_line_with_analysis(
+    input: Analysis<'_>,
+) -> Option<usize> {
+    let buffer = input.text();
     let lines = line_contents(buffer);
-    headers(buffer).into_iter().find_map(|header| {
+    input.headers().iter().find_map(|header| {
         let indent = lines[header.line - 1]
             .bytes()
             .take_while(|ch| *ch == b' ')

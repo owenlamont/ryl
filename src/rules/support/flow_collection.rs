@@ -54,8 +54,18 @@ macro_rules! define_rule {
 
         #[must_use]
         pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+            fix_with_analysis(
+                $crate::text_version::TextVersion::new(buffer).analysis(),
+                cfg,
+            )
+        }
+
+        pub(crate) fn fix_with_analysis(
+            input: $crate::text_version::Analysis<'_>,
+            cfg: &Config,
+        ) -> Option<String> {
             $crate::rules::support::flow_collection::fix(
-                buffer,
+                input,
                 cfg.inner(),
                 &DESCRIPTOR,
             )
@@ -386,18 +396,16 @@ pub fn check(
 
 #[must_use]
 pub fn fix(
-    buffer: &str,
+    input: crate::text_version::Analysis<'_>,
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
 ) -> Option<String> {
+    let buffer = input.text();
     if buffer.is_empty() || cfg.forbid() != Forbid::None {
         return None;
     }
 
-    let mut parser = Parser::new_from_str(buffer);
-    let mut collector = ScalarRangeCollector::new();
-    let _ = parser.load(&mut collector, true);
-    let scalar_ranges = collector.into_sorted();
+    let scalar_ranges = super::punctuation::scalar_ranges(input);
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
 
