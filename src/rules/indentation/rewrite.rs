@@ -136,7 +136,11 @@ impl<'a> Prepared<'a> {
             .map(|(_, content, ending)| (content, ending))
             .collect();
         let parsed = parsed && !original.is_empty();
-        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+        let chars: Vec<(usize, char)> = if parsed {
+            buffer.char_indices().collect()
+        } else {
+            Vec::new()
+        };
         let starts = if parsed {
             document_starts(&chars, &original)
         } else {
