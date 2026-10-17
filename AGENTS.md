@@ -131,16 +131,16 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   `prek run --all-files`). prek already runs the key tooling (trim/fix whitespace,
   `cargo fmt`, `cargo clippy --fix`, `cargo clippy`, `rumdl` for Markdown/docs, …), so
   skip invoking those individually. Re-run until the auto-fixes stabilise and a full pass
-  succeeds without modifying files before running coverage.
+  succeeds without modifying files.
 - When editing **feature-gated** code (e.g. anything `#[cfg(feature = "lsp")]`), reproduce
   CI's two clippy gates locally: `cargo clippy --all-targets -- -D warnings` and
   `cargo clippy --all-targets --no-default-features -- -D warnings`. Prek enforces warnings
   with all features enabled; the minimal build also catches an `lsp`-only helper left
   unused when the feature is off.
-- Whenever source files are edited ensure the full test suite passes (run
-  `uv run .agents/skills/coverage/coverage-missing.py` to regenerate coverage; it
-  reports uncovered ranges and confirms when coverage is complete).
-- After lint, tests, and coverage are green, review code size changes with
+- Whenever source files are edited, run the tests the change touches
+  (`cargo nextest run --test <suite>`). CI runs the full suite on Linux and Windows
+  plus coverage, so leave those to CI; `coverage-missing.py` reproduces its gap list.
+- After lint and tests are green, review code size changes with
   `uv run scripts/source_size.py --compare-to <branch-or-ref>` (the branch point or
   `HEAD`); it reports bytes/lines plus a per-root code/doc/comment split via `tokei`. If
   the increase looks large relative to the added functionality, make the implementation

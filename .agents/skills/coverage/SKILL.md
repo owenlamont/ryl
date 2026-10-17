@@ -17,10 +17,10 @@ replay; add named example tests for uncovered regions instead of relying on prop
 
 1. First run `prek run --all-files` and rerun it until all automatic fixes have
    stabilised and a full pass succeeds without modifying files.
-2. Quick status before pushing: run `uv run .agents/skills/coverage/coverage-missing.py`
-   (cross-platform; needs `uv` + a Rust toolchain with `cargo-llvm-cov`). It reruns the
-   coverage suite and prints any uncovered ranges, or explicitly confirms when coverage
-   is complete.
+2. When CI reports missed coverage, or a change adds branches: run
+   `uv run .agents/skills/coverage/coverage-missing.py` (cross-platform; needs `uv`
+   and a Rust toolchain with `cargo-llvm-cov`). It reruns the coverage suite and prints
+   any uncovered ranges, or explicitly confirms when coverage is complete.
 3. If the coverage script itself fails, it prints the failing nextest output (the FAIL
    lines + panic tails); fix those tests, then rerun. Fall back to a manual
    `cargo nextest run` only when you need the full log.
