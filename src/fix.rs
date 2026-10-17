@@ -70,6 +70,8 @@ pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
     pub changed_files: usize,
+    /// Per-file stderr in input order.
+    pub notices: Vec<Vec<u8>>,
     /// Input or region problems that the rewrite skipped.
     pub skipped: Vec<(PathBuf, crate::lint::LintProblem)>,
     /// Input index and error for files that could not be read or written.
@@ -140,15 +142,38 @@ fn rewrite_parse_gate(
 /// symlinked input with a warning rather than let an untrusted tree redirect the write
 /// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
 /// final component is checked, not atomically (a full defense needs `O_NOFOLLOW`).
-fn refuse_symlink(path: &Path, flag: &str) -> bool {
+fn symlink_notice(path: &Path, flag: &str) -> Option<Vec<u8>> {
     if is_symlink(path) {
-        eprintln!(
-            "skipping {}: refusing to follow a symlink for {flag}",
-            crate::cli_support::sanitize_control(&path.display().to_string())
+        return Some(
+            format!(
+                "skipping {}: refusing to follow a symlink for {flag}\n",
+                crate::cli_support::sanitize_control(&path.display().to_string())
+            )
+            .into_bytes(),
         );
-        return true;
     }
-    false
+    None
+}
+
+/// Render the stderr notice for a skipped input or unfixed rule.
+#[must_use]
+pub fn skip_notice(
+    path: &Path,
+    problem: &crate::lint::LintProblem,
+    flag: &str,
+) -> Vec<u8> {
+    let what = problem.rule.map_or_else(
+        || format!("skipped by {flag}"),
+        |rule| format!("{rule} not fixed"),
+    );
+    format!(
+        "{}:{}:{} {what}: {}\n",
+        crate::cli_support::sanitize_control(&path.display().to_string()),
+        problem.line,
+        problem.column,
+        crate::cli_support::sanitize_control(&problem.message),
+    )
+    .into_bytes()
 }
 
 fn is_symlink(path: &Path) -> bool {
@@ -240,10 +265,11 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
         );
         for (index, (result, stderr)) in batch.zip(results) {
             let path = &files[index].0;
-            if refuse_symlink(path, rewrite.flag()) {
+            if let Some(notice) = symlink_notice(path, rewrite.flag()) {
+                stats.notices.push(notice);
                 continue;
             }
-            let _ = std::io::stderr().write_all(&stderr);
+            stats.notices.push(stderr);
             let written = result.and_then(|(decoded, rewritten, skipped)| {
                 if let Some(rewritten) = &rewritten {
                     decoded.write(path, rewritten)?;
@@ -253,11 +279,25 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
             match written {
                 Ok((changed, skipped)) => {
                     stats.changed_files += usize::from(changed);
+                    stats.notices.extend(
+                        skipped
+                            .iter()
+                            .map(|problem| skip_notice(path, problem, rewrite.flag())),
+                    );
                     stats.skipped.extend(
                         skipped.into_iter().map(|problem| (path.clone(), problem)),
                     );
                 }
-                Err(error) => stats.errors.push((index, error)),
+                Err(error) => {
+                    stats.notices.push(
+                        format!(
+                            "error: {}\n",
+                            crate::cli_support::sanitize_control(&error)
+                        )
+                        .into_bytes(),
+                    );
+                    stats.errors.push((index, error));
+                }
             }
         }
     }
@@ -319,6 +359,8 @@ pub struct DiffOutcome {
 #[derive(Debug, Default)]
 pub struct DiffStats {
     pub changed_files: usize,
+    /// Per-file stderr in input order.
+    pub notices: Vec<Vec<u8>>,
     /// Unified diffs for files that would change, in input order.
     pub diffs: Vec<String>,
     /// Inputs or regions left without a patch, with skip notices.
@@ -698,15 +740,34 @@ pub fn diff_files(
     flag: &str,
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
+    let mut notices_on_error = Vec::new();
     let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
         decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
     });
     for ((path, ..), (result, stderr)) in files.iter().zip(results) {
-        if refuse_symlink(path, flag) {
+        if let Some(notice) = symlink_notice(path, flag) {
+            notices_on_error.push(notice.clone());
+            stats.notices.push(notice);
             continue;
         }
-        let _ = std::io::stderr().write_all(&stderr);
-        stats.record(path, result?);
+        notices_on_error.push(stderr.clone());
+        stats.notices.push(stderr);
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                for notice in &notices_on_error {
+                    let _ = std::io::stderr().write_all(notice);
+                }
+                return Err(error);
+            }
+        };
+        stats.notices.extend(
+            outcome
+                .skipped
+                .iter()
+                .map(|problem| skip_notice(path, problem, flag)),
+        );
+        stats.record(path, outcome);
     }
     Ok(stats)
 }

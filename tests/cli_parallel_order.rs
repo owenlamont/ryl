@@ -107,3 +107,67 @@ fn format_keeps_symlink_and_encoding_warnings_in_input_order() {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn rewrite_notices_follow_input_order_with_read_parse_and_symlink_skips() {
+    use std::os::unix::fs::symlink;
+
+    for mode in [
+        &["format", "--no-warnings"][..],
+        &["check", "--fix", "--no-warnings"],
+        &["format", "--diff", "--no-warnings"],
+        &["check", "--diff", "--no-warnings"],
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join(".ryl.toml"),
+            "[lint.rules]\ncolons = 'enable'\n",
+        )
+        .unwrap();
+        let invalid = dir.path().join("invalid.yaml");
+        let parse = dir.path().join("parse.yaml");
+        let valid = dir.path().join("valid.yaml");
+        let link = dir.path().join("link.yaml");
+        fs::write(&invalid, [0xff]).unwrap();
+        fs::write(&parse, "a: [\n").unwrap();
+        fs::write(&valid, "k:  v\n").unwrap();
+        symlink(&valid, &link).unwrap();
+
+        let orders: Vec<Vec<_>> = if mode.contains(&"--diff") {
+            vec![vec![&parse, &link, &valid], vec![&link, &parse, &valid]]
+        } else {
+            vec![
+                vec![&invalid, &link, &parse, &valid],
+                vec![&parse, &link, &valid, &invalid],
+            ]
+        };
+        for order in orders {
+            let output = ryl(dir.path()).args(mode).args(&order).output().unwrap();
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            let expected: Vec<String> = order
+                .iter()
+                .filter_map(|path| {
+                    if **path == invalid {
+                        Some(format!("failed to read {}:", invalid.display()))
+                    } else if **path == link {
+                        Some("refusing to follow a symlink".to_string())
+                    } else if **path == parse {
+                        Some("skipped by".to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let positions: Vec<_> = expected
+                .iter()
+                .filter_map(|notice| stderr.find(notice))
+                .collect();
+            assert_eq!(positions.len(), expected.len(), "{mode:?}: {stderr}");
+            assert!(
+                positions.windows(2).all(|pair| pair[0] < pair[1]),
+                "{mode:?}: {stderr}"
+            );
+        }
+    }
+}
