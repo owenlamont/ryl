@@ -98,6 +98,11 @@ fn plan(
     indent: Option<&indentation::Config>,
     events: Option<&[(Event<'_>, Span)]>,
 ) -> (Vec<Edit>, Vec<Finding>) {
+    if cfg.sequences == CollectionStyleTarget::Preserve
+        && cfg.mappings == CollectionStyleTarget::Preserve
+    {
+        return (Vec::new(), Vec::new());
+    }
     let directives = Directives::parse(buffer);
     let style = |target, rule| {
         (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)

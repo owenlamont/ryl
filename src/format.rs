@@ -11,8 +11,8 @@ use crate::config_schema::{
     QuoteStyleTarget,
 };
 use crate::fix::{
-    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, Passes, region_prefix, run_passes,
-    run_passes_with_events, suppressed_rules,
+    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, PassTracking, Passes, ReindentCache,
+    region_prefix, run_passes, run_passes_with_events, suppressed_rules,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
@@ -127,7 +127,11 @@ impl Passes<'static> {
                     indent: layout.indent,
                 }
             }),
-            collection_style: Some(collection_style_config(cfg, layout.indent, skip)),
+            collection_style: Some(collection_style_config(cfg, layout.indent, skip))
+                .filter(|style| {
+                    style.sequences != CollectionStyleTarget::Preserve
+                        || style.mappings != CollectionStyleTarget::Preserve
+                }),
             per_line: Vec::new(),
         }
     }
@@ -205,7 +209,10 @@ pub fn format_str(
         ),
         path,
         skip,
-        &mut Vec::new(),
+        &mut PassTracking {
+            edited: &mut Vec::new(),
+            reindented: None,
+        },
         events,
     )
 }
@@ -360,7 +367,7 @@ fn format_tracked(
     mut layout: Layout,
     path: &Path,
     skip: &[&str],
-    edited: &mut Vec<&'static str>,
+    tracking: &mut PassTracking<'_>,
     events: Option<&[(Event<'_>, Span)]>,
 ) -> String {
     let mut content = input.to_string();
@@ -373,16 +380,19 @@ fn format_tracked(
             path,
             FIX_PIPELINE_MAX_PASSES,
             &mut std::io::stderr(),
-            &mut changes,
+            &mut PassTracking {
+                edited: &mut changes,
+                reindented: tracking.reindented.as_deref_mut(),
+            },
             events.filter(|_| content == input),
         );
         if next == content || cfg.indent_width().is_some() {
-            edited.extend(changes);
+            tracking.edited.extend(changes);
             return next;
         }
         let width = file_indent_width(cfg, &next);
         if width == layout.indent {
-            edited.extend(changes);
+            tracking.edited.extend(changes);
             return next;
         }
         layout = Layout::of(cfg, &next, width);
@@ -397,6 +407,7 @@ fn format_tracked(
 pub(crate) struct FormatCache {
     formatted: HashMap<String, (String, Vec<&'static str>)>,
     widths: HashMap<String, u8>,
+    reindented: ReindentCache,
 }
 
 impl FormatCache {
@@ -444,8 +455,18 @@ impl FormatCache {
         let layout = Layout::of(cfg, input, width);
         let result = self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
-            let formatted =
-                format_tracked(input, cfg, layout, path, skip, &mut edited, events);
+            let formatted = format_tracked(
+                input,
+                cfg,
+                layout,
+                path,
+                skip,
+                &mut PassTracking {
+                    edited: &mut edited,
+                    reindented: Some(&mut self.reindented),
+                },
+                events,
+            );
             (formatted, edited)
         });
         self.widths
@@ -531,8 +552,18 @@ fn lines_changed_by(
         .into_iter()
         .filter(|other| *other != rule)
         .collect();
-    let alone =
-        format_tracked(content, cfg, layout, path, &others, &mut Vec::new(), None);
+    let alone = format_tracked(
+        content,
+        cfg,
+        layout,
+        path,
+        &others,
+        &mut PassTracking {
+            edited: &mut Vec::new(),
+            reindented: None,
+        },
+        None,
+    );
     let before: Vec<&str> = content.split_inclusive('\n').collect();
     let after: Vec<&str> = alone.split_inclusive('\n').collect();
     TextDiff::from_slices(&before, &after)
@@ -575,7 +606,18 @@ pub(crate) fn unfixed(
     if cfg.indent_width().is_none() {
         target = target.requiring_consistent();
     }
-    let reindented = indentation::reindent(content, &target);
+    let cached = cache
+        .reindented
+        .as_ref()
+        .filter(|(buffer, config, _)| buffer == content && *config == target)
+        .map(|(_, _, result)| result);
+    let computed;
+    let reindented = if let Some(result) = cached {
+        result
+    } else {
+        computed = indentation::reindent(content, &target);
+        &computed
+    };
     let inconsistent = indentation::check(content, &target.with_consistent_spaces());
     let kept = reindented
         .kept_dash_lines
