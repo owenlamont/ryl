@@ -41,41 +41,39 @@ pub(super) enum StoredEvent {
 
 impl StoredEvent {
     pub(super) fn new(source: &str, event: Event<'_>) -> Self {
-        match event {
-            Event::Scalar(value, style, anchor, tag) => Self::Scalar(
-                Text::new(source, value),
+        let event = match event {
+            Event::Scalar(value, style, anchor, tag) => {
+                return Self::Scalar(
+                    Text::new(source, value),
+                    style,
+                    anchor,
+                    tag.map(Cow::into_owned),
+                );
+            }
+            Event::Comment(value, placement) => {
+                return Self::Comment(Text::new(source, value), placement);
+            }
+            Event::SequenceStart(style, anchor, tag) => Some(Event::SequenceStart(
                 style,
                 anchor,
-                tag.map(Cow::into_owned),
-            ),
-            Event::Comment(value, placement) => {
-                Self::Comment(Text::new(source, value), placement)
-            }
-            Event::SequenceStart(style, anchor, tag) => {
-                Self::Other(Event::SequenceStart(
-                    style,
-                    anchor,
-                    tag.map(|tag| Cow::Owned(tag.into_owned())),
-                ))
-            }
-            Event::MappingStart(style, anchor, tag) => {
-                Self::Other(Event::MappingStart(
-                    style,
-                    anchor,
-                    tag.map(|tag| Cow::Owned(tag.into_owned())),
-                ))
-            }
-            Event::StreamStart => Self::Other(Event::StreamStart),
-            Event::StreamEnd => Self::Other(Event::StreamEnd),
+                tag.map(|tag| Cow::Owned(tag.into_owned())),
+            )),
+            Event::MappingStart(style, anchor, tag) => Some(Event::MappingStart(
+                style,
+                anchor,
+                tag.map(|tag| Cow::Owned(tag.into_owned())),
+            )),
+            Event::StreamStart => Some(Event::StreamStart),
+            Event::StreamEnd => Some(Event::StreamEnd),
             Event::DocumentStart(explicit, version) => {
-                Self::Other(Event::DocumentStart(explicit, version))
+                Some(Event::DocumentStart(explicit, version))
             }
-            Event::DocumentEnd => Self::Other(Event::DocumentEnd),
-            Event::Alias(anchor) => Self::Other(Event::Alias(anchor)),
-            Event::SequenceEnd => Self::Other(Event::SequenceEnd),
-            Event::MappingEnd => Self::Other(Event::MappingEnd),
-            _ => unreachable!("all granit events are represented"),
-        }
+            Event::DocumentEnd => Some(Event::DocumentEnd),
+            Event::Alias(anchor) => Some(Event::Alias(anchor)),
+            Event::SequenceEnd => Some(Event::SequenceEnd),
+            end => (end == Event::MappingEnd).then_some(Event::MappingEnd),
+        };
+        Self::Other(event.expect("all granit events are represented"))
     }
 
     pub(super) fn borrow<'a>(&'a self, source: &'a str) -> Event<'a> {
