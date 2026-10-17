@@ -3,6 +3,9 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
+mod common;
+use common::cli::ryl;
+
 #[test]
 fn format_diff_keeps_input_order_across_many_files() {
     let dir = tempdir().unwrap();
@@ -13,10 +16,9 @@ fn format_diff_keeps_input_order_across_many_files() {
             path
         })
         .collect();
-    let exe = env!("CARGO_BIN_EXE_ryl");
     let mut expected = Vec::new();
     for path in files.iter().rev() {
-        let output = Command::new(exe)
+        let output = ryl(dir.path())
             .args(["format", "--diff", "--no-warnings"])
             .arg(path)
             .output()
@@ -25,7 +27,7 @@ fn format_diff_keeps_input_order_across_many_files() {
         expected.extend(output.stdout);
     }
 
-    let output = Command::new(exe)
+    let output = ryl(dir.path())
         .args(["format", "--diff", "--no-warnings"])
         .args(files.iter().rev())
         .output()
@@ -88,7 +90,7 @@ fn format_keeps_symlink_and_encoding_warnings_in_input_order() {
         fs::write(&regular, "key:  value\n").unwrap();
         symlink(&target, &link).unwrap();
 
-        let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        let output = ryl(dir.path())
             .args(mode)
             .env("YAMLLINT_FILE_ENCODING", "utf-8")
             .arg(&link)
