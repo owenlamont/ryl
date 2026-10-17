@@ -321,30 +321,46 @@ fn relative_cache_paths_use_their_source_directory() {
 }
 
 #[test]
-fn existing_gitignore_gains_final_ignore_marker() {
+fn directory_run_reuses_every_entry() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "exclude = ['skip/']\n[lint]\nper-file-ignores = { 'b*.yaml' = ['trailing-spaces'] }\n\
+         [lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    for index in 0..40 {
+        fs::write(dir.path().join(format!("{index}.yaml")), "a: b \n").unwrap();
+    }
+    let check = || run(ryl(dir.path()).arg("check").arg(dir.path()));
+    let first = check();
+    let root = dir.path().join(".ryl_cache");
+    assert_eq!(entries(&root).len(), 40);
+    assert_eq!(check(), first);
+    assert_eq!(entries(&root).len(), 40);
+}
+
+#[test]
+fn existing_support_files_are_never_rewritten() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("a.yaml");
     fs::write(&file, "a: b\n").unwrap();
     let root = dir.path().join("cache");
     fs::create_dir(&root).unwrap();
-    let gitignore = root.join(".gitignore");
-    for old_contents in ["", "!keep"] {
-        fs::write(&gitignore, old_contents).unwrap();
-        let (code, _, stderr) = run(ryl(dir.path())
-            .args(["check", "--enable", "ALL", "--cache-dir"])
-            .arg(&root)
-            .arg(&file));
-        assert_ne!(code, 2, "{stderr}");
-        assert!(fs::read(&gitignore).unwrap().ends_with(b"*\n"));
-    }
-    fs::remove_file(&gitignore).unwrap();
-    fs::create_dir(&gitignore).unwrap();
+    fs::write(root.join(".gitignore"), "target/\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(dir.path().join("victim"), root.join("CACHEDIR.TAG"))
+        .unwrap();
     let (code, _, stderr) = run(ryl(dir.path())
         .args(["check", "--enable", "ALL", "--cache-dir"])
         .arg(&root)
         .arg(&file));
-    assert_eq!(code, 2, "{stderr}");
-    assert!(stderr.contains(".gitignore"), "{stderr}");
+    assert_ne!(code, 2, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        "target/\n"
+    );
+    assert!(!dir.path().join("victim").exists());
 }
 
 #[test]

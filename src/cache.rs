@@ -74,7 +74,7 @@ impl Settings {
         let mut checked = self.checked.lock().expect("cache lock not poisoned");
         if checked.insert(dir.clone()) {
             fs::create_dir_all(&dir).map_err(|err| cache_error(&dir, &err))?;
-            ensure_gitignore(&root.join(".gitignore"))?;
+            ensure_support_file(&root.join(".gitignore"), b"*\n")?;
             ensure_support_file(
                 &root.join("CACHEDIR.TAG"),
                 b"Signature: 8a477f597d28d172789f06886806bc55\n",
@@ -124,36 +124,19 @@ fn cache_error(path: &Path, err: &std::io::Error) -> String {
 }
 
 fn ensure_support_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
+    match create_new(path) {
+        Ok(mut file) => file.write_all(bytes),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(err) => Err(err),
     }
-    fs::write(path, bytes).map_err(|err| cache_error(path, &err))
+    .map_err(|err| cache_error(path, &err))
 }
 
-fn ensure_gitignore(path: &Path) -> Result<(), String> {
-    let existing = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(err) => return Err(cache_error(path, &err)),
-    };
-    if existing == b"*"
-        || existing == b"*\n"
-        || existing.ends_with(b"\n*")
-        || existing.ends_with(b"\n*\n")
-    {
-        return Ok(());
-    }
-    let marker: &[u8] = if existing.is_empty() || existing.ends_with(b"\n") {
-        b"*\n"
-    } else {
-        b"\n*\n"
-    };
+fn create_new(path: &Path) -> std::io::Result<fs::File> {
     fs::OpenOptions::new()
-        .append(true)
-        .create(true)
+        .write(true)
+        .create_new(true)
         .open(path)
-        .and_then(|mut file| file.write_all(marker))
-        .map_err(|err| cache_error(path, &err))
 }
 
 pub fn clean_hit(path: &Path) -> bool {
@@ -170,7 +153,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         std::process::id(),
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     )));
-    fs::write(&temp.0, bytes)
+    create_new(&temp.0)
+        .and_then(|mut file| file.write_all(bytes))
         .and_then(|()| fs::rename(&temp.0, path))
         .map_err(|err| cache_error(path, &err))
 }
