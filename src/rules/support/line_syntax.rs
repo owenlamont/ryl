@@ -1,8 +1,7 @@
+use crate::text_version::{Analysis, TextVersion};
 use std::collections::HashSet;
 
-use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
-
-use crate::rules::block_scalar_chomping;
+use granit_parser::{ScalarStyle, Span};
 
 /// Whether a line-1 comment, given as its text after the first `#`, is one another
 /// tool reads verbatim: a `#!` shebang or a cloud-init `#cloud-config` header.
@@ -71,66 +70,53 @@ pub(crate) fn protected_scalar_lines<F>(
 where
     F: FnMut(ScalarStyle, Span) -> bool,
 {
-    struct Collector<G> {
-        protected: HashSet<usize>,
-        filter: G,
-        blank: Vec<bool>,
-        headers: Vec<(usize, usize)>,
-        buffer_len: usize,
+    protected_scalar_lines_with_analysis(TextVersion::new(buffer).analysis(), filter)
+}
+
+pub(crate) fn protected_scalar_lines_with_analysis<F>(
+    input: Analysis<'_>,
+    mut filter: F,
+) -> Option<HashSet<usize>>
+where
+    F: FnMut(ScalarStyle, Span) -> bool,
+{
+    let facts = input.parsed();
+    if !facts.valid {
+        return None;
     }
-    impl<G> Collector<G> {
-        fn blank_run_start(&self, line: usize) -> usize {
-            (1..line)
+    let buffer = input.text();
+    let blank: Vec<_> = split_lines_preserve_endings(buffer)
+        .map(|(_, line, _)| line.trim_matches([' ', '\t']).is_empty())
+        .collect();
+    let headers = input.headers();
+    let mut protected = HashSet::new();
+    for &(style, span) in &facts.scalars {
+        if !filter(style, span) {
+            continue;
+        }
+        let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+        let start = if block {
+            let header = headers
+                .iter()
+                .find(|header| header.span.start.index() == span.start.index())
+                .map_or(span.start.line(), |header| header.line);
+            (1..span.start.line())
                 .rev()
-                .take_while(|above| self.blank.get(above - 1) == Some(&true))
+                .take_while(|above| blank.get(above - 1) == Some(&true))
                 .last()
-                .unwrap_or(line)
-        }
+                .unwrap_or(span.start.line())
+                .max(header)
+        } else {
+            span.start.line()
+        };
+        let last = span.end.line()
+            - usize::from(
+                span.end.col() == 0
+                    || (block && span.end.byte_offset() != Some(buffer.len())),
+            );
+        protected.extend(start..=last);
     }
-    impl<G: FnMut(ScalarStyle, Span) -> bool> SpannedEventReceiver<'_> for Collector<G> {
-        fn on_event(&mut self, event: Event<'_>, span: Span) {
-            if let Event::Scalar(_, style, _, _) = event
-                && (self.filter)(style, span)
-            {
-                let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
-                let start = if block {
-                    let header = self
-                        .headers
-                        .iter()
-                        .find(|(start, _)| *start == span.start.index())
-                        .map_or(span.start.line(), |(_, line)| *line);
-                    self.blank_run_start(span.start.line()).max(header)
-                } else {
-                    span.start.line()
-                };
-                let end = span.end.line();
-                let last = end
-                    - usize::from(
-                        span.end.col() == 0
-                            || (block
-                                && span.end.byte_offset() != Some(self.buffer_len)),
-                    );
-                for line in start..=last {
-                    self.protected.insert(line);
-                }
-            }
-        }
-    }
-    let mut parser = Parser::new_from_str(buffer);
-    let mut collector = Collector {
-        protected: HashSet::new(),
-        filter,
-        buffer_len: buffer.len(),
-        blank: split_lines_preserve_endings(buffer)
-            .map(|(_, line, _)| line.trim_matches([' ', '\t']).is_empty())
-            .collect(),
-        headers: block_scalar_chomping::headers(buffer)
-            .into_iter()
-            .map(|header| (header.span.start.index(), header.line))
-            .collect(),
-    };
-    parser.load(&mut collector, true).ok()?;
-    Some(collector.protected)
+    Some(protected)
 }
 
 /// `(0-based index, content, ending)` triples per line; `ending` is the matched break

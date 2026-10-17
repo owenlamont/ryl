@@ -24,6 +24,7 @@ use crate::rules::{
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
 };
+use crate::text_version::{Analysis, TextVersion};
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
 /// Bound on whole-pipeline passes: a later fixer can expose a diagnostic an earlier one
@@ -1200,6 +1201,15 @@ pub(crate) fn run_passes_with_events(
     ) {
         return input.to_string();
     }
+    let mut content = TextVersion::new(input);
+    if let Some(events) = initial_events.or_else(|| {
+        parsed
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .map(Vec::as_slice)
+    }) {
+        content.analysis().seed_events(events);
+    }
     let mut ctx = FixContext {
         passes,
         directives: Directives::parse_with_per_line(input, &passes.per_line),
@@ -1207,18 +1217,22 @@ pub(crate) fn run_passes_with_events(
         clean_rules: HashMap::new(),
         clean_syntax_epoch: None,
     };
-    if crate::rules::block_scalar_chomping::ambiguous_blank_body_line(input).is_some() {
+    if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
+        content.analysis(),
+    )
+    .is_some()
+    {
         // Key ordering verifies its output before applying it.
-        let sorted = ctx.apply(
-            input.to_string(),
+        ctx.apply(
+            &mut content,
             tracking.edited,
             key_ordering::ID,
             passes.key_ordering.as_ref(),
-            |buffer, cfg| key_ordering::fix(buffer, cfg, &passes.per_line),
+            |view, cfg| key_ordering::fix(view.text(), cfg, &passes.per_line),
         );
-        if sorted != input && max_passes > 1 {
+        if content.analysis().text() != input && max_passes > 1 {
             return run_passes(
-                &sorted,
+                &content,
                 passes,
                 path,
                 max_passes - 1,
@@ -1226,9 +1240,8 @@ pub(crate) fn run_passes_with_events(
                 tracking.edited,
             );
         }
-        return sorted;
+        return content.into_text();
     }
-    let mut content = input.to_string();
     for pass in 0..max_passes {
         let events = if pass == 0 {
             initial_events.or_else(|| {
@@ -1240,19 +1253,19 @@ pub(crate) fn run_passes_with_events(
         } else {
             None
         };
-        let next = ctx.pass(
-            &content,
+        let changed = ctx.pass(
+            &mut content,
             tracking.edited,
             events,
             tracking.reindented.as_deref_mut(),
         );
-        if next == content {
-            return content;
+        if !changed {
+            return content.into_text();
         }
-        content = next;
     }
     let mut changed_rules = Vec::new();
-    if ctx.pass(&content, &mut changed_rules, None, None) != content {
+    let mut probe = TextVersion::new(content.analysis().text());
+    if ctx.pass(&mut probe, &mut changed_rules, None, None) {
         changed_rules.dedup();
         let warning = format!(
             "\nerror: Failed to converge after {max_passes} iterations.\n\n\
@@ -1265,7 +1278,7 @@ pub(crate) fn run_passes_with_events(
         );
         crate::cli_support::write_file_stderr(err, warning.as_bytes());
     }
-    content
+    content.into_text()
 }
 
 /// Shared arguments for a sequence of rule fixes. `apply` is a method so it can be generic
@@ -1285,148 +1298,171 @@ impl FixContext<'_> {
     /// changed the text.
     fn pass(
         &mut self,
-        input: &str,
+        content: &mut TextVersion<'_>,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
         reindented: Option<&mut ReindentCache>,
-    ) -> String {
+    ) -> bool {
         let passes = self.passes;
-        let mut content = input.to_string();
+        let input = content.to_string();
         macro_rules! fix {
             ($rule:ident) => {
-                fix!($rule, passes.$rule.as_ref(), $rule::fix)
+                fix!($rule, passes.$rule.as_ref(), |view, cfg| $rule::fix(
+                    view.text(),
+                    cfg
+                ))
             };
-            ($rule:ident, $cfg:expr, $fix:expr) => {
-                content = self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
+            ($rule:ident, $cfg:expr, $fix:expr $(,)?) => {
+                self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
             };
         }
-        fix!(new_lines, passes.new_lines.as_ref(), |buffer, cfg| {
-            new_lines::fix(buffer, *cfg, new_lines::platform_newline())
+        fix!(new_lines, passes.new_lines.as_ref(), |view, cfg| {
+            new_lines::fix(view.text(), *cfg, new_lines::platform_newline())
         });
         fix!(comments);
         fix!(comments_indentation);
-        fix!(commas);
+        fix!(commas, passes.commas.as_ref(), commas::fix_with_analysis);
         let syntax_epoch = self.edit_epoch;
-        content = if self.clean_syntax_epoch == Some(syntax_epoch) {
-            content
-        } else if passes.collection_style.is_some() || passes.indentation.is_some() {
-            self.syntax_pass(content, input, changed_rules, events, reindented)
-        } else {
-            self.lint_syntax_pass(content, changed_rules)
-        };
+        if self.clean_syntax_epoch != Some(syntax_epoch) {
+            if passes.collection_style.is_some() || passes.indentation.is_some() {
+                self.syntax_pass(content, &input, changed_rules, events, reindented);
+            } else {
+                self.lint_syntax_pass(content, changed_rules);
+            }
+        }
         if self.edit_epoch == syntax_epoch {
             self.clean_syntax_epoch = Some(syntax_epoch);
         }
         fix!(
             trailing_spaces,
             passes.trailing_spaces.then_some(&()),
-            |buffer, ()| trailing_spaces::fix(buffer)
+            |view, ()| trailing_spaces::fix_with_analysis(view)
         );
         fix!(document_start);
-        fix!(document_end);
-        fix!(empty_lines);
+        fix!(document_end, passes.document_end.as_ref(), |view, cfg| {
+            document_end::fix_with_analysis(view, *cfg)
+        });
+        fix!(
+            empty_lines,
+            passes.empty_lines.as_ref(),
+            empty_lines::fix_with_analysis
+        );
         fix!(truthy);
-        fix!(key_ordering, passes.key_ordering.as_ref(), |buffer, cfg| {
-            key_ordering::fix(buffer, cfg, &passes.per_line)
+        fix!(key_ordering, passes.key_ordering.as_ref(), |view, cfg| {
+            key_ordering::fix(view.text(), cfg, &passes.per_line)
         });
         // `fold` skips disabled lines itself: `Directives::reconcile` duplicates a split line.
         if let Some(cfg) = passes.line_length
-            && let Some(folded) = line_length::fold(&content, cfg)
+            && let Some(folded) = line_length::fold(content, cfg)
         {
             changed_rules.push(line_length::ID);
-            content = folded;
+            let plan = content.analysis().plan(folded);
+            content
+                .apply(plan)
+                .expect("fold plan belongs to the current epoch");
             self.edit_epoch += 1;
         }
-        content
+        content.analysis().text() != input
     }
 
     fn lint_syntax_pass(
         &mut self,
-        mut content: String,
+        content: &mut TextVersion<'_>,
         changed_rules: &mut Vec<&'static str>,
-    ) -> String {
+    ) {
         let passes = self.passes;
         macro_rules! fix {
             ($rule:ident) => {
-                content = self.apply(
+                fix!($rule, |view, cfg| $rule::fix(view.text(), cfg))
+            };
+            ($rule:ident, $fix:expr) => {
+                self.apply(
                     content,
                     changed_rules,
                     $rule::ID,
                     passes.$rule.as_ref(),
-                    $rule::fix,
+                    $fix,
                 )
             };
         }
-        fix!(braces);
-        fix!(brackets);
+        fix!(braces, braces::fix_with_analysis);
+        fix!(brackets, brackets::fix_with_analysis);
         fix!(colons);
         fix!(hyphens);
-        content = self.apply(
+        self.apply(
             content,
             changed_rules,
             new_line_at_end_of_file::ID,
             passes.final_newline.as_ref(),
-            |buffer, policy| {
-                new_line_at_end_of_file::fix(buffer, policy.newline(buffer))
+            |view, policy| {
+                new_line_at_end_of_file::fix(view.text(), policy.newline(view.text()))
             },
         );
         fix!(quoted_strings);
-        content
     }
 
     fn syntax_pass(
         &mut self,
-        mut content: String,
+        content: &mut TextVersion<'_>,
         input: &str,
         changed_rules: &mut Vec<&'static str>,
         events: Option<&[(Event<'_>, Span)]>,
         mut reindented: Option<&mut ReindentCache>,
-    ) -> String {
+    ) {
         let passes = self.passes;
         macro_rules! fix {
             ($rule:ident) => {
-                content = self.apply(
+                fix!($rule, |view, cfg| $rule::fix(view.text(), cfg))
+            };
+            ($rule:ident, $fix:expr) => {
+                self.apply(
                     content,
                     changed_rules,
                     $rule::ID,
                     passes.$rule.as_ref(),
-                    $rule::fix,
+                    $fix,
                 )
             };
-            ($rule:ident, $cfg:expr, $fix:expr) => {
-                content = self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
+            ($rule:ident, $cfg:expr, $fix:expr $(,)?) => {
+                self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
             };
         }
-        let snapshot = content.clone();
+        let snapshot = content.to_string();
         let reparsed = (snapshot != input || events.is_none())
             .then(|| Parser::new_from_str(&snapshot).collect::<Result<Vec<_>, _>>());
-        let shared = events.filter(|_| snapshot == input).or_else(|| {
-            reparsed
-                .as_ref()
-                .and_then(|result| result.as_ref().ok())
-                .map(Vec::as_slice)
-        });
+        let shared = events
+            .filter(|_| snapshot == input)
+            .or_else(|| {
+                reparsed
+                    .as_ref()
+                    .and_then(|result| result.as_ref().ok())
+                    .map(Vec::as_slice)
+            })
+            .inspect(|events| content.analysis().seed_events(events));
         let current_events = |buffer: &str| shared.filter(|_| snapshot == buffer);
         if let Some(cfg) = passes.collection_style
             && let Some((restyled, rules)) = collection_style::restyle(
-                &content,
+                content,
                 cfg,
                 passes.indentation.as_ref(),
-                current_events(&content),
+                current_events(content),
             )
         {
             changed_rules.extend(rules);
-            content = restyled;
+            let plan = content.analysis().plan(restyled);
+            content
+                .apply(plan)
+                .expect("collection plan belongs to the current epoch");
             self.edit_epoch += 1;
         }
-        fix!(braces);
-        fix!(brackets);
+        fix!(braces, braces::fix_with_analysis);
+        fix!(brackets, brackets::fix_with_analysis);
         fix!(colons);
         fix!(hyphens);
         let indent_snapshot = passes
             .indentation
-            .filter(|_| snapshot != content)
-            .map(|_| content.clone());
+            .filter(|_| snapshot != content.analysis().text())
+            .map(|_| content.to_string());
         let indent_reparsed = indent_snapshot
             .as_deref()
             .map(|text| Parser::new_from_str(text).collect::<Result<Vec<_>, _>>());
@@ -1434,6 +1470,9 @@ impl FixContext<'_> {
             .as_ref()
             .and_then(|result| result.as_ref().ok())
             .map(Vec::as_slice);
+        if let Some(events) = indent_events {
+            content.analysis().seed_events(events);
+        }
         let events_after_spacing = |buffer: &str| {
             if indent_snapshot.as_deref() == Some(buffer) {
                 indent_events
@@ -1441,34 +1480,28 @@ impl FixContext<'_> {
                 current_events(buffer)
             }
         };
-        content = self.apply(
-            content,
-            changed_rules,
-            indentation::ID,
-            passes.indentation.as_ref(),
-            |buffer, cfg| {
-                reindent_for_pass(
-                    buffer,
-                    cfg,
-                    events_after_spacing(buffer),
-                    reindented.as_deref_mut(),
-                )
-            },
-        );
+        fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
+            let buffer = view.text();
+            reindent_for_pass(
+                buffer,
+                cfg,
+                events_after_spacing(buffer),
+                reindented.as_deref_mut(),
+            )
+        },);
         fix!(
             new_line_at_end_of_file,
             passes.final_newline.as_ref(),
-            |buffer, policy| new_line_at_end_of_file::fix(
-                buffer,
-                policy.newline(buffer)
+            |view, policy| new_line_at_end_of_file::fix(
+                view.text(),
+                policy.newline(view.text())
             )
         );
-        content = self.apply(
-            content,
-            changed_rules,
-            quoted_strings::ID,
+        fix!(
+            quoted_strings,
             passes.quoted_strings.as_ref(),
-            |buffer, cfg| {
+            |view, cfg| {
+                let buffer = view.text();
                 quoted_strings::fix_with_events(
                     buffer,
                     cfg,
@@ -1476,22 +1509,21 @@ impl FixContext<'_> {
                 )
             },
         );
-        content
     }
 
     fn apply<C>(
         &mut self,
-        content: String,
+        content: &mut TextVersion<'_>,
         changed_rules: &mut Vec<&'static str>,
         rule: &'static str,
         cfg: Option<&C>,
-        mut fix: impl FnMut(&str, &C) -> Option<String>,
-    ) -> String {
+        mut fix: impl FnMut(Analysis<'_>, &C) -> Option<String>,
+    ) {
         let Some(cfg) = cfg else {
-            return content;
+            return;
         };
         if self.clean_rules.get(rule) == Some(&self.edit_epoch) {
-            return content;
+            return;
         }
 
         // Run the fix to a fixed point: one pass is not enough where a fix exposes a follow-up
@@ -1509,33 +1541,35 @@ impl FixContext<'_> {
             || per_line
                 .iter()
                 .any(|entry| entry.rules.is_none_or(|ids| ids.contains(&rule)));
-        let mut current = content;
+        let current = content;
         let mut directives = Directives::default();
         if guarded {
-            directives = Directives::parse_with_per_line(&current, per_line);
+            directives = Directives::parse_with_per_line(current, per_line);
         }
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
-            let Some(next) = fix(&current, cfg) else {
+            let Some(next) = fix(current.analysis(), cfg) else {
                 self.clean_rules.insert(rule, self.edit_epoch);
                 break;
             };
             let next = if guarded {
-                directives.reconcile(rule, &current, &next)
+                directives.reconcile(rule, current, &next)
             } else {
                 next
             };
-            if next == current {
+            let plan = current.analysis().plan(next);
+            if !current
+                .apply(plan)
+                .expect("rule plan belongs to the current epoch")
+            {
                 self.clean_rules.insert(rule, self.edit_epoch);
                 break;
             }
-            current = next;
             changed_rules.push(rule);
             self.edit_epoch += 1;
             if guarded {
-                directives = Directives::parse_with_per_line(&current, per_line);
+                directives = Directives::parse_with_per_line(current, per_line);
             }
         }
-        current
     }
 }
 

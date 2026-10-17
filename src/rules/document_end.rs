@@ -5,14 +5,14 @@
 //! `...` (`present: false`) can collide with document boundaries, so it is not fixed.
 use std::collections::HashMap;
 
-use granit_parser::{Event, Parser, ScalarStyle};
+use granit_parser::{Event, Parser};
 
 use crate::config::YamlLintConfig;
-use crate::rules::block_scalar_chomping;
 use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, split_lines_preserve_endings,
 };
 use crate::rules::support::span_utils::marker_byte_offset;
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "document-end";
 pub const MISSING_MESSAGE: &str = "missing document end \"...\"";
@@ -91,9 +91,14 @@ fn scan(buffer: &str, cfg: Config) -> Scan {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let result = scan(buffer, *cfg);
+    fix_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
+    let buffer = input.text();
+    let result = scan(buffer, cfg);
     let final_blank = if result.unended_at_stream_end {
-        final_blank_scalar_action(buffer)
+        final_blank_scalar_action(input)
     } else {
         FinalBlank::Keep
     };
@@ -133,15 +138,16 @@ enum FinalBlank {
     Refuse,
 }
 
-fn final_blank_scalar_action(buffer: &str) -> FinalBlank {
+fn final_blank_scalar_action(input: Analysis<'_>) -> FinalBlank {
+    let buffer = input.text();
     let lines = line_contents(buffer);
-    let headers = block_scalar_chomping::headers(buffer);
-    let root_indents = root_explicit_content_indents(buffer, &headers, &lines);
+    let headers = input.headers();
+    let root_indents = root_explicit_content_indents_with_analysis(input, &lines);
     let line = lines
         .last()
         .expect("a document with a missing end is nonempty");
     headers
-        .into_iter()
+        .iter()
         .find_map(|header| {
             let span = header.span;
             if header.line >= lines.len()
@@ -175,28 +181,15 @@ fn final_blank_scalar_action(buffer: &str) -> FinalBlank {
         .unwrap_or(FinalBlank::Keep)
 }
 
-pub(crate) fn root_explicit_content_indents(
-    buffer: &str,
-    headers: &[block_scalar_chomping::Header],
+pub(crate) fn root_explicit_content_indents_with_analysis(
+    input: Analysis<'_>,
     lines: &[&str],
 ) -> HashMap<usize, usize> {
+    let headers = input.headers();
     if headers.is_empty() {
         return HashMap::new();
     }
-    let mut depth = 0usize;
-    let mut roots = HashMap::new();
-    for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
-        match event {
-            Event::MappingStart(..) | Event::SequenceStart(..) => depth += 1,
-            Event::MappingEnd | Event::SequenceEnd => depth -= 1,
-            Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
-                if depth == 0 =>
-            {
-                roots.insert(span.start.index(), span.end.index());
-            }
-            _ => {}
-        }
-    }
+    let roots = &input.parsed().root_scalars;
     headers
         .iter()
         .filter(|header| {
