@@ -2,6 +2,8 @@
 //! `ryl format` re-indents through [`reindent`], which places each line where the check
 //! expects it.
 
+use std::collections::HashSet;
+
 use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 use crate::config::YamlLintConfig;
@@ -10,7 +12,9 @@ use crate::rules::support::span_utils::CharPos;
 
 mod rewrite;
 
-pub use rewrite::{Cause, Refusal, Reindented, fix, reindent, reindent_widths};
+pub(crate) use rewrite::Prepared;
+pub(crate) use rewrite::reindent_with_events;
+pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
 
 pub const ID: &str = "indentation";
 
@@ -203,6 +207,15 @@ fn scan(
     chars: &[(usize, char)],
     line_starts: &mut [CharPos],
 ) -> Vec<Token> {
+    scan_with_comments(buffer, chars, line_starts, None)
+}
+
+fn scan_with_comments(
+    buffer: &str,
+    chars: &[(usize, char)],
+    line_starts: &mut [CharPos],
+    mut comments: Option<&mut HashSet<usize>>,
+) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
@@ -214,7 +227,12 @@ fn scan(
         }
         let (mut start, mut end) = (span.start.index(), span.end.index());
         let kind = match token_type {
-            TokenType::Comment(_) => continue,
+            TokenType::Comment(_) => {
+                if let Some(comments) = &mut comments {
+                    comments.insert(locate(line_starts, start).0);
+                }
+                continue;
+            }
             TokenType::FlowMappingStart | TokenType::FlowMappingEnd if start == end => {
                 continue;
             }

@@ -326,6 +326,13 @@ pub(crate) fn parse_error(content: &str) -> Option<LintProblem> {
         .or_else(|| scan(content).err().as_ref().map(syntax_problem))
 }
 
+pub(crate) fn parse_error_from_result(
+    content: &str,
+    error: Option<&granit_parser::ScanError>,
+) -> Option<LintProblem> {
+    unsupported_version_error(content).or_else(|| error.map(syntax_problem))
+}
+
 /// A `%YAML` directive whose major version is not 1; the spec mandates rejecting a
 /// higher major version, so ryl surfaces it as a syntax error (yamllint parity).
 fn unsupported_version_error(content: &str) -> Option<LintProblem> {

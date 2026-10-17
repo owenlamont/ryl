@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::path::Path;
 
+use granit_parser::{Event, Parser, Span};
 use similar::{DiffTag, TextDiff};
 
 use crate::config::{SourceKind, YamlLintConfig};
@@ -11,7 +12,7 @@ use crate::config_schema::{
 };
 use crate::fix::{
     FIX_PIPELINE_MAX_PASSES, NewlinePolicy, Passes, region_prefix, run_passes,
-    suppressed_rules,
+    run_passes_with_events, suppressed_rules,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
@@ -192,13 +193,20 @@ pub fn format_str(
     path: &Path,
     skip: &[&str],
 ) -> String {
+    let parsed = Parser::new_from_str(input).collect::<Result<Vec<_>, _>>();
+    let events = parsed.as_ref().ok().map(Vec::as_slice);
     format_tracked(
         input,
         cfg,
-        Layout::of(cfg, input, file_indent_width(cfg, input)),
+        Layout::of(
+            cfg,
+            input,
+            file_indent_width_with_events(cfg, input, events),
+        ),
         path,
         skip,
         &mut Vec::new(),
+        events,
     )
 }
 
@@ -249,14 +257,21 @@ pub fn line_length(cfg: &YamlLintConfig) -> u16 {
 /// [`DETECTED_WIDTHS`] whose re-indent changes the fewest lines, else [`DEFAULT_INDENT_WIDTH`].
 #[must_use]
 pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
+    file_indent_width_with_events(cfg, content, None)
+}
+
+fn file_indent_width_with_events(
+    cfg: &YamlLintConfig,
+    content: &str,
+    events: Option<&[(Event<'_>, Span)]>,
+) -> u8 {
     if let Some(width) = cfg.indent_width() {
         return width.get();
     }
     // Zero changed lines is the best possible score; ties already choose the default.
-    if indentation::reindent(content, &indentation_target(cfg, DEFAULT_INDENT_WIDTH))
-        .text
-        == content
-    {
+    let target = indentation_target(cfg, DEFAULT_INDENT_WIDTH);
+    let prepared = indentation::Prepared::for_config(content, &target, events);
+    if prepared.reindent(&target).text == content {
         return DEFAULT_INDENT_WIDTH;
     }
     let consistent = indentation::Config::new(
@@ -272,15 +287,10 @@ pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
         return 2;
     }
     let before: Vec<&str> = content.split_inclusive('\n').collect();
-    let widths = DETECTED_WIDTHS.map(usize::from);
     let moved: Vec<(u8, usize)> = DETECTED_WIDTHS
         .into_iter()
-        .zip(indentation::reindent_widths(
-            content,
-            &indentation_target(cfg, DEFAULT_INDENT_WIDTH),
-            &widths,
-        ))
-        .map(|(width, reindented)| {
+        .map(|width| {
+            let reindented = prepared.reindent(&indentation_target(cfg, width));
             let text = settled(reindented.text, content, cfg, width);
             let after: Vec<&str> = text.split_inclusive('\n').collect();
             let changed = TextDiff::from_slices(&before, &after)
@@ -351,18 +361,20 @@ fn format_tracked(
     path: &Path,
     skip: &[&str],
     edited: &mut Vec<&'static str>,
+    events: Option<&[(Event<'_>, Span)]>,
 ) -> String {
     let mut content = input.to_string();
     let mut changes = Vec::new();
     loop {
         let passes = Passes::format(cfg, layout, skip);
-        let next = run_passes(
+        let next = run_passes_with_events(
             &content,
             &passes,
             path,
             FIX_PIPELINE_MAX_PASSES,
             &mut std::io::stderr(),
             &mut changes,
+            events.filter(|_| content == input),
         );
         if next == content || cfg.indent_width().is_some() {
             edited.extend(changes);
@@ -388,11 +400,11 @@ pub(crate) struct FormatCache {
 }
 
 impl FormatCache {
-    pub(crate) fn indent_width(&mut self, cfg: &YamlLintConfig, input: &str) -> u8 {
+    pub(crate) fn indent_width(&self, input: &str) -> u8 {
         *self
             .widths
-            .entry(input.to_string())
-            .or_insert_with(|| file_indent_width(cfg, input))
+            .get(input)
+            .expect("formatting caches the input width")
     }
 
     pub(crate) fn format(
@@ -402,11 +414,38 @@ impl FormatCache {
         path: &Path,
         skip: &[&str],
     ) -> &(String, Vec<&'static str>) {
-        let width = self.indent_width(cfg, input);
+        self.format_with_events(input, cfg, path, skip, None)
+    }
+
+    pub(crate) fn format_with_events(
+        &mut self,
+        input: &str,
+        cfg: &YamlLintConfig,
+        path: &Path,
+        skip: &[&str],
+        initial_events: Option<&[(Event<'_>, Span)]>,
+    ) -> &(String, Vec<&'static str>) {
+        if self.formatted.contains_key(input) {
+            return &self.formatted[input];
+        }
+        let parsed = initial_events
+            .is_none()
+            .then(|| Parser::new_from_str(input).collect::<Result<Vec<_>, _>>());
+        let events = initial_events.or_else(|| {
+            parsed
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .map(Vec::as_slice)
+        });
+        let width = *self
+            .widths
+            .entry(input.to_string())
+            .or_insert_with(|| file_indent_width_with_events(cfg, input, events));
         let layout = Layout::of(cfg, input, width);
         let result = self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
-            let formatted = format_tracked(input, cfg, layout, path, skip, &mut edited);
+            let formatted =
+                format_tracked(input, cfg, layout, path, skip, &mut edited, events);
             (formatted, edited)
         });
         self.widths
@@ -443,7 +482,7 @@ fn region_problems(
     skip: &[&str],
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    let layout = Layout::of(cfg, content, cache.indent_width(cfg, content));
+    let layout = Layout::of(cfg, content, cache.indent_width(content));
     let (formatted, edited) = cache.format(content, cfg, path, skip);
     if formatted == content {
         return Vec::new();
@@ -492,7 +531,8 @@ fn lines_changed_by(
         .into_iter()
         .filter(|other| *other != rule)
         .collect();
-    let alone = format_tracked(content, cfg, layout, path, &others, &mut Vec::new());
+    let alone =
+        format_tracked(content, cfg, layout, path, &others, &mut Vec::new(), None);
     let before: Vec<&str> = content.split_inclusive('\n').collect();
     let after: Vec<&str> = alone.split_inclusive('\n').collect();
     TextDiff::from_slices(&before, &after)
@@ -530,7 +570,7 @@ pub(crate) fn unfixed(
     cfg: &YamlLintConfig,
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    let indent = cache.indent_width(cfg, content);
+    let indent = cache.indent_width(content);
     let mut target = indentation_target(cfg, indent);
     if cfg.indent_width().is_none() {
         target = target.requiring_consistent();
