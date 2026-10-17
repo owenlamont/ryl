@@ -728,14 +728,9 @@ proptest! {
     }
 
     #[test]
-    fn inferred_width_matches_candidate_scoring_without_explicit_keys(
-        document in arb_document_with_properties()
-    ) {
-        let input = document.render();
-        if !input.contains("? ") {
-            let cfg = YamlLintConfig::default();
-            prop_assert_eq!(file_indent_width(&cfg, &input), scored_indent_width(&input));
-        }
+    fn inferred_width_matches_candidate_scoring(input in arb_nested_mapping()) {
+        let cfg = YamlLintConfig::default();
+        prop_assert_eq!(file_indent_width(&cfg, &input), scored_indent_width(&input));
     }
 
     #[test]
@@ -825,6 +820,41 @@ fn reindent_target(width: u8) -> indentation::Config {
         false,
     )
     .with_dash_on_own_line(false)
+}
+
+/// One-level nested mappings, mostly at one shared width, the shape width inference decides.
+fn arb_nested_mapping() -> impl Strategy<Value = String> {
+    let entry = (
+        prop_oneof![4 => Just(None), 1 => (1usize..=10).prop_map(Some)],
+        "[a-z_]{1,3}",
+        prop::sample::select(
+            &[
+                "v",
+                "'q'",
+                "[a,b]",
+                "v  # c",
+                "v  # ryl disable-line rule:indentation",
+                "[open",
+            ][..],
+        ),
+    );
+    (
+        1usize..=10,
+        prop::collection::vec(prop::collection::vec(entry, 1..4), 1..5),
+    )
+        .prop_map(|(width, sections)| {
+            let mut text = String::new();
+            for (index, entries) in sections.iter().enumerate() {
+                text += &format!("k{index}:\n");
+                for (own, key, value) in entries {
+                    text += &format!(
+                        "{}{key}: {value}\n",
+                        " ".repeat(own.unwrap_or(width))
+                    );
+                }
+            }
+            text
+        })
 }
 
 fn scored_indent_width(input: &str) -> u8 {
