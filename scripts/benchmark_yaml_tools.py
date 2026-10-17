@@ -17,16 +17,16 @@
 
 Fairness
 --------
-| Tool | Cache or persisted state | Timed-run isolation |
+| Tool | Result cache isolation | Install-time artifacts kept warm |
 | --- | --- | --- |
-| ryl | Process-local config and format caches | Fresh process and empty XDG cache |
-| yamllint | Process-local lint cache and Python bytecode | Fresh process; no bytecode writes |
-| yamlfmt | No incremental cache; global config discovery | Fresh process, no global config, empty XDG cache |
-| Prettier | Opt-in cache in node_modules/.cache/prettier | --no-cache and empty XDG cache |
-| dprint | Incremental and compiled-plugin caches | --incremental=false, local plugin, empty DPRINT_CACHE_DIR |
+| ryl | Fresh process and empty XDG cache | Release binary |
+| yamllint | Fresh process and empty XDG cache | Compiled Python bytecode |
+| yamlfmt | Fresh process, no global config, empty XDG cache | Installed binary |
+| Prettier | --no-cache and empty XDG cache | Installed Node modules |
+| dprint | --incremental=false; compiled-plugin cache checked for other writes | Compiled local WASM plugin |
 
-Each invocation gets a fresh temporary cache directory. Hyperfine warmups only warm
-the OS file cache and use the same wrapper as measured runs.
+Each invocation gets a fresh XDG cache directory. Dprint shares only its compiled
+plugin cache. Hyperfine warmups use the same wrapper as measured runs.
 """
 
 from __future__ import annotations
@@ -284,7 +284,14 @@ def install_tools(versions: dict[str, str], run_dir: Path) -> dict[str, Path]:
         ]
     )
     run_checked(
-        ["uv", "tool", "install", "--force", f"yamllint=={versions['yamllint']}"]
+        [
+            "uv",
+            "tool",
+            "install",
+            "--force",
+            "--compile-bytecode",
+            f"yamllint=={versions['yamllint']}",
+        ]
     )
     run_checked(["pixi", "global", "install", f"yamlfmt=={versions['yamlfmt']}"])
     return {
@@ -316,12 +323,12 @@ def install_plugin(version: str, run_dir: Path) -> None:
 
 def write_runner(run_dir: Path) -> Path:
     runner = run_dir / "cold_run.py"
+    dprint_cache = run_dir / "dprint-cache"
     runner.write_text(
         "import os, subprocess, sys, tempfile\n"
         "with tempfile.TemporaryDirectory(prefix='ryl-tool-cache-') as cache:\n"
         "    env = os.environ.copy()\n"
-        "    env.update(XDG_CACHE_HOME=cache, DPRINT_CACHE_DIR=cache, "
-        "PYTHONDONTWRITEBYTECODE='1')\n"
+        f"    env.update(XDG_CACHE_HOME=cache, DPRINT_CACHE_DIR={str(dprint_cache)!r})\n"
         "    sys.exit(subprocess.run(sys.argv[1:], env=env, check=False).returncode)\n"
     )
     return runner
@@ -499,6 +506,30 @@ def cache_snapshot(paths: Iterable[Path]) -> list[tuple[str, int, int]]:
     )
 
 
+def compiled_plugin_snapshot(cache: Path) -> list[tuple[str, int, int]]:
+    snapshot = cache_snapshot([cache])
+    files = [Path(path).relative_to(cache) for path, _, _ in snapshot]
+    if len(files) != 2 or {path.suffix for path in files} != {".cwasm", ".json"}:
+        raise RuntimeError(
+            f"dprint cache contains more than the compiled plugin: {files}"
+        )
+    if (
+        any(path.parent != Path("plugins") for path in files)
+        or len({path.stem for path in files}) != 1
+    ):
+        raise RuntimeError(f"dprint cache contains unexpected files: {files}")
+    return snapshot
+
+
+def warm_dprint(tool: Tool, root: Path, runner: Path) -> None:
+    scratch = root / "dprint-warmup"
+    scratch.mkdir()
+    (scratch / "file_00000.yaml").write_text("key:  value\n")
+    run_checked(cold_command(tool_command(tool, "format", scratch), runner))
+    shutil.rmtree(runner.parent / "dprint-cache" / "locks", ignore_errors=True)
+    compiled_plugin_snapshot(runner.parent / "dprint-cache")
+
+
 def verify_cold_runs(
     tools: list[Tool], document: bytes, root: Path, runner: Path
 ) -> None:
@@ -514,16 +545,22 @@ def verify_cold_runs(
     )
     probe = root / "cache-probe"
     probe.mkdir()
+    dprint_cache = runner.parent / "dprint-cache"
     for tool in tools:
         for mode in ("lint", "format"):
             if not (tool.lint_args if mode == "lint" else tool.format_args):
                 continue
             before = cache_snapshot(persistent)
+            compiled_before = compiled_plugin_snapshot(dprint_cache)
             for _ in range(2):
                 (probe / "file_00000.yaml").write_bytes(document)
                 run_checked(cold_command(tool_command(tool, mode, probe), runner))
             if cache_snapshot(persistent) != before:
                 raise RuntimeError(f"{tool.name} {mode} wrote to a persistent cache")
+            if compiled_plugin_snapshot(dprint_cache) != compiled_before:
+                raise RuntimeError(
+                    f"{tool.name} {mode} changed the dprint plugin cache"
+                )
 
 
 def tool_command(tool: Tool, mode: str, dataset: Path) -> list[str]:
@@ -591,7 +628,11 @@ def benchmark_case(
         )
     for tool, command in zip(selected, commands, strict=True):
         hyperfine.extend(["-n", tool.name, shell_command(command)])
+    dprint_cache = runner.parent / "dprint-cache"
+    compiled_before = compiled_plugin_snapshot(dprint_cache)
     run_checked(hyperfine)
+    if compiled_plugin_snapshot(dprint_cache) != compiled_before:
+        raise RuntimeError("timed run changed the dprint plugin cache")
     raw = orjson.loads(output_json_path.read_bytes())
     return [
         {
@@ -838,6 +879,7 @@ def main(
         run_dir=run_dir,
         versions=versions,
     )
+    warm_dprint(next(tool for tool in tools if tool.name == "dprint"), run_dir, runner)
     for tool in tools:
         pin = versions.get(tool.name.lower())
         if pin and tool.name != "yamlfmt" and pin not in tool.version:
