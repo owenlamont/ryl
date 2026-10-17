@@ -1571,7 +1571,9 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         let entry = if format.diff || symlink {
             None
         } else {
-            settings.entry(path, base_dir, cfg, *kind, "format")?
+            settings
+                .entry(path, base_dir, cfg, *kind, "format")?
+                .map(|(path, _)| path)
         };
         if !entry.as_deref().is_some_and(cache::clean_hit) {
             pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
@@ -1616,7 +1618,10 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             settings
                 .entry(path, base_dir, cfg, *kind, "format")
                 .and_then(|current| {
-                    current.as_deref().map(cache::mark_clean).transpose()
+                    current
+                        .as_ref()
+                        .map(|(path, _)| cache::mark_clean(path))
+                        .transpose()
                 })?;
         }
     }
@@ -1801,21 +1806,36 @@ fn lint_files_cached(
         .enumerate()
         .map(|(idx, (path, base_dir, cfg, kind))| {
             let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
-            if let Some(problems) = entry.as_deref().and_then(cache::lint_hit) {
-                return Ok((idx, Ok(problems)));
+            if let Some(problems) =
+                entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
+            {
+                return Ok((idx, Ok(problems), None));
             }
-            let outcome = match kind {
-                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-                SourceKind::Yaml => lint_file(path, cfg, base_dir),
+            let outcome = match entry.as_ref() {
+                Some((_, bytes)) => ryl::decoder::decode_bytes(bytes)
+                    .map_err(|err| format!("failed to read {}: {err}", path.display()))
+                    .map(|content| match kind {
+                        SourceKind::Markdown => {
+                            lint_markdown_str(&content, path, cfg, base_dir)
+                        }
+                        SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
+                    }),
+                None => match kind {
+                    SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+                    SourceKind::Yaml => lint_file(path, cfg, base_dir),
+                },
             };
-            if let (Some(entry), Ok(problems)) = (&entry, &outcome) {
-                cache::store_lint(entry, problems)?;
-            }
-            Ok((idx, outcome))
+            Ok((idx, outcome, entry.map(|(path, _)| path)))
         })
         .collect::<Result<_, String>>()?;
-    results.sort_by_key(|(idx, _)| *idx);
-    Ok(results)
+    cache::store_lint_batch(results.iter().filter_map(|(_, outcome, entry)| {
+        Some((entry.as_deref()?, outcome.as_ref().ok()?.as_slice()))
+    }))?;
+    results.sort_by_key(|(idx, ..)| *idx);
+    Ok(results
+        .into_iter()
+        .map(|(idx, outcome, _)| (idx, outcome))
+        .collect())
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -27,6 +27,7 @@ fn check_reuses_diagnostics_and_invalidates_content_and_config() {
     fs::write(&file, "a: b").unwrap();
     let run_check = || {
         run(ryl(dir.path())
+            .current_dir(dir.path())
             .args(["check", "-c"])
             .arg(&config)
             .arg(&file))
@@ -67,26 +68,27 @@ fn corrupt_entry_is_rebuilt_and_version_directory_isolated() {
     let root = dir.path().join(".ryl_cache");
     let command = || {
         run(ryl(dir.path())
+            .current_dir(dir.path())
             .args(["check", "--enable", "ALL", "--cache-dir"])
             .arg(&root)
             .arg(&file))
     };
     let first = command();
     let entry = entries(&root).pop().unwrap();
+    let name = serde_json::from_slice::<serde_json::Value>(&fs::read(&entry).unwrap())
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
     fs::write(&entry, b"broken JSON").unwrap();
     assert_eq!(command(), first);
     assert_ne!(fs::read(&entry).unwrap(), b"broken JSON");
-    fs::write(
-        &entry,
-        r#"[{"line":1,"column":1,"level":"bad","message":"x","rule":null}]"#,
-    )
-    .unwrap();
+    fs::write(&entry, format!(r#"{{"{name}":[[1,1,2,"x",null]]}}"#)).unwrap();
     assert_eq!(command(), first);
-    fs::write(
-        &entry,
-        r#"[{"line":1,"column":1,"level":"error","message":"x","rule":"unknown"}]"#,
-    )
-    .unwrap();
+    fs::write(&entry, format!(r#"{{"{name}":[[1,1,0,"x","unknown"]]}}"#)).unwrap();
     assert_eq!(command(), first);
     fs::create_dir(root.join("other-version")).unwrap();
     fs::write(
@@ -321,6 +323,85 @@ fn relative_cache_paths_use_their_source_directory() {
 }
 
 #[test]
+fn default_cache_uses_cwd_with_explicit_config_elsewhere() {
+    let dir = tempdir().unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    let config = project.join("ryl.toml");
+    let file = project.join("a.yaml");
+    fs::write(&config, "[lint.rules]\ntrailing-spaces = 'enable'\n").unwrap();
+    fs::write(&file, "a: b\n").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .current_dir(dir.path())
+        .args(["check", "-c"])
+        .arg(&config)
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(entries(&dir.path().join(".ryl_cache")).len(), 1);
+    assert!(!project.join(".ryl_cache").exists());
+}
+
+#[test]
+fn markdown_cache_matches_disabled_output() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "```yaml\na: b \n```\n").unwrap();
+    let check = |no_cache: bool| {
+        let mut cmd = ryl(dir.path());
+        cmd.current_dir(dir.path()).args([
+            "check",
+            "--markdown",
+            "--enable",
+            "trailing-spaces",
+        ]);
+        if no_cache {
+            cmd.arg("--no-cache");
+        }
+        run(cmd.arg(&file))
+    };
+    let cold = check(false);
+    assert_eq!(cold.0, 1);
+    assert_eq!(check(false), cold);
+    assert_eq!(check(true), cold);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_cache_root_and_version_are_refused() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "a: b\n").unwrap();
+    let target = dir.path().join("target");
+    fs::create_dir(&target).unwrap();
+    let default_root = dir.path().join(".ryl_cache");
+    symlink(&target, &default_root).unwrap();
+    let run_check = |cache_dir: Option<&Path>| {
+        let mut cmd = ryl(dir.path());
+        cmd.current_dir(dir.path())
+            .args(["check", "--enable", "ALL"]);
+        if let Some(cache_dir) = cache_dir {
+            cmd.arg("--cache-dir").arg(cache_dir);
+        }
+        run(cmd.arg(&file))
+    };
+    let (code, _, stderr) = run_check(None);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("symlinked directory"), "{stderr}");
+    let (code, _, stderr) = run_check(Some(&default_root));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("symlinked directory"), "{stderr}");
+    fs::remove_file(&default_root).unwrap();
+    fs::create_dir(&default_root).unwrap();
+    symlink(&target, default_root.join(env!("CARGO_PKG_VERSION"))).unwrap();
+    let (code, _, stderr) = run_check(None);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("symlinked directory"), "{stderr}");
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+}
+
+#[test]
 fn directory_run_reuses_every_entry() {
     let dir = tempdir().unwrap();
     fs::write(
@@ -333,12 +414,17 @@ fn directory_run_reuses_every_entry() {
     for index in 0..40 {
         fs::write(dir.path().join(format!("{index}.yaml")), "a: b \n").unwrap();
     }
-    let check = || run(ryl(dir.path()).arg("check").arg(dir.path()));
+    let check = || {
+        run(ryl(dir.path())
+            .current_dir(dir.path())
+            .arg("check")
+            .arg(dir.path()))
+    };
     let first = check();
     let root = dir.path().join(".ryl_cache");
-    assert_eq!(entries(&root).len(), 40);
+    assert_eq!(entries(&root).len(), 1);
     assert_eq!(check(), first);
-    assert_eq!(entries(&root).len(), 40);
+    assert_eq!(entries(&root).len(), 1);
 }
 
 #[test]
@@ -370,7 +456,12 @@ fn format_marks_clean_files_and_invalidates_changed_content() {
     fs::write(dir.path().join(".ryl.toml"), "[format]\n").unwrap();
     let file = dir.path().join("a.yaml");
     fs::write(&file, "a: b\n").unwrap();
-    let command = || run(ryl(dir.path()).arg("format").arg(&file));
+    let command = || {
+        run(ryl(dir.path())
+            .current_dir(dir.path())
+            .arg("format")
+            .arg(&file))
+    };
     assert_eq!(command().0, 0);
     let root = dir.path().join(".ryl_cache");
     assert_eq!(entries(&root).len(), 1);
@@ -395,9 +486,18 @@ fn format_cache_preserves_unrepresentable_filename_notice() {
     ] {
         let file = dir.path().join(name);
         fs::write(&file, "a: b\n").unwrap();
-        assert_eq!(run(ryl(dir.path()).arg("format").arg(&file)).0, 0);
-        let (code, _, stderr) =
-            run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
+        assert_eq!(
+            run(ryl(dir.path())
+                .current_dir(dir.path())
+                .arg("format")
+                .arg(&file))
+            .0,
+            0
+        );
+        let (code, _, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["format", "--check"])
+            .arg(&file));
         assert_eq!(code, 0, "{stderr}");
         assert!(stderr.contains("skipped by --check"), "{stderr}");
     }
