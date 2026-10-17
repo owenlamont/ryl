@@ -43,7 +43,17 @@ description: >-
     in `scripts/benchmark_tool_versions.toml`, then use the benchmark's
     `--install-pinned-tools` option to install them with uv, pixi, and npm. The README
     table reports these pins; it is not the source of truth. Run `cargo build --release`,
-    then check `uptime` and `nproc`. Wait in five-minute steps, up to one hour, while the
+    then run this complete pre-flight smoke test (its load override is for smoke tests
+    only):
+
+    ```sh
+    uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl \
+      --install-pinned-tools --file-counts 1,10 --file-sizes-kib 1,9 \
+      --runs 2 --warmup 1 --ignore-load
+    ```
+
+    Check its `summary.csv`, `meta.json`, and SVG before the full run. Then check
+    `uptime` and `nproc`. Wait in five-minute steps, up to one hour, while the
     one-minute load exceeds half the CPU count. Once idle, run
     `uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl
     --install-pinned-tools`. The defaults reproduce the committed 5x5/5-run

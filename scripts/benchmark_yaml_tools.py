@@ -13,7 +13,7 @@
 # ]
 # ///
 
-"""Benchmark YAML tools on generated and pinned real-world files.
+r"""Benchmark YAML tools on generated and pinned real-world files.
 
 Fairness
 --------
@@ -27,6 +27,11 @@ Fairness
 
 Each invocation gets a fresh XDG cache directory. Dprint shares only its compiled
 plugin cache. Hyperfine warmups use the same wrapper as measured runs.
+
+Smoke test the complete pipeline, even on a busy host, with:
+uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl \
+    --install-pinned-tools --file-counts 1,10 --file-sizes-kib 1,9 \
+    --runs 2 --warmup 1 --ignore-load
 """
 
 from __future__ import annotations
@@ -107,7 +112,7 @@ def require_command(name: str) -> None:
         raise RuntimeError(f"required command is not installed or not on PATH: {name}")
 
 
-def require_idle_host() -> tuple[float, int]:
+def require_idle_host(*, ignore_load: bool = False) -> tuple[float, int]:
     if shutil.which("uptime") and shutil.which("nproc"):
         uptime = run_checked(["uptime"]).stdout
         cpus = int(run_checked(["nproc"]).stdout)
@@ -117,7 +122,7 @@ def require_idle_host() -> tuple[float, int]:
             raise RuntimeError("host load is unavailable on this platform")
         cpus = os.cpu_count() or 1
         load = os.getloadavg()[0]
-    if load >= cpus / 2:
+    if not ignore_load and load >= cpus / 2:
         raise RuntimeError(
             f"host load {load:.2f} is not below half of {cpus} CPUs; timing aborted"
         )
@@ -479,7 +484,7 @@ def real_world_pool(
     root: Path,
     tools: list[Tool],
     runner: Path,
-) -> tuple[dict[int, list[Path]], list[dict[str, str]], dict[int, int]]:
+) -> tuple[dict[int, list[Path]], list[dict[str, str]], dict[str, int]]:
     repos = corpus_gate._manifest(())
     clone_dir = corpus_gate._DEFAULT_CACHE / "repos"
     files: list[tuple[Path, int]] = []
@@ -508,7 +513,7 @@ def real_world_pool(
     probe = root / "real-probe"
     probe.mkdir()
     chosen: dict[int, list[Path]] = {}
-    attempts: dict[int, int] = {}
+    attempts: dict[str, int] = {}
     for size in sizes:
         lower_bound, upper_bound = size_bounds(size)
         candidates = [
@@ -531,7 +536,7 @@ def real_world_pool(
                 f"from {len(candidates)} candidates"
             )
         chosen[size] = accepted
-        attempts[size] = candidates.index(path) + 1
+        attempts[str(size)] = candidates.index(path) + 1
     pins = [{"url": repo.url, "sha": repo.sha} for repo in repos]
     return chosen, pins, attempts
 
@@ -859,6 +864,9 @@ def main(
     profile_format: bool = typer.Option(
         False, help="Also time ryl on formatted input and dirty --check input."
     ),
+    ignore_load: bool = typer.Option(
+        False, help="Ignore the host load guard for smoke tests only."
+    ),
     output_dir: Path = typer.Option(
         Path("manual_outputs") / "benchmarks",
         help="Directory where all artifacts are written.",
@@ -962,7 +970,7 @@ def main(
                 "real-world",
             ),
         ]
-        load, cpus = require_idle_host()
+        load, cpus = require_idle_host(ignore_load=ignore_load)
         corpus_digests = {dataset: sha256() for dataset in ("stress", "real-world")}
         bucket_sizes = []
         for case in tqdm(cases, desc="Benchmark cases", unit="case"):
