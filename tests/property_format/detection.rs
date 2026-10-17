@@ -57,12 +57,7 @@ pub fn original_indent_width(cfg: &YamlLintConfig, input: &str) -> u8 {
                 previous = std::mem::replace(&mut text, next);
             }
             let after: Vec<&str> = text.split_inclusive('\n').collect();
-            let changed = TextDiff::from_slices(&before, &after)
-                .ops()
-                .iter()
-                .filter(|op| op.tag() != DiffTag::Equal)
-                .map(|op| op.old_range().len().max(op.new_range().len()))
-                .sum();
+            let changed = changed_lines(&before, &after);
             (width, changed)
         })
         .collect();
@@ -75,6 +70,15 @@ pub fn original_indent_width(cfg: &YamlLintConfig, input: &str) -> u8 {
         [&(width, _)] => width,
         _ => 2,
     }
+}
+
+pub fn changed_lines(before: &[&str], after: &[&str]) -> usize {
+    TextDiff::from_slices(before, after)
+        .ops()
+        .iter()
+        .filter(|op| op.tag() != DiffTag::Equal)
+        .map(|op| op.old_range().len().max(op.new_range().len()))
+        .sum()
 }
 
 fn observed_indent_width(content: &str) -> Option<u8> {

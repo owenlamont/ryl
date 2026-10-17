@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
@@ -78,6 +79,7 @@ pub(crate) struct Prepared<'a> {
     chars: Vec<(usize, char)>,
     line_starts: Vec<CharPos>,
     tokens: Vec<super::Token>,
+    scalar_blank_headers: OnceCell<Vec<(usize, usize)>>,
 }
 
 impl<'a> Prepared<'a> {
@@ -133,6 +135,7 @@ impl<'a> Prepared<'a> {
             chars,
             line_starts,
             tokens,
+            scalar_blank_headers: OnceCell::new(),
         }
     }
 
@@ -237,15 +240,29 @@ impl<'a> Prepared<'a> {
         shaped_lines: &[(&str, &str)],
         deltas: &mut [isize],
     ) {
-        let headers = crate::rules::block_scalar_chomping::headers(self.buffer);
+        let blank_headers = self.scalar_blank_headers.get_or_init(|| {
+            if !self.lines.iter().any(|(line, _)| {
+                !line.is_empty() && line.bytes().all(|byte| byte == b' ')
+            }) {
+                return Vec::new();
+            }
+            let headers = crate::rules::block_scalar_chomping::headers(self.buffer);
+            crate::rules::trailing_spaces::content_blank_lines(self.buffer)
+                .into_iter()
+                .map(|line| {
+                    let header = headers
+                        .iter()
+                        .rev()
+                        .find(|header| {
+                            header.line < line && line <= header.span.end.line()
+                        })
+                        .expect("content line belongs to a block scalar");
+                    (line, header.line - 1)
+                })
+                .collect()
+        });
         // These spaces are scalar content, so they move with the header.
-        for line in crate::rules::trailing_spaces::content_blank_lines(self.buffer) {
-            let header = headers
-                .iter()
-                .rev()
-                .find(|header| header.line < line && line <= header.span.end.line())
-                .expect("content line belongs to a block scalar");
-            let header_line = header.line - 1;
+        for &(line, header_line) in blank_headers {
             let header_index = self
                 .origin
                 .partition_point(|&source| source <= header_line)

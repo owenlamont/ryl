@@ -305,6 +305,8 @@ fn file_indent_width_with_events(
         return width;
     }
     let before: Vec<&str> = content.split_inclusive('\n').collect();
+    let original_lines: HashSet<&str> = before.iter().copied().collect();
+    let mut best = usize::MAX;
     let candidates = std::iter::once((DEFAULT_INDENT_WIDTH, default)).chain(
         DETECTED_WIDTHS[1..]
             .iter()
@@ -314,7 +316,18 @@ fn file_indent_width_with_events(
         .map(|(width, reindented)| {
             let text = settled(reindented.text, content, cfg, width);
             let after: Vec<&str> = text.split_inclusive('\n').collect();
-            (width, changed_line_count(&before, &after))
+            // A novel line cannot belong to an equal diff hunk, even after compaction.
+            let lower_bound = after
+                .iter()
+                .filter(|line| !original_lines.contains(**line))
+                .count();
+            let count = if lower_bound > best {
+                lower_bound
+            } else {
+                changed_line_count(&before, &after)
+            };
+            best = best.min(count);
+            (width, count)
         })
         .collect();
     let fewest = moved.iter().map(|&(_, count)| count).min();

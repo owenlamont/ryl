@@ -742,6 +742,8 @@ proptest! {
         comment_indents in prop::collection::vec(0usize..=8, 2..8),
         indent_sequences in any::<bool>(),
         dash_on_own_line in any::<bool>(),
+        crlf in any::<bool>(),
+        blank_width in 1usize..12,
     ) {
         let cfg = YamlLintConfig::from_toml_str(&format!(
             "[format]\nindent-sequences = {indent_sequences}\ndash-on-own-line = {dash_on_own_line}\n"
@@ -753,9 +755,23 @@ proptest! {
             .map(|indent| format!("{}# same\n", " ".repeat(indent)))
             .collect::<String>();
         let repeated_comments = format!("root:\n{comments}{}child: value\n", " ".repeat(usize::from(widths.0)));
-        for input in [original, first.clone(), format!("{first}\n---\n{second}"), repeated_comments] {
+        let scalar_blanks = format!("{first}\n---\nroot:\n  body: |2+\n{}\n  next: value\n", " ".repeat(blank_width));
+        for input in [original, first.clone(), format!("{first}\n---\n{second}"), repeated_comments, scalar_blanks] {
+            let input = if crlf { input.replace('\n', "\r\n") } else { input };
             prop_assert_eq!(file_indent_width(&cfg, &input), original_indent_width(&cfg, &input), "{:?}", input);
         }
+    }
+
+    #[test]
+    fn novel_lines_bound_the_compacted_diff_score(
+        before in prop::collection::vec(0usize..8, 0..160),
+        after in prop::collection::vec(0usize..12, 0..160),
+    ) {
+        let lines = ["a\n", " a\n", "a\r\n", "\n", " \n", "b\n", "b", "# c\n", "  a\n", "c\n", "\r\n", "   \n"];
+        let before: Vec<_> = before.iter().map(|&index| lines[index]).collect();
+        let after: Vec<_> = after.iter().map(|&index| lines[index]).collect();
+        let novel = after.iter().filter(|line| !before.contains(line)).count();
+        prop_assert!(novel <= detection::changed_lines(&before, &after));
     }
 
     #[test]
@@ -966,6 +982,25 @@ fn width_scoring_preserves_ties_refusals_and_line_alignment() {
         file_indent_width(&cfg, &large),
         original_indent_width(&cfg, &large)
     );
+}
+
+#[test]
+fn width_scoring_carries_cached_scalar_blanks() {
+    let cfg = YamlLintConfig::default();
+    for body in [
+        "root:\n    body: |2+\n       \n    next: x\nother:\n  value: y\n",
+        "|2+\n   \n---\nroot:\n    value: y\nother:\n  value: z\n",
+        "root:\n    body: |2+\n       \n    next: x\n    more: >2+\n        \n    end: y\n",
+        "root:\n    body: |2+\n       \n    next: x\n# ryl disable rule:indentation\n",
+    ] {
+        for input in [body.to_owned(), body.replace('\n', "\r\n")] {
+            assert_eq!(
+                file_indent_width(&cfg, &input),
+                original_indent_width(&cfg, &input),
+                "{input:?}"
+            );
+        }
+    }
 }
 
 /// `input` re-indented as `ryl format` would at `width`, to a fixed point since a dash join
