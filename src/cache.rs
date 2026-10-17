@@ -65,11 +65,13 @@ impl Settings {
                 }
             },
         );
+        let root: PathBuf = root.components().collect();
         let dir = root.join(env!("CARGO_PKG_VERSION"));
         let mut checked = self.checked.lock().expect("cache lock not poisoned");
         if checked.insert(dir.clone()) {
-            refuse_symlink(&root)?;
-            refuse_symlink(&dir)?;
+            for ancestor in root.ancestors().chain(std::iter::once(dir.as_path())) {
+                refuse_symlink(ancestor)?;
+            }
             fs::create_dir_all(&dir).map_err(|err| cache_error(&dir, &err))?;
             ensure_support_file(&root.join(".gitignore"), b"*\n")?;
             ensure_support_file(
@@ -168,7 +170,7 @@ fn load_lint_entries(dir: &Path) -> LintEntries {
 
 fn refuse_symlink(path: &Path) -> Result<(), String> {
     if fs::symlink_metadata(path)
-        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        .is_ok_and(|metadata| is_symlink_or_junction(&metadata))
     {
         return Err(format!(
             "error: cache {}: symlinked directory is refused",
@@ -176,6 +178,20 @@ fn refuse_symlink(path: &Path) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn is_symlink_or_junction(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
 }
 
 fn cache_error(path: &Path, err: &std::io::Error) -> String {

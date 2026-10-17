@@ -392,6 +392,13 @@ fn symlinked_cache_root_and_version_are_refused() {
     let (code, _, stderr) = run_check(Some(&default_root));
     assert_eq!(code, 2, "{stderr}");
     assert!(stderr.contains("symlinked directory"), "{stderr}");
+    for suffix in ["/", "/.", "/nested"] {
+        let spelling = format!("{}{suffix}", default_root.display());
+        let (code, _, stderr) = run_check(Some(Path::new(&spelling)));
+        assert_eq!(code, 2, "{spelling}: {stderr}");
+        assert!(stderr.contains("symlinked directory"), "{stderr}");
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+    }
     fs::remove_file(&default_root).unwrap();
     fs::create_dir(&default_root).unwrap();
     symlink(&target, default_root.join(env!("CARGO_PKG_VERSION"))).unwrap();
@@ -399,6 +406,70 @@ fn symlinked_cache_root_and_version_are_refused() {
     assert_eq!(code, 2, "{stderr}");
     assert!(stderr.contains("symlinked directory"), "{stderr}");
     assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_cache_root_spellings_are_refused_from_env_and_toml() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "a: b\n").unwrap();
+    let target = dir.path().join("target");
+    fs::create_dir(&target).unwrap();
+    let link = dir.path().join("link");
+    symlink(&target, &link).unwrap();
+    let config = dir.path().join("ryl.toml");
+    for suffix in ["", "/", "/."] {
+        let spelling = format!("{}{suffix}", link.display());
+        for source in ["env", "toml"] {
+            let mut cmd = ryl(dir.path());
+            cmd.current_dir(dir.path()).arg("check");
+            if source == "env" {
+                cmd.env("RYL_CACHE_DIR", &spelling)
+                    .args(["--enable", "ALL"]);
+            } else {
+                fs::write(
+                    &config,
+                    format!("cache-dir = '{spelling}'\n[lint.rules]\ntrailing-spaces = 'enable'\n"),
+                )
+                .unwrap();
+                cmd.arg("-c").arg(&config);
+            }
+            let (code, _, stderr) = run(cmd.arg(&file));
+            assert_eq!(code, 2, "{source} {spelling}: {stderr}");
+            assert!(stderr.contains("symlinked directory"), "{stderr}");
+            assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn junction_cache_root_spellings_are_refused() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "a: b\n").unwrap();
+    let target = dir.path().join("target");
+    fs::create_dir(&target).unwrap();
+    let junction = dir.path().join("junction");
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&junction)
+        .arg(&target)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    for suffix in ["", "\\", "\\."] {
+        let spelling = format!("{}{suffix}", junction.display());
+        let (code, _, stderr) = run(ryl(dir.path())
+            .args(["check", "--enable", "ALL", "--cache-dir", &spelling])
+            .arg(&file));
+        assert_eq!(code, 2, "{spelling}: {stderr}");
+        assert!(stderr.contains("symlinked directory"), "{stderr}");
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+    }
 }
 
 #[test]
