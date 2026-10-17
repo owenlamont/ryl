@@ -45,6 +45,7 @@ use ryl::fix::apply_safe_fixes;
 use ryl::format::file_indent_width;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
+use similar::{DiffTag, TextDiff};
 
 use config::{synthetic_base_dir, synthetic_path};
 use fold::{arb_fold_document, inserted_breaks, under_indented_break};
@@ -727,6 +728,12 @@ proptest! {
     }
 
     #[test]
+    fn inferred_width_matches_candidate_scoring(input in arb_nested_mapping()) {
+        let cfg = YamlLintConfig::default();
+        prop_assert_eq!(file_indent_width(&cfg, &input), scored_indent_width(&input));
+    }
+
+    #[test]
     fn every_format_pass_keeps_the_guarantee_on_foldable_documents(
         input in arb_fold_document()
     ) {
@@ -813,6 +820,98 @@ fn reindent_target(width: u8) -> indentation::Config {
         false,
     )
     .with_dash_on_own_line(false)
+}
+
+/// One-level nested mappings, mostly at one shared width, the shape width inference decides.
+fn arb_nested_mapping() -> impl Strategy<Value = String> {
+    let entry = (
+        prop_oneof![4 => Just(None), 1 => (1usize..=10).prop_map(Some)],
+        "[a-z_]{1,3}",
+        prop::sample::select(
+            &[
+                "v",
+                "'q'",
+                "[a,b]",
+                "v  # c",
+                "v  # ryl disable-line rule:indentation",
+                "[open",
+            ][..],
+        ),
+    );
+    (
+        1usize..=10,
+        prop::collection::vec(prop::collection::vec(entry, 1..4), 1..5),
+    )
+        .prop_map(|(width, sections)| {
+            let mut text = String::new();
+            for (index, entries) in sections.iter().enumerate() {
+                text += &format!("k{index}:\n");
+                for (own, key, value) in entries {
+                    text += &format!(
+                        "{}{key}: {value}\n",
+                        " ".repeat(own.unwrap_or(width))
+                    );
+                }
+            }
+            text
+        })
+}
+
+fn scored_indent_width(input: &str) -> u8 {
+    if indentation::reindent(input, &reindent_target(2)).text == input {
+        return 2;
+    }
+    let before: Vec<&str> = input.split_inclusive('\n').collect();
+    let scores: Vec<(u8, usize)> = (2..=8)
+        .map(|width| {
+            let mut text = indentation::reindent(input, &reindent_target(width)).text;
+            let mut previous = input.to_string();
+            for _ in 0..ryl::fix::FIX_PIPELINE_MAX_PASSES {
+                if text == previous {
+                    break;
+                }
+                let next = indentation::reindent(&text, &reindent_target(width)).text;
+                previous = std::mem::replace(&mut text, next);
+            }
+            let after: Vec<&str> = text.split_inclusive('\n').collect();
+            let changed = TextDiff::from_slices(&before, &after)
+                .ops()
+                .iter()
+                .filter(|op| op.tag() != DiffTag::Equal)
+                .map(|op| op.old_range().len().max(op.new_range().len()))
+                .sum();
+            (width, changed)
+        })
+        .collect();
+    let fewest = scores.iter().map(|&(_, count)| count).min();
+    let winners: Vec<_> = scores
+        .iter()
+        .filter(|&&(_, count)| Some(count) == fewest)
+        .collect();
+    match winners[..] {
+        [&(width, _)] => width,
+        _ => 2,
+    }
+}
+
+#[test]
+fn uniform_nested_mapping_keeps_observed_width() {
+    let input = "first:\n    key: value\n    other: [a,b]\nsecond:\n    key: value\n";
+    let cfg = YamlLintConfig::default();
+    assert_eq!(scored_indent_width(input), 4);
+    assert_eq!(file_indent_width(&cfg, input), 4);
+}
+
+#[test]
+fn inferred_width_falls_back_for_refusals_and_large_indents() {
+    let cfg = YamlLintConfig::default();
+    for input in [
+        "a:\n    b: value  # ryl disable-line rule:indentation\n".to_string(),
+        format!("a:\n{}b: value\n", " ".repeat(256)),
+        "a:\n    b: [unclosed\n".to_string(),
+    ] {
+        assert_eq!(file_indent_width(&cfg, &input), scored_indent_width(&input));
+    }
 }
 
 /// `input` re-indented as `ryl format` would at `width`, to a fixed point since a dash join

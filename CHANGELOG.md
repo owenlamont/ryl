@@ -7,6 +7,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl format` infers an unambiguous indent width from observed nested mappings
+  before trying every width. ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` reuses its final indentation check for refusal notices and skips
   collection planning when both collection styles are `preserve`.
   ([#750](https://github.com/owenlamont/ryl/issues/750))

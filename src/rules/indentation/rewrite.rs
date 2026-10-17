@@ -68,7 +68,7 @@ pub(crate) fn reindent_with_events(
 pub(crate) struct Prepared<'a> {
     buffer: &'a str,
     original: Vec<Document<'a>>,
-    parsed: bool,
+    pub(crate) parsed: bool,
     directives: Directives,
     lines: Vec<(&'a str, &'a str)>,
     starts: Vec<usize>,

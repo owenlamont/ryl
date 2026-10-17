@@ -275,9 +275,16 @@ fn file_indent_width_with_events(
     if let Some(width) = cfg.indent_width() {
         return width.get();
     }
-    // Zero changed lines is the best possible score; ties already choose the default.
     let target = indentation_target(cfg, DEFAULT_INDENT_WIDTH);
     let prepared = indentation::Prepared::for_config(content, &target, events);
+    if prepared.parsed
+        && let Some(width) = observed_indent_width(content)
+    {
+        let candidate = prepared.reindent(&indentation_target(cfg, width));
+        if candidate.refused.is_empty() && candidate.text == content {
+            return width;
+        }
+    }
     if prepared.reindent(&target).text == content {
         return DEFAULT_INDENT_WIDTH;
     }
@@ -318,6 +325,40 @@ fn file_indent_width_with_events(
         [&(width, _)] => width,
         _ => DEFAULT_INDENT_WIDTH,
     }
+}
+
+fn observed_indent_width(content: &str) -> Option<u8> {
+    let mut width = None;
+    for line in content.lines().filter(|line| !line.is_empty()) {
+        let indent = line.bytes().take_while(|&byte| byte == b' ').count();
+        let (key, value) = line[indent..].split_once(':')?;
+        if key.is_empty()
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            || (!value.is_empty() && !value.starts_with(' '))
+            || value.trim_start().starts_with(['|', '>'])
+        {
+            return None;
+        }
+        if indent == 0 {
+            if !value.is_empty() {
+                return None;
+            }
+        } else {
+            let indent = u8::try_from(indent).ok()?;
+            if !DETECTED_WIDTHS.contains(&indent) || value.is_empty() {
+                return None;
+            }
+            if width
+                .replace(indent)
+                .is_some_and(|previous| previous != indent)
+            {
+                return None;
+            }
+        }
+    }
+    width.filter(|&width| width != DEFAULT_INDENT_WIDTH)
 }
 
 /// `text`, one re-indent of `input` at `width`, re-indented again until it settles, as the
