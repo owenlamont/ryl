@@ -39,25 +39,22 @@ description: >-
     major bump, or a patch that touches performance-relevant paths. Skip it for a
     docs/packaging/bugfix patch with no perf delta, leaving the committed
     `img/benchmark-5x5-5runs.svg` in place. Do this **in the version-bump PR, before
-    squash-merge** — not as a post-merge afterthought (a forgotten refresh has forced a
-    separate follow-up PR, and main is never pushed to directly). The script's
-    `yamllint` PEP723 dep is unpinned, but uv reuses a cached resolution, so a plain
-    `uv run` can time against a stale yamllint; pass `-U`
-    (`uv run -U scripts/benchmark_yaml_tools.py`, which forces a fresh resolution) to
-    pick up the newest release. The script also requires `hyperfine`, `yamlfmt`,
-    `prettier`, and `dprint` binaries on `PATH`; pass `--yamlfmt-bin`,
-    `--prettier-bin`, or `--dprint-bin` when a formatter is installed elsewhere.
-    Use the README performance table to pin tool versions. Run `cargo build --release`,
+    squash-merge** — not as a post-merge afterthought. Bump the tool pins deliberately
+    in `scripts/benchmark_tool_versions.toml`, then use the benchmark's
+    `--install-pinned-tools` option to install them with uv, pixi, and npm. The README
+    table reports these pins; it is not the source of truth. Run `cargo build --release`,
     then check `uptime` and `nproc`. Wait in five-minute steps, up to one hour, while the
     one-minute load exceeds half the CPU count. Once idle, run
-    `uv run -U scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl` (adding
-    formatter binary paths as needed). The defaults reproduce the committed 5x5/5-run
-    matrix. Copy the run's `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
-    `img/benchmark-5x5-5runs.svg` (only that file is committed; `manual_outputs/` is
-    gitignored). Check `meta.json` for the timed binary versions and configuration:
-    `ryl` must match the release version and `yamllint` must match the current PyPI latest
-    (`curl -s https://pypi.org/pypi/yamllint/json`). Update the README performance table
-    with the measured versions and configs; the chart itself has no version labels.
+    `uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl
+    --install-pinned-tools`. The defaults reproduce the committed 5x5/5-run
+    matrix. The script checks load again after corpus validation; discard a run if
+    other builds push load over the threshold during timing. If the hour yields no
+    stable run, leave the old chart and name that limit in the PR. Copy the run's
+    `manual_outputs/benchmarks/<ts>/benchmark.svg` over the tracked
+    `img/benchmark-5x5-5runs.svg`. The generated corpus stays in a temporary directory;
+    `manual_outputs/benchmarks/` is gitignored. Check `meta.json` for binary versions,
+    configs, corpus hash, seed, strategy, and rejection rate. Update the README table
+    from the deliberate pins; the chart itself has no version labels.
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed
     in this release (a moved command, renamed test, new wiring step), and update
     the affected `SKILL.md`. If any `.agents/skills/` file changed, refresh the

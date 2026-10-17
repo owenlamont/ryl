@@ -119,6 +119,7 @@ documentation, see the docs site.
 The figure times lint and in-place format on the same deliberately
 unformatted YAML in a 5×5 file-count × file-size matrix, with five
 hyperfine runs per point. Formatting starts from a fresh copy for every run.
+It predates the property-test corpus now used by the benchmark script.
 
 ![YAML lint and format benchmark](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 
@@ -130,9 +131,12 @@ hyperfine runs per point. Formatting starts from a fresh copy for every run.
 | Prettier | 3.9.10 | Defaults; no config, EditorConfig, or ignore rules |
 | dprint | 0.63.0 | `pretty_yaml` 0.6.0 defaults; incremental mode off |
 
-Run `uv run scripts/benchmark_yaml_tools.py --help` for the benchmark options.
-Each run writes the exact commands, binary hashes, versions, configuration,
-raw samples, and summary to `manual_outputs/benchmarks/`.
+Tool pins live in `scripts/benchmark_tool_versions.toml`; the benchmark's
+`--install-pinned-tools` option installs them. Run
+`uv run scripts/benchmark_yaml_tools.py --help` for other options. Each run
+writes the commands, binary hashes, versions, configuration, corpus hash,
+seed, strategy, rejection rate, raw samples, and summary to
+`manual_outputs/benchmarks/`. Generated YAML is temporary and untracked.
 [Biome](https://biomejs.dev/introduction/language-support/) 2.5.15 is absent
 because Biome does not process YAML files.
 

@@ -7,7 +7,6 @@
 #   "polars>=1.30,<2",
 #   "tqdm>=4.67,<5",
 #   "typer>=0.16,<1",
-#   "yamllint",
 # ]
 # ///
 
@@ -21,9 +20,10 @@ import os
 from pathlib import Path
 import shlex
 import shutil
-import string
 import subprocess
 import sys
+import tempfile
+import tomllib
 
 import matplotlib.pyplot as plt
 import orjson
@@ -84,6 +84,23 @@ def require_command(name: str) -> None:
         raise RuntimeError(f"required command is not installed or not on PATH: {name}")
 
 
+def require_idle_host() -> tuple[float, int]:
+    if shutil.which("uptime") and shutil.which("nproc"):
+        uptime = run_checked(["uptime"]).stdout
+        cpus = int(run_checked(["nproc"]).stdout)
+        load = float(uptime.rsplit("load average:", 1)[1].split(",", 1)[0])
+    else:
+        if os.name == "nt":
+            raise RuntimeError("host load is unavailable on this platform")
+        cpus = os.cpu_count() or 1
+        load = os.getloadavg()[0]
+    if load > cpus / 2:
+        raise RuntimeError(
+            f"host load {load:.2f} exceeds half of {cpus} CPUs; timing aborted"
+        )
+    return load, cpus
+
+
 def resolve_tool_path(name: str) -> Path:
     path = shutil.which(name)
     if path is None:
@@ -93,25 +110,19 @@ def resolve_tool_path(name: str) -> Path:
     return Path(path)
 
 
-def build_yaml_blob(target_bytes: int, seed: int) -> str:
-    lines = ["root:"]
-    alphabet = string.ascii_lowercase + string.digits
-    index = 0
-    while len(("\n".join(lines) + "\n").encode("utf-8")) < target_bytes:
-        offset = (seed + index) % len(alphabet)
-        token = "".join(alphabet[(offset + i) % len(alphabet)] for i in range(28))
-        lines.append(f'  key_{index:06d}:  "{token}"')
-        index += 1
-    return "\n".join(lines) + "\n"
-
-
-def materialize_case(case: Case, seed: int) -> None:
+def materialize_case(case: Case, seed: int, documents: list[bytes]) -> None:
     case.dataset_dir.mkdir(parents=True, exist_ok=True)
     target_bytes = case.file_size_kib * 1024
     for file_index in range(case.file_count):
-        payload = build_yaml_blob(target_bytes=target_bytes, seed=seed + file_index)
+        payload = bytearray()
+        index = (
+            seed + case.file_count * 31 + case.file_size_kib * 17 + file_index
+        ) % len(documents)
+        while len(payload) < target_bytes:
+            payload.extend(documents[index % len(documents)])
+            index += 1
         file_path = case.dataset_dir / f"file_{file_index:05d}.yaml"
-        file_path.write_text(payload, encoding="utf-8")
+        file_path.write_bytes(payload)
 
 
 def iter_cases(
@@ -152,6 +163,7 @@ def make_tools(
     prettier_bin: Path,
     dprint_bin: Path,
     run_dir: Path,
+    versions: dict[str, str],
 ) -> list[Tool]:
     ryl_config = run_dir / "ryl.toml"
     ryl_config.write_text("[format]\n")
@@ -162,7 +174,7 @@ def make_tools(
         orjson.dumps(
             {
                 "includes": ["**/*.yaml"],
-                "plugins": ["npm:dprint-plugin-yaml@0.6.0"],
+                "plugins": [f"npm:dprint-plugin-yaml@{versions['pretty_yaml']}"],
                 "yaml": {},
             },
             option=orjson.OPT_INDENT_2,
@@ -209,7 +221,7 @@ def make_tools(
             name="dprint",
             binary=dprint_bin,
             version=run_checked([str(dprint_bin), "--version"]).stdout.strip(),
-            config="dprint.json; pretty_yaml 0.6.0 defaults; incremental=false",
+            config=f"dprint.json; pretty_yaml {versions['pretty_yaml']} defaults; incremental=false",
             format_args=(
                 "fmt",
                 "--config",
@@ -221,6 +233,93 @@ def make_tools(
             ),
         ),
     ]
+
+
+def install_tools(versions: dict[str, str], run_dir: Path) -> dict[str, Path]:
+    tool_dir = run_dir / "tools"
+    tool_dir.mkdir()
+    run_checked(
+        [
+            "npm",
+            "install",
+            "--prefix",
+            str(tool_dir),
+            "--no-save",
+            "--no-package-lock",
+            "--dangerously-allow-all-scripts",
+            f"prettier@{versions['prettier']}",
+            f"dprint@{versions['dprint']}",
+        ]
+    )
+    run_checked(
+        ["uv", "tool", "install", "--force", f"yamllint=={versions['yamllint']}"]
+    )
+    run_checked(["pixi", "global", "install", f"yamlfmt=={versions['yamlfmt']}"])
+    return {
+        "prettier": tool_dir / "node_modules/.bin/prettier",
+        "dprint": tool_dir / "node_modules/.bin/dprint",
+    }
+
+
+def accepted_documents(
+    *, seed: int, root: Path, tools: list[Tool]
+) -> tuple[list[bytes], int, list[int]]:
+    candidates = root / "candidates"
+    environment = os.environ.copy()
+    environment["BENCH_CORPUS_DIR"] = str(candidates)
+    environment["BENCH_CORPUS_SEED"] = str(seed)
+    subprocess.run(
+        [
+            str(resolve_tool_path("cargo")),
+            "test",
+            "--release",
+            "--features",
+            "benchmark-corpus",
+            "--test",
+            "benchmark_corpus",
+            "--",
+            "--ignored",
+            "--exact",
+            "write_benchmark_candidates",
+        ],
+        check=True,
+        env=environment,
+    )
+    probe = root / "probe"
+    probe.mkdir()
+    sample = probe / "file_00000.yaml"
+    accepted: list[bytes] = []
+    accepted_indices: list[int] = []
+    attempted = 0
+    checks = [
+        (next(tool for tool in tools if tool.name == "yamllint"), "lint"),
+        (next(tool for tool in tools if tool.name == "ryl"), "lint"),
+        *((tool, "format") for tool in tools if tool.format_args),
+    ]
+    for candidate in sorted(candidates.glob("*.yaml")):
+        attempted += 1
+        raw = candidate.read_bytes()
+        document = b"---\n" + raw
+        if not document.endswith(b"\n"):
+            document += b"\n"
+        valid = True
+        for tool, mode in checks:
+            sample.write_bytes(document)
+            command = tool_command(tool, mode, probe)
+            result = subprocess.run(command, capture_output=True, check=False)
+            if result.returncode != 0 or (
+                mode == "format" and sample.read_bytes() == document
+            ):
+                valid = False
+                break
+        if valid:
+            accepted.append(document)
+            accepted_indices.append(attempted - 1)
+    if len(accepted) < 32:
+        raise RuntimeError(
+            f"only {len(accepted)} of {attempted} generated documents passed every tool"
+        )
+    return accepted, attempted, accepted_indices
 
 
 def tool_command(tool: Tool, mode: str, dataset: Path) -> list[str]:
@@ -302,8 +401,52 @@ def benchmark_case(
     ]
 
 
+def format_profile(
+    case: Case, ryl_tool: Tool, root: Path, raw_dir: Path, runs: int, warmup: int
+) -> dict[str, float | int]:
+    clean_dir = root / "already-formatted"
+    shutil.copytree(case.dataset_dir, clean_dir)
+    run_checked(tool_command(ryl_tool, "format", clean_dir))
+    commands = [
+        ("already_formatted", tool_command(ryl_tool, "format", clean_dir)),
+        (
+            "check_dirty",
+            [
+                str(ryl_tool.binary),
+                *ryl_tool.format_args,
+                "--check",
+                str(case.dataset_dir),
+            ],
+        ),
+    ]
+    results: dict[str, float | int] = {
+        "file_count": case.file_count,
+        "file_size_kib": case.file_size_kib,
+    }
+    for name, command in commands:
+        output = raw_dir / f"ryl-{name}.json"
+        run_checked(
+            [
+                "hyperfine",
+                "--ignore-failure",
+                "--runs",
+                str(runs),
+                "--warmup",
+                str(warmup),
+                "--export-json",
+                str(output),
+                shell_command(command),
+            ]
+        )
+        results[f"{name}_mean_seconds"] = orjson.loads(output.read_bytes())["results"][
+            0
+        ]["mean"]
+    return results
+
+
 def plot_results(df: pl.DataFrame, out_svg: Path, *, runs: int) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
+    plt.rcParams["svg.fonttype"] = "none"
     panels = [
         ("lint", "ryl"),
         ("lint", "yamllint"),
@@ -402,12 +545,15 @@ def main(
     prettier_bin: Path | None = typer.Option(None, help="Prettier executable."),
     dprint_bin: Path | None = typer.Option(None, help="dprint executable."),
     seed: int = typer.Option(7331, help="Base RNG seed for synthetic YAML generation."),
+    install_pinned_tools: bool = typer.Option(
+        False, help="Install exact tool versions from benchmark_tool_versions.toml."
+    ),
+    profile_format: bool = typer.Option(
+        False, help="Also time ryl on formatted input and dirty --check input."
+    ),
     output_dir: Path = typer.Option(
         Path("manual_outputs") / "benchmarks",
         help="Directory where all artifacts are written.",
-    ),
-    keep_datasets: bool = typer.Option(
-        False, help="Keep generated YAML datasets on disk instead of deleting them."
     ),
 ) -> None:
     if runs <= 0:
@@ -443,14 +589,16 @@ def main(
 
     require_command("uv")
     require_command("hyperfine")
+    versions = tomllib.loads(
+        (Path(__file__).with_name("benchmark_tool_versions.toml")).read_text()
+    )
 
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = (output_dir / timestamp).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
-    dataset_root = run_dir / "datasets"
-    dataset_root.mkdir(parents=True, exist_ok=True)
     raw_dir = run_dir / "hyperfine-json"
     raw_dir.mkdir(parents=True, exist_ok=True)
+    installed = install_tools(versions, run_dir) if install_pinned_tools else {}
 
     def binary(value: Path | None, name: str) -> Path:
         path = value if value is not None else resolve_tool_path(name)
@@ -462,28 +610,55 @@ def main(
         ryl_bin=binary(ryl_bin, "ryl"),
         yamllint_bin=binary(yamllint_bin, "yamllint"),
         yamlfmt_bin=binary(yamlfmt_bin, "yamlfmt"),
-        prettier_bin=binary(prettier_bin, "prettier"),
-        dprint_bin=binary(dprint_bin, "dprint"),
+        prettier_bin=binary(prettier_bin or installed.get("prettier"), "prettier"),
+        dprint_bin=binary(dprint_bin or installed.get("dprint"), "dprint"),
         run_dir=run_dir,
+        versions=versions,
     )
-
-    cases = iter_cases(file_counts_values, file_size_values, dataset_root)
-    rows: list[dict[str, float | int | str]] = []
-    for case_index, case in enumerate(tqdm(cases, desc="Benchmark cases", unit="case")):
-        materialize_case(case, seed=seed + case_index * 100_000)
-        for mode in ("lint", "format"):
-            rows.extend(
-                benchmark_case(
-                    case,
-                    mode=mode,
-                    tools=tools,
-                    runs=runs,
-                    warmup=warmup,
-                    output_json_path=raw_dir
-                    / f"{mode}-{case.file_count}-{case.file_size_kib}.json",
-                    work_dir=run_dir / "working",
-                )
+    for tool in tools:
+        pin = versions.get(tool.name.lower())
+        if pin and tool.name != "yamlfmt" and pin not in tool.version:
+            raise RuntimeError(
+                f"{tool.name} version {tool.version!r} differs from pin {pin}"
             )
+    rows: list[dict[str, float | int | str]] = []
+    with tempfile.TemporaryDirectory(prefix="ryl-benchmark-") as temporary:
+        temporary_root = Path(temporary)
+        documents, attempted, accepted_indices = accepted_documents(
+            seed=seed, root=temporary_root, tools=tools
+        )
+        cases = iter_cases(
+            file_counts_values, file_size_values, temporary_root / "datasets"
+        )
+        load, cpus = require_idle_host()
+        corpus_digest = sha256()
+        for case in tqdm(cases, desc="Benchmark cases", unit="case"):
+            materialize_case(case, seed=seed, documents=documents)
+            for path in sorted(case.dataset_dir.glob("*.yaml")):
+                corpus_digest.update(str(path.relative_to(temporary_root)).encode())
+                corpus_digest.update(path.read_bytes())
+            for mode in ("lint", "format"):
+                rows.extend(
+                    benchmark_case(
+                        case,
+                        mode=mode,
+                        tools=tools,
+                        runs=runs,
+                        warmup=warmup,
+                        output_json_path=raw_dir
+                        / f"{mode}-{case.file_count}-{case.file_size_kib}.json",
+                        work_dir=temporary_root / "working",
+                    )
+                )
+        profile = None
+        if profile_format:
+            largest_case = max(
+                cases, key=lambda case: case.file_count * case.file_size_kib
+            )
+            profile = format_profile(
+                largest_case, tools[0], temporary_root, raw_dir, runs, warmup
+            )
+        corpus_hash = corpus_digest.hexdigest()
 
     results_df = pl.DataFrame(rows).select(
         [
@@ -508,7 +683,20 @@ def main(
                 "runs": runs,
                 "warmup": warmup,
                 "seed": seed,
-                "fixture": "same YAML for lint and format; extra space after colons",
+                "pre_run_load_1m": load,
+                "cpu_count": cpus,
+                "strategy_set": [
+                    "property_format::arb_document_with_properties",
+                    "property_safe_fix::arb_document",
+                ],
+                "corpus_sha256": corpus_hash,
+                "candidate_reject_rate": (attempted - len(documents)) / attempted,
+                "candidate_attempts": attempted,
+                "candidate_accepted": len(documents),
+                "accepted_candidate_indices": accepted_indices,
+                "tool_pins": versions,
+                "ryl_format_profile": profile,
+                "fixture": "proptest documents joined as YAML streams; every formatter changes each candidate",
                 "file_counts": file_counts_values,
                 "file_sizes_kib": file_size_values,
                 "tools": [
@@ -535,10 +723,6 @@ def main(
 
     plot_svg = run_dir / "benchmark.svg"
     plot_results(results_df, plot_svg, runs=runs)
-
-    if not keep_datasets:
-        shutil.rmtree(dataset_root)
-        shutil.rmtree(run_dir / "working")
 
     print(f"Benchmark complete. Artifacts: {run_dir}")
     print(f"Plot: {plot_svg}")

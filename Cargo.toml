@@ -33,8 +33,14 @@ unsafe_code = "forbid"
 name = "ryl"
 path = "src/main.rs"
 
+[[test]]
+name = "benchmark_corpus"
+path = "scripts/benchmark_corpus.rs"
+required-features = ["benchmark-corpus"]
+
 [features]
 default = ["lsp"]
+benchmark-corpus = []
 # The `ryl server` language server; build `--no-default-features` for a minimal
 # linter-only binary. crossbeam-channel is a direct dep because lsp-server exposes
 # its Sender/Receiver on the Connection.
