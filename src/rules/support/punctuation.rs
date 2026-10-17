@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use granit_parser::{Event, Span, SpannedEventReceiver};
+use granit_parser::Span;
 
 use crate::rules::support::span_utils::CharPos;
 use crate::text_version::{Analysis, TextVersion};
@@ -139,13 +139,5 @@ impl ScalarRangeCollector {
     fn into_sorted(mut self) -> Vec<Range<CharPos>> {
         self.ranges.sort_by_key(|a| a.start);
         self.ranges
-    }
-}
-
-impl SpannedEventReceiver<'_> for ScalarRangeCollector {
-    fn on_event(&mut self, ev: Event<'_>, span: Span) {
-        if matches!(ev, Event::Scalar(..)) {
-            self.push_range(span);
-        }
     }
 }

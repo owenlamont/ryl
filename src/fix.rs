@@ -1430,15 +1430,15 @@ impl FixContext<'_> {
         let snapshot = content.to_string();
         let reparsed = (snapshot != input || events.is_none())
             .then(|| Parser::new_from_str(&snapshot).collect::<Result<Vec<_>, _>>());
-        let shared = events.filter(|_| snapshot == input).or_else(|| {
-            reparsed
-                .as_ref()
-                .and_then(|result| result.as_ref().ok())
-                .map(Vec::as_slice)
-        });
-        if let Some(events) = shared {
-            content.analysis().seed_events(events);
-        }
+        let shared = events
+            .filter(|_| snapshot == input)
+            .or_else(|| {
+                reparsed
+                    .as_ref()
+                    .and_then(|result| result.as_ref().ok())
+                    .map(Vec::as_slice)
+            })
+            .inspect(|events| content.analysis().seed_events(events));
         let current_events = |buffer: &str| shared.filter(|_| snapshot == buffer);
         if let Some(cfg) = passes.collection_style
             && let Some((restyled, rules)) = collection_style::restyle(
