@@ -1,14 +1,16 @@
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
-use granit_parser::{Scanner, StrInput, Token, TokenType};
+use granit_parser::{Event, Span};
 
 use super::{
-    Analyzer, Config, Gap, ID, Kind, Mode, Shift, SpacesSetting, locate, scan,
+    Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate, scan, scan_with_comments,
 };
 use crate::directives::Directives;
 use crate::rules::hyphens;
-use crate::rules::support::event_compare::{Document, documents};
+use crate::rules::support::event_compare::{
+    Document, documents, documents_from_events,
+};
 use crate::rules::support::line_syntax::{
     buffer_newline, split_lines_preserve_endings,
 };
@@ -51,30 +53,19 @@ pub enum Cause {
 /// byte-identical for each [`Cause`].
 #[must_use]
 pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
-    Prepared::new(buffer, cfg.dash_on_own_line).reindent(cfg)
+    reindent_with_events(buffer, cfg, None)
 }
 
-/// [`reindent`] under `cfg` at each of `widths`, parsing and scanning `buffer` once.
-#[must_use]
-pub fn reindent_widths(
+pub(crate) fn reindent_with_events(
     buffer: &str,
     cfg: &Config,
-    widths: &[usize],
-) -> Vec<Reindented> {
-    let prepared = Prepared::new(buffer, cfg.dash_on_own_line);
-    widths
-        .iter()
-        .map(|&width| {
-            prepared.reindent(&Config {
-                spaces: SpacesSetting::Fixed(width),
-                ..*cfg
-            })
-        })
-        .collect()
+    events: Option<&[(Event<'_>, Span)]>,
+) -> Reindented {
+    Prepared::new(buffer, cfg.dash_on_own_line, events).reindent(cfg)
 }
 
 /// What [`reindent`] derives from `buffer` alone, so several widths can share it.
-struct Prepared<'a> {
+pub(crate) struct Prepared<'a> {
     buffer: &'a str,
     original: Vec<Document<'a>>,
     parsed: bool,
@@ -90,8 +81,23 @@ struct Prepared<'a> {
 }
 
 impl<'a> Prepared<'a> {
-    fn new(buffer: &'a str, dash_on_own_line: Option<bool>) -> Self {
-        let (original, parsed) = documents(buffer);
+    pub(crate) fn for_config(
+        buffer: &'a str,
+        cfg: &Config,
+        events: Option<&[(Event<'a>, Span)]>,
+    ) -> Self {
+        Self::new(buffer, cfg.dash_on_own_line, events)
+    }
+
+    fn new(
+        buffer: &'a str,
+        dash_on_own_line: Option<bool>,
+        events: Option<&[(Event<'a>, Span)]>,
+    ) -> Self {
+        let (original, parsed) = events.map_or_else(
+            || documents(buffer),
+            |events| (documents_from_events(events), true),
+        );
         let directives = Directives::parse(buffer);
         let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
             .map(|(_, content, ending)| (content, ending))
@@ -102,14 +108,18 @@ impl<'a> Prepared<'a> {
         } else {
             Vec::new()
         };
-        let (shaped, origin, kept_dash_lines) = if parsed {
+        let (shaped, origin, kept_dash_lines, scanned) = if parsed {
             reshape(buffer, &lines, dash_on_own_line, &directives)
         } else {
-            (String::new(), Vec::new(), Vec::new())
+            (String::new(), Vec::new(), Vec::new(), None)
         };
         let chars: Vec<(usize, char)> = shaped.char_indices().collect();
-        let mut line_starts = build_line_starts(&chars);
-        let tokens = scan(&shaped, &chars, &mut line_starts);
+        let (tokens, line_starts) =
+            scanned.filter(|_| shaped == buffer).unwrap_or_else(|| {
+                let mut starts = build_line_starts(&chars);
+                let tokens = scan(&shaped, &chars, &mut starts);
+                (tokens, starts)
+            });
         Self {
             buffer,
             original,
@@ -126,7 +136,7 @@ impl<'a> Prepared<'a> {
         }
     }
 
-    fn reindent(&self, cfg: &Config) -> Reindented {
+    pub(crate) fn reindent(&self, cfg: &Config) -> Reindented {
         if !self.parsed {
             return Reindented {
                 text: self.buffer.to_string(),
@@ -323,6 +333,13 @@ fn render_line(
     text.push_str(ending);
 }
 
+type ReshapeResult = (
+    String,
+    Vec<usize>,
+    Vec<(usize, usize)>,
+    Option<(Vec<super::Token>, Vec<CharPos>)>,
+);
+
 /// `buffer` with each block mapping in a block sequence joined onto its `-` line, or
 /// broken onto the next, as `dash_on_own_line` asks, keeping every token's column; and the
 /// line of `lines` each output line starts on. A dash line carrying a node property or a
@@ -332,20 +349,17 @@ fn reshape(
     lines: &[(&str, &str)],
     dash_on_own_line: Option<bool>,
     directives: &Directives,
-) -> (String, Vec<usize>, Vec<(usize, usize)>) {
+) -> ReshapeResult {
     let mut joins = vec![None; lines.len()];
     let mut breaks = vec![None; lines.len()];
     let mut kept = Vec::new();
+    let mut scanned = None;
     if let Some(own_line) = dash_on_own_line {
         let chars: Vec<(usize, char)> = buffer.char_indices().collect();
         let mut line_starts = build_line_starts(&chars);
-        let tokens = scan(buffer, &chars, &mut line_starts);
-        let commented: HashSet<usize> = Scanner::new(StrInput::new(buffer))
-            .map_while(Result::ok)
-            .map(Token::into_parts)
-            .filter(|(_, token)| matches!(token, TokenType::Comment(_)))
-            .map(|(span, _)| locate(&line_starts, span.start.index()).0)
-            .collect();
+        let mut commented = HashSet::new();
+        let tokens =
+            scan_with_comments(buffer, &chars, &mut line_starts, Some(&mut commented));
         for pair in tokens.windows(2) {
             let (entry, start) = (pair[0], pair[1]);
             if entry.kind != Kind::BlockEntry
@@ -374,6 +388,7 @@ fn reshape(
                 joins[entry.line] = Some(entry.column);
             }
         }
+        scanned = Some((tokens, line_starts));
     }
     let mut text = String::with_capacity(buffer.len());
     let mut origin = Vec::with_capacity(lines.len());
@@ -413,7 +428,7 @@ fn reshape(
         text.push_str(ending);
         line += 1;
     }
-    (text, origin, kept)
+    (text, origin, kept, scanned)
 }
 
 /// The re-indent `ryl format` applies, or `None` where nothing moves.

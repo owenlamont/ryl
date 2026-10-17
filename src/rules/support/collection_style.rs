@@ -2,7 +2,7 @@
 //! rewritten in block style and leaf block ones in flow style, each entry's text copied
 //! as written.
 
-use granit_parser::{Event, Parser, ScalarStyle, StructureStyle};
+use granit_parser::{Event, Parser, ScalarStyle, Span, StructureStyle};
 
 use crate::config_schema::CollectionStyleTarget;
 use crate::directives::{Directives, disables_file};
@@ -67,8 +67,9 @@ pub fn restyle(
     buffer: &str,
     cfg: Config,
     indent: Option<&indentation::Config>,
+    events: Option<&[(Event<'_>, Span)]>,
 ) -> Option<(String, Vec<&'static str>)> {
-    let (edits, findings) = plan(buffer, cfg, indent);
+    let (edits, findings) = plan(buffer, cfg, indent, events);
     let restyled = apply_replacements(buffer, edits);
     (restyled != buffer && same_data(buffer, &restyled)).then(|| {
         let rules = findings
@@ -86,7 +87,7 @@ pub fn findings(
     cfg: Config,
     indent: Option<&indentation::Config>,
 ) -> Vec<Finding> {
-    plan(buffer, cfg, indent).1
+    plan(buffer, cfg, indent, None).1
 }
 
 type Edit = (BytePos, BytePos, String);
@@ -95,12 +96,13 @@ fn plan(
     buffer: &str,
     cfg: Config,
     indent: Option<&indentation::Config>,
+    events: Option<&[(Event<'_>, Span)]>,
 ) -> (Vec<Edit>, Vec<Finding>) {
     let directives = Directives::parse(buffer);
     let style = |target, rule| {
         (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)
     };
-    let (nodes, comments) = tree(buffer);
+    let (nodes, comments) = tree(buffer, events);
     let restyler = Restyler {
         buffer,
         nodes,
@@ -252,11 +254,25 @@ struct Node {
     children: Vec<usize>,
 }
 
-fn tree(buffer: &str) -> (Vec<Node>, Vec<(usize, usize)>) {
+fn tree(
+    buffer: &str,
+    events: Option<&[(Event<'_>, Span)]>,
+) -> (Vec<Node>, Vec<(usize, usize)>) {
+    if let Some(events) = events {
+        tree_from_events(buffer, events.iter().cloned())
+    } else {
+        tree_from_events(buffer, Parser::new_from_str(buffer).map_while(Result::ok))
+    }
+}
+
+fn tree_from_events<'a>(
+    buffer: &str,
+    events: impl Iterator<Item = (Event<'a>, Span)>,
+) -> (Vec<Node>, Vec<(usize, usize)>) {
     let mut nodes: Vec<Node> = Vec::new();
     let mut comments = Vec::new();
     let mut open: Vec<usize> = Vec::new();
-    for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
+    for (event, span) in events {
         let (start, end) = (
             marker_byte_offset(span.start).get(),
             marker_byte_offset(span.end).get(),

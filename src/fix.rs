@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use granit_parser::{Event, Parser, Span};
 use rayon::prelude::*;
 #[cfg(not(unix))]
 use same_file::Handle;
@@ -1033,12 +1034,40 @@ pub(crate) fn run_passes(
     err: &mut dyn Write,
     edited: &mut Vec<&'static str>,
 ) -> String {
+    run_passes_with_events(input, passes, path, max_passes, err, edited, None)
+}
+
+pub(crate) fn run_passes_with_events(
+    input: &str,
+    passes: &Passes,
+    path: &Path,
+    max_passes: usize,
+    err: &mut dyn Write,
+    edited: &mut Vec<&'static str>,
+    initial_events: Option<&[(Event<'_>, Span)]>,
+) -> String {
+    if crate::directives::disables_file(input) {
+        return input.to_string();
+    }
+    let parsed = passes
+        .collection_style
+        .filter(|_| initial_events.is_none())
+        .map(|_| Parser::new_from_str(input).collect::<Result<Vec<_>, _>>());
     // Never mutate a file that does not fully parse. `parse_error` is stricter than lint's
     // `syntax_diagnostic` (it does not tolerate undefined aliases), so any granit error leaves
     // the file byte-for-byte unchanged.
-    if crate::directives::disables_file(input)
-        || crate::lint::parse_error(input).is_some()
-    {
+    if initial_events.map_or_else(
+        || {
+            parsed.as_ref().map_or_else(
+                || crate::lint::parse_error(input).is_some(),
+                |result| {
+                    crate::lint::parse_error_from_result(input, result.as_ref().err())
+                        .is_some()
+                },
+            )
+        },
+        |_| crate::lint::parse_error_from_result(input, None).is_some(),
+    ) {
         return input.to_string();
     }
     let ctx = FixContext {
@@ -1060,15 +1089,25 @@ pub(crate) fn run_passes(
         return sorted;
     }
     let mut content = input.to_string();
-    for _ in 0..max_passes {
-        let next = ctx.pass(&content, edited);
+    for pass in 0..max_passes {
+        let events = if pass == 0 {
+            initial_events.or_else(|| {
+                parsed
+                    .as_ref()
+                    .and_then(|result| result.as_ref().ok())
+                    .map(Vec::as_slice)
+            })
+        } else {
+            None
+        };
+        let next = ctx.pass(&content, edited, events);
         if next == content {
             return content;
         }
         content = next;
     }
     let mut changed_rules = Vec::new();
-    if ctx.pass(&content, &mut changed_rules) != content {
+    if ctx.pass(&content, &mut changed_rules, None) != content {
         changed_rules.dedup();
         let warning = format!(
             "\nerror: Failed to converge after {max_passes} iterations.\n\n\
@@ -1096,7 +1135,12 @@ struct FixContext<'a> {
 impl FixContext<'_> {
     /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix
     /// changed the text.
-    fn pass(&self, input: &str, changed_rules: &mut Vec<&'static str>) -> String {
+    fn pass(
+        &self,
+        input: &str,
+        changed_rules: &mut Vec<&'static str>,
+        events: Option<&[(Event<'_>, Span)]>,
+    ) -> String {
         let passes = self.passes;
         let mut content = input.to_string();
         macro_rules! fix {
@@ -1113,27 +1157,11 @@ impl FixContext<'_> {
         fix!(comments);
         fix!(comments_indentation);
         fix!(commas);
-        if let Some(cfg) = passes.collection_style
-            && let Some((restyled, rules)) =
-                collection_style::restyle(&content, cfg, passes.indentation.as_ref())
-        {
-            changed_rules.extend(rules);
-            content = restyled;
-        }
-        fix!(braces);
-        fix!(brackets);
-        fix!(colons);
-        fix!(hyphens);
-        fix!(indentation);
-        fix!(
-            new_line_at_end_of_file,
-            passes.final_newline.as_ref(),
-            |buffer, policy| new_line_at_end_of_file::fix(
-                buffer,
-                policy.newline(buffer)
-            )
-        );
-        fix!(quoted_strings);
+        content = if passes.collection_style.is_some() {
+            self.syntax_pass(content, input, changed_rules, events)
+        } else {
+            self.lint_syntax_pass(content, changed_rules)
+        };
         fix!(
             trailing_spaces,
             passes.trailing_spaces.then_some(&()),
@@ -1153,6 +1181,148 @@ impl FixContext<'_> {
             changed_rules.push(line_length::ID);
             content = folded;
         }
+        content
+    }
+
+    fn lint_syntax_pass(
+        &self,
+        mut content: String,
+        changed_rules: &mut Vec<&'static str>,
+    ) -> String {
+        let passes = self.passes;
+        macro_rules! fix {
+            ($rule:ident) => {
+                content = self.apply(
+                    content,
+                    changed_rules,
+                    $rule::ID,
+                    passes.$rule.as_ref(),
+                    $rule::fix,
+                )
+            };
+        }
+        fix!(braces);
+        fix!(brackets);
+        fix!(colons);
+        fix!(hyphens);
+        content = self.apply(
+            content,
+            changed_rules,
+            new_line_at_end_of_file::ID,
+            passes.final_newline.as_ref(),
+            |buffer, policy| {
+                new_line_at_end_of_file::fix(buffer, policy.newline(buffer))
+            },
+        );
+        fix!(quoted_strings);
+        content
+    }
+
+    fn syntax_pass(
+        &self,
+        mut content: String,
+        input: &str,
+        changed_rules: &mut Vec<&'static str>,
+        events: Option<&[(Event<'_>, Span)]>,
+    ) -> String {
+        let passes = self.passes;
+        macro_rules! fix {
+            ($rule:ident) => {
+                content = self.apply(
+                    content,
+                    changed_rules,
+                    $rule::ID,
+                    passes.$rule.as_ref(),
+                    $rule::fix,
+                )
+            };
+            ($rule:ident, $cfg:expr, $fix:expr) => {
+                content = self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
+            };
+        }
+        let snapshot = passes.collection_style.map(|_| content.clone());
+        let reparsed = snapshot.as_deref().and_then(|text| {
+            (text != input || events.is_none())
+                .then(|| Parser::new_from_str(text).collect::<Result<Vec<_>, _>>())
+        });
+        let shared = events
+            .filter(|_| snapshot.as_deref() == Some(input))
+            .or_else(|| {
+                reparsed
+                    .as_ref()
+                    .and_then(|result| result.as_ref().ok())
+                    .map(Vec::as_slice)
+            });
+        let current_events =
+            |buffer: &str| shared.filter(|_| snapshot.as_deref() == Some(buffer));
+        if let Some(cfg) = passes.collection_style
+            && let Some((restyled, rules)) = collection_style::restyle(
+                &content,
+                cfg,
+                passes.indentation.as_ref(),
+                current_events(&content),
+            )
+        {
+            changed_rules.extend(rules);
+            content = restyled;
+        }
+        fix!(braces);
+        fix!(brackets);
+        fix!(colons);
+        fix!(hyphens);
+        let indent_snapshot = passes
+            .indentation
+            .filter(|_| snapshot.as_deref() != Some(content.as_str()))
+            .map(|_| content.clone());
+        let indent_reparsed = indent_snapshot
+            .as_deref()
+            .map(|text| Parser::new_from_str(text).collect::<Result<Vec<_>, _>>());
+        let indent_events = indent_reparsed
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .map(Vec::as_slice);
+        let events_after_spacing = |buffer: &str| {
+            if indent_snapshot.as_deref() == Some(buffer) {
+                indent_events
+            } else {
+                current_events(buffer)
+            }
+        };
+        content = self.apply(
+            content,
+            changed_rules,
+            indentation::ID,
+            passes.indentation.as_ref(),
+            |buffer, cfg| {
+                let result = indentation::reindent_with_events(
+                    buffer,
+                    cfg,
+                    events_after_spacing(buffer),
+                );
+                (result.text != buffer).then_some(result.text)
+            },
+        );
+        fix!(
+            new_line_at_end_of_file,
+            passes.final_newline.as_ref(),
+            |buffer, policy| new_line_at_end_of_file::fix(
+                buffer,
+                policy.newline(buffer)
+            )
+        );
+        content = self.apply(
+            content,
+            changed_rules,
+            quoted_strings::ID,
+            passes.quoted_strings.as_ref(),
+            |buffer, cfg| {
+                quoted_strings::fix_with_events(
+                    buffer,
+                    cfg,
+                    events_after_spacing(buffer),
+                )
+            },
+        );
         content
     }
 

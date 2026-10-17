@@ -7,6 +7,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl format` shares YAML events and indentation tokens across unchanged-text
+  parse, layout and quote passes. ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` and `ryl check --fix`/`--diff` process file contents in parallel while
   keeping writes, notices and diffs in input order.
   ([#748](https://github.com/owenlamont/ryl/issues/748))
