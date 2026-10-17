@@ -133,17 +133,36 @@ def resolve_tool_path(name: str) -> Path:
     return Path(path)
 
 
+def size_bounds(size_kib: int) -> tuple[int, int]:
+    target = size_kib * 1024
+    return target * 3 // 4, target * 5 // 4
+
+
 def materialize_case(case: Case, seed: int, documents: list[bytes]) -> None:
+    if not documents or any(not document for document in documents):
+        raise ValueError("benchmark documents must be nonempty")
     case.dataset_dir.mkdir(parents=True, exist_ok=True)
     target_bytes = case.file_size_kib * 1024
+    lower_bound, upper_bound = size_bounds(case.file_size_kib)
     for file_index in range(case.file_count):
         payload = bytearray()
         index = (
             seed + case.file_count * 31 + case.file_size_kib * 17 + file_index
         ) % len(documents)
         while len(payload) < target_bytes:
-            payload.extend(documents[index % len(documents)])
-            index += 1
+            for _ in range(len(documents)):
+                document = documents[index % len(documents)]
+                index += 1
+                if len(payload) + len(document) <= upper_bound:
+                    payload.extend(document)
+                    break
+            else:
+                if len(payload) < lower_bound:
+                    raise RuntimeError(
+                        f"{case.dataset} {case.file_size_kib} KiB file {file_index}: "
+                        f"cannot reach {lower_bound}..{upper_bound} bytes"
+                    )
+                break
         file_path = case.dataset_dir / f"file_{file_index:05d}.yaml"
         file_path.write_bytes(payload)
 
@@ -462,11 +481,9 @@ def real_world_pool(
     chosen: dict[int, list[Path]] = {}
     attempts: dict[int, int] = {}
     for size in sizes:
-        target = size * 1024
+        lower_bound, upper_bound = size_bounds(size)
         candidates = [
-            path
-            for path, length in files
-            if target * 3 // 4 <= length <= target * 5 // 4
+            path for path, length in files if lower_bound <= length <= upper_bound
         ]
         candidates.sort(
             key=lambda path: sha256(
@@ -917,12 +934,29 @@ def main(
         ]
         load, cpus = require_idle_host()
         corpus_digests = {dataset: sha256() for dataset in ("stress", "real-world")}
+        bucket_sizes = []
         for case in tqdm(cases, desc="Benchmark cases", unit="case"):
             if case.dataset == "stress":
                 materialize_case(case, seed=seed, documents=documents)
             else:
                 materialize_real_case(case, real_pool)
-            for path in sorted(case.dataset_dir.glob("*.yaml")):
+            paths = sorted(case.dataset_dir.glob("*.yaml"))
+            sizes = [path.stat().st_size for path in paths]
+            lower_bound, upper_bound = size_bounds(case.file_size_kib)
+            if len(sizes) != case.file_count or any(
+                not lower_bound <= size <= upper_bound for size in sizes
+            ):
+                raise RuntimeError(f"invalid {case.dataset} size bucket: {case}")
+            bucket_sizes.append(
+                {
+                    "dataset": case.dataset,
+                    "file_count": case.file_count,
+                    "file_size_kib": case.file_size_kib,
+                    "min_bytes": min(sizes),
+                    "max_bytes": max(sizes),
+                }
+            )
+            for path in paths:
                 corpus_digests[case.dataset].update(
                     str(path.relative_to(temporary_root)).encode()
                 )
@@ -985,6 +1019,7 @@ def main(
                     "property_safe_fix::arb_document",
                 ],
                 "corpus_sha256": corpus_hashes,
+                "bucket_sizes": bucket_sizes,
                 "real_world": {
                     "repos": repo_pins,
                     "selection_seed": seed,
