@@ -116,13 +116,24 @@ documentation, see the docs site.
 
 ## Performance
 
-The figure below times ryl and yamllint over a 5x5 file-count × file-size
-matrix with 5 runs per point:
+The chart compares lint and format times on generated stress YAML and real-world
+YAML sampled from pinned repositories: 20–100 files × 1–9 KiB, with five runs
+per point.
 
-![Benchmark: ryl vs yamllint scaling (5x5 matrix, 5 runs per point)](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
+![Lint and format benchmark on stress and real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
 
-The benchmark script is in `scripts/benchmark_yaml_tools.py`; run
-it with `--help` for the full option set.
+| Tool | Mode | Version |
+| --- | --- | --- |
+| ryl | Lint, format | 0.25.1 |
+| yamllint | Lint | 1.38.0 |
+| yamlfmt | Format | 0.21.0 |
+| Prettier | Format | 3.9.10 |
+| dprint + pretty_yaml plugin | Format | 0.63.0 + 0.6.0 |
+
+Result caches are cold; install artifacts are warm. The
+[benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
+cache checks. On both datasets, ryl format is slower than dprint and yamlfmt:
+ryl verifies value preservation and convergence ([formatter guarantees](docs/formatter.md#guarantees)).
 
 ## Acknowledgements
 
