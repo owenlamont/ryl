@@ -37,6 +37,7 @@ nav = [
   { "Editor integration" = "editor-integration.md" },
   { "YAML version compatibility" = "yaml-version.md" },
   { "What ryl won't do" = "scope.md" },
+  { "Design decisions" = "design/decisions.md" },
 ]
 
 [project.theme]
