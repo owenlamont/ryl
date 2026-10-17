@@ -13,6 +13,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl format` confirms settled indentation with a scan and an unchanged layout plan,
+  preserving every width candidate's output and refusal.
+  ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` skips width-candidate diffs that cannot win and shares scalar
   blank-line analysis across widths, preserving automatic width decisions.
   ([#758](https://github.com/owenlamont/ryl/issues/758))

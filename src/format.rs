@@ -464,10 +464,19 @@ fn observed_indent_width(content: &str) -> Option<u8> {
 
 /// `text`, one re-indent of `input` at `width`, re-indented again until it settles, as the
 /// format pipeline does, since one pass can enable another.
-fn settled(mut text: String, input: &str, cfg: &YamlLintConfig, width: u8) -> String {
+#[doc(hidden)]
+#[must_use]
+pub fn settled(
+    mut text: String,
+    input: &str,
+    cfg: &YamlLintConfig,
+    width: u8,
+) -> String {
     let mut previous = input.to_string();
     for _ in 0..FIX_PIPELINE_MAX_PASSES {
-        if text == previous {
+        if text == previous
+            || indentation::unchanged(&text, &indentation_target(cfg, width))
+        {
             break;
         }
         let next = indentation::reindent(&text, &indentation_target(cfg, width)).text;
