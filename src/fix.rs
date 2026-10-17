@@ -1,6 +1,10 @@
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
+#[cfg(not(unix))]
+use same_file::Handle;
 use similar::TextDiff;
 
 use crate::cli_support::LintFile;
@@ -117,7 +121,7 @@ impl Rewrite {
 /// (`innocent.yaml -> ~/.bashrc`); read-only linting is unaffected. Best-effort: only the
 /// final component is checked, not atomically (a full defense needs `O_NOFOLLOW`).
 fn refuse_symlink(path: &Path, flag: &str) -> bool {
-    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+    if is_symlink(path) {
         eprintln!(
             "skipping {}: refusing to follow a symlink for {flag}",
             crate::cli_support::sanitize_control(&path.display().to_string())
@@ -127,31 +131,20 @@ fn refuse_symlink(path: &Path, flag: &str) -> bool {
     false
 }
 
-/// Apply `rewrite` to `path` in place.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or the rewritten contents cannot be written.
-pub fn rewrite_in_place(
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-    kind: SourceKind,
-    rewrite: Rewrite,
-) -> Result<FixOutcome, String> {
-    if refuse_symlink(path, rewrite.flag()) {
-        return Ok(FixOutcome::default());
-    }
-    let decoded = decoder::read_file_lossless(path)?;
-    let (rewritten, skipped) =
-        rewrite_str(decoded.content(), cfg, path, base_dir, kind, rewrite);
-    if let Some(rewritten) = &rewritten {
-        decoded.write(path, rewritten)?;
-    }
-    Ok(FixOutcome {
-        changed: rewritten.is_some(),
-        skipped,
-    })
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+#[cfg(unix)]
+fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    Some((metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_identity(path: &Path) -> Option<Handle> {
+    Handle::from_path(path).ok()
 }
 
 /// `content` after `rewrite` (`None` when unchanged), plus the skips to report against the
@@ -208,22 +201,81 @@ pub fn rewrite_str(
 #[must_use]
 pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
-    for (index, (path, base_dir, cfg, kind)) in files.iter().enumerate() {
-        let outcome = match rewrite_in_place(path, cfg, base_dir, *kind, rewrite) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                stats.errors.push((index, error));
+    for batch in hard_link_batches(files) {
+        let results = read_in_parallel(
+            &files[batch.clone()],
+            |decoded, (path, base_dir, cfg, kind)| {
+                let (rewritten, skipped) =
+                    rewrite_str(decoded.content(), cfg, path, base_dir, *kind, rewrite);
+                (decoded, rewritten, skipped)
+            },
+        );
+        for (index, (result, stderr)) in batch.zip(results) {
+            let path = &files[index].0;
+            if refuse_symlink(path, rewrite.flag()) {
                 continue;
             }
-        };
-        if outcome.changed {
-            stats.changed_files += 1;
-        }
-        for problem in outcome.skipped {
-            stats.skipped.push((path.clone(), problem));
+            let _ = std::io::stderr().write_all(&stderr);
+            let written = result.and_then(|(decoded, rewritten, skipped)| {
+                if let Some(rewritten) = &rewritten {
+                    decoded.write(path, rewritten)?;
+                }
+                Ok((rewritten.is_some(), skipped))
+            });
+            match written {
+                Ok((changed, skipped)) => {
+                    stats.changed_files += usize::from(changed);
+                    stats.skipped.extend(
+                        skipped.into_iter().map(|problem| (path.clone(), problem)),
+                    );
+                }
+                Err(error) => stats.errors.push((index, error)),
+            }
         }
     }
     stats
+}
+
+/// Input ranges in which no two paths name the same file, so the later path of a hard link
+/// is read only after the earlier one is written.
+fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut seen = HashSet::new();
+    for (index, (path, ..)) in files.iter().enumerate() {
+        let Some(identity) = file_identity(path) else {
+            continue;
+        };
+        if seen.contains(&identity) {
+            batches.push(start..index);
+            seen.clear();
+            start = index;
+        }
+        seen.insert(identity);
+    }
+    batches.push(start..files.len());
+    batches
+}
+
+/// `compute` over each file in parallel, never reading a symlink, paired with the stderr it
+/// produced so the caller can replay both in input order.
+fn read_in_parallel<T: Send>(
+    files: &[LintFile],
+    compute: impl Fn(decoder::DecodedFile, &LintFile) -> T + Sync,
+) -> Vec<(Result<T, String>, Vec<u8>)> {
+    files
+        .par_iter()
+        .map(|file| {
+            crate::cli_support::capture_file_stderr(|| {
+                if is_symlink(&file.0) {
+                    Err(format!("skipped symlink {}", file.0.display()))
+                } else {
+                    decoder::read_file_lossless(&file.0)
+                        .map(|decoded| compute(decoded, file))
+                }
+            })
+        })
+        .collect()
 }
 
 /// A rewrite preview; formatting changes can have no applicable text diff.
@@ -608,14 +660,15 @@ pub fn diff_files(
     flag: &str,
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
-    for (path, base_dir, cfg, kind) in files {
+    let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
+        decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
+    });
+    for ((path, ..), (result, stderr)) in files.iter().zip(results) {
         if refuse_symlink(path, flag) {
             continue;
         }
-        let decoded = decoder::read_file_lossless(path)?;
-        let outcome =
-            decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite);
-        stats.record(path, outcome);
+        let _ = std::io::stderr().write_all(&stderr);
+        stats.record(path, result?);
     }
     Ok(stats)
 }
@@ -990,17 +1043,16 @@ pub(crate) fn run_passes(
     let mut changed_rules = Vec::new();
     if ctx.pass(&content, &mut changed_rules) != content {
         changed_rules.dedup();
-        // A failed write to stderr has nowhere better to go.
-        let _ = writeln!(
-            err,
+        let warning = format!(
             "\nerror: Failed to converge after {max_passes} iterations.\n\n\
              This indicates a bug in ryl. If you could open an issue at:\n\n    \
              https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D\n\n\
              ...quoting the contents of `{}`, the rule ids {}, along with the ryl config \
-             and executed command, we'd be very appreciative!\n",
+             and executed command, we'd be very appreciative!\n\n",
             cwd_relative_label(path),
             changed_rules.join(", "),
         );
+        crate::cli_support::write_file_stderr(err, warning.as_bytes());
     }
     content
 }

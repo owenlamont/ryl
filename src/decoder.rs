@@ -211,8 +211,9 @@ fn detect_utf32_endian(bytes: &[u8]) -> Option<Endian> {
 
 fn detect_encoding(bytes: &[u8]) -> Result<FileEncoding, String> {
     let override_label = env::var("YAMLLINT_FILE_ENCODING").map_or(None, |value| {
-        eprintln!(
-            "YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint."
+        crate::cli_support::write_file_stderr(
+            &mut std::io::stderr(),
+            b"YAMLLINT_FILE_ENCODING is meant for temporary workarounds. It may be removed in a future version of yamllint.\n",
         );
         Some(value)
     });

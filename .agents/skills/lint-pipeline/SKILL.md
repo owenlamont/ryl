@@ -94,8 +94,8 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 `--fix` never mutates a file that does not fully parse: `fix::apply_safe_fixes_filtered`
 gates the whole pipeline on `lint::parse_error` (stricter than lint's
 `syntax_diagnostic` — it does *not* tolerate undefined aliases), so *any* granit parse
-error ⇒ the input is returned byte-for-byte unchanged and `rewrite_in_place`
-reports it in `FixOutcome::skipped`; the CLI prints a `<path>:L:C skipped by --fix:
+error ⇒ the input is returned byte-for-byte unchanged and `rewrite_str`
+returns it as a skip; the CLI prints a `<path>:L:C skipped by --fix:
 <error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
 pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES` = 100,
 ruff's `MAX_ITERATIONS`): one `--fix` reaches the fixed point, and the "N fixed, M
@@ -114,6 +114,15 @@ host lines like parse skips). Tests reach it through
 alias is still not a lint syntax error (the `anchors` rule reports it, matching
 yamllint); only `--fix` applies the stricter gate, through the in-place and per-region
 Markdown paths.
+
+`fix::rewrite_files` and `fix::diff_files` read and rewrite files in parallel
+(`read_in_parallel`), then write, print notices and replay each file's captured stderr
+(`cli_support::capture_file_stderr`) serially in input order. Symlink skips print
+during that loop, but `run_format` prints parse skips and read errors after it, so a
+later symlink notice can precede an earlier file's error (as before parallelisation).
+Lexical de-duplication
+keeps hard links distinct, so `rewrite_files` splits inputs sharing a file identity into
+separate batches: the later path reads the earlier path's write, as a serial run would.
 
 ## `--diff`
 

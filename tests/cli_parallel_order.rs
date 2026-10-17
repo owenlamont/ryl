@@ -1,0 +1,109 @@
+use std::fs;
+use std::process::Command;
+
+use tempfile::tempdir;
+
+mod common;
+use common::cli::ryl;
+
+#[test]
+fn format_diff_keeps_input_order_across_many_files() {
+    let dir = tempdir().unwrap();
+    let files: Vec<_> = (0..64)
+        .map(|index| {
+            let path = dir.path().join(format!("{index:03}.yaml"));
+            fs::write(&path, format!("key{index}:  value\n")).unwrap();
+            path
+        })
+        .collect();
+    let mut expected = Vec::new();
+    for path in files.iter().rev() {
+        let output = ryl(dir.path())
+            .args(["format", "--diff", "--no-warnings"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        expected.extend(output.stdout);
+    }
+
+    let output = ryl(dir.path())
+        .args(["format", "--diff", "--no-warnings"])
+        .args(files.iter().rev())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        output.stdout == expected,
+        "parallel diff order differs from serial output"
+    );
+}
+
+#[test]
+fn check_fix_reads_hard_link_after_prior_write() {
+    let dir = tempdir().unwrap();
+    let first = dir.path().join("first");
+    let second = dir.path().join("second");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    fs::write(first.join(".ryl.toml"), "[lint.rules]\ncolons = 'enable'\n").unwrap();
+    fs::write(
+        second.join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let first_file = first.join("shared.yaml");
+    let second_file = second.join("shared.yaml");
+    fs::write(&first_file, "key:  value  \n").unwrap();
+    fs::hard_link(&first_file, &second_file).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--fix"])
+        .arg(&first_file)
+        .arg(&second_file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(fs::read_to_string(&first_file).unwrap(), "key: value\n");
+    assert_eq!(fs::read_to_string(&second_file).unwrap(), "key: value\n");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("2 fixed, 0 remaining"),
+        "{output:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn format_keeps_symlink_and_encoding_warnings_in_input_order() {
+    use std::os::unix::fs::symlink;
+
+    for mode in [
+        &["format", "--no-warnings"][..],
+        &["format", "--diff", "--no-warnings"],
+    ] {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("target.yaml");
+        let link = dir.path().join("link.yaml");
+        let regular = dir.path().join("regular.yaml");
+        fs::write(&target, "key:  value\n").unwrap();
+        fs::write(&regular, "key:  value\n").unwrap();
+        symlink(&target, &link).unwrap();
+
+        let output = ryl(dir.path())
+            .args(mode)
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .arg(&link)
+            .arg(&regular)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let symlink_notice = stderr.find("refusing to follow a symlink").unwrap();
+        let encoding_notice = stderr.find("YAMLLINT_FILE_ENCODING").unwrap();
+
+        assert!(
+            symlink_notice < encoding_notice,
+            "{mode:?} warnings are out of input order: {stderr}"
+        );
+    }
+}

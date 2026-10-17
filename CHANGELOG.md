@@ -12,6 +12,9 @@ summarize user-visible changes from the tagged commits and published release rec
   column past the block indent, and tabs separating explicit keys; it also drops
   spurious block-scalar line breaks after indentation-only EOF lines and corrects
   end-of-input span positions.
+- `ryl format` and `ryl check --fix`/`--diff` process file contents in parallel while
+  keeping writes and diffs in input order.
+  ([#748](https://github.com/owenlamont/ryl/issues/748))
 
 ## v0.25.1 - 2026-10-16
 
