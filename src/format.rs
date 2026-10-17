@@ -260,8 +260,8 @@ pub fn line_length(cfg: &YamlLintConfig) -> u16 {
 }
 
 /// The indent width `ryl format` targets in `content`: the top-level `indent-width`, else
-/// 2 where an inline explicit value fixes the step, else the one width of
-/// [`DETECTED_WIDTHS`] whose re-indent changes the fewest lines, else [`DEFAULT_INDENT_WIDTH`].
+/// 2 where an inline explicit value fixes the step, else a consistent structural step,
+/// falling back to the fewest changed lines among [`DETECTED_WIDTHS`] for ambiguous files.
 #[must_use]
 pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
     file_indent_width_with_events(cfg, content, None)
@@ -300,6 +300,11 @@ fn file_indent_width_with_events(
     );
     if indentation::has_fixed_explicit_indent(content, &consistent) {
         return 2;
+    }
+    if default.refused.is_empty()
+        && let Some(width) = prepared.structural_width()
+    {
+        return width;
     }
     if let Some(width) = simple_mapping_width(content) {
         return width;

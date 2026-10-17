@@ -1719,9 +1719,20 @@ continuation indent under `fold-long-lines`.
 Without `indent-width`, an inline value under an explicit block key (`? key` followed by
 `: value`) uses 2 if the value establishes the file's consistent indentation step.
 An explicit key directly inside a sequence item does not establish that step.
-Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the one whose
+After the existing unchanged-at-width checks, `ryl format` first looks for a consistent
+structural step of 2 to 8 spaces between nested block collections. The scan uses the
+tokens prepared for the requested dash layout. Collections starting on their parent's
+line and flush sequences provide no step. Comments and flow contents provide no
+evidence. The first nonblank line of each implicit block scalar must agree with the
+collection step, measured from the containing block collection. Every positive step
+must agree; a scalar body alone does not establish a width.
+Mixed steps, indented root collections, explicit-indent block scalars, root block
+scalars with body lines, no positive step, or a refused width-2 rewrite fall back to
+exact scoring: the width whose
 re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
-or a file the re-indent leaves alone at every width, falls back to 2.
+or a file the re-indent leaves alone at every width, falls back to 2. The structural
+shortcut can choose a different width from exact scoring when comments, scalar
+continuations or repeated lines favor another alignment in the line diff.
 A file mostly at 4 with one block at 2 is re-indented to 4.
 If restyling a collection changes which width best fits the file, the formatter
 re-detects the width and completes the re-indent in the same run.
@@ -3546,7 +3557,7 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 | **`ryl format` has its own pass list.** Formatter targets do not inherit lint rule selection, fixability settings, or lint ignores. | Formatting should work independently of which lint rules or ignores a project enables. | [Decision](https://github.com/owenlamont/ryl/pull/520) |
 | **The formatter has built-in, overridable targets.** The linter remains explicit-rule-only; formatting works without a config and normalizes each option to a single target rather than a lint tolerance. | A formatter needs a definite target per option and should work before a user writes lint configuration. | [Epic](https://github.com/owenlamont/ryl/issues/374), [profile](https://github.com/owenlamont/ryl/issues/385) |
 | **Document-start markers default to preserve.** Existing marker style remains unless the user requests a new target, replacing the initial add-`---` default. | Adding `---` to an existing file by default creates unnecessary changes; preserve matches formatter precedent. | [Decision](https://github.com/owenlamont/ryl/pull/584) |
-| **Unset indent width uses whole-file evidence.** Among widths 2–8, the formatter chooses the one changing the fewest lines; ties or no evidence use 2. | Whole-file evidence minimizes changed lines; a deterministic fallback resolves ties and files without evidence. | [Maintainer decision](https://github.com/owenlamont/ryl/issues/594), [Maintainer decision](https://github.com/owenlamont/ryl/issues/594#issuecomment-6091396339) |
+| **Unset indent width uses structural evidence, then exact scoring.** A consistent block-collection step wins; ambiguous files use the fewest changed lines among widths 2–8, with ties falling back to 2. | The structural shortcut reduces candidate rewrites but can change automatic width choices; see the [width policy](https://ryl-docs.pages.dev/formatter/#configuration). | [Maintainer decision](https://github.com/owenlamont/ryl/issues/594), [Maintainer decision](https://github.com/owenlamont/ryl/issues/594#issuecomment-6091396339) |
 | **Line-ending auto uses the whole file.** The majority ending wins, a tie falls back to LF, and explicit LF remains the default. | The majority ending minimizes edits when auto is requested; LF remains the explicit default. | [Maintainer decision](https://github.com/owenlamont/ryl/issues/594), [Maintainer decision](https://github.com/owenlamont/ryl/issues/594#issuecomment-6091396339) |
 | **Collection style has flat targets.** `[format]` can preserve, block-format, or flow-format sequences and mappings, converting only cases safe for their comments and values. | Collection presentation is layout owned by `format`; conversions must preserve values and comments. | [Decision](https://github.com/owenlamont/ryl/issues/446) |
 | **Quoting preserves cross-version values.** Quotes remain when removing them would change resolution, including version-sensitive `y` and `n` spellings. | Removing a quote can change how YAML 1.1 or other common loaders resolve a scalar. | [Decision](https://github.com/owenlamont/ryl/pull/560), [correction](https://github.com/owenlamont/ryl/pull/604) |

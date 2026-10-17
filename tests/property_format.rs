@@ -49,7 +49,7 @@ use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 
 use config::{synthetic_base_dir, synthetic_path};
-use detection::{detection_target, original_indent_width};
+use detection::original_indent_width;
 use fold::{arb_fold_document, inserted_breaks, under_indented_break};
 use passes::{
     FOLD_TARGETS, FORMAT_OWNED_RULES, FormatPass, fold_alone, format_passes,
@@ -736,30 +736,28 @@ proptest! {
     }
 
     #[test]
-    fn mixed_width_detection_matches_the_original_scorer(
-        document in arb_document_with_properties(),
-        widths in (2u8..=8, 2u8..=8),
-        comment_indents in prop::collection::vec(0usize..=8, 2..8),
-        indent_sequences in any::<bool>(),
-        dash_on_own_line in any::<bool>(),
+    fn structural_width_uses_agreeing_collection_and_scalar_steps(
+        width in 2usize..=8,
+        comment_indents in prop::collection::vec(0usize..=12, 0..8),
+        body_extra in 1usize..=8,
         crlf in any::<bool>(),
-        blank_width in 1usize..12,
     ) {
-        let cfg = YamlLintConfig::from_toml_str(&format!(
-            "[format]\nindent-sequences = {indent_sequences}\ndash-on-own-line = {dash_on_own_line}\n"
-        )).unwrap();
-        let original = document.render();
-        let first = indentation::reindent(&original, &detection_target(&cfg, widths.0)).text;
-        let second = indentation::reindent(&original, &detection_target(&cfg, widths.1)).text;
         let comments = comment_indents.into_iter()
             .map(|indent| format!("{}# same\n", " ".repeat(indent)))
             .collect::<String>();
-        let repeated_comments = format!("root:\n{comments}{}child: value\n", " ".repeat(usize::from(widths.0)));
-        let scalar_blanks = format!("{first}\n---\nroot:\n  body: |2+\n{}\n  next: value\n", " ".repeat(blank_width));
-        for input in [original, first.clone(), format!("{first}\n---\n{second}"), repeated_comments, scalar_blanks] {
-            let input = if crlf { input.replace('\n', "\r\n") } else { input };
-            prop_assert_eq!(file_indent_width(&cfg, &input), original_indent_width(&cfg, &input), "{:?}", input);
-        }
+        let input = format!(
+            "root:\n{comments}{}body: |\n{}text\n{}next: value\n",
+            " ".repeat(width), " ".repeat(width + body_extra), " ".repeat(width),
+        );
+        let input = if crlf { input.replace('\n', "\r\n") } else { input };
+        let cfg = YamlLintConfig::default();
+        let expected = if body_extra == width {
+            u8::try_from(width).unwrap()
+        } else {
+            original_indent_width(&cfg, &input)
+        };
+        prop_assert_eq!(file_indent_width(&cfg, &input), expected);
+        check_pass(named_pass("format/default"), &input).map_err(TestCaseError::fail)?;
     }
 
     #[test]
@@ -933,11 +931,51 @@ fn inferred_width_falls_back_for_refusals_and_large_indents() {
 }
 
 #[test]
-fn repeated_comments_across_diff_boundaries_preserve_width_ties() {
+fn structural_width_documents_known_differences_from_exact_scoring() {
     let cfg = YamlLintConfig::default();
-    let input = "root:\n  # same\n   # same\n   child: value\n";
-    assert_eq!(original_indent_width(&cfg, input), 2);
-    assert_eq!(file_indent_width(&cfg, input), 2);
+    let schema = "metadata:\n  versions:\n  - name: v1alpha1\n    schema:\n      openAPIV3Schema:\n        description: |-\n        properties:\n          apiVersion:\n            properties:\n              clusterResourceBlacklist:\n                items:\n                  properties:\n                    group:\n                      description: |-\n                    properties:\n                      policies:\n                        items:\n                          properties:\n                            gpg:\n                              properties:\n";
+    for (input, old, new) in [
+        ("root:\n  # same\n   # same\n   child: value\n", 2, 3),
+        (schema, 8, 2),
+        (
+            "- name: one\n  when:\n  - name: two\n    k8s:\n      # note\n  - name: three\n    vars:\n",
+            4,
+            2,
+        ),
+    ] {
+        assert_eq!(original_indent_width(&cfg, input), old, "{input:?}");
+        assert_eq!(file_indent_width(&cfg, input), new, "{input:?}");
+        check_pass(named_pass("format/default"), input).unwrap();
+    }
+}
+
+#[test]
+fn structural_width_requires_agreeing_nested_steps() {
+    let cfg = YamlLintConfig::default();
+    for input in [
+        "root:\n # note\n    body: |\n\n        text\n    next: value\n",
+        "root:\n # note\n    body: |\n    next: value\n",
+        "root:\r\n # note\r\n    child: {a: b}\r\n",
+    ] {
+        assert_eq!(file_indent_width(&cfg, input), 4, "{input:?}");
+        check_pass(named_pass("format/default"), input).unwrap();
+    }
+    for input in [
+        "root:\n    body: |\n      text\n",
+        "root:\n    body: |2\n      text\n",
+        "root:\n    body: |+2\n      text\n",
+        "    root:\n      child: value\n",
+        "root:\n child: value\n",
+        "body: |\n    text\n",
+        "|\n    text\n---\nroot:\n    child: value\n",
+        "root:\n    a: value\nother:\n  b: value\n",
+    ] {
+        assert_eq!(
+            file_indent_width(&cfg, input),
+            original_indent_width(&cfg, input),
+            "{input:?}"
+        );
+    }
 }
 
 #[test]
@@ -1966,7 +2004,7 @@ fn a_dash_line_comment_survives_sequence_and_mapping_layout_changes() {
         (
             "[format]\nindent-sequences = false\n",
             "k:\n  - # c\n    a: b\n",
-            "k:\n-  # c\n    a: b\n",
+            "k:\n-  # c\n  a: b\n",
         ),
         (
             "[format]\nmapping-style = 'flow'\n",
