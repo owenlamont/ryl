@@ -154,6 +154,7 @@ impl<'a> Prepared<'a> {
         let chars = if shaped == buffer {
             chars
         } else {
+            drop(chars);
             shaped.char_indices().collect()
         };
         let (tokens, line_starts) =
