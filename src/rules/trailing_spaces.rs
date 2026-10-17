@@ -13,6 +13,7 @@ use crate::rules::support::line_syntax::{
     buffer_newline, line_contents, protected_scalar_lines, split_lines_preserve_endings,
 };
 use crate::rules::{block_scalar_chomping, document_end};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "trailing-spaces";
 pub const MESSAGE: &str = "trailing spaces";
@@ -59,17 +60,26 @@ pub fn check(buffer: &str) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str) -> Option<String> {
-    let mut protected = protected_scalar_lines(buffer, |style, span| match style {
-        ScalarStyle::Literal | ScalarStyle::Folded => true,
-        ScalarStyle::DoubleQuoted => span.end.line() > span.start.line(),
-        _ => false,
-    })?;
+    fix_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
+    let buffer = input.text();
+    let mut protected =
+        crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
+            input,
+            |style, span| match style {
+                ScalarStyle::Literal | ScalarStyle::Folded => true,
+                ScalarStyle::DoubleQuoted => span.end.line() > span.start.line(),
+                _ => false,
+            },
+        )?;
     let lines = line_contents(buffer);
-    let content = content_blank_lines(buffer);
+    let content = content_blank_lines_with_analysis(input);
     let mut keep_blank_eof = false;
-    let headers = block_scalar_chomping::headers(buffer);
+    let headers = input.headers();
     let root_indents =
-        document_end::root_explicit_content_indents(buffer, &headers, &lines);
+        document_end::root_explicit_content_indents_with_analysis(input, &lines);
     for header in headers {
         protected.remove(&header.line);
         let span = header.span;
@@ -131,11 +141,16 @@ pub fn fix(buffer: &str) -> Option<String> {
 }
 
 pub(crate) fn content_blank_lines(buffer: &str) -> HashSet<usize> {
+    content_blank_lines_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {
+    let buffer = input.text();
     let lines = line_contents(buffer);
     let mut content = HashSet::new();
-    let headers = block_scalar_chomping::headers(buffer);
+    let headers = input.headers();
     let root_indents =
-        document_end::root_explicit_content_indents(buffer, &headers, &lines);
+        document_end::root_explicit_content_indents_with_analysis(input, &lines);
     for header in headers {
         let header_line = lines[header.line - 1];
         let indicator = header_line

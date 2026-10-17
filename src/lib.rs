@@ -23,6 +23,8 @@ pub mod markdown_embed;
 pub mod migrate;
 pub mod report;
 pub mod rules;
+#[doc(hidden)]
+pub mod text_version;
 pub mod yaml_dom;
 
 pub use discover::{gather_yaml_from_dir, is_yaml_path};

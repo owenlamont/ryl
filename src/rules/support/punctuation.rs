@@ -1,8 +1,9 @@
 use std::ops::Range;
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Span, SpannedEventReceiver};
 
 use crate::rules::support::span_utils::CharPos;
+use crate::text_version::{Analysis, TextVersion};
 
 /// Clamps `current` into `min..=max`; leaves it alone when `min > max`, since no spacing passes.
 pub(crate) fn target_spacing(current: usize, min: i64, max: i64) -> usize {
@@ -16,9 +17,14 @@ pub(crate) fn target_spacing(current: usize, min: i64, max: i64) -> usize {
 }
 
 pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
-    let mut parser = Parser::new_from_str(buffer);
+    scalar_ranges(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn scalar_ranges(input: Analysis<'_>) -> Vec<Range<CharPos>> {
     let mut collector = ScalarRangeCollector::new();
-    let _ = parser.load(&mut collector, true);
+    for (_, span) in &input.parsed().scalars {
+        collector.push_range(*span);
+    }
     collector.into_sorted()
 }
 

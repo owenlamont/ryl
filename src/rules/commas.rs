@@ -9,6 +9,7 @@ use crate::rules::support::punctuation::{
 use crate::rules::support::span_utils::{
     BytePos, CharPos, apply_replacements, containing_scalar_range,
 };
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "commas";
 const TOO_MANY_BEFORE: &str = "too many spaces before comma";
@@ -151,11 +152,16 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    fix_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
+    let buffer = input.text();
     if buffer.is_empty() {
         return None;
     }
 
-    let scalar_ranges = collect_scalar_ranges(buffer);
+    let scalar_ranges = crate::rules::support::punctuation::scalar_ranges(input);
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
 
     let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
