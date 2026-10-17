@@ -207,9 +207,7 @@ fn scan(
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
         for marker in [span.start, span.end] {
-            let Some(line_start) = line_starts.get_mut(marker.line() - 1) else {
-                continue;
-            };
+            let line_start = &mut line_starts[marker.line() - 1];
             if marker.index().saturating_sub(line_start.get()) > marker.col() {
                 skip_prefix_bom(chars, line_start);
             }
