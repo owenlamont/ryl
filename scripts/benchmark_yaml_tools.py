@@ -214,6 +214,7 @@ def make_tools(
     dprint_bin: Path,
     run_dir: Path,
     versions: dict[str, str],
+    yamlfmt_version: str | None = None,
 ) -> list[Tool]:
     ryl_config = run_dir / "ryl.toml"
     ryl_config.write_text("[format]\n")
@@ -250,7 +251,8 @@ def make_tools(
         Tool(
             name="yamlfmt",
             binary=yamlfmt_bin,
-            version=run_checked([str(yamlfmt_bin), "-version"]).stdout.strip(),
+            version=yamlfmt_version
+            or run_checked([str(yamlfmt_bin), "-version"]).stdout.strip(),
             config="basic; line_ending=lf; no global config",
             format_args=("-no_global_conf", "-formatter", "line_ending=lf"),
         ),
@@ -313,9 +315,36 @@ def install_tools(versions: dict[str, str], run_dir: Path) -> dict[str, Path]:
         ]
     )
     run_checked(["pixi", "global", "install", f"yamlfmt=={versions['yamlfmt']}"])
+    pixi_environments = orjson.loads(
+        run_checked(["pixi", "global", "list", "--json"]).stdout
+    )
+    yamlfmt_environment = next(
+        environment
+        for environment in pixi_environments
+        if environment["name"] == "yamlfmt"
+    )
+    yamlfmt_package = next(
+        package
+        for package in yamlfmt_environment["dependencies"]
+        if package["name"] == "yamlfmt"
+    )
+    if yamlfmt_package["version"] != versions["yamlfmt"]:
+        raise RuntimeError(
+            f"yamlfmt version {yamlfmt_package['version']} differs from pin {versions['yamlfmt']}"
+        )
+    pixi_info = orjson.loads(run_checked(["pixi", "info", "--json"]).stdout)
+    executable_suffix = ".exe" if os.name == "nt" else ""
+    uv_bin = Path(run_checked(["uv", "tool", "dir", "--bin"]).stdout.strip())
     return {
-        "prettier": tool_dir / "node_modules/.bin/prettier",
-        "dprint": tool_dir / "node_modules/.bin/dprint",
+        "yamllint": uv_bin / f"yamllint{executable_suffix}",
+        "yamlfmt": Path(pixi_info["global_info"]["bin_dir"])
+        / f"yamlfmt{executable_suffix}",
+        "prettier": tool_dir
+        / "node_modules/.bin"
+        / f"prettier{'.cmd' if os.name == 'nt' else ''}",
+        "dprint": tool_dir
+        / "node_modules/.bin"
+        / f"dprint{'.cmd' if os.name == 'nt' else ''}",
     }
 
 
@@ -889,12 +918,13 @@ def main(
 
     tools = make_tools(
         ryl_bin=binary(ryl_bin, "ryl"),
-        yamllint_bin=binary(yamllint_bin, "yamllint"),
-        yamlfmt_bin=binary(yamlfmt_bin, "yamlfmt"),
-        prettier_bin=binary(prettier_bin or installed.get("prettier"), "prettier"),
-        dprint_bin=binary(dprint_bin or installed.get("dprint"), "dprint"),
+        yamllint_bin=binary(installed.get("yamllint") or yamllint_bin, "yamllint"),
+        yamlfmt_bin=binary(installed.get("yamlfmt") or yamlfmt_bin, "yamlfmt"),
+        prettier_bin=binary(installed.get("prettier") or prettier_bin, "prettier"),
+        dprint_bin=binary(installed.get("dprint") or dprint_bin, "dprint"),
         run_dir=run_dir,
         versions=versions,
+        yamlfmt_version=versions["yamlfmt"] if install_pinned_tools else None,
     )
     warm_dprint(next(tool for tool in tools if tool.name == "dprint"), run_dir, runner)
     for tool in tools:
