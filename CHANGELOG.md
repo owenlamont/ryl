@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl format` and `ryl check --fix` skip rule scans already clean for the
+  unchanged text, while retrying when later edits expose another fix.
+  ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` infers an unambiguous indent width from observed nested mappings
   before trying every width. ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` reuses its final indentation check for refusal notices and skips
