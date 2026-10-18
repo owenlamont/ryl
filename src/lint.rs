@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use crate::config::{RuleLevel, YamlLintConfig};
+use crate::config::{RuleLevel, SourceKind, YamlLintConfig};
 use crate::decoder;
+use crate::fix::{Rewrite, rewrite_str};
 use crate::rules::support::yaml_version;
 use crate::rules::{
     anchors, block_scalar_chomping, braces, brackets, colons, commas, comments,
@@ -317,7 +318,7 @@ pub fn lint_str(
         diagnostics.push(warning);
     }
 
-    if let Some(syntax) = syntax_diagnostic(content) {
+    if let Some(syntax) = syntax_diagnostic(content, path, cfg, base_dir) {
         diagnostics.clear();
         diagnostics.push(syntax);
     }
@@ -397,7 +398,12 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
 /// The syntax error ryl reports for `content` during linting, or `None` if it lints
 /// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
 /// rule, matching yamllint).
-fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
+fn syntax_diagnostic(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
@@ -407,7 +413,29 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
             // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
-        Err(err) => Some(syntax_problem(&err)),
+        Err(err) => {
+            let mut problem = syntax_problem(&err);
+            if matches!(err.kind(), granit_parser::ErrorKind::InvalidIndentation) {
+                let repairable = |rewrite| {
+                    rewrite_str(content, cfg, path, base_dir, SourceKind::Yaml, rewrite)
+                        .0
+                        .is_some_and(|fixed| strict_parse_error(&fixed).is_none())
+                };
+                let commands =
+                    match (repairable(Rewrite::Fix), repairable(Rewrite::Format)) {
+                        (true, true) => "ryl check --fix or ryl format",
+                        (true, false) => "ryl check --fix",
+                        (false, true) => "ryl format",
+                        (false, false) => "",
+                    };
+                if !commands.is_empty() {
+                    problem.message.push_str("; help: ");
+                    problem.message.push_str(commands);
+                    problem.message.push_str(" can repair the indentation");
+                }
+            }
+            Some(problem)
+        }
     }
 }
 
