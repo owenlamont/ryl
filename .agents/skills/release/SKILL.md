@@ -38,7 +38,7 @@ description: >-
   - **Refresh the benchmark image** when the release changes timed code: any minor or
     major bump, or a patch that touches performance-relevant paths. Skip it for a
     docs/packaging/bugfix patch with no perf delta, leaving the committed
-    `img/benchmark-5x5-5runs.svg` in place. Do this **in the version-bump PR, before
+    `img/benchmark-cold-5x5-5runs.svg` in place. Do this **in the version-bump PR, before
     squash-merge** — not as a post-merge afterthought. Bump the tool pins deliberately
     in `scripts/benchmark_tool_versions.toml`, then use the benchmark's
     `--install-pinned-tools` option to install them with uv, pixi, and npm. The README
@@ -66,7 +66,7 @@ description: >-
 
     ```sh
     uv run scripts/benchmark_yaml_tools.py --replot manual_outputs/benchmarks/<ts> --datasets real-world
-    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark-5x5-5runs.svg
+    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark-cold-5x5-5runs.svg
     cp manual_outputs/benchmarks/<ts>/benchmark-warm.svg img/benchmark-warm-5x5-5runs.svg
     ```
 

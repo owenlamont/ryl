@@ -130,7 +130,7 @@ documentation, see the docs site.
 The chart compares lint and format times on real-world YAML sampled from pinned
 repositories: 20–100 files × 1–9 KiB, with five runs per point.
 
-![Lint and format benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-5x5-5runs.svg)
+![Lint and format benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-cold-5x5-5runs.svg)
 
 The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated stress dataset with `--datasets stress`.
 
@@ -159,6 +159,8 @@ while still verifying value preservation and convergence
 
 Run the benchmark with `--warm` to also record second-run timings with each
 tool's result cache enabled. Its warm view is separate from the cold chart above.
+
+![Warm second-run benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-warm-5x5-5runs.svg)
 
 ## Acknowledgements
 
