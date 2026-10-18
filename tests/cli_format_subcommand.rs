@@ -8,18 +8,10 @@ use std::process::Command;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::{output_tuple, run, ryl, stdin_output};
+use common::cli::{run, run_with_stdin, ryl};
 
 fn exe() -> Command {
     Command::new(env!("CARGO_BIN_EXE_ryl"))
-}
-
-fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
-    output_tuple(stdin_output(cmd, input, |result| {
-        if let Err(error) = result {
-            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
-        }
-    }))
 }
 
 #[test]

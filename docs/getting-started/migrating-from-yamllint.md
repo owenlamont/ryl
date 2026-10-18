@@ -4,11 +4,16 @@ ryl implements yamllint's rule set, and its own configuration is TOML.
 ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
 `.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
 user-global config) with the same semantics as upstream, but that support is
-deprecated: each one prints a warning naming the command that converts it, and
+deprecated: each one prints a warning with migration guidance, and
 a later release will stop reading YAML config. Migrate with
 [`ryl --migrate-configs`](#automatic-migration); TOML also carries the
 ryl-only features, such as
 [`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes).
+Warning commands name the minimum ryl version needed for the migration flags;
+run them with that version or later. Project YAML warnings include
+`--migrate-delete-old` so a later `ryl check` does not rediscover `.yamllint`.
+Paths that need different quoting in POSIX shells and PowerShell receive a
+manual instruction without a command.
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
@@ -80,7 +85,7 @@ Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
+| `--migrate-configs` | Migrate project-tree YAML configs, move deprecated keys in ryl TOML configs to `[lint]` and `exclude`, and move TOML `yaml-files` to `[files].yaml` |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
 | `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout; also writes when combined with `--migrate-write` |
@@ -96,7 +101,11 @@ applies to project migration only. Migration takes no positional paths: `ryl
 
 A config passed to `-c` under any other name migrates by naming the file:
 `--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes
-in its place. Only an existing `ci/lint.toml` blocks that migration.
+in its place. Update `-c` to the new path after migration; when migrating a
+`YAMLLINT_CONFIG_FILE` source, remove that environment variable too. Only an
+existing `ci/lint.toml` blocks that migration. A top-level TOML `yaml-files`
+key is moved to `[files].yaml`, preserving its comments. If `[files].yaml` already
+exists, its value wins and migration warns that `yaml-files` was discarded.
 
 Migration skips a legacy project YAML config when project discovery already picks
 a TOML config, including `.config/` candidates and `pyproject.toml` with `[tool.ryl]`,
@@ -108,6 +117,11 @@ a ryl-native user config already exists. Migration also refuses to
 follow a symlink for either the source or the target (mirroring `--fix`). It also
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.
+
+Rewriting a ryl TOML config keeps its comments, key order, and formatting
+outside the moved keys. If a replacement key is already set, migration warns
+and drops the deprecated value and its comments. Migration reports deprecated
+keys in `pyproject.toml` without rewriting that file.
 
 Migration writes a temporary file beside each destination and replaces the
 destination only after the write succeeds. An interrupted write leaves an
@@ -343,6 +357,8 @@ linted CR-aware like any other.
 ryl rejects under-indented flow collections and scalar continuations that yamllint's
 PyYAML parser accepts. For yaml-test-suite `9C9N`, `flow: [a,\nb,\nc]`, the reference
 parser reports a parse error; ryl reports a syntax error until the indentation is fixed.
+For `ryl check` on YAML files, a repairable diagnostic names `ryl check --fix`
+or `ryl format`; a refused repair has no command hint.
 YAML 1.2.2's [separation production 81](https://yaml.org/spec/1.2.2/#rule-s-separate-lines),
 `s-separate-lines(n) ::= (s-l-comments s-flow-line-prefix(n)) | s-separate-in-line`,
 requires `s-flow-line-prefix(n)` inside a flow collection, keeping continuation content

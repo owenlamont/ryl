@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use crate::config::{RuleLevel, YamlLintConfig};
+use crate::config::{RuleLevel, SourceKind, YamlLintConfig};
 use crate::decoder;
+use crate::fix::{Rewrite, rewrite_str};
 use crate::rules::support::yaml_version;
 use crate::rules::{
     anchors, block_scalar_chomping, braces, brackets, colons, commas, comments,
@@ -62,7 +63,10 @@ pub fn lint_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    Ok(lint_str(&content, path, cfg, base_dir))
+    let problems = lint_str(&content, path, cfg, base_dir);
+    Ok(with_indentation_repair_help(
+        &content, problems, path, cfg, base_dir,
+    ))
 }
 
 /// Lint the YAML embedded in a markdown file and return diagnostics whose
@@ -409,6 +413,43 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
         }
         Err(err) => Some(syntax_problem(&err)),
     }
+}
+
+#[must_use]
+pub fn with_indentation_repair_help(
+    content: &str,
+    mut problems: Vec<LintProblem>,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Vec<LintProblem> {
+    let [problem] = problems.as_mut_slice() else {
+        return problems;
+    };
+    if problem.rule.is_some()
+        || !matches!(scan(content, true), Err(err) if matches!(err.kind(), granit_parser::ErrorKind::InvalidIndentation))
+    {
+        return problems;
+    }
+    let repairable = |rewrite| {
+        rewrite_str(content, cfg, path, base_dir, SourceKind::Yaml, rewrite)
+            .0
+            .is_some_and(|fixed| strict_parse_error(&fixed).is_none())
+    };
+    let fix = repairable(Rewrite::Fix);
+    let format = repairable(Rewrite::Format);
+    let commands = [
+        "",
+        "ryl format",
+        "ryl check --fix",
+        "ryl check --fix or ryl format",
+    ][usize::from(fix) * 2 + usize::from(format)];
+    if !commands.is_empty() {
+        problem.message.push_str("; help: ");
+        problem.message.push_str(commands);
+        problem.message.push_str(" can repair the indentation");
+    }
+    problems
 }
 
 /// The first lexical scan error in `content`, or `None`. [`syntax_diagnostic`] uses it to

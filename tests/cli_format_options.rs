@@ -106,6 +106,31 @@ fn parsable_format_omits_rule_suffix_for_syntax_errors() {
 }
 
 #[test]
+fn standard_format_omits_rule_suffix_for_syntax_errors() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("invalid.yaml");
+    fs::write(&file, "foo: [1, 2\n").unwrap();
+
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--format")
+        .arg("standard")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "syntax errors should fail: {stderr}");
+    assert!(stdout.is_empty(), "standard diagnostics should use stderr");
+    assert_eq!(
+        stderr,
+        format!(
+            "{}\n  1:6       error    syntax error: unclosed bracket '[' (syntax)\n\n",
+            file.display()
+        )
+    );
+}
+
+#[test]
 fn github_format_emits_workflow_commands() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());
@@ -133,6 +158,33 @@ fn github_format_emits_workflow_commands() {
     assert!(
         stderr.contains("::endgroup::"),
         "missing GitHub endgroup: {stderr}"
+    );
+}
+
+#[test]
+fn github_format_omits_rule_marker_for_syntax_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("invalid.yaml");
+    fs::write(&file, "foo: [1, 2\n").unwrap();
+
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--format")
+        .arg("github")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "syntax errors should fail: {stderr}");
+    assert!(stdout.is_empty(), "GitHub diagnostics should use stderr");
+    let diagnostic = stderr
+        .lines()
+        .find(|line| line.starts_with("::error file="))
+        .expect("expected GitHub error command");
+    assert_eq!(
+        diagnostic.rsplit_once("::").map(|(_, message)| message),
+        Some("1:6 syntax error: unclosed bracket '[' (syntax)"),
+        "unexpected GitHub syntax diagnostic: {diagnostic}"
     );
 }
 
@@ -466,6 +518,30 @@ fn auto_format_respects_no_color_env() {
     assert!(
         !stderr.contains("\u{001b}"),
         "NO_COLOR should disable ANSI sequences: {stderr}"
+    );
+}
+
+#[test]
+fn auto_format_without_color_env_uses_plain_output_for_piped_stderr() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("missing.yaml");
+    fs::write(&file, "key: value").unwrap();
+
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .env_remove("NO_COLOR")
+        .env_remove("FORCE_COLOR")
+        .env_remove("GITHUB_ACTIONS")
+        .env_remove("GITHUB_WORKFLOW")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "missing newline should fail: {stderr}");
+    assert!(stdout.is_empty(), "auto diagnostics should use stderr");
+    assert!(
+        stderr.contains("new-line-at-end-of-file") && !stderr.contains('\u{001b}'),
+        "piped stderr should use plain diagnostics: {stderr}"
     );
 }
 

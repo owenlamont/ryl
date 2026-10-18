@@ -57,6 +57,10 @@ prek also reads `.pre-commit-config.yaml`, so either file works with prek.
 
 ## Seeing warnings after an upgrade
 
+Since v0.26.0, `syntax error: invalid indentation` can fail a check that passed
+on an older version. When the diagnostic offers a repair, run the command named
+in its hint, then rerun the hook.
+
 pre-commit and prek hide the output of a hook that passes, including ryl's config
 deprecation warnings. After upgrading ryl, run the hook verbosely to see them:
 

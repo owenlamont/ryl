@@ -1,32 +1,10 @@
 use std::fs;
-use std::io::Write;
 use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
-fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn ryl");
-    if let Err(error) = child.stdin.as_mut().expect("stdin").write_all(input) {
-        assert_eq!(
-            error.kind(),
-            std::io::ErrorKind::BrokenPipe,
-            "write stdin: {error}"
-        );
-    }
-    let out = child.wait_with_output().expect("wait");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy_owned(out.stdout);
-    let stderr = String::from_utf8_lossy_owned(out.stderr);
-    (code, stdout, stderr)
-}
-
 mod common;
-use common::cli::run;
+use common::cli::{run, run_with_stdin};
 
 #[test]
 fn stdin_with_no_enabled_rules_errors() {
@@ -105,6 +83,25 @@ fn stdin_syntax_error_reports_failure() {
         "expected syntax error: {stderr}"
     );
     assert!(stderr.contains("<stdin>"), "expected stdin label: {stderr}");
+}
+
+#[test]
+fn repairable_stdin_indentation_has_no_file_repair_hint() {
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(env!("CARGO_BIN_EXE_ryl")).args([
+            "check",
+            "-d",
+            "[lint.rules.document-start]",
+            "-",
+        ]),
+        b"---\nkey:\n  args: [\n    \"a\",\n  ]\n",
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("syntax error: invalid indentation"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("help:"), "{stderr}");
 }
 
 #[test]

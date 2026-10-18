@@ -167,9 +167,10 @@ fn project_pyproject_without_tool_ryl_falls_back_to_yaml() {
         ctx.notices,
         [format!(
             "warning: {}: yamllint YAML config is deprecated; run `ryl \
-             --migrate-configs --migrate-write --migrate-root /repo/.yamllint` to convert \
+             --migrate-configs --migrate-write --migrate-delete-old --migrate-root /repo/.yamllint` with ryl {} or later to convert \
              it to .ryl.toml",
-            path.display()
+            path.display(),
+            env!("CARGO_PKG_VERSION")
         )]
     );
 }

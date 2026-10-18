@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
@@ -99,23 +100,9 @@ pub struct Violation {
     pub message: String,
 }
 
-#[derive(Debug)]
-struct ContainerState {
-    kind: ContainerKind,
-    key_context: bool,
-}
-
-#[derive(Debug)]
-enum ContainerKind {
-    Sequence,
-    Mapping { expect_key: bool },
-}
-
-#[derive(Debug)]
 struct TruthyState<'cfg> {
     config: &'cfg Config,
-    containers: Vec<ContainerState>,
-    key_depth: usize,
+    walker: Walker<()>,
     current_version: Version,
     bad_truthy: Option<HashSet<String>>,
 }
@@ -124,8 +111,7 @@ impl<'cfg> TruthyState<'cfg> {
     const fn new(config: &'cfg Config) -> Self {
         Self {
             config,
-            containers: Vec::new(),
-            key_depth: 0,
+            walker: Walker::new(),
             current_version: (1, 1),
             bad_truthy: None,
         }
@@ -134,66 +120,11 @@ impl<'cfg> TruthyState<'cfg> {
     fn document_start(&mut self, version: Option<Version>) {
         self.current_version = version.unwrap_or((1, 1));
         self.bad_truthy = None;
-        self.key_depth = 0;
-        self.containers.clear();
+        self.walker.reset();
     }
 
     fn document_end(&mut self) {
-        self.key_depth = 0;
-        self.containers.clear();
-    }
-
-    fn begin_node(&mut self) -> bool {
-        let mut is_key_node = false;
-        if let Some(ContainerState {
-            kind: ContainerKind::Mapping { expect_key },
-            ..
-        }) = self.containers.last_mut()
-        {
-            if *expect_key {
-                is_key_node = true;
-                *expect_key = false;
-            } else {
-                *expect_key = true;
-            }
-        }
-
-        let active_key = is_key_node || self.key_depth > 0;
-        if active_key {
-            self.key_depth += 1;
-        }
-        active_key
-    }
-
-    fn enter_mapping(&mut self) {
-        let active_key = self.begin_node();
-        self.containers.push(ContainerState {
-            kind: ContainerKind::Mapping { expect_key: true },
-            key_context: active_key,
-        });
-    }
-
-    fn enter_sequence(&mut self) {
-        let active_key = self.begin_node();
-        self.containers.push(ContainerState {
-            kind: ContainerKind::Sequence,
-            key_context: active_key,
-        });
-    }
-
-    fn exit_container(&mut self) {
-        if let Some(container) = self.containers.pop()
-            && container.key_context
-            && self.key_depth > 0
-        {
-            self.key_depth -= 1;
-        }
-    }
-
-    const fn finish_scalar(&mut self, active_key: bool) {
-        if active_key && self.key_depth > 0 {
-            self.key_depth -= 1;
-        }
+        self.walker.reset();
     }
 
     fn is_bad_truthy(&mut self, value: &str) -> bool {
@@ -228,24 +159,12 @@ impl<'cfg> TruthyState<'cfg> {
         diagnostics: &mut Vec<Violation>,
         replacements: &mut Vec<Replacement>,
     ) {
-        let active_key = self.begin_node();
-
-        if tagged {
-            self.finish_scalar(active_key);
-            return;
-        }
-
-        if !matches!(style, ScalarStyle::Plain) {
-            self.finish_scalar(active_key);
-            return;
-        }
-
-        if active_key && !self.config.check_keys {
-            self.finish_scalar(active_key);
-            return;
-        }
-
-        if self.is_bad_truthy(value) {
+        let context = self.walker.begin_node();
+        if !tagged
+            && matches!(style, ScalarStyle::Plain)
+            && (!context.active() || self.config.check_keys)
+            && self.is_bad_truthy(value)
+        {
             diagnostics.push(Violation {
                 line: span.start.line(),
                 column: span.start.col() + 1,
@@ -261,7 +180,7 @@ impl<'cfg> TruthyState<'cfg> {
             }
         }
 
-        self.finish_scalar(active_key);
+        self.walker.finish_node(context);
     }
 }
 
@@ -295,9 +214,11 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
                 self.state.document_start(version.map(event_version));
             }
             Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(_, _, _) => self.state.enter_sequence(),
-            Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(_, _, _) => self.state.enter_mapping(),
+            Event::SequenceStart(_, _, _) => self.state.walker.enter_sequence(()),
+            Event::SequenceEnd | Event::MappingEnd => {
+                self.state.walker.exit_container();
+            }
+            Event::MappingStart(_, _, _) => self.state.walker.enter_mapping((), ()),
             Event::Scalar(value, style, _, tag) => {
                 let tagged = tag.is_some();
                 self.state.handle_scalar(
@@ -309,10 +230,7 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
                     &mut self.replacements,
                 );
             }
-            Event::Alias(_) => {
-                let active_key = self.state.begin_node();
-                self.state.finish_scalar(active_key);
-            }
+            Event::Alias(_) => self.state.walker.skip_node(),
             _ => {}
         }
     }

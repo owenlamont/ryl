@@ -183,8 +183,7 @@ not have produced the shape.
 panics, every span is in-bounds and **character-aligned** (`1 <= line <= line_count`,
 `1 <= column <= chars_on_line + 1`), a leading `# ryl disable` mutes every rule (only a
 syntax error survives), and block-disabling a firing rule removes its diagnostics. It
-targets ryl's fragile byte↔char offset arithmetic rather than semantic correctness (the
-fast complement to the slow `yamllint_compat_*` differential suite).
+targets ryl's fragile byte↔char offset arithmetic rather than semantic correctness.
 `property_check/strategy.rs` generates documents biased to trigger every rule (truthy
 words, octal/float scalars, duplicate/unordered keys, flow spacing, anchors, long lines,
 odd indentation, trailing spaces, `%YAML` version directives) interleaved with multibyte

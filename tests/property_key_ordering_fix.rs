@@ -19,7 +19,6 @@ use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
 use ryl::rules::key_ordering;
-use ryl::yaml_dom::YamlOwned;
 use std::path::Path;
 use std::sync::LazyLock;
 use tempfile::TempDir;
@@ -198,34 +197,9 @@ fn render(map: &Map) -> String {
     lines.join("\n") + "\n"
 }
 
-fn loaded(text: &str) -> Option<Vec<YamlOwned>> {
-    fn canonical(node: YamlOwned) -> YamlOwned {
-        match node {
-            YamlOwned::Mapping(mapping) => {
-                let mut entries: Vec<_> = mapping
-                    .into_iter()
-                    .map(|(key, value)| (canonical(key), canonical(value)))
-                    .collect();
-                entries.sort_by_cached_key(|(key, _)| format!("{key:?}"));
-                YamlOwned::Mapping(entries.into_iter().collect())
-            }
-            YamlOwned::Sequence(items) => {
-                YamlOwned::Sequence(items.into_iter().map(canonical).collect())
-            }
-            YamlOwned::Tagged(tag, inner) => {
-                YamlOwned::Tagged(tag, Box::new(canonical(*inner)))
-            }
-            other => other,
-        }
-    }
-    Some(
-        YamlOwned::load_from_str(text)
-            .ok()?
-            .into_iter()
-            .map(canonical)
-            .collect(),
-    )
-}
+#[path = "common/yaml_canonical.rs"]
+mod yaml_canonical;
+use yaml_canonical::parse_for_compare;
 
 fn indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
@@ -286,7 +260,7 @@ proptest! {
     #[test]
     fn key_ordering_fix_is_sound_and_explains_what_it_leaves(map in arb_map()) {
         let input = render(&map);
-        let Some(before) = loaded(&input) else {
+        let Some(before) = parse_for_compare(&input) else {
             return Ok(());
         };
         for cfg in &LOADED.1 {
@@ -297,7 +271,7 @@ proptest! {
                 fixed.clone(),
                 "not idempotent; input {:?}", input
             );
-            prop_assert_eq!(loaded(&fixed), Some(before.clone()), "data changed; input {:?}", input);
+            prop_assert_eq!(parse_for_compare(&fixed), Some(before.clone()), "data changed; input {:?}", input);
             prop_assert_eq!(sorted_lines(&fixed), sorted_lines(&input), "lines changed; input {:?}", input);
             prop_assert_eq!(
                 attachments(&fixed),

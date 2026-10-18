@@ -69,8 +69,8 @@ text. A first-line `# ryl/yamllint disable-file`
 errors, no `--fix`). Handling is global: `lint_str` filters every diagnostic through
 `Directives::is_disabled` before the syntax-error check, and `fix` reverts edits to
 disabled lines via `Directives::reconcile`. Works region-locally in embedded Markdown.
-Validate against yamllint with `tests/yamllint_compat_directives.rs`. User docs:
-`docs/directives.md`.
+Direct and CLI coverage lives in `tests/directives.rs` and `tests/cli_directives.rs`.
+User docs: `docs/directives.md`.
 
 ## Markdown embedding
 

@@ -1550,20 +1550,27 @@ fn finalize_context(
         {
             Some("ryl --migrate-user-config --migrate-write".to_owned())
         }
-        Some(".ryl.toml" | "ryl.toml") => Some(format!(
-            "ryl --migrate-configs --migrate-write --migrate-root {}",
-            migrate_root(config_path, &envx.current_dir())
-        )),
+        Some(".ryl.toml" | "ryl.toml") => {
+            migrate_root(config_path, &envx.current_dir()).map(|root| {
+                format!("ryl --migrate-configs --migrate-write --migrate-root {root}")
+            })
+        }
         _ => None,
     };
     notices.extend(cfg.deprecated_keys.iter().map(|used| {
         let remedy = match (&migrate_command, file_name) {
-            (Some(command), _) => format!(" (run `{command}` to update)"),
+            (Some(command), _) => format!(
+                " (run `{command}`{} to update)",
+                crate::config_schema::MIGRATE_VERSION_SUFFIX
+            ),
             (None, Some("pyproject.toml")) => {
                 format!(" (move it to `tool.ryl.{}` by hand)", used.key.replacement)
             }
             (None, _) if symlink => {
                 format!(" ({SKIPS_SYMLINKS})")
+            }
+            (None, Some(".ryl.toml" | "ryl.toml")) => {
+                " (quote this config's path and migrate it by hand)".to_owned()
             }
             (None, _) => String::new(),
         };
@@ -1612,25 +1619,31 @@ fn legacy_yaml_notice(
         || "-d/--config-data".to_string(),
         |path| path.display().to_string(),
     );
-    let remedy = match path {
-        Some(path) if crate::migrate::is_symlink(path) => SKIPS_SYMLINKS.to_owned(),
-        _ => row.replacement.replace(
-            "{path}",
-            &path.map_or_else(String::new, |path| {
-                migrate_root(path, &envx.current_dir())
-            }),
-        ),
+    let root = match path {
+        Some(path) if crate::migrate::is_symlink(path) => {
+            return format!(
+                "warning: {label}: yamllint YAML config is deprecated; {SKIPS_SYMLINKS}"
+            );
+        }
+        Some(path) => migrate_root(path, &envx.current_dir()),
+        None => Some(String::new()),
     };
+    let remedy = root.map_or_else(
+        || "quote this config's path and migrate it by hand".to_owned(),
+        |root| {
+            row.replacement
+                .replace("{path}", &root)
+                .replace("{version}", crate::config_schema::MIGRATE_VERSION_SUFFIX)
+        },
+    );
     format!("warning: {label}: yamllint YAML config is deprecated; {remedy}")
 }
 
 const SKIPS_SYMLINKS: &str = "migration skips symlinks: edit the link's target by hand";
 
-/// `path` resolved against `cwd` with `/` separators, so the command runs from any
-/// directory, or a placeholder where a POSIX shell or PowerShell would need it quoted
-/// (both read these characters literally, `~` too since an absolute path never starts
-/// with it; POSIX eats `\`).
-fn migrate_root(path: &Path, cwd: &Path) -> String {
+/// `path` resolved against `cwd` with `/` separators and a shell-neutral spelling,
+/// or `None` when POSIX shells and PowerShell need different quoting.
+fn migrate_root(path: &Path, cwd: &Path) -> Option<String> {
     let text = cwd
         .join(path)
         .display()
@@ -1640,9 +1653,15 @@ fn migrate_root(path: &Path, cwd: &Path) -> String {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || "/._-:~".contains(c))
     {
-        text
+        Some(text)
+    } else if !text.contains(['"', '$', '`', '\\', '!'])
+        && !text.chars().any(char::is_control)
+    {
+        Some(format!("\"{text}\""))
+    } else if !text.contains('\'') && !text.chars().any(char::is_control) {
+        Some(format!("'{text}'"))
     } else {
-        "<path to this config>".to_owned()
+        None
     }
 }
 
