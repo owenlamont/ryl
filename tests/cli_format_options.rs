@@ -121,14 +121,12 @@ fn standard_format_omits_rule_suffix_for_syntax_errors() {
         .arg(&file));
     assert_eq!(code, 1, "syntax errors should fail: {stderr}");
     assert!(stdout.is_empty(), "standard diagnostics should use stderr");
-    assert!(
-        stderr.contains("syntax error"),
-        "expected syntax error: {stderr}"
-    );
     assert_eq!(
-        stderr.matches("(syntax)").count(),
-        1,
-        "syntax errors have no duplicate rule suffix: {stderr}"
+        stderr,
+        format!(
+            "{}\n  1:6       error    syntax error: unclosed bracket '[' (syntax)\n\n",
+            file.display()
+        )
     );
 }
 
@@ -179,13 +177,12 @@ fn github_format_omits_rule_marker_for_syntax_error() {
         .arg(&file));
     assert_eq!(code, 1, "syntax errors should fail: {stderr}");
     assert!(stdout.is_empty(), "GitHub diagnostics should use stderr");
-    assert!(
-        stderr.contains("::error file=") && stderr.contains("syntax error"),
-        "expected GitHub syntax diagnostic: {stderr}"
-    );
-    assert!(
-        !stderr.contains("[syntax]"),
-        "syntax errors have no rule marker: {stderr}"
+    assert_eq!(
+        stderr,
+        format!(
+            "::group::{0}\n::error file={0},line=1,col=6::1:6 syntax error: unclosed bracket '[' (syntax)\n::endgroup::\n\n",
+            file.display()
+        )
     );
 }
 
