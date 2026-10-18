@@ -36,8 +36,9 @@ An `[output]` **TOML table** (ryl-only, TOML-only — `config_schema::OutputTabl
 
 Precedence **CLI > config > default**: `resolve_targets` returns the CLI pairs if any
 `--output-format` was given, else `config_targets_from_table` of the run config's
-`[output]`, else one default auto-console target. The `[output]` is read run-level by
-`run_output_config` (the `-c`/`-d`/env global config, else the inputs-anchored project
+`[output]`, else one default auto-console target. The `[output]` is read run-level
+alongside `lint.strict` by `run_config_settings` (the `-c`/`-d`/env global config,
+else the inputs-anchored project
 config so `ryl check .` honors a project `.ryl.toml`; a malformed config is propagated —
 the empty-input case has no per-file discovery to surface it, so an invalid `[output]`
 still errors). `--diff` skips config `[output]` (it has its own unified-diff output), so
