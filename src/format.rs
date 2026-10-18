@@ -52,10 +52,11 @@ const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x
     flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nblock: |\n  text\nlist:\n- item\npairs:\n- k: v\n";
 
 impl Passes<'static> {
-    fn format(cfg: &YamlLintConfig, layout: Layout, skip: &[&str]) -> Self {
+    fn format(cfg: &YamlLintConfig, content: &str, skip: &[&str]) -> Self {
         let table = cfg.format().targets();
         let on = |rule| !skip.contains(&rule);
-        let line_ending = layout.line_ending;
+        let line_ending = line_ending(cfg, content);
+        let indent = indent_width(cfg);
         let brace_padding = i64::from(table.brace_spacing);
         let quote_style = match table.quote_style {
             QuoteStyleTarget::Single => Some(quoted_strings::QuoteStyle::Single),
@@ -69,7 +70,7 @@ impl Passes<'static> {
                 table.comment_starting_space == MarkerTarget::Add,
             )),
             indentation: on(indentation::ID).then(|| {
-                let target = indentation_target(cfg, layout.indent);
+                let target = indentation_target(cfg, indent);
                 if cfg.indent_width().is_none() {
                     target.requiring_consistent()
                 } else {
@@ -124,14 +125,15 @@ impl Passes<'static> {
             line_length: (table.fold_long_lines && on(line_length::ID)).then(|| {
                 line_length::Fold {
                     width: line_length(cfg),
-                    indent: layout.indent,
+                    indent,
                 }
             }),
-            collection_style: Some(collection_style_config(cfg, layout.indent, skip))
-                .filter(|style| {
+            collection_style: Some(collection_style_config(cfg, indent, skip)).filter(
+                |style| {
                     style.sequences != CollectionStyleTarget::Preserve
                         || style.mappings != CollectionStyleTarget::Preserve
-                }),
+                },
+            ),
             per_line: Vec::new(),
         }
     }
@@ -155,14 +157,14 @@ fn collection_style_config(
         mappings: style(table.mapping_style, braces::ID),
         indent,
         width: line_length(cfg),
-        infer_consistent_indent: cfg.indent_width().is_none(),
+        require_consistent_indent: cfg.indent_width().is_none(),
     }
 }
 
 /// Each collection `ryl format` would restyle under `cfg` but leaves alone, as a notice.
 #[must_use]
 pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
-    refusals_at(content, cfg, file_indent_width(cfg, content))
+    refusals_at(content, cfg, indent_width(cfg))
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
@@ -202,11 +204,6 @@ pub fn format_str(
     format_tracked(
         input,
         cfg,
-        Layout::of(
-            cfg,
-            input,
-            file_indent_width_with_events(cfg, input, events),
-        ),
         path,
         skip,
         &mut PassTracking {
@@ -241,15 +238,11 @@ impl FormatSettings {
     }
 }
 
-/// The indent width `ryl format` targets without a top-level `indent-width` where a file
-/// shows no width of its own.
+/// The indent width `ryl format` targets without a top-level `indent-width`.
 pub const DEFAULT_INDENT_WIDTH: u8 = 2;
 
 /// The line length `ryl format` targets without a top-level `line-length`.
 pub const DEFAULT_LINE_LENGTH: u16 = 80;
-
-/// The widths `ryl format` weighs for a file without a top-level `indent-width`.
-const DETECTED_WIDTHS: [u8; 7] = [2, 3, 4, 5, 6, 7, 8];
 
 /// The line length `ryl format` targets: the top-level `line-length`, else
 /// [`DEFAULT_LINE_LENGTH`].
@@ -259,206 +252,55 @@ pub fn line_length(cfg: &YamlLintConfig) -> u16 {
         .map_or(DEFAULT_LINE_LENGTH, NonZeroU16::get)
 }
 
-/// The indent width `ryl format` targets in `content`: the top-level `indent-width`, else
-/// 2 where an inline explicit value fixes the step, else the one width of
-/// [`DETECTED_WIDTHS`] whose re-indent changes the fewest lines, else [`DEFAULT_INDENT_WIDTH`].
 #[must_use]
-pub fn file_indent_width(cfg: &YamlLintConfig, content: &str) -> u8 {
-    file_indent_width_with_events(cfg, content, None)
+pub fn indent_width(cfg: &YamlLintConfig) -> u8 {
+    cfg.indent_width()
+        .map_or(DEFAULT_INDENT_WIDTH, std::num::NonZeroU8::get)
 }
 
-fn file_indent_width_with_events(
-    cfg: &YamlLintConfig,
-    content: &str,
-    events: Option<&[(Event<'_>, Span)]>,
-) -> u8 {
-    if let Some(width) = cfg.indent_width() {
-        return width.get();
-    }
-    let target = indentation_target(cfg, DEFAULT_INDENT_WIDTH);
-    let prepared = indentation::Prepared::for_config(content, &target, events);
-    if prepared.parsed
-        && let Some(width) = observed_indent_width(content)
-    {
-        let candidate = prepared.reindent(&indentation_target(cfg, width));
-        if candidate.refused.is_empty() && candidate.text == content {
-            return width;
-        }
-    }
-    if prepared.reindent(&target).text == content {
-        return DEFAULT_INDENT_WIDTH;
-    }
-    let consistent = indentation::Config::new(
-        indentation::SpacesSetting::Consistent,
-        if cfg.format().targets().indent_sequences {
-            indentation::IndentSequencesSetting::True
-        } else {
-            indentation::IndentSequencesSetting::False
-        },
-        false,
-    );
-    if indentation::has_fixed_explicit_indent(content, &consistent) {
-        return 2;
-    }
-    let before: Vec<&str> = content.split_inclusive('\n').collect();
-    let moved: Vec<(u8, usize)> = DETECTED_WIDTHS
-        .into_iter()
-        .map(|width| {
-            let reindented = prepared.reindent(&indentation_target(cfg, width));
-            let text = settled(reindented.text, content, cfg, width);
-            let after: Vec<&str> = text.split_inclusive('\n').collect();
-            let changed = TextDiff::from_slices(&before, &after)
-                .ops()
-                .iter()
-                .filter(|op| op.tag() != DiffTag::Equal)
-                .map(|op| op.old_range().len().max(op.new_range().len()))
-                .sum();
-            (width, changed)
-        })
-        .collect();
-    let fewest = moved.iter().map(|&(_, count)| count).min();
-    match moved
-        .iter()
-        .filter(|&&(_, count)| Some(count) == fewest)
-        .collect::<Vec<_>>()[..]
-    {
-        [&(width, _)] => width,
-        _ => DEFAULT_INDENT_WIDTH,
-    }
-}
-
-fn observed_indent_width(content: &str) -> Option<u8> {
-    let mut width = None;
-    for line in content.lines().filter(|line| !line.is_empty()) {
-        let indent = line.bytes().take_while(|&byte| byte == b' ').count();
-        let (key, value) = line[indent..].split_once(':')?;
-        if key.is_empty()
-            || !key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-            || (!value.is_empty() && !value.starts_with(' '))
-            || value.trim_start().starts_with(['|', '>'])
+fn line_ending(cfg: &YamlLintConfig, content: &str) -> new_lines::Config {
+    let kind = match cfg.format().targets().line_ending {
+        LineEndingTarget::CrLf => new_lines::LineKind::Dos,
+        LineEndingTarget::Native => new_lines::LineKind::Platform,
+        LineEndingTarget::Auto
+            if 2 * content.matches("\r\n").count() > content.matches('\n').count() =>
         {
-            return None;
+            new_lines::LineKind::Dos
         }
-        if indent == 0 {
-            if !value.is_empty() {
-                return None;
-            }
-        } else {
-            let indent = u8::try_from(indent).ok()?;
-            if !DETECTED_WIDTHS.contains(&indent) || value.is_empty() {
-                return None;
-            }
-            if width
-                .replace(indent)
-                .is_some_and(|previous| previous != indent)
-            {
-                return None;
-            }
-        }
-    }
-    width.filter(|&width| width != DEFAULT_INDENT_WIDTH)
-}
-
-/// `text`, one re-indent of `input` at `width`, re-indented again until it settles, as the
-/// format pipeline does, since one pass can enable another.
-fn settled(mut text: String, input: &str, cfg: &YamlLintConfig, width: u8) -> String {
-    let mut previous = input.to_string();
-    for _ in 0..FIX_PIPELINE_MAX_PASSES {
-        if text == previous {
-            break;
-        }
-        let next = indentation::reindent(&text, &indentation_target(cfg, width)).text;
-        previous = std::mem::replace(&mut text, next);
-    }
-    text
-}
-
-/// What `ryl format` targets in one file where the config can leave it to the file.
-#[derive(Debug, Clone, Copy)]
-struct Layout {
-    indent: u8,
-    line_ending: new_lines::Config,
-}
-
-impl Layout {
-    fn of(cfg: &YamlLintConfig, content: &str, indent: u8) -> Self {
-        let kind = match cfg.format().targets().line_ending {
-            LineEndingTarget::CrLf => new_lines::LineKind::Dos,
-            LineEndingTarget::Native => new_lines::LineKind::Platform,
-            LineEndingTarget::Auto
-                if 2 * content.matches("\r\n").count()
-                    > content.matches('\n').count() =>
-            {
-                new_lines::LineKind::Dos
-            }
-            LineEndingTarget::Lf | LineEndingTarget::Auto => new_lines::LineKind::Unix,
-        };
-        Self {
-            indent,
-            line_ending: new_lines::Config { kind },
-        }
-    }
+        LineEndingTarget::Lf | LineEndingTarget::Auto => new_lines::LineKind::Unix,
+    };
+    new_lines::Config { kind }
 }
 
 fn format_tracked(
     input: &str,
     cfg: &YamlLintConfig,
-    mut layout: Layout,
     path: &Path,
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
     events: Option<&[(Event<'_>, Span)]>,
 ) -> String {
-    let mut content = input.to_string();
-    let mut changes = Vec::new();
-    loop {
-        let passes = Passes::format(cfg, layout, skip);
-        let next = run_passes_with_events(
-            &content,
-            &passes,
-            path,
-            FIX_PIPELINE_MAX_PASSES,
-            &mut std::io::stderr(),
-            &mut PassTracking {
-                edited: &mut changes,
-                reindented: tracking.reindented.as_deref_mut(),
-            },
-            events.filter(|_| content == input),
-        );
-        if next == content || cfg.indent_width().is_some() {
-            tracking.edited.extend(changes);
-            return next;
-        }
-        let width = file_indent_width(cfg, &next);
-        if width == layout.indent {
-            tracking.edited.extend(changes);
-            return next;
-        }
-        layout = Layout::of(cfg, &next, width);
-        content = next;
-    }
+    run_passes_with_events(
+        input,
+        &Passes::format(cfg, input, skip),
+        path,
+        FIX_PIPELINE_MAX_PASSES,
+        &mut std::io::stderr(),
+        tracking,
+        events,
+    )
 }
 
-/// Formatter output, edited rules and indent width by input text, so a preview that both
-/// diffs and explains a file formats and detects each region once. Only valid for one
+/// Formatter output and edited rules by input text, so a preview that both diffs and
+/// explains a file formats each region once; only valid for one
 /// `cfg`, `path` and `skip`.
 #[derive(Default)]
 pub(crate) struct FormatCache {
     formatted: HashMap<String, (String, Vec<&'static str>)>,
-    widths: HashMap<String, u8>,
     reindented: ReindentCache,
 }
 
 impl FormatCache {
-    pub(crate) fn indent_width(&self, input: &str) -> u8 {
-        *self
-            .widths
-            .get(input)
-            .expect("formatting caches the input width")
-    }
-
     pub(crate) fn format(
         &mut self,
         input: &str,
@@ -489,17 +331,11 @@ impl FormatCache {
                 .and_then(|result| result.as_ref().ok())
                 .map(Vec::as_slice)
         });
-        let width = *self
-            .widths
-            .entry(input.to_string())
-            .or_insert_with(|| file_indent_width_with_events(cfg, input, events));
-        let layout = Layout::of(cfg, input, width);
-        let result = self.formatted.entry(input.to_string()).or_insert_with(|| {
+        self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(
                 input,
                 cfg,
-                layout,
                 path,
                 skip,
                 &mut PassTracking {
@@ -509,11 +345,7 @@ impl FormatCache {
                 events,
             );
             (formatted, edited)
-        });
-        self.widths
-            .entry(result.0.clone())
-            .or_insert_with(|| file_indent_width(cfg, &result.0));
-        result
+        })
     }
 }
 
@@ -544,22 +376,19 @@ fn region_problems(
     skip: &[&str],
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    let layout = Layout::of(cfg, content, cache.indent_width(content));
     let (formatted, edited) = cache.format(content, cfg, path, skip);
     if formatted == content {
         return Vec::new();
     }
     let mut changed: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     let mut problems: Vec<LintProblem> =
-        checks(content, &Passes::format(cfg, layout, skip))
+        checks(content, &Passes::format(cfg, content, skip))
             .into_iter()
             .filter(|problem| {
                 problem.rule.is_some_and(|rule| {
                     changed
                         .entry(rule)
-                        .or_insert_with(|| {
-                            lines_changed_by(rule, content, cfg, layout, path)
-                        })
+                        .or_insert_with(|| lines_changed_by(rule, content, cfg, path))
                         .contains(&problem.line)
                 })
             })
@@ -586,7 +415,6 @@ fn lines_changed_by(
     rule: &str,
     content: &str,
     cfg: &YamlLintConfig,
-    layout: Layout,
     path: &Path,
 ) -> BTreeSet<usize> {
     let others: Vec<&str> = FORMAT_RULE_IDS
@@ -596,7 +424,6 @@ fn lines_changed_by(
     let alone = format_tracked(
         content,
         cfg,
-        layout,
         path,
         &others,
         &mut PassTracking {
@@ -642,7 +469,7 @@ pub(crate) fn unfixed(
     cfg: &YamlLintConfig,
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    let indent = cache.indent_width(content);
+    let indent = indent_width(cfg);
     let mut target = indentation_target(cfg, indent);
     if cfg.indent_width().is_none() {
         target = target.requiring_consistent();
@@ -867,11 +694,7 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let probe = format!("{shebang}{CONFLICT_PROBE}{blanks}last: 1\n");
     let formatted = run_passes(
         &probe,
-        &Passes::format(
-            cfg,
-            Layout::of(cfg, &probe, file_indent_width(cfg, &probe)),
-            &[],
-        ),
+        &Passes::format(cfg, &probe, &[]),
         Path::new(""),
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::sink(),
@@ -900,8 +723,6 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     {
         rejected.insert(quoted_strings::ID);
     }
-    // The probe is one file, so it shows one width and one line ending of the several a
-    // detected target can write.
     if cfg.rule_level(indentation::ID).is_some() && !spaces_admit_format(cfg) {
         rejected.insert(indentation::ID);
     }
@@ -929,12 +750,7 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
 /// Whether `[lint.rules.indentation] spaces` accepts each width `ryl format` can write.
 fn spaces_admit_format(cfg: &YamlLintConfig) -> bool {
     let lint = indentation::Config::resolve(cfg);
-    match cfg.indent_width() {
-        Some(width) => lint.admits_width(width.get()),
-        None => DETECTED_WIDTHS
-            .into_iter()
-            .all(|width| lint.admits_width(width)),
-    }
+    lint.admits_width(indent_width(cfg))
 }
 
 fn remedy(rule: &str, cfg: &YamlLintConfig) -> &'static str {
@@ -963,10 +779,7 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
     let table = cfg.format().targets();
     let key = match rule {
         indentation::ID if !spaces_admit_format(cfg) => {
-            return Some(cfg.indent_width().map_or_else(
-                || "per-file indent width (`indent-width` unset)".to_string(),
-                |width| format!("`indent-width = {width}`"),
-            ));
+            return Some(format!("`indent-width = {}`", indent_width(cfg)));
         }
         hyphens::ID
             if !table.dash_on_own_line

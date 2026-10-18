@@ -66,11 +66,8 @@ fn refusal_checks_preserve_output_and_only_report_active_documents() {
              5:4 colons not fixed: too many spaces after colon\n",
         ),
     ] {
-        let (code, stdout, stderr, formatted) = ryl_on(
-            Some("indent-width = 2\n[format]\n"),
-            input,
-            &["format", "--no-cache"],
-        );
+        let (code, stdout, stderr, formatted) =
+            ryl_on(Some("[format]\n"), input, &["format", "--no-cache"]);
         let actual: String = stderr
             .lines()
             .map(|line| format!("{}\n", line.split_once("a.yaml:").unwrap().1))
@@ -84,7 +81,7 @@ fn refusal_checks_preserve_output_and_only_report_active_documents() {
 }
 
 #[test]
-fn detected_width_agrees_with_explicit_key_indentation() {
+fn default_width_agrees_with_explicit_key_indentation() {
     let config = "[format]\ndash-on-own-line = true\n\
                   [lint.rules.indentation]\nindent-sequences = true\n";
     for (input, expected) in [
