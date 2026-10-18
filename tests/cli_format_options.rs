@@ -137,6 +137,32 @@ fn github_format_emits_workflow_commands() {
 }
 
 #[test]
+fn github_format_omits_rule_marker_for_syntax_error() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("invalid.yaml");
+    fs::write(&file, "foo: [1, 2\n").unwrap();
+
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--format")
+        .arg("github")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "syntax errors should fail: {stderr}");
+    assert!(stdout.is_empty(), "GitHub diagnostics should use stderr");
+    assert!(
+        stderr.contains("::error file=") && stderr.contains("syntax error"),
+        "expected GitHub syntax diagnostic: {stderr}"
+    );
+    assert!(
+        !stderr.contains("[syntax]"),
+        "syntax errors have no rule marker: {stderr}"
+    );
+}
+
+#[test]
 fn github_format_escapes_newlines_to_prevent_command_injection() {
     let dir = tempdir().unwrap();
     let cfg = dir.path().join("config.yml");
@@ -466,6 +492,30 @@ fn auto_format_respects_no_color_env() {
     assert!(
         !stderr.contains("\u{001b}"),
         "NO_COLOR should disable ANSI sequences: {stderr}"
+    );
+}
+
+#[test]
+fn auto_format_without_color_env_uses_plain_output_for_piped_stderr() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("missing.yaml");
+    fs::write(&file, "key: value").unwrap();
+
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .env_remove("NO_COLOR")
+        .env_remove("FORCE_COLOR")
+        .env_remove("GITHUB_ACTIONS")
+        .env_remove("GITHUB_WORKFLOW")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "missing newline should fail: {stderr}");
+    assert!(stdout.is_empty(), "auto diagnostics should use stderr");
+    assert!(
+        stderr.contains("new-line-at-end-of-file") && !stderr.contains('\u{001b}'),
+        "piped stderr should use plain diagnostics: {stderr}"
     );
 }
 

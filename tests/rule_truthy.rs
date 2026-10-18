@@ -143,10 +143,6 @@ fn ignores_yaml_directive_with_non_numeric_major() {
     );
 }
 
-// Inline rule-disable directives (`# yamllint/ryl disable…`) are handled globally by
-// the lint engine, not per-rule; their behaviour is covered in tests/cli_directives.rs
-// and tests/yamllint_compat_directives.rs.
-
 const DEFAULT_CFG: &str = "rules:\n  truthy: enable\n";
 const NO_KEYS_CFG: &str = "rules:\n  truthy:\n    check-keys: false\n";
 const KEYS_INPUT: &str =
