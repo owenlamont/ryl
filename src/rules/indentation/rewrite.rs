@@ -1,7 +1,5 @@
 use std::ops::RangeInclusive;
 
-use granit_parser::{Event, Span};
-
 use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate};
 use crate::directives::Directives;
 use crate::rules::hyphens;
@@ -45,19 +43,7 @@ pub enum Cause {
 /// byte-identical for each [`Cause`].
 #[must_use]
 pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
-    reindent_with_events(buffer, cfg, None)
-}
-
-pub(crate) fn reindent_with_events(
-    buffer: &str,
-    cfg: &Config,
-    events: Option<&[(Event<'_>, Span)]>,
-) -> Reindented {
-    let source = TextVersion::new(buffer);
-    if let Some(events) = events {
-        source.analysis().seed_events(events);
-    }
-    reindent_with_analysis(source.analysis(), cfg).0
+    reindent_with_analysis(TextVersion::new(buffer).analysis(), cfg).0
 }
 
 pub(crate) fn reindent_with_analysis(
