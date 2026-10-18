@@ -11,7 +11,7 @@ import re
 import subprocess
 import tempfile
 import tomllib
-from typing import Annotated
+from typing import Annotated, Final
 
 from packaging.version import Version
 import typer
@@ -23,7 +23,7 @@ app = typer.Typer(
 )
 
 
-RYL_PRE_COMMIT_URL = "https://github.com/owenlamont/ryl-pre-commit"
+RYL_PRE_COMMIT_URL: Final = "https://github.com/owenlamont/ryl-pre-commit"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
