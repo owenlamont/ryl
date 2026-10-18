@@ -167,6 +167,31 @@ fn yaml_produces_a_diff(input: &str) -> bool {
     })
 }
 
+fn arb_encoded_preview()
+-> impl Strategy<Value = ((String, SourceKind), usize, bool, bool)> {
+    (
+        prop_oneof![
+            arb_document().prop_map(|document| (document.render(), SourceKind::Yaml)),
+            arb_markdown_doc()
+                .prop_map(|document| (document.render(), SourceKind::Markdown)),
+        ],
+        prop::sample::select(vec![1usize, 2, 4]),
+        any::<bool>(),
+        any::<bool>(),
+    )
+}
+
+#[test]
+fn encoded_preview_generator_seed_fits_default_stack() {
+    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+        cases: 256,
+        rng_seed: proptest::test_runner::RngSeed::Fixed(8),
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    });
+    runner.run(&arb_encoded_preview(), |_| Ok(())).unwrap();
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
@@ -209,13 +234,7 @@ proptest! {
 
     #[test]
     fn encoded_previews_match_plain_previews(
-        input in prop_oneof![
-            arb_document().prop_map(|document| (document.render(), SourceKind::Yaml)),
-            arb_markdown_doc().prop_map(|document| (document.render(), SourceKind::Markdown)),
-        ],
-        width in prop::sample::select(vec![1usize, 2, 4]),
-        little in any::<bool>(),
-        bom in any::<bool>(),
+        (input, width, little, bom) in arb_encoded_preview(),
     ) {
         let (input, kind) = input;
         let bytes = encoding::encoded(&input, width, little, bom);
