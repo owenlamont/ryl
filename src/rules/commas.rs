@@ -106,51 +106,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 }
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
-    if input.text().is_empty() {
-        return Vec::new();
-    }
-
-    let scalar_ranges = crate::rules::support::punctuation::scalar_ranges(input);
-    let chars = input.chars();
     let line_starts = input.line_starts();
-
     let mut violations = Vec::new();
-    let mut contexts: Vec<FlowKind> = Vec::new();
-    let mut i = 0usize;
-    let mut range_idx = 0usize;
-
-    while i < chars.len() {
-        if let Some(range) = containing_scalar_range(&scalar_ranges, &mut range_idx, i)
-        {
-            i = range.end.get();
-            continue;
-        }
-
-        match chars[i].1 {
-            '[' => contexts.push(FlowKind::Sequence),
-            '{' => {
-                if let Some(next_idx) = template_double_curly_end(chars, i) {
-                    i = next_idx;
-                    continue;
-                }
-                contexts.push(FlowKind::Mapping);
-            }
-            ']' | '}' => {
-                contexts.pop();
-            }
-            '#' => {
-                i = skip_comment(chars, i);
-                continue;
-            }
-            ',' if !contexts.is_empty() => {
-                evaluate_comma(cfg, &mut violations, chars, i, line_starts);
-            }
-            _ => {}
-        }
-
-        i += 1;
-    }
-
+    scan_commas(input, |chars, i| {
+        evaluate_comma(cfg, &mut violations, chars, i, line_starts);
+    });
     violations
 }
 
@@ -161,14 +121,20 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
     let buffer = input.text();
-    if buffer.is_empty() {
+    let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
+    scan_commas(input, |chars, i| {
+        collect_comma_fixes(cfg, chars, i, &mut replacements);
+    });
+
+    if replacements.is_empty() {
         return None;
     }
+    Some(apply_replacements(buffer, replacements))
+}
 
+fn scan_commas(input: Analysis<'_>, mut visit: impl FnMut(&[(usize, char)], usize)) {
     let scalar_ranges = crate::rules::support::punctuation::scalar_ranges(input);
     let chars = input.chars();
-
-    let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
     let mut contexts: Vec<FlowKind> = Vec::new();
     let mut i = 0usize;
     let mut range_idx = 0usize;
@@ -197,18 +163,13 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
                 continue;
             }
             ',' if !contexts.is_empty() => {
-                collect_comma_fixes(cfg, chars, i, &mut replacements);
+                visit(chars, i);
             }
             _ => {}
         }
 
         i += 1;
     }
-
-    if replacements.is_empty() {
-        return None;
-    }
-    Some(apply_replacements(buffer, replacements))
 }
 
 fn evaluate_comma(
