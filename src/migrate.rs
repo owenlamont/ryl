@@ -482,22 +482,22 @@ fn move_yaml_files(
         return Ok((false, false));
     };
     if !config.contains_key("files") {
-        config.insert("files", Item::Table(Table::new()));
+        let mut files = Table::new();
+        files.set_position(Some(-1));
+        config.insert("files", Item::Table(files));
+    }
+    if config["files"]
+        .as_table_like()
+        .is_some_and(|files| files.contains_key("yaml"))
+    {
+        return Ok((true, true));
     }
     if config["files"].is_inline_table() {
-        config["files"] = Item::Table(
-            config["files"]
-                .clone()
-                .into_table()
-                .expect("inline files table"),
-        );
+        convert_inline_table(config, "files");
     }
     let files = config["files"]
         .as_table_mut()
         .ok_or("`files` must be a table")?;
-    if files.contains_key("yaml") {
-        return Ok((true, true));
-    }
     let mut yaml_key = Key::new("yaml");
     *yaml_key.leaf_decor_mut() = legacy_key.leaf_decor().clone();
     files.insert_formatted(&yaml_key, patterns);
@@ -527,20 +527,27 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
             let (moved_yaml_files, overridden_yaml_files) =
                 move_yaml_files(&mut document, pyproject)?;
             parse_toml_config_str(&document.to_string(), pyproject).map(|config| {
-                (document, config, moved_yaml_files, overridden_yaml_files)
+                (
+                    text,
+                    document,
+                    config,
+                    moved_yaml_files,
+                    overridden_yaml_files,
+                )
             })
         });
-    let (mut document, config, moved_yaml_files, overridden_yaml_files) = match loaded {
-        Ok((document, Some(config), moved, overridden)) => {
-            (document, config, moved, overridden)
-        }
-        Ok((_, None, _, _)) => return,
-        Err(err) => {
-            plan.warnings
-                .push(format!("warning: skipping {}: {err}", path.display()));
-            return;
-        }
-    };
+    let (text, mut document, config, moved_yaml_files, overridden_yaml_files) =
+        match loaded {
+            Ok((text, document, Some(config), moved, overridden)) => {
+                (text, document, config, moved, overridden)
+            }
+            Ok((_, _, None, _, _)) => return,
+            Err(err) => {
+                plan.warnings
+                    .push(format!("warning: skipping {}: {err}", path.display()));
+                return;
+            }
+        };
     let deprecated = config.deprecated_keys();
     if deprecated.is_empty() && !moved_yaml_files {
         return;
@@ -588,25 +595,29 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         ));
     }
     rewrite_toml_document(&mut document, &deprecated);
+    plan.entries.push(MigrationEntry {
+        source: path.clone(),
+        target: path,
+        toml: render_migrated_toml(&document, &text),
+    });
+}
+
+fn render_migrated_toml(document: &DocumentMut, original: &str) -> String {
     let mut rewritten = document.to_string();
-    let newline = buffer_newline(&text);
+    let newline = buffer_newline(original);
     if newline != "\n" {
         rewritten = rewritten
             .replace("\r\n", "\n")
             .replace('\r', "\n")
             .replace('\n', newline);
     }
-    if !text.ends_with(['\r', '\n']) {
+    if !original.ends_with(['\r', '\n']) {
         rewritten.truncate(rewritten.trim_end_matches(['\r', '\n']).len());
     }
-    if text.starts_with('\u{feff}') && !rewritten.starts_with('\u{feff}') {
+    if original.starts_with('\u{feff}') && !rewritten.starts_with('\u{feff}') {
         rewritten.insert(0, '\u{feff}');
     }
-    plan.entries.push(MigrationEntry {
-        source: path.clone(),
-        target: path,
-        toml: rewritten,
-    });
+    rewritten
 }
 
 fn rewrite_toml_document(document: &mut DocumentMut, deprecated: &[DeprecatedKeyUse]) {

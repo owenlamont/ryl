@@ -290,6 +290,50 @@ fn migrated_toml_preserves_surviving_comments_and_untouched_tables() {
         "[format] # keep:format-header\nquote-style = 'double' # keep:format-value\n";
     let cases: &[Case<'_>] = &[
         (
+            "yaml-files into new files table",
+            "yaml-files = ['*.yaml'] # keep:yaml-files\n",
+            None,
+            &[],
+        ),
+        (
+            "yaml-files into existing files table",
+            "yaml-files = ['*.yaml']\n\
+[files] # keep:files-header\nmarkdown = ['*.md'] # keep:markdown\n",
+            None,
+            &[],
+        ),
+        (
+            "yaml-files into inline files table",
+            "files = { markdown = ['*.md'] } # keep:inline-files\n\
+yaml-files = ['*.yaml'] # keep:yaml-files\n",
+            None,
+            &[],
+        ),
+        (
+            "yaml-files into dotted files table",
+            "files.markdown = ['*.md'] # keep:dotted-markdown\n\
+yaml-files = ['*.yaml'] # keep:yaml-files\n",
+            Some(
+                "files.markdown = ['*.md'] # keep:dotted-markdown\n\
+files.yaml = ['*.yaml'] # keep:yaml-files\n",
+            ),
+            &[],
+        ),
+        (
+            "yaml-files overridden in files table",
+            "yaml-files = ['*.yml'] # drop:yaml-files\n\
+[files] # keep:files-header\nyaml = ['*.yaml'] # keep:yaml\n",
+            None,
+            &[("yaml-files", "files.yaml")],
+        ),
+        (
+            "yaml-files overridden in inline files table",
+            "files = { yaml = ['*.yaml'] } # keep:inline-files\n\
+yaml-files = ['*.yml'] # drop:yaml-files\n",
+            Some("files = { yaml = ['*.yaml'] } # keep:inline-files\n"),
+            &[("yaml-files", "files.yaml")],
+        ),
+        (
             "ignore with untouched inline lint",
             "ignore = ['vendor/**'] # keep:ignore\n\
 lint = { strict = true, rules = { truthy = 'enable' } } # keep:inline-lint\n",
@@ -417,6 +461,10 @@ rules = ['comments'] # keep:active-rules\n",
         let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
         assert_eq!(code, 0, "{name}: {stderr}");
         let output = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+        if name.starts_with("yaml-files") {
+            assert!(output.contains("yaml = ['*.yaml']"), "{name}: {output}");
+            assert!(!output.contains("yaml-files ="), "{name}: {output}");
+        }
         assert!(output.contains(stable), "{name}: {output}");
         if let Some(untouched) = untouched {
             assert!(output.contains(untouched), "{name}: {output}");
@@ -486,6 +534,18 @@ rules = ['comments'] # keep:active-rules\n",
     assert_eq!(
         fs::read(dir.path().join(".ryl.toml")).unwrap(),
         expected.as_bytes()
+    );
+
+    let input = "\u{feff}yaml-files = ['*.yaml'] # keep:legacy\r\n\r\n\
+[format] # keep:later\r\nquote-style = 'double'";
+    let dir = project(input);
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read(dir.path().join(".ryl.toml")).unwrap(),
+        "\u{feff}[files]\r\nyaml = ['*.yaml'] # keep:legacy\r\n\r\n\
+[format] # keep:later\r\nquote-style = 'double'"
+            .as_bytes()
     );
 }
 
