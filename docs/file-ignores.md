@@ -19,6 +19,18 @@ Three mechanisms, narrowing from left to right:
 A top-level `exclude` lists paths ryl skips entirely. No rule runs against them,
 `ryl format` leaves them alone, and they produce no diagnostics.
 
+`--exclude <GLOBS>` replaces config exclusions, including patterns loaded through
+`exclude-from-file`, for one run. Pass comma-separated gitignore-style globs once
+per command, anchored at the current working directory rather than the config:
+
+```bash
+ryl check --enable ALL --exclude 'pnpm-lock.yaml,vendor/**' .
+ryl format --exclude 'generated/**' .
+```
+
+`--exclude ''` clears the config's exclusions. Explicit file arguments remain
+subject to exclusions. Git ignore handling during directory walks is unchanged.
+
 ```toml
 exclude = """
 vendor/**

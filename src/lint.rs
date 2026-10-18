@@ -378,11 +378,8 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     }
     match scan(content, true) {
         Ok(()) => None,
-        Err(err) if err.info() == "while parsing node, found unknown anchor" => {
-            // The parser halts at the tolerated undefined alias, masking any later lexical
-            // error (e.g. an empty anchor name). The scanner tokenises undefined aliases
-            // without erroring, so it surfaces that real error; a clean scan means the
-            // alias is the only problem (reported via the `anchors` rule).
+        Err(err) if matches!(err.kind(), granit_parser::ErrorKind::UnknownAnchor) => {
+            // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
         Err(err) => Some(syntax_problem(&err)),

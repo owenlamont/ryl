@@ -203,6 +203,7 @@ pub struct YamlLintConfig {
     ignore_from_file_key: &'static str,
     #[allow(clippy::struct_field_names)]
     ignore_matcher: Option<Compiled<Gitignore>>,
+    cli_exclude_root: Option<PathBuf>,
     per_file_ignores: BTreeMap<String, Vec<String>>,
     per_file_ignore_matchers: Vec<PerFileIgnore>,
     /// Kept alongside the compiled matchers so the config can serialize back to TOML for
@@ -223,6 +224,7 @@ pub struct YamlLintConfig {
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
     output: Option<OutputTable>,
+    strict: Option<bool>,
     format: FormatSettings,
     source: Option<PathBuf>,
     line_length: Option<NonZeroU16>,
@@ -586,6 +588,7 @@ impl Default for YamlLintConfig {
             ignore_from_files: Vec::new(),
             ignore_from_file_key: "ignore-from-file",
             ignore_matcher: None,
+            cli_exclude_root: None,
             per_file_ignores: BTreeMap::new(),
             per_file_ignore_matchers: Vec::new(),
             per_line_ignores: Vec::new(),
@@ -604,6 +607,7 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
+            strict: None,
             cache_dir: None,
             format: FormatSettings::default(),
             source: None,
@@ -744,14 +748,14 @@ impl YamlLintConfig {
         );
     }
 
-    /// Matches `path` relative to `base_dir`.
+    /// Matches `path` relative to the exclusions' root.
     #[must_use]
     pub fn is_file_ignored(&self, path: &Path, base_dir: &Path) -> bool {
         self.ignore_matcher.as_ref().is_some_and(|matcher| {
             path_matches_ignore(
                 matcher,
                 path,
-                base_dir,
+                self.cli_exclude_root.as_deref().unwrap_or(base_dir),
                 self.path_case.is_insensitive(),
             )
         })
@@ -907,6 +911,30 @@ impl YamlLintConfig {
         }
     }
 
+    pub fn disable_rules(&mut self, disabled: &[&str]) {
+        self.rules
+            .retain(|name, _| !disabled.contains(&name.as_str()));
+        self.rule_names
+            .retain(|name| !disabled.contains(&name.as_str()));
+    }
+
+    /// # Errors
+    /// Returns an error for an invalid exclusion glob.
+    pub fn replace_exclude(&mut self, patterns: &[String]) -> Result<(), String> {
+        let (matcher, _) = build_ignore_matcher(
+            patterns,
+            &[],
+            "exclude-from-file",
+            &SystemEnv,
+            process_cwd(),
+        )?;
+        self.ignore_patterns = patterns.to_vec();
+        self.ignore_from_files.clear();
+        self.ignore_matcher = matcher;
+        self.cli_exclude_root = Some(process_cwd().to_path_buf());
+        Ok(())
+    }
+
     #[must_use]
     pub fn markdown_front_matter(&self) -> bool {
         self.lint_markdown_front_matter
@@ -922,6 +950,11 @@ impl YamlLintConfig {
     #[must_use]
     pub fn output(&self) -> Option<&OutputTable> {
         self.output.as_ref()
+    }
+
+    #[must_use]
+    pub fn strict(&self) -> bool {
+        self.strict.unwrap_or(false)
     }
 
     #[must_use]
@@ -1005,6 +1038,7 @@ impl YamlLintConfig {
     }
 
     fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
+        self.strict = normalized.strict.or(self.strict);
         if let Some(cache_dir) = &normalized.cache_dir {
             self.cache_dir = Some(PathBuf::from(cache_dir));
         }
@@ -1408,6 +1442,7 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
 
 fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
     NormalizedConfig {
+        strict: config.strict,
         cache_dir: config
             .cache_dir
             .as_ref()

@@ -75,9 +75,13 @@ conflict with it.
 
 ## Severity levels
 
+Warnings return exit code `0` unless strict mode is enabled with `--strict` or
+TOML [`[lint] strict = true`](getting-started/quickstart.md#strict-mode).
+Use `--no-strict` to override a configured strict mode for one run.
+
 Every rule can be configured to report at either `error` (the default for
 most rules) or `warning`. Errors cause `ryl` to exit non-zero; warnings are
-printed but do not fail the run.
+printed and fail the run only under strict mode.
 
 Configure the severity inline with the rule:
 

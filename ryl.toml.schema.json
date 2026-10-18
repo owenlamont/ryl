@@ -317,6 +317,13 @@
           ],
           "description": "Rule configuration table."
         },
+        "strict": {
+          "description": "Return exit code 2 when only warnings (no errors) are found (default false).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "unfixable": {
           "description": "Rules `--fix` must not fix, overriding `fixable`.",
           "items": {
@@ -1585,6 +1592,12 @@
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
         "forbid-ambiguous-anchor-alias-names": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forbid-anchors-and-aliases": {
           "type": [
             "boolean",
             "null"

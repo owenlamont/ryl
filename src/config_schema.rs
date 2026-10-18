@@ -74,6 +74,8 @@ pub struct TomlConfig {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LintTable {
+    /// Return exit code 2 when only warnings (no errors) are found (default false).
+    pub strict: Option<bool>,
     /// Rule configuration table.
     pub rules: Option<TomlRulesTable>,
     /// Rules `--fix` may fix (default `["ALL"]`).
@@ -365,6 +367,7 @@ impl TomlConfig {
         let lint = self.lint.clone().unwrap_or_default();
         let fix = self.fix.as_ref();
         LintTable {
+            strict: lint.strict,
             rules: lint.rules.or_else(|| self.rules.clone()),
             fixable: lint
                 .fixable
@@ -840,8 +843,7 @@ pub struct AnchorsOptions {
     pub forbid_unused_anchors: Option<bool>,
 }
 
-/// TOML-only `anchors` options: the yamllint-compatible set plus ryl's
-/// `forbid-ambiguous-anchor-alias-names`, which has no YAML-config equivalent.
+/// TOML anchor options include ryl-only policies excluded from YAML configuration.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TomlAnchorsOptions {
@@ -853,6 +855,8 @@ pub struct TomlAnchorsOptions {
     pub forbid_unused_anchors: Option<bool>,
     #[serde(rename = "forbid-ambiguous-anchor-alias-names")]
     pub forbid_ambiguous_anchor_alias_names: Option<bool>,
+    #[serde(rename = "forbid-anchors-and-aliases")]
+    pub forbid_anchors_and_aliases: Option<bool>,
 }
 
 /// TOML-only `comments-indentation` options. yamllint's rule has none, so the YAML
@@ -1555,6 +1559,7 @@ pub struct NormalizedFixConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct NormalizedConfig {
+    pub strict: Option<bool>,
     pub cache_dir: Option<String>,
     pub ignore_patterns: Option<Vec<String>>,
     pub ignore_from_files: Option<Vec<String>>,

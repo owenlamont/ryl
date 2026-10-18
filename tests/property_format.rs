@@ -23,6 +23,8 @@ mod consistency;
 mod encoding;
 #[path = "property_format/fold.rs"]
 mod fold;
+#[path = "common/indentation_render.rs"]
+mod indentation_render;
 #[path = "property_format/passes.rs"]
 mod passes;
 #[path = "property_format/properties.rs"]
@@ -771,6 +773,34 @@ proptest! {
         width in 1usize..=4,
     ) {
         check_reindent(&document.render(), width).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
+    #[ignore = "requires RYL_REINDENT_ORACLE linked against the base library"]
+    fn indentation_render_matches_base(
+        document in arb_document_with_properties(),
+        width in 1usize..=8,
+        sequences in 0usize..4,
+        dash in prop::option::of(any::<bool>()),
+        multi_line in any::<bool>(),
+        newline in prop::sample::select(vec!["\n", "\r\n", "\r"]),
+        bom in any::<bool>(),
+    ) {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let input = format!("{}{}", if bom { "\u{feff}" } else { "" },
+            document.render().replace('\n', newline));
+        let request = (input, width, sequences, dash, multi_line);
+        let mut child = Command::new(std::env::var_os("RYL_REINDENT_ORACLE")
+            .expect("set RYL_REINDENT_ORACLE to the base renderer oracle"))
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(&serde_json::to_vec(&request).unwrap())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        prop_assert!(output.status.success());
+        let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        prop_assert_eq!(indentation_render::render(&request), expected);
     }
 
     #[test]

@@ -51,6 +51,36 @@ fn format_respaces_and_reindents_compact_collections() {
 }
 
 #[test]
+fn refusal_checks_preserve_output_and_only_report_active_documents() {
+    for (input, expected, notices) in [
+        (DIRTY, "---\na: 1\nlist:\n  - x\n", ""),
+        (
+            "# ryl disable rule:indentation\na :  1\nlist:\n  -   x\n",
+            "# ryl disable rule:indentation\na: 1\nlist:\n  - x\n",
+            "",
+        ),
+        (
+            "a :  1\nlist:\n  -   x\n---\n:   - x\n    - y\n",
+            "a: 1\nlist:\n  - x\n---\n:   - x\n    - y\n",
+            "5:1 indentation not fixed: cannot re-indent this document safely\n\
+             5:4 colons not fixed: too many spaces after colon\n",
+        ),
+    ] {
+        let (code, stdout, stderr, formatted) =
+            ryl_on(Some("[format]\n"), input, &["format", "--no-cache"]);
+        let actual: String = stderr
+            .lines()
+            .map(|line| format!("{}\n", line.split_once("a.yaml:").unwrap().1))
+            .collect();
+        assert_eq!(
+            (code, stdout.as_str(), formatted.as_str(), actual.as_str()),
+            (0, "", expected, notices),
+            "{input:?}: {stderr}"
+        );
+    }
+}
+
+#[test]
 fn default_width_agrees_with_explicit_key_indentation() {
     let config = "[format]\ndash-on-own-line = true\n\
                   [lint.rules.indentation]\nindent-sequences = true\n";

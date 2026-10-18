@@ -5,7 +5,7 @@
 Reports problems with YAML anchors and aliases &mdash; duplicated anchor
 names, aliases that reference undeclared anchors, anchors that are declared
 but never used, and (optionally) anchor/alias names that are ambiguous because
-a `:` is welded to them.
+a `:` is welded to them. Projects can also forbid all anchors and aliases.
 
 ## Why this matters
 
@@ -40,6 +40,7 @@ forbid-undeclared-aliases = true
 forbid-duplicated-anchors = false
 forbid-unused-anchors = false
 forbid-ambiguous-anchor-alias-names = false   # ryl-only
+forbid-anchors-and-aliases = false           # ryl-only
 ```
 
 | Option | Default | Description |
@@ -47,10 +48,16 @@ forbid-ambiguous-anchor-alias-names = false   # ryl-only
 | `forbid-undeclared-aliases` | `true` | Report aliases (`*name`) whose anchor (`&name`) has not been declared earlier. |
 | `forbid-duplicated-anchors` | `false` | Report when the same anchor name is declared more than once. |
 | `forbid-unused-anchors` | `false` | Report anchors that are never referenced by an alias. |
+| `forbid-anchors-and-aliases` | `false` | **ryl-only.** Report every anchor and alias, including valid declared-and-used pairs and aliases in merge keys (`<<: *name`). |
 | `forbid-ambiguous-anchor-alias-names` | `false` | **ryl-only.** Report an anchor (`&name`) or alias (`*name`) whose name has a `:` welded to it &mdash; trailing (`&foo:`), internal (`&foo:bar`), or leading (`&:foo`) &mdash; the construct parsers disagree on. A space before the `:` (`*foo : bar`) is the unambiguous alias-key form and is never flagged. |
 
-`forbid-ambiguous-anchor-alias-names` is configurable only in TOML; YAML config
-rejects it.
+`forbid-ambiguous-anchor-alias-names` and `forbid-anchors-and-aliases` are
+configurable only in TOML; YAML config rejects both options.
+
+All `anchors` options are independent. No option suppresses or overrides another.
+With `forbid-anchors-and-aliases` and `forbid-undeclared-aliases` enabled,
+an undeclared `*missing` receives two diagnostics. The duplicated, unused and
+ambiguous name checks also report their matching conditions when enabled.
 
 ## Examples
 
@@ -70,6 +77,36 @@ rejects it.
 - &anchor
   foo: bar
 - *unknown
+```
+
+### :x: Reported (with `forbid-anchors-and-aliases = true`)
+
+```toml
+[lint.rules.anchors]
+forbid-anchors-and-aliases = true
+```
+
+Every `&` anchor and `*` alias below is reported, including the merge alias:
+
+```yaml
+defaults: &defaults
+  retries: 3
+job: *defaults
+merged:
+  <<: *defaults
+```
+
+### :white_check_mark: Allowed (with `forbid-anchors-and-aliases = true`)
+
+Anchor-like text inside scalar values and comments is allowed:
+
+```yaml
+job:
+  retries: 3
+description: "Use &defaults and *defaults"
+script: |
+  echo '&defaults *defaults'
+# &defaults and *defaults
 ```
 
 ### :x: Reported (with `forbid-duplicated-anchors: true`)
