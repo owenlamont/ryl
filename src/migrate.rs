@@ -8,7 +8,7 @@ use crate::config::{
     Env, RYL_USER_GLOBAL_CONFIG_CANDIDATES, SystemEnv, YamlLintConfig,
     find_project_toml_config, is_toml_path, legacy_yaml,
 };
-use crate::config_schema::parse_toml_config_str;
+use crate::config_schema::{DeprecatedKeyUse, parse_toml_config_str};
 use crate::rules::{comments, quoted_strings};
 use toml_edit::{DocumentMut, Item, Key, Table};
 
@@ -512,7 +512,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         ));
         return;
     }
-    for used in deprecated.into_iter().filter(|used| used.overridden) {
+    for used in deprecated.iter().filter(|used| used.overridden) {
         plan.warnings.push(format!(
             "warning: {}: discarded deprecated `{}` because `{}` is also set",
             path.display(),
@@ -523,7 +523,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     let mut document = text
         .parse::<DocumentMut>()
         .expect("validated TOML config must parse as an editable document");
-    rewrite_toml_document(&mut document);
+    rewrite_toml_document(&mut document, &deprecated);
     plan.entries.push(MigrationEntry {
         source: path.clone(),
         target: path,
@@ -531,12 +531,18 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     });
 }
 
-fn rewrite_toml_document(document: &mut DocumentMut) {
+fn rewrite_toml_document(document: &mut DocumentMut, deprecated: &[DeprecatedKeyUse]) {
     let root = document.as_table_mut();
     rename_excludes(root);
 
-    for name in ["lint", "fix"] {
-        if root.get(name).is_some_and(Item::is_inline_table) {
+    let moves_into_lint = deprecated
+        .iter()
+        .any(|used| !used.overridden && used.key.replacement.starts_with("lint."));
+    let moves_from_fix = deprecated
+        .iter()
+        .any(|used| !used.overridden && used.key.key.starts_with("fix."));
+    for (name, needed) in [("lint", moves_into_lint), ("fix", moves_from_fix)] {
+        if needed && root.get(name).is_some_and(Item::is_inline_table) {
             let suffix = root[name]
                 .as_value()
                 .and_then(|value| value.decor().suffix())
@@ -568,6 +574,16 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
             .and_then(toml_edit::RawString::as_str)
             .unwrap_or_default()
             .to_owned();
+        if let Some(suffix) = root["fix"]
+            .as_table()
+            .and_then(|fix| fix.decor().suffix())
+            .and_then(toml_edit::RawString::as_str)
+            .and_then(|suffix| suffix.split_once('#'))
+        {
+            fix_prefix.push('#');
+            fix_prefix.push_str(suffix.1);
+            fix_prefix.push('\n');
+        }
         for name in ["fixable", "unfixable"] {
             let moved = root["fix"]
                 .as_table_mut()
@@ -575,10 +591,13 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
             let Some((mut key, item)) = moved else {
                 continue;
             };
-            let lint = root["lint"].as_table_mut().expect("validated lint table");
-            if lint.contains_key(name) {
+            if root["lint"]
+                .as_table_like()
+                .is_some_and(|lint| lint.contains_key(name))
+            {
                 continue;
             }
+            let lint = root["lint"].as_table_mut().expect("validated lint table");
             if !fix_prefix.is_empty() {
                 let key_prefix = key
                     .leaf_decor()
@@ -597,15 +616,20 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
 
     for name in ["rules", "per-file-ignores", "per-line-ignores"] {
         if let Some((key, item)) = root.remove_entry(name) {
+            if root
+                .get("lint")
+                .and_then(Item::as_table_like)
+                .is_some_and(|lint| lint.contains_key(name))
+            {
+                continue;
+            }
             if !root.contains_key("lint") {
                 let mut lint = Table::new();
                 lint.set_implicit(true);
                 root.insert("lint", Item::Table(lint));
             }
             let lint = root["lint"].as_table_mut().expect("validated lint table");
-            if !lint.contains_key(name) {
-                lint.insert_formatted(&key, item);
-            }
+            lint.insert_formatted(&key, item);
         }
     }
 }

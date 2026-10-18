@@ -284,6 +284,174 @@ fixable = ['ALL'] # active fixable\n\n# active rules\n\
 }
 
 #[test]
+fn migrated_toml_preserves_surviving_comments_and_untouched_tables() {
+    type Case<'a> = (&'a str, &'a str, Option<&'a str>, &'a [(&'a str, &'a str)]);
+    let stable =
+        "[format] # keep:format-header\nquote-style = 'double' # keep:format-value\n";
+    let cases: &[Case<'_>] = &[
+        (
+            "ignore with untouched inline lint",
+            "ignore = ['vendor/**'] # keep:ignore\n\
+lint = { strict = true, rules = { truthy = 'enable' } } # keep:inline-lint\n",
+            Some(
+                "lint = { strict = true, rules = { truthy = 'enable' } } # keep:inline-lint\n",
+            ),
+            &[],
+        ),
+        (
+            "ignore-from-file with untouched lint table",
+            "ignore-from-file = 'old.txt' # keep:ignore-file\n\n\
+[lint] # keep:lint-header\nstrict = true # keep:strict\n",
+            Some("[lint] # keep:lint-header\nstrict = true # keep:strict\n"),
+            &[],
+        ),
+        (
+            "rules table",
+            "[rules] # keep:rules-header\ntruthy = 'enable' # keep:truthy\n",
+            None,
+            &[],
+        ),
+        (
+            "fix table",
+            "[fix] # keep:fix-header\nfixable = ['ALL'] # keep:fixable\n\
+unfixable = ['truthy'] # keep:unfixable\n",
+            None,
+            &[],
+        ),
+        (
+            "fix merged into lint",
+            "[lint] # keep:lint-header\nstrict = true # keep:strict\n\n\
+[fix] # keep:fix-header\nfixable = ['ALL'] # keep:fixable\n",
+            None,
+            &[],
+        ),
+        (
+            "per-file-ignores table",
+            "[per-file-ignores] # keep:per-file-header\n\"skip.yaml\" = ['ALL'] # keep:per-file-value\n",
+            None,
+            &[],
+        ),
+        (
+            "inline per-file-ignores",
+            "per-file-ignores = { 'skip.yaml' = ['ALL'] } # keep:inline-per-file\n",
+            None,
+            &[],
+        ),
+        (
+            "per-line-ignores table array",
+            "[[per-line-ignores]] # keep:per-line-header\nregex = 'KEEP' # keep:regex\n\
+rules = ['comments'] # keep:per-line-rules\n",
+            None,
+            &[],
+        ),
+        (
+            "inline per-line-ignores",
+            "per-line-ignores = [{ regex = 'KEEP', rules = ['comments'] }] # keep:inline-per-line\n",
+            None,
+            &[],
+        ),
+        (
+            "inline rules into inline lint",
+            "rules = { truthy = 'enable' } # keep:inline-rules\n\
+lint = { strict = true } # keep:inline-lint\n",
+            None,
+            &[],
+        ),
+        (
+            "inline fix into inline lint",
+            "fix = { fixable = ['ALL'] } # keep:inline-fix\n\
+lint = { strict = true } # keep:inline-lint\n",
+            None,
+            &[],
+        ),
+        (
+            "overridden rules leave inline lint untouched",
+            "rules = { truthy = 'enable' } # drop:rules\n\
+lint = { strict = true, rules = { truthy = 'disable' } } # keep:inline-lint\n",
+            Some(
+                "lint = { strict = true, rules = { truthy = 'disable' } } # keep:inline-lint\n",
+            ),
+            &[("rules", "lint.rules")],
+        ),
+        (
+            "every deprecated key overridden",
+            "ignore = ['old/**'] # drop:ignore\nexclude = ['new/**'] # keep:exclude\n\
+ignore-from-file = 'old.txt' # drop:ignore-from-file\n\
+exclude-from-file = 'new.txt' # keep:exclude-file\n\n\
+[rules] # drop:rules\ntruthy = 'enable' # drop:rules\n\n\
+[fix] # drop:fix.fixable\nfixable = ['truthy'] # drop:fix.fixable\n\
+unfixable = ['comments'] # drop:fix.unfixable\n\n\
+[per-file-ignores] # drop:per-file-ignores\n\"skip.yaml\" = ['ALL'] # drop:per-file-ignores\n\n\
+[[per-line-ignores]] # drop:per-line-ignores\nregex = 'OLD' # drop:per-line-ignores\n\
+rules = ['comments'] # drop:per-line-ignores\n\n\
+[lint] # keep:lint\nfixable = ['ALL'] # keep:fixable\n\
+unfixable = ['truthy'] # keep:unfixable\n\n\
+[lint.rules] # keep:lint-rules\ntrailing-spaces = 'enable' # keep:trailing-spaces\n\n\
+[lint.per-file-ignores] # keep:lint-per-file\n\"a.yaml\" = ['ALL'] # keep:active-per-file\n\n\
+[[lint.per-line-ignores]] # keep:lint-per-line\nregex = 'NEW' # keep:active-regex\n\
+rules = ['comments'] # keep:active-rules\n",
+            None,
+            &[
+                ("ignore", "exclude"),
+                ("ignore-from-file", "exclude-from-file"),
+                ("rules", "lint.rules"),
+                ("fix.fixable", "lint.fixable"),
+                ("fix.unfixable", "lint.unfixable"),
+                ("per-file-ignores", "lint.per-file-ignores"),
+                ("per-line-ignores", "lint.per-line-ignores"),
+            ],
+        ),
+    ];
+
+    for &(name, fragment, untouched, overrides) in cases {
+        let input = format!("line-length = 88 # keep:root\n{fragment}\n{stable}");
+        let dir = project(&input);
+        let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+        assert_eq!(code, 0, "{name}: {stderr}");
+        let output = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+        assert!(output.contains(stable), "{name}: {output}");
+        if let Some(untouched) = untouched {
+            assert!(output.contains(untouched), "{name}: {output}");
+        }
+        let comments = |text: &str| {
+            text.lines()
+                .filter_map(|line| {
+                    line.split_once('#').map(|(_, text)| format!("#{text}"))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut retained = Vec::new();
+        for comment in comments(&input) {
+            if let Some(key) = comment.strip_prefix("# drop:") {
+                assert!(
+                    overrides.iter().any(|(old, _)| *old == key),
+                    "{name}: {comment}"
+                );
+            } else {
+                retained.push(comment);
+            }
+        }
+        retained.sort();
+        let mut actual = comments(&output);
+        actual.sort();
+        assert_eq!(actual, retained, "{name}: {output}");
+        for &(old, new) in overrides {
+            let warning =
+                format!("discarded deprecated `{old}` because `{new}` is also set");
+            assert_eq!(stderr.matches(&warning).count(), 1, "{name}: {stderr}");
+        }
+        assert_eq!(
+            stderr
+                .lines()
+                .filter(|line| line.starts_with("warning:"))
+                .count(),
+            overrides.len(),
+            "{name}: {stderr}"
+        );
+    }
+}
+
+#[test]
 fn migrate_reports_legacy_pyproject_without_rewriting_it() {
     let dir = tempdir().unwrap();
     let pyproject = "# keep me\n[tool.ryl.rules]\ntruthy = \"enable\"\n";
