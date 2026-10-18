@@ -1,50 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-struct FakeEnv {
-    exists: HashSet<PathBuf>,
-    files: HashMap<PathBuf, String>,
-}
-
-impl FakeEnv {
-    fn new() -> Self {
-        Self {
-            exists: HashSet::new(),
-            files: HashMap::new(),
-        }
-    }
-}
-
-impl ryl::config::Env for FakeEnv {
-    fn current_dir(&self) -> PathBuf {
-        PathBuf::from(".")
-    }
-    fn config_dir(&self) -> Option<PathBuf> {
-        None
-    }
-    fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        self.files
-            .get(p)
-            .cloned()
-            .ok_or_else(|| format!("missing {}", p.display()))
-    }
-    fn path_exists(&self, p: &Path) -> bool {
-        self.exists.contains(p)
-    }
-    fn home_dir(&self) -> Option<PathBuf> {
-        None
-    }
-    fn env_var(&self, _key: &str) -> Option<String> {
-        None
-    }
-}
+mod common;
+use common::fake_env::FakeEnv;
 
 #[test]
 fn explicit_config_file_with_invalid_yaml_errors() {
-    let mut envx = FakeEnv::new();
     let file = PathBuf::from("cfg.yml");
-    envx.exists.insert(file.clone());
-    envx.files.insert(file.clone(), "rules: {".into());
+    let envx = FakeEnv::new().with_file(file.clone(), "rules: {");
 
     let overrides = ryl::config::Overrides {
         config_file: Some(file),
