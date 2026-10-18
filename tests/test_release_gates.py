@@ -1,7 +1,8 @@
 # /// script
 # requires-python = ">=3.15"
 # dependencies = [
-#   "pytest", "typer", "packaging", "py-yaml12", "pyyaml", "platformdirs",
+#   "pytest", "pytest-mock", "typer", "packaging", "py-yaml12", "pyyaml",
+#   "platformdirs",
 #   "markdown-it-py", "matplotlib>=3.9,<4", "orjson>=3.11,<4",
 #   "polars>=1.30,<2", "tqdm>=4.67,<5",
 # ]
@@ -9,8 +10,13 @@
 
 from pathlib import Path
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -126,6 +132,76 @@ def test_release_pin_and_format_hook(
     pin = read_pin(config)
     assert pin.version == "0.25.1"
     assert pin.hooks == ("ryl-check", "ryl-format-markdown")
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        pytest.param("refs/tags/v0.25.1", id="lightweight tag"),
+        pytest.param("refs/tags/v0.25.1^{}", id="peeled annotated tag"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [
+        pytest.param(
+            "prek.toml",
+            """[[repos]]
+repo = "https://github.com/owenlamont/ryl-pre-commit"
+rev = "44a7653dd5d871b2b40224d504f18b5d5d1adc44" # frozen: v0.25.1
+hooks = [{ id = "ryl-check" }, { id = "ryl-format" }]
+""",
+            id="TOML",
+        ),
+        pytest.param(
+            ".pre-commit-config.yaml",
+            """repos:
+  - repo: https://github.com/owenlamont/ryl-pre-commit
+    rev: 44a7653dd5d871b2b40224d504f18b5d5d1adc44 # frozen: v0.25.1
+    hooks: [{id: ryl-check}, {id: ryl-format}]
+""",
+            id="YAML",
+        ),
+    ],
+)
+def test_frozen_release_pin(
+    *, filename: str, contents: str, ref: str, tmp_path: Path, mocker: MockerFixture
+) -> None:
+    config = tmp_path / filename
+    config.write_text(contents)
+    request = mocker.patch("subprocess.run", autospec=True)
+    request.return_value.stdout = f"44a7653dd5d871b2b40224d504f18b5d5d1adc44\t{ref}\n"
+    pin = read_pin(config)
+    assert pin.version == "0.25.1"
+    assert pin.hooks == ("ryl-check", "ryl-format")
+    request.assert_called_once_with(
+        [
+            "git",
+            "ls-remote",
+            "--tags",
+            "https://github.com/owenlamont/ryl-pre-commit",
+            "v[0-9]*",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+
+
+def test_frozen_revision_without_release_tag_fails(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    config = tmp_path / "prek.toml"
+    config.write_text("""[[repos]]
+repo = "https://github.com/owenlamont/ryl-pre-commit"
+rev = "44a7653dd5d871b2b40224d504f18b5d5d1adc44"
+hooks = []
+""")
+    request = mocker.patch("subprocess.run", autospec=True)
+    request.return_value.stdout = ""
+    with pytest.raises(ValueError, match="has no release tag"):
+        read_pin(config)
 
 
 @pytest.mark.parametrize(

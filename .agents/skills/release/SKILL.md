@@ -133,7 +133,10 @@ description: >-
 
     The helper installs each repo's ryl-pre-commit release pin from `prek.toml` or
     `.pre-commit-config.yaml`/`.yml`, then compares read-only whole-repo checks with the
-    candidate. Format hooks trigger `format --check`; Markdown hooks add Markdown
+    candidate. Frozen SHA pins select the newest upstream release tag matching the
+    SHA (requiring `git` and network access); untagged commits fail rather than
+    guessing a PyPI version.
+    Format hooks trigger `format --check`; Markdown hooks add Markdown
     checks. Repo configuration applies, but hook file filters and hook arguments do not:
     the report intentionally checks the whole repo. Raw stdout/stderr retains every
     warning, notice and formatter filename alongside new/removed diagnostics. Exit 1

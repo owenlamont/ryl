@@ -29,8 +29,30 @@ class Pin:
     hooks: tuple[str, ...]
 
 
+def _release_version(*, revision: str, repo: str) -> str:
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+        return str(Version(revision.removeprefix("v")))
+    refs = subprocess.run(
+        ["git", "ls-remote", "--tags", repo, "v[0-9]*"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout
+    versions = [
+        Version(ref.removeprefix("refs/tags/v").removesuffix("^{}"))
+        for sha, ref in map(str.split, refs.splitlines())
+        if sha.lower() == revision.lower()
+    ]
+    if not versions:
+        raise ValueError(f"{repo}: frozen revision {revision} has no release tag")
+    return str(max(versions))
+
+
 def read_pin(config: Path) -> Pin:
     """Return the ryl-pre-commit release pin and hook IDs.
+
+    Frozen revisions are resolved against upstream release tags.
 
     Raises:
         ValueError: The pin is missing, ambiguous or not a version.
@@ -48,7 +70,7 @@ def read_pin(config: Path) -> Pin:
     if len(matches) != 1:
         raise ValueError(f"{config}: expected exactly one ryl-pre-commit pin")
     repo = matches[0]
-    version = str(Version(repo["rev"].removeprefix("v")))
+    version = _release_version(revision=repo["rev"], repo=repo["repo"])
     return Pin(version=version, hooks=tuple(hook["id"] for hook in repo["hooks"]))
 
 
