@@ -198,16 +198,12 @@ impl<'a> Prepared<'a> {
             output
                 .apply(plan)
                 .expect("verification plan belongs to the current epoch");
-            let (output_documents, _) = documents_with_analysis(output.analysis());
-            let output_starts = document_starts(output.analysis(), &output_documents);
-            for violation in super::check_with_analysis(
-                output.analysis(),
-                &cfg.with_consistent_spaces(),
-            ) {
-                let document =
-                    output_starts.partition_point(|&start| start < violation.line) - 1;
-                refused[document].get_or_insert(Cause::Inconsistent);
-            }
+            let verified = if output.analysis().text() == buffer {
+                input
+            } else {
+                output.analysis()
+            };
+            refuse_inconsistent(verified, cfg, &mut refused);
         }
         let plan = output.analysis().plan(render(&refused));
         output
@@ -329,6 +325,20 @@ fn document_starts(input: Analysis<'_>, documents: &[Document<'_>]) -> Vec<usize
         .collect();
     starts[0] = 0;
     starts
+}
+
+fn refuse_inconsistent(
+    input: Analysis<'_>,
+    cfg: &Config,
+    refused: &mut [Option<Cause>],
+) {
+    let (documents, _) = documents_with_analysis(input);
+    let starts = document_starts(input, &documents);
+    drop(documents);
+    for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
+        let document = starts.partition_point(|&start| start < violation.line) - 1;
+        refused[document].get_or_insert(Cause::Inconsistent);
+    }
 }
 
 /// Pushes `line` moved by `delta`, with `gaps` closed.
