@@ -250,60 +250,36 @@ fixable = ['ALL']\n[lint.rules]\ntruthy = 'enable'\n"
 }
 
 #[test]
-fn migrate_keeps_comments_when_new_keys_override_deprecated_values() {
+fn migrate_warns_when_new_keys_discard_deprecated_values() {
     let dir = project(
-        "# config header\n# before old\nignore = ['old/**'] # old ignore note\n\
-exclude = ['new/**']\n\n# old rules section\n[rules] # old rules header\n\
-# old rule note\ntruthy = 'enable' # old truthy\n\n# old fix section\n\
-[fix] # old fix header\n# old fix note\nfixable = ['truthy'] # old fixable\n\n\
-[lint]\nfixable = ['ALL']\n\n\
-[lint.rules]\ntrailing-spaces = 'enable'\n",
+        "# old ignore\nignore = ['old/**'] # old ignore note\n\
+ignore-from-file = 'old.txt' # old file note\n\
+# active exclude\nexclude = ['new/**'] # active exclude note\n\
+exclude-from-file = 'new.txt'\n\n# old rules\n[rules] # old rules header\n\
+truthy = 'enable' # old truthy\n\n# old fix\n[fix] # old fix header\n\
+fixable = ['truthy'] # old fixable\n\n# active lint\n[lint]\n\
+fixable = ['ALL'] # active fixable\n\n# active rules\n\
+[lint.rules]\ntrailing-spaces = 'enable' # active rule\n",
     );
     let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
     assert_eq!(code, 0, "{stderr}");
-    let migrated = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+    for (legacy, replacement) in [
+        ("ignore", "exclude"),
+        ("ignore-from-file", "exclude-from-file"),
+        ("rules", "lint.rules"),
+        ("fix.fixable", "lint.fixable"),
+    ] {
+        let warning = format!(
+            "discarded deprecated `{legacy}` because `{replacement}` is also set"
+        );
+        assert_eq!(stderr.matches(&warning).count(), 1, "{stderr}");
+    }
     assert_eq!(
-        migrated,
-        "# config header\n# before old\n# old ignore note\nexclude = ['new/**']\n\n\
-[lint]\n\n# old fix section\n# old fix header\n# old fix note\n\
-# old fixable\nfixable = ['ALL']\n# old rules section\n\
-# old rules header\n# old rule note\n# old truthy\n\n\
-[lint.rules]\ntrailing-spaces = 'enable'\n"
-    );
-}
-
-#[test]
-fn migrate_keeps_comments_from_overridden_per_line_ignores() {
-    let dir = project(
-        "# old file setting\nignore-from-file = 'old.txt' # old file note\n\
-exclude-from-file = 'new.txt'\n\n[[per-line-ignores]] # old line header\n\
-# old regex note\nregex = 'OLD'\nrules = ['comments'] # old rules note\n\n\
-[[lint.per-line-ignores]]\nregex = 'NEW'\nrules = ['comments']\n",
-    );
-    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
-    assert_eq!(code, 0, "{stderr}");
-    let migrated = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
-    assert_eq!(
-        migrated,
-        "# old file setting\n# old file note\nexclude-from-file = 'new.txt'\n\
-# old line header\n# old regex note\n# old rules note\n\n\
-[[lint.per-line-ignores]]\nregex = 'NEW'\nrules = ['comments']\n"
-    );
-}
-
-#[test]
-fn migrate_keeps_comments_from_overridden_inline_per_file_ignores() {
-    let dir = project(
-        "# old inline\nper-file-ignores = { 'skip.yaml' = ['ALL'] } # old value\n\
-[lint]\nper-file-ignores = { 'a.yaml' = ['ALL'] }\n",
-    );
-    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
-    assert_eq!(code, 0, "{stderr}");
-    let migrated = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
-    assert_eq!(
-        migrated,
-        "[lint]\n# old inline\n# old value\n\
-per-file-ignores = { 'a.yaml' = ['ALL'] }\n"
+        fs::read_to_string(dir.path().join(".ryl.toml")).unwrap(),
+        "# active exclude\nexclude = ['new/**'] # active exclude note\n\
+exclude-from-file = 'new.txt'\n\n# active lint\n[lint]\n\
+fixable = ['ALL'] # active fixable\n\n# active rules\n\
+[lint.rules]\ntrailing-spaces = 'enable' # active rule\n"
     );
 }
 

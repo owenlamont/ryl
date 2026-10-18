@@ -10,7 +10,7 @@ use crate::config::{
 };
 use crate::config_schema::parse_toml_config_str;
 use crate::rules::{comments, quoted_strings};
-use toml_edit::{Decor, DocumentMut, Item, Key, Table, Value};
+use toml_edit::{DocumentMut, Item, Key, Table};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteMode {
@@ -512,6 +512,14 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         ));
         return;
     }
+    for used in deprecated.into_iter().filter(|used| used.overridden) {
+        plan.warnings.push(format!(
+            "warning: {}: discarded deprecated `{}` because `{}` is also set",
+            path.display(),
+            used.key.key,
+            used.key.replacement
+        ));
+    }
     let mut document = text
         .parse::<DocumentMut>()
         .expect("validated TOML config must parse as an editable document");
@@ -554,34 +562,35 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
         root.insert("lint", fix);
     }
     if root.contains_key("fix") {
-        let mut fix_prefix = root["fix"].as_table().map_or_else(String::new, |fix| {
-            let mut prefix = fix
-                .decor()
-                .prefix()
-                .and_then(toml_edit::RawString::as_str)
-                .unwrap_or_default()
-                .to_owned();
-            append_comments(fix.decor().suffix(), &mut prefix);
-            prefix
-        });
+        let mut fix_prefix = root["fix"]
+            .as_table()
+            .and_then(|fix| fix.decor().prefix())
+            .and_then(toml_edit::RawString::as_str)
+            .unwrap_or_default()
+            .to_owned();
         for name in ["fixable", "unfixable"] {
             let moved = root["fix"]
                 .as_table_mut()
                 .and_then(|fix| fix.remove_entry(name));
-            if let Some((mut key, item)) = moved {
-                let lint = root["lint"].as_table_mut().expect("validated lint table");
-                if lint.contains_key(name) {
-                    let mut comments = std::mem::take(&mut fix_prefix);
-                    comments.push_str(&entry_comments(&key, &item));
-                    let mut target =
-                        lint.key_mut(name).expect("replacement key exists");
-                    prepend_decor_prefix(target.leaf_decor_mut(), &comments);
-                } else {
-                    prepend_key_prefix(&mut key, &fix_prefix);
-                    fix_prefix.clear();
-                    lint.insert_formatted(&key, item);
-                }
+            let Some((mut key, item)) = moved else {
+                continue;
+            };
+            let lint = root["lint"].as_table_mut().expect("validated lint table");
+            if lint.contains_key(name) {
+                continue;
             }
+            if !fix_prefix.is_empty() {
+                let key_prefix = key
+                    .leaf_decor()
+                    .prefix()
+                    .and_then(toml_edit::RawString::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                key.leaf_decor_mut()
+                    .set_prefix(format!("{fix_prefix}{key_prefix}"));
+                fix_prefix.clear();
+            }
+            lint.insert_formatted(&key, item);
         }
         root.remove("fix");
     }
@@ -594,22 +603,7 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
                 root.insert("lint", Item::Table(lint));
             }
             let lint = root["lint"].as_table_mut().expect("validated lint table");
-            if lint.contains_key(name) {
-                let comments = entry_comments(&key, &item);
-                if let Some(table) = lint[name].as_table_mut() {
-                    prepend_decor_prefix(table.decor_mut(), &comments);
-                } else if let Some(array) = lint[name].as_array_of_tables_mut() {
-                    let first = array.iter_mut().next().expect("validated table array");
-                    prepend_decor_prefix(first.decor_mut(), &comments);
-                } else {
-                    prepend_decor_prefix(
-                        lint.key_mut(name)
-                            .expect("replacement key exists")
-                            .leaf_decor_mut(),
-                        &comments,
-                    );
-                }
-            } else {
+            if !lint.contains_key(name) {
                 lint.insert_formatted(&key, item);
             }
         }
@@ -627,14 +621,6 @@ fn rename_excludes(root: &mut Table) {
         if (key == "ignore" && has_exclude)
             || (key == "ignore-from-file" && has_exclude_from_file)
         {
-            let replacement = if key == "ignore" {
-                "exclude"
-            } else {
-                "exclude-from-file"
-            };
-            let comments = entry_comments(&formatted, &item);
-            let mut target = root.key_mut(replacement).expect("replacement key exists");
-            prepend_decor_prefix(target.leaf_decor_mut(), &comments);
             continue;
         }
         let replacement = match key.as_str() {
@@ -648,82 +634,6 @@ fn rename_excludes(root: &mut Table) {
             formatted = renamed;
         }
         root.insert_formatted(&formatted, item);
-    }
-}
-
-fn prepend_key_prefix(key: &mut Key, prefix: &str) {
-    prepend_decor_prefix(key.leaf_decor_mut(), prefix);
-}
-
-fn prepend_decor_prefix(decor: &mut Decor, prefix: &str) {
-    if prefix.is_empty() {
-        return;
-    }
-    let key_prefix = decor
-        .prefix()
-        .and_then(toml_edit::RawString::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    decor.set_prefix(format!("{prefix}{key_prefix}"));
-}
-
-fn entry_comments(key: &Key, item: &Item) -> String {
-    let mut comments = String::new();
-    append_decor_comments(key.leaf_decor(), &mut comments);
-    append_item_comments(item, &mut comments);
-    comments
-}
-
-fn append_comments(raw: Option<&toml_edit::RawString>, comments: &mut String) {
-    for line in raw
-        .and_then(toml_edit::RawString::as_str)
-        .unwrap_or_default()
-        .lines()
-    {
-        if let Some(comment) = line.trim_start().strip_prefix('#') {
-            comments.push('#');
-            comments.push_str(comment);
-            comments.push('\n');
-        }
-    }
-}
-
-fn append_decor_comments(decor: &Decor, comments: &mut String) {
-    append_comments(decor.prefix(), comments);
-    append_comments(decor.suffix(), comments);
-}
-
-fn append_item_comments(item: &Item, comments: &mut String) {
-    if let Item::Value(value) = item {
-        append_decor_comments(value.decor(), comments);
-        if let Value::Array(array) = value {
-            for value in array {
-                append_decor_comments(value.decor(), comments);
-            }
-            append_comments(Some(array.trailing()), comments);
-        }
-    }
-    if let Item::Table(table) = item {
-        append_decor_comments(table.decor(), comments);
-        for (name, child) in table {
-            append_decor_comments(
-                table.key(name).expect("table key exists").leaf_decor(),
-                comments,
-            );
-            append_item_comments(child, comments);
-        }
-    }
-    if let Item::ArrayOfTables(array) = item {
-        for table in array {
-            append_decor_comments(table.decor(), comments);
-            for (name, child) in table {
-                append_decor_comments(
-                    table.key(name).expect("table key exists").leaf_decor(),
-                    comments,
-                );
-                append_item_comments(child, comments);
-            }
-        }
     }
 }
 

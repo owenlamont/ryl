@@ -110,8 +110,9 @@ refuses to overwrite an existing backup when `--migrate-rename-old` would clobbe
 one.
 
 Rewriting a ryl TOML config keeps its comments, key order, and formatting
-outside the moved keys. Migration reports deprecated keys in `pyproject.toml`
-without rewriting that file.
+outside the moved keys. If a replacement key is already set, migration warns
+and drops the deprecated value and its comments. Migration reports deprecated
+keys in `pyproject.toml` without rewriting that file.
 
 Migration writes a temporary file beside each destination and replaces the
 destination only after the write succeeds. An interrupted write leaves an
