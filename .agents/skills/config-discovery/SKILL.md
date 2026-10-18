@@ -80,4 +80,8 @@ exempt.
 
 `--enable <RULES>` counts as explicitly turning rules on: `CliConfigFlags::apply` runs
 `YamlLintConfig::restrict_rules` on every resolved config (global, per-file before
-caching, stdin), including the empty no-config fallback, so neither exit fires.
+caching, stdin), including the empty no-config fallback. `--disable` then removes
+named rules (or `ALL`); an emptied explicit selection reports the no-rules error,
+even without a config. Both flags reject unknown IDs; only `--enable` is repeatable.
+`--exclude` replaces the resolved exclusions, including `exclude-from-file`, with
+comma-separated gitignore-style globs rooted at cwd, independently of config location.

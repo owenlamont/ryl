@@ -28,6 +28,7 @@ file:
 ```bash
 ryl check --enable ALL .
 ryl check --enable key-duplicates,truthy .
+ryl check --enable ALL --disable line-length,truthy,document-start --exclude pnpm-lock.yaml .
 ```
 
 or pass a TOML config inline with `-d`:
@@ -39,6 +40,25 @@ ryl check -d 'lint.rules = { key-duplicates = "enable", truthy = "enable" }' .
 For a fuller ruleset, copy the `default` or `relaxed` preset from [Configuration
 presets](../config-presets.md) into a `.ryl.toml` (see [Configure for your
 project](#configure-for-your-project) below).
+
+### Rule and file selection flags
+
+| Flag | Effect |
+| :--- | :--- |
+| `--enable <RULES>` | Replace the config's lint selection; comma-separated IDs or `ALL`; repeatable |
+| `--disable <RULES>` | Subtract lint rules after config and `--enable`; comma-separated IDs or `ALL`; once per command |
+| `--exclude <GLOBS>` | Replace config exclusions, including `exclude-from-file`; comma-separated gitignore-style globs relative to the current directory; once per command |
+
+Unknown rule IDs exit `2`. `check` also exits `2` when the final selection enables
+no lint rules.
+`--disable` alone never enables rules. Both flags work with `check --fix` and
+`check --diff`, and with the deprecated bare invocation. `--exclude` also applies
+to `--list-files` and `format`, including explicitly named files; use
+`--exclude ''` to clear config exclusions. With stdin, exclusions apply only when
+`--stdin-filename` supplies a path. See [File ignores](../file-ignores.md).
+
+`format --disable` suppresses the named lint rules' conflict warnings; formatter
+passes remain controlled by `[format]`, independently of lint rule selection.
 
 ## Caching
 
@@ -91,7 +111,8 @@ cases exit `2` rather than silently linting nothing:
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules,
   copy a [preset](../config-presets.md), or pass `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  `[lint.rules]`/`[tool.ryl]`, or one disabling everything), or a selection emptied
+  by `--disable`. Enable at
   least one rule, copy a [preset](../config-presets.md), or pass `--enable ALL`.
 
 ## Apply auto-fixes
@@ -346,7 +367,7 @@ flowchart TD
     G -->|none| N{"--enable?"}
     N -->|yes| UseEmpty["empty config"] --> Done
     N -->|no| Err2["error: no configuration found (exit 2)"]
-    Done --> R{"any rule enabled,<br/>after --enable?"}
+    Done --> R{"any rule enabled,<br/>after --enable / --disable?"}
     R -->|yes| OK([lint])
     R -->|no| Err3["error: no rules enabled (exit 2)"]
     classDef default stroke-width:3px;

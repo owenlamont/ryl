@@ -382,6 +382,27 @@ struct SourceArgs {
     #[arg(short = 'd', long = "config-data", value_name = "DATA")]
     config_data: Option<String>,
 
+    /// Disable lint rules (comma-separated ids, or ALL), after config and --enable selection
+    #[arg(
+        long = "disable",
+        value_name = "RULES",
+        value_delimiter = ',',
+        value_parser = parse_rule_selector,
+        action = clap::ArgAction::Set,
+        num_args = 1
+    )]
+    disable: Vec<&'static str>,
+
+    /// Replace config exclusions with comma-separated gitignore-style globs, relative to cwd
+    #[arg(
+        long = "exclude",
+        value_name = "GLOBS",
+        value_delimiter = ',',
+        action = clap::ArgAction::Set,
+        num_args = 1
+    )]
+    exclude: Option<Vec<String>>,
+
     /// Disable the on-disk result cache
     #[arg(long = "no-cache", default_value_t = false)]
     no_cache: bool,
@@ -469,6 +490,12 @@ fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
                 enable.clone()
             }
         }),
+        disable: if args.source.disable.contains(&"ALL") {
+            ALL_RULE_IDS.to_vec()
+        } else {
+            args.source.disable.clone()
+        },
+        exclude: args.source.exclude.clone(),
     }
 }
 
@@ -1250,7 +1277,8 @@ fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
     let flags = cli_config_flags(args);
     let mut global_cfg = build_global_cfg(&args.source.inputs, args)?;
     if let Some(ctx) = global_cfg.as_mut() {
-        flags.apply(&mut ctx.config, &ctx.base_dir);
+        flags.apply(&mut ctx.config, &ctx.base_dir)?;
+        ctx.config_found |= flags.enable.is_some();
     }
     let mut notices = global_cfg
         .as_ref()
@@ -1804,11 +1832,18 @@ fn resolve_stdin_ctx(
     let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
     emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
     let mut cfg = ctx.config;
-    cli_config_flags(args).apply(&mut cfg, &ctx.base_dir);
+    let flags = cli_config_flags(args);
+    flags.apply(&mut cfg, &ctx.base_dir)?;
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
-    Ok((path, ctx.base_dir, cfg, apply_yaml_files, ctx.config_found))
+    Ok((
+        path,
+        ctx.base_dir,
+        cfg,
+        apply_yaml_files,
+        ctx.config_found || flags.enable.is_some(),
+    ))
 }
 
 /// Whether a migrated `source` is a user-global config, by file identity so a relative

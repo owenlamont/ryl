@@ -17,6 +17,18 @@ flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `-d` also takes a whole ryl config as inline TOML, such as
 `ryl check -d 'lint.rules.anchors = "enable"' .`, which avoids the YAML
 deprecation warning.
+For a config-free selection, replace inline YAML rule disables and file ignores
+with CLI flags:
+
+```bash
+ryl check --enable ALL --disable line-length,truthy,document-start --exclude pnpm-lock.yaml .
+```
+
+`ALL` selects every ryl rule, rather than yamllint's `default` preset.
+`--disable` subtracts from config or `--enable` selections; `--exclude` replaces
+config exclusions with comma-separated globs relative to the current directory.
+Both flags may appear once. TOML still has no `extends` or presets.
+
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
@@ -200,7 +212,8 @@ ryl never enables a rule unless a configuration or `--enable` explicitly turns i
 on. yamllint, run with no configuration, lints with its `default` preset; ryl
 instead exits `2` with `no configuration found`. It also exits `2` (`configuration enables no
 rules`) when a resolved config turns every rule off, where yamllint would
-silently lint nothing. Neither exit fires when `--enable` names the rules.
+silently lint nothing. `--enable` supplies an explicit selection, but removing
+every selected rule with `--disable` still exits `2`.
 
 **Why ryl differs:** linting with rules the user never asked for &mdash; or
 silently doing nothing &mdash; is surprising. ryl makes the rule set explicit and

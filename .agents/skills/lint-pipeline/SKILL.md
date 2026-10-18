@@ -33,6 +33,8 @@ Meta-actions
   (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
 - Files named explicitly are linted as their resolved source kind; one that matches no
   `[files]` kind is rejected with an error (rather than silently treated as YAML).
+- Config exclusions and `--exclude` skip even explicitly named files; `--exclude`
+  replaces config patterns and `exclude-from-file` with cwd-relative globs.
 - Inputs are de-duplicated: a file reached by two spellings (`ryl check . f.yaml`, `f.yaml`
   twice, or `f.yaml sub/../f.yaml`) is processed once. `gather_lint_files` keys a `seen`
   set on `main::canonical_input` (`std::path::absolute` + lexical `..` normalization —
