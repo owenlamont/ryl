@@ -7,7 +7,7 @@ Prettier's [general options](https://prettier.io/docs/options) can alter the
 starting profile.
 
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
-another width; ryl does not infer indentation from existing files.
+another width.
 
 ## Example
 

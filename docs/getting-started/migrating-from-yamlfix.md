@@ -10,7 +10,7 @@ ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
 environment variables.
 
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
-another width; ryl does not infer indentation from existing files.
+another width.
 
 ## Example
 

@@ -105,8 +105,7 @@ re-indents every block level to `indent-width`, and uses both as the fold width 
 continuation indent under `fold-long-lines`.
 
 Without `indent-width`, `ryl format` targets width 2. Set the top-level
-`indent-width` to keep another width; the formatter does not infer a width from the
-file. Linting still defaults to `spaces = "consistent"` when `indent-width` is unset.
+`indent-width` to keep another width. Linting still defaults to `spaces = "consistent"` when `indent-width` is unset.
 If re-indenting would leave inconsistent indentation, `ryl format` keeps that
 document's indentation and reports the sites it cannot fix.
 
