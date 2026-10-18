@@ -27,6 +27,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- Use granit's structured unknown-anchor error and collection styles, removing
+  redundant inference without changing lint or formatter output.
 - `ryl format` reuses verified indentation renders and appends padding without
   allocating temporary strings. ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` skips refusal-only indentation and spacing checks when no active

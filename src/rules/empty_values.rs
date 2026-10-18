@@ -3,7 +3,7 @@
 //! safe `--fix`: the rule exists to make the author choose between `~`, `null`, or
 //! restructuring, so auto-inserting a literal would contradict its purpose.
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Parser, Span, SpannedEventReceiver, StructureStyle};
 
 use crate::config::YamlLintConfig;
 
@@ -72,20 +72,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MappingStyle {
-    Block,
-    Flow,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SequenceStyle {
-    Block,
-    Flow,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct NodeContext {
-    mapping: Option<(MappingStyle, NodePosition)>,
+    mapping: Option<(StructureStyle, NodePosition)>,
     in_block_sequence: bool,
 }
 
@@ -132,41 +120,13 @@ impl<'cfg> EmptyValuesReceiver<'cfg> {
         let in_block_sequence = matches!(
             self.containers.last(),
             Some(ContainerState::Sequence {
-                style: SequenceStyle::Block,
+                style: StructureStyle::Block,
             })
         );
 
         NodeContext {
             mapping,
             in_block_sequence,
-        }
-    }
-
-    fn push_mapping(&mut self, span: Span) {
-        let style = if span.is_empty() {
-            MappingStyle::Block
-        } else {
-            MappingStyle::Flow
-        };
-        self.containers.push(ContainerState::Mapping {
-            style,
-            expect_key: true,
-        });
-    }
-
-    fn push_sequence(&mut self, span: Span) {
-        let style = if span.is_empty() {
-            SequenceStyle::Block
-        } else {
-            SequenceStyle::Flow
-        };
-        self.containers.push(ContainerState::Sequence { style });
-    }
-
-    fn push_container(&mut self, span: Span, kind: ContainerKind) {
-        match kind {
-            ContainerKind::Mapping => self.push_mapping(span),
-            ContainerKind::Sequence => self.push_sequence(span),
         }
     }
 
@@ -178,10 +138,10 @@ impl<'cfg> EmptyValuesReceiver<'cfg> {
         if span.is_empty() {
             if let Some((style, NodePosition::Value)) = ctx.mapping {
                 match style {
-                    MappingStyle::Block if self.config.forbid_block_mappings => {
+                    StructureStyle::Block if self.config.forbid_block_mappings => {
                         self.record(span, BLOCK_MAPPING_MESSAGE);
                     }
-                    MappingStyle::Flow if self.config.forbid_flow_mappings => {
+                    StructureStyle::Flow if self.config.forbid_flow_mappings => {
                         self.record(span, FLOW_MAPPING_MESSAGE);
                     }
                     _ => {}
@@ -211,19 +171,13 @@ impl<'cfg> EmptyValuesReceiver<'cfg> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ContainerKind {
-    Mapping,
-    Sequence,
-}
-
 enum ContainerState {
     Mapping {
-        style: MappingStyle,
+        style: StructureStyle,
         expect_key: bool,
     },
     Sequence {
-        style: SequenceStyle,
+        style: StructureStyle,
     },
 }
 
@@ -236,13 +190,22 @@ impl SpannedEventReceiver<'_> for EmptyValuesReceiver<'_> {
             | Event::DocumentEnd => {
                 self.reset();
             }
-            Event::MappingStart(_, _, _) => {
+            Event::MappingStart(style, _, _) => {
                 self.begin_node();
-                self.push_container(span, ContainerKind::Mapping);
+                // Implicit mappings in flow sequences keep the legacy block-mapping diagnostic.
+                let style = if style == StructureStyle::Flow && span.is_empty() {
+                    StructureStyle::Block
+                } else {
+                    style
+                };
+                self.containers.push(ContainerState::Mapping {
+                    style,
+                    expect_key: true,
+                });
             }
-            Event::SequenceStart(_, _, _) => {
+            Event::SequenceStart(style, _, _) => {
                 self.begin_node();
-                self.push_container(span, ContainerKind::Sequence);
+                self.containers.push(ContainerState::Sequence { style });
             }
             Event::MappingEnd | Event::SequenceEnd => {
                 self.pop_container();
