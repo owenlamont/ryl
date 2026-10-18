@@ -319,6 +319,14 @@ unfixable = ['truthy'] # keep:unfixable\n",
             &[],
         ),
         (
+            "dotted fix keeps its position",
+            "# keep:dotted-title\nfix.fixable = ['ALL'] # keep:dotted-fix\nindent-width = 4 # keep:indent\n",
+            Some(
+                "# keep:dotted-title\nlint.fixable = ['ALL'] # keep:dotted-fix\nindent-width = 4 # keep:indent\n",
+            ),
+            &[],
+        ),
+        (
             "fix merged into lint",
             "[lint] # keep:lint-header\nstrict = true # keep:strict\n\n\
 [fix] # keep:fix-header\nfixable = ['ALL'] # keep:fixable\n",
@@ -352,15 +360,15 @@ rules = ['comments'] # keep:per-line-rules\n",
         ),
         (
             "inline rules into inline lint",
-            "rules = { truthy = 'enable' } # keep:inline-rules\n\
-lint = { strict = true } # keep:inline-lint\n",
+            "lint = { strict = true } # keep:inline-lint\n\
+rules = { truthy = 'enable' } # keep:inline-rules\n",
             None,
             &[],
         ),
         (
             "inline fix into inline lint",
-            "fix = { fixable = ['ALL'] } # keep:inline-fix\n\
-lint = { strict = true } # keep:inline-lint\n",
+            "lint = { strict = true } # keep:inline-lint\n\
+fix = { fixable = ['ALL'] } # keep:inline-fix\n",
             None,
             &[],
         ),
@@ -431,10 +439,30 @@ rules = ['comments'] # keep:active-rules\n",
                 retained.push(comment);
             }
         }
-        retained.sort();
-        let mut actual = comments(&output);
-        actual.sort();
-        assert_eq!(actual, retained, "{name}: {output}");
+        assert_eq!(comments(&output), retained, "{name}: {output}");
+        let before: toml::Table = input.parse().unwrap();
+        let after: toml::Table = output.parse().unwrap();
+        for (legacy, replacement) in [
+            ("ignore", "exclude"),
+            ("ignore-from-file", "exclude-from-file"),
+            ("rules", "lint.rules"),
+            ("fix.fixable", "lint.fixable"),
+            ("fix.unfixable", "lint.unfixable"),
+            ("per-file-ignores", "lint.per-file-ignores"),
+            ("per-line-ignores", "lint.per-line-ignores"),
+        ] {
+            let path = |table: &toml::Table, path: &str| {
+                let mut keys = path.split('.');
+                table
+                    .get(keys.next().unwrap())
+                    .and_then(|value| keys.try_fold(value, |value, key| value.get(key)))
+                    .is_some()
+            };
+            if path(&before, legacy) && !overrides.iter().any(|(old, _)| *old == legacy)
+            {
+                assert!(path(&after, replacement), "{name}: missing {replacement}");
+            }
+        }
         for &(old, new) in overrides {
             let warning =
                 format!("discarded deprecated `{old}` because `{new}` is also set");
@@ -449,6 +477,16 @@ rules = ['comments'] # keep:active-rules\n",
             "{name}: {stderr}"
         );
     }
+
+    let input = "\u{feff}ignore = ['vendor/**'] # keep:ignore\r\n\r\n[format] # keep:format\r\nquote-style = 'double' # keep:quote";
+    let expected = input.replacen("ignore =", "exclude =", 1);
+    let dir = project(input);
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read(dir.path().join(".ryl.toml")).unwrap(),
+        expected.as_bytes()
+    );
 }
 
 #[test]

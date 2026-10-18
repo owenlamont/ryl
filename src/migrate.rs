@@ -9,6 +9,7 @@ use crate::config::{
     find_project_toml_config, is_toml_path, legacy_yaml,
 };
 use crate::config_schema::{DeprecatedKeyUse, parse_toml_config_str};
+use crate::rules::support::line_syntax::buffer_newline;
 use crate::rules::{comments, quoted_strings};
 use toml_edit::{DocumentMut, Item, Key, Table};
 
@@ -524,15 +525,39 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         .parse::<DocumentMut>()
         .expect("validated TOML config must parse as an editable document");
     rewrite_toml_document(&mut document, &deprecated);
+    let mut rewritten = document.to_string();
+    let newline = buffer_newline(&text);
+    if newline != "\n" {
+        rewritten = rewritten
+            .replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .replace('\n', newline);
+    }
+    if !text.ends_with(['\r', '\n']) {
+        rewritten.truncate(rewritten.trim_end_matches(['\r', '\n']).len());
+    }
+    if text.starts_with('\u{feff}') && !rewritten.starts_with('\u{feff}') {
+        rewritten.insert(0, '\u{feff}');
+    }
     plan.entries.push(MigrationEntry {
         source: path.clone(),
         target: path,
-        toml: document.to_string(),
+        toml: rewritten,
     });
 }
 
 fn rewrite_toml_document(document: &mut DocumentMut, deprecated: &[DeprecatedKeyUse]) {
     let root = document.as_table_mut();
+    let dotted_fix_order = (!root.contains_key("lint")
+        && root
+            .get("fix")
+            .and_then(Item::as_table)
+            .is_some_and(Table::is_dotted))
+    .then(|| {
+        root.iter()
+            .map(|(key, _)| key.to_owned())
+            .collect::<Vec<_>>()
+    });
     rename_excludes(root);
 
     let moves_into_lint = deprecated
@@ -543,22 +568,7 @@ fn rewrite_toml_document(document: &mut DocumentMut, deprecated: &[DeprecatedKey
         .any(|used| !used.overridden && used.key.key.starts_with("fix."));
     for (name, needed) in [("lint", moves_into_lint), ("fix", moves_from_fix)] {
         if needed && root.get(name).is_some_and(Item::is_inline_table) {
-            let suffix = root[name]
-                .as_value()
-                .and_then(|value| value.decor().suffix())
-                .and_then(toml_edit::RawString::as_str)
-                .unwrap_or_default()
-                .to_owned();
-            let mut table = root[name]
-                .clone()
-                .into_table()
-                .expect("validated inline table");
-            table.decor_mut().set_suffix(suffix);
-            root[name] = Item::Table(table);
-            root.key_mut(name)
-                .expect("converted table key exists")
-                .leaf_decor_mut()
-                .set_suffix("");
+            convert_inline_table(root, name);
         }
     }
 
@@ -626,12 +636,49 @@ fn rewrite_toml_document(document: &mut DocumentMut, deprecated: &[DeprecatedKey
             if !root.contains_key("lint") {
                 let mut lint = Table::new();
                 lint.set_implicit(true);
+                lint.set_position(Some(-1));
                 root.insert("lint", Item::Table(lint));
             }
             let lint = root["lint"].as_table_mut().expect("validated lint table");
             lint.insert_formatted(&key, item);
         }
     }
+    if let Some(mut order) = dotted_fix_order {
+        restore_dotted_fix_order(root, &mut order);
+    }
+}
+
+fn restore_dotted_fix_order(root: &mut Table, order: &mut [String]) {
+    let fix = order.iter_mut().find(|key| key.as_str() == "fix").unwrap();
+    "lint".clone_into(fix);
+    root.sort_values_by(|a, _, b, _| {
+        let position = |key: &str| {
+            order
+                .iter()
+                .position(|item| item == key)
+                .unwrap_or(usize::MAX)
+        };
+        position(a.get()).cmp(&position(b.get()))
+    });
+}
+
+fn convert_inline_table(root: &mut Table, name: &str) {
+    let suffix = root[name]
+        .as_value()
+        .and_then(|value| value.decor().suffix())
+        .and_then(toml_edit::RawString::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let mut table = root[name]
+        .clone()
+        .into_table()
+        .expect("validated inline table");
+    table.decor_mut().set_suffix(suffix);
+    root[name] = Item::Table(table);
+    root.key_mut(name)
+        .expect("converted table key exists")
+        .leaf_decor_mut()
+        .set_suffix("");
 }
 
 fn rename_excludes(root: &mut Table) {
