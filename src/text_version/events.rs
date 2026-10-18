@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use granit_parser::{Event, Placement, ScalarStyle, Span, Tag};
+use granit_parser::{Event, Placement, ScalarStyle, Tag};
 
 pub(super) enum Text {
     Source(Range<usize>),
@@ -90,14 +90,4 @@ impl StoredEvent {
             Self::Other(event) => event.clone(),
         }
     }
-}
-
-pub(super) fn borrow_events<'a>(
-    source: &'a str,
-    events: &'a [(StoredEvent, Span)],
-) -> Vec<(Event<'a>, Span)> {
-    events
-        .iter()
-        .map(|(event, span)| (event.borrow(source), *span))
-        .collect()
 }

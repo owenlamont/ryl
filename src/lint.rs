@@ -10,6 +10,7 @@ use crate::rules::{
     merge_keys, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, tags,
     trailing_spaces, truthy, unicode_line_breaks,
 };
+use crate::text_version::{Analysis, TextVersion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -96,6 +97,16 @@ macro_rules! emit_problems {
 pub(crate) use emit_problems;
 
 macro_rules! lint_rule {
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
+            |hit: $m::Violation| hit.message);
+    };
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, message) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input, $m::Config::resolve($cfg)),
+            |_| $m::MESSAGE.to_string());
+    };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
             $m::check($content, &$m::Config::resolve($cfg)),
@@ -139,11 +150,12 @@ macro_rules! lint_rule {
 // because diagnostics are not sorted after collection.
 fn collect_layout_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
-    content: &str,
+    input: Analysis<'_>,
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
 ) {
+    let content = input.text();
     lint_rule!(diagnostics, cfg, content, path, base_dir, document_start);
     lint_rule!(diagnostics, cfg, content, path, base_dir, document_end);
     lint_rule!(
@@ -166,20 +178,21 @@ fn collect_layout_diagnostics(
         platform
     );
     lint_rule!(diagnostics, cfg, content, path, base_dir, empty_lines);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, commas);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, colons);
+    lint_rule!(diagnostics, cfg, input, path, base_dir, commas, analysis);
+    lint_rule!(diagnostics, cfg, input, path, base_dir, colons, analysis);
     lint_rule!(diagnostics, cfg, content, path, base_dir, braces);
     lint_rule!(diagnostics, cfg, content, path, base_dir, brackets);
 }
 
 fn collect_value_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
-    content: &str,
+    input: Analysis<'_>,
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
 ) {
-    lint_rule!(diagnostics, cfg, content, path, base_dir, comments);
+    let content = input.text();
+    lint_rule!(diagnostics, cfg, input, path, base_dir, comments, analysis);
     lint_rule!(diagnostics, cfg, content, path, base_dir, anchors);
     lint_rule!(diagnostics, cfg, content, path, base_dir, tags);
     lint_rule!(diagnostics, cfg, content, path, base_dir, octal_values);
@@ -191,11 +204,12 @@ fn collect_value_diagnostics(
 
 fn collect_block_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
-    content: &str,
+    input: Analysis<'_>,
     cfg: &YamlLintConfig,
     path: &Path,
     base_dir: &Path,
 ) {
+    let content = input.text();
     lint_rule!(diagnostics, cfg, content, path, base_dir, key_duplicates);
     lint_rule!(
         diagnostics,
@@ -206,17 +220,26 @@ fn collect_block_diagnostics(
         key_ordering,
         path
     );
-    lint_rule!(diagnostics, cfg, content, path, base_dir, hyphens);
+    lint_rule!(diagnostics, cfg, input, path, base_dir, hyphens, analysis);
     lint_rule!(
         diagnostics,
         cfg,
-        content,
+        input,
         path,
         base_dir,
         comments_indentation,
+        analysis,
         message
     );
-    lint_rule!(diagnostics, cfg, content, path, base_dir, indentation);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        indentation,
+        analysis
+    );
     lint_rule!(diagnostics, cfg, content, path, base_dir, line_length);
     lint_rule!(
         diagnostics,
@@ -275,13 +298,15 @@ pub fn lint_str(
     }
 
     let mut diagnostics: Vec<LintProblem> = Vec::new();
-    collect_layout_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-    collect_value_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
-    collect_block_diagnostics(&mut diagnostics, content, cfg, path, base_dir);
+    let snapshot = TextVersion::new(content);
+    let input = snapshot.analysis();
+    collect_layout_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
+    collect_value_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
+    collect_block_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
 
     let per_line = cfg.per_line_applies(path);
     let directives =
-        crate::directives::Directives::parse_with_per_line(content, &per_line);
+        crate::directives::Directives::parse_per_line_with_analysis(input, &per_line);
     diagnostics.retain(|problem| {
         !problem
             .rule

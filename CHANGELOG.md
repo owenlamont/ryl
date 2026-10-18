@@ -5,6 +5,14 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Breaking changes
+
+- `ryl format` defaults to indent width 2 instead of inferring each file's width,
+  including editor formatting. Set top-level `indent-width` to keep another width.
+  Lint `indentation.spaces` still defaults to `"consistent"`; `spaces = 2` no longer
+  triggers a formatter conflict warning when `indent-width` is unset.
+  ([#758](https://github.com/owenlamont/ryl/issues/758))
+
 ### Fixed
 
 - `ryl format` and `ryl check --fix`/`--diff` print per-file notices in input
@@ -14,7 +22,8 @@ summarize user-visible changes from the tagged commits and published release rec
 ### Changed
 
 - `ryl format` shares lexical scans and text indexes across unchanged passes
-  and carries verified parses into later fixers and refusal reporting.
+  and carries verified parses into later fixers and refusal reporting. Lint
+  checks share the same lazy text indexes and scans across rules.
   ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` and `ryl check --fix` reuse scalar and block-header analysis
   while the source text is unchanged.
@@ -31,8 +40,6 @@ summarize user-visible changes from the tagged commits and published release rec
 - `ryl format` and `ryl check --fix` skip rule scans already clean for the
   unchanged text, while retrying when later edits expose another fix.
   ([#750](https://github.com/owenlamont/ryl/issues/750))
-- `ryl format` infers an unambiguous indent width from observed nested mappings
-  before trying every width. ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` reuses its final indentation check for refusal notices and skips
   collection planning when both collection styles are `preserve`.
   ([#750](https://github.com/owenlamont/ryl/issues/750))

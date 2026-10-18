@@ -130,7 +130,14 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn events(self) -> Vec<(Event<'text>, Span)> {
-        events::borrow_events(self.text(), &self.parsed().events)
+        self.event_iter().collect()
+    }
+
+    pub(crate) fn event_iter(self) -> impl Iterator<Item = (Event<'text>, Span)> {
+        self.parsed()
+            .events
+            .iter()
+            .map(move |(event, span)| (event.borrow(self.text()), *span))
     }
 
     pub(crate) fn chars(self) -> &'text [(usize, char)] {

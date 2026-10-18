@@ -57,13 +57,15 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    check_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
     let mut diagnostics: Vec<Violation> = Vec::new();
-    if buffer.is_empty() {
+    if input.text().is_empty() {
         return diagnostics;
     }
 
-    let snapshot = TextVersion::new(buffer);
-    let input = snapshot.analysis();
     let lines = build_lines(input);
 
     let prev_content_indents = compute_prev_content_indents(&lines);
@@ -281,7 +283,7 @@ fn compute_open_indents(input: Analysis<'_>, line_count: usize) -> Vec<Vec<usize
     if !input.parsed().valid {
         return vec![Vec::new(); line_count];
     }
-    for (event, span) in input.events() {
+    for (event, span) in input.event_iter() {
         collector.on_event(event, span);
     }
 

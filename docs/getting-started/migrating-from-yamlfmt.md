@@ -5,6 +5,9 @@ Replace `yamlfmt .` with `ryl format .` and `yamlfmt -lint .` with
 in google/yamlfmt 0.21.0. They were compared on the same YAML inputs with
 `yamlfmt -in` and `ryl format -`.
 
+ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
+another width.
+
 ## Example
 
 ```toml

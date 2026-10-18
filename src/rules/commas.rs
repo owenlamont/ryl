@@ -3,8 +3,8 @@
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
-    target_spacing, template_double_curly_end,
+    collect_scalar_ranges, line_and_column, skip_comment, target_spacing,
+    template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
     BytePos, CharPos, apply_replacements, containing_scalar_range,
@@ -102,13 +102,17 @@ enum AfterResult {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    if buffer.is_empty() {
+    check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
+    if input.text().is_empty() {
         return Vec::new();
     }
 
-    let scalar_ranges = collect_scalar_ranges(buffer);
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
+    let scalar_ranges = crate::rules::support::punctuation::scalar_ranges(input);
+    let chars = input.chars();
+    let line_starts = input.line_starts();
 
     let mut violations = Vec::new();
     let mut contexts: Vec<FlowKind> = Vec::new();
@@ -125,7 +129,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
         match chars[i].1 {
             '[' => contexts.push(FlowKind::Sequence),
             '{' => {
-                if let Some(next_idx) = template_double_curly_end(&chars, i) {
+                if let Some(next_idx) = template_double_curly_end(chars, i) {
                     i = next_idx;
                     continue;
                 }
@@ -135,11 +139,11 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                 contexts.pop();
             }
             '#' => {
-                i = skip_comment(&chars, i);
+                i = skip_comment(chars, i);
                 continue;
             }
             ',' if !contexts.is_empty() => {
-                evaluate_comma(cfg, &mut violations, &chars, i, &line_starts);
+                evaluate_comma(cfg, &mut violations, chars, i, line_starts);
             }
             _ => {}
         }

@@ -14,12 +14,6 @@ pub(crate) struct CommentInfo {
 /// say) is not a lexical one, so the scanner tokenizes straight past it. Consumers only
 /// test for `Right`, so the scanner reporting an own-line comment as `Free` where the
 /// parser resolved it to `Above` makes no difference.
-pub(crate) fn collect_comments(buffer: &str) -> Vec<CommentInfo> {
-    collect_comments_with_analysis(
-        crate::text_version::TextVersion::new(buffer).analysis(),
-    )
-}
-
 pub(crate) fn collect_comments_with_analysis(
     input: crate::text_version::Analysis<'_>,
 ) -> Vec<CommentInfo> {

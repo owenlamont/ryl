@@ -95,23 +95,17 @@ fn admits_width_accepts_consistent_and_the_matching_fixed_width() {
 }
 
 #[test]
-fn formatter_targets_detect_and_default_to_80_and_follow_the_shared_keys() {
+fn formatter_targets_default_to_two_and_80_and_follow_the_shared_keys() {
     let unset = toml("[lint.rules]\nindentation = \"enable\"\n");
     assert_eq!(
-        (
-            format::file_indent_width(&unset, "a:\n    b: 1\n"),
-            format::line_length(&unset)
-        ),
-        (4, 80)
+        (format::indent_width(&unset), format::line_length(&unset)),
+        (2, 80)
     );
     let set = toml(
         "indent-width = 4\nline-length = 100\n[lint.rules.indentation]\nspaces = 2\n",
     );
     assert_eq!(
-        (
-            format::file_indent_width(&set, "a:\n  b: 1\n"),
-            format::line_length(&set)
-        ),
+        (format::indent_width(&set), format::line_length(&set)),
         (4, 100)
     );
 }

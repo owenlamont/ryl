@@ -53,33 +53,23 @@ pub(crate) fn reindent_with_events(
     cfg: &Config,
     events: Option<&[(Event<'_>, Span)]>,
 ) -> Reindented {
-    Prepared::for_config(buffer, cfg, events).reindent(cfg)
+    let source = TextVersion::new(buffer);
+    if let Some(events) = events {
+        source.analysis().seed_events(events);
+    }
+    reindent_with_analysis(source.analysis(), cfg).0
 }
 
 pub(crate) fn reindent_with_analysis(
     input: Analysis<'_>,
     cfg: &Config,
 ) -> (Reindented, TextVersion<'static>) {
-    Prepared::new(Source::Shared(input), cfg.dash_on_own_line).reindent_snapshot(cfg)
+    Prepared::new(input, cfg.dash_on_own_line).reindent_snapshot(cfg)
 }
 
-enum Source<'a> {
-    Shared(Analysis<'a>),
-    Local(Box<TextVersion<'a>>),
-}
-
-impl Source<'_> {
-    fn analysis(&self) -> Analysis<'_> {
-        match self {
-            Self::Shared(input) => *input,
-            Self::Local(input) => input.analysis(),
-        }
-    }
-}
-
-pub(crate) struct Prepared<'a> {
-    source: Source<'a>,
-    pub(crate) parsed: bool,
+struct Prepared<'a> {
+    input: Analysis<'a>,
+    parsed: bool,
     directives: Directives,
     starts: Vec<usize>,
     shaped: Option<TextVersion<'static>>,
@@ -88,20 +78,7 @@ pub(crate) struct Prepared<'a> {
 }
 
 impl<'a> Prepared<'a> {
-    pub(crate) fn for_config(
-        buffer: &'a str,
-        cfg: &Config,
-        events: Option<&[(Event<'a>, Span)]>,
-    ) -> Self {
-        let source = TextVersion::new(buffer);
-        if let Some(events) = events {
-            source.analysis().seed_events(events);
-        }
-        Self::new(Source::Local(Box::new(source)), cfg.dash_on_own_line)
-    }
-
-    fn new(source: Source<'a>, dash_on_own_line: Option<bool>) -> Self {
-        let input = source.analysis();
+    fn new(input: Analysis<'a>, dash_on_own_line: Option<bool>) -> Self {
         let (original, parsed) = documents_with_analysis(input);
         let directives = Directives::parse_with_analysis(input);
         let lines: Vec<_> = input
@@ -114,6 +91,7 @@ impl<'a> Prepared<'a> {
         } else {
             Vec::new()
         };
+        drop(original);
         let (shaped, origin, kept_dash_lines) = if parsed {
             reshape(input, &lines, dash_on_own_line, &directives)
         } else {
@@ -121,7 +99,7 @@ impl<'a> Prepared<'a> {
         };
         let shaped = (shaped != input.text()).then(|| TextVersion::new(shaped));
         Self {
-            source,
+            input,
             parsed,
             directives,
             starts,
@@ -134,15 +112,11 @@ impl<'a> Prepared<'a> {
     fn shaped(&self) -> Analysis<'_> {
         self.shaped
             .as_ref()
-            .map_or_else(|| self.source.analysis(), TextVersion::analysis)
-    }
-
-    pub(crate) fn reindent(&self, cfg: &Config) -> Reindented {
-        self.reindent_snapshot(cfg).0
+            .map_or(self.input, TextVersion::analysis)
     }
 
     fn reindent_snapshot(&self, cfg: &Config) -> (Reindented, TextVersion<'static>) {
-        let input = self.source.analysis();
+        let input = self.input;
         let buffer = input.text();
         if !self.parsed {
             return (
@@ -277,7 +251,7 @@ impl<'a> Prepared<'a> {
         shaped_lines: &[(&str, &str)],
         deltas: &mut [isize],
     ) {
-        let input = self.source.analysis();
+        let input = self.input;
         let lines = input.line_contents();
         let headers = input.headers();
         // These spaces are scalar content, so they move with the header.
@@ -321,7 +295,7 @@ impl<'a> Prepared<'a> {
             let document = self.starts.partition_point(|&start| start <= line) - 1;
             refused[document].get_or_insert(cause);
         };
-        for line in 0..self.source.analysis().lines().count() {
+        for line in 0..self.input.lines().count() {
             if directives.is_disabled(ID, line + 1) {
                 refuse(line, Cause::Disabled);
             }
@@ -334,7 +308,7 @@ impl<'a> Prepared<'a> {
                 refuse(origin[line], Cause::Disabled);
             }
         }
-        for (line, content, _) in self.source.analysis().lines() {
+        for (line, content, _) in self.input.lines() {
             if tab_in_indentation(content) {
                 refuse(line, Cause::Tab);
             }
