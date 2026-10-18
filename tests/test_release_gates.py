@@ -179,6 +179,7 @@ def test_frozen_release_pin(
             "git",
             "ls-remote",
             "--tags",
+            "--",
             "https://github.com/owenlamont/ryl-pre-commit",
             "v[0-9]*",
         ],
