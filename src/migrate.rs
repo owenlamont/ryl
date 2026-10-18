@@ -462,6 +462,45 @@ fn build_toml_rewrites(root: &Path, plan: &mut MigrationPlan) {
     }
 }
 
+fn move_yaml_files(document: &mut DocumentMut, pyproject: bool) -> Result<(bool, bool), String> {
+    let root = document.as_table_mut();
+    let config = if pyproject {
+        root.get_mut("tool")
+            .and_then(Item::as_table_mut)
+            .and_then(|tool| tool.get_mut("ryl"))
+            .and_then(Item::as_table_mut)
+    } else {
+        Some(root)
+    };
+    let Some(config) = config else {
+        return Ok((false, false));
+    };
+    let Some((legacy_key, patterns)) = config.remove_entry("yaml-files") else {
+        return Ok((false, false));
+    };
+    if !config.contains_key("files") {
+        config.insert("files", Item::Table(Table::new()));
+    }
+    if config["files"].is_inline_table() {
+        config["files"] = Item::Table(
+            config["files"]
+                .clone()
+                .into_table()
+                .expect("inline files table"),
+        );
+    }
+    let files = config["files"]
+        .as_table_mut()
+        .ok_or("`files` must be a table")?;
+    if files.contains_key("yaml") {
+        return Ok((true, true));
+    }
+    let mut yaml_key = Key::new("yaml");
+    *yaml_key.leaf_decor_mut() = legacy_key.leaf_decor().clone();
+    files.insert_formatted(&yaml_key, patterns);
+    Ok((true, false))
+}
+
 /// Plan an in-place rewrite of the ryl TOML config at `path` if it sets a deprecated key.
 /// `pyproject.toml` is only reported. A file that fails to load is skipped with a
 /// warning, so a stray fixture cannot block the rest of the migration.
@@ -479,11 +518,15 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     let loaded = fs::read_to_string(&path)
         .map_err(|err| format!("failed to read config: {err}"))
         .and_then(|text| {
-            parse_toml_config_str(&text, pyproject).map(|config| (text, config))
+            let mut document = text.parse::<DocumentMut>().map_err(|err| err.to_string())?;
+            let (moved_yaml_files, overridden_yaml_files) =
+                move_yaml_files(&mut document, pyproject)?;
+            parse_toml_config_str(&document.to_string(), pyproject)
+                .map(|config| (document, config, moved_yaml_files, overridden_yaml_files))
         });
-    let (text, config) = match loaded {
-        Ok((text, Some(config))) => (text, config),
-        Ok((_, None)) => return,
+    let (mut document, config, moved_yaml_files, overridden_yaml_files) = match loaded {
+        Ok((document, Some(config), moved, overridden)) => (document, config, moved, overridden),
+        Ok((_, None, _, _)) => return,
         Err(err) => {
             plan.warnings
                 .push(format!("warning: skipping {}: {err}", path.display()));
@@ -491,7 +534,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         }
     };
     let deprecated = config.deprecated_keys();
-    if deprecated.is_empty() {
+    if deprecated.is_empty() && !moved_yaml_files {
         return;
     }
     if is_symlink(&path) {
@@ -501,15 +544,24 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         ));
         return;
     }
+    if overridden_yaml_files {
+        plan.warnings.push(format!(
+            "warning: {}: discarded deprecated `yaml-files` because `files.yaml` is also set",
+            path.display()
+        ));
+    }
     if pyproject {
-        let moves = deprecated
+        let mut moves = deprecated
             .iter()
             .map(|used| format!("`{}` to `{}`", used.key.key, used.key.replacement))
-            .collect::<Vec<_>>()
-            .join(", ");
+            .collect::<Vec<_>>();
+        if moved_yaml_files {
+            moves.push("`yaml-files` to `files.yaml`".to_owned());
+        }
         plan.warnings.push(format!(
-            "warning: not rewriting {}: in [tool.ryl], move {moves}",
-            path.display()
+            "warning: not rewriting {}: in [tool.ryl], move {}",
+            path.display(),
+            moves.join(", ")
         ));
         return;
     }
@@ -521,9 +573,6 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
             used.key.replacement
         ));
     }
-    let mut document = text
-        .parse::<DocumentMut>()
-        .expect("validated TOML config must parse as an editable document");
     rewrite_toml_document(&mut document, &deprecated);
     let mut rewritten = document.to_string();
     let newline = buffer_newline(&text);

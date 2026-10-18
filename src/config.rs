@@ -1558,7 +1558,10 @@ fn finalize_context(
     };
     notices.extend(cfg.deprecated_keys.iter().map(|used| {
         let remedy = match (&migrate_command, file_name) {
-            (Some(command), _) => format!(" (run `{command}` to update)"),
+            (Some(command), _) => format!(
+                " (run `{command}`{} to update)",
+                crate::config_schema::MIGRATE_VERSION_SUFFIX
+            ),
             (None, Some("pyproject.toml")) => {
                 format!(" (move it to `tool.ryl.{}` by hand)", used.key.replacement)
             }
@@ -1614,22 +1617,23 @@ fn legacy_yaml_notice(
     );
     let remedy = match path {
         Some(path) if crate::migrate::is_symlink(path) => SKIPS_SYMLINKS.to_owned(),
-        _ => row.replacement.replace(
-            "{path}",
-            &path.map_or_else(String::new, |path| {
-                migrate_root(path, &envx.current_dir())
-            }),
-        ),
+        _ => row
+            .replacement
+            .replace(
+                "{path}",
+                &path.map_or_else(String::new, |path| {
+                    migrate_root(path, &envx.current_dir())
+                }),
+            )
+            .replace("{version}", crate::config_schema::MIGRATE_VERSION_SUFFIX),
     };
     format!("warning: {label}: yamllint YAML config is deprecated; {remedy}")
 }
 
 const SKIPS_SYMLINKS: &str = "migration skips symlinks: edit the link's target by hand";
 
-/// `path` resolved against `cwd` with `/` separators, so the command runs from any
-/// directory, or a placeholder where a POSIX shell or PowerShell would need it quoted
-/// (both read these characters literally, `~` too since an absolute path never starts
-/// with it; POSIX eats `\`).
+/// `path` resolved against `cwd` with `/` separators and quoted for a shell when
+/// spaces are present; unusual shell metacharacters retain a placeholder.
 fn migrate_root(path: &Path, cwd: &Path) -> String {
     let text = cwd
         .join(path)
@@ -1641,6 +1645,11 @@ fn migrate_root(path: &Path, cwd: &Path) -> String {
         .all(|c| c.is_ascii_alphanumeric() || "/._-:~".contains(c))
     {
         text
+    } else if text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-:~ ".contains(c))
+    {
+        format!("\"{text}\"")
     } else {
         "<path to this config>".to_owned()
     }

@@ -9,6 +9,9 @@ a later release will stop reading YAML config. Migrate with
 [`ryl --migrate-configs`](#automatic-migration); TOML also carries the
 ryl-only features, such as
 [`lint.fixable`/`lint.unfixable`](#optional-configure-auto-fixes).
+Warning commands name the minimum ryl version needed for the migration flags;
+run them with that version or later. Project YAML warnings include
+`--migrate-delete-old` so a later `ryl check` does not rediscover `.yamllint`.
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint
@@ -80,7 +83,7 @@ Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
+| `--migrate-configs` | Migrate project-tree YAML configs, move deprecated keys in ryl TOML configs to `[lint]` and `exclude`, and move TOML `yaml-files` to `[files].yaml` |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
 | `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout; also writes when combined with `--migrate-write` |
@@ -96,7 +99,10 @@ applies to project migration only. Migration takes no positional paths: `ryl
 
 A config passed to `-c` under any other name migrates by naming the file:
 `--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes
-in its place. Only an existing `ci/lint.toml` blocks that migration.
+in its place. Update `-c` to the new path after migration; when migrating a
+`YAMLLINT_CONFIG_FILE` source, remove that environment variable too. Only an
+existing `ci/lint.toml` blocks that migration. A top-level TOML `yaml-files`
+key is moved to `[files].yaml`; an existing `[files].yaml` value wins.
 
 Migration skips a legacy project YAML config when project discovery already picks
 a TOML config, including `.config/` candidates and `pyproject.toml` with `[tool.ryl]`,

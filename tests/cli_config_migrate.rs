@@ -519,7 +519,7 @@ fn a_dotdot_spelling_of_one_project_config_warns_once() {
 }
 
 #[test]
-fn the_config_file_hint_uses_a_placeholder_for_a_path_with_a_space() {
+fn the_config_file_hint_quotes_a_path_with_a_space() {
     let td = tempdir().unwrap();
     let dir = td.path().join("space dir");
     fs::create_dir_all(&dir).unwrap();
@@ -534,7 +534,11 @@ fn the_config_file_hint_uses_a_placeholder_for_a_path_with_a_space() {
         .arg(&config)
         .arg(&file));
     assert!(
-        stderr.contains("--migrate-root <path to this config>` and pass"),
+        stderr.contains(&format!(
+            "--migrate-root \"{}\"` with ryl {} or later and pass",
+            config.display(),
+            env!("CARGO_PKG_VERSION")
+        )),
         "{stderr}"
     );
 }

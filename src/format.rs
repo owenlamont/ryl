@@ -788,23 +788,26 @@ fn spaces_admit_format(cfg: &YamlLintConfig) -> bool {
     lint.admits_width(indent_width(cfg))
 }
 
-fn remedy(rule: &str, cfg: &YamlLintConfig) -> &'static str {
+fn remedy(rule: &str, cfg: &YamlLintConfig) -> String {
     match (rule, cfg.format().targets().quote_style) {
         (quoted_strings::ID, QuoteStyleTarget::Double) => {
             "set its options `quote-type = \"double\"`, `required = \"only-when-needed\"`, \
-             `allow-quoted-quotes = true`"
+             `allow-quoted-quotes = true`".to_owned()
         }
         (quoted_strings::ID, _) => {
             "set its options `quote-type = \"single\"`, `required = \"only-when-needed\"`, \
-             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`"
+             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`".to_owned()
         }
         (indentation::ID, _) if cfg.indent_width().is_none() => {
-            "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs` first)"
+            format!(
+                "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs --migrate-write --migrate-delete-old --migrate-root .`{} first)",
+                crate::config_schema::MIGRATE_VERSION_SUFFIX
+            )
         }
         (new_lines::ID, _) => {
-            "set `[format] line-ending` to the ending its `type` names"
+            "set `[format] line-ending` to the ending its `type` names".to_owned()
         }
-        _ => "change its options to accept the formatter's output",
+        _ => "change its options to accept the formatter's output".to_owned(),
     }
 }
 

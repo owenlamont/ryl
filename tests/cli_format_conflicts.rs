@@ -306,7 +306,7 @@ fn layout_rules_name_the_key_they_disagree_with() {
             "[format]\nindent-sequences = false\n[lint.rules.indentation]\nspaces = 4\n\
              indent-sequences = false\n",
             "`indent-width = 2`. Disable indentation when \
-             using `ryl format`, or set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs` first).",
+             using `ryl format`, or set the top-level TOML `indent-width` to its `spaces`",
         ),
         (
             "[format]\nline-ending = 'auto'\n[lint.rules]\nnew-lines = 'enable'\n",
@@ -339,6 +339,10 @@ fn yaml_indent_conflict_points_to_toml_migration() {
     assert_eq!(warnings.len(), 1, "{warnings:#?}");
     assert!(warnings[0].contains("top-level TOML `indent-width`"));
     assert!(warnings[0].contains("ryl --migrate-configs"));
+    assert!(warnings[0].contains(&format!(
+        "--migrate-write --migrate-delete-old --migrate-root .` with ryl {} or later",
+        env!("CARGO_PKG_VERSION")
+    )));
 }
 
 #[test]
