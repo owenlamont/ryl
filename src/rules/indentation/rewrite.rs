@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::RangeInclusive;
 
 use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift};
@@ -55,9 +56,11 @@ pub(crate) fn reindent_with_analysis(
 
 struct Prepared<'a> {
     input: Analysis<'a>,
+    has_bom: bool,
     parsed: bool,
     directives: Directives,
     starts: Vec<usize>,
+    lines: Vec<(&'a str, &'a str)>,
     shaped: Option<TextVersion<'static>>,
     origin: Vec<usize>,
     kept_dash_lines: Vec<(usize, usize)>,
@@ -89,9 +92,11 @@ impl<'a> Prepared<'a> {
         });
         Self {
             input,
+            has_bom: input.text().contains('\u{feff}'),
             parsed,
             directives,
             starts,
+            lines,
             shaped,
             origin,
             kept_dash_lines,
@@ -117,29 +122,33 @@ impl<'a> Prepared<'a> {
                 TextVersion::new(buffer.to_string()),
             );
         }
-        let lines: Vec<_> = input
-            .lines()
-            .map(|(_, content, ending)| (content, ending))
-            .collect();
+        let lines = &self.lines;
         let (starts, origin) = (&self.starts, &self.origin);
         let shaped = self.shaped();
         let scanned = shaped.indentation();
         let mut analyzer =
             Analyzer::new(shaped.chars(), &scanned.line_starts, cfg, Mode::Target);
         analyzer.run(&scanned.tokens);
-        let shaped_lines: Vec<(&str, &str)> = shaped
-            .lines()
-            .map(|(line, content, ending)| {
-                let content = if self.bom_prefix(line) {
-                    content
-                        .strip_prefix('\u{feff}')
-                        .expect("BOM prefix matches the scanned line")
-                } else {
-                    content
-                };
-                (content, ending)
-            })
-            .collect();
+        let shaped_lines: Cow<'_, [(&str, &str)]> =
+            if self.shaped.is_none() && !self.has_bom {
+                Cow::Borrowed(&self.lines)
+            } else {
+                Cow::Owned(
+                    shaped
+                        .lines()
+                        .map(|(line, content, ending)| {
+                            let content = if self.bom_prefix(line) {
+                                content
+                                    .strip_prefix('\u{feff}')
+                                    .expect("BOM prefix matches the scanned line")
+                            } else {
+                                content
+                            };
+                            (content, ending)
+                        })
+                        .collect(),
+                )
+            };
         let mut deltas = settle(&shaped_lines, &analyzer.shifts);
         self.carry_scalar_blank_lines(&shaped_lines, &mut deltas);
         let mut refused = self.refusals(&analyzer);
@@ -307,6 +316,9 @@ impl<'a> Prepared<'a> {
     }
 
     fn bom_prefix(&self, line: usize) -> bool {
+        if !self.has_bom {
+            return false;
+        }
         let start = self.shaped().indentation().line_starts[line].get();
         start > 0 && self.shaped().chars()[start - 1].1 == '\u{feff}'
     }
@@ -319,7 +331,7 @@ impl<'a> Prepared<'a> {
             let document = self.starts.partition_point(|&start| start <= line) - 1;
             refused[document].get_or_insert(cause);
         };
-        for line in 0..self.input.lines().count() {
+        for line in 0..self.lines.len() {
             if directives.is_disabled(ID, line + 1) {
                 refuse(line, Cause::Disabled);
             }

@@ -162,29 +162,41 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
-        let mut original = self
-            .parsed()
-            .events
-            .iter()
-            .map(|(event, _)| event)
-            .filter(|event| event.significant());
-        let mut rewritten = other
-            .parsed()
-            .events
-            .iter()
-            .map(|(event, _)| event)
-            .filter(|event| event.significant());
-        loop {
-            match (original.next(), rewritten.next()) {
-                (Some(left), Some(right)) => {
-                    if !left.equivalent(right, self.text(), other.text()) {
-                        return false;
-                    }
-                }
-                (None, None) => return true,
-                _ => return false,
+        struct WithSource<'a> {
+            event: &'a StoredEvent,
+            source: &'a str,
+        }
+
+        impl PartialEq for WithSource<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                self.event
+                    .equivalent(other.event, self.source, other.source)
             }
         }
+
+        impl Eq for WithSource<'_> {}
+
+        let original = self
+            .parsed()
+            .events
+            .iter()
+            .map(|(event, _)| event)
+            .filter(|event| event.significant())
+            .map(|event| WithSource {
+                event,
+                source: self.text(),
+            });
+        let rewritten = other
+            .parsed()
+            .events
+            .iter()
+            .map(|(event, _)| event)
+            .filter(|event| event.significant())
+            .map(|event| WithSource {
+                event,
+                source: other.text(),
+            });
+        original.eq(rewritten)
     }
 
     pub(crate) fn chars(self) -> &'text [(usize, char)] {

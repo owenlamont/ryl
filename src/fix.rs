@@ -1192,7 +1192,6 @@ pub(crate) struct Passes<'a> {
     pub(crate) hyphens: Option<hyphens::Config>,
     pub(crate) final_newline: Option<NewlinePolicy>,
     pub(crate) quoted_strings: Option<quoted_strings::Config>,
-    pub(crate) quote_before_indentation: bool,
     pub(crate) trailing_spaces: bool,
     pub(crate) document_start: Option<document_start::Config>,
     pub(crate) document_end: Option<document_end::Config>,
@@ -1254,7 +1253,6 @@ impl<'a> Passes<'a> {
             final_newline: on(new_line_at_end_of_file::ID).then_some(newline),
             quoted_strings: on(quoted_strings::ID)
                 .then(|| quoted_strings::Config::resolve(cfg)),
-            quote_before_indentation: false,
             trailing_spaces: on(trailing_spaces::ID),
             document_start: on(document_start::ID)
                 .then(|| document_start::Config::resolve(cfg)),
@@ -1668,9 +1666,7 @@ impl FixContext<'_> {
         fix!(brackets, brackets::fix_with_analysis);
         fix!(colons, colons::fix_with_analysis);
         fix!(hyphens, hyphens::fix_with_analysis);
-        if passes.quote_before_indentation {
-            fix!(quoted_strings, fix_quotes);
-        }
+        fix!(quoted_strings, fix_quotes);
         fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
             reindent_for_pass(view, cfg, reindented.as_deref_mut())
         },);
@@ -1682,9 +1678,6 @@ impl FixContext<'_> {
                 policy.newline(view.text())
             )
         );
-        if !passes.quote_before_indentation {
-            fix!(quoted_strings, fix_quotes);
-        }
     }
 
     fn apply<C, R: Into<TextVersion<'static>>>(

@@ -114,7 +114,6 @@ impl Passes<'static> {
             quoted_strings: quote_style
                 .filter(|_| on(quoted_strings::ID))
                 .map(quoted_strings::Config::ladder),
-            quote_before_indentation: true,
             trailing_spaces: on(trailing_spaces::ID),
             document_start: (table.document_start == MarkerTarget::Add
                 && on(document_start::ID))
