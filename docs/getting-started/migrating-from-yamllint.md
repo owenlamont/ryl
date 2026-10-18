@@ -343,6 +343,8 @@ linted CR-aware like any other.
 ryl rejects under-indented flow collections and scalar continuations that yamllint's
 PyYAML parser accepts. For yaml-test-suite `9C9N`, `flow: [a,\nb,\nc]`, the reference
 parser reports a parse error; ryl reports a syntax error until the indentation is fixed.
+When ryl can repair the indentation, the diagnostic names `ryl check --fix` or
+`ryl format`; a repair refused by the guarded rewrite has no command hint.
 YAML 1.2.2's [separation production 81](https://yaml.org/spec/1.2.2/#rule-s-separate-lines),
 `s-separate-lines(n) ::= (s-l-comments s-flow-line-prefix(n)) | s-separate-in-line`,
 requires `s-flow-line-prefix(n)` inside a flow collection, keeping continuation content

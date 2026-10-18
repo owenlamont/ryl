@@ -77,6 +77,62 @@ fn check_rejects_9c9n_until_format_or_fix_repairs_indentation() {
 }
 
 #[test]
+fn check_explains_repairable_invalid_indentation() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("input.yaml");
+    std::fs::write(&file, "---\nkey:\n  args: [\n    \"a\",\n  ]\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args([
+            "check",
+            "-f",
+            "standard",
+            "-d",
+            "[lint.rules.document-start]",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "{}\n  5:3       error    syntax error: invalid indentation (syntax); help: ryl check --fix or ryl format can repair the indentation\n\n",
+            file.display()
+        )
+    );
+}
+
+#[test]
+fn refused_indentation_repair_has_no_help() {
+    let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
+    let diagnostics = ryl::lint::lint_str(
+        "a: 'a\r\n'\r\n\r\n",
+        Path::new("case.yaml"),
+        &cfg,
+        Path::new("."),
+    );
+    assert_eq!(diagnostics.len(), 1);
+    assert!(!diagnostics[0].message.contains("help:"), "{diagnostics:?}");
+}
+
+#[test]
+fn lint_hint_names_only_the_available_repair() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint]\nfixable = []\n[lint.rules.document-start]\n",
+    )
+    .unwrap();
+    let diagnostics =
+        ryl::lint::lint_str(INPUT, Path::new("case.yaml"), &cfg, Path::new("."));
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]
+            .message
+            .ends_with("help: ryl format can repair the indentation"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn check_diff_previews_a_strictly_valid_repair() {
     let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
     let result = ryl::fix::diff_outcome(

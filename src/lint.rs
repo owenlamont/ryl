@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::Path;
 
 use crate::config::{RuleLevel, YamlLintConfig};
@@ -317,7 +318,7 @@ pub fn lint_str(
         diagnostics.push(warning);
     }
 
-    if let Some(syntax) = syntax_diagnostic(content) {
+    if let Some(syntax) = syntax_diagnostic(content, path, cfg, base_dir) {
         diagnostics.clear();
         diagnostics.push(syntax);
     }
@@ -397,7 +398,12 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
 /// The syntax error ryl reports for `content` during linting, or `None` if it lints
 /// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
 /// rule, matching yamllint).
-fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
+fn syntax_diagnostic(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
@@ -407,7 +413,39 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
             // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
-        Err(err) => Some(syntax_problem(&err)),
+        Err(err) => {
+            let mut problem = syntax_problem(&err);
+            if *err.kind() == granit_parser::ErrorKind::InvalidIndentation
+                && !path.is_symlink()
+            {
+                let fix = crate::fix::rewrite_str(
+                    content,
+                    cfg,
+                    path,
+                    base_dir,
+                    crate::config::SourceKind::Yaml,
+                    crate::fix::Rewrite::Fix,
+                )
+                .0
+                .is_some();
+                let format =
+                    crate::format::format_str(content, cfg, path, &[]) != content;
+                let help = match (fix, format) {
+                    (true, true) => Some("ryl check --fix or ryl format"),
+                    (true, false) => Some("ryl check --fix"),
+                    (false, true) => Some("ryl format"),
+                    (false, false) => None,
+                };
+                if let Some(commands) = help {
+                    write!(
+                        problem.message,
+                        "; help: {commands} can repair the indentation"
+                    )
+                    .expect("writing to a String cannot fail");
+                }
+            }
+            Some(problem)
+        }
     }
 }
 

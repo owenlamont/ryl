@@ -946,6 +946,8 @@ linted CR-aware like any other.
 ryl rejects under-indented flow collections and scalar continuations that yamllint's
 PyYAML parser accepts. For yaml-test-suite `9C9N`, `flow: [a,\nb,\nc]`, the reference
 parser reports a parse error; ryl reports a syntax error until the indentation is fixed.
+When ryl can repair the indentation, the diagnostic names `ryl check --fix` or
+`ryl format`; a repair refused by the guarded rewrite has no command hint.
 YAML 1.2.2's [separation production 81](https://yaml.org/spec/1.2.2/#rule-s-separate-lines),
 `s-separate-lines(n) ::= (s-l-comments s-flow-line-prefix(n)) | s-separate-in-line`,
 requires `s-flow-line-prefix(n)` inside a flow collection, keeping continuation content
@@ -3217,6 +3219,10 @@ fix can leave layout the formatter then changes. Other CLI options also go in `a
 prek also reads `.pre-commit-config.yaml`, so either file works with prek.
 
 ## Seeing warnings after an upgrade
+
+Since v0.26.0, `syntax error: invalid indentation` can fail a check that passed
+on an older version. When the diagnostic offers a repair, run `ryl check --fix`
+or `ryl format`, then rerun the hook.
 
 pre-commit and prek hide the output of a hook that passes, including ryl's config
 deprecation warnings. After upgrading ryl, run the hook verbosely to see them:
