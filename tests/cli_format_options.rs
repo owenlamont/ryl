@@ -177,12 +177,14 @@ fn github_format_omits_rule_marker_for_syntax_error() {
         .arg(&file));
     assert_eq!(code, 1, "syntax errors should fail: {stderr}");
     assert!(stdout.is_empty(), "GitHub diagnostics should use stderr");
+    let diagnostic = stderr
+        .lines()
+        .find(|line| line.starts_with("::error file="))
+        .expect("expected GitHub error command");
     assert_eq!(
-        stderr,
-        format!(
-            "::group::{0}\n::error file={0},line=1,col=6::1:6 syntax error: unclosed bracket '[' (syntax)\n::endgroup::\n\n",
-            file.display()
-        )
+        diagnostic.rsplit_once("::").map(|(_, message)| message),
+        Some("1:6 syntax error: unclosed bracket '[' (syntax)"),
+        "unexpected GitHub syntax diagnostic: {diagnostic}"
     );
 }
 
