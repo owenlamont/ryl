@@ -36,6 +36,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Property-test generators fit the default test-thread stack without reducing
+  generated syntax or formatter checks.
 - `ryl format` and `ryl check --fix`/`--diff` print per-file notices in input
   order, including symlink skips, parse skips and read errors.
   ([#754](https://github.com/owenlamont/ryl/issues/754))
