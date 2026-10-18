@@ -172,14 +172,14 @@ pub fn resolve_ctx(
                 if cache.warned.insert(identity) {
                     notices.extend(ctx.notices.iter().cloned());
                 }
-                let entry = resolved(ctx, flags);
+                let entry = resolved(ctx, flags)?;
                 cache.by_config.insert(cfg_path, entry.clone());
                 (entry, notices)
             }
         }
         PerFileConfig::Fallback(ctx) => {
             let notices = ctx.notices.clone();
-            (resolved(*ctx, flags), notices)
+            (resolved(*ctx, flags)?, notices)
         }
     };
     cache.by_dir.insert(start, entry.clone());
@@ -196,28 +196,48 @@ pub struct ConfigCache {
     warned: HashSet<PathBuf>,
 }
 
-/// The `--markdown` and `--enable` overrides, applied to every resolved config.
+/// CLI overrides applied to every resolved config.
 #[derive(Debug, Default)]
 pub struct CliConfigFlags {
     pub markdown: bool,
     pub enable: Option<Vec<&'static str>>,
+    pub disable: Vec<&'static str>,
+    pub exclude: Option<Vec<String>>,
 }
 
 impl CliConfigFlags {
-    pub fn apply(&self, cfg: &mut YamlLintConfig, base_dir: &Path) {
+    /// # Errors
+    /// Returns an error for an invalid exclusion glob.
+    pub fn apply(
+        &self,
+        cfg: &mut YamlLintConfig,
+        base_dir: &Path,
+    ) -> Result<(), String> {
         if self.markdown {
             cfg.enable_default_markdown(base_dir);
         }
         if let Some(rules) = &self.enable {
             cfg.restrict_rules(rules);
         }
+        cfg.disable_rules(&self.disable);
+        if let Some(patterns) = &self.exclude {
+            cfg.replace_exclude(patterns)?;
+        }
+        Ok(())
     }
 }
 
 // The global config is adjusted once by the caller; a discovered one here, before
 // caching, so its matcher is built once.
-fn resolved(ctx: ConfigContext, flags: &CliConfigFlags) -> ResolvedConfig {
+fn resolved(
+    ctx: ConfigContext,
+    flags: &CliConfigFlags,
+) -> Result<ResolvedConfig, String> {
     let mut cfg = ctx.config;
-    flags.apply(&mut cfg, &ctx.base_dir);
-    (ctx.base_dir, Arc::new(cfg), ctx.config_found)
+    flags.apply(&mut cfg, &ctx.base_dir)?;
+    Ok((
+        ctx.base_dir,
+        Arc::new(cfg),
+        ctx.config_found || flags.enable.is_some(),
+    ))
 }

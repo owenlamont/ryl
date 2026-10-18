@@ -10,10 +10,25 @@ use proptest::test_runner::FileFailurePersistence;
 use ryl::lint::lint_str;
 
 use harness::{
-    check_spans_in_bounds, collect_spans, comments_indentation_open_config,
-    hyphens_dash_on_own_line_config, indentation_consistent_config, trigger_all_config,
+    anchors_forbidden_config, check_spans_in_bounds, collect_spans,
+    comments_indentation_open_config, hyphens_dash_on_own_line_config,
+    indentation_consistent_config, trigger_all_config,
 };
 use strategy::arb_document;
+
+#[test]
+fn forbidden_anchors_config_flags_a_generated_valid_pair() {
+    use ryl::rules::anchors::{Config, check};
+    let content = "a: [&anchor value, *anchor]\n";
+    assert!(check(content, &Config::resolve(trigger_all_config())).is_empty());
+    let forbidden = check(content, &Config::resolve(anchors_forbidden_config()));
+    assert_eq!(forbidden.len(), 2);
+    assert!(
+        forbidden
+            .iter()
+            .all(|hit| hit.message.contains("forbidden"))
+    );
+}
 
 fn lint(content: &str) -> Vec<ryl::lint::LintProblem> {
     lint_str(
@@ -117,9 +132,7 @@ proptest! {
 
 const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("anchors", "a: *missing\n"),
-    // Colon welded to a used, non-duplicate anchor/alias: only the ryl-only
-    // `forbid-ambiguous-anchor-alias-names` dispatch can flag it, so this proves
-    // that dispatch fires (not vacuously the undeclared/duplicated/unused checks).
+    ("anchors", "a: [&anchor value, *anchor]\n"),
     ("anchors", "a: &foo: 1\nb: *foo:\n"),
     ("block-scalar-chomping", "a: |\n  hi\n"),
     ("braces", "a: { b: 1 }\n"),

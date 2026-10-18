@@ -2,6 +2,38 @@ use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::rules::anchors;
 
 #[test]
+fn anchors_forbid_all_is_opt_in_and_requires_a_boolean() {
+    let content = "defaults: &defaults {retries: 3}\njob: *defaults\n";
+    for option in ["", "forbid-anchors-and-aliases = false\n"] {
+        let config =
+            YamlLintConfig::from_toml_str(&format!("[lint.rules.anchors]\n{option}"))
+                .unwrap();
+        assert!(anchors::check(content, &anchors::Config::resolve(&config)).is_empty());
+    }
+    let error = YamlLintConfig::from_toml_str(
+        "[lint.rules.anchors]\nforbid-anchors-and-aliases = 'true'\n",
+    )
+    .unwrap_err();
+    assert!(error.contains("lint.rules.anchors"), "{error}");
+}
+
+#[test]
+fn anchors_yaml_config_rejects_forbid_all_option() {
+    let error = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some(
+                "rules:\n  anchors:\n    forbid-anchors-and-aliases: true\n".into(),
+            ),
+        },
+    )
+    .unwrap_err();
+    assert!(error.contains("rules.anchors"), "{error}");
+    assert!(error.contains("failed to parse config data:"), "{error}");
+}
+
+#[test]
 fn anchors_allows_boolean_options() {
     let cfg = r#"
 rules:

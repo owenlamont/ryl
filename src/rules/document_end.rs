@@ -9,7 +9,6 @@ use granit_parser::Event;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::buffer_newline;
-use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "document-end";
@@ -72,8 +71,7 @@ fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
             });
         } else if matches!(event, Event::DocumentEnd) {
             // granit spans explicit `...` but reports an implicit end as a zero-width point.
-            let explicit =
-                marker_byte_offset(span.start) < marker_byte_offset(span.end);
+            let explicit = !span.is_empty();
             pending = !explicit && cfg.requires_marker();
             if explicit && !cfg.requires_marker() {
                 result.violations.push(Violation {

@@ -168,33 +168,37 @@ impl<'a> Prepared<'a> {
             text
         };
         // Documents parse independently, so one round of refusals settles every document.
-        let attempt = render(&refused);
-        let mut output = TextVersion::new(attempt);
+        let mut output = TextVersion::new(render(&refused));
+        let mut rollback = false;
         if output.analysis().text() != buffer {
             let (original, _) = documents_with_analysis(input);
             let (rewritten, _) = documents_with_analysis(output.analysis());
             for (index, cause) in refused.iter_mut().enumerate() {
                 let changed = rewritten.get(index).map(|document| &document.events)
                     != Some(&original[index].events);
+                rollback |= cause.is_none() && changed;
                 *cause = cause.or(changed.then_some(Cause::Changed));
             }
         }
-        if cfg.require_consistent {
+        if rollback {
             let plan = output.analysis().plan(render(&refused));
             output
                 .apply(plan)
-                .expect("verification plan belongs to the current epoch");
+                .expect("refusal plan belongs to the current epoch");
+        }
+        if cfg.require_consistent {
             let verified = if output.analysis().text() == buffer {
                 input
             } else {
                 output.analysis()
             };
-            refuse_inconsistent(verified, cfg, &mut refused);
+            if refuse_inconsistent(verified, cfg, &mut refused) {
+                let plan = output.analysis().plan(render(&refused));
+                output
+                    .apply(plan)
+                    .expect("consistency plan belongs to the current epoch");
+            }
         }
-        let plan = output.analysis().plan(render(&refused));
-        output
-            .apply(plan)
-            .expect("refusal plan belongs to the current epoch");
         (
             self.result(output.to_string(), &refused, lines.len()),
             output,
@@ -317,14 +321,17 @@ fn refuse_inconsistent(
     input: Analysis<'_>,
     cfg: &Config,
     refused: &mut [Option<Cause>],
-) {
+) -> bool {
     let (documents, _) = documents_with_analysis(input);
     let starts = document_starts(input, &documents);
     drop(documents);
+    let mut rollback = false;
     for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
         let document = starts.partition_point(|&start| start < violation.line) - 1;
+        rollback |= refused[document].is_none();
         refused[document].get_or_insert(Cause::Inconsistent);
     }
+    rollback
 }
 
 /// Pushes `line` moved by `delta`, with `gaps` closed.
@@ -340,7 +347,10 @@ fn render_line(
     }
     let indent = content.len() - content.trim_start_matches(' ').len();
     let placed = indent.saturating_add_signed(delta);
-    text.push_str(&" ".repeat(placed * usize::from(!content.is_empty())));
+    text.extend(std::iter::repeat_n(
+        ' ',
+        placed * usize::from(!content.is_empty()),
+    ));
     let mut rest = &content[indent..];
     let mut at = indent;
     for gap in gaps {
@@ -432,7 +442,7 @@ fn reshape(
                 ending
             });
             origin.push(line);
-            text.push_str(&" ".repeat(at));
+            text.extend(std::iter::repeat_n(' ', at));
             text.push_str(&content[at..]);
         } else {
             text.push_str(content);

@@ -171,6 +171,7 @@ file:
 ```bash
 ryl check --enable ALL .
 ryl check --enable key-duplicates,truthy .
+ryl check --enable ALL --disable line-length,truthy,document-start --exclude pnpm-lock.yaml .
 ```
 
 or pass a TOML config inline with `-d`:
@@ -182,6 +183,25 @@ ryl check -d 'lint.rules = { key-duplicates = "enable", truthy = "enable" }' .
 For a fuller ruleset, copy the `default` or `relaxed` preset from [Configuration
 presets](https://ryl-docs.pages.dev/config-presets/) into a `.ryl.toml` (see [Configure for your
 project](#configure-for-your-project) below).
+
+### Rule and file selection flags
+
+| Flag | Effect |
+| :--- | :--- |
+| `--enable <RULES>` | Replace the config's lint selection; comma-separated IDs or `ALL`; repeatable |
+| `--disable <RULES>` | Subtract lint rules after config and `--enable`; comma-separated IDs or `ALL`; once per command |
+| `--exclude <GLOBS>` | Replace config exclusions, including `exclude-from-file`; comma-separated gitignore-style globs relative to the current directory; once per command |
+
+Unknown rule IDs exit `2`. `check` also exits `2` when the final selection enables
+no lint rules.
+`--disable` alone never enables rules. Both flags work with `check --fix` and
+`check --diff`, and with the deprecated bare invocation. `--exclude` also applies
+to `--list-files` and `format`, including explicitly named files; use
+`--exclude ''` to clear config exclusions. With stdin, exclusions apply only when
+`--stdin-filename` supplies a path. See [File ignores](https://ryl-docs.pages.dev/file-ignores/).
+
+`format --disable` suppresses the named lint rules' conflict warnings; formatter
+passes remain controlled by `[format]`, independently of lint rule selection.
 
 ## Caching
 
@@ -237,7 +257,8 @@ cases exit `2` rather than silently linting nothing:
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules,
   copy a [preset](https://ryl-docs.pages.dev/config-presets/), or pass `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
-  `[lint.rules]`/`[tool.ryl]`, or one disabling everything) and no `--enable`. Enable at
+  `[lint.rules]`/`[tool.ryl]`, or one disabling everything), or a selection emptied
+  by `--disable`. Enable at
   least one rule, copy a [preset](https://ryl-docs.pages.dev/config-presets/), or pass `--enable ALL`.
 
 ## Apply auto-fixes
@@ -509,7 +530,7 @@ flowchart TD
     G -->|none| N{"--enable?"}
     N -->|yes| UseEmpty["empty config"] --> Done
     N -->|no| Err2["error: no configuration found (exit 2)"]
-    Done --> R{"any rule enabled,<br/>after --enable?"}
+    Done --> R{"any rule enabled,<br/>after --enable / --disable?"}
     R -->|yes| OK([lint])
     R -->|no| Err3["error: no rules enabled (exit 2)"]
     classDef default stroke-width:3px;
@@ -587,6 +608,18 @@ flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 `-d` also takes a whole ryl config as inline TOML, such as
 `ryl check -d 'lint.rules.anchors = "enable"' .`, which avoids the YAML
 deprecation warning.
+For a config-free selection, replace inline YAML rule disables and file ignores
+with CLI flags:
+
+```bash
+ryl check --enable ALL --disable line-length,truthy,document-start --exclude pnpm-lock.yaml .
+```
+
+`ALL` selects every ryl rule, rather than yamllint's `default` preset.
+`--disable` subtracts from config or `--enable` selections; `--exclude` replaces
+config exclusions with comma-separated globs relative to the current directory.
+Both flags may appear once. TOML still has no `extends` or presets.
+
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
 
@@ -770,7 +803,8 @@ ryl never enables a rule unless a configuration or `--enable` explicitly turns i
 on. yamllint, run with no configuration, lints with its `default` preset; ryl
 instead exits `2` with `no configuration found`. It also exits `2` (`configuration enables no
 rules`) when a resolved config turns every rule off, where yamllint would
-silently lint nothing. Neither exit fires when `--enable` names the rules.
+silently lint nothing. `--enable` supplies an explicit selection, but removing
+every selected rule with `--disable` still exits `2`.
 
 **Why ryl differs:** linting with rules the user never asked for &mdash; or
 silently doing nothing &mdash; is surprising. ryl makes the rule set explicit and
@@ -836,6 +870,11 @@ The portable, unambiguous way to use an alias as a mapping key is a **space befo
 the colon** &mdash; `*foo : bar` &mdash; which every parser reads identically. The
 ryl-only [`anchors: forbid-ambiguous-anchor-alias-names`](https://ryl-docs.pages.dev/rules/anchors/)
 option flags welded colons so you can forbid the construct outright.
+
+The TOML-only [`anchors: forbid-anchors-and-aliases`](https://ryl-docs.pages.dev/rules/anchors/)
+option prohibits every anchor and alias, including aliases in merge keys. The
+option operates independently of the other anchor checks, so several conditions
+can produce diagnostics at the same token; yamllint has no equivalent policy option.
 
 ### De-duplicated inputs
 
@@ -2515,6 +2554,18 @@ Three mechanisms, narrowing from left to right:
 A top-level `exclude` lists paths ryl skips entirely. No rule runs against them,
 `ryl format` leaves them alone, and they produce no diagnostics.
 
+`--exclude <GLOBS>` replaces config exclusions, including patterns loaded through
+`exclude-from-file`, for one run. Pass comma-separated gitignore-style globs once
+per command, anchored at the current working directory rather than the config:
+
+```bash
+ryl check --enable ALL --exclude 'pnpm-lock.yaml,vendor/**' .
+ryl format --exclude 'generated/**' .
+```
+
+`--exclude ''` clears the config's exclusions. Explicit file arguments remain
+subject to exclusions. Git ignore handling during directory walks is unchanged.
+
 ```toml
 exclude = """
 vendor/**
@@ -3649,7 +3700,7 @@ Source: https://ryl-docs.pages.dev/rules/anchors/
 Reports problems with YAML anchors and aliases &mdash; duplicated anchor
 names, aliases that reference undeclared anchors, anchors that are declared
 but never used, and (optionally) anchor/alias names that are ambiguous because
-a `:` is welded to them.
+a `:` is welded to them. Projects can also forbid all anchors and aliases.
 
 ## Why this matters
 
@@ -3684,6 +3735,7 @@ forbid-undeclared-aliases = true
 forbid-duplicated-anchors = false
 forbid-unused-anchors = false
 forbid-ambiguous-anchor-alias-names = false   # ryl-only
+forbid-anchors-and-aliases = false           # ryl-only
 ```
 
 | Option | Default | Description |
@@ -3691,10 +3743,16 @@ forbid-ambiguous-anchor-alias-names = false   # ryl-only
 | `forbid-undeclared-aliases` | `true` | Report aliases (`*name`) whose anchor (`&name`) has not been declared earlier. |
 | `forbid-duplicated-anchors` | `false` | Report when the same anchor name is declared more than once. |
 | `forbid-unused-anchors` | `false` | Report anchors that are never referenced by an alias. |
+| `forbid-anchors-and-aliases` | `false` | **ryl-only.** Report every anchor and alias, including valid declared-and-used pairs and aliases in merge keys (`<<: *name`). |
 | `forbid-ambiguous-anchor-alias-names` | `false` | **ryl-only.** Report an anchor (`&name`) or alias (`*name`) whose name has a `:` welded to it &mdash; trailing (`&foo:`), internal (`&foo:bar`), or leading (`&:foo`) &mdash; the construct parsers disagree on. A space before the `:` (`*foo : bar`) is the unambiguous alias-key form and is never flagged. |
 
-`forbid-ambiguous-anchor-alias-names` is configurable only in TOML; YAML config
-rejects it.
+`forbid-ambiguous-anchor-alias-names` and `forbid-anchors-and-aliases` are
+configurable only in TOML; YAML config rejects both options.
+
+All `anchors` options are independent. No option suppresses or overrides another.
+With `forbid-anchors-and-aliases` and `forbid-undeclared-aliases` enabled,
+an undeclared `*missing` receives two diagnostics. The duplicated, unused and
+ambiguous name checks also report their matching conditions when enabled.
 
 ## Examples
 
@@ -3714,6 +3772,36 @@ rejects it.
 - &anchor
   foo: bar
 - *unknown
+```
+
+### :x: Reported (with `forbid-anchors-and-aliases = true`)
+
+```toml
+[lint.rules.anchors]
+forbid-anchors-and-aliases = true
+```
+
+Every `&` anchor and `*` alias below is reported, including the merge alias:
+
+```yaml
+defaults: &defaults
+  retries: 3
+job: *defaults
+merged:
+  <<: *defaults
+```
+
+### :white_check_mark: Allowed (with `forbid-anchors-and-aliases = true`)
+
+Anchor-like text inside scalar values and comments is allowed:
+
+```yaml
+job:
+  retries: 3
+description: "Use &defaults and *defaults"
+script: |
+  echo '&defaults *defaults'
+# &defaults and *defaults
 ```
 
 ### :x: Reported (with `forbid-duplicated-anchors: true`)
