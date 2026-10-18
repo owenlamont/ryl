@@ -934,30 +934,10 @@ impl<'cfg> ConsistentQuoteStyleFinder<'cfg> {
 
 impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
-        match event {
-            Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_, version) => {
-                self.state.document_start(version.map(event_version));
-            }
-            Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(style, _, _) => {
-                self.state.enter_sequence(style == StructureStyle::Flow);
-            }
-            Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(style, _, _) => {
-                self.state.enter_mapping(style == StructureStyle::Flow);
-            }
-            Event::Scalar(value, style, _, tag) => {
-                self.state.collect_consistent_quote_style(
-                    style,
-                    value.as_ref(),
-                    tag.as_deref(),
-                    span,
-                );
-            }
-            Event::Alias(_) => self.state.skip_node(),
-            _ => {}
-        }
+        self.state
+            .visit_event(event, span, |state, style, value, tag, span| {
+                state.collect_consistent_quote_style(style, value, tag, span);
+            });
     }
 }
 
@@ -988,30 +968,13 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
 
 impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
-        match event {
-            Event::StreamStart => self.state.reset_stream(),
-            Event::DocumentStart(_, version) => {
-                self.state.document_start(version.map(event_version));
-            }
-            Event::DocumentEnd => self.state.document_end(),
-            Event::SequenceStart(style, _, _) => {
-                self.state.enter_sequence(style == StructureStyle::Flow);
-            }
-            Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
-            Event::MappingStart(style, _, _) => {
-                self.state.enter_mapping(style == StructureStyle::Flow);
-            }
-            Event::Scalar(value, style, _, tag) => {
-                if let Some(r) =
-                    self.state
-                        .fix_scalar(style, value.as_ref(), tag.as_deref(), span)
-                {
-                    self.replacements.push(r);
+        let replacements = &mut self.replacements;
+        self.state
+            .visit_event(event, span, |state, style, value, tag, span| {
+                if let Some(replacement) = state.fix_scalar(style, value, tag, span) {
+                    replacements.push(replacement);
                 }
-            }
-            Event::Alias(_) => self.state.skip_node(),
-            _ => {}
-        }
+            });
     }
 }
 
@@ -1026,6 +989,33 @@ struct FixState<'cfg> {
 }
 
 impl<'cfg> FixState<'cfg> {
+    fn visit_event(
+        &mut self,
+        event: Event<'_>,
+        span: Span,
+        visit_scalar: impl FnOnce(&mut Self, ScalarStyle, &str, Option<&Tag>, Span),
+    ) {
+        match event {
+            Event::StreamStart => self.reset_stream(),
+            Event::DocumentStart(_, version) => {
+                self.document_start(version.map(event_version));
+            }
+            Event::DocumentEnd => self.document_end(),
+            Event::SequenceStart(style, _, _) => {
+                self.enter_sequence(style == StructureStyle::Flow);
+            }
+            Event::SequenceEnd | Event::MappingEnd => self.exit_container(),
+            Event::MappingStart(style, _, _) => {
+                self.enter_mapping(style == StructureStyle::Flow);
+            }
+            Event::Scalar(value, style, _, tag) => {
+                visit_scalar(self, style, value.as_ref(), tag.as_deref(), span);
+            }
+            Event::Alias(_) => self.skip_node(),
+            _ => {}
+        }
+    }
+
     fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
         Self::with_consistent_quote_style(config, buffer, None)
     }
