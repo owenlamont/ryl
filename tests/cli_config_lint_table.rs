@@ -249,6 +249,31 @@ fix = { fixable = ['ALL'] }\n[rules]\ntruthy = 'enable'\n",
 }
 
 #[test]
+fn migrate_discards_deprecated_values_overridden_by_new_keys() {
+    let dir = project(
+        "ignore = ['old/**']\nexclude = ['new/**']\n\n\
+[rules]\ntruthy = 'enable'\n\n\
+[fix]\nfixable = ['truthy']\n\n\
+[lint]\nfixable = ['ALL']\n\n\
+[lint.rules]\ntrailing-spaces = 'enable'\n",
+    );
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    let migrated = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+    assert!(migrated.contains("exclude = ['new/**']"), "{migrated}");
+    assert!(migrated.contains("fixable = ['ALL']"), "{migrated}");
+    assert!(
+        migrated.contains("trailing-spaces = 'enable'"),
+        "{migrated}"
+    );
+    assert!(!migrated.contains("ignore ="), "{migrated}");
+    assert!(
+        !migrated.contains("[rules]") && !migrated.contains("[fix]"),
+        "{migrated}"
+    );
+}
+
+#[test]
 fn migrate_reports_legacy_pyproject_without_rewriting_it() {
     let dir = tempdir().unwrap();
     let pyproject = "# keep me\n[tool.ryl.rules]\ntruthy = \"enable\"\n";

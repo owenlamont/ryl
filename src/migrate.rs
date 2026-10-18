@@ -585,9 +585,7 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
                 }
             }
         }
-        if root["fix"].as_table().is_some_and(Table::is_empty) {
-            root.remove("fix");
-        }
+        root.remove("fix");
     }
 
     for (old, new) in [
