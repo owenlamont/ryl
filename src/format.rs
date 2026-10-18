@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::path::Path;
 
-use granit_parser::{Event, Parser, Span};
+use granit_parser::{Event, Span};
 use similar::{DiffTag, TextDiff};
 
 use crate::config::{SourceKind, YamlLintConfig};
@@ -11,8 +11,9 @@ use crate::config_schema::{
     QuoteStyleTarget,
 };
 use crate::fix::{
-    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, PassTracking, Passes, ReindentCache,
-    region_prefix, run_passes, run_passes_with_events, suppressed_rules,
+    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, ParsedInput, PassTracking, Passes,
+    ReindentCache, region_prefix, rewrite_parse_gate, run_passes,
+    run_passes_with_events, suppressed_rules,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
@@ -63,20 +64,24 @@ impl Passes<'static> {
             QuoteStyleTarget::Double => Some(quoted_strings::QuoteStyle::Double),
             QuoteStyleTarget::Preserve => None,
         };
+        let indentation = on(indentation::ID).then(|| {
+            let target = indentation_target(cfg, indent);
+            if cfg.indent_width().is_none() {
+                target.requiring_consistent()
+            } else {
+                target
+            }
+        });
         Self {
             new_lines: on(new_lines::ID).then_some(line_ending),
             comments: on(comments::ID).then_some(comments::Config::exact_gap(
                 usize::from(table.comment_spacing.get()),
                 table.comment_starting_space == MarkerTarget::Add,
             )),
-            indentation: on(indentation::ID).then(|| {
-                let target = indentation_target(cfg, indent);
-                if cfg.indent_width().is_none() {
-                    target.requiring_consistent()
-                } else {
-                    target
-                }
-            }),
+            indentation,
+            repair_indentation: Some(
+                indentation.unwrap_or_else(|| indentation_target(cfg, indent)),
+            ),
             comments_indentation: on(comments_indentation::ID)
                 .then_some(comments_indentation::Config::new(false)),
             commas: on(commas::ID).then_some(commas::Config::new(0, 1, 1)),
@@ -199,8 +204,9 @@ pub fn format_str(
     path: &Path,
     skip: &[&str],
 ) -> String {
-    let parsed = Parser::new_from_str(input).collect::<Result<Vec<_>, _>>();
-    let events = parsed.as_ref().ok().map(Vec::as_slice);
+    let Ok(parsed) = rewrite_parse_gate(input, crate::fix::Rewrite::Format) else {
+        return input.to_string();
+    };
     format_tracked(
         input,
         cfg,
@@ -209,8 +215,9 @@ pub fn format_str(
         &mut PassTracking {
             edited: &mut Vec::new(),
             reindented: None,
+            strict_input: Some(parsed.strict_error.is_none()),
         },
-        events,
+        parsed.events.as_deref(),
     )
 }
 
@@ -317,20 +324,16 @@ impl FormatCache {
         cfg: &YamlLintConfig,
         path: &Path,
         skip: &[&str],
-        initial_events: Option<&[(Event<'_>, Span)]>,
+        initial: Option<&ParsedInput<'_>>,
     ) -> &(String, Vec<&'static str>) {
         if self.formatted.contains_key(input) {
             return &self.formatted[input];
         }
-        let parsed = initial_events
+        let parsed = initial
             .is_none()
-            .then(|| Parser::new_from_str(input).collect::<Result<Vec<_>, _>>());
-        let events = initial_events.or_else(|| {
-            parsed
-                .as_ref()
-                .and_then(|result| result.as_ref().ok())
-                .map(Vec::as_slice)
-        });
+            .then(|| rewrite_parse_gate(input, crate::fix::Rewrite::Format));
+        let parsed =
+            initial.or_else(|| parsed.as_ref().and_then(|result| result.as_ref().ok()));
         self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(
@@ -341,8 +344,9 @@ impl FormatCache {
                 &mut PassTracking {
                     edited: &mut edited,
                     reindented: Some(&mut self.reindented),
+                    strict_input: parsed.map(|parsed| parsed.strict_error.is_none()),
                 },
-                events,
+                parsed.and_then(|parsed| parsed.events.as_deref()),
             );
             (formatted, edited)
         })
@@ -429,6 +433,7 @@ fn lines_changed_by(
         &mut PassTracking {
             edited: &mut Vec::new(),
             reindented: None,
+            strict_input: None,
         },
         None,
     );
@@ -451,7 +456,10 @@ fn lines_changed_by(
 }
 
 /// The `indentation` config `ryl format` re-indents to.
-fn indentation_target(cfg: &YamlLintConfig, width: u8) -> indentation::Config {
+pub(crate) fn indentation_target(
+    cfg: &YamlLintConfig,
+    width: u8,
+) -> indentation::Config {
     indentation::Config::new(
         indentation::SpacesSetting::Fixed(usize::from(width)),
         if cfg.format().targets().indent_sequences {

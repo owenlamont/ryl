@@ -300,8 +300,14 @@ pub fn lint_str(
     diagnostics
 }
 
-fn scan(content: &str) -> Result<(), granit_parser::ScanError> {
-    let mut parser = granit_parser::Parser::new_from_str(content);
+fn scan(
+    content: &str,
+    strict_indentation: bool,
+) -> Result<(), granit_parser::ScanError> {
+    let mut parser = granit_parser::Parser::new_from_str_with_options(
+        content,
+        granit_parser::options! { strict_indentation: strict_indentation },
+    );
     let mut sink = NullSink;
     parser.load(&mut sink, true)
 }
@@ -317,13 +323,14 @@ fn syntax_problem(err: &granit_parser::ScanError) -> LintProblem {
     }
 }
 
-/// Any granit parse error as a diagnostic, or `None` if `content` parses. Stricter than
-/// [`syntax_diagnostic`]: it does *not* suppress the undefined-alias error. The `--fix`
-/// gate uses this to refuse to mutate any file granit cannot fully parse, rather than the
-/// lint view that tolerates undefined aliases.
-pub(crate) fn parse_error(content: &str) -> Option<LintProblem> {
+pub(crate) fn relaxed_parse_error(content: &str) -> Option<LintProblem> {
     unsupported_version_error(content)
-        .or_else(|| scan(content).err().as_ref().map(syntax_problem))
+        .or_else(|| scan(content, false).err().as_ref().map(syntax_problem))
+}
+
+pub(crate) fn strict_parse_error(content: &str) -> Option<LintProblem> {
+    unsupported_version_error(content)
+        .or_else(|| scan(content, true).err().as_ref().map(syntax_problem))
 }
 
 pub(crate) fn parse_error_from_result(
@@ -369,7 +376,7 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
-    match scan(content) {
+    match scan(content, true) {
         Ok(()) => None,
         Err(err) if err.info() == "while parsing node, found unknown anchor" => {
             // The parser halts at the tolerated undefined alias, masking any later lexical
@@ -386,6 +393,9 @@ fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
 /// find a malformed-token error the parser cannot reach, having halted on an earlier
 /// (tolerated) undefined alias.
 fn scanner_error(content: &str) -> Option<granit_parser::ScanError> {
-    granit_parser::Scanner::new(granit_parser::StrInput::new(content))
-        .find_map(Result::err)
+    granit_parser::Scanner::with_options(
+        granit_parser::StrInput::new(content),
+        granit_parser::options! { strict_indentation: true },
+    )
+    .find_map(Result::err)
 }

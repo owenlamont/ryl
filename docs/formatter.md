@@ -46,8 +46,21 @@ Every edit `ryl format` makes is checked by property tests to be:
 - **Comment-safe.** Every comment stays beside the node it annotates.
 - **Idempotent.** Formatting formatted output changes nothing.
 
-A file that does not parse is left alone and reported on stderr as
-`skipped by ryl format`.
+Input rejected by strict YAML parsing is left alone and reported on stderr as
+`skipped by ryl format`, with one exception: spec-invalid indentation accepted by
+granit's relaxed parser can be repaired when the output parses strictly and preserves
+the relaxed input's values, tags, anchors and structure. Repairs print
+`input was YAML the spec rejects; repaired indentation`; `--check` exits 1.
+An unsafe or disabled repair leaves the entire file unchanged with a syntax skip.
+Flow closing delimiters stay deeper than the enclosing block, even when the
+yamllint indentation rule previously preferred the block's column.
+
+`ryl check` and LSP diagnostics parse strictly and report the original indentation
+as a syntax error. `check --fix`/`--diff` and LSP formatting allow the same guarded
+repair; lint fixes otherwise keep their existing rule selection.
+Syntax repair in `check --fix`/`--diff` requires the default
+`lint.fixable = ["ALL"]`, honors indentation ignore settings and uses formatter
+indentation targets. Per-rule editor fixes leave syntax repair to Format Document.
 
 See [File encodings](getting-started/quickstart.md#file-encodings) for encoding
 preservation and `--check`/`--diff` behavior when a text patch cannot be emitted.

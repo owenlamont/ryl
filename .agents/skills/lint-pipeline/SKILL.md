@@ -91,10 +91,13 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 
 ## `--fix`
 
-`--fix` never mutates a file that does not fully parse: `fix::apply_safe_fixes_filtered`
-gates the whole pipeline on `lint::parse_error` (stricter than lint's
-`syntax_diagnostic` — it does *not* tolerate undefined aliases), so *any* granit parse
-error ⇒ the input is returned byte-for-byte unchanged and `rewrite_str`
+`--fix` requires a complete relaxed parse, including resolved aliases. Lint and LSP
+diagnostics use granit's strict indentation mode; rewrite paths may repair relaxed-only
+input when reindent preserves events and the final output parses strictly with the
+original events. Repairs produce a notice; a disabled or unsafe repair is refused.
+Lint repairs require the `ALL` fixable selector, honor indentation ignores and use
+formatter indentation targets; per-rule LSP fixes suppress the repair pass.
+Other parse errors return the input byte-for-byte unchanged and `rewrite_str`
 returns it as a skip; the CLI prints a `<path>:L:C skipped by --fix:
 <error>` notice. A later fixer can expose a diagnostic an earlier one fixes, so the
 pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSES` = 100,
@@ -112,7 +115,7 @@ CLI prints as `<path>:L:C key-ordering not fixed: <reason>` (Markdown regions ma
 host lines like parse skips). Tests reach it through
 `apply_safe_fixes_capped` with a small cap. Lint behavior is unchanged: an undefined
 alias is still not a lint syntax error (the `anchors` rule reports it, matching
-yamllint); only `--fix` applies the stricter gate, through the in-place and per-region
+yamllint); only rewrites require resolved aliases, through the in-place and per-region
 Markdown paths.
 
 `fix::rewrite_files` and `fix::diff_files` read and rewrite files in parallel

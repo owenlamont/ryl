@@ -808,7 +808,7 @@ impl Server {
         self.report_config_notices(connection, &target.context.notices);
         self.report_format_conflicts(connection, &target.context);
         let document = self.documents.get(uri)?;
-        Some(vec![analysis::rewrite_edit(
+        let (edit, notices) = analysis::rewrite_edit_with_notices(
             &document.text,
             &target.path,
             &target.context.config,
@@ -816,7 +816,9 @@ impl Server {
             target.kind,
             self.encoding,
             Rewrite::Format,
-        )?])
+        );
+        self.report_config_notices(connection, &notices);
+        Some(vec![edit?])
     }
 
     fn hover(&self, params: &HoverParams) -> Option<Hover> {

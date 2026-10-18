@@ -553,7 +553,18 @@ impl<'a> Analyzer<'a> {
     fn expected(&mut self, token: &Token, found: isize) -> isize {
         let top = self.top();
         match token.kind {
-            Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent,
+            Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent.max(
+                self.stack
+                    .iter()
+                    .rev()
+                    .find(|parent| {
+                        matches!(
+                            parent.kind,
+                            ParentKind::BlockMapping | ParentKind::BlockSequence
+                        )
+                    })
+                    .map_or(0, |parent| parent.indent.saturating_add(1)),
+            ),
             Kind::Value => top.indent,
             _ if top.kind == ParentKind::Key && top.explicit_key => {
                 self.detect_indent(top.indent, found)
