@@ -27,10 +27,15 @@ config or `--enable` first:
 ```bash
 ryl check --enable ALL .                    # quick: every rule, including ryl-only rules
 ryl check --enable truthy,line-length .     # run only these rules, config or not
+ryl check --enable ALL --disable line-length,truthy --exclude 'generated/**' .
 ```
 
 `--enable` takes comma-separated rule IDs or `ALL` (every rule, ryl-only ones included)
 and replaces the config's rule selection for that run.
+`--disable` subtracts comma-separated IDs or `ALL` after selection; `--exclude`
+replaces configured exclusions, including for explicit files. Pass each flag once.
+For `format`, `--disable` suppresses lint conflict warnings without disabling
+formatting passes.
 
 Or commit a `ryl.toml` / `.ryl.toml` (in `pyproject.toml`, prefix the tables with
 `tool.ryl`, so `[lint.rules]` becomes `[tool.ryl.lint.rules]`):
@@ -54,26 +59,32 @@ ryl check --list-files .      # preview which files would be linted, then exit
 
 Exit codes from a plain lint run (`--fix`/`--diff` differ, see below):
 
-- `0`: no errors (warning-level findings still exit `0` unless `--strict`).
+- `0`: no errors (warnings still exit `0` unless strict mode is enabled).
 - `1`: error-level findings, invalid YAML, or an unreadable path.
 - `2`: usage error (no inputs, bad flags), no rules enabled by config or `--enable`, or
-  `--strict` with only warnings.
+  strict mode with only warnings.
 
-Add `--strict` to make warnings fail (exit `2`); `--no-warnings` reports only errors.
+Enable strict mode with `--strict` or TOML `[lint] strict = true` to make warnings
+fail (exit `2`). `--no-strict` overrides configuration; `--no-warnings` suppresses
+warnings and their failing status.
 
 ## Fix or preview
 
 - `ryl check --fix` applies safe lint fixes in place, then reports remaining problems.
 - `ryl check --diff` previews those fixes as a unified diff on stdout. It writes
   nothing and exits `1` if any file would change.
-- `--diff` only previews: files it can't represent as a text diff are skipped with a
-  notice and don't change the exit code. `--fix` writes in place, but an unparsable file
-  is reported (not rewritten) and still exits `1`.
+- BOM/UTF-16/32 input emits no applicable text patch, but decoded changes still exit
+  `1`. Other unrepresentable patches are skipped with a notice.
+- `--fix` leaves parse errors unchanged and exits `1`, except for guarded indentation
+  repair: verified repairs can be written and exit `0`, with a repair notice. See
+  [formatter guarantees](https://ryl-docs.pages.dev/formatter/#guarantees).
 
 `ryl format` formats YAML in place without enabling lint rules. Use `ryl format --diff`
 to preview a patch without writing; it exits `1` if formatting would change a file.
 The formatter also has a check mode that reports pending changes without a patch.
 It reads `[format]` in TOML and handles Markdown with `--markdown`.
+Formatter indentation defaults to 2; set top-level `indent-width` to keep another
+width. Lint indentation still defaults to `consistent`.
 
 ## Machine-readable output
 

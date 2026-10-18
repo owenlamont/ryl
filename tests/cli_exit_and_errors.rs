@@ -3,15 +3,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 mod common;
-use common::cli::ryl;
-
-fn run(cmd: &mut Command) -> (i32, String, String) {
-    let out = cmd.output().expect("failed to run ryl");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy_owned(out.stdout);
-    let stderr = String::from_utf8_lossy_owned(out.stderr);
-    (code, stdout, stderr)
-}
+use common::cli::{run, ryl};
 
 #[test]
 fn no_arguments_returns_usage_error_code_2() {

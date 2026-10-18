@@ -116,7 +116,8 @@ a:   1  # v1  # yamllint disable-line rule:colons  # beside text → not a direc
 `# yamllint …` is matched against the whole comment, as yamllint does, so it
 can't share a comment with other text.
 
-Syntax errors are always reported; no directive can suppress them.
+Rule directives do not suppress syntax errors; first-line `disable-file` skips the
+file entirely.
 
 ## Interaction with `--fix`
 

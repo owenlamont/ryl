@@ -135,7 +135,6 @@ enum FinalBlank {
 }
 
 fn final_blank_scalar_action(input: Analysis<'_>) -> FinalBlank {
-    let _buffer = input.text();
     let lines = input.line_contents();
     let headers = input.headers();
     let root_indents = root_explicit_content_indents_with_analysis(input, &lines);

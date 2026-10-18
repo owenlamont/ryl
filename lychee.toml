@@ -21,6 +21,8 @@ max_concurrency = 16
 accept = ["200..=299", "429", "503"]
 
 exclude = [
+  # README images on main 404 until the PR adding them merges; the files are in img/.
+  '^https://raw\.githubusercontent\.com/owenlamont/ryl/main/img/',
   # base64 URL fragment is an SPA route, not a navigable page.
   '^https://play\.yaml\.com/#',
   # Auth-walled: 403s/redirects bots to login, so it is not link-checkable.

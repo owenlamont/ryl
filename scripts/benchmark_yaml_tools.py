@@ -976,7 +976,8 @@ def main(
         "real-world,stress", help="Comma-separated datasets: real-world, stress."
     ),
     replot: Path | None = typer.Option(
-        None, help="Rebuild benchmark.svg from an existing run's summary.csv."
+        None,
+        help="Rebuild benchmark.svg (and benchmark-warm.svg) from an existing run.",
     ),
 ) -> None:
     selected_datasets = {part.strip() for part in datasets.split(",")}
@@ -993,6 +994,18 @@ def main(
         plot_svg = run_dir / "benchmark.svg"
         plot_results(results_df, plot_svg, runs=runs)
         print(f"Plot: {plot_svg}")
+        warm_csv = run_dir / "warm-summary.csv"
+        if warm_csv.exists():
+            warm_svg = run_dir / "benchmark-warm.svg"
+            plot_results(
+                pl.read_csv(warm_csv).filter(
+                    pl.col("dataset").is_in(selected_datasets)
+                ),
+                warm_svg,
+                runs=runs,
+                warm=True,
+            )
+            print(f"Plot: {warm_svg}")
         return
     if runs <= 0:
         raise typer.BadParameter("--runs must be > 0")

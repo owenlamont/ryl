@@ -14,8 +14,9 @@ Invariants to preserve:
 
 ## Writes
 
-`--fix`/`--diff` never write/read through a symlink (`fix::refuse_symlink`) and the write
-target is always the input path, never derived from YAML content.
+Rewrite/diff passes refuse symlinks (`fix::refuse_symlink`) and never write through
+them; `check --fix` still lints the readable target. The write target is always the
+input path, never derived from YAML content.
 
 ## Config loading
 

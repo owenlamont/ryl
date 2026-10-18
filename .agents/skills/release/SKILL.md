@@ -38,7 +38,7 @@ description: >-
   - **Refresh the benchmark image** when the release changes timed code: any minor or
     major bump, or a patch that touches performance-relevant paths. Skip it for a
     docs/packaging/bugfix patch with no perf delta, leaving the committed
-    `img/benchmark-5x5-5runs.svg` in place. Do this **in the version-bump PR, before
+    `img/benchmark-cold-5x5-5runs.svg` in place. Do this **in the version-bump PR, before
     squash-merge** — not as a post-merge afterthought. Bump the tool pins deliberately
     in `scripts/benchmark_tool_versions.toml`, then use the benchmark's
     `--install-pinned-tools` option to install them with uv, pixi, and npm. The README
@@ -66,7 +66,7 @@ description: >-
 
     ```sh
     uv run scripts/benchmark_yaml_tools.py --replot manual_outputs/benchmarks/<ts> --datasets real-world
-    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark-5x5-5runs.svg
+    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark-cold-5x5-5runs.svg
     cp manual_outputs/benchmarks/<ts>/benchmark-warm.svg img/benchmark-warm-5x5-5runs.svg
     ```
 
@@ -80,10 +80,16 @@ description: >-
     gitignored local copies Claude Code loads (`.claude/skills/`) **from GitHub
     pinned to the release tag, after the tag is pushed** — never `--from-local`
     (that pins to unverified local state):
-    `gh skill install owenlamont/ryl --all --allow-hidden-dirs --agent claude-code
-    --scope project --pin vX.Y.Z --force` (then `gh skill update` for later
-    refreshes). Confirm the install pulls only the `.agents/skills/` dev skills and
-    not the published `skills/ryl`; scope by skill path if it does not.
+    Install explicit dev-skill paths so the published `skills/ryl` is excluded:
+
+    ```sh
+    for skill in .agents/skills/*/SKILL.md; do
+      gh skill install owenlamont/ryl "$skill" --allow-hidden-dirs \
+        --agent claude-code --scope project --pin vX.Y.Z --force
+    done
+    ```
+
+    Use `gh skill update` for later refreshes.
   - Review the downstream agent skill `skills/ryl/SKILL.md` and the
     `docs/using-ryl-with-ai-agents.md` page for any behaviour, flag, format, or
     rule changes in this release. The `agent_skill_drift_guard` test catches a

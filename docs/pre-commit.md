@@ -29,7 +29,7 @@ fix can leave layout the formatter then changes. Other CLI options also go in `a
     # .pre-commit-config.yaml
     repos:
       - repo: https://github.com/owenlamont/ryl-pre-commit
-        rev: v0.25.0
+        rev: v0.26.0
         hooks:
           - id: ryl-check
             args: [--fix]
@@ -44,7 +44,7 @@ fix can leave layout the formatter then changes. Other CLI options also go in `a
     # prek.toml
     [[repos]]
     repo = "https://github.com/owenlamont/ryl-pre-commit"
-    rev = "v0.25.0"
+    rev = "v0.26.0"
     hooks = [
       { id = "ryl-check", args = ["--fix"] },
       { id = "ryl-format" },

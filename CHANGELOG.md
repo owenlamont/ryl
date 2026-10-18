@@ -5,83 +5,48 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
-### Added
-
-- Release tooling checks lint/formatter performance against the previous release
-  and reports downstream upgrade diagnostics, warnings and formatting changes.
-  ([#740](https://github.com/owenlamont/ryl/issues/740))
-- `--disable <RULES>` subtracts lint rules from config or `--enable` selections;
-  `--exclude <GLOBS>` overrides file exclusions for linting and formatting.
-  Requested by [@entorb](https://github.com/entorb) in
-  [#766](https://github.com/owenlamont/ryl/issues/766).
-- TOML-only `anchors.forbid-anchors-and-aliases` reports every anchor and alias,
-  including merge aliases, without automatic fixes. Requested by
-  [@pygarap](https://github.com/pygarap).
-  ([#515](https://github.com/owenlamont/ryl/issues/515))
-- TOML `[lint] strict = true` enables strict lint exit codes; `--no-strict`
-  overrides configured strict mode. CLI flags take precedence over configuration.
-  ([#522](https://github.com/owenlamont/ryl/issues/522))
+## v0.26.0
 
 ### Breaking changes
 
-- `ryl check` and LSP diagnostics reject spec-invalid indentation. Formatting and
-  `check --fix`/`--diff` can repair relaxed-parser input only when the output parses
-  strictly and preserves events; repairs print a notice.
-  ([#635](https://github.com/owenlamont/ryl/issues/635))
-- `ryl format` defaults to indent width 2 instead of inferring each file's width,
-  including editor formatting. Set top-level `indent-width` to keep another width.
-  Lint `indentation.spaces` still defaults to `"consistent"`; `spaces = 2` no longer
-  triggers a formatter conflict warning when `indent-width` is unset.
+- `ryl format` and editor formatting default to indent width 2; set top-level
+  `indent-width` to keep another width. Lint indentation still defaults to `consistent`.
   ([#758](https://github.com/owenlamont/ryl/issues/758))
+- `ryl check` and LSP diagnostics reject spec-invalid indentation; formatting and lint
+  fixes can repair indentation only when strict parsing and event preservation succeed,
+  with a repair notice. ([#635](https://github.com/owenlamont/ryl/issues/635))
 
-### Fixed
+### Added
 
-- Property-test generators fit the default test-thread stack without reducing
-  generated syntax or formatter checks.
-- `ryl format` and `ryl check --fix`/`--diff` print per-file notices in input
-  order, including symlink skips, parse skips and read errors.
-  ([#754](https://github.com/owenlamont/ryl/issues/754))
+- `--disable <RULES>` subtracts lint rules after selection, and `--exclude <GLOBS>`
+  overrides file exclusions; requested by [@entorb](https://github.com/entorb) in
+  [#766](https://github.com/owenlamont/ryl/issues/766).
+- TOML `[lint] strict = true` enables strict lint exit codes, overridable with
+  `--no-strict`; requested by [@Winipedia](https://github.com/Winipedia) in
+  [#522](https://github.com/owenlamont/ryl/issues/522).
+- TOML-only `anchors.forbid-anchors-and-aliases` reports every anchor and alias without
+  automatic fixes; requested by [@pygarap](https://github.com/pygarap) in
+  [#515](https://github.com/owenlamont/ryl/issues/515).
+- Content-hash caching speeds repeated `check` and `format` runs, with CLI, environment
+  and TOML controls. ([#750](https://github.com/owenlamont/ryl/issues/750))
 
 ### Changed
 
-- Use granit's structured unknown-anchor error and collection styles, removing
-  redundant inference without changing lint or formatter output.
-- `ryl format` reuses verified indentation renders and appends padding without
-  allocating temporary strings. ([#758](https://github.com/owenlamont/ryl/issues/758))
-- `ryl format` skips refusal-only indentation and spacing checks when no active
-  refusal exists. ([#758](https://github.com/owenlamont/ryl/issues/758))
-- `ryl format` and `ryl check --fix` reuse scalar and block-header analysis
-  while the source text is unchanged.
-  ([#758](https://github.com/owenlamont/ryl/issues/758))
-- `ryl format` shares lexical scans and text indexes across unchanged passes
-  and carries verified parses into later fixers and refusal reporting. Lint
-  checks share the same lazy text indexes and scans across rules.
-  ([#758](https://github.com/owenlamont/ryl/issues/758))
-- `ryl format` reuses quote-validation parses for repeated scalar values within
-  each quoted-strings pass. ([#758](https://github.com/owenlamont/ryl/issues/758))
-- `ryl format` skips lint/format conflict probing when no lint rule is enabled.
-  ([#758](https://github.com/owenlamont/ryl/issues/758))
-- Release binaries use fat link-time optimization and one codegen unit.
-  ([#758](https://github.com/owenlamont/ryl/issues/758))
-- `ryl check` and `ryl format` now cache file results by content and resolved
-  configuration, with CLI, environment, and TOML controls.
-  ([#750](https://github.com/owenlamont/ryl/issues/750))
-- `ryl format` and `ryl check --fix` skip rule scans already clean for the
-  unchanged text, while retrying when later edits expose another fix.
-  ([#750](https://github.com/owenlamont/ryl/issues/750))
-- `ryl format` reuses its final indentation check for refusal notices and skips
-  collection planning when both collection styles are `preserve`.
-  ([#750](https://github.com/owenlamont/ryl/issues/750))
-- `ryl format` shares YAML events and indentation tokens across unchanged-text
-  parse, layout and quote passes. ([#750](https://github.com/owenlamont/ryl/issues/750))
-- Bump granit-parser to 2.0.0, retaining comment events.
-  Parsing now accepts explicit `?` keys at end of input, quoted continuations one
-  column past the block indent, and tabs separating explicit keys; it also drops
-  spurious block-scalar line breaks after indentation-only EOF lines and corrects
-  end-of-input span positions.
-- `ryl format` and `ryl check --fix`/`--diff` process file contents in parallel while
-  keeping writes and diffs in input order.
-  ([#748](https://github.com/owenlamont/ryl/issues/748))
+- Linting, formatting and safe fixes reuse parse and scalar analysis, skip unchanged
+  work and process file contents in parallel while keeping writes and diffs in input
+  order. ([#748](https://github.com/owenlamont/ryl/issues/748),
+  [#750](https://github.com/owenlamont/ryl/issues/750),
+  [#758](https://github.com/owenlamont/ryl/issues/758))
+- Parsing accepts explicit `?` keys at EOF, quoted continuations one column past block
+  indentation and tabs separating explicit keys, and corrects block-scalar EOF values
+  and span positions.
+
+### Fixed
+
+- Formatter and lint fix/diff notices follow input order, including symlink skips, parse
+  skips and read errors. ([#754](https://github.com/owenlamont/ryl/issues/754))
+- Rule references and agent guidance now describe strict overrides, rule/file selection,
+  formatting defaults, guarded repair and encoded diff exit codes accurately.
 
 ## v0.25.1 - 2026-10-16
 

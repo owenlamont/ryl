@@ -2,8 +2,9 @@
 
 ## What this rule does
 
-Enforces a consistent line-ending style across the file &mdash; either
-Unix (LF), DOS/Windows (CRLF), or whatever the host platform produces.
+Checks the first line break against the configured style &mdash; Unix (LF),
+DOS/Windows (CRLF), or whatever the host platform produces. Automatic fixing
+normalizes every line ending, including later mixed endings that lint does not report.
 
 ## Why this matters
 
@@ -32,11 +33,11 @@ limited. With `type: "unix"`:
 
 ### :white_check_mark: Allowed
 
-A file whose every line ends with `\n`.
+A file whose first line break is `\n`, even if later endings differ.
 
 ### :x: Reported
 
-A file whose lines end with `\r\n`.
+A file whose first line break is `\r\n`.
 
 ### :wrench: After `ryl check --fix`
 

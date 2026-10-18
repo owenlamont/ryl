@@ -39,9 +39,8 @@ $ ryl check .github/workflows/ci.yml
   2:1       error    truthy value should be one of [false, true]  (truthy)
 ```
 
-Quoting the key does not help. ryl resolves the YAML 1.2 core schema, where `on`
-is an ordinary string, so `'on':` then trips
-[`quoted-strings`](quoted-strings.md) under `required: only-when-needed`.
+Quoting the key also works: `'on': push` passes both `truthy` and
+[`quoted-strings`](quoted-strings.md), which keeps quotes needed by YAML 1.1 readers.
 See [YAML version compatibility](../yaml-version.md) for how implicit types
 affect quoting.
 
@@ -62,9 +61,8 @@ The recommended form scopes the exemption to the files that need it:
 ".github/workflows/*" = ["truthy"]
 ```
 
-Both alternatives are global, which is the trade-off to weigh: they are simpler
-to write, and they stop `truthy` catching an accidental `enabled: yes` in the
-same repo.
+Both alternatives apply globally: `check-keys = false` skips all keys, while allowing
+`on` permits `on` in keys and values. Both still report `enabled: yes`.
 
 
 ## Examples

@@ -318,7 +318,7 @@ remaining *unfixable* findings are neither printed nor counted:
 
 - `1` &mdash; at least one file would change.
 - `0` &mdash; no file would change.
-- `2` &mdash; CLI usage error.
+- `2` &mdash; usage/config error or an input-processing failure.
 
 A file that cannot be parsed (or a symlink) is skipped with a notice on
 stderr and does not affect the exit code. Non-UTF-8 and BOM-prefixed files
@@ -570,6 +570,18 @@ ryl and avoid its main gotcha:
 > rules, so make sure `ryl.toml` enables rules first, or pass `--enable <RULES>`;
 > otherwise it exits `2`.
 
+`--disable <RULES>` subtracts from the lint selection; `--exclude <GLOBS>` replaces
+configured exclusions. Both accept comma-separated values once per command.
+Strict lint mode can also be configured with TOML `[lint] strict = true`;
+`--no-strict` overrides configuration, and `--no-warnings` suppresses warnings and
+their failing status.
+
+Formatting defaults to two-space indentation; set top-level `indent-width` to keep
+another width. `format --disable` suppresses lint conflict warnings without
+disabling formatting passes. For syntax repair and encoded diff exit codes, use
+the [formatter guarantees](https://ryl-docs.pages.dev/formatter/#guarantees) and
+[diff guidance](https://ryl-docs.pages.dev/getting-started/quickstart/#preview-fixes-as-a-diff).
+
 ## Feeding the docs to an LLM
 
 The docs site publishes [llmstxt.org](https://llmstxt.org) files for agents that fetch
@@ -674,7 +686,7 @@ Useful flags:
 | `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
 | `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
-| `--migrate-stdout` | Print generated TOML to stdout instead of writing |
+| `--migrate-stdout` | Print generated TOML to stdout; also writes when combined with `--migrate-write` |
 | `--migrate-write` | Write files (otherwise preview only) |
 | `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
 | `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
@@ -708,8 +720,9 @@ reports an error if it cannot preserve them. On Windows they keep the read-only
 attribute; other access-control entries are not copied.
 
 Migration produces a self-contained config. yamllint's top-level `ignore` and
-`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
-`ignore` key suppresses rules, never whole files. A relative `extends` is flattened
+`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML
+per-rule `ignore` suppresses one rule; top-level `ignore` remains a deprecated alias
+for whole-file `exclude`. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
 then the current directory. A user-global config with a relative `ignore-from-file`,
 at either the top level or rule level, is skipped with a warning: the path resolves
@@ -1091,7 +1104,8 @@ yamllint-compatible YAML config.
 ### Comment alignment to an open block level
 
 yamllint's `comments-indentation` requires a standalone comment to match the
-indentation of the content that follows it. ryl adds a ryl-only, off-by-default
+indentation of the surrounding content; at a dedent the preceding block's indentation
+is also accepted. ryl adds a ryl-only, off-by-default
 [`comments-indentation: allow-any-open-indent`](https://ryl-docs.pages.dev/rules/comments-indentation/)
 option that *also* accepts a comment aligned to any still-open enclosing block
 level &mdash; the pattern requested in
@@ -1668,7 +1682,9 @@ is TOML-only; yamllint-compatible YAML config rejects it.
 comma-separated rule IDs or `ALL`, and the flag can be repeated. It replaces the
 config's selection, so only the listed rules run. A listed rule keeps the options
 and level the config gives it, and runs at its defaults if the config disables
-it or does not mention it. `ignore`, `per-file-ignores` and inline directives
+it or does not mention it. `--disable <RULES>` then subtracts comma-separated rule IDs
+or `ALL` from the selection; pass `--disable` once per command. `ignore`,
+`per-file-ignores` and inline directives
 still apply. The flag works without any config file:
 
 ```bash
@@ -2453,7 +2469,8 @@ a:   1  # v1  # yamllint disable-line rule:colons  # beside text → not a direc
 `# yamllint …` is matched against the whole comment, as yamllint does, so it
 can't share a comment with other text.
 
-Syntax errors are always reported; no directive can suppress them.
+Rule directives do not suppress syntax errors; first-line `disable-file` skips the
+file entirely.
 
 ## Interaction with `--fix`
 
@@ -2939,7 +2956,7 @@ and opt them in via `[files]`:
 
 ```yaml
 - repo: https://github.com/owenlamont/ryl-pre-commit
-  rev: v0.25.0
+  rev: v0.26.0
   hooks:
     - id: ryl-check
       types: [file] # replaces the hook's own types: [yaml]
@@ -3173,7 +3190,7 @@ fix can leave layout the formatter then changes. Other CLI options also go in `a
     # .pre-commit-config.yaml
     repos:
       - repo: https://github.com/owenlamont/ryl-pre-commit
-        rev: v0.25.0
+        rev: v0.26.0
         hooks:
           - id: ryl-check
             args: [--fix]
@@ -3188,7 +3205,7 @@ fix can leave layout the formatter then changes. Other CLI options also go in `a
     # prek.toml
     [[repos]]
     repo = "https://github.com/owenlamont/ryl-pre-commit"
-    rev = "v0.25.0"
+    rev = "v0.26.0"
     hooks = [
       { id = "ryl-check", args = ["--fix"] },
       { id = "ryl-format" },
@@ -4301,8 +4318,8 @@ Source: https://ryl-docs.pages.dev/rules/comments-indentation/
 ## What this rule does
 
 Requires that standalone comment lines line up with the surrounding
-content. A comment must share the indentation of the line that follows it
-(or, when at the end of the file, the line that precedes it).
+content. A comment may share the indentation of the line that follows it or, at a
+dedent, retain the preceding block's indentation. At EOF, the preceding line applies.
 A line-1 `#!` shebang or `#cloud-config` header is exempt, where yamllint
 checks it: moving it would break the file.
 
@@ -4370,8 +4387,8 @@ parent:
 
 ## Automatic fixing
 
-`ryl check --fix` reindents standalone comment lines to match the line that
-follows them. Disable with:
+`ryl check --fix` reindents misaligned standalone comments to match the surrounding
+content, leaving accepted comments unchanged. Disable with:
 
 ```toml
 [lint]
@@ -4483,7 +4500,10 @@ fixable = ["ALL"]
 unfixable = ["comments"]
 ```
 
-`ryl format` inserts the space after `#` and writes exactly two spaces before an inline comment. It conflicts with a `min-spaces-from-content` above 2 or a non-negative `max-spaces-from-content` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+`ryl format` follows `[format] comment-starting-space` and `comment-spacing`
+(defaults `"add"` and 2). It conflicts when the configured comment gap falls outside
+the lint spacing bounds; see
+[Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -4758,7 +4778,10 @@ fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```
 
-`ryl format` trims runs of empty lines to two and removes them at the start and end of the file, under the same limits. It conflicts with a `max` below 2; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+`ryl format` caps internal empty-line runs at `[format] max-blank-lines` (default 2)
+and removes empty lines at the start and end under the same limits. It conflicts
+with a lint `max` below the configured cap; see
+[Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 
@@ -5249,8 +5272,9 @@ Source: https://ryl-docs.pages.dev/rules/key-ordering/
 
 ## What this rule does
 
-Requires that the keys within each mapping appear in lexicographic
-(locale-aware) order.
+Requires that mapping keys appear in codepoint order by default. A non-C/POSIX
+`locale` selects case- and accent-normalized comparison, rather than locale-specific
+collation.
 
 ## Why this matters
 
@@ -5681,8 +5705,9 @@ Source: https://ryl-docs.pages.dev/rules/new-lines/
 
 ## What this rule does
 
-Enforces a consistent line-ending style across the file &mdash; either
-Unix (LF), DOS/Windows (CRLF), or whatever the host platform produces.
+Checks the first line break against the configured style &mdash; Unix (LF),
+DOS/Windows (CRLF), or whatever the host platform produces. Automatic fixing
+normalizes every line ending, including later mixed endings that lint does not report.
 
 ## Why this matters
 
@@ -5711,11 +5736,11 @@ limited. With `type: "unix"`:
 
 ### :white_check_mark: Allowed
 
-A file whose every line ends with `\n`.
+A file whose first line break is `\n`, even if later endings differ.
 
 ### :x: Reported
 
-A file whose lines end with `\r\n`.
+A file whose first line break is `\r\n`.
 
 ### :wrench: After `ryl check --fix`
 
@@ -5831,9 +5856,10 @@ quotes are required.
 
 The rule answers three questions:
 
-1. **Which quote type is preferred** &mdash; single, double, or either.
+1. **Which quote type is preferred** &mdash; single, double, either, or consistent
+   with the first checked quoted scalar.
 2. **When must a string be quoted** &mdash; always, only when YAML would
-   otherwise interpret it as a non-string type, or never.
+   otherwise interpret it as a non-string type, or optionally.
 3. **Which scalars are in scope** &mdash; values only, or both values and
    mapping keys.
 
@@ -5890,12 +5916,12 @@ check-keys = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `quote-type` | `"any"` | `"single"`, `"double"`, or `"any"`. The quote style required when the rule decides a string must be quoted. |
-| `required` | `true` | `true` &mdash; every string scalar must be quoted. `false` &mdash; no string scalar may be quoted. `"only-when-needed"` &mdash; require quotes only when leaving the scalar bare would change its YAML type. |
+| `quote-type` | `"any"` | `"single"`, `"double"`, `"any"`, or `"consistent"`. Consistent uses the first checked quoted scalar's style for subsequent checked scalars across the stream. |
+| `required` | `true` | `true` &mdash; every string scalar must be quoted. `false` &mdash; quotes are optional; configured quote style and `extra-required` still apply. `"only-when-needed"` &mdash; require quotes only when leaving the scalar bare would change its YAML type. |
 | `extra-required` | `[]` | Regular expressions; values matching any pattern must be quoted regardless of `required`. |
-| `extra-allowed` | `[]` | Regular expressions; values matching any pattern may be quoted even when `required = false`. |
-| `allow-quoted-quotes` | `false` | Permit single quotes inside a single-quoted string (and analogously for doubles) instead of forcing a switch to the other quote type. |
-| `allow-double-quotes-for-escaping` | `false` | **ryl-only.** When `quote-type = "single"` and `required = "only-when-needed"`, allow double quotes specifically for strings that need an escape sequence. |
+| `extra-allowed` | `[]` | Regular expressions; matching strings may retain otherwise redundant quotes under `required = "only-when-needed"`. |
+| `allow-quoted-quotes` | `false` | Allow the other outer quote style when the string contains the configured quote character, avoiding escapes. |
+| `allow-double-quotes-for-escaping` | `false` | **ryl-only.** Allow double-quoted strings containing escapes despite the configured quote preference. |
 | `check-keys` | `false` | Also apply the rule to mapping keys, not only values. |
 
 ## Automatic fixing
@@ -6175,9 +6201,8 @@ $ ryl check .github/workflows/ci.yml
   2:1       error    truthy value should be one of [false, true]  (truthy)
 ```
 
-Quoting the key does not help. ryl resolves the YAML 1.2 core schema, where `on`
-is an ordinary string, so `'on':` then trips
-[`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) under `required: only-when-needed`.
+Quoting the key also works: `'on': push` passes both `truthy` and
+[`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/), which keeps quotes needed by YAML 1.1 readers.
 See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/) for how implicit types
 affect quoting.
 
@@ -6198,9 +6223,8 @@ The recommended form scopes the exemption to the files that need it:
 ".github/workflows/*" = ["truthy"]
 ```
 
-Both alternatives are global, which is the trade-off to weigh: they are simpler
-to write, and they stop `truthy` catching an accidental `enabled: yes` in the
-same repo.
+Both alternatives apply globally: `check-keys = false` skips all keys, while allowing
+`on` permits `on` in keys and values. Both still report `enabled: yes`.
 
 
 ## Examples

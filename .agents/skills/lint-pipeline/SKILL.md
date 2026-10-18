@@ -167,12 +167,13 @@ zero-config run formats. Inline directives are honoured by both. A YAML config g
   checkers on the original text, kept only for rules that actually edited and lines no
   directive disables, plus a `1:1 would reformat` line per editing rule that no checker
   explained. `--check` sends them through config `[output]`; `--diff` keeps stdout for
-  the patch and uses the default target. A ragged Markdown region gets none.
+  the patch and uses the default target. Ragged Markdown regions remain unchanged;
+  retained layout findings are reported and keep format previews failing.
 - `format::conflicts` formats a fixed probe and lints it under the file's config; each
   enabled formatting rule that rejects the output is a stderr warning, deduplicated by
   text across configs, silenced by `--no-warnings`, never printed by `ryl check`.
-- `format::unfixed` names each `colons`/`hyphens` site the formatter leaves because
-  re-spacing it would re-indent a compact block collection. Every mode prints them as
+- `format::unfixed` reports retained indentation, dash-layout, spacing and other
+  formatter refusals. Every mode prints them as
   `<path>:L:C <rule> not fixed: …` skip notices; they never change the exit code.
 - File and stdin output preserve the detected encoding and BOM. Encoded input still
   runs through the formatter for `--check`/`--diff`: decoded-text changes determine

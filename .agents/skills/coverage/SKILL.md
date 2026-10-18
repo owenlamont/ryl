@@ -25,7 +25,7 @@ replay; add named example tests for uncovered regions instead of relying on prop
    lines + panic tails); fix those tests, then rerun. Fall back to a manual
    `cargo nextest run` only when you need the full log.
 4. If the script reports files, extend CLI/system tests targeting those ranges until
-   the script produces no output.
+   the script reports `Coverage OK: no uncovered regions.`
 5. For richer artifacts (HTML/LCOV), see the cargo-llvm-cov docs (HTML isn't easily
    machine-readable).
 6. When coverage points to tricky regions, prefer CLI/system tests in `tests/`
@@ -73,7 +73,9 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
 - CLI context resolution: pass an empty `PathBuf` into `resolve_ctx` to trigger the
   fallback to `.`.
 - Flow scanners in rules: always reconcile parser byte spans with `char_indices()` via
-  `crate::rules::span_utils` to avoid off-by-byte bugs when UTF-8 characters appear.
+  `crate::rules::support::span_utils` to avoid off-by-byte bugs when UTF-8 characters
+  appear. Integration tests assert public diagnostic positions instead of importing
+  the crate-private helper.
 - Rules using the shared `crate::rules::support::mapping_key_walker::Walker` to track
   key/value position must advance it for *every* node-producing event, including
   `Event::Alias` (call `Walker::skip_node`). An alias in value position (`k: *a`, or a
@@ -82,10 +84,10 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   both key and value position.
 - Resolving a scalar to its typed value (int/bool/null/float/string) is centralised in
   `crate::yaml_dom::scalar` (`resolve_scalar` / `resolve_plain_scalar`); reuse it rather
-  than reinventing parsing. ryl resolves scalars per the YAML 1.2 **core** schema
-  everywhere (leading-zero decimal is an int, an empty plain scalar is null, `0x`/`0o`
-  radixes, full bool/null spelling sets); keep that schema choice consistent across rules
-  instead of switching to JSON/1.1 semantics in any single rule.
+  than reinventing parsing. Unversioned resolution uses YAML 1.2 **core** (leading-zero
+  decimal is an int, an empty plain scalar is null, `0x`/`0o` radixes, full bool/null
+  spelling sets). Version-sensitive rules honor explicit version directives and retain
+  cross-version quoting safeguards.
 - Matching a core-schema tag (`!!int`, `!!str`, …): use
   `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`. They wrap granit's
   `Tag::suffix_in_namespace`, which resolves every spelling (verbatim, `!!`, a `%TAG`

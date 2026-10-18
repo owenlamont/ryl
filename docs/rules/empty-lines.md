@@ -87,7 +87,10 @@ fixable = ["ALL"]
 unfixable = ["empty-lines"]
 ```
 
-`ryl format` trims runs of empty lines to two and removes them at the start and end of the file, under the same limits. It conflicts with a `max` below 2; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` caps internal empty-line runs at `[format] max-blank-lines` (default 2)
+and removes empty lines at the start and end under the same limits. It conflicts
+with a lint `max` below the configured cap; see
+[Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 
