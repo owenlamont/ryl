@@ -1814,6 +1814,7 @@ dependencies = [
  "similar",
  "tempfile",
  "toml",
+ "toml_edit",
  "unicode-normalization",
 ]
 
@@ -2267,6 +2268,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
