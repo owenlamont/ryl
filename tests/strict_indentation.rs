@@ -77,6 +77,84 @@ fn check_rejects_9c9n_until_format_or_fix_repairs_indentation() {
 }
 
 #[test]
+fn check_explains_repairable_invalid_indentation() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("input.yaml");
+    std::fs::write(&file, "---\nkey:\n  args: [\n    \"a\",\n  ]\n").unwrap();
+    for no_cache in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ryl"));
+        command.args([
+            "check",
+            "-f",
+            "standard",
+            "-d",
+            "[lint.rules.document-start]",
+        ]);
+        if no_cache {
+            command.arg("--no-cache");
+        }
+        let output = command.arg(&file).output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!(
+                "{}\n  5:3       error    syntax error: invalid indentation (syntax); help: ryl check --fix or ryl format can repair the indentation\n\n",
+                file.display()
+            )
+        );
+    }
+}
+
+#[test]
+fn refused_indentation_repair_has_no_help() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("case.yaml");
+    std::fs::write(&file, "# ryl disable rule:indentation\nflow: [a,\nb]\n").unwrap();
+    let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
+    let diagnostics = ryl::lint::lint_file(&file, &cfg, temp.path()).unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].message,
+        "syntax error: invalid indentation (syntax)"
+    );
+}
+
+#[test]
+fn hint_names_only_the_available_repair() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("case.yaml");
+    std::fs::write(&file, INPUT).unwrap();
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint]\nfixable = []\n[lint.rules.document-start]\n",
+    )
+    .unwrap();
+    let diagnostics = ryl::lint::lint_file(&file, &cfg, temp.path()).unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]
+            .message
+            .ends_with("help: ryl format can repair the indentation"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn markdown_indentation_has_no_yaml_file_hint() {
+    let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
+    let diagnostics = ryl::markdown_embed::lint_markdown_str(
+        "```yaml\nflow: [a,\nb]\n```\n",
+        Path::new("case.md"),
+        &cfg,
+        Path::new("."),
+    );
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].message,
+        "syntax error: invalid indentation (syntax)"
+    );
+}
+
+#[test]
 fn check_diff_previews_a_strictly_valid_repair() {
     let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
     let result = ryl::fix::diff_outcome(
