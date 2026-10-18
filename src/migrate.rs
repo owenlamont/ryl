@@ -8,8 +8,9 @@ use crate::config::{
     Env, RYL_USER_GLOBAL_CONFIG_CANDIDATES, SystemEnv, YamlLintConfig,
     find_project_toml_config, is_toml_path, legacy_yaml,
 };
-use crate::config_schema::{parse_toml_config_str, toml_config_to_value};
+use crate::config_schema::parse_toml_config_str;
 use crate::rules::{comments, quoted_strings};
+use toml_edit::{DocumentMut, Item, Key, Table};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteMode {
@@ -461,8 +462,7 @@ fn build_toml_rewrites(root: &Path, plan: &mut MigrationPlan) {
 }
 
 /// Plan an in-place rewrite of the ryl TOML config at `path` if it sets a deprecated key.
-/// `pyproject.toml` is only reported: re-serialising it would drop the comments and
-/// layout of every other tool's settings. A file that fails to load is skipped with a
+/// `pyproject.toml` is only reported. A file that fails to load is skipped with a
 /// warning, so a stray fixture cannot block the rest of the migration.
 fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     if plan
@@ -477,10 +477,12 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         .is_some_and(|name| name == "pyproject.toml");
     let loaded = fs::read_to_string(&path)
         .map_err(|err| format!("failed to read config: {err}"))
-        .and_then(|text| parse_toml_config_str(&text, pyproject));
-    let config = match loaded {
-        Ok(Some(config)) => config,
-        Ok(None) => return,
+        .and_then(|text| {
+            parse_toml_config_str(&text, pyproject).map(|config| (text, config))
+        });
+    let (text, config) = match loaded {
+        Ok((text, Some(config))) => (text, config),
+        Ok((_, None)) => return,
         Err(err) => {
             plan.warnings
                 .push(format!("warning: skipping {}: {err}", path.display()));
@@ -510,13 +512,115 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         ));
         return;
     }
-    let rendered = toml::to_string_pretty(&toml_config_to_value(&config.to_nested()))
-        .expect("serializing a TOML value cannot fail");
+    let mut document = text
+        .parse::<DocumentMut>()
+        .expect("validated TOML config must parse as an editable document");
+    rewrite_toml_document(&mut document);
     plan.entries.push(MigrationEntry {
         source: path.clone(),
         target: path,
-        toml: format!("{}\n", rendered.trim_end()),
+        toml: document.to_string(),
     });
+}
+
+fn rewrite_toml_document(document: &mut DocumentMut) {
+    let root = document.as_table_mut();
+    let has_exclude = root.contains_key("exclude");
+    let has_exclude_from_file = root.contains_key("exclude-from-file");
+    let keys: Vec<_> = root.iter().map(|(key, _)| key.to_owned()).collect();
+    for key in keys {
+        let (mut formatted, item) = root
+            .remove_entry(&key)
+            .expect("collected key must still be present");
+        if (key == "ignore" && has_exclude)
+            || (key == "ignore-from-file" && has_exclude_from_file)
+        {
+            continue;
+        }
+        let replacement = match key.as_str() {
+            "ignore" => Some("exclude"),
+            "ignore-from-file" => Some("exclude-from-file"),
+            _ => None,
+        };
+        if let Some(replacement) = replacement {
+            let mut renamed = Key::new(replacement);
+            *renamed.leaf_decor_mut() = formatted.leaf_decor().clone();
+            formatted = renamed;
+        }
+        root.insert_formatted(&formatted, item);
+    }
+
+    for name in ["lint", "fix"] {
+        if root.get(name).is_some_and(Item::is_inline_table) {
+            let table = root[name]
+                .clone()
+                .into_table()
+                .expect("validated inline table");
+            root[name] = Item::Table(table);
+        }
+    }
+
+    if !root.contains_key("lint")
+        && let Some((_, fix)) = root.remove_entry("fix")
+    {
+        root.insert("lint", fix);
+    }
+    if root.contains_key("fix") {
+        let mut fix_prefix = root["fix"]
+            .as_table()
+            .and_then(|fix| fix.decor().prefix())
+            .and_then(toml_edit::RawString::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        for name in ["fixable", "unfixable"] {
+            let moved = root["fix"]
+                .as_table_mut()
+                .and_then(|fix| fix.remove_entry(name));
+            if let Some((mut key, item)) = moved {
+                let lint = root["lint"].as_table_mut().expect("validated lint table");
+                if !lint.contains_key(name) {
+                    prepend_key_prefix(&mut key, &fix_prefix);
+                    fix_prefix.clear();
+                    lint.insert_formatted(&key, item);
+                }
+            }
+        }
+        if root["fix"].as_table().is_some_and(Table::is_empty) {
+            root.remove("fix");
+        }
+    }
+
+    for (old, new) in [
+        ("rules", "rules"),
+        ("per-file-ignores", "per-file-ignores"),
+        ("per-line-ignores", "per-line-ignores"),
+    ] {
+        if let Some((key, item)) = root.remove_entry(old) {
+            if !root.contains_key("lint") {
+                let mut lint = Table::new();
+                lint.set_implicit(true);
+                root.insert("lint", Item::Table(lint));
+            }
+            let lint = root["lint"].as_table_mut().expect("validated lint table");
+            if !lint.contains_key(new) {
+                lint.insert_formatted(&key, item);
+            }
+        }
+    }
+}
+
+fn prepend_key_prefix(key: &mut Key, prefix: &str) {
+    if prefix.is_empty() {
+        return;
+    }
+    let key_prefix = key
+        .leaf_decor()
+        .prefix()
+        .and_then(toml_edit::RawString::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    key.leaf_decor_mut()
+        .set_prefix(format!("{prefix}{key_prefix}"));
 }
 
 /// Build and optionally apply YAML-to-TOML config migration.

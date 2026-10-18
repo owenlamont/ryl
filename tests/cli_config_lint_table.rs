@@ -191,6 +191,64 @@ fn migrate_dry_run_leaves_legacy_toml_untouched() {
 }
 
 #[test]
+fn migrate_preserves_comments_in_issue_repro() {
+    let original = "# project ryl config\n[rules]\n# keep docs tidy\n\
+document-start = \"disable\"  # trailing note\n\n[fix]\nfixable = [\"ALL\"]\n";
+    let dir = project(original);
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".ryl.toml")).unwrap(),
+        "# project ryl config\n[lint.rules]\n# keep docs tidy\n\
+document-start = \"disable\"  # trailing note\n\n[lint]\nfixable = [\"ALL\"]\n"
+    );
+}
+
+#[test]
+fn migrate_moves_fix_keys_into_existing_lint_table() {
+    let original = "# config\n[lint]\nstrict = true\n# existing lint key\n\
+unfixable = [\"truthy\"]\n\n# fix policy\n[fix]\nfixable = [\"ALL\"]  # move me\n\n\
+[rules]\ntruthy = \"enable\"\n";
+    let dir = project(original);
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".ryl.toml")).unwrap(),
+        "# config\n[lint]\nstrict = true\n# existing lint key\n\
+unfixable = [\"truthy\"]\n\n# fix policy\nfixable = [\"ALL\"]  # move me\n\n\
+[lint.rules]\ntruthy = \"enable\"\n"
+    );
+}
+
+#[test]
+fn migrate_renames_top_level_keys_without_reordering_neighbors() {
+    let original = "line-length = 88\n# files to skip\nignore = ['vendor/**']  # old name\n\
+indent-width = 4\nignore-from-file = 'excluded.txt'\n\n[rules]\ntruthy = 'enable'\n";
+    let dir = project(original);
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".ryl.toml")).unwrap(),
+        "line-length = 88\n# files to skip\nexclude = ['vendor/**']  # old name\n\
+indent-width = 4\nexclude-from-file = 'excluded.txt'\n\n[lint.rules]\ntruthy = 'enable'\n"
+    );
+}
+
+#[test]
+fn migrate_inline_lint_table_keeps_existing_keys() {
+    let dir = project(
+        "lint = { strict = true, unfixable = ['truthy'] }\n\
+fix = { fixable = ['ALL'] }\n[rules]\ntruthy = 'enable'\n",
+    );
+    let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
+    assert_eq!(code, 0, "{stderr}");
+    let migrated = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+    assert!(migrated.contains("strict = true"), "{migrated}");
+    assert!(migrated.contains("fixable = ['ALL']"), "{migrated}");
+    assert!(migrated.contains("[lint.rules]"), "{migrated}");
+}
+
+#[test]
 fn migrate_reports_legacy_pyproject_without_rewriting_it() {
     let dir = tempdir().unwrap();
     let pyproject = "# keep me\n[tool.ryl.rules]\ntruthy = \"enable\"\n";
