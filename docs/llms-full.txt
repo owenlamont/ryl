@@ -432,11 +432,10 @@ Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
 `per-line-ignores` at the top level. ryl still reads them, but warns once per
 key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
 one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
-`.ryl.toml`/`ryl.toml` in place, dropping its comments (add
+`.ryl.toml`/`ryl.toml` in place, keeping comments and key order (add
 `--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`), and
 `ryl --migrate-user-config --migrate-write` does the same for the user-global
-config. For `pyproject.toml` it only prints the keys to move, since rewriting
-would drop the rest of the file's comments and layout.
+config. For `pyproject.toml` the command only prints the keys to move.
 
 ### Strict mode
 
@@ -712,6 +711,11 @@ follow a symlink for either the source or the target (mirroring `--fix`). It als
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.
 
+Rewriting a ryl TOML config keeps its comments, key order, and formatting
+outside the moved keys. If a replacement key is already set, migration warns
+and drops the deprecated value and its comments. Migration reports deprecated
+keys in `pyproject.toml` without rewriting that file.
+
 Migration writes a temporary file beside each destination and replaces the
 destination only after the write succeeds. An interrupted write leaves an
 existing config intact. On Linux and macOS, rewriting a TOML config and creating
@@ -946,6 +950,8 @@ linted CR-aware like any other.
 ryl rejects under-indented flow collections and scalar continuations that yamllint's
 PyYAML parser accepts. For yaml-test-suite `9C9N`, `flow: [a,\nb,\nc]`, the reference
 parser reports a parse error; ryl reports a syntax error until the indentation is fixed.
+For `ryl check` on YAML files, a repairable diagnostic names `ryl check --fix`
+or `ryl format`; a refused repair has no command hint.
 YAML 1.2.2's [separation production 81](https://yaml.org/spec/1.2.2/#rule-s-separate-lines),
 `s-separate-lines(n) ::= (s-l-comments s-flow-line-prefix(n)) | s-separate-in-line`,
 requires `s-flow-line-prefix(n)` inside a flow collection, keeping continuation content
@@ -3217,6 +3223,10 @@ fix can leave layout the formatter then changes. Other CLI options also go in `a
 prek also reads `.pre-commit-config.yaml`, so either file works with prek.
 
 ## Seeing warnings after an upgrade
+
+Since v0.26.0, `syntax error: invalid indentation` can fail a check that passed
+on an older version. When the diagnostic offers a repair, run the command named
+in its hint, then rerun the hook.
 
 pre-commit and prek hide the output of a hook that passes, including ryl's config
 deprecation warnings. After upgrading ryl, run the hook verbosely to see them:
