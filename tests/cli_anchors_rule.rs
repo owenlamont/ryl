@@ -7,6 +7,66 @@ mod common;
 use common::cli::run;
 
 #[test]
+fn forbidden_and_undeclared_alias_options_both_report_the_same_alias() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("alias.yaml");
+    fs::write(&file, "- *missing\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d"])
+        .arg("lint.rules.anchors = {forbid-anchors-and-aliases = true, forbid-undeclared-aliases = true}")
+        .arg(file));
+    assert_eq!(code, 1, "stdout={stdout} stderr={stderr}");
+    let output = format!("{stdout}{stderr}");
+    for message in [
+        "found forbidden alias \"missing\"",
+        "found undeclared alias \"missing\"",
+    ] {
+        assert_eq!(output.matches(message).count(), 1, "{output}");
+    }
+    assert_eq!(output.matches("1:3").count(), 2, "{output}");
+}
+
+#[test]
+fn forbid_all_reports_valid_anchors_and_merge_alias_without_fixing() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("anchors.yaml");
+    let content = "defaults: &defaults {retries: 3}\njob:\n  <<: *defaults\n";
+    fs::write(&file, content).unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--fix", "-d"])
+        .arg("lint.rules.anchors.forbid-anchors-and-aliases = true")
+        .arg(&file));
+    assert_eq!(code, 1, "stdout={stdout} stderr={stderr}");
+    let output = format!("{stdout}{stderr}");
+    assert!(output.contains("1:11"), "{output}");
+    assert!(output.contains("3:7"), "{output}");
+    assert_eq!(
+        output
+            .matches("found forbidden anchor \"defaults\"")
+            .count(),
+        1
+    );
+    assert_eq!(
+        output.matches("found forbidden alias \"defaults\"").count(),
+        1
+    );
+    assert_eq!(fs::read_to_string(file).unwrap(), content);
+}
+
+#[test]
+fn forbid_all_respects_inline_suppression() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("anchors.yaml");
+    fs::write(&file, "# ryl disable rule:anchors\na: &a value\nb: *a\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d"])
+        .arg("lint.rules.anchors.forbid-anchors-and-aliases = true")
+        .arg(&file));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(stdout.is_empty() && stderr.is_empty());
+}
+
+#[test]
 fn anchors_reports_error() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("invalid.yaml");

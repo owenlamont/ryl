@@ -530,6 +530,33 @@ fn generated_yaml_schema_rejects_toml_only_quoted_strings_option() {
 }
 
 #[test]
+fn forbid_anchors_and_aliases_is_boolean_and_toml_only() {
+    let toml = validator_for(&schema_value()).unwrap();
+    let yaml = validator_for(&yaml_schema_value()).unwrap();
+    for value in [json!(true), json!(false)] {
+        let instance = json!({"rules": {"anchors": {
+            "forbid-anchors-and-aliases": value
+        }}});
+        assert!(toml.is_valid(&instance));
+        assert!(!yaml.is_valid(&instance));
+    }
+    assert!(!toml.is_valid(&json!({"rules": {"anchors": {
+        "forbid-anchors-and-aliases": "true"
+    }}})));
+    let config = parse_toml_config_str(
+        "[lint.rules.anchors]\nforbid-anchors-and-aliases = true\n",
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    let serialized = toml_config_to_value(&config);
+    assert_eq!(
+        serialized["lint"]["rules"]["anchors"]["forbid-anchors-and-aliases"],
+        toml::Value::Boolean(true)
+    );
+}
+
+#[test]
 fn generated_yaml_schema_uses_readable_rule_wrapper_names() {
     assert_readable_rule_wrapper_defs(&yaml_schema_value());
 }

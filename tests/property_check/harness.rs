@@ -115,29 +115,27 @@ pub fn tags_config() -> &'static YamlLintConfig {
 // `check-canonical` / `forbid-merge-key-shadowing` are ryl-only (TOML), so the
 // canonical/merge paths of `key-duplicates` are fuzzed through this config in
 // addition to the default YAML one above.
-//
-// `forbid-ambiguous-anchor-alias-names` is ryl-only (TOML), so the ambiguous-name
-// path of `anchors` is fuzzed through this config too. Undeclared aliases are
-// disabled here so this dispatch contributes only ambiguous-name spans.
-const ANCHORS_AMBIGUOUS_TOML: &str = "[rules.anchors]
-forbid-undeclared-aliases = false
-forbid-ambiguous-anchor-alias-names = true
-";
-
-#[must_use]
-pub fn anchors_ambiguous_config() -> &'static YamlLintConfig {
-    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
-        YamlLintConfig::from_toml_str(ANCHORS_AMBIGUOUS_TOML)
-            .expect("property-check anchors ambiguous config must parse")
-    });
-    &CONFIG
-}
-
 const KEY_DUPLICATES_CANONICAL_TOML: &str = "[rules.key-duplicates]
 check-canonical = true
 forbid-merge-key-shadowing = true
 forbid-duplicated-merge-keys = true
 ";
+
+#[must_use]
+pub fn anchors_forbidden_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(
+            "[lint.rules.anchors]\n\
+             forbid-anchors-and-aliases = true\n\
+             forbid-undeclared-aliases = true\n\
+             forbid-duplicated-anchors = true\n\
+             forbid-unused-anchors = true\n\
+             forbid-ambiguous-anchor-alias-names = true\n",
+        )
+        .expect("property-check forbidden anchors config must parse")
+    });
+    &CONFIG
+}
 
 #[must_use]
 pub fn key_duplicates_canonical_config() -> &'static YamlLintConfig {
@@ -216,7 +214,7 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::anchors);
     collect_standard!(
         spans,
-        anchors_ambiguous_config(),
+        anchors_forbidden_config(),
         content,
         ryl::rules::anchors
     );

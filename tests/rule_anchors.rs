@@ -9,6 +9,72 @@ fn ambiguous_cfg() -> Config {
         .with_forbid_ambiguous_anchor_alias_names(true)
 }
 
+fn forbidden_cfg(options: &str) -> Config {
+    let config = ryl::config::YamlLintConfig::from_toml_str(&format!(
+        "[lint.rules.anchors]\nforbid-anchors-and-aliases = true\n{options}"
+    ))
+    .unwrap();
+    Config::resolve(&config)
+}
+
+#[test]
+fn forbid_all_preserves_every_other_option_combination() {
+    let content = "- *missing\n- &same one\n- &same two\n- &unused: value\n- *other:\n";
+    let expected = vec![
+        violation(1, 3, "found forbidden alias \"missing\""),
+        violation(2, 3, "found forbidden anchor \"same\""),
+        violation(3, 3, "found forbidden anchor \"same\""),
+        violation(4, 3, "found forbidden anchor \"unused:\""),
+        violation(5, 3, "found forbidden alias \"other:\""),
+    ];
+    for bits in 0..16 {
+        let options = format!(
+            "forbid-undeclared-aliases = {}\n\
+             forbid-duplicated-anchors = {}\n\
+             forbid-unused-anchors = {}\n\
+             forbid-ambiguous-anchor-alias-names = {}\n",
+            bits & 1 != 0,
+            bits & 2 != 0,
+            bits & 4 != 0,
+            bits & 8 != 0,
+        );
+        let (forbidden, existing): (Vec<_>, Vec<_>) =
+            anchors::check(content, &forbidden_cfg(&options))
+                .into_iter()
+                .partition(|hit| hit.message.starts_with("found forbidden "));
+        assert_eq!(forbidden, expected);
+        let base = ryl::config::YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.anchors]\n{options}"
+        ))
+        .unwrap();
+        assert_eq!(existing, anchors::check(content, &Config::resolve(&base)));
+    }
+}
+
+#[test]
+fn forbid_all_reports_valid_scalar_collection_key_and_merge_tokens() {
+    let content = "café: &é value\r\n*é : &map {k: v}\r\nlist: [&seq [one], *seq]\r\nmerged:\r\n  <<: *map\r\n---\r\nx: &é next\r\ny: *é\r\n";
+    assert_eq!(
+        anchors::check(content, &forbidden_cfg("")),
+        vec![
+            violation(1, 7, "found forbidden anchor \"é\""),
+            violation(2, 1, "found forbidden alias \"é\""),
+            violation(2, 6, "found forbidden anchor \"map\""),
+            violation(3, 8, "found forbidden anchor \"seq\""),
+            violation(3, 20, "found forbidden alias \"seq\""),
+            violation(5, 7, "found forbidden alias \"map\""),
+            violation(7, 4, "found forbidden anchor \"é\""),
+            violation(8, 4, "found forbidden alias \"é\""),
+        ]
+    );
+}
+
+#[test]
+fn forbid_all_ignores_anchor_like_scalar_and_comment_content() {
+    let content = "plain: rock&roll *song\nquoted: '&name *name'\ndouble: \"&name *name\"\nblock: |\n  &name *name\nfolded: >\n  &name *name\nglob: path/*.yaml\n# &name *name\n";
+    assert!(anchors::check(content, &forbidden_cfg("")).is_empty());
+}
+
 fn violation(line: usize, column: usize, message: &str) -> Violation {
     Violation {
         line,
