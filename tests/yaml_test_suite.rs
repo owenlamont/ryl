@@ -47,51 +47,54 @@ fn normalize(expected: &str) -> Vec<String> {
         .collect()
 }
 
-fn events(input: &str) -> Result<Vec<String>, String> {
-    Parser::new_from_str(input)
-        .filter_map(|item| {
-            let (event, _) = match item {
-                Ok(event) => event,
-                Err(error) => return Some(Err(error.to_string())),
-            };
-            let anchor = event
-                .anchor_id()
-                .filter(|id| *id > 0)
-                .map_or_else(String::new, |id| format!(" &{id}"));
-            let tag = event.tag().map_or_else(String::new, |tag| {
-                format!(" <{}{}>", tag.handle(), tag.suffix())
-            });
-            let line = match event {
-                Event::StreamStart => "+STR".to_owned(),
-                Event::StreamEnd => "-STR".to_owned(),
-                Event::DocumentStart(..) => "+DOC".to_owned(),
-                Event::DocumentEnd => "-DOC".to_owned(),
-                Event::MappingStart(..) => format!("+MAP{anchor}{tag}"),
-                Event::MappingEnd => "-MAP".to_owned(),
-                Event::SequenceStart(..) => format!("+SEQ{anchor}{tag}"),
-                Event::SequenceEnd => "-SEQ".to_owned(),
-                Event::Alias(id) => format!("=ALI *{id}"),
-                Event::Scalar(text, style, ..) => {
-                    let style = match style {
-                        ScalarStyle::Plain => ':',
-                        ScalarStyle::SingleQuoted => '\'',
-                        ScalarStyle::DoubleQuoted => '"',
-                        ScalarStyle::Literal => '|',
-                        ScalarStyle::Folded => '>',
-                    };
-                    let text = text
-                        .replace('\\', "\\\\")
-                        .replace('\n', "\\n")
-                        .replace('\r', "\\r")
-                        .replace('\t', "\\t")
-                        .replace('\x08', "\\b");
-                    format!("=VAL{anchor}{tag} {style}{text}")
-                }
-                _ => return None,
-            };
-            Some(Ok(line))
-        })
-        .collect()
+fn events(input: &str, strict: bool) -> Result<Vec<String>, String> {
+    Parser::new_from_str_with_options(
+        input,
+        granit_parser::options! { strict_indentation: strict },
+    )
+    .filter_map(|item| {
+        let (event, _) = match item {
+            Ok(event) => event,
+            Err(error) => return Some(Err(error.to_string())),
+        };
+        let anchor = event
+            .anchor_id()
+            .filter(|id| *id > 0)
+            .map_or_else(String::new, |id| format!(" &{id}"));
+        let tag = event.tag().map_or_else(String::new, |tag| {
+            format!(" <{}{}>", tag.handle(), tag.suffix())
+        });
+        let line = match event {
+            Event::StreamStart => "+STR".to_owned(),
+            Event::StreamEnd => "-STR".to_owned(),
+            Event::DocumentStart(..) => "+DOC".to_owned(),
+            Event::DocumentEnd => "-DOC".to_owned(),
+            Event::MappingStart(..) => format!("+MAP{anchor}{tag}"),
+            Event::MappingEnd => "-MAP".to_owned(),
+            Event::SequenceStart(..) => format!("+SEQ{anchor}{tag}"),
+            Event::SequenceEnd => "-SEQ".to_owned(),
+            Event::Alias(id) => format!("=ALI *{id}"),
+            Event::Scalar(text, style, ..) => {
+                let style = match style {
+                    ScalarStyle::Plain => ':',
+                    ScalarStyle::SingleQuoted => '\'',
+                    ScalarStyle::DoubleQuoted => '"',
+                    ScalarStyle::Literal => '|',
+                    ScalarStyle::Folded => '>',
+                };
+                let text = text
+                    .replace('\\', "\\\\")
+                    .replace('\n', "\\n")
+                    .replace('\r', "\\r")
+                    .replace('\t', "\\t")
+                    .replace('\x08', "\\b");
+                format!("=VAL{anchor}{tag} {style}{text}")
+            }
+            _ => return None,
+        };
+        Some(Ok(line))
+    })
+    .collect()
 }
 
 fn cli(config: &Path, args: &[&str], file: &Path) -> std::process::Output {
@@ -165,14 +168,19 @@ fn yaml_test_suite_gate() {
         let id = case.strip_prefix(suite).unwrap().to_string_lossy();
         let input = fs::read_to_string(case.join("in.yaml")).unwrap();
         fs::write(&file, &input).unwrap();
+        let checked = cli(&config, &["check"], &file);
         let formatted = cli(&config, &["format"], &file);
         let output = fs::read_to_string(&file).unwrap();
         let stderr = String::from_utf8_lossy(&formatted.stderr);
         let failure = if case.join("error").exists() {
-            let checked = cli(&config, &["check"], &file);
+            let repaired = output != input
+                && stderr.contains("input was YAML the spec rejects")
+                && events(&input, false).is_ok_and(|before| {
+                    events(&output, true).is_ok_and(|after| before == after)
+                });
             if !formatted.status.success()
-                || output != input
-                || !stderr.contains("skipped by ryl format")
+                || (!repaired
+                    && (output != input || !stderr.contains("skipped by ryl format")))
             {
                 Some("format did not refuse invalid YAML".to_owned())
             } else if checked.status.code() != Some(1)
@@ -180,6 +188,18 @@ fn yaml_test_suite_gate() {
                     || String::from_utf8_lossy(&checked.stderr).contains("syntax"))
             {
                 Some("check did not report a syntax error".to_owned())
+            } else if repaired {
+                let again = cli(&config, &["format"], &file);
+                if again.status.success()
+                    && fs::read_to_string(&file).unwrap() == output
+                {
+                    println!(
+                        "REPAIRED {id}: strict output preserves relaxed input events"
+                    );
+                    None
+                } else {
+                    Some("repaired output is not idempotent".to_owned())
+                }
             } else {
                 None
             }
@@ -195,7 +215,7 @@ fn yaml_test_suite_gate() {
             let other_refusals = ryl::format::refusals(&input, &cfg);
             let expected =
                 normalize(&fs::read_to_string(case.join("test.event")).unwrap());
-            match (events(&input), events(&output)) {
+            match (events(&input, true), events(&output, true)) {
                 (Err(error), _) => Some(format!("parser rejects valid input: {error}")),
                 (_, Err(error)) => {
                     Some(format!("formatted output is invalid: {error}"))

@@ -111,32 +111,58 @@ impl Rewrite {
         (path, base_dir): (&Path, &Path),
         skip: &[&str],
         cache: &mut FormatCache,
-        events: Option<&[(Event<'_>, Span)]>,
+        parsed: Option<&ParsedInput<'_>>,
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
             Self::Format => cache
-                .format_with_events(input, cfg, path, skip, events)
+                .format_with_events(input, cfg, path, skip, parsed)
                 .0
                 .clone(),
         }
     }
 }
 
-fn rewrite_parse_gate(
+pub(crate) struct ParsedInput<'a> {
+    pub(crate) events: Option<Vec<(Event<'a>, Span)>>,
+    pub(crate) strict_error: Option<crate::lint::LintProblem>,
+}
+
+pub(crate) fn rewrite_parse_gate(
     content: &str,
     rewrite: Rewrite,
-) -> Result<Option<Vec<(Event<'_>, Span)>>, crate::lint::LintProblem> {
+) -> Result<ParsedInput<'_>, crate::lint::LintProblem> {
     if rewrite == Rewrite::Fix {
-        return crate::lint::parse_error(content).map_or(Ok(None), Err);
+        let strict_error = crate::lint::strict_parse_error(content);
+        if strict_error.is_some()
+            && let Some(problem) = crate::lint::relaxed_parse_error(content)
+        {
+            return Err(problem);
+        }
+        return Ok(ParsedInput {
+            events: None,
+            strict_error,
+        });
     }
-    let parsed = Parser::new_from_str(content).collect::<Result<Vec<_>, _>>();
-    if let Some(problem) =
-        crate::lint::parse_error_from_result(content, parsed.as_ref().err())
-    {
-        return Err(problem);
+    let mut parsed = Parser::new_from_str_with_options(
+        content,
+        granit_parser::options! { strict_indentation: true },
+    )
+    .collect::<Result<Vec<_>, _>>();
+    let strict_error =
+        crate::lint::parse_error_from_result(content, parsed.as_ref().err());
+    if strict_error.is_some() {
+        parsed = Parser::new_from_str(content).collect::<Result<Vec<_>, _>>();
+        if let Some(problem) =
+            crate::lint::parse_error_from_result(content, parsed.as_ref().err())
+        {
+            return Err(problem);
+        }
     }
-    Ok(Some(parsed.expect("the parse gate accepted these events")))
+    Ok(ParsedInput {
+        events: Some(parsed.expect("the parse gate accepted these events")),
+        strict_error,
+    })
 }
 
 /// `std::fs::write` follows symlinks, so `--fix` (and `--diff`, its preview) skips a
@@ -159,6 +185,15 @@ pub fn skip_notice(
     problem: &crate::lint::LintProblem,
     flag: &str,
 ) -> String {
+    if problem.level == crate::lint::Severity::Warning && problem.rule.is_none() {
+        return format!(
+            "{}:{}:{} {}\n",
+            crate::cli_support::sanitize_control(&path.display().to_string()),
+            problem.line,
+            problem.column,
+            crate::cli_support::sanitize_control(&problem.message),
+        );
+    }
     let what = problem.rule.map_or_else(
         || format!("skipped by {flag}"),
         |rule| format!("{rule} not fixed"),
@@ -213,10 +248,16 @@ pub fn rewrite_str(
                 (path, base_dir),
                 &[],
                 &mut cache,
-                events.as_deref(),
+                Some(&events),
             );
-            let skipped =
+            let mut skipped =
                 unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
+            if let Some(problem) = rewrite_parse_notice(content, &fixed, &events) {
+                if fixed == content {
+                    skipped.clear();
+                }
+                skipped.push(problem);
+            }
             ((fixed != content).then_some(fixed), skipped)
         }
         SourceKind::Markdown => {
@@ -541,7 +582,7 @@ fn diff_and_skips(
                 (path, base_dir),
                 &[],
                 cache,
-                events.as_deref(),
+                Some(&events),
             );
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
@@ -551,21 +592,28 @@ fn diff_and_skips(
                     ..DiffOutcome::default()
                 };
             }
+            let mut skipped = unfixed_notices(
+                if rewrite == Rewrite::Format {
+                    content
+                } else {
+                    &fixed
+                },
+                cfg,
+                path,
+                base_dir,
+                rewrite,
+                cache,
+            );
+            if let Some(problem) = rewrite_parse_notice(content, &fixed, &events) {
+                if fixed == content {
+                    skipped.clear();
+                }
+                skipped.push(problem);
+            }
             DiffOutcome {
                 changed: content != fixed,
                 diff: render_unified_diff(content, &fixed, path),
-                skipped: unfixed_notices(
-                    if rewrite == Rewrite::Format {
-                        content
-                    } else {
-                        &fixed
-                    },
-                    cfg,
-                    path,
-                    base_dir,
-                    rewrite,
-                    cache,
-                ),
+                skipped,
                 ..DiffOutcome::default()
             }
         }
@@ -584,6 +632,14 @@ fn diff_and_skips(
                 })
             };
             let mut skipped = skips(content);
+            skipped.retain(|problem| {
+                !refusals.iter().any(|refusal| {
+                    refusal.problem.level == crate::lint::Severity::Warning
+                        && refusal.problem.line == problem.line
+                        && refusal.problem.column == problem.column
+                        && problem.rule.is_none()
+                })
+            });
             skipped.extend(refusals.iter().map(|refusal| refusal.problem.clone()));
             // `key-ordering` notices describe the fixed text, so they come from it.
             if let Some(fixed) = fixed.as_ref().filter(|_| rewrite == Rewrite::Fix) {
@@ -662,10 +718,82 @@ fn region_skips(
     rewrite: Rewrite,
     cache: &mut FormatCache,
 ) -> Vec<crate::lint::LintProblem> {
-    crate::lint::parse_error(region).map_or_else(
+    crate::lint::strict_parse_error(region).map_or_else(
         || unfixed_notices(region, cfg, path, base_dir, rewrite, cache),
         |problem| vec![problem],
     )
+}
+
+fn rewrite_parse_notice(
+    original: &str,
+    fixed: &str,
+    parsed: &ParsedInput<'_>,
+) -> Option<crate::lint::LintProblem> {
+    if crate::directives::disables_file(original) {
+        return None;
+    }
+    parsed.strict_error.clone().map(|mut problem| {
+        if original != fixed {
+            problem.level = crate::lint::Severity::Warning;
+            problem.message =
+                "input was YAML the spec rejects; repaired indentation".to_string();
+        }
+        problem
+    })
+}
+
+fn repair_events_match(original: &str, repaired: &str) -> bool {
+    let before = TextVersion::new(original);
+    let after = TextVersion::new(repaired);
+    let before = repair_representation(before.analysis());
+    let after = repair_representation(after.analysis());
+    before
+        .iter()
+        .map(|doc| &doc.events)
+        .eq(after.iter().map(|doc| &doc.events))
+}
+
+fn repair_representation(
+    input: Analysis<'_>,
+) -> Vec<crate::rules::support::event_compare::Document<'_>> {
+    use crate::rules::support::yaml_version;
+    use granit_parser::{ScalarStyle, StructureStyle};
+    let (documents, parsed) =
+        crate::rules::support::event_compare::documents_with_analysis(input);
+    let mut documents = parsed
+        .then_some(documents)
+        .expect("repair operands have complete parses");
+    for document in &mut documents {
+        let yaml11 = matches!(document.events.first(), Some(Event::DocumentStart(_, Some(version)))
+            if yaml_version::resolves_as_yaml_1_1(Some(yaml_version::event_version(*version))));
+        for event in &mut document.events {
+            match event {
+                Event::DocumentStart(explicit, _) => *explicit = false,
+                Event::SequenceStart(style, ..) | Event::MappingStart(style, ..) => {
+                    *style = StructureStyle::Block;
+                }
+                Event::Scalar(value, style, _, tag)
+                    if (*style != ScalarStyle::Plain
+                        || tag.is_some()
+                        || (matches!(
+                            crate::yaml_dom::Scalar::resolve_plain_scalar(
+                                value.clone()
+                            ),
+                            crate::yaml_dom::Scalar::String(_)
+                        ) && !crate::yaml_dom::is_core_schema_int_spelling(
+                            value,
+                        ) && (!yaml11
+                            || !yaml_version::resolves_to_nonstring_in_yaml_1_1(
+                                value,
+                            )))) =>
+                {
+                    *style = ScalarStyle::DoubleQuoted;
+                }
+                _ => {}
+            }
+        }
+    }
+    documents
 }
 
 /// Whether either side ends in a bare `\r`, which `similar` renders as a hunk line no patch
@@ -876,13 +1004,16 @@ fn fix_markdown_cached(
         if region.content.trim().is_empty() {
             continue;
         }
+        let Ok(parsed) = rewrite_parse_gate(&region.content, rewrite) else {
+            continue;
+        };
         let fixed = rewrite.apply(
             &region.content,
             cfg,
             (path, base_dir),
             suppressed_rules(),
             cache,
-            None,
+            Some(&parsed),
         );
         if fixed == region.content {
             continue;
@@ -931,6 +1062,16 @@ fn fix_markdown_cached(
                         "rewritten region shifts a later refusal within the document",
                     );
             }
+        }
+        if let Some(mut problem) =
+            rewrite_parse_notice(&region.content, &fixed, &parsed)
+        {
+            problem.line += region.line_offset;
+            problem.column += region.col_offset;
+            refusals.push(MarkdownRefusal {
+                problem,
+                blocks_preview: false,
+            });
         }
         out = candidate;
         changed = true;
@@ -1041,8 +1182,8 @@ impl NewlinePolicy {
 pub(crate) struct Passes<'a> {
     pub(crate) new_lines: Option<new_lines::Config>,
     pub(crate) comments: Option<comments::Config>,
-    /// Only `ryl format` re-indents: `indentation` has no safe lint fix.
     pub(crate) indentation: Option<indentation::Config>,
+    pub(crate) repair_indentation: Option<indentation::Config>,
     pub(crate) comments_indentation: Option<comments_indentation::Config>,
     pub(crate) commas: Option<commas::Config>,
     pub(crate) braces: Option<braces::Config>,
@@ -1093,6 +1234,15 @@ impl<'a> Passes<'a> {
             new_lines: on(new_lines::ID).then(|| new_lines::Config::resolve(cfg)),
             comments: on(comments::ID).then(|| comments::Config::resolve(cfg)),
             indentation: None,
+            repair_indentation: (!skip.contains(&indentation::ID)
+                && cfg
+                    .fix()
+                    .fixable()
+                    .contains(&crate::config::FixRuleSelector::All)
+                && !cfg.is_rule_ignored(indentation::ID, path, base_dir))
+            .then(|| {
+                crate::format::indentation_target(cfg, crate::format::indent_width(cfg))
+            }),
             comments_indentation: on(comments_indentation::ID)
                 .then(|| comments_indentation::Config::resolve(cfg)),
             commas: on(commas::ID).then(|| commas::Config::resolve(cfg)),
@@ -1139,6 +1289,7 @@ pub(crate) fn run_passes(
         &mut PassTracking {
             edited,
             reindented: None,
+            strict_input: None,
         },
         None,
     )
@@ -1151,6 +1302,7 @@ pub(crate) type ReindentCache =
 pub(crate) struct PassTracking<'a> {
     pub edited: &'a mut Vec<&'static str>,
     pub reindented: Option<&'a mut ReindentCache>,
+    pub strict_input: Option<bool>,
 }
 
 fn reindent_for_pass(
@@ -1180,17 +1332,81 @@ pub(crate) fn run_passes_with_events(
     if crate::directives::disables_file(input) {
         return TextVersion::new(input.to_string());
     }
+    let repaired;
+    let original = input;
+    let mut events = initial_events;
+    let input = if tracking
+        .strict_input
+        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none())
+    {
+        input
+    } else {
+        let Some(target) = passes.repair_indentation else {
+            return TextVersion::new(input.to_string());
+        };
+        let snapshot = TextVersion::new(input);
+        if let Some(events) = events {
+            snapshot.analysis().seed_events(events);
+        }
+        repaired = strict_output(
+            input,
+            TextVersion::new(
+                Directives::parse_per_line_with_analysis(
+                    snapshot.analysis(),
+                    &passes.per_line,
+                )
+                .reconcile(
+                    indentation::ID,
+                    input,
+                    &indentation::reindent_with_analysis(snapshot.analysis(), &target)
+                        .0
+                        .text,
+                ),
+            ),
+        )
+        .into_text();
+        if repaired == input || !repair_events_match(input, &repaired) {
+            return TextVersion::new(input.to_string());
+        }
+        tracking.edited.push(indentation::ID);
+        events = None;
+        &repaired
+    };
+    let formatted = strict_output(
+        original,
+        run_valid_passes(input, passes, path, max_passes, err, tracking, events),
+    );
+    if original != input && !repair_events_match(original, &formatted) {
+        return TextVersion::new(original.to_string());
+    }
+    formatted
+}
+
+fn strict_output(
+    original: &str,
+    formatted: TextVersion<'static>,
+) -> TextVersion<'static> {
+    if formatted.analysis().text() != original
+        && crate::lint::strict_parse_error(&formatted).is_some()
+    {
+        TextVersion::new(original.to_string())
+    } else {
+        formatted
+    }
+}
+
+fn run_valid_passes(
+    input: &str,
+    passes: &Passes,
+    path: &Path,
+    max_passes: usize,
+    err: &mut dyn Write,
+    tracking: &mut PassTracking<'_>,
+    initial_events: Option<&[(Event<'_>, Span)]>,
+) -> TextVersion<'static> {
     let mut content = TextVersion::new(input);
     if let Some(events) = initial_events {
         content.analysis().seed_events(events);
-    }
-    if crate::lint::parse_error_from_result(
-        input,
-        content.analysis().parsed().error.as_ref(),
-    )
-    .is_some()
-    {
-        return TextVersion::new(input.to_string());
     }
     let mut ctx = FixContext {
         passes,

@@ -467,6 +467,14 @@ fn check_invariants(
 ) -> Result<(), String> {
     let once = format(input);
     check_preserved(input, &once)?;
+    if once != input {
+        granit_parser::Parser::new_from_str_with_options(
+            &once,
+            granit_parser::options! { strict_indentation: true },
+        )
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("strict output: {error}: {once:?}"))?;
+    }
     let twice = format(&once);
     if twice != once {
         return Err(format!("idempotence: once {once:?}; twice {twice:?}"));
@@ -495,6 +503,36 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn repaired_flow_output_parses_strictly(
+        values in prop::collection::vec("[a-z]{1,8}", 2..8),
+        width in 1u8..5,
+        mapping in any::<bool>(),
+        comment in any::<bool>(),
+    ) {
+        let separator = if comment { ", # keep\n" } else { ",\n" };
+        let body = if mapping {
+            values.iter().enumerate().map(|(index, value)| format!("k{index}: {value}")).collect::<Vec<_>>().join(separator)
+        } else {
+            values.join(separator)
+        };
+        let input = format!("flow: {}{body}{}\n", if mapping { '{' } else { '[' }, if mapping { '}' } else { ']' });
+        let cfg = YamlLintConfig::from_toml_str(&format!("indent-width = {width}\n[format]")).unwrap();
+        let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+        prop_assert_ne!(&input, &output);
+        prop_assert!(granit_parser::Parser::new_from_str_with_options(
+            &output, granit_parser::options! { strict_indentation: true },
+        ).collect::<Result<Vec<_>, _>>().is_ok(), "output must parse strictly");
+        check_preserved(&input, &output).map_err(TestCaseError::fail)?;
+        prop_assert_eq!(ryl::format::format_str(&output, &cfg, synthetic_path(), &[]), output);
+        let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
+        prop_assert_ne!(&fixed, &input);
+        prop_assert!(granit_parser::Parser::new_from_str_with_options(
+            &fixed, granit_parser::options! { strict_indentation: true },
+        ).collect::<Result<Vec<_>, _>>().is_ok(), "fixed output must parse strictly");
+        check_preserved(&input, &fixed).map_err(TestCaseError::fail)?;
+    }
 
     #[test]
     fn random_format_config_keeps_the_guarantee(
@@ -545,6 +583,24 @@ proptest! {
         }
     }
 
+}
+
+#[test]
+fn lenient_repairs_preserve_values_across_presentation_changes() {
+    for input in [
+        "flow: ['true', 'hello',\n'no']\n",
+        "%YAML 1.1\n---\nflow: ['yes',\n'hello']\n",
+        "%YAML 1.1\n---\nflow: [yes,\n'hello']\n",
+        "%YAML 1.2\n---\nflow: [true, 'true',\nyes]\n",
+        "flow: [!!str 'true',\n!local 'hello']\n",
+        "flow: [!!str true,\n!local hello]\n",
+        "flow: [999999999999999999999999999999,\n'999999999999999999999999999999']\n",
+    ] {
+        let pass = named_pass("format/default");
+        let output = (pass.format)(input);
+        assert_ne!(output, input);
+        check_pass(pass, input).unwrap();
+    }
 }
 
 proptest! {

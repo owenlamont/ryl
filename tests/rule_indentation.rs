@@ -536,7 +536,12 @@ fn multi_line_flow_collections_check_items_and_closers() {
     let yaml = "a: [\n    1,\n  2,\n  ]\nb: {\n  c: 1\n}\n";
     assert_eq!(
         hits(yaml, &cfg),
-        vec![wrong(3, 3, 4), wrong(4, 3, 0), wrong(6, 3, 4)]
+        vec![
+            wrong(3, 3, 4),
+            wrong(4, 3, 1),
+            wrong(6, 3, 4),
+            wrong(7, 1, 1)
+        ]
     );
     assert!(hits("[x,\n a: b\n]\n", &cfg).is_empty());
 }

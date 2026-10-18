@@ -337,6 +337,23 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### Strict indentation
+
+ryl rejects under-indented flow collections and scalar continuations that yamllint's
+PyYAML parser accepts. For yaml-test-suite `9C9N`, `flow: [a,\nb,\nc]`, the reference
+parser reports a parse error; ryl reports a syntax error until the indentation is fixed.
+YAML 1.2.2's [separation production 81](https://yaml.org/spec/1.2.2/#rule-s-separate-lines),
+`s-separate-lines(n) ::= (s-l-comments s-flow-line-prefix(n)) | s-separate-in-line`,
+requires `s-flow-line-prefix(n)` inside a flow collection, keeping continuation content
+deeper than the enclosing block.
+ryl therefore places a flow closing `]` or `}` at least one column past the enclosing
+block, where yamllint may request the block's column.
+
+`ryl format`, `check --fix`/`--diff` and editor formatting may repair relaxed-parser
+input only when the output parses strictly and preserves the input's relaxed events.
+Repairs print a notice; `format --check` exits 1. Otherwise the input stays unchanged
+with a syntax skip. See the [formatter guarantees](../formatter.md#guarantees).
+
 ### Document-prefix byte order marks
 
 ryl accepts `a: a\n...\n\uFEFF---\na: 1\n` and treats the BOM as an encoding

@@ -84,13 +84,31 @@ pub fn rewrite_edit(
     enc: PositionEncoding,
     rewrite: Rewrite,
 ) -> Option<TextEdit> {
+    rewrite_edit_with_notices(text, path, cfg, base_dir, kind, enc, rewrite).0
+}
+
+pub(crate) fn rewrite_edit_with_notices(
+    text: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    kind: SourceKind,
+    enc: PositionEncoding,
+    rewrite: Rewrite,
+) -> (Option<TextEdit>, Vec<String>) {
     let (bom, body) = split_bom(text);
-    let (rewritten, _) = rewrite_str(body, cfg, path, base_dir, kind, rewrite);
-    rewritten
+    let (rewritten, notices) = rewrite_str(body, cfg, path, base_dir, kind, rewrite);
+    let notices = notices
+        .iter()
+        .filter(|notice| notice.level == Severity::Warning && notice.rule.is_none())
+        .map(|notice| crate::fix::skip_notice(path, notice, rewrite.flag()))
+        .collect();
+    let edit = rewritten
         .filter(|rewritten| rewritten != body)
         .map(|rewritten| {
             TextEdit::new(full_range(text, enc), format!("{bom}{rewritten}"))
-        })
+        });
+    (edit, notices)
 }
 
 /// The whole-document edit applying only `rule`'s safe fix, or `None` when nothing
@@ -113,6 +131,7 @@ pub fn fix_rule_edit(
         .iter()
         .copied()
         .filter(|id| *id != rule)
+        .chain(std::iter::once(crate::rules::indentation::ID))
         .collect();
     let (bom, body) = split_bom(text);
     let fixed = apply_safe_fixes_filtered(body, cfg, path, base_dir, &skip);

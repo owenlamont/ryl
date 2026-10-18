@@ -1216,6 +1216,90 @@ fn code_action_with_unresolvable_config_is_null() {
 }
 
 #[test]
+fn fix_all_repairs_9c9n_and_reports_the_repair() {
+    let dir = project("[lint.rules.document-start]\n");
+    let (mut client, _) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "9C9N.yaml");
+    client.did_open(doc.clone(), "---\nflow: [a,\nb,\nc]\n");
+    let diagnostics = client.diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("syntax"));
+    for only in ["quickfix", "source.fixAll.ryl.comments"] {
+        let id = client.request(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": {"uri": doc},
+                "range": Range::default(),
+                "context": {"diagnostics": [], "only": [only]}
+            }),
+        );
+        let (notices, response) = client.notifications_until_response(&id);
+        assert!(response.response_result.expect("code actions").is_null());
+        assert!(
+            notices
+                .iter()
+                .all(|notice| notice.method != "window/showMessage")
+        );
+    }
+    let id = client.request(
+        "textDocument/codeAction",
+        json!({
+            "textDocument": {"uri": doc},
+            "range": Range::default(),
+            "context": {"diagnostics": [], "only": ["source.fixAll.ryl"]}
+        }),
+    );
+    let (notices, response) = client.notifications_until_response(&id);
+    let result = response.response_result.expect("code actions");
+    assert_eq!(result[0]["kind"], "source.fixAll.ryl");
+    assert_eq!(
+        result[0]["edit"]["documentChanges"][0]["edits"][0]["newText"],
+        "---\nflow: [a,\n       b,\n       c]\n"
+    );
+    assert!(
+        notices.iter().any(|notice| {
+            notice.method == "window/showMessage"
+                && notice.params["type"] == 2
+                && notice.params["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("input was YAML the spec rejects; repaired indentation")
+        }),
+        "repair edit must carry a warning: {notices:?}"
+    );
+}
+
+#[test]
+fn formatting_repairs_9c9n_and_reports_the_repair() {
+    let dir = project("[lint.rules.document-start]\n");
+    let (mut client, _) = Client::launch(None, None);
+    let doc = file_uri(dir.path(), "9C9N.yaml");
+    client.did_open(doc.clone(), "---\nflow: [a,\nb,\nc]\n");
+    let diagnostics = client.diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("syntax"));
+    let id = client.request(
+        "textDocument/formatting",
+        DocumentFormattingParams {
+            text_document: TextDocumentIdentifier { uri: doc },
+            options: FormattingOptions::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        },
+    );
+    let (notices, response) = client.notifications_until_response(&id);
+    assert!(notices.iter().any(|notice| {
+        notice.method == "window/showMessage"
+            && notice
+                .params
+                .to_string()
+                .contains("input was YAML the spec rejects")
+    }));
+    let edits: Vec<TextEdit> =
+        serde_json::from_value(response.response_result.unwrap()).unwrap();
+    assert_eq!(edits[0].new_text, "---\nflow: [a,\n       b,\n       c]\n");
+}
+
+#[test]
 fn formatting_runs_the_formatter_not_the_safe_fixes() {
     let dir = project(
         "[lint.rules]\ntrailing-spaces = \"enable\"\n[format]\nquote-style = \"double\"\n",

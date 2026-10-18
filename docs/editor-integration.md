@@ -28,9 +28,10 @@ The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrenc
 this one" action, because its fix engine operates per file (the per-rule fix-all is the
 finest grain available, and applies only to YAML, not Markdown). Formatting needs no enabled
 rule, as with the CLI, and ignores the editor's tab size: the `[format]` table decides. Only
-whole-document formatting is offered, not a selected range. As with the CLI, YAML that does
-not parse is left as it is: a whole YAML file, or one region of a Markdown file while its
-other regions are still fixed or formatted.
+whole-document formatting is offered, not a selected range. Format Document and Fix All
+allow the [guarded indentation repair](formatter.md#guarantees), reporting repairs through
+`window/showMessage`. YAML that cannot be repaired safely is left as it is: a whole YAML
+file, or one region of a Markdown file while its other regions are still fixed or formatted.
 
 When formatting or explicitly requesting fix-all, the server checks for lint options conflicting
 with `[format]` and shows the same warnings as
