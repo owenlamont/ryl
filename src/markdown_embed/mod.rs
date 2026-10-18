@@ -7,7 +7,7 @@
 
 mod lint;
 
-pub use lint::{lint_markdown_stdin_str, lint_markdown_str, markdown_region_problems};
+pub use lint::{lint_markdown_str, markdown_region_problems};
 
 use std::ops::Range;
 

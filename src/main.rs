@@ -34,15 +34,14 @@ use ryl::fix::{
     DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
     diff_files_with_notices, rewrite_files, rewrite_str, skip_notice,
 };
+use ryl::lint::{LintSource, lint_with_repair_help};
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
     UserConfigMigration, WriteMode, migrate_configs,
 };
 use ryl::report::{ReportEntry, render_gitlab, render_junit};
 use ryl::rules::ALL_RULE_IDS;
-use ryl::{
-    LintProblem, Severity, lint_file, lint_markdown_file, lint_markdown_str, lint_str,
-};
+use ryl::{LintProblem, Severity, lint_file, lint_markdown_file};
 use same_file::Handle;
 
 const STDIN_LABEL: &str = "<stdin>";
@@ -1524,17 +1523,13 @@ fn read_and_lint_stdin(
     kind: SourceKind,
 ) -> Result<Vec<LintProblem>, String> {
     let (content, _) = read_stdin_decoded(path)?;
-    Ok(match kind {
-        SourceKind::Markdown => ryl::markdown_embed::lint_markdown_stdin_str(
-            content.content(),
-            path,
-            cfg,
-            base_dir,
-        ),
-        SourceKind::Yaml => {
-            ryl::lint::lint_stdin_str(content.content(), path, cfg, base_dir)
-        }
-    })
+    Ok(lint_with_repair_help(
+        content.content(),
+        path,
+        cfg,
+        base_dir,
+        LintSource::Stdin(kind),
+    ))
 }
 
 fn stdin_diff_stats(
@@ -1917,11 +1912,14 @@ fn lint_files_cached(
             let outcome = match entry.as_ref() {
                 Some((_, bytes)) => ryl::decoder::decode_bytes(bytes)
                     .map_err(|err| format!("failed to read {}: {err}", path.display()))
-                    .map(|content| match kind {
-                        SourceKind::Markdown => {
-                            lint_markdown_str(&content, path, cfg, base_dir)
-                        }
-                        SourceKind::Yaml => lint_str(&content, path, cfg, base_dir),
+                    .map(|content| {
+                        lint_with_repair_help(
+                            &content,
+                            path,
+                            cfg,
+                            base_dir,
+                            LintSource::File(*kind),
+                        )
                     }),
                 None => match kind {
                     SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),

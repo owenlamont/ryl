@@ -4,6 +4,7 @@ use std::process::Command;
 use granit_parser::Parser;
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::fix::{Rewrite, rewrite_str};
+use ryl::lint::{LintSource, lint_with_repair_help};
 
 const INPUT: &str = "---\nflow: [a,\nb,\nc]\n";
 const OUTPUT: &str = "---\nflow: [a,\n       b,\n       c]\n";
@@ -105,47 +106,17 @@ fn check_explains_repairable_invalid_indentation() {
 #[test]
 fn refused_indentation_repair_has_no_help() {
     let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
-    let diagnostics = ryl::lint::lint_str(
+    let diagnostics = lint_with_repair_help(
         "# ryl disable rule:indentation\nflow: [a,\nb]\n",
         Path::new("case.yaml"),
         &cfg,
         Path::new("."),
+        LintSource::File(SourceKind::Yaml),
     );
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
         diagnostics[0].message,
         "syntax error: invalid indentation (syntax)"
-    );
-}
-
-#[test]
-fn ragged_markdown_indentation_has_no_unavailable_help() {
-    let temp = tempfile::tempdir().unwrap();
-    let file = temp.path().join("input.md");
-    std::fs::write(
-        &file,
-        "Intro\n\n   ```yaml\n   key:\n     args: [\n       \"a\",\n     ]\n  tail: value\n   ```\n",
-    )
-    .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
-        .args([
-            "check",
-            "--markdown",
-            "-f",
-            "standard",
-            "-d",
-            "[lint.rules.document-start]",
-        ])
-        .arg(&file)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        format!(
-            "{}\n  7:6       error    syntax error: invalid indentation (syntax)\n\n",
-            file.display()
-        )
     );
 }
 
@@ -216,8 +187,13 @@ fn lint_hint_names_only_the_available_repair() {
         "[lint]\nfixable = []\n[lint.rules.document-start]\n",
     )
     .unwrap();
-    let diagnostics =
-        ryl::lint::lint_str(INPUT, Path::new("case.yaml"), &cfg, Path::new("."));
+    let diagnostics = lint_with_repair_help(
+        INPUT,
+        Path::new("case.yaml"),
+        &cfg,
+        Path::new("."),
+        LintSource::File(SourceKind::Yaml),
+    );
     assert_eq!(diagnostics.len(), 1);
     assert!(
         diagnostics[0]

@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::path::Path;
 
-use crate::config::{RuleLevel, YamlLintConfig};
+use crate::config::{RuleLevel, SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::rules::support::yaml_version;
 use crate::rules::{
@@ -63,7 +63,13 @@ pub fn lint_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    Ok(lint_str(&content, path, cfg, base_dir))
+    Ok(lint_with_repair_help(
+        &content,
+        path,
+        cfg,
+        base_dir,
+        LintSource::File(SourceKind::Yaml),
+    ))
 }
 
 /// Lint the YAML embedded in a markdown file and return diagnostics whose
@@ -78,9 +84,120 @@ pub fn lint_markdown_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    Ok(crate::markdown_embed::lint_markdown_str(
-        &content, path, cfg, base_dir,
+    Ok(lint_with_repair_help(
+        &content,
+        path,
+        cfg,
+        base_dir,
+        LintSource::File(SourceKind::Markdown),
     ))
+}
+
+#[derive(Clone, Copy)]
+pub enum LintSource {
+    File(SourceKind),
+    Stdin(SourceKind),
+}
+
+#[must_use]
+pub fn lint_with_repair_help(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    source: LintSource,
+) -> Vec<LintProblem> {
+    use crate::fix::{Rewrite, rewrite_str};
+    use crate::markdown_embed::{MarkdownSources, extract_regions};
+
+    let (kind, stdin) = match source {
+        LintSource::File(kind) => (kind, false),
+        LintSource::Stdin(kind) => (kind, true),
+    };
+    let mut problems = match kind {
+        SourceKind::Yaml => lint_str(content, path, cfg, base_dir),
+        SourceKind::Markdown => {
+            crate::markdown_embed::lint_markdown_str(content, path, cfg, base_dir)
+        }
+    };
+    if problems.is_empty() || (!stdin && path.is_symlink()) {
+        return problems;
+    }
+
+    let sources = MarkdownSources {
+        front_matter: cfg.markdown_front_matter(),
+        fenced_blocks: cfg.markdown_fenced_blocks(),
+    };
+    let regions = match kind {
+        SourceKind::Yaml => Vec::new(),
+        SourceKind::Markdown => extract_regions(content, sources),
+    };
+    let candidates: Vec<_> = match kind {
+        SourceKind::Yaml => invalid_indentation_line(content)
+            .map(|line| vec![(0, line)])
+            .unwrap_or_default(),
+        SourceKind::Markdown => regions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, region)| {
+                invalid_indentation_line(&region.content)
+                    .map(|line| (index, line + region.line_offset))
+            })
+            .collect(),
+    };
+    if candidates.is_empty() {
+        return problems;
+    }
+
+    let fix = (!stdin)
+        .then(|| rewrite_str(content, cfg, path, base_dir, kind, Rewrite::Fix).0)
+        .flatten();
+    let format = rewrite_str(content, cfg, path, base_dir, kind, Rewrite::Format).0;
+    let rewritten_regions = |output: &Option<String>| {
+        output.as_deref().map(|text| extract_regions(text, sources))
+    };
+    let fixed_regions = rewritten_regions(&fix);
+    let formatted_regions = rewritten_regions(&format);
+    for (index, line) in candidates {
+        for problem in problems
+            .iter_mut()
+            .filter(|problem| problem.line == line && problem.rule.is_none())
+        {
+            let repaired = |output: &Option<String>, after: &Option<Vec<_>>| match kind
+            {
+                SourceKind::Yaml => output.is_some(),
+                SourceKind::Markdown => after
+                    .as_ref()
+                    .and_then(|items| items.get(index))
+                    .is_some_and(|item: &crate::markdown_embed::EmbeddedRegion| {
+                        item.content != regions[index].content
+                    }),
+            };
+            let commands = [
+                repaired(&fix, &fixed_regions).then_some("ryl check --fix"),
+                repaired(&format, &formatted_regions).then_some("ryl format"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+            if !commands.is_empty() {
+                write!(
+                    problem.message,
+                    "; help: {} can repair the indentation",
+                    commands.join(" or ")
+                )
+                .expect("writing to a String cannot fail");
+            }
+        }
+    }
+    problems
+}
+
+fn invalid_indentation_line(content: &str) -> Option<usize> {
+    scan(content, true).err().and_then(|error| {
+        (error.kind() == &granit_parser::ErrorKind::InvalidIndentation)
+            .then(|| error.marker().line())
+    })
 }
 
 macro_rules! emit_problems {
@@ -294,27 +411,6 @@ pub fn lint_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
-    lint_str_with_hint_options(content, path, cfg, base_dir, true, true)
-}
-
-#[must_use]
-pub fn lint_stdin_str(
-    content: &str,
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-) -> Vec<LintProblem> {
-    lint_str_with_hint_options(content, path, cfg, base_dir, false, true)
-}
-
-pub(crate) fn lint_str_with_hint_options(
-    content: &str,
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-    allow_fix: bool,
-    allow_hint: bool,
-) -> Vec<LintProblem> {
     if crate::directives::disables_file(content) {
         return Vec::new();
     }
@@ -339,9 +435,7 @@ pub(crate) fn lint_str_with_hint_options(
         diagnostics.push(warning);
     }
 
-    if let Some(syntax) =
-        syntax_diagnostic(content, path, cfg, base_dir, allow_fix, allow_hint)
-    {
+    if let Some(syntax) = syntax_diagnostic(content) {
         diagnostics.clear();
         diagnostics.push(syntax);
     }
@@ -421,14 +515,7 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
 /// The syntax error ryl reports for `content` during linting, or `None` if it lints
 /// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
 /// rule, matching yamllint).
-fn syntax_diagnostic(
-    content: &str,
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-    allow_fix: bool,
-    allow_hint: bool,
-) -> Option<LintProblem> {
+fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
@@ -438,47 +525,7 @@ fn syntax_diagnostic(
             // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
-        Err(err) => {
-            let mut problem = syntax_problem(&err);
-            if allow_hint
-                && *err.kind() == granit_parser::ErrorKind::InvalidIndentation
-                && !path.is_symlink()
-            {
-                let fix = allow_fix
-                    && crate::fix::rewrite_str(
-                        content,
-                        cfg,
-                        path,
-                        base_dir,
-                        crate::config::SourceKind::Yaml,
-                        crate::fix::Rewrite::Fix,
-                    )
-                    .0
-                    .is_some();
-                let format =
-                    crate::format::format_str(content, cfg, path, &[]) != content;
-                add_indentation_help(&mut problem, fix, format);
-            }
-            Some(problem)
-        }
-    }
-}
-
-pub(crate) fn add_indentation_help(problem: &mut LintProblem, fix: bool, format: bool) {
-    let commands = [
-        fix.then_some("ryl check --fix"),
-        format.then_some("ryl format"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    if !commands.is_empty() {
-        write!(
-            problem.message,
-            "; help: {} can repair the indentation",
-            commands.join(" or ")
-        )
-        .expect("writing to a String cannot fail");
+        Err(err) => Some(syntax_problem(&err)),
     }
 }
 

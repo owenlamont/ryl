@@ -9,9 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS, apply_safe_fixes_filtered, rewrite_str};
-use crate::lint::{LintProblem, Severity, lint_str};
+use crate::lint::{LintProblem, LintSource, Severity, lint_with_repair_help};
 use crate::lsp::encoding::{PositionEncoding, full_range, problem_range};
-use crate::markdown_embed::lint_markdown_str;
 use crate::rules::support::line_syntax::line_contents;
 
 fn severity(level: Severity) -> DiagnosticSeverity {
@@ -55,10 +54,8 @@ pub fn diagnostics(
     enc: PositionEncoding,
 ) -> Vec<Diagnostic> {
     let (bom, body) = split_bom(text);
-    let problems = match kind {
-        SourceKind::Markdown => lint_markdown_str(body, path, cfg, base_dir),
-        SourceKind::Yaml => lint_str(body, path, cfg, base_dir),
-    };
+    let problems =
+        lint_with_repair_help(body, path, cfg, base_dir, LintSource::File(kind));
     let lines = line_contents(text);
     problems
         .into_iter()
