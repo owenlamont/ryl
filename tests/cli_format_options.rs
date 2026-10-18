@@ -106,6 +106,33 @@ fn parsable_format_omits_rule_suffix_for_syntax_errors() {
 }
 
 #[test]
+fn standard_format_omits_rule_suffix_for_syntax_errors() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dir.path().join("invalid.yaml");
+    fs::write(&file, "foo: [1, 2\n").unwrap();
+
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--format")
+        .arg("standard")
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "syntax errors should fail: {stderr}");
+    assert!(stdout.is_empty(), "standard diagnostics should use stderr");
+    assert!(
+        stderr.contains("syntax error"),
+        "expected syntax error: {stderr}"
+    );
+    assert_eq!(
+        stderr.matches("(syntax)").count(),
+        1,
+        "syntax errors have no duplicate rule suffix: {stderr}"
+    );
+}
+
+#[test]
 fn github_format_emits_workflow_commands() {
     let dir = tempdir().unwrap();
     let cfg = disable_doc_start_config(dir.path());
