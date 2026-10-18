@@ -462,7 +462,10 @@ fn build_toml_rewrites(root: &Path, plan: &mut MigrationPlan) {
     }
 }
 
-fn move_yaml_files(document: &mut DocumentMut, pyproject: bool) -> Result<(bool, bool), String> {
+fn move_yaml_files(
+    document: &mut DocumentMut,
+    pyproject: bool,
+) -> Result<(bool, bool), String> {
     let root = document.as_table_mut();
     let config = if pyproject {
         root.get_mut("tool")
@@ -518,14 +521,19 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     let loaded = fs::read_to_string(&path)
         .map_err(|err| format!("failed to read config: {err}"))
         .and_then(|text| {
-            let mut document = text.parse::<DocumentMut>().map_err(|err| err.to_string())?;
+            let mut document = text
+                .parse::<DocumentMut>()
+                .map_err(|err| format!("failed to parse config data: {err}"))?;
             let (moved_yaml_files, overridden_yaml_files) =
                 move_yaml_files(&mut document, pyproject)?;
-            parse_toml_config_str(&document.to_string(), pyproject)
-                .map(|config| (document, config, moved_yaml_files, overridden_yaml_files))
+            parse_toml_config_str(&document.to_string(), pyproject).map(|config| {
+                (document, config, moved_yaml_files, overridden_yaml_files)
+            })
         });
     let (mut document, config, moved_yaml_files, overridden_yaml_files) = match loaded {
-        Ok((document, Some(config), moved, overridden)) => (document, config, moved, overridden),
+        Ok((document, Some(config), moved, overridden)) => {
+            (document, config, moved, overridden)
+        }
         Ok((_, None, _, _)) => return,
         Err(err) => {
             plan.warnings
@@ -544,7 +552,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         ));
         return;
     }
-    if overridden_yaml_files {
+    if overridden_yaml_files && !pyproject {
         plan.warnings.push(format!(
             "warning: {}: discarded deprecated `yaml-files` because `files.yaml` is also set",
             path.display()
@@ -553,13 +561,19 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     if pyproject {
         let mut moves = deprecated
             .iter()
-            .map(|used| format!("`{}` to `{}`", used.key.key, used.key.replacement))
+            .map(|used| {
+                format!("move `{}` to `{}`", used.key.key, used.key.replacement)
+            })
             .collect::<Vec<_>>();
         if moved_yaml_files {
-            moves.push("`yaml-files` to `files.yaml`".to_owned());
+            moves.push(if overridden_yaml_files {
+                "remove `yaml-files` because `files.yaml` is already set".to_owned()
+            } else {
+                "move `yaml-files` to `files.yaml`".to_owned()
+            });
         }
         plan.warnings.push(format!(
-            "warning: not rewriting {}: in [tool.ryl], move {}",
+            "warning: not rewriting {}: in [tool.ryl], {}",
             path.display(),
             moves.join(", ")
         ));

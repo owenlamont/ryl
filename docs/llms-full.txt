@@ -706,7 +706,8 @@ A config passed to `-c` under any other name migrates by naming the file:
 in its place. Update `-c` to the new path after migration; when migrating a
 `YAMLLINT_CONFIG_FILE` source, remove that environment variable too. Only an
 existing `ci/lint.toml` blocks that migration. A top-level TOML `yaml-files`
-key is moved to `[files].yaml`; an existing `[files].yaml` value wins.
+key is moved to `[files].yaml`, preserving its comments. If `[files].yaml` already
+exists, its value wins and migration warns that `yaml-files` was discarded.
 
 Migration skips a legacy project YAML config when project discovery already picks
 a TOML config, including `.config/` candidates and `pyproject.toml` with `[tool.ryl]`,

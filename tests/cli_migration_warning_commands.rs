@@ -124,7 +124,7 @@ fn deprecated_toml_warning_command_rewrites_yaml_files() {
     let root = td.path();
     fs::write(
         root.join(".ryl.toml"),
-        "yaml-files = ['*.yaml']\n[rules]\nanchors = 'enable'\n",
+        "# YAML patterns\nyaml-files = ['*.yaml'] # keep this comment\n[rules]\nanchors = 'enable'\n",
     )
     .unwrap();
     fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
@@ -139,14 +139,18 @@ fn deprecated_toml_warning_command_rewrites_yaml_files() {
     ]));
     assert_eq!(code, 0, "{stderr}");
     let migrated = fs::read_to_string(root.join(".ryl.toml")).unwrap();
-    assert!(migrated.contains("yaml = [\"*.yaml\"]"), "{migrated}");
+    assert!(
+        migrated.contains("yaml = ['*.yaml'] # keep this comment"),
+        "{migrated}"
+    );
+    assert!(migrated.contains("# YAML patterns"), "{migrated}");
     let (code, _, stderr) = run(ryl(root).current_dir(root).args(["check", "a.yaml"]));
     assert_eq!(code, 0, "{stderr}");
     assert!(stderr.is_empty(), "{stderr}");
 }
 
 #[test]
-fn existing_files_yaml_wins_over_legacy_yaml_files() {
+fn existing_files_yaml_warns_when_legacy_yaml_files_is_discarded() {
     let td = tempdir().unwrap();
     let root = td.path();
     fs::write(
@@ -161,8 +165,30 @@ fn existing_files_yaml_wins_over_legacy_yaml_files() {
         ".ryl.toml",
     ]));
     assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains(
+            "discarded deprecated `yaml-files` because `files.yaml` is also set"
+        ),
+        "{stderr}"
+    );
     let migrated = fs::read_to_string(root.join(".ryl.toml")).unwrap();
-    assert!(migrated.contains("yaml = [\"*.yaml\"]"), "{migrated}");
+    assert!(migrated.contains("yaml = ['*.yaml']"), "{migrated}");
+    assert!(!migrated.contains("yaml-files"), "{migrated}");
+}
+
+#[test]
+fn yaml_files_moves_into_an_inline_files_table() {
+    let config = "yaml-files = ['*.yaml']\nfiles = { markdown = ['*.md'] }\n[lint.rules]\nanchors = 'enable'\n";
+    let td = tempdir().unwrap();
+    let path = td.path().join(".ryl.toml");
+    fs::write(&path, config).unwrap();
+    let (code, _, stderr) = run(ryl(td.path())
+        .args(["--migrate-configs", "--migrate-write", "--migrate-root"])
+        .arg(&path));
+    assert_eq!(code, 0, "{stderr}");
+    let migrated = fs::read_to_string(&path).unwrap();
+    assert!(migrated.contains("yaml = ['*.yaml']"), "{migrated}");
+    assert!(migrated.contains("markdown = ['*.md']"), "{migrated}");
     assert!(!migrated.contains("yaml-files"), "{migrated}");
 }
 
@@ -290,5 +316,17 @@ fn pyproject_yaml_files_reports_the_manual_move() {
     let config = "[tool.ryl]\nyaml-files = ['*.yaml']\n[tool.ryl.lint.rules]\nanchors = 'enable'\n";
     let (notice, original) = migration_notice("pyproject.toml", config);
     assert!(notice.contains("`yaml-files` to `files.yaml`"), "{notice}");
+    assert_eq!(original, config);
+}
+
+#[test]
+fn pyproject_existing_files_yaml_reports_manual_removal() {
+    let config =
+        "[tool.ryl]\nyaml-files = ['*.yml']\n[tool.ryl.files]\nyaml = ['*.yaml']\n";
+    let (notice, original) = migration_notice("pyproject.toml", config);
+    assert!(
+        notice.contains("remove `yaml-files` because `files.yaml` is already set"),
+        "{notice}"
+    );
     assert_eq!(original, config);
 }
