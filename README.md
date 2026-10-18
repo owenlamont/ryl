@@ -28,6 +28,9 @@ remove it, so prefer `ryl check`.
 # Using uv (Python)
 uvx ryl check --enable ALL .
 
+# Omit selected rules and files without writing a config
+uvx ryl check --enable ALL --disable line-length,truthy,document-start --exclude pnpm-lock.yaml .
+
 # Using npx (Node.js)
 npx @owenlamont/ryl check --enable ALL .
 
@@ -95,7 +98,10 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
   same behavior for a project, and `--no-strict` overrides the config.
   `--enable <RULES>` runs exactly the
   listed rules (comma-separated IDs, or `ALL`) in place of the config's
-  selection, and needs no config file.
+  selection, and needs no config file. `--disable <RULES>` subtracts from the
+  selected lint rules. `--exclude <GLOBS>` replaces config file exclusions;
+  globs use the current directory and also exclude explicitly named files.
+  Both new flags accept comma-separated values and may appear once per command.
 - `ryl check` and `ryl format` cache results by content and configuration.
   Use `--no-cache` to bypass the cache or `--cache-dir PATH` to place it elsewhere.
   See [caching](docs/getting-started/quickstart.md#caching).
