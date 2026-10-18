@@ -11,6 +11,10 @@ summarize user-visible changes from the tagged commits and published release rec
   `--exclude <GLOBS>` overrides file exclusions for linting and formatting.
   Requested by [@entorb](https://github.com/entorb) in
   [#766](https://github.com/owenlamont/ryl/issues/766).
+- TOML-only `anchors.forbid-anchors-and-aliases` reports every anchor and alias,
+  including merge aliases, without automatic fixes. Requested by
+  [@pygarap](https://github.com/pygarap).
+  ([#515](https://github.com/owenlamont/ryl/issues/515))
 - TOML `[lint] strict = true` enables strict lint exit codes; `--no-strict`
   overrides configured strict mode. CLI flags take precedence over configuration.
   ([#522](https://github.com/owenlamont/ryl/issues/522))

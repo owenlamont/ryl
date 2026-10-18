@@ -1,7 +1,8 @@
-//! `anchors` rule: flags undeclared aliases, duplicated anchors, unused anchors, and
+//! `anchors` rule: independently reports forbidden anchors/aliases, undeclared
+//! aliases, duplicated anchors, unused anchors, and
 //! (ryl-only, TOML `forbid-ambiguous-anchor-alias-names`) a name with a welded `:`
 //! (`&foo:`, `*foo:`, `&foo:bar`, `&:`/`&:foo`); a separating space (`*foo : bar`) is
-//! never flagged.
+//! never ambiguous.
 //!
 //! `:` is a legal anchor-name char (YAML 1.2.2 §6.9.2 excludes only `,[]{}`), so the
 //! scanned name includes it (`&foo:bar` -> `foo:bar`) and the ambiguity check is a
@@ -31,14 +32,17 @@ pub const MESSAGE_DUPLICATED_ANCHOR: &str = "found duplicated anchor";
 pub const MESSAGE_UNUSED_ANCHOR: &str = "found unused anchor";
 pub const MESSAGE_AMBIGUOUS_ANCHOR: &str = "found ambiguous anchor name";
 pub const MESSAGE_AMBIGUOUS_ALIAS: &str = "found ambiguous alias name";
+pub const MESSAGE_FORBIDDEN_ANCHOR: &str = "found forbidden anchor";
+pub const MESSAGE_FORBIDDEN_ALIAS: &str = "found forbidden alias";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools)] // independent yamllint-style toggles, not a state machine
+#[expect(clippy::struct_excessive_bools, reason = "independent rule options")]
 pub struct Config {
     forbid_undeclared_aliases: bool,
     forbid_duplicated_anchors: bool,
     forbid_unused_anchors: bool,
     forbid_ambiguous_anchor_alias_names: bool,
+    forbid_anchors_and_aliases: bool,
 }
 
 impl Config {
@@ -65,6 +69,11 @@ impl Config {
                 "forbid-ambiguous-anchor-alias-names",
                 false,
             ),
+            forbid_anchors_and_aliases: cfg.rule_option_bool(
+                ID,
+                "forbid-anchors-and-aliases",
+                false,
+            ),
         }
     }
 
@@ -79,6 +88,7 @@ impl Config {
             forbid_duplicated_anchors,
             forbid_unused_anchors,
             forbid_ambiguous_anchor_alias_names: false,
+            forbid_anchors_and_aliases: false,
         }
     }
 
@@ -116,6 +126,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             TokenType::Anchor(name) => {
                 let (line, column) =
                     line_and_column(&line_starts, CharPos::new(span.start.index()));
+                if cfg.forbid_anchors_and_aliases {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!("{MESSAGE_FORBIDDEN_ANCHOR} \"{name}\""),
+                    });
+                }
                 let duplicate = doc.add_anchor(name.to_string(), line, column);
                 if cfg.forbid_duplicated_anchors && duplicate {
                     violations.push(Violation {
@@ -135,6 +152,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             TokenType::Alias(name) => {
                 let (line, column) =
                     line_and_column(&line_starts, CharPos::new(span.start.index()));
+                if cfg.forbid_anchors_and_aliases {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!("{MESSAGE_FORBIDDEN_ALIAS} \"{name}\""),
+                    });
+                }
                 if !doc.mark_alias(&name) && cfg.forbid_undeclared_aliases {
                     violations.push(Violation {
                         line,

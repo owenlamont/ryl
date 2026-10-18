@@ -280,6 +280,11 @@ the colon** &mdash; `*foo : bar` &mdash; which every parser reads identically. T
 ryl-only [`anchors: forbid-ambiguous-anchor-alias-names`](../rules/anchors.md)
 option flags welded colons so you can forbid the construct outright.
 
+The TOML-only [`anchors: forbid-anchors-and-aliases`](../rules/anchors.md)
+option prohibits every anchor and alias, including aliases in merge keys. The
+option operates independently of the other anchor checks, so several conditions
+can produce diagnostics at the same token; yamllint has no equivalent policy option.
+
 ### De-duplicated inputs
 
 When a single run names the same file more than once &mdash; listed twice, or reached
