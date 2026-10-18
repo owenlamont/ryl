@@ -799,10 +799,7 @@ fn remedy(rule: &str, cfg: &YamlLintConfig) -> String {
              `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`".to_owned()
         }
         (indentation::ID, _) if cfg.indent_width().is_none() => {
-            format!(
-                "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, run `ryl --migrate-configs --migrate-write --migrate-delete-old --migrate-root .`{} first)",
-                crate::config_schema::MIGRATE_VERSION_SUFFIX
-            )
+            "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, follow its migration warning first)".to_owned()
         }
         (new_lines::ID, _) => {
             "set `[format] line-ending` to the ending its `type` names".to_owned()

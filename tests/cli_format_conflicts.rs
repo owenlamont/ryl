@@ -338,11 +338,8 @@ fn yaml_indent_conflict_points_to_toml_migration() {
     let warnings = conflicts("rules:\n  indentation:\n    spaces: 4\n", false, &[]);
     assert_eq!(warnings.len(), 1, "{warnings:#?}");
     assert!(warnings[0].contains("top-level TOML `indent-width`"));
-    assert!(warnings[0].contains("ryl --migrate-configs"));
-    assert!(warnings[0].contains(&format!(
-        "--migrate-write --migrate-delete-old --migrate-root .` with ryl {} or later",
-        env!("CARGO_PKG_VERSION")
-    )));
+    assert!(warnings[0].contains("follow its migration warning first"));
+    assert!(!warnings[0].contains("ryl --migrate-configs"));
 }
 
 #[test]

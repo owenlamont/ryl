@@ -119,6 +119,39 @@ fn explicit_yaml_warning_command_writes_usable_toml() {
 }
 
 #[test]
+fn explicit_yaml_formatter_warning_uses_source_migration_command() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    fs::write(
+        root.join("lint.yaml"),
+        "rules:\n  indentation:\n    spaces: 4\n",
+    )
+    .unwrap();
+    fs::write(root.join("a.yaml"), "a: 1\n").unwrap();
+    let (code, _, warning) =
+        run(ryl(root)
+            .current_dir(root)
+            .args(["format", "-c", "lint.yaml", "a.yaml"]));
+    assert_eq!(code, 0, "{warning}");
+    assert_eq!(
+        warning.matches("run `ryl --migrate").count(),
+        1,
+        "{warning}"
+    );
+    assert!(
+        warning.contains("follow its migration warning first"),
+        "{warning}"
+    );
+    run_printed_command(root, root, &warning);
+    let (code, _, stderr) =
+        run(ryl(root)
+            .current_dir(root)
+            .args(["check", "-c", "lint.toml", "a.yaml"]));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
+}
+
+#[test]
 fn deprecated_toml_warning_command_rewrites_yaml_files() {
     let td = tempdir().unwrap();
     let root = td.path();
