@@ -40,6 +40,17 @@ fn default_width_moves_explicit_scalar_content_and_comments_safely() {
 }
 
 #[test]
+fn default_width_rolls_back_a_new_consistency_refusal() {
+    let input =
+        "a:\n    b: 1  # ryl disable-line rule:indentation\n---\nc:\n    d: 2\n";
+    assert_eq!(format(input, UNSET), input);
+    assert_eq!(
+        format(input, "indent-width = 2\n"),
+        "a:\n    b: 1  # ryl disable-line rule:indentation\n---\nc:\n  d: 2\n"
+    );
+}
+
+#[test]
 fn auto_keeps_the_line_ending_most_lines_use() {
     let auto = "[format]\nline-ending = 'auto'\n";
     for (input, expected) in [
