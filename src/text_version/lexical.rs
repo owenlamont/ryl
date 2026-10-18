@@ -21,7 +21,7 @@ pub(crate) enum Kind {
     Other,
 }
 
-pub(super) fn scan(text: &str) -> Vec<(Span, Kind)> {
+pub(super) fn scan(text: &str) -> Box<[(Span, Kind)]> {
     Scanner::new(StrInput::new(text))
         .map_while(Result::ok)
         .map(|token| {

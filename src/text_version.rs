@@ -21,7 +21,7 @@ pub struct TextVersion<'text> {
     chars: OnceCell<Vec<(usize, char)>>,
     line_starts: OnceCell<Vec<CharPos>>,
     lines: OnceCell<Vec<(usize, usize, usize)>>,
-    tokens: OnceCell<Vec<(Span, lexical::Kind)>>,
+    tokens: OnceCell<Box<[(Span, lexical::Kind)]>>,
     sites: OnceCell<Vec<token_spacing::Site>>,
     indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
@@ -195,7 +195,10 @@ impl<'text> Analysis<'text> {
 
     pub(crate) fn seed_events(self, events: &[(Event<'_>, Span)]) {
         self.source.parsed.get_or_init(|| {
-            let mut facts = ParsedFacts::default();
+            let mut facts = ParsedFacts {
+                events: Vec::with_capacity(events.len()),
+                ..ParsedFacts::default()
+            };
             let mut depth = 0;
             for (event, span) in events {
                 facts.record(event, *span, &mut depth);
@@ -204,6 +207,7 @@ impl<'text> Analysis<'text> {
                     .push((StoredEvent::new(self.text(), event.clone()), *span));
             }
             facts.valid = true;
+            facts.compact();
             facts
         });
     }
@@ -219,6 +223,11 @@ pub(crate) struct ParsedFacts {
 }
 
 impl ParsedFacts {
+    fn compact(&mut self) {
+        self.events.shrink_to_fit();
+        self.scalars.shrink_to_fit();
+    }
+
     fn record(&mut self, event: &Event<'_>, span: Span, depth: &mut usize) {
         match event {
             Event::MappingStart(..) | Event::SequenceStart(..) => *depth += 1,
@@ -244,13 +253,14 @@ impl ParsedFacts {
                 Ok(pair) => pair,
                 Err(error) => {
                     facts.error = Some(error);
-                    return facts;
+                    break;
                 }
             };
             facts.record(&event, span, &mut depth);
             facts.events.push((StoredEvent::new(text, event), span));
         }
-        facts.valid = true;
+        facts.valid = facts.error.is_none();
+        facts.compact();
         facts
     }
 }
