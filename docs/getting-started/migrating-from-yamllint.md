@@ -269,8 +269,8 @@ option flags welded colons so you can forbid the construct outright.
 
 The TOML-only [`anchors: forbid-anchors-and-aliases`](../rules/anchors.md)
 option prohibits every anchor and alias, including aliases in merge keys. The
-option supersedes the other anchor checks, reporting each token once; yamllint
-has no equivalent policy option.
+option operates independently of the other anchor checks, so several conditions
+can produce diagnostics at the same token; yamllint has no equivalent policy option.
 
 ### De-duplicated inputs
 

@@ -143,7 +143,12 @@ forbid-duplicated-merge-keys = true
 pub fn anchors_forbidden_config() -> &'static YamlLintConfig {
     static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
         YamlLintConfig::from_toml_str(
-            "[lint.rules.anchors]\nforbid-anchors-and-aliases = true\n",
+            "[lint.rules.anchors]\n\
+             forbid-anchors-and-aliases = true\n\
+             forbid-undeclared-aliases = true\n\
+             forbid-duplicated-anchors = true\n\
+             forbid-unused-anchors = true\n\
+             forbid-ambiguous-anchor-alias-names = true\n",
         )
         .expect("property-check forbidden anchors config must parse")
     });

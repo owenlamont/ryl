@@ -48,11 +48,16 @@ forbid-anchors-and-aliases = false           # ryl-only
 | `forbid-undeclared-aliases` | `true` | Report aliases (`*name`) whose anchor (`&name`) has not been declared earlier. |
 | `forbid-duplicated-anchors` | `false` | Report when the same anchor name is declared more than once. |
 | `forbid-unused-anchors` | `false` | Report anchors that are never referenced by an alias. |
-| `forbid-anchors-and-aliases` | `false` | **ryl-only.** Report every anchor and alias, including valid declared-and-used pairs and aliases in merge keys (`<<: *name`). Takes precedence over all other options: each anchor or alias receives exactly one diagnostic. |
+| `forbid-anchors-and-aliases` | `false` | **ryl-only.** Report every anchor and alias, including valid declared-and-used pairs and aliases in merge keys (`<<: *name`). |
 | `forbid-ambiguous-anchor-alias-names` | `false` | **ryl-only.** Report an anchor (`&name`) or alias (`*name`) whose name has a `:` welded to it &mdash; trailing (`&foo:`), internal (`&foo:bar`), or leading (`&:foo`) &mdash; the construct parsers disagree on. A space before the `:` (`*foo : bar`) is the unambiguous alias-key form and is never flagged. |
 
 `forbid-ambiguous-anchor-alias-names` and `forbid-anchors-and-aliases` are
 configurable only in TOML; YAML config rejects both options.
+
+All `anchors` options are independent. No option suppresses or overrides another.
+With `forbid-anchors-and-aliases` and `forbid-undeclared-aliases` enabled,
+an undeclared `*missing` receives two diagnostics. The duplicated, unused and
+ambiguous name checks also report their matching conditions when enabled.
 
 ## Examples
 

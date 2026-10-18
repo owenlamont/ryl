@@ -1,8 +1,8 @@
-//! `anchors` rule: optionally forbids all anchors and aliases, or flags undeclared
+//! `anchors` rule: independently reports forbidden anchors/aliases, undeclared
 //! aliases, duplicated anchors, unused anchors, and
 //! (ryl-only, TOML `forbid-ambiguous-anchor-alias-names`) a name with a welded `:`
 //! (`&foo:`, `*foo:`, `&foo:bar`, `&:`/`&:foo`); a separating space (`*foo : bar`) is
-//! never flagged.
+//! never ambiguous.
 //!
 //! `:` is a legal anchor-name char (YAML 1.2.2 §6.9.2 excludes only `,[]{}`), so the
 //! scanned name includes it (`&foo:bar` -> `foo:bar`) and the ambiguity check is a
@@ -119,22 +119,6 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
         match token_type {
-            TokenType::Anchor(ref name) | TokenType::Alias(ref name)
-                if cfg.forbid_anchors_and_aliases =>
-            {
-                let (line, column) =
-                    line_and_column(&line_starts, CharPos::new(span.start.index()));
-                let message = if matches!(token_type, TokenType::Anchor(_)) {
-                    MESSAGE_FORBIDDEN_ANCHOR
-                } else {
-                    MESSAGE_FORBIDDEN_ALIAS
-                };
-                violations.push(Violation {
-                    line,
-                    column,
-                    message: format!("{message} \"{name}\""),
-                });
-            }
             TokenType::DocumentStart | TokenType::DocumentEnd => {
                 finish_doc(&doc, *cfg, &mut violations);
                 doc = DocState::new();
@@ -142,6 +126,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             TokenType::Anchor(name) => {
                 let (line, column) =
                     line_and_column(&line_starts, CharPos::new(span.start.index()));
+                if cfg.forbid_anchors_and_aliases {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!("{MESSAGE_FORBIDDEN_ANCHOR} \"{name}\""),
+                    });
+                }
                 let duplicate = doc.add_anchor(name.to_string(), line, column);
                 if cfg.forbid_duplicated_anchors && duplicate {
                     violations.push(Violation {
@@ -161,6 +152,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             TokenType::Alias(name) => {
                 let (line, column) =
                     line_and_column(&line_starts, CharPos::new(span.start.index()));
+                if cfg.forbid_anchors_and_aliases {
+                    violations.push(Violation {
+                        line,
+                        column,
+                        message: format!("{MESSAGE_FORBIDDEN_ALIAS} \"{name}\""),
+                    });
+                }
                 if !doc.mark_alias(&name) && cfg.forbid_undeclared_aliases {
                     violations.push(Violation {
                         line,

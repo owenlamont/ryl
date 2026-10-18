@@ -7,6 +7,26 @@ mod common;
 use common::cli::run;
 
 #[test]
+fn forbidden_and_undeclared_alias_options_both_report_the_same_alias() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("alias.yaml");
+    fs::write(&file, "- *missing\n").unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d"])
+        .arg("lint.rules.anchors = {forbid-anchors-and-aliases = true, forbid-undeclared-aliases = true}")
+        .arg(file));
+    assert_eq!(code, 1, "stdout={stdout} stderr={stderr}");
+    let output = format!("{stdout}{stderr}");
+    for message in [
+        "found forbidden alias \"missing\"",
+        "found undeclared alias \"missing\"",
+    ] {
+        assert_eq!(output.matches(message).count(), 1, "{output}");
+    }
+    assert_eq!(output.matches("1:3").count(), 2, "{output}");
+}
+
+#[test]
 fn forbid_all_reports_valid_anchors_and_merge_alias_without_fixing() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("anchors.yaml");

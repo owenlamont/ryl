@@ -228,6 +228,7 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("&anchor value".to_string()),
         Just("*anchor".to_string()),
         Just("[&anchor value, *anchor]".to_string()),
+        Just("[&anchor value, &anchor other, *anchor, *missing]".to_string()),
         // Colon welded to an anchor/alias name exercises the ryl-only
         // `forbid-ambiguous-anchor-alias-names` check, including a colon-leading
         // name and a `&` mid-plain-scalar (which must NOT be read as an anchor).

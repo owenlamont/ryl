@@ -18,7 +18,7 @@ fn forbidden_cfg(options: &str) -> Config {
 }
 
 #[test]
-fn forbid_all_reports_each_token_once_regardless_of_other_options() {
+fn forbid_all_preserves_every_other_option_combination() {
     let content = "- *missing\n- &same one\n- &same two\n- &unused: value\n- *other:\n";
     let expected = vec![
         violation(1, 3, "found forbidden alias \"missing\""),
@@ -38,7 +38,16 @@ fn forbid_all_reports_each_token_once_regardless_of_other_options() {
             bits & 4 != 0,
             bits & 8 != 0,
         );
-        assert_eq!(anchors::check(content, &forbidden_cfg(&options)), expected);
+        let (forbidden, existing): (Vec<_>, Vec<_>) =
+            anchors::check(content, &forbidden_cfg(&options))
+                .into_iter()
+                .partition(|hit| hit.message.starts_with("found forbidden "));
+        assert_eq!(forbidden, expected);
+        let base = ryl::config::YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.anchors]\n{options}"
+        ))
+        .unwrap();
+        assert_eq!(existing, anchors::check(content, &Config::resolve(&base)));
     }
 }
 
