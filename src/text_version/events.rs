@@ -40,6 +40,33 @@ pub(super) enum StoredEvent {
 }
 
 impl StoredEvent {
+    pub(super) fn significant(&self) -> bool {
+        !matches!(
+            self,
+            Self::Comment(..) | Self::Other(Event::StreamStart | Event::StreamEnd)
+        )
+    }
+
+    pub(super) fn equivalent(
+        &self,
+        other: &Self,
+        source: &str,
+        rewritten: &str,
+    ) -> bool {
+        if let (
+            Self::Scalar(left, left_style, left_anchor, left_tag),
+            Self::Scalar(right, right_style, right_anchor, right_tag),
+        ) = (self, other)
+        {
+            left.get(source) == right.get(rewritten)
+                && left_style == right_style
+                && left_anchor == right_anchor
+                && left_tag == right_tag
+        } else {
+            self.borrow(source) == other.borrow(rewritten)
+        }
+    }
+
     pub(super) fn new(source: &str, event: Event<'_>) -> Self {
         let event = match event {
             Event::Scalar(value, style, anchor, tag) => {

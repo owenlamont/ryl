@@ -1192,6 +1192,7 @@ pub(crate) struct Passes<'a> {
     pub(crate) hyphens: Option<hyphens::Config>,
     pub(crate) final_newline: Option<NewlinePolicy>,
     pub(crate) quoted_strings: Option<quoted_strings::Config>,
+    pub(crate) quote_before_indentation: bool,
     pub(crate) trailing_spaces: bool,
     pub(crate) document_start: Option<document_start::Config>,
     pub(crate) document_end: Option<document_end::Config>,
@@ -1253,6 +1254,7 @@ impl<'a> Passes<'a> {
             final_newline: on(new_line_at_end_of_file::ID).then_some(newline),
             quoted_strings: on(quoted_strings::ID)
                 .then(|| quoted_strings::Config::resolve(cfg)),
+            quote_before_indentation: false,
             trailing_spaces: on(trailing_spaces::ID),
             document_start: on(document_start::ID)
                 .then(|| document_start::Config::resolve(cfg)),
@@ -1387,6 +1389,7 @@ fn strict_output(
     formatted: TextVersion<'static>,
 ) -> TextVersion<'static> {
     if formatted.analysis().text() != original
+        && !formatted.analysis().strict_valid()
         && crate::lint::strict_parse_error(&formatted).is_some()
     {
         TextVersion::new(original.to_string())
@@ -1494,7 +1497,7 @@ impl FixContext<'_> {
         reindented: Option<&mut ReindentCache>,
     ) -> bool {
         let passes = self.passes;
-        let input = content.to_string();
+        let initial_epoch = self.edit_epoch;
         macro_rules! fix {
             ($rule:ident) => {
                 fix!($rule, passes.$rule.as_ref(), |view, cfg| $rule::fix(
@@ -1564,7 +1567,7 @@ impl FixContext<'_> {
                 .expect("fold plan belongs to the current epoch");
             self.edit_epoch += 1;
         }
-        content.analysis().text() != input
+        self.edit_epoch != initial_epoch
     }
 
     fn lint_syntax_pass(
@@ -1613,6 +1616,16 @@ impl FixContext<'_> {
         changed_rules: &mut Vec<&'static str>,
         mut reindented: Option<&mut ReindentCache>,
     ) {
+        fn fix_quotes(
+            view: Analysis<'_>,
+            cfg: &quoted_strings::Config,
+        ) -> Option<String> {
+            quoted_strings::fix_with_events(
+                view.text(),
+                cfg,
+                view.parsed().valid.then(|| view.events()).as_deref(),
+            )
+        }
         let passes = self.passes;
         macro_rules! fix {
             ($rule:ident) => {
@@ -1655,6 +1668,9 @@ impl FixContext<'_> {
         fix!(brackets, brackets::fix_with_analysis);
         fix!(colons, colons::fix_with_analysis);
         fix!(hyphens, hyphens::fix_with_analysis);
+        if passes.quote_before_indentation {
+            fix!(quoted_strings, fix_quotes);
+        }
         fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
             reindent_for_pass(view, cfg, reindented.as_deref_mut())
         },);
@@ -1666,18 +1682,9 @@ impl FixContext<'_> {
                 policy.newline(view.text())
             )
         );
-        fix!(
-            quoted_strings,
-            passes.quoted_strings.as_ref(),
-            |view, cfg| {
-                let buffer = view.text();
-                quoted_strings::fix_with_events(
-                    buffer,
-                    cfg,
-                    view.parsed().valid.then(|| view.events()).as_deref(),
-                )
-            },
-        );
+        if !passes.quote_before_indentation {
+            fix!(quoted_strings, fix_quotes);
+        }
     }
 
     fn apply<C, R: Into<TextVersion<'static>>>(

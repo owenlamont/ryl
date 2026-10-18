@@ -4,8 +4,11 @@
 //! left byte-identical.
 
 use std::ops::RangeInclusive;
+use std::path::Path;
 use std::time::Instant;
 
+use ryl::config::YamlLintConfig;
+use ryl::format::format_str;
 use ryl::rules::indentation::{
     Cause, Config, IndentSequencesSetting, Refusal, SpacesSetting, check, fix, reindent,
 };
@@ -250,6 +253,19 @@ fn changed_events_roll_back_only_the_unsafe_document() {
 }
 
 #[test]
+fn changed_events_roll_back_a_single_document() {
+    let input = "a:\n  - a\nb: >\n   x\n  #\n";
+    let cfg = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    let output = reindent(input, &cfg);
+    assert_eq!(output.text, input);
+    assert_eq!(output.refused, refusal(1..=5, Cause::Changed));
+}
+
+#[test]
 fn indicator_gaps_close_and_what_hangs_on_them_follows() {
     assert_reindents(
         2,
@@ -330,4 +346,27 @@ fn a_block_mapping_joins_its_dash_or_breaks_from_it() {
             "{input:?}"
         );
     }
+}
+
+#[test]
+fn large_reindent_keeps_the_strictly_valid_result() {
+    let mut input = String::from("root:\n");
+    let mut expected = input.clone();
+    for index in 0..55_000 {
+        let entry = format!("key_{index:05}_long: value\n");
+        input.push_str("    ");
+        input.push_str(&entry);
+        expected.push_str("  ");
+        expected.push_str(&entry);
+    }
+    assert!(expected.len() >= 1_000_000);
+    let result = reindent(&input, &target(2));
+    assert_eq!(result.text, expected);
+    assert!(result.refused.is_empty());
+    assert_eq!(reindent(&result.text, &target(2)).text, expected);
+    let cfg = YamlLintConfig::from_toml_str("indent-width = 2\n[format]\n").unwrap();
+    assert_eq!(
+        format_str(&input, &cfg, Path::new("large.yaml"), &[]),
+        expected
+    );
 }

@@ -1,9 +1,9 @@
 use std::ops::RangeInclusive;
 
-use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate};
+use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift};
 use crate::directives::Directives;
 use crate::rules::hyphens;
-use crate::rules::support::event_compare::{Document, documents_with_analysis};
+use crate::rules::support::event_compare::documents_with_analysis;
 use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
@@ -65,25 +65,28 @@ struct Prepared<'a> {
 
 impl<'a> Prepared<'a> {
     fn new(input: Analysis<'a>, dash_on_own_line: Option<bool>) -> Self {
-        let (original, parsed) = documents_with_analysis(input);
+        let mut starts = input.parsed().document_starts.clone();
         let directives = Directives::parse_with_analysis(input);
         let lines: Vec<_> = input
             .lines()
             .map(|(_, content, ending)| (content, ending))
             .collect();
-        let parsed = parsed && !original.is_empty();
-        let starts = if parsed {
-            document_starts(input, &original)
+        let parsed = input.parsed().valid && !starts.is_empty();
+        if parsed {
+            starts[0] = 0;
         } else {
-            Vec::new()
-        };
-        drop(original);
+            starts.clear();
+        }
         let (shaped, origin, kept_dash_lines) = if parsed {
             reshape(input, &lines, dash_on_own_line, &directives)
         } else {
-            (String::new(), Vec::new(), Vec::new())
+            (None, Vec::new(), Vec::new())
         };
-        let shaped = (shaped != input.text()).then(|| TextVersion::new(shaped));
+        let shaped = shaped.map(|text| {
+            let mut candidate = TextVersion::new(text);
+            candidate.inherit_event_capacity(input);
+            candidate
+        });
         Self {
             input,
             parsed,
@@ -169,17 +172,8 @@ impl<'a> Prepared<'a> {
         };
         // Documents parse independently, so one round of refusals settles every document.
         let mut output = TextVersion::new(render(&refused));
-        let mut rollback = false;
-        if output.analysis().text() != buffer {
-            let (original, _) = documents_with_analysis(input);
-            let (rewritten, _) = documents_with_analysis(output.analysis());
-            for (index, cause) in refused.iter_mut().enumerate() {
-                let changed = rewritten.get(index).map(|document| &document.events)
-                    != Some(&original[index].events);
-                rollback |= cause.is_none() && changed;
-                *cause = cause.or(changed.then_some(Cause::Changed));
-            }
-        }
+        output.inherit_event_capacity(input);
+        let rollback = self.verify_events(&mut output, &mut refused);
         if rollback {
             let plan = output.analysis().plan(render(&refused));
             output
@@ -203,6 +197,50 @@ impl<'a> Prepared<'a> {
             self.result(output.to_string(), &refused, lines.len()),
             output,
         )
+    }
+
+    fn verify_events(
+        &self,
+        output: &mut TextVersion<'static>,
+        refused: &mut [Option<Cause>],
+    ) -> bool {
+        if output.analysis().text() == self.input.text() {
+            return false;
+        }
+        let strict = output.analysis().text().len() >= 1_000_000;
+        let mut rollback = false;
+        let mut compare = || {
+            if refused.len() == 1 {
+                let changed = !self.input.significant_events_match(output.analysis());
+                rollback = refused[0].is_none() && changed;
+                refused[0] = refused[0].or(changed.then_some(Cause::Changed));
+            } else {
+                let (original, _) = documents_with_analysis(self.input);
+                let (rewritten, _) = documents_with_analysis(output.analysis());
+                for (index, cause) in refused.iter_mut().enumerate() {
+                    let changed = rewritten.get(index).map(|document| &document.events)
+                        != Some(&original[index].events);
+                    rollback |= cause.is_none() && changed;
+                    *cause = cause.or(changed.then_some(Cause::Changed));
+                }
+            }
+        };
+        let valid = if strict {
+            std::thread::scope(|scope| {
+                let text = output.analysis().text();
+                let check = scope
+                    .spawn(move || crate::lint::strict_parse_error(text).is_none());
+                compare();
+                check.join().expect("strict parser thread finishes")
+            })
+        } else {
+            compare();
+            false
+        };
+        if valid && !rollback {
+            output.mark_strict_valid();
+        }
+        rollback
     }
 
     fn result(
@@ -306,25 +344,13 @@ impl<'a> Prepared<'a> {
     }
 }
 
-/// The 0-based line each of `documents` starts on, the first taking any lines before it.
-fn document_starts(input: Analysis<'_>, documents: &[Document<'_>]) -> Vec<usize> {
-    let line_starts = input.line_starts();
-    let mut starts: Vec<usize> = documents
-        .iter()
-        .map(|document| locate(line_starts, document.start).0)
-        .collect();
-    starts[0] = 0;
-    starts
-}
-
 fn refuse_inconsistent(
     input: Analysis<'_>,
     cfg: &Config,
     refused: &mut [Option<Cause>],
 ) -> bool {
-    let (documents, _) = documents_with_analysis(input);
-    let starts = document_starts(input, &documents);
-    drop(documents);
+    let mut starts = input.parsed().document_starts.clone();
+    starts[0] = 0;
     let mut rollback = false;
     for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
         let document = starts.partition_point(|&start| start < violation.line) - 1;
@@ -342,6 +368,11 @@ fn render_line(
     delta: isize,
     gaps: &[Gap],
 ) {
+    if !bom && delta == 0 && gaps.is_empty() {
+        text.push_str(content);
+        text.push_str(ending);
+        return;
+    }
     if bom {
         text.push('\u{feff}');
     }
@@ -363,7 +394,7 @@ fn render_line(
     text.push_str(ending);
 }
 
-type ReshapeResult = (String, Vec<usize>, Vec<(usize, usize)>);
+type ReshapeResult = (Option<String>, Vec<usize>, Vec<(usize, usize)>);
 
 /// `buffer` with each block mapping in a block sequence joined onto its `-` line, or
 /// broken onto the next, as `dash_on_own_line` asks, keeping every token's column; and the
@@ -412,6 +443,9 @@ fn reshape(
             }
         }
     }
+    if joins.iter().all(Option::is_none) && breaks.iter().all(Option::is_none) {
+        return (None, (0..lines.len()).collect(), kept);
+    }
     let mut text = String::with_capacity(buffer.len());
     let mut origin = Vec::with_capacity(lines.len());
     let mut line = 0;
@@ -450,7 +484,7 @@ fn reshape(
         text.push_str(ending);
         line += 1;
     }
-    (text, origin, kept)
+    (Some(text), origin, kept)
 }
 
 /// The re-indent `ryl format` applies, or `None` where nothing moves.

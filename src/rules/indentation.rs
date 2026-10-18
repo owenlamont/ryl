@@ -217,9 +217,10 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             }
         }
         let (mut start, mut end) = (span.start.index(), span.end.index());
+        let (mut line, mut end_line) = (span.start.line() - 1, span.end.line() - 1);
         let kind = match token_type {
             LexicalKind::Comment { .. } => {
-                comments.insert(locate(line_starts, start).0);
+                comments.insert(line);
                 continue;
             }
             LexicalKind::FlowMappingStart | LexicalKind::FlowMappingEnd
@@ -236,12 +237,13 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
                 start = match tokens.last() {
                     Some(prev) if prev.kind == Kind::BlockSequenceStart => prev.start,
                     _ => {
-                        let line_start =
-                            line_starts[locate(line_starts, start).0].get();
+                        let line_start = line_starts[line].get();
                         line_start + count_spaces(chars, line_start)
                     }
                 };
+                line = locate(line_starts, start).0;
                 end = start + 1;
+                end_line = line;
                 Kind::BlockEntry
             }
             LexicalKind::FlowMappingStart => Kind::FlowMappingStart,
@@ -260,9 +262,9 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
                     let from = tokens.last().map_or(0, |prev| prev.end);
                     start = block_indicator(chars, from).unwrap_or(start);
-                    let (line, _) = locate(line_starts, start);
+                    line = locate(line_starts, start).0;
                     skip_prefix_bom(chars, &mut line_starts[line]);
-                    let end_line_start = line_starts[locate(line_starts, end).0].get();
+                    let end_line_start = line_starts[end_line].get();
                     let trailing = end - end_line_start;
                     if count_spaces(chars, end_line_start) >= trailing
                         && trailing <= span.start.col()
@@ -277,8 +279,8 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             }
             _ => Kind::Other,
         };
-        let (line, column) = locate(line_starts, start);
-        let (end_line, end_column) = locate(line_starts, end);
+        let column = start - line_starts[line].get();
+        let end_column = end - line_starts[end_line].get();
         tokens.push(Token {
             kind,
             start,
