@@ -63,7 +63,10 @@ pub fn lint_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    Ok(lint_str(&content, path, cfg, base_dir))
+    let problems = lint_str(&content, path, cfg, base_dir);
+    Ok(with_indentation_repair_help(
+        &content, problems, path, cfg, base_dir,
+    ))
 }
 
 /// Lint the YAML embedded in a markdown file and return diagnostics whose
@@ -318,7 +321,7 @@ pub fn lint_str(
         diagnostics.push(warning);
     }
 
-    if let Some(syntax) = syntax_diagnostic(content, path, cfg, base_dir) {
+    if let Some(syntax) = syntax_diagnostic(content) {
         diagnostics.clear();
         diagnostics.push(syntax);
     }
@@ -398,12 +401,7 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
 /// The syntax error ryl reports for `content` during linting, or `None` if it lints
 /// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
 /// rule, matching yamllint).
-fn syntax_diagnostic(
-    content: &str,
-    path: &Path,
-    cfg: &YamlLintConfig,
-    base_dir: &Path,
-) -> Option<LintProblem> {
+fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
@@ -413,30 +411,45 @@ fn syntax_diagnostic(
             // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
-        Err(err) => {
-            let mut problem = syntax_problem(&err);
-            if matches!(err.kind(), granit_parser::ErrorKind::InvalidIndentation) {
-                let repairable = |rewrite| {
-                    rewrite_str(content, cfg, path, base_dir, SourceKind::Yaml, rewrite)
-                        .0
-                        .is_some_and(|fixed| strict_parse_error(&fixed).is_none())
-                };
-                let commands =
-                    match (repairable(Rewrite::Fix), repairable(Rewrite::Format)) {
-                        (true, true) => "ryl check --fix or ryl format",
-                        (true, false) => "ryl check --fix",
-                        (false, true) => "ryl format",
-                        (false, false) => "",
-                    };
-                if !commands.is_empty() {
-                    problem.message.push_str("; help: ");
-                    problem.message.push_str(commands);
-                    problem.message.push_str(" can repair the indentation");
-                }
-            }
-            Some(problem)
-        }
+        Err(err) => Some(syntax_problem(&err)),
     }
+}
+
+#[must_use]
+pub fn with_indentation_repair_help(
+    content: &str,
+    mut problems: Vec<LintProblem>,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Vec<LintProblem> {
+    let [problem] = problems.as_mut_slice() else {
+        return problems;
+    };
+    if problem.rule.is_some()
+        || !matches!(scan(content, true), Err(err) if matches!(err.kind(), granit_parser::ErrorKind::InvalidIndentation))
+    {
+        return problems;
+    }
+    let repairable = |rewrite| {
+        rewrite_str(content, cfg, path, base_dir, SourceKind::Yaml, rewrite)
+            .0
+            .is_some_and(|fixed| strict_parse_error(&fixed).is_none())
+    };
+    let fix = repairable(Rewrite::Fix);
+    let format = repairable(Rewrite::Format);
+    let commands = [
+        "",
+        "ryl format",
+        "ryl check --fix",
+        "ryl check --fix or ryl format",
+    ][usize::from(fix) * 2 + usize::from(format)];
+    if !commands.is_empty() {
+        problem.message.push_str("; help: ");
+        problem.message.push_str(commands);
+        problem.message.push_str(" can repair the indentation");
+    }
+    problems
 }
 
 /// The first lexical scan error in `content`, or `None`. [`syntax_diagnostic`] uses it to

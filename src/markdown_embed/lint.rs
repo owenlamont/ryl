@@ -21,15 +21,6 @@ pub fn lint_markdown_str(
     let suppressed = suppressed_rules();
     markdown_region_problems(markdown, cfg, |region| {
         let mut problems = lint_str(&region.content, path, cfg, base_dir);
-        for problem in &mut problems {
-            if problem
-                .message
-                .starts_with("syntax error: invalid indentation (syntax); help:")
-                && let Some(pos) = problem.message.find("; help:")
-            {
-                problem.message.truncate(pos);
-            }
-        }
         problems
             .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
         problems
