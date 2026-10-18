@@ -5,6 +5,12 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Added
+
+- TOML `[lint] strict = true` enables strict lint exit codes; `--no-strict`
+  overrides configured strict mode. CLI flags take precedence over configuration.
+  ([#522](https://github.com/owenlamont/ryl/issues/522))
+
 ### Breaking changes
 
 - `ryl format` defaults to indent width 2 instead of inferring each file's width,
