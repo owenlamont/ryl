@@ -56,11 +56,11 @@ ryl lints and formats YAML files
 - Don't rely on your memory of libraries and APIs; consult current documentation or the
   dependency's own repo.
 - Verify behaviour against an authoritative source before asserting it, to the maintainer
-  as much as in code: prefer the ryl CLI, real `yamllint`, the play.yaml.com reference
-  parser, or a resolving loader over memory, and correct an earlier claim explicitly once
-  it turns out wrong. When mirroring yamllint, spot-check tricky inputs with the ryl CLI
-  so diagnostics and message text match (e.g. mixed newline styles, or config keys of
-  type int/bool/null/tagged scalar).
+  as much as in code: prefer the ryl CLI, the play.yaml.com reference parser, or a
+  resolving loader over memory, and correct an earlier claim explicitly once it turns
+  out wrong. Check tricky inputs with the ryl CLI so diagnostics and message text match
+  the documented behaviour (e.g. mixed newline styles, or config keys of type
+  int/bool/null/tagged scalar).
 - For how YAML *itself* parses (is an input valid, what events does it produce?), the
   source of truth is the **Reference Parser** pane of the YAML Parser Playground
   <https://play.yaml.com/> — the test-suite event stream (`+STR/+DOC/+MAP/+SEQ`, `=VAL`,
@@ -154,7 +154,7 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - This repo runs on Mac, Linux, and Windows. Don't make assumptions about the shell
   you're running on without checking first (it could be a Posix shell like Bash or
   Windows Powershell).
-- `prek`, `rg`, `rumdl`, `typos`, `yamllint`, `zizmor`, `cargo-audit`, `cargo-nextest`,
+- `prek`, `rg`, `rumdl`, `typos`, `zizmor`, `cargo-audit`, `cargo-nextest`,
   `cargo-llvm-cov`, and `tokei` are expected on `PATH` as global tools; raise it with
   the user if one is missing.
   `cargo-audit` backs the `cargo audit --deny warnings` hook

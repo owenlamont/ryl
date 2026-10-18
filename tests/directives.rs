@@ -1,8 +1,6 @@
 //! Inline rule-disable directive engine: check-path filtering plus direct coverage
 //! of the public [`ryl::directives::Directives`] API (parse / is_disabled /
-//! disables_any / reconcile). `--fix` reconciliation lives in `directives_fix.rs`,
-//! yamllint parity in `yamllint_compat_directives.rs`, and end-to-end stdin/markdown
-//! in `cli_directives.rs`.
+//! disables_any / reconcile).
 
 use std::path::Path;
 
