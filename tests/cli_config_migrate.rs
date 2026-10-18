@@ -536,7 +536,10 @@ fn the_config_file_hint_quotes_a_path_with_a_space() {
     assert!(
         stderr.contains(&format!(
             "--migrate-root \"{}\"` with ryl {} or later and pass",
-            config.display(),
+            config
+                .display()
+                .to_string()
+                .replace(std::path::MAIN_SEPARATOR, "/"),
             env!("CARGO_PKG_VERSION")
         )),
         "{stderr}"

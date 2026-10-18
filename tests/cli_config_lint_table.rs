@@ -562,7 +562,11 @@ fn deprecation_hint_quotes_a_path_with_a_space() {
     assert!(
         stderr.contains(&format!(
             "(run `ryl --migrate-configs --migrate-write --migrate-root \"{}\"` with ryl {} or later to update)",
-            project.join(".ryl.toml").display(),
+            project
+                .join(".ryl.toml")
+                .display()
+                .to_string()
+                .replace(std::path::MAIN_SEPARATOR, "/"),
             env!("CARGO_PKG_VERSION")
         )),
         "{stderr}"
