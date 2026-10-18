@@ -1,73 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use ryl::config::{
     Env, Overrides, SystemEnv, discover_config_with, discover_per_file_with,
 };
 use tempfile::tempdir;
 
-#[derive(Default)]
-struct FakeEnv {
-    cwd: PathBuf,
-    cfg_dir: Option<PathBuf>,
-    files: HashMap<PathBuf, String>,
-    exists: HashSet<PathBuf>,
-    vars: HashMap<String, String>,
-    home: Option<PathBuf>,
-}
-
-impl FakeEnv {
-    fn with_cwd(mut self, p: impl Into<PathBuf>) -> Self {
-        self.cwd = p.into();
-        self
-    }
-    fn with_config_dir(mut self, p: impl Into<PathBuf>) -> Self {
-        self.cfg_dir = Some(p.into());
-        self
-    }
-    fn add_file(mut self, p: impl Into<PathBuf>, content: impl Into<String>) -> Self {
-        self.files.insert(p.into(), content.into());
-        self
-    }
-    fn add_exist(mut self, p: impl Into<PathBuf>) -> Self {
-        self.exists.insert(p.into());
-        self
-    }
-    fn set_var(mut self, k: impl Into<String>, v: impl Into<String>) -> Self {
-        self.vars.insert(k.into(), v.into());
-        self
-    }
-    fn with_home(mut self, p: impl Into<PathBuf>) -> Self {
-        self.home = Some(p.into());
-        self
-    }
-}
-
-impl Env for FakeEnv {
-    fn current_dir(&self) -> PathBuf {
-        self.cwd.clone()
-    }
-    fn config_dir(&self) -> Option<PathBuf> {
-        self.cfg_dir.clone()
-    }
-    fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        self.files.get(p).cloned().ok_or_else(|| {
-            format!("failed to read config file {}: not found", p.display())
-        })
-    }
-    fn path_exists(&self, p: &Path) -> bool {
-        self.files.contains_key(p) || self.exists.contains(p)
-    }
-    fn env_var(&self, key: &str) -> Option<String> {
-        self.vars.get(key).cloned()
-    }
-    fn home_dir(&self) -> Option<PathBuf> {
-        self.home
-            .clone()
-            .or_else(|| self.vars.get("HOME").map(PathBuf::from))
-            .or_else(|| self.vars.get("USERPROFILE").map(PathBuf::from))
-    }
-}
+mod common;
+use common::fake_env::FakeEnv;
 
 fn cfg_rules_empty() -> String {
     "rules: {}\n".to_string()
@@ -94,7 +33,7 @@ fn shim_inline_config_path() {
 fn shim_file_config_path_with_parent_none_uses_cwd() {
     let env = FakeEnv::default()
         .with_cwd("/work")
-        .add_file("", cfg_rules_empty());
+        .with_file("", cfg_rules_empty());
     let ctx = discover_config_with(
         &[],
         &Overrides {
@@ -112,8 +51,8 @@ fn shim_file_config_path_with_parent_none_uses_cwd() {
 fn shim_env_var_points_to_file_base_dir_from_cwd() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .add_file("", cfg_rules_empty())
-        .set_var("YAMLLINT_CONFIG_FILE", "");
+        .with_file("", cfg_rules_empty())
+        .with_var("YAMLLINT_CONFIG_FILE", "");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.base_dir, PathBuf::from("/tmp/cwd"));
     assert_eq!(ctx.source.unwrap(), PathBuf::from(""));
@@ -124,8 +63,8 @@ fn shim_env_var_with_tilde_expands_home() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
         .with_home("/home/tester")
-        .set_var("YAMLLINT_CONFIG_FILE", "~/.config/yamllint/custom.yml")
-        .add_file(
+        .with_var("YAMLLINT_CONFIG_FILE", "~/.config/yamllint/custom.yml")
+        .with_file(
             "/home/tester/.config/yamllint/custom.yml",
             cfg_rules_empty(),
         );
@@ -141,8 +80,8 @@ fn shim_env_var_tilde_alone_uses_home_directory() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
         .with_home("/home/tester")
-        .set_var("YAMLLINT_CONFIG_FILE", "~")
-        .add_file("/home/tester", cfg_rules_empty());
+        .with_var("YAMLLINT_CONFIG_FILE", "~")
+        .with_file("/home/tester", cfg_rules_empty());
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/home/tester"));
 }
@@ -151,8 +90,8 @@ fn shim_env_var_tilde_alone_uses_home_directory() {
 fn shim_env_var_tilde_without_home_keeps_literal_path() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .set_var("YAMLLINT_CONFIG_FILE", "~/.config/yamllint/custom.yml")
-        .add_file("~/.config/yamllint/custom.yml", cfg_rules_empty());
+        .with_var("YAMLLINT_CONFIG_FILE", "~/.config/yamllint/custom.yml")
+        .with_file("~/.config/yamllint/custom.yml", cfg_rules_empty());
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(
         ctx.source.unwrap(),
@@ -167,11 +106,11 @@ fn shim_env_var_rejects_toml_target_pointing_at_native_config() {
     // -c / project discovery instead of silently loading TOML.
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .add_file(
+        .with_file(
             "/proj/ryl.toml",
             "[lint.rules]\nkey-duplicates = 'enable'\n",
         )
-        .set_var("YAMLLINT_CONFIG_FILE", "/proj/ryl.toml");
+        .with_var("YAMLLINT_CONFIG_FILE", "/proj/ryl.toml");
     let err = discover_config_with(&[], &Overrides::default(), &env).unwrap_err();
     assert!(
         err.contains("YAMLLINT_CONFIG_FILE") && err.contains("--config-file"),
@@ -189,9 +128,9 @@ fn system_env_home_dir_accessible() {
 fn shim_env_var_userprofile_handles_windows_tilde_backslash() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .set_var("USERPROFILE", "/profiles/user")
-        .set_var("YAMLLINT_CONFIG_FILE", "~\\config.yml")
-        .add_file("/profiles/user/config.yml", cfg_rules_empty());
+        .with_var("USERPROFILE", "/profiles/user")
+        .with_var("YAMLLINT_CONFIG_FILE", "~\\config.yml")
+        .with_file("/profiles/user/config.yml", cfg_rules_empty());
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(
         ctx.source.unwrap(),
@@ -203,9 +142,9 @@ fn shim_env_var_userprofile_handles_windows_tilde_backslash() {
 fn shim_project_config_discovered_from_inputs() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
-        .add_file("/proj/.yamllint", cfg_rules_empty())
-        .add_exist("/proj/.yamllint")
-        .add_exist("/proj/file.yaml");
+        .with_file("/proj/.yamllint", cfg_rules_empty())
+        .with_exists("/proj/.yamllint")
+        .with_exists("/proj/file.yaml");
     let ctx = discover_config_with(
         &[PathBuf::from("/proj/file.yaml")],
         &Overrides::default(),
@@ -222,9 +161,9 @@ fn shim_yamllint_user_global_config_applies_when_no_project_or_env() {
     // yamllint itself, not the platform-native config dir.
     let env = FakeEnv::default()
         .with_cwd("/wd")
-        .set_var("XDG_CONFIG_HOME", "/xdg")
-        .add_file("/xdg/yamllint/config", cfg_rules_empty())
-        .add_exist("/xdg/yamllint/config");
+        .with_var("XDG_CONFIG_HOME", "/xdg")
+        .with_file("/xdg/yamllint/config", cfg_rules_empty())
+        .with_exists("/xdg/yamllint/config");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert!(ctx.source.unwrap().ends_with("yamllint/config"));
 }
@@ -234,11 +173,11 @@ fn shim_ryl_user_global_toml_applies_when_no_project_or_env() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_config_dir("/xdg")
-        .add_file(
+        .with_file(
             "/xdg/ryl/ryl.toml",
             "[lint.rules]\nkey-duplicates = 'enable'\n",
         )
-        .add_exist("/xdg/ryl/ryl.toml");
+        .with_exists("/xdg/ryl/ryl.toml");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/ryl.toml"));
     // Confirms the file was parsed as TOML (a `[lint.rules]` table), not YAML.
@@ -255,16 +194,16 @@ fn shim_ryl_user_global_prefers_dotfile_over_plain() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_config_dir("/xdg")
-        .add_file(
+        .with_file(
             "/xdg/ryl/.ryl.toml",
             "[lint.rules]\nkey-duplicates = 'enable'\n",
         )
-        .add_exist("/xdg/ryl/.ryl.toml")
-        .add_file(
+        .with_exists("/xdg/ryl/.ryl.toml")
+        .with_file(
             "/xdg/ryl/ryl.toml",
             "[lint.rules]\ntrailing-spaces = 'enable'\n",
         )
-        .add_exist("/xdg/ryl/ryl.toml");
+        .with_exists("/xdg/ryl/ryl.toml");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/.ryl.toml"));
     // The dotfile's own contents loaded (key-duplicates, not ryl.toml's trailing-spaces),
@@ -282,14 +221,14 @@ fn shim_ryl_user_global_takes_precedence_over_yamllint() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_config_dir("/xdg")
-        .set_var("XDG_CONFIG_HOME", "/xdg")
-        .add_file(
+        .with_var("XDG_CONFIG_HOME", "/xdg")
+        .with_file(
             "/xdg/ryl/ryl.toml",
             "[lint.rules]\nkey-duplicates = 'enable'\n",
         )
-        .add_exist("/xdg/ryl/ryl.toml")
-        .add_file("/xdg/yamllint/config", cfg_rules_empty())
-        .add_exist("/xdg/yamllint/config");
+        .with_exists("/xdg/ryl/ryl.toml")
+        .with_file("/xdg/yamllint/config", cfg_rules_empty())
+        .with_exists("/xdg/yamllint/config");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/xdg/ryl/ryl.toml"));
 }
@@ -301,7 +240,7 @@ fn shim_ryl_user_global_unreadable_config_errors() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_config_dir("/xdg")
-        .add_exist("/xdg/ryl/ryl.toml");
+        .with_exists("/xdg/ryl/ryl.toml");
     let err = discover_config_with(&[], &Overrides::default(), &env).unwrap_err();
     assert!(err.contains("failed to read"), "unexpected error: {err}");
 }
@@ -314,8 +253,8 @@ fn shim_yamllint_user_global_falls_back_to_home_config_without_xdg() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
         .with_home("/home/tester")
-        .add_file("/home/tester/.config/yamllint/config", cfg_rules_empty())
-        .add_exist("/home/tester/.config/yamllint/config");
+        .with_file("/home/tester/.config/yamllint/config", cfg_rules_empty())
+        .with_exists("/home/tester/.config/yamllint/config");
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(
         ctx.source.unwrap(),
@@ -384,9 +323,9 @@ fn system_env_read_invalid_encoding_reports_error() {
 fn shim_env_var_tilde_slash_only_returns_home() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .set_var("HOME", "/home/tester")
-        .set_var("YAMLLINT_CONFIG_FILE", "~/")
-        .add_file("/home/tester", cfg_rules_empty());
+        .with_var("HOME", "/home/tester")
+        .with_var("YAMLLINT_CONFIG_FILE", "~/")
+        .with_file("/home/tester", cfg_rules_empty());
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/home/tester"));
 }
@@ -395,9 +334,9 @@ fn shim_env_var_tilde_slash_only_returns_home() {
 fn shim_env_var_tilde_backslash_only_returns_home() {
     let env = FakeEnv::default()
         .with_cwd("/tmp/cwd")
-        .set_var("USERPROFILE", "/profiles/user")
-        .set_var("YAMLLINT_CONFIG_FILE", "~\\")
-        .add_file("/profiles/user", cfg_rules_empty());
+        .with_var("USERPROFILE", "/profiles/user")
+        .with_var("YAMLLINT_CONFIG_FILE", "~\\")
+        .with_file("/profiles/user", cfg_rules_empty());
     let ctx = discover_config_with(&[], &Overrides::default(), &env).unwrap();
     assert_eq!(ctx.source.unwrap(), PathBuf::from("/profiles/user"));
 }
@@ -406,9 +345,9 @@ fn shim_env_var_tilde_backslash_only_returns_home() {
 fn shim_discover_per_file_uses_project_else_user_global_else_default() {
     let env = FakeEnv::default()
         .with_cwd("/wd")
-        .set_var("XDG_CONFIG_HOME", "/xdg")
-        .add_file("/xdg/yamllint/config", cfg_rules_empty())
-        .add_exist("/xdg/yamllint/config");
+        .with_var("XDG_CONFIG_HOME", "/xdg")
+        .with_file("/xdg/yamllint/config", cfg_rules_empty())
+        .with_exists("/xdg/yamllint/config");
     // No project config, so user-global applies
     let file = PathBuf::from("/proj/no_config/file.yaml");
     let ctx = discover_per_file_with(&file, &env).unwrap();
