@@ -66,7 +66,7 @@ pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
                 let marker = header_marker(chars, previous_end);
                 let (line, column) = line_and_column(line_starts, CharPos::new(marker));
                 headers.push(Header {
-                    span: *span,
+                    span: span.into_span(),
                     line,
                     column,
                     chomping: chars[marker + 1..]

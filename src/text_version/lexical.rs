@@ -1,4 +1,20 @@
-use granit_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenType};
+use granit_parser::{
+    Marker, Placement, ScalarStyle, Scanner, Span, StrInput, TokenType,
+};
+
+// Tag locations belong to parser events, not scanner tokens.
+#[derive(Clone, Copy)]
+pub(crate) struct TokenSpan {
+    pub(crate) start: Marker,
+    pub(crate) end: Marker,
+    pub(crate) indent: Option<usize>,
+}
+
+impl TokenSpan {
+    pub(crate) fn into_span(self) -> Span {
+        Span::new(self.start, self.end).with_indent(self.indent)
+    }
+}
 
 pub(crate) enum Kind {
     StreamStart,
@@ -21,11 +37,16 @@ pub(crate) enum Kind {
     Other,
 }
 
-pub(super) fn scan(text: &str) -> Box<[(Span, Kind)]> {
+pub(super) fn scan(text: &str) -> Box<[(TokenSpan, Kind)]> {
     Scanner::new(StrInput::new(text))
         .map_while(Result::ok)
         .map(|token| {
             let (span, kind) = token.into_parts();
+            let span = TokenSpan {
+                start: span.start,
+                end: span.end,
+                indent: span.indent,
+            };
             let kind = match kind {
                 TokenType::StreamStart => Kind::StreamStart,
                 TokenType::StreamEnd => Kind::StreamEnd,

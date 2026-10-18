@@ -21,7 +21,7 @@ pub struct TextVersion<'text> {
     chars: OnceCell<Vec<(usize, char)>>,
     line_starts: OnceCell<Vec<CharPos>>,
     lines: OnceCell<Vec<(usize, usize, usize)>>,
-    tokens: OnceCell<Box<[(Span, lexical::Kind)]>>,
+    tokens: OnceCell<Box<[(lexical::TokenSpan, lexical::Kind)]>>,
     sites: OnceCell<Vec<token_spacing::Site>>,
     indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
@@ -169,7 +169,7 @@ impl<'text> Analysis<'text> {
         self.lines().map(|(_, line, _)| line).collect()
     }
 
-    pub(crate) fn tokens(self) -> &'text [(Span, lexical::Kind)] {
+    pub(crate) fn tokens(self) -> &'text [(lexical::TokenSpan, lexical::Kind)] {
         self.source
             .tokens
             .get_or_init(|| lexical::scan(self.text()))

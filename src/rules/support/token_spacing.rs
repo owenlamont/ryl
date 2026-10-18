@@ -6,8 +6,8 @@
 use crate::text_version::Analysis;
 use std::ops::Range;
 
-use crate::text_version::lexical::Kind as LexicalKind;
-use granit_parser::{ScalarStyle, Span};
+use crate::text_version::lexical::{Kind as LexicalKind, TokenSpan};
+use granit_parser::ScalarStyle;
 
 use crate::rules::support::punctuation::line_and_column;
 use crate::rules::support::span_utils::{BytePos, CharPos, apply_replacements};
@@ -133,7 +133,7 @@ struct Walk<'a> {
     buffer: &'a str,
     chars: &'a [(usize, char)],
     line_starts: &'a [CharPos],
-    tokens: &'a [(Span, LexicalKind)],
+    tokens: &'a [(TokenSpan, LexicalKind)],
 }
 
 impl Walk<'_> {
