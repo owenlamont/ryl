@@ -5,6 +5,12 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Added
+
+- TOML `[lint] strict = true` enables strict lint exit codes; `--no-strict`
+  overrides configured strict mode. CLI flags take precedence over configuration.
+  ([#522](https://github.com/owenlamont/ryl/issues/522))
+
 ### Breaking changes
 
 - `ryl format` defaults to indent width 2 instead of inferring each file's width,
@@ -23,6 +29,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 - `ryl format` reuses verified indentation renders and appends padding without
   allocating temporary strings. ([#758](https://github.com/owenlamont/ryl/issues/758))
+- `ryl format` skips refusal-only indentation and spacing checks when no active
+  refusal exists. ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` and `ryl check --fix` reuse scalar and block-header analysis
   while the source text is unchanged.
   ([#758](https://github.com/owenlamont/ryl/issues/758))

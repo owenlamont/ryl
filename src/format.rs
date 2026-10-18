@@ -486,7 +486,15 @@ pub(crate) fn unfixed(
         computed = indentation::reindent(content, &target);
         &computed
     };
-    let inconsistent = indentation::check(content, &target.with_consistent_spaces());
+    let inconsistent = if reindented
+        .refused
+        .iter()
+        .any(|refusal| !matches!(refusal.cause, indentation::Cause::Disabled))
+    {
+        indentation::check(content, &target.with_consistent_spaces())
+    } else {
+        Vec::new()
+    };
     let kept = reindented
         .kept_dash_lines
         .iter()
@@ -536,6 +544,12 @@ fn refused_spacing(
     cfg: &YamlLintConfig,
     refused: &[indentation::Refusal],
 ) -> Vec<LintProblem> {
+    if refused
+        .iter()
+        .all(|refusal| matches!(refusal.cause, indentation::Cause::Disabled))
+    {
+        return Vec::new();
+    }
     let refused_line = |line| {
         refused.iter().any(|refusal| {
             !matches!(refusal.cause, indentation::Cause::Disabled)
