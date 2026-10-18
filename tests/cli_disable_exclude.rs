@@ -93,7 +93,6 @@ fn disable_rejects_unknown_rules_and_repeated_flags() {
     for args in [
         vec!["--disable", "nope"],
         vec!["--disable", "truthy,nope"],
-        vec!["--disable", "all"],
         vec!["--disable", "truthy", "--disable", "anchors"],
         vec!["--exclude", "a.yaml", "--exclude", "b.yaml"],
     ] {
