@@ -10,7 +10,7 @@ use crate::config::{
 };
 use crate::config_schema::parse_toml_config_str;
 use crate::rules::{comments, quoted_strings};
-use toml_edit::{DocumentMut, Item, Key, Table};
+use toml_edit::{Decor, DocumentMut, Item, Key, Table, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteMode {
@@ -525,6 +525,98 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
 
 fn rewrite_toml_document(document: &mut DocumentMut) {
     let root = document.as_table_mut();
+    rename_excludes(root);
+
+    for name in ["lint", "fix"] {
+        if root.get(name).is_some_and(Item::is_inline_table) {
+            let suffix = root[name]
+                .as_value()
+                .and_then(|value| value.decor().suffix())
+                .and_then(toml_edit::RawString::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            let mut table = root[name]
+                .clone()
+                .into_table()
+                .expect("validated inline table");
+            table.decor_mut().set_suffix(suffix);
+            root[name] = Item::Table(table);
+            root.key_mut(name)
+                .expect("converted table key exists")
+                .leaf_decor_mut()
+                .set_suffix("");
+        }
+    }
+
+    if !root.contains_key("lint")
+        && let Some((_, fix)) = root.remove_entry("fix")
+    {
+        root.insert("lint", fix);
+    }
+    if root.contains_key("fix") {
+        let mut fix_prefix = root["fix"].as_table().map_or_else(String::new, |fix| {
+            let mut prefix = fix
+                .decor()
+                .prefix()
+                .and_then(toml_edit::RawString::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            append_comments(fix.decor().suffix(), &mut prefix);
+            prefix
+        });
+        for name in ["fixable", "unfixable"] {
+            let moved = root["fix"]
+                .as_table_mut()
+                .and_then(|fix| fix.remove_entry(name));
+            if let Some((mut key, item)) = moved {
+                let lint = root["lint"].as_table_mut().expect("validated lint table");
+                if lint.contains_key(name) {
+                    let mut comments = std::mem::take(&mut fix_prefix);
+                    comments.push_str(&entry_comments(&key, &item));
+                    let mut target =
+                        lint.key_mut(name).expect("replacement key exists");
+                    prepend_decor_prefix(target.leaf_decor_mut(), &comments);
+                } else {
+                    prepend_key_prefix(&mut key, &fix_prefix);
+                    fix_prefix.clear();
+                    lint.insert_formatted(&key, item);
+                }
+            }
+        }
+        root.remove("fix");
+    }
+
+    for name in ["rules", "per-file-ignores", "per-line-ignores"] {
+        if let Some((key, item)) = root.remove_entry(name) {
+            if !root.contains_key("lint") {
+                let mut lint = Table::new();
+                lint.set_implicit(true);
+                root.insert("lint", Item::Table(lint));
+            }
+            let lint = root["lint"].as_table_mut().expect("validated lint table");
+            if lint.contains_key(name) {
+                let comments = entry_comments(&key, &item);
+                if let Some(table) = lint[name].as_table_mut() {
+                    prepend_decor_prefix(table.decor_mut(), &comments);
+                } else if let Some(array) = lint[name].as_array_of_tables_mut() {
+                    let first = array.iter_mut().next().expect("validated table array");
+                    prepend_decor_prefix(first.decor_mut(), &comments);
+                } else {
+                    prepend_decor_prefix(
+                        lint.key_mut(name)
+                            .expect("replacement key exists")
+                            .leaf_decor_mut(),
+                        &comments,
+                    );
+                }
+            } else {
+                lint.insert_formatted(&key, item);
+            }
+        }
+    }
+}
+
+fn rename_excludes(root: &mut Table) {
     let has_exclude = root.contains_key("exclude");
     let has_exclude_from_file = root.contains_key("exclude-from-file");
     let keys: Vec<_> = root.iter().map(|(key, _)| key.to_owned()).collect();
@@ -535,6 +627,14 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
         if (key == "ignore" && has_exclude)
             || (key == "ignore-from-file" && has_exclude_from_file)
         {
+            let replacement = if key == "ignore" {
+                "exclude"
+            } else {
+                "exclude-from-file"
+            };
+            let comments = entry_comments(&formatted, &item);
+            let mut target = root.key_mut(replacement).expect("replacement key exists");
+            prepend_decor_prefix(target.leaf_decor_mut(), &comments);
             continue;
         }
         let replacement = match key.as_str() {
@@ -549,76 +649,82 @@ fn rewrite_toml_document(document: &mut DocumentMut) {
         }
         root.insert_formatted(&formatted, item);
     }
-
-    for name in ["lint", "fix"] {
-        if root.get(name).is_some_and(Item::is_inline_table) {
-            let table = root[name]
-                .clone()
-                .into_table()
-                .expect("validated inline table");
-            root[name] = Item::Table(table);
-        }
-    }
-
-    if !root.contains_key("lint")
-        && let Some((_, fix)) = root.remove_entry("fix")
-    {
-        root.insert("lint", fix);
-    }
-    if root.contains_key("fix") {
-        let mut fix_prefix = root["fix"]
-            .as_table()
-            .and_then(|fix| fix.decor().prefix())
-            .and_then(toml_edit::RawString::as_str)
-            .unwrap_or_default()
-            .to_owned();
-        for name in ["fixable", "unfixable"] {
-            let moved = root["fix"]
-                .as_table_mut()
-                .and_then(|fix| fix.remove_entry(name));
-            if let Some((mut key, item)) = moved {
-                let lint = root["lint"].as_table_mut().expect("validated lint table");
-                if !lint.contains_key(name) {
-                    prepend_key_prefix(&mut key, &fix_prefix);
-                    fix_prefix.clear();
-                    lint.insert_formatted(&key, item);
-                }
-            }
-        }
-        root.remove("fix");
-    }
-
-    for (old, new) in [
-        ("rules", "rules"),
-        ("per-file-ignores", "per-file-ignores"),
-        ("per-line-ignores", "per-line-ignores"),
-    ] {
-        if let Some((key, item)) = root.remove_entry(old) {
-            if !root.contains_key("lint") {
-                let mut lint = Table::new();
-                lint.set_implicit(true);
-                root.insert("lint", Item::Table(lint));
-            }
-            let lint = root["lint"].as_table_mut().expect("validated lint table");
-            if !lint.contains_key(new) {
-                lint.insert_formatted(&key, item);
-            }
-        }
-    }
 }
 
 fn prepend_key_prefix(key: &mut Key, prefix: &str) {
+    prepend_decor_prefix(key.leaf_decor_mut(), prefix);
+}
+
+fn prepend_decor_prefix(decor: &mut Decor, prefix: &str) {
     if prefix.is_empty() {
         return;
     }
-    let key_prefix = key
-        .leaf_decor()
+    let key_prefix = decor
         .prefix()
         .and_then(toml_edit::RawString::as_str)
         .unwrap_or_default()
         .to_owned();
-    key.leaf_decor_mut()
-        .set_prefix(format!("{prefix}{key_prefix}"));
+    decor.set_prefix(format!("{prefix}{key_prefix}"));
+}
+
+fn entry_comments(key: &Key, item: &Item) -> String {
+    let mut comments = String::new();
+    append_decor_comments(key.leaf_decor(), &mut comments);
+    append_item_comments(item, &mut comments);
+    comments
+}
+
+fn append_comments(raw: Option<&toml_edit::RawString>, comments: &mut String) {
+    for line in raw
+        .and_then(toml_edit::RawString::as_str)
+        .unwrap_or_default()
+        .lines()
+    {
+        if let Some(comment) = line.trim_start().strip_prefix('#') {
+            comments.push('#');
+            comments.push_str(comment);
+            comments.push('\n');
+        }
+    }
+}
+
+fn append_decor_comments(decor: &Decor, comments: &mut String) {
+    append_comments(decor.prefix(), comments);
+    append_comments(decor.suffix(), comments);
+}
+
+fn append_item_comments(item: &Item, comments: &mut String) {
+    if let Item::Value(value) = item {
+        append_decor_comments(value.decor(), comments);
+        if let Value::Array(array) = value {
+            for value in array {
+                append_decor_comments(value.decor(), comments);
+            }
+            append_comments(Some(array.trailing()), comments);
+        }
+    }
+    if let Item::Table(table) = item {
+        append_decor_comments(table.decor(), comments);
+        for (name, child) in table {
+            append_decor_comments(
+                table.key(name).expect("table key exists").leaf_decor(),
+                comments,
+            );
+            append_item_comments(child, comments);
+        }
+    }
+    if let Item::ArrayOfTables(array) = item {
+        for table in array {
+            append_decor_comments(table.decor(), comments);
+            for (name, child) in table {
+                append_decor_comments(
+                    table.key(name).expect("table key exists").leaf_decor(),
+                    comments,
+                );
+                append_item_comments(child, comments);
+            }
+        }
+    }
 }
 
 /// Build and optionally apply YAML-to-TOML config migration.
