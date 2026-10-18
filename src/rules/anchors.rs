@@ -1,4 +1,5 @@
-//! `anchors` rule: flags undeclared aliases, duplicated anchors, unused anchors, and
+//! `anchors` rule: optionally forbids all anchors and aliases, or flags undeclared
+//! aliases, duplicated anchors, unused anchors, and
 //! (ryl-only, TOML `forbid-ambiguous-anchor-alias-names`) a name with a welded `:`
 //! (`&foo:`, `*foo:`, `&foo:bar`, `&:`/`&:foo`); a separating space (`*foo : bar`) is
 //! never flagged.
@@ -31,14 +32,17 @@ pub const MESSAGE_DUPLICATED_ANCHOR: &str = "found duplicated anchor";
 pub const MESSAGE_UNUSED_ANCHOR: &str = "found unused anchor";
 pub const MESSAGE_AMBIGUOUS_ANCHOR: &str = "found ambiguous anchor name";
 pub const MESSAGE_AMBIGUOUS_ALIAS: &str = "found ambiguous alias name";
+pub const MESSAGE_FORBIDDEN_ANCHOR: &str = "found forbidden anchor";
+pub const MESSAGE_FORBIDDEN_ALIAS: &str = "found forbidden alias";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools)] // independent yamllint-style toggles, not a state machine
+#[expect(clippy::struct_excessive_bools, reason = "independent rule options")]
 pub struct Config {
     forbid_undeclared_aliases: bool,
     forbid_duplicated_anchors: bool,
     forbid_unused_anchors: bool,
     forbid_ambiguous_anchor_alias_names: bool,
+    forbid_anchors_and_aliases: bool,
 }
 
 impl Config {
@@ -65,6 +69,11 @@ impl Config {
                 "forbid-ambiguous-anchor-alias-names",
                 false,
             ),
+            forbid_anchors_and_aliases: cfg.rule_option_bool(
+                ID,
+                "forbid-anchors-and-aliases",
+                false,
+            ),
         }
     }
 
@@ -79,6 +88,7 @@ impl Config {
             forbid_duplicated_anchors,
             forbid_unused_anchors,
             forbid_ambiguous_anchor_alias_names: false,
+            forbid_anchors_and_aliases: false,
         }
     }
 
@@ -109,6 +119,22 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
         let (span, token_type) = token.into_parts();
         match token_type {
+            TokenType::Anchor(ref name) | TokenType::Alias(ref name)
+                if cfg.forbid_anchors_and_aliases =>
+            {
+                let (line, column) =
+                    line_and_column(&line_starts, CharPos::new(span.start.index()));
+                let message = if matches!(token_type, TokenType::Anchor(_)) {
+                    MESSAGE_FORBIDDEN_ANCHOR
+                } else {
+                    MESSAGE_FORBIDDEN_ALIAS
+                };
+                violations.push(Violation {
+                    line,
+                    column,
+                    message: format!("{message} \"{name}\""),
+                });
+            }
             TokenType::DocumentStart | TokenType::DocumentEnd => {
                 finish_doc(&doc, *cfg, &mut violations);
                 doc = DocState::new();

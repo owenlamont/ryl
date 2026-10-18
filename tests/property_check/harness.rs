@@ -140,6 +140,17 @@ forbid-duplicated-merge-keys = true
 ";
 
 #[must_use]
+pub fn anchors_forbidden_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str(
+            "[lint.rules.anchors]\nforbid-anchors-and-aliases = true\n",
+        )
+        .expect("property-check forbidden anchors config must parse")
+    });
+    &CONFIG
+}
+
+#[must_use]
 pub fn key_duplicates_canonical_config() -> &'static YamlLintConfig {
     static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
         YamlLintConfig::from_toml_str(KEY_DUPLICATES_CANONICAL_TOML)
@@ -217,6 +228,12 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(
         spans,
         anchors_ambiguous_config(),
+        content,
+        ryl::rules::anchors
+    );
+    collect_standard!(
+        spans,
+        anchors_forbidden_config(),
         content,
         ryl::rules::anchors
     );

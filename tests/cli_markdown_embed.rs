@@ -467,6 +467,20 @@ fn anchors_ambiguous_name_fires_in_fenced_block() {
 }
 
 #[test]
+fn forbidden_anchors_and_aliases_fire_in_fenced_block() {
+    let config = "files = { markdown = [\"*.md\"] }\n[lint.rules.anchors]\nforbid-anchors-and-aliases = true\n";
+    let (_dir, file) = project(config, "doc.md", "```yaml\na: &a value\nb: *a\n```\n");
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(file));
+    assert_eq!(code, 1, "stdout={stdout} stderr={stderr}");
+    let output = format!("{stdout}{stderr}");
+    assert!(output.contains("2:4"), "{output}");
+    assert!(output.contains("3:4"), "{output}");
+    assert_eq!(output.matches("found forbidden").count(), 2, "{output}");
+}
+
+#[test]
 fn block_scalar_chomping_fires_in_fenced_block() {
     // The rule runs in embedded YAML (it is not markdown-suppressed); a bare block
     // header inside a fenced block maps back to its host line and marker column.

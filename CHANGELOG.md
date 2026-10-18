@@ -5,6 +5,13 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Added
+
+- TOML-only `anchors.forbid-anchors-and-aliases` reports every anchor and alias,
+  including merge aliases, without automatic fixes. Requested by
+  [@pygarap](https://github.com/pygarap).
+  ([#515](https://github.com/owenlamont/ryl/issues/515))
+
 ### Breaking changes
 
 - `ryl format` defaults to indent width 2 instead of inferring each file's width,
