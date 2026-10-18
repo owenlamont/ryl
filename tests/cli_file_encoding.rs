@@ -1,3 +1,6 @@
+mod common;
+use common::cli::run;
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -35,14 +38,6 @@ fn write_utf32le(path: &Path, content: &str) {
         data.extend_from_slice(&code.to_le_bytes());
     }
     fs::write(path, data).unwrap();
-}
-
-fn run(cmd: &mut Command) -> (i32, String, String) {
-    let out = cmd.output().expect("failed to run command");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy_owned(out.stdout);
-    let stderr = String::from_utf8_lossy_owned(out.stderr);
-    (code, stdout, stderr)
 }
 
 #[test]

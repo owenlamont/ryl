@@ -122,7 +122,9 @@ is TOML-only; yamllint-compatible YAML config rejects it.
 comma-separated rule IDs or `ALL`, and the flag can be repeated. It replaces the
 config's selection, so only the listed rules run. A listed rule keeps the options
 and level the config gives it, and runs at its defaults if the config disables
-it or does not mention it. `ignore`, `per-file-ignores` and inline directives
+it or does not mention it. `--disable <RULES>` then subtracts comma-separated rule IDs
+or `ALL` from the selection; pass `--disable` once per command. `ignore`,
+`per-file-ignores` and inline directives
 still apply. The flag works without any config file:
 
 ```bash

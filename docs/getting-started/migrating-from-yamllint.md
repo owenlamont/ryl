@@ -83,7 +83,7 @@ Useful flags:
 | `--migrate-configs` | Migrate project-tree YAML configs, and move deprecated keys in ryl TOML configs to `[lint]` and `exclude` |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
 | `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
-| `--migrate-stdout` | Print generated TOML to stdout instead of writing |
+| `--migrate-stdout` | Print generated TOML to stdout; also writes when combined with `--migrate-write` |
 | `--migrate-write` | Write files (otherwise preview only) |
 | `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
 | `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
@@ -117,8 +117,9 @@ reports an error if it cannot preserve them. On Windows they keep the read-only
 attribute; other access-control entries are not copied.
 
 Migration produces a self-contained config. yamllint's top-level `ignore` and
-`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML an
-`ignore` key suppresses rules, never whole files. A relative `extends` is flattened
+`ignore-from-file` become `exclude` and `exclude-from-file`, since in ryl TOML
+per-rule `ignore` suppresses one rule; top-level `ignore` remains a deprecated alias
+for whole-file `exclude`. A relative `extends` is flattened
 (its rules are inlined), resolved relative to the config's own directory first,
 then the current directory. A user-global config with a relative `ignore-from-file`,
 at either the top level or rule level, is skipped with a warning: the path resolves
@@ -500,7 +501,8 @@ yamllint-compatible YAML config.
 ### Comment alignment to an open block level
 
 yamllint's `comments-indentation` requires a standalone comment to match the
-indentation of the content that follows it. ryl adds a ryl-only, off-by-default
+indentation of the surrounding content; at a dedent the preceding block's indentation
+is also accepted. ryl adds a ryl-only, off-by-default
 [`comments-indentation: allow-any-open-indent`](../rules/comments-indentation.md)
 option that *also* accepts a comment aligned to any still-open enclosing block
 level &mdash; the pattern requested in

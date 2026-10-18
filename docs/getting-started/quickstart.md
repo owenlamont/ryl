@@ -175,7 +175,7 @@ remaining *unfixable* findings are neither printed nor counted:
 
 - `1` &mdash; at least one file would change.
 - `0` &mdash; no file would change.
-- `2` &mdash; CLI usage error.
+- `2` &mdash; usage/config error or an input-processing failure.
 
 A file that cannot be parsed (or a symlink) is skipped with a notice on
 stderr and does not affect the exit code. Non-UTF-8 and BOM-prefixed files

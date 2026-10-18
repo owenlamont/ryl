@@ -1,6 +1,6 @@
 [package]
 name = "ryl"
-version = "0.25.1"
+version = "0.26.0"
 edition = "2024"
 rust-version = "1.99.0"
 description = "Fast YAML linter and formatter"
@@ -84,7 +84,6 @@ noyalib = "0.0.57"
 diffy = { version = "0.5.0", default-features = false }
 jsonschema = "0.58.4"
 proptest = "1.11.0"
-semver = "1"
 tempfile = "3"
 # Non-optional for the `lsp`-feature integration tests; keep versions matching the
 # optional runtime deps above.

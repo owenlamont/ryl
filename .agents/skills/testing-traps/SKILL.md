@@ -43,8 +43,9 @@ The `cli_*_rule` tests follow this; only tests that exercise formatting itself
 ## Unicode fixtures
 
 For Unicode-heavy fixtures, assert with multibyte characters (e.g. `"café"`/`"å"`) and
-reuse `crate::rules::span_utils` rather than reinventing byte/char conversions, to cover
-character-vs-byte offset logic.
+assert public diagnostic positions to cover character-vs-byte offset logic. Rule code
+can reuse `crate::rules::support::span_utils`; the support module is crate-private and
+cannot be imported by integration tests.
 
 ## Committed JSON config schemas
 

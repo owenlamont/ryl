@@ -2,8 +2,9 @@
 
 ## What this rule does
 
-Requires that the keys within each mapping appear in lexicographic
-(locale-aware) order.
+Requires that mapping keys appear in codepoint order by default. A non-C/POSIX
+`locale` selects case- and accent-normalized comparison, rather than locale-specific
+collation.
 
 ## Why this matters
 

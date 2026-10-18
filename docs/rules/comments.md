@@ -89,7 +89,10 @@ fixable = ["ALL"]
 unfixable = ["comments"]
 ```
 
-`ryl format` inserts the space after `#` and writes exactly two spaces before an inline comment. It conflicts with a `min-spaces-from-content` above 2 or a non-negative `max-spaces-from-content` below 2; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` follows `[format] comment-starting-space` and `comment-spacing`
+(defaults `"add"` and 2). It conflicts when the configured comment gap falls outside
+the lint spacing bounds; see
+[Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

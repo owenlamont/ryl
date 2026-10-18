@@ -198,7 +198,7 @@ and opt them in via `[files]`:
 
 ```yaml
 - repo: https://github.com/owenlamont/ryl-pre-commit
-  rev: v0.25.0
+  rev: v0.26.0
   hooks:
     - id: ryl-check
       types: [file] # replaces the hook's own types: [yaml]

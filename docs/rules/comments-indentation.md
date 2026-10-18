@@ -3,8 +3,8 @@
 ## What this rule does
 
 Requires that standalone comment lines line up with the surrounding
-content. A comment must share the indentation of the line that follows it
-(or, when at the end of the file, the line that precedes it).
+content. A comment may share the indentation of the line that follows it or, at a
+dedent, retain the preceding block's indentation. At EOF, the preceding line applies.
 A line-1 `#!` shebang or `#cloud-config` header is exempt, where yamllint
 checks it: moving it would break the file.
 
@@ -72,8 +72,8 @@ parent:
 
 ## Automatic fixing
 
-`ryl check --fix` reindents standalone comment lines to match the line that
-follows them. Disable with:
+`ryl check --fix` reindents misaligned standalone comments to match the surrounding
+content, leaving accepted comments unchanged. Disable with:
 
 ```toml
 [lint]

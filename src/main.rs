@@ -291,7 +291,7 @@ struct Cli {
     #[arg(long = "migrate-configs", default_value_t = false)]
     migrate_configs: bool,
 
-    /// Convert the yamllint user-global config into ryl's own user-global ryl.toml
+    /// Convert legacy user-global config into ryl.toml or move deprecated TOML keys
     #[arg(long = "migrate-user-config", default_value_t = false)]
     migrate_user_config: bool,
 
@@ -377,7 +377,8 @@ struct SourceArgs {
     #[arg(short = 'd', long = "config-data", value_name = "DATA")]
     config_data: Option<String>,
 
-    /// Disable lint rules (comma-separated ids, or ALL), after config and --enable selection
+    /// Disable lint rules (comma-separated IDs, or ALL); for format, only suppress
+    /// conflict warnings
     #[arg(
         long = "disable",
         value_name = "RULES",
@@ -534,7 +535,7 @@ impl CompatibilityLintFlags {
 
 #[derive(clap::Args, Debug, Default)]
 struct MigrateFlags {
-    /// Directory to search for legacy YAML config files, or one config file (default: .)
+    /// Directory to search for legacy config files, or one config file (default: .)
     #[arg(
         long = "migrate-root",
         value_name = "PATH",
@@ -558,7 +559,7 @@ struct MigrateFlags {
     )]
     stdout: bool,
 
-    /// Rename source YAML configs by appending this suffix after migration
+    /// Rename source YAML configs or back up rewritten TOML by appending this suffix
     #[arg(
         long = "migrate-rename-old",
         value_name = "SUFFIX",
@@ -567,7 +568,7 @@ struct MigrateFlags {
     )]
     rename_old: Option<String>,
 
-    /// Delete source YAML configs after migration
+    /// Delete source YAML configs after migration; rewritten TOML is kept
     #[arg(
         long = "migrate-delete-old",
         default_value_t = false,

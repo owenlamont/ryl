@@ -103,7 +103,6 @@ fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
 pub(crate) fn preserved_scalar_lines_with_analysis(
     input: Analysis<'_>,
 ) -> Option<HashSet<usize>> {
-    let _buffer = input.text();
     let mut protected =
         crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
             input,

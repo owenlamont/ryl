@@ -80,10 +80,16 @@ description: >-
     gitignored local copies Claude Code loads (`.claude/skills/`) **from GitHub
     pinned to the release tag, after the tag is pushed** — never `--from-local`
     (that pins to unverified local state):
-    `gh skill install owenlamont/ryl --all --allow-hidden-dirs --agent claude-code
-    --scope project --pin vX.Y.Z --force` (then `gh skill update` for later
-    refreshes). Confirm the install pulls only the `.agents/skills/` dev skills and
-    not the published `skills/ryl`; scope by skill path if it does not.
+    Install explicit dev-skill paths so the published `skills/ryl` is excluded:
+
+    ```sh
+    for skill in .agents/skills/*/SKILL.md; do
+      gh skill install owenlamont/ryl "$skill" --allow-hidden-dirs \
+        --agent claude-code --scope project --pin vX.Y.Z --force
+    done
+    ```
+
+    Use `gh skill update` for later refreshes.
   - Review the downstream agent skill `skills/ryl/SKILL.md` and the
     `docs/using-ryl-with-ai-agents.md` page for any behaviour, flag, format, or
     rule changes in this release. The `agent_skill_drift_guard` test catches a

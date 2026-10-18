@@ -7,9 +7,10 @@ quotes are required.
 
 The rule answers three questions:
 
-1. **Which quote type is preferred** &mdash; single, double, or either.
+1. **Which quote type is preferred** &mdash; single, double, either, or consistent
+   with the first checked quoted scalar.
 2. **When must a string be quoted** &mdash; always, only when YAML would
-   otherwise interpret it as a non-string type, or never.
+   otherwise interpret it as a non-string type, or optionally.
 3. **Which scalars are in scope** &mdash; values only, or both values and
    mapping keys.
 
@@ -66,12 +67,12 @@ check-keys = false
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `quote-type` | `"any"` | `"single"`, `"double"`, or `"any"`. The quote style required when the rule decides a string must be quoted. |
-| `required` | `true` | `true` &mdash; every string scalar must be quoted. `false` &mdash; no string scalar may be quoted. `"only-when-needed"` &mdash; require quotes only when leaving the scalar bare would change its YAML type. |
+| `quote-type` | `"any"` | `"single"`, `"double"`, `"any"`, or `"consistent"`. Consistent uses the first checked quoted scalar's style for subsequent checked scalars across the stream. |
+| `required` | `true` | `true` &mdash; every string scalar must be quoted. `false` &mdash; quotes are optional; configured quote style and `extra-required` still apply. `"only-when-needed"` &mdash; require quotes only when leaving the scalar bare would change its YAML type. |
 | `extra-required` | `[]` | Regular expressions; values matching any pattern must be quoted regardless of `required`. |
-| `extra-allowed` | `[]` | Regular expressions; values matching any pattern may be quoted even when `required = false`. |
-| `allow-quoted-quotes` | `false` | Permit single quotes inside a single-quoted string (and analogously for doubles) instead of forcing a switch to the other quote type. |
-| `allow-double-quotes-for-escaping` | `false` | **ryl-only.** When `quote-type = "single"` and `required = "only-when-needed"`, allow double quotes specifically for strings that need an escape sequence. |
+| `extra-allowed` | `[]` | Regular expressions; matching strings may retain otherwise redundant quotes under `required = "only-when-needed"`. |
+| `allow-quoted-quotes` | `false` | Allow the other outer quote style when the string contains the configured quote character, avoiding escapes. |
+| `allow-double-quotes-for-escaping` | `false` | **ryl-only.** Allow double-quoted strings containing escapes despite the configured quote preference. |
 | `check-keys` | `false` | Also apply the rule to mapping keys, not only values. |
 
 ## Automatic fixing
