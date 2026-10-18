@@ -785,7 +785,8 @@ impl Server {
             enc: self.encoding,
             supports_document_changes: self.supports_document_changes,
         };
-        let result = actions::build(&input, &params.context);
+        let (result, notices) = actions::build_with_notices(&input, &params.context);
+        self.report_config_notices(connection, &notices);
         if params.context.only.as_deref().is_some_and(|only| {
             crate::fix::SAFE_FIX_RULE_IDS.iter().any(|rule| {
                 actions::admits(Some(only), &format!("source.fixAll.ryl.{rule}"))

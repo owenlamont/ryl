@@ -56,11 +56,11 @@ Flow closing delimiters stay deeper than the enclosing block, even when the
 yamllint indentation rule previously preferred the block's column.
 
 `ryl check` and LSP diagnostics parse strictly and report the original indentation
-as a syntax error. `check --fix`/`--diff` and LSP formatting allow the same guarded
-repair; lint fixes otherwise keep their existing rule selection.
+as a syntax error. `check --fix`/`--diff`, LSP formatting and Fix All allow the same
+guarded repair; lint fixes otherwise keep their existing rule selection.
 Syntax repair in `check --fix`/`--diff` requires the default
 `lint.fixable = ["ALL"]`, honors indentation ignore settings and uses formatter
-indentation targets. Per-rule editor fixes leave syntax repair to Format Document.
+indentation targets. Per-rule editor fixes leave syntax repair to Format Document or Fix All.
 
 See [File encodings](getting-started/quickstart.md#file-encodings) for encoding
 preservation and `--check`/`--diff` behavior when a text patch cannot be emitted.
