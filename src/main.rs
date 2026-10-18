@@ -1525,10 +1525,15 @@ fn read_and_lint_stdin(
 ) -> Result<Vec<LintProblem>, String> {
     let (content, _) = read_stdin_decoded(path)?;
     Ok(match kind {
-        SourceKind::Markdown => {
-            lint_markdown_str(content.content(), path, cfg, base_dir)
+        SourceKind::Markdown => ryl::markdown_embed::lint_markdown_stdin_str(
+            content.content(),
+            path,
+            cfg,
+            base_dir,
+        ),
+        SourceKind::Yaml => {
+            ryl::lint::lint_stdin_str(content.content(), path, cfg, base_dir)
         }
-        SourceKind::Yaml => lint_str(content.content(), path, cfg, base_dir),
     })
 }
 

@@ -294,6 +294,27 @@ pub fn lint_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
+    lint_str_with_hint_options(content, path, cfg, base_dir, true, true)
+}
+
+#[must_use]
+pub fn lint_stdin_str(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Vec<LintProblem> {
+    lint_str_with_hint_options(content, path, cfg, base_dir, false, true)
+}
+
+pub(crate) fn lint_str_with_hint_options(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    allow_fix: bool,
+    allow_hint: bool,
+) -> Vec<LintProblem> {
     if crate::directives::disables_file(content) {
         return Vec::new();
     }
@@ -318,7 +339,9 @@ pub fn lint_str(
         diagnostics.push(warning);
     }
 
-    if let Some(syntax) = syntax_diagnostic(content, path, cfg, base_dir) {
+    if let Some(syntax) =
+        syntax_diagnostic(content, path, cfg, base_dir, allow_fix, allow_hint)
+    {
         diagnostics.clear();
         diagnostics.push(syntax);
     }
@@ -403,6 +426,8 @@ fn syntax_diagnostic(
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
+    allow_fix: bool,
+    allow_hint: bool,
 ) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
@@ -415,37 +440,45 @@ fn syntax_diagnostic(
         }
         Err(err) => {
             let mut problem = syntax_problem(&err);
-            if *err.kind() == granit_parser::ErrorKind::InvalidIndentation
+            if allow_hint
+                && *err.kind() == granit_parser::ErrorKind::InvalidIndentation
                 && !path.is_symlink()
             {
-                let fix = crate::fix::rewrite_str(
-                    content,
-                    cfg,
-                    path,
-                    base_dir,
-                    crate::config::SourceKind::Yaml,
-                    crate::fix::Rewrite::Fix,
-                )
-                .0
-                .is_some();
+                let fix = allow_fix
+                    && crate::fix::rewrite_str(
+                        content,
+                        cfg,
+                        path,
+                        base_dir,
+                        crate::config::SourceKind::Yaml,
+                        crate::fix::Rewrite::Fix,
+                    )
+                    .0
+                    .is_some();
                 let format =
                     crate::format::format_str(content, cfg, path, &[]) != content;
-                let help = match (fix, format) {
-                    (true, true) => Some("ryl check --fix or ryl format"),
-                    (true, false) => Some("ryl check --fix"),
-                    (false, true) => Some("ryl format"),
-                    (false, false) => None,
-                };
-                if let Some(commands) = help {
-                    write!(
-                        problem.message,
-                        "; help: {commands} can repair the indentation"
-                    )
-                    .expect("writing to a String cannot fail");
-                }
+                add_indentation_help(&mut problem, fix, format);
             }
             Some(problem)
         }
+    }
+}
+
+pub(crate) fn add_indentation_help(problem: &mut LintProblem, fix: bool, format: bool) {
+    let commands = [
+        fix.then_some("ryl check --fix"),
+        format.then_some("ryl format"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !commands.is_empty() {
+        write!(
+            problem.message,
+            "; help: {} can repair the indentation",
+            commands.join(" or ")
+        )
+        .expect("writing to a String cannot fail");
     }
 }
 

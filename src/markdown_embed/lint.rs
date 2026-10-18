@@ -1,12 +1,13 @@
 //! Lint the YAML regions extracted from a markdown document and translate each
 //! diagnostic's position back to the host file.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use super::{EmbeddedRegion, MarkdownSources, extract_regions};
 use crate::config::YamlLintConfig;
-use crate::fix::suppressed_rules;
-use crate::lint::{LintProblem, lint_str};
+use crate::fix::{Rewrite, fix_markdown_str, suppressed_rules};
+use crate::lint::{LintProblem, add_indentation_help, lint_str_with_hint_options};
 
 /// Lint every embedded YAML region in `markdown` and return diagnostics whose line/column
 /// point into the original markdown document. Each region is linted as an independent
@@ -18,13 +19,87 @@ pub fn lint_markdown_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
+    lint_markdown_str_with_fix(markdown, path, cfg, base_dir, true)
+}
+
+#[must_use]
+pub fn lint_markdown_stdin_str(
+    markdown: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Vec<LintProblem> {
+    lint_markdown_str_with_fix(markdown, path, cfg, base_dir, false)
+}
+
+pub(crate) fn lint_markdown_str_with_fix(
+    markdown: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    allow_fix: bool,
+) -> Vec<LintProblem> {
     let suppressed = suppressed_rules();
+    let mut repaired = None;
     markdown_region_problems(markdown, cfg, |region| {
-        let mut problems = lint_str(&region.content, path, cfg, base_dir);
+        let mut problems = lint_str_with_hint_options(
+            &region.content,
+            path,
+            cfg,
+            base_dir,
+            false,
+            false,
+        );
+        if !(allow_fix && path.is_symlink())
+            && problems.iter().any(|problem| {
+                problem.message == "syntax error: invalid indentation (syntax)"
+            })
+        {
+            let (fix, format) = repaired.get_or_insert_with(|| {
+                (
+                    if allow_fix {
+                        repaired_regions(markdown, path, cfg, base_dir, Rewrite::Fix)
+                    } else {
+                        HashSet::new()
+                    },
+                    repaired_regions(markdown, path, cfg, base_dir, Rewrite::Format),
+                )
+            });
+            for problem in &mut problems {
+                add_indentation_help(
+                    problem,
+                    fix.contains(&region.raw_span.start),
+                    format.contains(&region.raw_span.start),
+                );
+            }
+        }
         problems
             .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
         problems
     })
+}
+
+fn repaired_regions(
+    markdown: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    rewrite: Rewrite,
+) -> HashSet<usize> {
+    let Some(output) = fix_markdown_str(markdown, path, cfg, base_dir, rewrite) else {
+        return HashSet::new();
+    };
+    let sources = MarkdownSources {
+        front_matter: cfg.markdown_front_matter(),
+        fenced_blocks: cfg.markdown_fenced_blocks(),
+    };
+    extract_regions(markdown, sources)
+        .into_iter()
+        .zip(extract_regions(&output, sources))
+        .filter_map(|(before, after)| {
+            (before.content != after.content).then_some(before.raw_span.start)
+        })
+        .collect()
 }
 
 #[must_use]

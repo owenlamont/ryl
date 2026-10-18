@@ -108,6 +108,57 @@ fn stdin_syntax_error_reports_failure() {
 }
 
 #[test]
+fn repairable_stdin_indentation_suggests_only_format() {
+    let input = b"---\nkey:\n  args: [\n    \"a\",\n  ]\n";
+    for filename in [None, Some("input.yaml")] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ryl"));
+        command.args([
+            "check",
+            "-f",
+            "standard",
+            "-d",
+            "[lint.rules.document-start]",
+        ]);
+        if let Some(filename) = filename {
+            command.args(["--stdin-filename", filename]);
+        }
+        command.arg("-");
+        let (code, _stdout, stderr) = run_with_stdin(&mut command, input);
+        assert_eq!(code, 1, "{stderr}");
+        let label = filename.unwrap_or("<stdin>");
+        assert_eq!(
+            stderr,
+            format!(
+                "{label}\n  5:3       error    syntax error: invalid indentation (syntax); help: ryl format can repair the indentation\n\n"
+            )
+        );
+    }
+}
+
+#[test]
+fn repairable_markdown_stdin_indentation_suggests_only_format() {
+    let input = b"```yaml\nkey:\n  args: [\n    \"a\",\n  ]\n```\n";
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .args([
+                "check",
+                "--markdown",
+                "-f",
+                "standard",
+                "-d",
+                "[lint.rules.document-start]",
+            ])
+            .arg("-"),
+        input,
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert_eq!(
+        stderr,
+        "<stdin>\n  5:3       error    syntax error: invalid indentation (syntax); help: ryl format can repair the indentation\n\n"
+    );
+}
+
+#[test]
 fn stdin_filename_appears_in_diagnostics() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
