@@ -15,9 +15,8 @@ use granit_parser::Placement;
 use regex::Regex;
 
 use crate::rules::ALL_RULE_IDS;
-use crate::rules::support::comments_scan::collect_comments;
 use crate::rules::support::line_syntax::{
-    line_contents, split_lines_inclusive, split_lines_preserve_endings,
+    split_lines_inclusive, split_lines_preserve_endings,
 };
 
 // The patterns match granit's comment payload (text after the leading `#`); the leading
@@ -124,7 +123,7 @@ pub struct PerLineRuleApply<'a> {
 }
 
 /// Resolved disable state for one buffer.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Directives {
     /// `(line, rules disabled from that line onward)`, in ascending line order.
     block_snapshots: Vec<(usize, HashSet<&'static str>)>,
@@ -140,13 +139,28 @@ impl Directives {
     /// comment scan and returns an empty set, so directive-less files pay no parsing cost.
     #[must_use]
     pub fn parse(buffer: &str) -> Self {
+        Self::parse_with_analysis(
+            crate::text_version::TextVersion::new(buffer).analysis(),
+        )
+    }
+
+    pub(crate) fn parse_with_analysis(
+        input: crate::text_version::Analysis<'_>,
+    ) -> Self {
+        input.directives().clone()
+    }
+
+    pub(crate) fn parse_uncached(input: crate::text_version::Analysis<'_>) -> Self {
+        let buffer = input.text();
         if !buffer.contains("yamllint ") && !buffer.contains("ryl ") {
             return Self::default();
         }
 
         let mut block: HashSet<&'static str> = HashSet::new();
         let mut directives = Self::default();
-        for comment in collect_comments(buffer) {
+        for comment in
+            crate::rules::support::comments_scan::collect_comments_with_analysis(input)
+        {
             let line = comment.span.start.line();
             let disable_line_target = if comment.placement == Placement::Right {
                 line
@@ -189,7 +203,17 @@ impl Directives {
         buffer: &str,
         per_line: &[PerLineRuleApply<'_>],
     ) -> Self {
-        let mut directives = Self::parse(buffer);
+        Self::parse_per_line_with_analysis(
+            crate::text_version::TextVersion::new(buffer).analysis(),
+            per_line,
+        )
+    }
+
+    pub(crate) fn parse_per_line_with_analysis(
+        input: crate::text_version::Analysis<'_>,
+        per_line: &[PerLineRuleApply<'_>],
+    ) -> Self {
+        let mut directives = Self::parse_with_analysis(input);
         if per_line.is_empty() {
             return directives;
         }
@@ -204,7 +228,7 @@ impl Directives {
         if !has_regex_entry {
             return directives;
         }
-        for (index, content) in line_contents(buffer).into_iter().enumerate() {
+        for (index, content) in input.line_contents().into_iter().enumerate() {
             for entry in per_line {
                 if entry.regex.is_some_and(|regex| regex.is_match(content)) {
                     insert_rules(

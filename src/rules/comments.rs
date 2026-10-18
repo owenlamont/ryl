@@ -6,9 +6,10 @@
 use granit_parser::Placement;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::comments_scan::{CommentInfo, collect_comments};
+use crate::rules::support::comments_scan::CommentInfo;
 use crate::rules::support::line_syntax::is_magic_first_line_comment;
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "comments";
 
@@ -72,8 +73,15 @@ pub struct Violation {
 /// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
+    let buffer = input.text();
     let mut violations = Vec::new();
-    for comment in collect_comments(buffer) {
+    for comment in
+        crate::rules::support::comments_scan::collect_comments_with_analysis(input)
+    {
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;
 
@@ -137,9 +145,16 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 /// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    fix_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
+    let buffer = input.text();
     let mut edits: Vec<(BytePos, BytePos, String)> = Vec::new();
 
-    for comment in collect_comments(buffer) {
+    for comment in
+        crate::rules::support::comments_scan::collect_comments_with_analysis(input)
+    {
         let byte_start = comment_byte_start(&comment);
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;

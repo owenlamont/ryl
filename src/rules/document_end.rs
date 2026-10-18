@@ -5,12 +5,10 @@
 //! `...` (`present: false`) can collide with document boundaries, so it is not fixed.
 use std::collections::HashMap;
 
-use granit_parser::{Event, Parser};
+use granit_parser::Event;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{
-    buffer_newline, line_contents, split_lines_preserve_endings,
-};
+use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "document-end";
@@ -50,13 +48,13 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    scan(buffer, *cfg).violations
+    scan(TextVersion::new(buffer).analysis(), *cfg).violations
 }
 
-fn scan(buffer: &str, cfg: Config) -> Scan {
+fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
     let mut result = Scan::default();
     let mut pending = false;
-    for (event, span) in Parser::new_from_str(buffer).map_while(Result::ok) {
+    for (event, span) in input.events() {
         if pending {
             let line = if matches!(event, Event::StreamEnd) {
                 result.unended_at_stream_end = true;
@@ -94,17 +92,17 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
     let buffer = input.text();
-    let result = scan(buffer, cfg);
+    let result = scan(input, cfg);
     let final_blank = if result.unended_at_stream_end {
         final_blank_scalar_action(input)
     } else {
         FinalBlank::Keep
     };
-    let final_line = line_contents(buffer).len();
+    let final_line = input.line_contents().len();
     let newline = buffer_newline(buffer);
     let mut marker_lines = result.unended_before.iter().peekable();
     let mut output = String::with_capacity(buffer.len() + 4 * result.violations.len());
-    for (idx, content, ending) in split_lines_preserve_endings(buffer) {
+    for (idx, content, ending) in input.lines() {
         if marker_lines.next_if_eq(&&(idx + 1)).is_some() {
             output.push_str("...");
             output.push_str(newline);
@@ -137,8 +135,8 @@ enum FinalBlank {
 }
 
 fn final_blank_scalar_action(input: Analysis<'_>) -> FinalBlank {
-    let buffer = input.text();
-    let lines = line_contents(buffer);
+    let _buffer = input.text();
+    let lines = input.line_contents();
     let headers = input.headers();
     let root_indents = root_explicit_content_indents_with_analysis(input, &lines);
     let line = lines

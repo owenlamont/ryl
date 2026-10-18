@@ -9,6 +9,7 @@
 //! below is left alone: its spacing is the collection's indentation.
 use crate::config::YamlLintConfig;
 use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode, Site};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
@@ -70,9 +71,14 @@ impl Config {
         }
     }
 
-    fn violations(&self, buffer: &str, keep: impl Fn(Fix) -> bool) -> Vec<Violation> {
-        token_spacing::sites(buffer)
-            .into_iter()
+    fn violations(
+        &self,
+        input: Analysis<'_>,
+        keep: impl Fn(Fix) -> bool,
+    ) -> Vec<Violation> {
+        input
+            .sites()
+            .iter()
             .filter(|site| {
                 keep(site.fix)
                     && self.tolerance(site).is_some_and(|tol| site.exceeds(tol))
@@ -101,16 +107,26 @@ pub struct Violation {
 /// The violations under `cfg`; for the formatter's config, only those its fix rewrites.
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    cfg.violations(buffer, |fix| cfg.mode == Mode::Lint || fix == Fix::Safe)
+    check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
+    cfg.violations(input, |fix| cfg.mode == Mode::Lint || fix == Fix::Safe)
 }
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    token_spacing::fix(buffer, cfg.mode, |site| cfg.tolerance(site))
+    fix_with_analysis(TextVersion::new(buffer).analysis(), cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
+    token_spacing::fix(input, cfg.mode, |site| cfg.tolerance(site))
 }
 
 /// The violations `fix` leaves because respacing them would re-indent a collection.
 #[must_use]
 pub fn unfixed(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    cfg.violations(buffer, |fix| fix == Fix::Reindents)
+    cfg.violations(TextVersion::new(buffer).analysis(), |fix| {
+        fix == Fix::Reindents
+    })
 }

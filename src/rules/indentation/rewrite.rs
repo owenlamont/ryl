@@ -1,21 +1,11 @@
-use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
-use granit_parser::{Event, Span};
-
-use super::{
-    Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate, scan, scan_with_comments,
-};
+use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift, locate};
 use crate::directives::Directives;
 use crate::rules::hyphens;
-use crate::rules::support::event_compare::{
-    Document, documents, documents_from_events,
-};
-use crate::rules::support::line_syntax::{
-    buffer_newline, split_lines_preserve_endings,
-};
-use crate::rules::support::punctuation::build_line_starts;
-use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::event_compare::{Document, documents_with_analysis};
+use crate::rules::support::line_syntax::buffer_newline;
+use crate::text_version::{Analysis, TextVersion};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reindented {
@@ -53,112 +43,107 @@ pub enum Cause {
 /// byte-identical for each [`Cause`].
 #[must_use]
 pub fn reindent(buffer: &str, cfg: &Config) -> Reindented {
-    reindent_with_events(buffer, cfg, None)
+    reindent_with_analysis(TextVersion::new(buffer).analysis(), cfg).0
 }
 
-pub(crate) fn reindent_with_events(
-    buffer: &str,
+pub(crate) fn reindent_with_analysis(
+    input: Analysis<'_>,
     cfg: &Config,
-    events: Option<&[(Event<'_>, Span)]>,
-) -> Reindented {
-    Prepared::new(buffer, cfg.dash_on_own_line, events).reindent(cfg)
+) -> (Reindented, TextVersion<'static>) {
+    Prepared::new(input, cfg.dash_on_own_line).reindent_snapshot(cfg)
 }
 
 struct Prepared<'a> {
-    buffer: &'a str,
-    original: Vec<Document<'a>>,
+    input: Analysis<'a>,
     parsed: bool,
     directives: Directives,
-    lines: Vec<(&'a str, &'a str)>,
     starts: Vec<usize>,
-    shaped: String,
+    shaped: Option<TextVersion<'static>>,
     origin: Vec<usize>,
     kept_dash_lines: Vec<(usize, usize)>,
-    chars: Vec<(usize, char)>,
-    line_starts: Vec<CharPos>,
-    tokens: Vec<super::Token>,
 }
 
 impl<'a> Prepared<'a> {
-    fn new(
-        buffer: &'a str,
-        dash_on_own_line: Option<bool>,
-        events: Option<&[(Event<'a>, Span)]>,
-    ) -> Self {
-        let (original, parsed) = events.map_or_else(
-            || documents(buffer),
-            |events| (documents_from_events(events), true),
-        );
-        let directives = Directives::parse(buffer);
-        let lines: Vec<(&str, &str)> = split_lines_preserve_endings(buffer)
+    fn new(input: Analysis<'a>, dash_on_own_line: Option<bool>) -> Self {
+        let (original, parsed) = documents_with_analysis(input);
+        let directives = Directives::parse_with_analysis(input);
+        let lines: Vec<_> = input
+            .lines()
             .map(|(_, content, ending)| (content, ending))
             .collect();
         let parsed = parsed && !original.is_empty();
         let starts = if parsed {
-            document_starts(buffer, &original)
+            document_starts(input, &original)
         } else {
             Vec::new()
         };
-        let (shaped, origin, kept_dash_lines, scanned) = if parsed {
-            reshape(buffer, &lines, dash_on_own_line, &directives)
+        drop(original);
+        let (shaped, origin, kept_dash_lines) = if parsed {
+            reshape(input, &lines, dash_on_own_line, &directives)
         } else {
-            (String::new(), Vec::new(), Vec::new(), None)
+            (String::new(), Vec::new(), Vec::new())
         };
-        let chars: Vec<(usize, char)> = shaped.char_indices().collect();
-        let (tokens, line_starts) =
-            scanned.filter(|_| shaped == buffer).unwrap_or_else(|| {
-                let mut starts = build_line_starts(&chars);
-                let tokens = scan(&shaped, &chars, &mut starts);
-                (tokens, starts)
-            });
+        let shaped = (shaped != input.text()).then(|| TextVersion::new(shaped));
         Self {
-            buffer,
-            original,
+            input,
             parsed,
             directives,
-            lines,
             starts,
             shaped,
             origin,
             kept_dash_lines,
-            chars,
-            line_starts,
-            tokens,
         }
     }
 
-    fn reindent(&self, cfg: &Config) -> Reindented {
+    fn shaped(&self) -> Analysis<'_> {
+        self.shaped
+            .as_ref()
+            .map_or(self.input, TextVersion::analysis)
+    }
+
+    fn reindent_snapshot(&self, cfg: &Config) -> (Reindented, TextVersion<'static>) {
+        let input = self.input;
+        let buffer = input.text();
         if !self.parsed {
-            return Reindented {
-                text: self.buffer.to_string(),
-                refused: Vec::new(),
-                kept_dash_lines: Vec::new(),
-            };
+            return (
+                Reindented {
+                    text: buffer.to_string(),
+                    refused: Vec::new(),
+                    kept_dash_lines: Vec::new(),
+                },
+                TextVersion::new(buffer.to_string()),
+            );
         }
-        let (lines, starts, origin) = (&self.lines, &self.starts, &self.origin);
+        let lines: Vec<_> = input
+            .lines()
+            .map(|(_, content, ending)| (content, ending))
+            .collect();
+        let (starts, origin) = (&self.starts, &self.origin);
+        let shaped = self.shaped();
+        let scanned = shaped.indentation();
         let mut analyzer =
-            Analyzer::new(&self.chars, &self.line_starts, cfg, Mode::Target);
-        analyzer.run(&self.tokens);
-        let shaped_lines: Vec<(&str, &str)> =
-            split_lines_preserve_endings(&self.shaped)
-                .map(|(line, content, ending)| {
-                    let content = if self.bom_prefix(line) {
-                        content
-                            .strip_prefix('\u{feff}')
-                            .expect("BOM prefix matches the scanned line")
-                    } else {
-                        content
-                    };
-                    (content, ending)
-                })
-                .collect();
+            Analyzer::new(shaped.chars(), &scanned.line_starts, cfg, Mode::Target);
+        analyzer.run(&scanned.tokens);
+        let shaped_lines: Vec<(&str, &str)> = shaped
+            .lines()
+            .map(|(line, content, ending)| {
+                let content = if self.bom_prefix(line) {
+                    content
+                        .strip_prefix('\u{feff}')
+                        .expect("BOM prefix matches the scanned line")
+                } else {
+                    content
+                };
+                (content, ending)
+            })
+            .collect();
         let mut deltas = settle(&shaped_lines, &analyzer.shifts);
         self.carry_scalar_blank_lines(&shaped_lines, &mut deltas);
         let mut refused = self.refusals(&analyzer);
         let end_of =
             |index: usize| starts.get(index + 1).copied().unwrap_or(lines.len());
         let render = |refused: &[Option<Cause>]| {
-            let mut text = String::with_capacity(self.buffer.len());
+            let mut text = String::with_capacity(buffer.len());
             for (index, cause) in refused.iter().enumerate() {
                 if cause.is_some() {
                     text.extend(
@@ -183,41 +168,63 @@ impl<'a> Prepared<'a> {
             text
         };
         // Documents parse independently, so one round of refusals settles every document.
-        let mut text = render(&refused);
+        let mut output = TextVersion::new(render(&refused));
         let mut rollback = false;
-        if text != self.buffer {
-            let (rewritten, _) = documents(&text);
+        if output.analysis().text() != buffer {
+            let (original, _) = documents_with_analysis(input);
+            let (rewritten, _) = documents_with_analysis(output.analysis());
             for (index, cause) in refused.iter_mut().enumerate() {
                 let changed = rewritten.get(index).map(|document| &document.events)
-                    != Some(&self.original[index].events);
+                    != Some(&original[index].events);
                 rollback |= cause.is_none() && changed;
                 *cause = cause.or(changed.then_some(Cause::Changed));
             }
         }
         if rollback {
-            text = render(&refused);
+            let plan = output.analysis().plan(render(&refused));
+            output
+                .apply(plan)
+                .expect("refusal plan belongs to the current epoch");
         }
         if cfg.require_consistent {
-            let (output_documents, _) = documents(&text);
-            let output_starts = document_starts(&text, &output_documents);
-            let mut rollback = false;
-            for violation in super::check(&text, &cfg.with_consistent_spaces()) {
-                let document =
-                    output_starts.partition_point(|&start| start < violation.line) - 1;
-                rollback |= refused[document].is_none();
-                refused[document].get_or_insert(Cause::Inconsistent);
-            }
-            if rollback {
-                text = render(&refused);
+            let verified = if output.analysis().text() == buffer {
+                input
+            } else {
+                output.analysis()
+            };
+            if refuse_inconsistent(verified, cfg, &mut refused) {
+                let plan = output.analysis().plan(render(&refused));
+                output
+                    .apply(plan)
+                    .expect("consistency plan belongs to the current epoch");
             }
         }
+        (
+            self.result(output.to_string(), &refused, lines.len()),
+            output,
+        )
+    }
+
+    fn result(
+        &self,
+        text: String,
+        refused: &[Option<Cause>],
+        line_count: usize,
+    ) -> Reindented {
         Reindented {
             text,
             kept_dash_lines: self.kept_dash_lines.clone(),
-            refused: (0..starts.len())
-                .filter_map(|index| {
-                    refused[index].map(|cause| Refusal {
-                        lines: starts[index] + 1..=end_of(index),
+            refused: refused
+                .iter()
+                .enumerate()
+                .filter_map(|(index, cause)| {
+                    cause.map(|cause| Refusal {
+                        lines: self.starts[index] + 1
+                            ..=self
+                                .starts
+                                .get(index + 1)
+                                .copied()
+                                .unwrap_or(line_count),
                         cause,
                     })
                 })
@@ -230,9 +237,13 @@ impl<'a> Prepared<'a> {
         shaped_lines: &[(&str, &str)],
         deltas: &mut [isize],
     ) {
-        let headers = crate::rules::block_scalar_chomping::headers(self.buffer);
+        let input = self.input;
+        let lines = input.line_contents();
+        let headers = input.headers();
         // These spaces are scalar content, so they move with the header.
-        for line in crate::rules::trailing_spaces::content_blank_lines(self.buffer) {
+        for line in
+            crate::rules::trailing_spaces::content_blank_lines_with_analysis(input)
+        {
             let header = headers
                 .iter()
                 .rev()
@@ -243,8 +254,8 @@ impl<'a> Prepared<'a> {
                 .origin
                 .partition_point(|&source| source <= header_line)
                 .saturating_sub(1);
-            let original_indent = self.lines[header_line].0.len()
-                - self.lines[header_line].0.trim_start_matches(' ').len();
+            let original_indent = lines[header_line].len()
+                - lines[header_line].trim_start_matches(' ').len();
             let shaped_indent = shaped_lines[header_index].0.len()
                 - shaped_lines[header_index].0.trim_start_matches(' ').len();
             let shift = deltas[header_index] + super::to_isize(shaped_indent)
@@ -258,8 +269,8 @@ impl<'a> Prepared<'a> {
     }
 
     fn bom_prefix(&self, line: usize) -> bool {
-        let start = self.line_starts[line].get();
-        start > 0 && self.chars[start - 1].1 == '\u{feff}'
+        let start = self.shaped().indentation().line_starts[line].get();
+        start > 0 && self.shaped().chars()[start - 1].1 == '\u{feff}'
     }
 
     /// Each document's first [`Cause`] other than [`Cause::Changed`].
@@ -270,7 +281,7 @@ impl<'a> Prepared<'a> {
             let document = self.starts.partition_point(|&start| start <= line) - 1;
             refused[document].get_or_insert(cause);
         };
-        for line in 0..self.lines.len() {
+        for line in 0..self.input.lines().count() {
             if directives.is_disabled(ID, line + 1) {
                 refuse(line, Cause::Disabled);
             }
@@ -283,7 +294,7 @@ impl<'a> Prepared<'a> {
                 refuse(origin[line], Cause::Disabled);
             }
         }
-        for (line, (content, _)) in self.lines.iter().enumerate() {
+        for (line, content, _) in self.input.lines() {
             if tab_in_indentation(content) {
                 refuse(line, Cause::Tab);
             }
@@ -296,15 +307,31 @@ impl<'a> Prepared<'a> {
 }
 
 /// The 0-based line each of `documents` starts on, the first taking any lines before it.
-fn document_starts(buffer: &str, documents: &[Document<'_>]) -> Vec<usize> {
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
+fn document_starts(input: Analysis<'_>, documents: &[Document<'_>]) -> Vec<usize> {
+    let line_starts = input.line_starts();
     let mut starts: Vec<usize> = documents
         .iter()
-        .map(|document| locate(&line_starts, document.start).0)
+        .map(|document| locate(line_starts, document.start).0)
         .collect();
     starts[0] = 0;
     starts
+}
+
+fn refuse_inconsistent(
+    input: Analysis<'_>,
+    cfg: &Config,
+    refused: &mut [Option<Cause>],
+) -> bool {
+    let (documents, _) = documents_with_analysis(input);
+    let starts = document_starts(input, &documents);
+    drop(documents);
+    let mut rollback = false;
+    for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
+        let document = starts.partition_point(|&start| start < violation.line) - 1;
+        rollback |= refused[document].is_none();
+        refused[document].get_or_insert(Cause::Inconsistent);
+    }
+    rollback
 }
 
 /// Pushes `line` moved by `delta`, with `gaps` closed.
@@ -336,33 +363,26 @@ fn render_line(
     text.push_str(ending);
 }
 
-type ReshapeResult = (
-    String,
-    Vec<usize>,
-    Vec<(usize, usize)>,
-    Option<(Vec<super::Token>, Vec<CharPos>)>,
-);
+type ReshapeResult = (String, Vec<usize>, Vec<(usize, usize)>);
 
 /// `buffer` with each block mapping in a block sequence joined onto its `-` line, or
 /// broken onto the next, as `dash_on_own_line` asks, keeping every token's column; and the
 /// line of `lines` each output line starts on. A dash line carrying a node property or a
 /// comment, or one where `hyphens` is disabled, is left as it is.
 fn reshape(
-    buffer: &str,
+    input: Analysis<'_>,
     lines: &[(&str, &str)],
     dash_on_own_line: Option<bool>,
     directives: &Directives,
 ) -> ReshapeResult {
+    let buffer = input.text();
     let mut joins = vec![None; lines.len()];
     let mut breaks = vec![None; lines.len()];
     let mut kept = Vec::new();
-    let mut scanned = None;
     if let Some(own_line) = dash_on_own_line {
-        let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-        let mut line_starts = build_line_starts(&chars);
-        let mut commented = HashSet::new();
-        let tokens =
-            scan_with_comments(buffer, &chars, &mut line_starts, Some(&mut commented));
+        let scanned = input.indentation();
+        let tokens = &scanned.tokens;
+        let commented = &scanned.comments;
         for pair in tokens.windows(2) {
             let (entry, start) = (pair[0], pair[1]);
             if entry.kind != Kind::BlockEntry
@@ -391,7 +411,6 @@ fn reshape(
                 joins[entry.line] = Some(entry.column);
             }
         }
-        scanned = Some((tokens, line_starts));
     }
     let mut text = String::with_capacity(buffer.len());
     let mut origin = Vec::with_capacity(lines.len());
@@ -431,7 +450,7 @@ fn reshape(
         text.push_str(ending);
         line += 1;
     }
-    (text, origin, kept, scanned)
+    (text, origin, kept)
 }
 
 /// The re-indent `ryl format` applies, or `None` where nothing moves.

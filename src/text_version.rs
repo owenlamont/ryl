@@ -4,7 +4,12 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use granit_parser::{Event, Parser, ScalarStyle, Span};
+use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::{line_syntax, punctuation, token_spacing};
+use granit_parser::{Event, Parser, ScalarStyle, ScanError, Span};
+mod events;
+pub(crate) mod lexical;
+use events::StoredEvent;
 
 use crate::rules::block_scalar_chomping::{self, Header};
 
@@ -13,19 +18,23 @@ pub struct TextVersion<'text> {
     epoch: Rc<()>,
     parsed: OnceCell<ParsedFacts>,
     headers: OnceCell<Vec<Header>>,
+    chars: OnceCell<Vec<(usize, char)>>,
+    line_starts: OnceCell<Vec<CharPos>>,
+    lines: OnceCell<Vec<(usize, usize, usize)>>,
+    tokens: OnceCell<Box<[(lexical::TokenSpan, lexical::Kind)]>>,
+    sites: OnceCell<Vec<token_spacing::Site>>,
+    indentation: OnceCell<crate::rules::indentation::Scanned>,
+    directives: OnceCell<crate::directives::Directives>,
 }
 
 #[derive(Clone, Copy)]
 pub struct Analysis<'text> {
-    text: &'text str,
-    epoch: &'text Rc<()>,
-    parsed: &'text OnceCell<ParsedFacts>,
-    headers: &'text OnceCell<Vec<Header>>,
+    source: &'text TextVersion<'text>,
 }
 
 pub struct EditPlan {
     epoch: Rc<()>,
-    output: String,
+    output: TextVersion<'static>,
 }
 
 impl<'text> TextVersion<'text> {
@@ -35,16 +44,18 @@ impl<'text> TextVersion<'text> {
             epoch: Rc::new(()),
             parsed: OnceCell::new(),
             headers: OnceCell::new(),
+            chars: OnceCell::new(),
+            line_starts: OnceCell::new(),
+            lines: OnceCell::new(),
+            tokens: OnceCell::new(),
+            sites: OnceCell::new(),
+            indentation: OnceCell::new(),
+            directives: OnceCell::new(),
         }
     }
 
     pub fn analysis(&self) -> Analysis<'_> {
-        Analysis {
-            text: &self.text,
-            epoch: &self.epoch,
-            parsed: &self.parsed,
-            headers: &self.headers,
-        }
+        Analysis { source: self }
     }
 
     /// Returns `None` for a plan from another epoch, otherwise whether bytes changed.
@@ -52,11 +63,27 @@ impl<'text> TextVersion<'text> {
         if !Rc::ptr_eq(&self.epoch, &plan.epoch) {
             return None;
         }
-        if self.text == plan.output {
+        if self.text == plan.output.text {
             return Some(false);
         }
-        *self = Self::new(plan.output);
+        *self = plan.output;
         Some(true)
+    }
+
+    pub(crate) fn into_owned(self) -> TextVersion<'static> {
+        TextVersion {
+            text: Cow::Owned(self.text.into_owned()),
+            epoch: self.epoch,
+            parsed: self.parsed,
+            headers: self.headers,
+            chars: self.chars,
+            line_starts: self.line_starts,
+            lines: self.lines,
+            tokens: self.tokens,
+            sites: self.sites,
+            indentation: self.indentation,
+            directives: self.directives,
+        }
     }
 
     pub fn into_text(self) -> String {
@@ -75,34 +102,112 @@ impl Deref for TextVersion<'_> {
 impl<'text> Analysis<'text> {
     #[must_use]
     pub fn text(self) -> &'text str {
-        self.text
+        &self.source.text
     }
 
     #[must_use]
     pub fn plan(self, output: String) -> EditPlan {
+        self.plan_version(TextVersion::new(output))
+    }
+
+    pub(crate) fn plan_version(self, output: TextVersion<'static>) -> EditPlan {
         EditPlan {
-            epoch: Rc::clone(self.epoch),
+            epoch: Rc::clone(&self.source.epoch),
             output,
         }
     }
 
     pub(crate) fn parsed(self) -> &'text ParsedFacts {
-        self.parsed.get_or_init(|| ParsedFacts::parse(self.text))
+        self.source
+            .parsed
+            .get_or_init(|| ParsedFacts::parse(self.text()))
     }
 
     pub(crate) fn headers(self) -> &'text [Header] {
-        self.headers
-            .get_or_init(|| block_scalar_chomping::headers(self.text))
+        self.source
+            .headers
+            .get_or_init(|| block_scalar_chomping::headers_with_analysis(self))
+    }
+
+    pub(crate) fn events(self) -> Vec<(Event<'text>, Span)> {
+        self.event_iter().collect()
+    }
+
+    pub(crate) fn event_iter(self) -> impl Iterator<Item = (Event<'text>, Span)> {
+        self.parsed()
+            .events
+            .iter()
+            .map(move |(event, span)| (event.borrow(self.text()), *span))
+    }
+
+    pub(crate) fn chars(self) -> &'text [(usize, char)] {
+        self.source
+            .chars
+            .get_or_init(|| self.text().char_indices().collect())
+    }
+
+    pub(crate) fn line_starts(self) -> &'text [CharPos] {
+        self.source
+            .line_starts
+            .get_or_init(|| punctuation::build_line_starts(self.chars()))
+    }
+
+    pub(crate) fn lines(self) -> impl Iterator<Item = (usize, &'text str, &'text str)> {
+        let lines = self
+            .source
+            .lines
+            .get_or_init(|| line_syntax::scan_lines(self.text()).collect());
+        lines
+            .iter()
+            .enumerate()
+            .map(move |(line, &(start, end, next))| {
+                (line, &self.text()[start..end], &self.text()[end..next])
+            })
+    }
+
+    pub(crate) fn line_contents(self) -> Vec<&'text str> {
+        self.lines().map(|(_, line, _)| line).collect()
+    }
+
+    pub(crate) fn tokens(self) -> &'text [(lexical::TokenSpan, lexical::Kind)] {
+        self.source
+            .tokens
+            .get_or_init(|| lexical::scan(self.text()))
+    }
+
+    pub(crate) fn directives(self) -> &'text crate::directives::Directives {
+        self.source
+            .directives
+            .get_or_init(|| crate::directives::Directives::parse_uncached(self))
+    }
+
+    pub(crate) fn indentation(self) -> &'text crate::rules::indentation::Scanned {
+        self.source
+            .indentation
+            .get_or_init(|| crate::rules::indentation::scan_with_analysis(self))
+    }
+
+    pub(crate) fn sites(self) -> &'text [token_spacing::Site] {
+        self.source
+            .sites
+            .get_or_init(|| token_spacing::sites_with_analysis(self))
     }
 
     pub(crate) fn seed_events(self, events: &[(Event<'_>, Span)]) {
-        self.parsed.get_or_init(|| {
-            let mut facts = ParsedFacts::default();
+        self.source.parsed.get_or_init(|| {
+            let mut facts = ParsedFacts {
+                events: Vec::with_capacity(events.len()),
+                ..ParsedFacts::default()
+            };
             let mut depth = 0;
             for (event, span) in events {
                 facts.record(event, *span, &mut depth);
+                facts
+                    .events
+                    .push((StoredEvent::new(self.text(), event.clone()), *span));
             }
             facts.valid = true;
+            facts.compact();
             facts
         });
     }
@@ -113,9 +218,16 @@ pub(crate) struct ParsedFacts {
     pub(crate) scalars: Vec<(ScalarStyle, Span)>,
     pub(crate) root_scalars: HashMap<usize, usize>,
     pub(crate) valid: bool,
+    pub(crate) error: Option<ScanError>,
+    events: Vec<(StoredEvent, Span)>,
 }
 
 impl ParsedFacts {
+    fn compact(&mut self) {
+        self.events.shrink_to_fit();
+        self.scalars.shrink_to_fit();
+    }
+
     fn record(&mut self, event: &Event<'_>, span: Span, depth: &mut usize) {
         match event {
             Event::MappingStart(..) | Event::SequenceStart(..) => *depth += 1,
@@ -137,12 +249,24 @@ impl ParsedFacts {
         let mut facts = Self::default();
         let mut depth = 0;
         for item in Parser::new_from_str(text) {
-            let Ok((event, span)) = item else {
-                return facts;
+            let (event, span) = match item {
+                Ok(pair) => pair,
+                Err(error) => {
+                    facts.error = Some(error);
+                    break;
+                }
             };
             facts.record(&event, span, &mut depth);
+            facts.events.push((StoredEvent::new(text, event), span));
         }
-        facts.valid = true;
+        facts.valid = facts.error.is_none();
+        facts.compact();
         facts
+    }
+}
+
+impl From<String> for TextVersion<'static> {
+    fn from(text: String) -> Self {
+        Self::new(text)
     }
 }

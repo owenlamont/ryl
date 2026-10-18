@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{line_contents, split_lines_preserve_endings};
+use crate::rules::support::line_syntax::split_lines_preserve_endings;
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "empty-lines";
@@ -70,7 +70,7 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
     let mut seen_nonblank = false;
     let mut changed = false;
 
-    for (idx, raw_line, ending) in split_lines_preserve_endings(buffer) {
+    for (idx, raw_line, ending) in input.lines() {
         let line_no = idx + 1;
         let is_blank = raw_line.is_empty();
 
@@ -103,13 +103,13 @@ fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
 pub(crate) fn preserved_scalar_lines_with_analysis(
     input: Analysis<'_>,
 ) -> Option<HashSet<usize>> {
-    let buffer = input.text();
+    let _buffer = input.text();
     let mut protected =
         crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
             input,
             |_style, _span| true,
         )?;
-    let lines = line_contents(buffer);
+    let lines = input.line_contents();
     for header in input.headers() {
         let blank_only_literal = lines[header.line - 1].chars().nth(header.column - 1)
             == Some('|')

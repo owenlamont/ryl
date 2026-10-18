@@ -134,3 +134,36 @@ fn assert_format(source: &str, expected: &str, settings: &str) {
         expected
     );
 }
+
+#[test]
+fn bare_cr_edits_refresh_comment_spacing_and_scalar_eof_facts() {
+    assert_format(
+        "a: \"é\" #comment\rb: [ 1,2 ]\rs: |+\r  value\r  ",
+        "a: é  # comment\nb: [1, 2]\ns: |+\n  value\n\n",
+        "",
+    );
+}
+
+#[test]
+fn later_document_bom_keeps_distinct_raw_and_indentation_columns() {
+    assert_format(
+        "\u{feff}a: \"é\" #comment\r\n...\r\n\u{feff}b:\r\n    -  café\r\n    -  \"two\"\r\n",
+        "\u{feff}a: é  # comment\n...\n\u{feff}b:\n  - café\n  - two\n",
+        "",
+    );
+}
+
+#[test]
+fn reconciled_spacing_refreshes_comment_and_eof_facts() {
+    assert_format(
+        "a: \"é\" # ryl disable-line rule:comments\nb: \"界\" #plain\nc:  café # ryl disable-line rule:colons\ns: |+\n  value\n  ",
+        "a: é # ryl disable-line rule:comments\nb: 界  # plain\nc:  café  # ryl disable-line rule:colons\ns: |+\n  value\n\n",
+        "",
+    );
+}
+
+#[test]
+fn partial_late_document_does_not_authorize_snapshot_edits() {
+    let source = "a: \"é\" #comment\n...\n---\nb: *missing\n";
+    assert_format(source, source, "");
+}
