@@ -7,8 +7,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
-- Migration warnings name the required ryl version and remove legacy project YAML
-  configs; `--migrate-configs` also converts top-level TOML `yaml-files` to
+- Migration warnings name the required ryl version, quote config paths, and remove
+  legacy project YAML configs; `--migrate-configs` also converts TOML `yaml-files` to
   `[files].yaml`. ([#789](https://github.com/owenlamont/ryl/issues/789))
 
 ## v0.26.0

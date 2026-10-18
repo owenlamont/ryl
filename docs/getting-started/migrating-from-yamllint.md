@@ -4,7 +4,7 @@ ryl implements yamllint's rule set, and its own configuration is TOML.
 ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
 `.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
 user-global config) with the same semantics as upstream, but that support is
-deprecated: each one prints a warning naming the command that converts it, and
+deprecated: each one prints a warning with migration guidance, and
 a later release will stop reading YAML config. Migrate with
 [`ryl --migrate-configs`](#automatic-migration); TOML also carries the
 ryl-only features, such as
@@ -12,6 +12,8 @@ ryl-only features, such as
 Warning commands name the minimum ryl version needed for the migration flags;
 run them with that version or later. Project YAML warnings include
 `--migrate-delete-old` so a later `ryl check` does not rediscover `.yamllint`.
+Paths that need different quoting in POSIX shells and PowerShell receive a
+manual instruction without a command.
 
 On the command line the mapping is mechanical: replace `yamllint` with `ryl
 check`, keeping every flag and path the same. `ryl check` accepts the same lint

@@ -2,6 +2,8 @@ mod common;
 
 use std::fs;
 use std::path::Path;
+#[cfg(unix)]
+use std::process::Command;
 
 use common::cli::{run, ryl};
 use tempfile::tempdir;
@@ -36,6 +38,63 @@ fn project_yaml_warning_command_finishes_migration() {
     let (code, _, stderr) = run(ryl(root).current_dir(root).args(["check", "a.yaml"]));
     assert_eq!(code, 0, "{stderr}");
     assert!(stderr.is_empty(), "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn migration_commands_for_shell_metacharacters_run_verbatim() {
+    let td = tempdir().unwrap();
+    let home = td.path();
+    for directory in ["hash#dir", "dollar$dir", "apostrophe'dir"] {
+        let project = home.join(directory);
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join(".yamllint"), "rules: {anchors: enable}\n").unwrap();
+        fs::write(project.join("a.yaml"), "a: 1\n").unwrap();
+        let (code, _, warning) =
+            run(ryl(home).current_dir(&project).args(["check", "a.yaml"]));
+        assert_eq!(code, 0, "{warning}");
+        let command = warning
+            .split_once("run `ryl ")
+            .expect("migration command")
+            .1
+            .split_once('`')
+            .expect("command terminator")
+            .0;
+        let (code, stdout, stderr) = run(Command::new("sh")
+            .arg("-c")
+            .arg(format!("\"$RYL_BIN\" {command}"))
+            .env("RYL_BIN", env!("CARGO_BIN_EXE_ryl"))
+            .env("HOME", home)
+            .current_dir(&project));
+        assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+        let (code, _, stderr) =
+            run(ryl(home).current_dir(&project).args(["check", "a.yaml"]));
+        assert_eq!(code, 0, "{stderr}");
+        assert!(stderr.is_empty(), "{stderr}");
+    }
+}
+
+#[test]
+fn unquotable_paths_give_manual_instructions_without_a_command() {
+    let td = tempdir().unwrap();
+    let home = td.path();
+    for (name, config) in [
+        (".yamllint", "rules: {anchors: enable}\n"),
+        (".ryl.toml", "[rules]\nanchors = 'enable'\n"),
+    ] {
+        let project = home.join(format!("{name}'$dir"));
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join(name), config).unwrap();
+        fs::write(project.join("a.yaml"), "a: 1\n").unwrap();
+        let (code, _, warning) =
+            run(ryl(home).current_dir(&project).args(["check", "a.yaml"]));
+        assert_eq!(code, 0, "{warning}");
+        assert!(
+            warning.contains("quote this config's path and migrate it by hand"),
+            "{warning}"
+        );
+        assert!(!warning.contains("run `ryl --migrate"), "{warning}");
+    }
 }
 
 #[test]
