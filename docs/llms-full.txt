@@ -366,8 +366,9 @@ allow-non-breakable-words = true
 The top-level `line-length` (1 to 65535) and `indent-width` (1 to 255) are the
 formatter's targets and the defaults for `[lint.rules.line-length] max` and
 `[lint.rules.indentation] spaces`; an explicit rule option overrides them for
-linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` keeps
-each file's own indent width. A YAML config cannot set them.
+linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` uses
+width 2. Set `indent-width` to preserve another width. A YAML config cannot set
+these top-level keys.
 
 ```toml
 line-length = 100
@@ -568,6 +569,10 @@ flags as yamllint (`-c`/`-d`/`-f`/`-s`/`--no-warnings`/`--list-files`/`-`), so
 deprecation warning.
 Bare `ryl <paths>` also lints but is deprecated in favour of `ryl check` and
 prints a warning to stderr.
+
+`ryl format` defaults to indent width 2 independently of lint `indentation.spaces`.
+To format at another width, migrate to TOML and set top-level `indent-width`.
+Without `indent-width`, the lint rule still defaults to `"consistent"`.
 
 ## Automatic migration
 
@@ -1224,6 +1229,9 @@ ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
 `pyproject.toml`, or the file passed with `-c`. It does not read `YAMLFIX_*`
 environment variables.
 
+ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
+another width.
+
 ## Example
 
 A yamlfix configuration:
@@ -1336,6 +1344,9 @@ Replace `yamlfmt .` with `ryl format .` and `yamlfmt -lint .` with
 in google/yamlfmt 0.21.0. They were compared on the same YAML inputs with
 `yamlfmt -in` and `ryl format -`.
 
+ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
+another width.
+
 ## Example
 
 ```toml
@@ -1398,6 +1409,9 @@ For YAML files, run `ryl format .` to write changes and
 Prettier 3.9.10's YAML output on the same inputs used with `ryl format -`.
 Prettier's [general options](https://prettier.io/docs/options) can alter the
 starting profile.
+
+ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
+another width.
 
 ## Example
 
@@ -1716,16 +1730,9 @@ they set the defaults for the `line-length` and `indentation` rules (see
 re-indents every block level to `indent-width`, and uses both as the fold width and
 continuation indent under `fold-long-lines`.
 
-Without `indent-width`, an inline value under an explicit block key (`? key` followed by
-`: value`) uses 2 if the value establishes the file's consistent indentation step.
-An explicit key directly inside a sequence item does not establish that step.
-Otherwise, `ryl format` keeps each file's own width: of the widths 2 to 8, the one whose
-re-indent changes the fewest lines, block scalar bodies and comments included. A tie,
-or a file the re-indent leaves alone at every width, falls back to 2.
-A file mostly at 4 with one block at 2 is re-indented to 4.
-If restyling a collection changes which width best fits the file, the formatter
-re-detects the width and completes the re-indent in the same run.
-If the detected width would leave inconsistent indentation, `ryl format` keeps that
+Without `indent-width`, `ryl format` targets width 2. Set the top-level
+`indent-width` to keep another width. Linting still defaults to `spaces = "consistent"` when `indent-width` is unset.
+If re-indenting would leave inconsistent indentation, `ryl format` keeps that
 document's indentation and reports the sites it cannot fix.
 
 The rest of the layout is fixed:
@@ -1774,7 +1781,7 @@ double quotes to single, and can indent flush sequences. Migration writes
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
 | `line-length = 80` | The default of prettier |
-| `indent-width = 2` | The default of prettier and yamlfix, for a file that shows no width of its own |
+| `indent-width = 2` | The default of prettier and yamlfix |
 | Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
@@ -1824,10 +1831,10 @@ metadata:
   name: example
 ```
 
-When the width is inferred, a conversion stays in flow style with a notice if the
+When `indent-width` is unset, a conversion stays in flow style with a notice if the
 result would fail the `indentation` rule's consistent-width check. A compact sequence
 mapping with explicit keys can fix the lint rule's inferred step independently of the
-formatter's detected width.
+formatter's width-2 target.
 
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style
@@ -1949,7 +1956,7 @@ says so.
 | [`trailing-spaces`](https://ryl-docs.pages.dev/rules/trailing-spaces/) | Never |
 | [`colons`](https://ryl-docs.pages.dev/rules/colons/) | `max-spaces-after` is 0 |
 | [`hyphens`](https://ryl-docs.pages.dev/rules/hyphens/) | `max-spaces-after` is 0, or `dash-on-own-line = true` while `[format] dash-on-own-line = false` |
-| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width`, or any number while `indent-width` is unset; or `indent-sequences` is the opposite of `[format] indent-sequences` |
+| [`indentation`](https://ryl-docs.pages.dev/rules/indentation/) | `spaces` is a number other than `indent-width` (2 when unset); or `indent-sequences` is the opposite of `[format] indent-sequences` |
 | [`line-length`](https://ryl-docs.pages.dev/rules/line-length/) | Never; folding is opt-in and leaves lines it cannot break |
 
 The table compares formatter settings with lint options; it does not promise every
@@ -3546,7 +3553,7 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 | **`ryl format` has its own pass list.** Formatter targets do not inherit lint rule selection, fixability settings, or lint ignores. | Formatting should work independently of which lint rules or ignores a project enables. | [Decision](https://github.com/owenlamont/ryl/pull/520) |
 | **The formatter has built-in, overridable targets.** The linter remains explicit-rule-only; formatting works without a config and normalizes each option to a single target rather than a lint tolerance. | A formatter needs a definite target per option and should work before a user writes lint configuration. | [Epic](https://github.com/owenlamont/ryl/issues/374), [profile](https://github.com/owenlamont/ryl/issues/385) |
 | **Document-start markers default to preserve.** Existing marker style remains unless the user requests a new target, replacing the initial add-`---` default. | Adding `---` to an existing file by default creates unnecessary changes; preserve matches formatter precedent. | [Decision](https://github.com/owenlamont/ryl/pull/584) |
-| **Unset indent width uses whole-file evidence.** Among widths 2–8, the formatter chooses the one changing the fewest lines; ties or no evidence use 2. | Whole-file evidence minimizes changed lines; a deterministic fallback resolves ties and files without evidence. | [Maintainer decision](https://github.com/owenlamont/ryl/issues/594), [Maintainer decision](https://github.com/owenlamont/ryl/issues/594#issuecomment-6091396339) |
+| **Unset indent width defaults to 2.** Configure `indent-width` to retain another width; lint `spaces` still defaults to `"consistent"`. | A fixed default removes seven candidate re-indents and follows other YAML formatters. | [Maintainer decision](https://github.com/owenlamont/ryl/issues/758) |
 | **Line-ending auto uses the whole file.** The majority ending wins, a tie falls back to LF, and explicit LF remains the default. | The majority ending minimizes edits when auto is requested; LF remains the explicit default. | [Maintainer decision](https://github.com/owenlamont/ryl/issues/594), [Maintainer decision](https://github.com/owenlamont/ryl/issues/594#issuecomment-6091396339) |
 | **Collection style has flat targets.** `[format]` can preserve, block-format, or flow-format sequences and mappings, converting only cases safe for their comments and values. | Collection presentation is layout owned by `format`; conversions must preserve values and comments. | [Decision](https://github.com/owenlamont/ryl/issues/446) |
 | **Quoting preserves cross-version values.** Quotes remain when removing them would change resolution, including version-sensitive `y` and `n` spellings. | Removing a quote can change how YAML 1.1 or other common loaders resolve a scalar. | [Decision](https://github.com/owenlamont/ryl/pull/560), [correction](https://github.com/owenlamont/ryl/pull/604) |
@@ -4956,7 +4963,7 @@ parent:
 different parents.
 
 `ryl format` re-indents each block level to the top-level `indent-width`, or without it
-to the width the file mostly uses (see [Configuration](https://ryl-docs.pages.dev/formatter/#configuration)),
+to width 2 (see [Configuration](https://ryl-docs.pages.dev/formatter/#configuration)),
 with block sequences indented past their key unless `[format] indent-sequences = false`.
 Block scalar bodies, continuation lines and comments move with the line they belong to,
 and lines inside a flow collection go where this rule expects them. A document is left

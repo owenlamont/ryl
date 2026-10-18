@@ -64,11 +64,10 @@ pub(crate) fn reindent_with_events(
     Prepared::new(buffer, cfg.dash_on_own_line, events).reindent(cfg)
 }
 
-/// What [`reindent`] derives from `buffer` alone, so several widths can share it.
-pub(crate) struct Prepared<'a> {
+struct Prepared<'a> {
     buffer: &'a str,
     original: Vec<Document<'a>>,
-    pub(crate) parsed: bool,
+    parsed: bool,
     directives: Directives,
     lines: Vec<(&'a str, &'a str)>,
     starts: Vec<usize>,
@@ -81,14 +80,6 @@ pub(crate) struct Prepared<'a> {
 }
 
 impl<'a> Prepared<'a> {
-    pub(crate) fn for_config(
-        buffer: &'a str,
-        cfg: &Config,
-        events: Option<&[(Event<'a>, Span)]>,
-    ) -> Self {
-        Self::new(buffer, cfg.dash_on_own_line, events)
-    }
-
     fn new(
         buffer: &'a str,
         dash_on_own_line: Option<bool>,
@@ -136,7 +127,7 @@ impl<'a> Prepared<'a> {
         }
     }
 
-    pub(crate) fn reindent(&self, cfg: &Config) -> Reindented {
+    fn reindent(&self, cfg: &Config) -> Reindented {
         if !self.parsed {
             return Reindented {
                 text: self.buffer.to_string(),

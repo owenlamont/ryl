@@ -21,7 +21,7 @@ pub struct Config {
     pub mappings: CollectionStyleTarget,
     pub indent: u8,
     pub width: u16,
-    pub infer_consistent_indent: bool,
+    pub require_consistent_indent: bool,
 }
 
 /// A collection the pass rewrites, or leaves alone for `refused`.
@@ -154,7 +154,7 @@ fn plan(
         edits,
         &mut findings,
         indent,
-        cfg.infer_consistent_indent,
+        cfg.require_consistent_indent,
     );
     (edits, findings)
 }
@@ -164,7 +164,7 @@ fn skip_reindent_dependent(
     edits: Vec<(Edit, usize)>,
     findings: &mut [Finding],
     indent: Option<&indentation::Config>,
-    infer_consistent_indent: bool,
+    require_consistent_indent: bool,
 ) -> Vec<Edit> {
     let Some(indent) = indent.filter(|_| !edits.is_empty()) else {
         return edits.into_iter().map(|(edit, _)| edit).collect();
@@ -174,7 +174,7 @@ fn skip_reindent_dependent(
         edits.iter().map(|(edit, _)| edit.clone()).collect(),
     );
     let reindented = indentation::reindent(&candidate, indent);
-    let inconsistent = if infer_consistent_indent {
+    let inconsistent = if require_consistent_indent {
         indentation::check(&reindented.text, &indent.with_consistent_spaces())
     } else {
         Vec::new()
