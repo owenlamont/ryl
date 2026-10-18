@@ -432,11 +432,10 @@ Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
 `per-line-ignores` at the top level. ryl still reads them, but warns once per
 key, naming its `[lint]` replacement; when both spellings are set, the `[lint]`
 one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
-`.ryl.toml`/`ryl.toml` in place, dropping its comments (add
+`.ryl.toml`/`ryl.toml` in place, keeping comments and key order (add
 `--migrate-rename-old .bak` to keep the original as `.ryl.toml.bak`), and
 `ryl --migrate-user-config --migrate-write` does the same for the user-global
-config. For `pyproject.toml` it only prints the keys to move, since rewriting
-would drop the rest of the file's comments and layout.
+config. For `pyproject.toml` the command only prints the keys to move.
 
 ### Strict mode
 
@@ -711,6 +710,11 @@ a ryl-native user config already exists. Migration also refuses to
 follow a symlink for either the source or the target (mirroring `--fix`). It also
 refuses to overwrite an existing backup when `--migrate-rename-old` would clobber
 one.
+
+Rewriting a ryl TOML config keeps its comments, key order, and formatting
+outside the moved keys. If a replacement key is already set, migration warns
+and drops the deprecated value and its comments. Migration reports deprecated
+keys in `pyproject.toml` without rewriting that file.
 
 Migration writes a temporary file beside each destination and replaces the
 destination only after the write succeeds. An interrupted write leaves an
