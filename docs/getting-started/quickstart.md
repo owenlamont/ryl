@@ -223,8 +223,9 @@ allow-non-breakable-words = true
 The top-level `line-length` (1 to 65535) and `indent-width` (1 to 255) are the
 formatter's targets and the defaults for `[lint.rules.line-length] max` and
 `[lint.rules.indentation] spaces`; an explicit rule option overrides them for
-linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` keeps
-each file's own indent width. A YAML config cannot set them.
+linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` uses
+width 2. Set `indent-width` to preserve another width. A YAML config cannot set
+these top-level keys.
 
 ```toml
 line-length = 100

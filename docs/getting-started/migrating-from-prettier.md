@@ -6,6 +6,9 @@ Prettier 3.9.10's YAML output on the same inputs used with `ryl format -`.
 Prettier's [general options](https://prettier.io/docs/options) can alter the
 starting profile.
 
+ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
+another width.
+
 ## Example
 
 ```toml
