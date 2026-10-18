@@ -271,18 +271,20 @@ pub struct LegacyYamlDeprecation {
 }
 
 const LEGACY_YAML_SINCE: &str = LINT_TABLE_SINCE;
+pub const MIGRATE_VERSION_SUFFIX: &str =
+    concat!(" with ryl ", env!("CARGO_PKG_VERSION"), " or later");
 
 pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
     LegacyYamlDeprecation {
         source: LegacyYamlSource::Project,
-        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` to \
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-delete-old --migrate-root {path}`{version} to \
                       convert it to .ryl.toml",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
     },
     LegacyYamlDeprecation {
         source: LegacyYamlSource::ConfigFile,
-        replacement: "run `ryl --migrate-configs --migrate-write --migrate-root {path}` and \
+        replacement: "run `ryl --migrate-configs --migrate-write --migrate-delete-old --migrate-root {path}`{version} and \
                       pass the TOML it writes to `-c`",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
@@ -296,14 +298,14 @@ pub const LEGACY_YAML_SOURCES: [LegacyYamlDeprecation; 5] = [
     LegacyYamlDeprecation {
         source: LegacyYamlSource::EnvVar,
         replacement: "YAMLLINT_CONFIG_FILE is deprecated too: run `ryl --migrate-configs \
-                      --migrate-write --migrate-root {path}` and pass the TOML it writes to \
+                      --migrate-write --migrate-delete-old --migrate-root {path}`{version} and pass the TOML it writes to \
                       `-c`",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,
     },
     LegacyYamlDeprecation {
         source: LegacyYamlSource::UserGlobal,
-        replacement: "run `ryl --migrate-user-config --migrate-write` to convert it to ryl's \
+        replacement: "run `ryl --migrate-user-config --migrate-write`{version} to convert it to ryl's \
                       own user config",
         deprecated_since: LEGACY_YAML_SINCE,
         removed_in: None,

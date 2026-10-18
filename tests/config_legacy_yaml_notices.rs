@@ -44,11 +44,12 @@ fn config_file_yaml_names_the_file_migration() {
     };
     assert_eq!(
         notices(&env, &overrides),
-        [
+        [format!(
             "warning: /proj/ci/lint.yaml: yamllint YAML config is deprecated; run `ryl \
-             --migrate-configs --migrate-write --migrate-root /proj/ci/lint.yaml` and pass \
-             the TOML it writes to `-c`"
-        ]
+             --migrate-configs --migrate-write --migrate-delete-old --migrate-root /proj/ci/lint.yaml` with ryl {} or later and pass \
+             the TOML it writes to `-c`",
+            env!("CARGO_PKG_VERSION")
+        )]
     );
 }
 
@@ -88,12 +89,13 @@ fn env_var_yaml_names_the_variable() {
         .with_file("/cfg/lint.yml", RULES);
     assert_eq!(
         notices(&env, &Overrides::default()),
-        [
+        [format!(
             "warning: /cfg/lint.yml: yamllint YAML config is deprecated; \
              YAMLLINT_CONFIG_FILE is deprecated too: run `ryl --migrate-configs \
-             --migrate-write --migrate-root /cfg/lint.yml` and pass the TOML it writes to \
-             `-c`"
-        ]
+             --migrate-write --migrate-delete-old --migrate-root /cfg/lint.yml` with ryl {} or later and pass the TOML it writes to \
+             `-c`",
+            env!("CARGO_PKG_VERSION")
+        )]
     );
 }
 
@@ -108,8 +110,9 @@ fn yamllint_user_global_names_migrate_user_config() {
         notices(&env, &Overrides::default()),
         [format!(
             "warning: {}: yamllint YAML config is deprecated; run `ryl \
-             --migrate-user-config --migrate-write` to convert it to ryl's own user config",
-            path.display()
+             --migrate-user-config --migrate-write` with ryl {} or later to convert it to ryl's own user config",
+            path.display(),
+            env!("CARGO_PKG_VERSION")
         )]
     );
 }
