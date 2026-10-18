@@ -552,7 +552,7 @@ fn deprecation_names_no_command_for_a_source_migration_cannot_rewrite() {
 }
 
 #[test]
-fn deprecation_hint_uses_a_placeholder_for_a_path_with_a_space() {
+fn deprecation_hint_quotes_a_path_with_a_space() {
     let dir = tempdir().unwrap();
     let project = dir.path().join("space dir");
     fs::create_dir_all(&project).unwrap();
@@ -560,10 +560,11 @@ fn deprecation_hint_uses_a_placeholder_for_a_path_with_a_space() {
     fs::write(project.join("a.yaml"), DOC).unwrap();
     let (_, _, stderr) = check(&project, &[]);
     assert!(
-        stderr.contains(
-            "(run `ryl --migrate-configs --migrate-write --migrate-root <path to this \
-             config>` to update)"
-        ),
+        stderr.contains(&format!(
+            "(run `ryl --migrate-configs --migrate-write --migrate-root \"{}\"` with ryl {} or later to update)",
+            project.join(".ryl.toml").display(),
+            env!("CARGO_PKG_VERSION")
+        )),
         "{stderr}"
     );
 }
@@ -821,10 +822,11 @@ fn user_global_deprecation_names_the_user_config_migration() {
     let (td, project, xdg) = user_global(LEGACY);
     let (_, _, stderr) = user_global_check(td.path(), &project, &xdg);
     assert!(
-        stderr.contains(
+        stderr.contains(&format!(
             "`rules` is deprecated; use `lint.rules` instead (run \
-             `ryl --migrate-user-config --migrate-write` to update)"
-        ),
+             `ryl --migrate-user-config --migrate-write` with ryl {} or later to update)",
+            env!("CARGO_PKG_VERSION")
+        )),
         "{stderr}"
     );
 }
