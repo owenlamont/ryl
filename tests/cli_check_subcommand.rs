@@ -5,14 +5,13 @@
 //! the same args both ways and assert exactly that difference.
 
 use std::fs;
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use tempfile::tempdir;
 
 mod common;
-use common::cli::{command_output, run, ryl};
+use common::cli::{command_output, run, run_with_stdin, ryl};
 
 /// An inline TOML config (carried via `-d`, so config discovery is bypassed and the tests need
 /// no `HOME` isolation) enabling one deterministic error-level rule.
@@ -47,23 +46,6 @@ fn assert_bare_matches_check(
         "bare stderr must be check's plus one leading deprecation line: {:?}",
         bare.2
     );
-}
-
-fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn ryl");
-    if let Err(error) = child.stdin.as_mut().expect("stdin").write_all(input) {
-        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
-    }
-    let out = child.wait_with_output().expect("wait");
-    let code = out.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy_owned(out.stdout);
-    let stderr = String::from_utf8_lossy_owned(out.stderr);
-    (code, stdout, stderr)
 }
 
 #[test]

@@ -50,6 +50,19 @@ pub fn stdin_output(
 }
 
 #[allow(dead_code, reason = "not every test binary uses every helper")]
+pub fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
+    output_tuple(stdin_output(cmd, input, |result| {
+        if let Err(error) = result {
+            assert_eq!(
+                error.kind(),
+                io::ErrorKind::BrokenPipe,
+                "write stdin: {error}"
+            );
+        }
+    }))
+}
+
+#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn ryl_on(
     config: Option<&str>,
     input: &str,

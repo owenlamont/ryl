@@ -23,11 +23,6 @@ jobs:
       - name: Install prek
         run: uv tool install prek --force
 
-      - name: Install yamllint
-        run: |-
-          uv tool install yamllint --force
-          yamllint --version
-
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: Install Rust components
@@ -178,11 +173,6 @@ jobs:
 
       - name: Install Python 3.15 for inline scripts
         run: uv python install 3.15
-
-      - name: Install yamllint
-        run: |-
-          uv tool install yamllint --force
-          yamllint --version
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 

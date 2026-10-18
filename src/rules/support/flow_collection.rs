@@ -1,11 +1,7 @@
-use std::ops::Range;
-
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
-
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, line_and_column, skip_comment, target_spacing,
-    template_double_curly_end,
+    build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
+    target_spacing, template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
     BytePos, CharPos, apply_replacements, containing_scalar_range,
@@ -257,34 +253,6 @@ pub struct FlowCollectionDescriptor {
     pub max_empty_message: &'static str,
 }
 
-struct ScalarRangeCollector {
-    ranges: Vec<(CharPos, CharPos)>,
-}
-
-impl ScalarRangeCollector {
-    const fn new() -> Self {
-        Self { ranges: Vec::new() }
-    }
-
-    fn into_sorted(mut self) -> Vec<Range<CharPos>> {
-        self.ranges.sort_by_key(|a| a.0);
-        self.ranges
-            .into_iter()
-            .filter_map(|(start, end)| (start <= end).then_some(start..end))
-            .collect()
-    }
-}
-
-impl SpannedEventReceiver<'_> for ScalarRangeCollector {
-    fn on_event(&mut self, ev: Event<'_>, span: Span) {
-        if matches!(ev, Event::Scalar(..)) {
-            let start = CharPos::new(span.start.index());
-            let end = CharPos::new(span.end.index());
-            self.ranges.push((start, end));
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct CollectionState {
     is_empty: bool,
@@ -312,10 +280,7 @@ pub fn check(
         return Vec::new();
     }
 
-    let mut parser = Parser::new_from_str(buffer);
-    let mut collector = ScalarRangeCollector::new();
-    let _ = parser.load(&mut collector, true);
-    let scalar_ranges = collector.into_sorted();
+    let scalar_ranges = collect_scalar_ranges(buffer);
 
     let chars: Vec<(usize, char)> = buffer.char_indices().collect();
     let line_starts = build_line_starts(&chars);
