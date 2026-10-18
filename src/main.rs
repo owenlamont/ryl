@@ -1531,7 +1531,11 @@ fn read_and_lint_stdin(
         SourceKind::Yaml => {
             let mut problems = lint_str(content.content(), path, cfg, base_dir);
             for problem in &mut problems {
-                if let Some(pos) = problem.message.find("; help:") {
+                if problem
+                    .message
+                    .starts_with("syntax error: invalid indentation (syntax); help:")
+                    && let Some(pos) = problem.message.find("; help:")
+                {
                     problem.message.truncate(pos);
                 }
             }

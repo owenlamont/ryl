@@ -127,6 +127,24 @@ fn repairable_stdin_indentation_has_no_file_repair_hint() {
 }
 
 #[test]
+fn stdin_key_containing_help_text_keeps_the_full_diagnostic() {
+    let (code, _stdout, stderr) = run_with_stdin(
+        Command::new(env!("CARGO_BIN_EXE_ryl")).args([
+            "check",
+            "-d",
+            "[lint.rules.key-ordering]",
+            "-",
+        ]),
+        b"z: 1\n\"a; help: suffix\": 2\n",
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("wrong ordering of key \"a; help: suffix\" in mapping"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn stdin_filename_appears_in_diagnostics() {
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(

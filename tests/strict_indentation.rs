@@ -152,6 +152,22 @@ fn markdown_indentation_has_no_yaml_file_hint() {
 }
 
 #[test]
+fn markdown_key_containing_help_text_keeps_the_full_diagnostic() {
+    let cfg = YamlLintConfig::from_toml_str("[lint.rules.key-ordering]").unwrap();
+    let diagnostics = ryl::markdown_embed::lint_markdown_str(
+        "```yaml\nz: 1\n\"a; help: suffix\": 2\n```\n",
+        Path::new("case.md"),
+        &cfg,
+        Path::new("."),
+    );
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].message,
+        "wrong ordering of key \"a; help: suffix\" in mapping"
+    );
+}
+
+#[test]
 fn check_diff_previews_a_strictly_valid_repair() {
     let cfg = YamlLintConfig::from_toml_str("[lint.rules.document-start]").unwrap();
     let result = ryl::fix::diff_outcome(
