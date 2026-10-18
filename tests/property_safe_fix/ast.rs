@@ -92,8 +92,7 @@ pub enum BlockBodyLine {
 pub struct MultilineQuotedSpec {
     pub style: MultilineQuoteStyle,
     pub lines: Vec<MultilineLine>,
-    /// Continuation lines sit `2 + extra` columns past the parent's indentation: granit
-    /// rejects a quoted continuation one column in, which the spec allows.
+    /// Continuation lines sit `2 + extra` columns past the parent's indentation.
     pub extra: u8,
 }
 
@@ -342,7 +341,7 @@ impl MultilineFlowSpec {
             item.render(buffer);
         }
         buffer.push_str(line_term);
-        buffer.push_str(&" ".repeat(base + usize::from(self.closer)));
+        buffer.push_str(&" ".repeat(base + 1 + usize::from(self.closer)));
         buffer.push(']');
     }
 }
@@ -372,6 +371,9 @@ impl MultilineQuotedSpec {
                     }
                 }
             }
+        }
+        if matches!(self.lines.last(), Some(MultilineLine::Blank)) {
+            buffer.push_str(&indent);
         }
         buffer.push(quote);
     }

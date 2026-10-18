@@ -18,7 +18,7 @@ use lsp_types::{
 
 use crate::config::{SourceKind, YamlLintConfig};
 use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS};
-use crate::lsp::analysis::{fix_rule_edit, rewrite_edit};
+use crate::lsp::analysis::{fix_rule_edit, rewrite_edit_with_notices};
 use crate::lsp::encoding::{PositionEncoding, position_at};
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::line_syntax::{
@@ -43,10 +43,18 @@ pub struct Input<'a> {
 /// `None` (not an empty list) when nothing applies.
 #[must_use]
 pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionResponse> {
+    build_with_notices(input, context).0
+}
+
+pub(crate) fn build_with_notices(
+    input: &Input,
+    context: &CodeActionContext,
+) -> (Option<CodeActionResponse>, Vec<String>) {
     let mut actions = Vec::new();
+    let mut notices = Vec::new();
 
     if admits(context.only.as_deref(), FIX_ALL_KIND)
-        && let Some(edit) = rewrite_edit(
+        && let (Some(edit), repair_notices) = rewrite_edit_with_notices(
             input.text,
             input.path,
             input.cfg,
@@ -56,6 +64,7 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
             Rewrite::Fix,
         )
     {
+        notices = repair_notices;
         actions.push(entry(
             "Fix all ryl problems".to_string(),
             FIX_ALL_KIND,
@@ -122,7 +131,7 @@ pub fn build(input: &Input, context: &CodeActionContext) -> Option<CodeActionRes
         }
     }
 
-    (!actions.is_empty()).then_some(actions)
+    ((!actions.is_empty()).then_some(actions), notices)
 }
 
 /// Whether `context.only` admits an action of `kind`: no filter means yes, else a

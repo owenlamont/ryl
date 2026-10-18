@@ -24,6 +24,10 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Breaking changes
 
+- `ryl check` and LSP diagnostics reject spec-invalid indentation. Formatting and
+  `check --fix`/`--diff` can repair relaxed-parser input only when the output parses
+  strictly and preserves events; repairs print a notice.
+  ([#635](https://github.com/owenlamont/ryl/issues/635))
 - `ryl format` defaults to indent width 2 instead of inferring each file's width,
   including editor formatting. Set top-level `indent-width` to keep another width.
   Lint `indentation.spaces` still defaults to `"consistent"`; `spaces = 2` no longer
@@ -68,7 +72,7 @@ summarize user-visible changes from the tagged commits and published release rec
   ([#750](https://github.com/owenlamont/ryl/issues/750))
 - `ryl format` shares YAML events and indentation tokens across unchanged-text
   parse, layout and quote passes. ([#750](https://github.com/owenlamont/ryl/issues/750))
-- Bump granit-parser to 2.0.0, retaining comment events and relaxed indentation.
+- Bump granit-parser to 2.0.0, retaining comment events.
   Parsing now accepts explicit `?` keys at end of input, quoted continuations one
   column past the block indent, and tabs separating explicit keys; it also drops
   spurious block-scalar line breaks after indentation-only EOF lines and corrects

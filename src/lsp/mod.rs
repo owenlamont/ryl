@@ -785,7 +785,8 @@ impl Server {
             enc: self.encoding,
             supports_document_changes: self.supports_document_changes,
         };
-        let result = actions::build(&input, &params.context);
+        let (result, notices) = actions::build_with_notices(&input, &params.context);
+        self.report_config_notices(connection, &notices);
         if params.context.only.as_deref().is_some_and(|only| {
             crate::fix::SAFE_FIX_RULE_IDS.iter().any(|rule| {
                 actions::admits(Some(only), &format!("source.fixAll.ryl.{rule}"))
@@ -808,7 +809,7 @@ impl Server {
         self.report_config_notices(connection, &target.context.notices);
         self.report_format_conflicts(connection, &target.context);
         let document = self.documents.get(uri)?;
-        Some(vec![analysis::rewrite_edit(
+        let (edit, notices) = analysis::rewrite_edit_with_notices(
             &document.text,
             &target.path,
             &target.context.config,
@@ -816,7 +817,9 @@ impl Server {
             target.kind,
             self.encoding,
             Rewrite::Format,
-        )?])
+        );
+        self.report_config_notices(connection, &notices);
+        Some(vec![edit?])
     }
 
     fn hover(&self, params: &HoverParams) -> Option<Hover> {

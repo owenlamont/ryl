@@ -14,7 +14,9 @@ The gate requires a clean checkout at the pinned commit and exactly 402 cases.
 Every case runs through the release CLI with explicit configuration, independent of
 user configuration. Valid inputs and formatted output must match `test.event`, and
 a second formatting must change no bytes. Invalid cases must remain unchanged with
-`format`'s syntax-skip diagnostic, and `check` must exit 1 with a syntax diagnostic.
+`format`'s syntax-skip diagnostic, or produce a strictly valid, event-preserving repair
+with a repair notice and an idempotent second pass. `check` on the original input must
+exit 1 with a syntax diagnostic in either case.
 A syntax skip currently exits 0: refusal is established by the diagnostic and bytes.
 
 Quote style is `preserve` to compare scalar styles directly. The event adapter follows
@@ -31,7 +33,21 @@ even when only one document or pass is refused; other passes may still edit the 
 Failures remain failures even when a pass bails out. The gate prints every failure
 and bail-out, then counts, and fails when any case fails.
 
-## Recorded release run
+## Strict indentation run
+
+The [strict lint / lenient repair split](https://github.com/owenlamont/ryl/issues/635)
+passes the pinned suite:
+
+| Passed | Failed | Bail-outs | Total |
+| --- | --- | --- | --- |
+| 360 | 0 | 42 | 402 |
+
+`9C9N` reports a syntax error under `check`; formatting repairs the indentation,
+prints a repair notice, preserves the relaxed events and produces idempotent,
+strictly valid output. `F8F9` adds one bail-out to the older run below: the current
+base already refuses the ambiguous blank block-scalar body without editing it.
+
+## Before strict indentation
 
 Pinned suite: `6ad3d2c62885d82fc349026c136ef560838fdf3d`.
 Base ryl: `14ba6e1d0d3473872dad96e8e1246c482c5769f6`, release build, quote style preserved.

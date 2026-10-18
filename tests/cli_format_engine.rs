@@ -341,8 +341,8 @@ fn each_format_key_changes_the_output() {
         ("document-end = 'add'", "a: 1\n", "a: 1\n...\n".to_string()),
         (
             "brace-spacing = true",
-            "a: {b: 1}\ne: {}\nf: { }\nl: [1, 2]\nm: {\n  x: 1\n}\n",
-            "a: { b: 1 }\ne: {}\nf: {}\nl: [1, 2]\nm: {\n  x: 1\n}\n".to_string(),
+            "a: {b: 1}\ne: {}\nf: { }\nl: [1, 2]\nm: {\n  x: 1\n }\n",
+            "a: { b: 1 }\ne: {}\nf: {}\nl: [1, 2]\nm: {\n  x: 1\n }\n".to_string(),
         ),
         (
             "comment-spacing = 1",
