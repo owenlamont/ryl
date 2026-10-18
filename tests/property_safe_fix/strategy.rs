@@ -250,7 +250,8 @@ fn arb_multiline_plain_spec() -> impl Strategy<Value = MultilinePlainSpec> {
         })
 }
 
-fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
+fn arb_block_scalar_spec() -> BoxedStrategy<BlockScalarSpec> {
+    // Keep the twelve-field value tree out of enclosing unions' stack frames.
     (
         prop_oneof![Just(""), Just("!!str "), Just("&blk ")],
         prop_oneof![Just('|'), Just('>')],
@@ -300,6 +301,7 @@ fn arb_block_scalar_spec() -> impl Strategy<Value = BlockScalarSpec> {
                 }
             },
         )
+        .boxed()
 }
 
 fn arb_block_body_content() -> impl Strategy<Value = BlockBodyLine> {
