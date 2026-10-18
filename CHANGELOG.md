@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Added
 
+- Release tooling checks lint/formatter performance against the previous release
+  and reports downstream upgrade diagnostics, warnings and formatting changes.
+  ([#740](https://github.com/owenlamont/ryl/issues/740))
 - `--disable <RULES>` subtracts lint rules from config or `--enable` selections;
   `--exclude <GLOBS>` overrides file exclusions for linting and formatting.
   Requested by [@entorb](https://github.com/entorb) in

@@ -92,6 +92,61 @@ description: >-
     automatically.)
   - Summarize notable changes in the PR description; the changelog is the release
     notes source.
+- Release-candidate gates, **after the version bump and before tagging**:
+  - Build the release candidate with `cargo build --release`.
+  - Run the performance gate against the newest published stable `v*` release:
+
+    ```sh
+    uv run --script scripts/release_perf_gate.py --ryl-bin target/release/ryl --release vX.Y.Z
+    ```
+
+    On a shared benchmark host, acquire the host's benchmark lock around the entire
+    command (for example `flock /path/to/bench.lock uv run --script ...`). The gate
+    reuses the README harness's pinned real-world corpus, 5×5 cases, relaxed lint and
+    default formatter config. Each case alternates A/B order, with 3 warmups and 20
+    samples per binary; caches are disabled. The baseline is the exact release's PyPI
+    wheel installed into an isolated uv tool directory, keeping package-launch overhead
+    outside timing. Historical releases without a cache need no cache flag.
+    `--previous-version vX.Y.Z` selects a published baseline explicitly;
+    `--previous-bin /path/to/ryl` supports local release-binary comparisons.
+    Preserve the per-case mean ± standard deviation and delta table, plus
+    `manual_outputs/benchmarks/release-perf.json`, in the release PR. The host-load
+    guard applies before and throughout timing; an overloaded host invalidates the run.
+    Any mean slowdown **strictly above 10%** blocks the tag. `--tolerance` changes the
+    threshold only with the maintainer's agreement. Acceptance requires the maintainer
+    to approve a bullet in the exact release's CHANGELOG section (dated headings are
+    supported):
+
+    ```text
+    - Performance: format/100x9KiB: accepted because <reason>.
+    ```
+
+    Case names must exactly match the gate table (`lint/20x1KiB`, for example).
+    Every failing case needs a separate top-level bullet with a nonempty reason;
+    quoted, nested or historical markers cannot waive a regression. Re-run the gate
+    after recording acceptance.
+  - Run the downstream report on at least two of **the maintainer's downstream repos**:
+
+    ```sh
+    uv run --script scripts/downstream_check.py --ryl-bin /absolute/path/to/target/release/ryl /path/to/downstream-a /path/to/downstream-b
+    ```
+
+    The helper installs each repo's ryl-pre-commit release pin from `prek.toml` or
+    `.pre-commit-config.yaml`/`.yml`, then compares read-only whole-repo checks with the
+    candidate. Frozen SHA pins select the newest upstream release tag matching the
+    SHA (requiring `git` and network access); untagged commits fail rather than
+    guessing a PyPI version.
+    Format hooks trigger `format --check`; Markdown hooks add Markdown
+    checks. Repo configuration applies, but hook file filters and hook arguments do not:
+    the report intentionally checks the whole repo. Raw stdout/stderr retains every
+    warning, notice and formatter filename alongside new/removed diagnostics. Exit 1
+    means changes or errors need review; an exit 0 does not replace the guidance trial.
+  - Read the downstream report, then upgrade at least two downstream repos using **only
+    ryl's printed warnings, `--help` and published docs** as guidance. Exercise the
+    upgraded hooks too, so hidden warnings or an incomplete migration appear. Record
+    each repo's starting pin, warnings followed, commands, hook result and guidance
+    defects in the release PR body. Any misleading or missing guidance blocks the tag:
+    fix the guidance, rebuild the candidate, and repeat the affected upgrade trial.
 - Tag and push (when releasing):
   - `git tag -a vX.Y.Z -m "vX.Y.Z"`
   - `git push && git push --tags`
