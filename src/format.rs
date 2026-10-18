@@ -24,6 +24,7 @@ use crate::rules::{
     document_start, empty_lines, hyphens, indentation, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces,
 };
+use crate::text_version::{Analysis, TextVersion};
 
 /// The rules `ryl format` applies, whatever the lint config enables.
 pub const FORMAT_RULE_IDS: [&str; 16] = [
@@ -173,8 +174,19 @@ pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
+    refusals_with_analysis(TextVersion::new(content).analysis(), cfg, indent)
+}
+
+fn refusals_with_analysis(
+    input: Analysis<'_>,
+    cfg: &YamlLintConfig,
+    indent: u8,
+) -> Vec<LintProblem> {
+    let content = input.text();
     if let Some(line) =
-        crate::rules::block_scalar_chomping::ambiguous_blank_body_line(content)
+        crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
+            input,
+        )
     {
         return vec![LintProblem {
             line,
@@ -219,6 +231,7 @@ pub fn format_str(
         },
         parsed.events.as_deref(),
     )
+    .into_text()
 }
 
 /// The `[format]` table resolved once, with the keys the config set explicitly.
@@ -286,7 +299,7 @@ fn format_tracked(
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
     events: Option<&[(Event<'_>, Span)]>,
-) -> String {
+) -> TextVersion<'static> {
     run_passes_with_events(
         input,
         &Passes::format(cfg, input, skip),
@@ -305,6 +318,7 @@ fn format_tracked(
 pub(crate) struct FormatCache {
     formatted: HashMap<String, (String, Vec<&'static str>)>,
     reindented: ReindentCache,
+    snapshot: Option<TextVersion<'static>>,
 }
 
 impl FormatCache {
@@ -348,7 +362,9 @@ impl FormatCache {
                 },
                 parsed.and_then(|parsed| parsed.events.as_deref()),
             );
-            (formatted, edited)
+            let text = formatted.to_string();
+            self.snapshot = Some(formatted);
+            (text, edited)
         })
     }
 }
@@ -477,6 +493,17 @@ pub(crate) fn unfixed(
     cfg: &YamlLintConfig,
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
+    let local;
+    let input = if let Some(snapshot) = cache
+        .snapshot
+        .as_ref()
+        .filter(|snapshot| snapshot.analysis().text() == content)
+    {
+        snapshot.analysis()
+    } else {
+        local = TextVersion::new(content);
+        local.analysis()
+    };
     let indent = indent_width(cfg);
     let mut target = indentation_target(cfg, indent);
     if cfg.indent_width().is_none() {
@@ -491,7 +518,7 @@ pub(crate) fn unfixed(
     let reindented = if let Some(result) = cached {
         result
     } else {
-        computed = indentation::reindent(content, &target);
+        computed = indentation::reindent_with_analysis(input, &target).0;
         &computed
     };
     let inconsistent = if reindented
@@ -499,7 +526,7 @@ pub(crate) fn unfixed(
         .iter()
         .any(|refusal| !matches!(refusal.cause, indentation::Cause::Disabled))
     {
-        indentation::check(content, &target.with_consistent_spaces())
+        indentation::check_with_analysis(input, &target.with_consistent_spaces())
     } else {
         Vec::new()
     };
@@ -540,15 +567,15 @@ pub(crate) fn unfixed(
         })
         .chain(kept)
         .collect();
-    problems.extend(refused_spacing(content, cfg, &reindented.refused));
-    problems.extend(refusals_at(content, cfg, indent));
+    problems.extend(refused_spacing(input, cfg, &reindented.refused));
+    problems.extend(refusals_with_analysis(input, cfg, indent));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems.dedup();
     problems
 }
 
 fn refused_spacing(
-    content: &str,
+    input: Analysis<'_>,
     cfg: &YamlLintConfig,
     refused: &[indentation::Refusal],
 ) -> Vec<LintProblem> {
@@ -564,7 +591,7 @@ fn refused_spacing(
                 && refusal.lines.contains(&line)
         })
     };
-    hyphens::check(content, &hyphens::Config::resolve(cfg))
+    hyphens::check_with_analysis(input, &hyphens::Config::resolve(cfg))
         .into_iter()
         .map(|violation| {
             (
@@ -575,7 +602,7 @@ fn refused_spacing(
             )
         })
         .chain(
-            colons::check(content, &colons::Config::resolve(cfg))
+            colons::check_with_analysis(input, &colons::Config::resolve(cfg))
                 .into_iter()
                 .map(|violation| {
                     (

@@ -407,7 +407,7 @@ pub fn fix(
 
     let scalar_ranges = super::punctuation::scalar_ranges(input);
 
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
+    let chars = input.chars();
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
@@ -429,7 +429,7 @@ pub fn fix(
 
         let ch = chars[idx].1;
         if desc.open == '{'
-            && let Some(next_idx) = template_double_curly_end(&chars, idx)
+            && let Some(next_idx) = template_double_curly_end(chars, idx)
         {
             idx = next_idx;
             continue;
@@ -439,14 +439,14 @@ pub fn fix(
             if let Some(state) = stack.last_mut() {
                 state.is_empty = false;
             }
-            let state = fix_open(cfg, desc, &chars, idx, &mut replacements);
+            let state = fix_open(cfg, desc, chars, idx, &mut replacements);
             stack.push(state);
         } else if ch == desc.close {
-            fix_close(cfg, &chars, idx, &mut stack, &mut replacements);
+            fix_close(cfg, chars, idx, &mut stack, &mut replacements);
         } else {
             match ch {
                 '#' => {
-                    idx = skip_comment(&chars, idx);
+                    idx = skip_comment(chars, idx);
                     continue;
                 }
                 ',' | ' ' | '\t' | '\n' | '\r' => {}

@@ -11,16 +11,15 @@
 //!
 //! Sources: adrienverge/yamllint#141.
 
-use granit_parser::{
-    Event, Parser, ScalarStyle, Scanner, Span, SpannedEventReceiver, StrInput,
-    TokenType,
-};
+use crate::text_version::lexical::Kind as LexicalKind;
+use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{
-    is_magic_first_line, leading_whitespace_width, split_lines_preserve_endings,
+    is_magic_first_line, leading_whitespace_width,
 };
 use crate::rules::support::span_utils::marker_byte_offset;
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "comments-indentation";
 pub const MESSAGE: &str = "comment not indented like content";
@@ -58,19 +57,23 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+    check_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
     let mut diagnostics: Vec<Violation> = Vec::new();
-    if buffer.is_empty() {
+    if input.text().is_empty() {
         return diagnostics;
     }
 
-    let lines = build_lines(buffer);
+    let lines = build_lines(input);
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
     // Only the option's open-block check consults this, so skip the parse entirely
     // when it's off (the common default path).
     let open_indents = if cfg.allow_any_open_indent {
-        compute_open_indents(buffer, lines.len())
+        compute_open_indents(input, lines.len())
     } else {
         Vec::new()
     };
@@ -112,16 +115,21 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    fix_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
+    let buffer = input.text();
     if buffer.is_empty() {
         return None;
     }
 
-    let lines = build_lines(buffer);
+    let lines = build_lines(input);
 
     let prev_content_indents = compute_prev_content_indents(&lines);
     let next_content_indents = compute_next_content_indents(&lines);
     let open_indents = if cfg.allow_any_open_indent {
-        compute_open_indents(buffer, lines.len())
+        compute_open_indents(input, lines.len())
     } else {
         Vec::new()
     };
@@ -130,9 +138,7 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let mut last_comment_indent: Option<usize> = None;
     let mut output = String::with_capacity(buffer.len());
 
-    for ((line_idx, raw_line, ending), line) in
-        split_lines_preserve_endings(buffer).zip(lines.iter())
-    {
+    for ((line_idx, raw_line, ending), line) in input.lines().zip(lines.iter()) {
         match line.kind {
             LineKind::Comment => {
                 let prev_indent = prev_content_indents[line_idx].unwrap_or(0);
@@ -185,8 +191,9 @@ fn comment_is_aligned(
 
 /// Classify every line once, shared by `check` and `fix`. Scalar tokens come from the
 /// scanner rather than the parser, as in `comments_scan`, so a parse error degrades less.
-fn build_lines(buffer: &str) -> Vec<LineInfo> {
-    let mut lines: Vec<LineInfo> = split_lines_preserve_endings(buffer)
+fn build_lines(input: Analysis<'_>) -> Vec<LineInfo> {
+    let mut lines: Vec<LineInfo> = input
+        .lines()
         .map(|(idx, line, _)| {
             let indent = leading_whitespace_width(line);
             let kind = if idx == 0 && is_magic_first_line(line) {
@@ -197,8 +204,7 @@ fn build_lines(buffer: &str) -> Vec<LineInfo> {
             LineInfo { indent, kind }
         })
         .collect();
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, kind) = token.into_parts();
+    for (span, kind) in input.tokens() {
         // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
         // line content again, as yamllint indents by each token's start line.
         if let Some(line) = lines.get_mut(span.start.line() - 1)
@@ -206,7 +212,7 @@ fn build_lines(buffer: &str) -> Vec<LineInfo> {
         {
             line.kind = LineKind::Other;
         }
-        let TokenType::Scalar(style, _) = kind else {
+        let LexicalKind::Scalar { style, .. } = kind else {
             continue;
         };
         // A block scalar's span starts on its first body line, and runs on to the
@@ -233,7 +239,7 @@ fn build_lines(buffer: &str) -> Vec<LineInfo> {
 /// For each line (1-based `L` -> `result[L - 1]`), the start columns of the block
 /// collections enclosing it: the levels `allow-any-open-indent` accepts a comment
 /// against. On a parse error every set is empty, degrading to the base rule.
-fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
+fn compute_open_indents(input: Analysis<'_>, line_count: usize) -> Vec<Vec<usize>> {
     struct Collector<'b> {
         buffer: &'b str,
         /// Open collections: `(start column, is block, start line)`.
@@ -270,15 +276,15 @@ fn compute_open_indents(buffer: &str, line_count: usize) -> Vec<Vec<usize>> {
     }
 
     let mut collector = Collector {
-        buffer,
+        buffer: input.text(),
         stack: Vec::new(),
         intervals: Vec::new(),
     };
-    if Parser::new_from_str(buffer)
-        .load(&mut collector, true)
-        .is_err()
-    {
+    if !input.parsed().valid {
         return vec![Vec::new(); line_count];
+    }
+    for (event, span) in input.event_iter() {
+        collector.on_event(event, span);
     }
 
     let mut result = vec![Vec::new(); line_count];

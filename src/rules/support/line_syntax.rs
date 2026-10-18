@@ -85,7 +85,8 @@ where
         return None;
     }
     let buffer = input.text();
-    let blank: Vec<_> = split_lines_preserve_endings(buffer)
+    let blank: Vec<_> = input
+        .lines()
         .map(|(_, line, _)| line.trim_matches([' ', '\t']).is_empty())
         .collect();
     let headers = input.headers();
@@ -141,7 +142,7 @@ pub(crate) fn split_lines_preserve_endings(
 /// `[start..content_end]` is break-free content, `[content_end..next_start]` the
 /// matched break (empty for a final unterminated line). Both public splitters below
 /// are thin slicing adapters over this, so the break rule lives in one place.
-fn scan_lines(buffer: &str) -> impl Iterator<Item = (usize, usize, usize)> {
+pub(crate) fn scan_lines(buffer: &str) -> impl Iterator<Item = (usize, usize, usize)> {
     let bytes = buffer.as_bytes();
     let mut start = 0usize;
     std::iter::from_fn(move || {

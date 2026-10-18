@@ -743,8 +743,10 @@ fn rewrite_parse_notice(
 }
 
 fn repair_events_match(original: &str, repaired: &str) -> bool {
-    let before = repair_representation(original);
-    let after = repair_representation(repaired);
+    let before = TextVersion::new(original);
+    let after = TextVersion::new(repaired);
+    let before = repair_representation(before.analysis());
+    let after = repair_representation(after.analysis());
     before
         .iter()
         .map(|doc| &doc.events)
@@ -752,11 +754,12 @@ fn repair_events_match(original: &str, repaired: &str) -> bool {
 }
 
 fn repair_representation(
-    text: &str,
+    input: Analysis<'_>,
 ) -> Vec<crate::rules::support::event_compare::Document<'_>> {
     use crate::rules::support::yaml_version;
     use granit_parser::{ScalarStyle, StructureStyle};
-    let (documents, parsed) = crate::rules::support::event_compare::documents(text);
+    let (documents, parsed) =
+        crate::rules::support::event_compare::documents_with_analysis(input);
     let mut documents = parsed
         .then_some(documents)
         .expect("repair operands have complete parses");
@@ -1290,6 +1293,7 @@ pub(crate) fn run_passes(
         },
         None,
     )
+    .into_text()
 }
 
 pub(crate) type ReindentCache =
@@ -1302,17 +1306,16 @@ pub(crate) struct PassTracking<'a> {
 }
 
 fn reindent_for_pass(
-    buffer: &str,
+    input: Analysis<'_>,
     cfg: &indentation::Config,
-    events: Option<&[(Event<'_>, Span)]>,
     cache: Option<&mut ReindentCache>,
-) -> Option<String> {
-    let result = indentation::reindent_with_events(buffer, cfg, events);
-    if result.text != buffer {
-        return Some(result.text);
+) -> Option<TextVersion<'static>> {
+    let (result, output) = indentation::reindent_with_analysis(input, cfg);
+    if result.text != input.text() {
+        return Some(output);
     }
     if let Some(slot) = cache {
-        *slot = Some((buffer.to_string(), *cfg, result));
+        *slot = Some((input.text().to_string(), *cfg, result));
     }
     None
 }
@@ -1325,9 +1328,9 @@ pub(crate) fn run_passes_with_events(
     err: &mut dyn Write,
     tracking: &mut PassTracking<'_>,
     initial_events: Option<&[(Event<'_>, Span)]>,
-) -> String {
+) -> TextVersion<'static> {
     if crate::directives::disables_file(input) {
-        return input.to_string();
+        return TextVersion::new(input.to_string());
     }
     let repaired;
     let original = input;
@@ -1339,18 +1342,31 @@ pub(crate) fn run_passes_with_events(
         input
     } else {
         let Some(target) = passes.repair_indentation else {
-            return input.to_string();
+            return TextVersion::new(input.to_string());
         };
+        let snapshot = TextVersion::new(input);
+        if let Some(events) = events {
+            snapshot.analysis().seed_events(events);
+        }
         repaired = strict_output(
             input,
-            Directives::parse_with_per_line(input, &passes.per_line).reconcile(
-                indentation::ID,
-                input,
-                &indentation::reindent_with_events(input, &target, events).text,
+            TextVersion::new(
+                Directives::parse_per_line_with_analysis(
+                    snapshot.analysis(),
+                    &passes.per_line,
+                )
+                .reconcile(
+                    indentation::ID,
+                    input,
+                    &indentation::reindent_with_analysis(snapshot.analysis(), &target)
+                        .0
+                        .text,
+                ),
             ),
-        );
+        )
+        .into_text();
         if repaired == input || !repair_events_match(input, &repaired) {
-            return input.to_string();
+            return TextVersion::new(input.to_string());
         }
         tracking.edited.push(indentation::ID);
         events = None;
@@ -1361,14 +1377,19 @@ pub(crate) fn run_passes_with_events(
         run_valid_passes(input, passes, path, max_passes, err, tracking, events),
     );
     if original != input && !repair_events_match(original, &formatted) {
-        return original.to_string();
+        return TextVersion::new(original.to_string());
     }
     formatted
 }
 
-fn strict_output(original: &str, formatted: String) -> String {
-    if formatted != original && crate::lint::strict_parse_error(&formatted).is_some() {
-        original.to_string()
+fn strict_output(
+    original: &str,
+    formatted: TextVersion<'static>,
+) -> TextVersion<'static> {
+    if formatted.analysis().text() != original
+        && crate::lint::strict_parse_error(&formatted).is_some()
+    {
+        TextVersion::new(original.to_string())
     } else {
         formatted
     }
@@ -1382,23 +1403,17 @@ fn run_valid_passes(
     err: &mut dyn Write,
     tracking: &mut PassTracking<'_>,
     initial_events: Option<&[(Event<'_>, Span)]>,
-) -> String {
-    let parsed = passes
-        .collection_style
-        .filter(|_| initial_events.is_none())
-        .map(|_| Parser::new_from_str(input).collect::<Result<Vec<_>, _>>());
+) -> TextVersion<'static> {
     let mut content = TextVersion::new(input);
-    if let Some(events) = initial_events.or_else(|| {
-        parsed
-            .as_ref()
-            .and_then(|result| result.as_ref().ok())
-            .map(Vec::as_slice)
-    }) {
+    if let Some(events) = initial_events {
         content.analysis().seed_events(events);
     }
     let mut ctx = FixContext {
         passes,
-        directives: Directives::parse_with_per_line(input, &passes.per_line),
+        directives: Directives::parse_per_line_with_analysis(
+            content.analysis(),
+            &passes.per_line,
+        ),
         edit_epoch: 0,
         clean_rules: HashMap::new(),
         clean_syntax_epoch: None,
@@ -1424,34 +1439,24 @@ fn run_valid_passes(
                 max_passes - 1,
                 err,
                 tracking.edited,
-            );
+            )
+            .into();
         }
-        return content.into_text();
+        return content.into_owned();
     }
-    for pass in 0..max_passes {
-        let events = if pass == 0 {
-            initial_events.or_else(|| {
-                parsed
-                    .as_ref()
-                    .and_then(|result| result.as_ref().ok())
-                    .map(Vec::as_slice)
-            })
-        } else {
-            None
-        };
+    for _ in 0..max_passes {
         let changed = ctx.pass(
             &mut content,
             tracking.edited,
-            events,
             tracking.reindented.as_deref_mut(),
         );
         if !changed {
-            return content.into_text();
+            return content.into_owned();
         }
     }
     let mut changed_rules = Vec::new();
     let mut probe = TextVersion::new(content.analysis().text());
-    if ctx.pass(&mut probe, &mut changed_rules, None, None) {
+    if ctx.pass(&mut probe, &mut changed_rules, None) {
         changed_rules.dedup();
         let warning = format!(
             "\nerror: Failed to converge after {max_passes} iterations.\n\n\
@@ -1464,7 +1469,7 @@ fn run_valid_passes(
         );
         crate::cli_support::write_file_stderr(err, warning.as_bytes());
     }
-    content.into_text()
+    content.into_owned()
 }
 
 /// Shared arguments for a sequence of rule fixes. `apply` is a method so it can be generic
@@ -1486,7 +1491,6 @@ impl FixContext<'_> {
         &mut self,
         content: &mut TextVersion<'_>,
         changed_rules: &mut Vec<&'static str>,
-        events: Option<&[(Event<'_>, Span)]>,
         reindented: Option<&mut ReindentCache>,
     ) -> bool {
         let passes = self.passes;
@@ -1505,13 +1509,21 @@ impl FixContext<'_> {
         fix!(new_lines, passes.new_lines.as_ref(), |view, cfg| {
             new_lines::fix(view.text(), *cfg, new_lines::platform_newline())
         });
-        fix!(comments);
-        fix!(comments_indentation);
+        fix!(
+            comments,
+            passes.comments.as_ref(),
+            comments::fix_with_analysis
+        );
+        fix!(
+            comments_indentation,
+            passes.comments_indentation.as_ref(),
+            |view, cfg| comments_indentation::fix_with_analysis(view, *cfg)
+        );
         fix!(commas, passes.commas.as_ref(), commas::fix_with_analysis);
         let syntax_epoch = self.edit_epoch;
         if self.clean_syntax_epoch != Some(syntax_epoch) {
             if passes.collection_style.is_some() || passes.indentation.is_some() {
-                self.syntax_pass(content, &input, changed_rules, events, reindented);
+                self.syntax_pass(content, changed_rules, reindented);
             } else {
                 self.lint_syntax_pass(content, changed_rules);
             }
@@ -1524,7 +1536,11 @@ impl FixContext<'_> {
             passes.trailing_spaces.then_some(&()),
             |view, ()| trailing_spaces::fix_with_analysis(view)
         );
-        fix!(document_start);
+        fix!(
+            document_start,
+            passes.document_start.as_ref(),
+            |view, cfg| document_start::fix_with_analysis(view, *cfg)
+        );
         fix!(document_end, passes.document_end.as_ref(), |view, cfg| {
             document_end::fix_with_analysis(view, *cfg)
         });
@@ -1573,8 +1589,8 @@ impl FixContext<'_> {
         }
         fix!(braces, braces::fix_with_analysis);
         fix!(brackets, brackets::fix_with_analysis);
-        fix!(colons);
-        fix!(hyphens);
+        fix!(colons, colons::fix_with_analysis);
+        fix!(hyphens, hyphens::fix_with_analysis);
         self.apply(
             content,
             changed_rules,
@@ -1584,15 +1600,17 @@ impl FixContext<'_> {
                 new_line_at_end_of_file::fix(view.text(), policy.newline(view.text()))
             },
         );
-        fix!(quoted_strings);
+        fix!(quoted_strings, |view, cfg| quoted_strings::fix_with_events(
+            view.text(),
+            cfg,
+            Some(&view.events())
+        ));
     }
 
     fn syntax_pass(
         &mut self,
         content: &mut TextVersion<'_>,
-        input: &str,
         changed_rules: &mut Vec<&'static str>,
-        events: Option<&[(Event<'_>, Span)]>,
         mut reindented: Option<&mut ReindentCache>,
     ) {
         let passes = self.passes;
@@ -1613,25 +1631,17 @@ impl FixContext<'_> {
                 self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
             };
         }
-        let snapshot = content.to_string();
-        let reparsed = (snapshot != input || events.is_none())
-            .then(|| Parser::new_from_str(&snapshot).collect::<Result<Vec<_>, _>>());
-        let shared = events
-            .filter(|_| snapshot == input)
-            .or_else(|| {
-                reparsed
-                    .as_ref()
-                    .and_then(|result| result.as_ref().ok())
-                    .map(Vec::as_slice)
-            })
-            .inspect(|events| content.analysis().seed_events(events));
-        let current_events = |buffer: &str| shared.filter(|_| snapshot == buffer);
         if let Some(cfg) = passes.collection_style
             && let Some((restyled, rules)) = collection_style::restyle(
                 content,
                 cfg,
                 passes.indentation.as_ref(),
-                current_events(content),
+                content
+                    .analysis()
+                    .parsed()
+                    .valid
+                    .then(|| content.analysis().events())
+                    .as_deref(),
             )
         {
             changed_rules.extend(rules);
@@ -1643,37 +1653,10 @@ impl FixContext<'_> {
         }
         fix!(braces, braces::fix_with_analysis);
         fix!(brackets, brackets::fix_with_analysis);
-        fix!(colons);
-        fix!(hyphens);
-        let indent_snapshot = passes
-            .indentation
-            .filter(|_| snapshot != content.analysis().text())
-            .map(|_| content.to_string());
-        let indent_reparsed = indent_snapshot
-            .as_deref()
-            .map(|text| Parser::new_from_str(text).collect::<Result<Vec<_>, _>>());
-        let indent_events = indent_reparsed
-            .as_ref()
-            .and_then(|result| result.as_ref().ok())
-            .map(Vec::as_slice);
-        if let Some(events) = indent_events {
-            content.analysis().seed_events(events);
-        }
-        let events_after_spacing = |buffer: &str| {
-            if indent_snapshot.as_deref() == Some(buffer) {
-                indent_events
-            } else {
-                current_events(buffer)
-            }
-        };
+        fix!(colons, colons::fix_with_analysis);
+        fix!(hyphens, hyphens::fix_with_analysis);
         fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
-            let buffer = view.text();
-            reindent_for_pass(
-                buffer,
-                cfg,
-                events_after_spacing(buffer),
-                reindented.as_deref_mut(),
-            )
+            reindent_for_pass(view, cfg, reindented.as_deref_mut())
         },);
         fix!(
             new_line_at_end_of_file,
@@ -1691,19 +1674,19 @@ impl FixContext<'_> {
                 quoted_strings::fix_with_events(
                     buffer,
                     cfg,
-                    events_after_spacing(buffer),
+                    view.parsed().valid.then(|| view.events()).as_deref(),
                 )
             },
         );
     }
 
-    fn apply<C>(
+    fn apply<C, R: Into<TextVersion<'static>>>(
         &mut self,
         content: &mut TextVersion<'_>,
         changed_rules: &mut Vec<&'static str>,
         rule: &'static str,
         cfg: Option<&C>,
-        mut fix: impl FnMut(Analysis<'_>, &C) -> Option<String>,
+        mut fix: impl FnMut(Analysis<'_>, &C) -> Option<R>,
     ) {
         let Some(cfg) = cfg else {
             return;
@@ -1730,19 +1713,22 @@ impl FixContext<'_> {
         let current = content;
         let mut directives = Directives::default();
         if guarded {
-            directives = Directives::parse_with_per_line(current, per_line);
+            directives =
+                Directives::parse_per_line_with_analysis(current.analysis(), per_line);
         }
         for _ in 0..RULE_FIX_MAX_ITERATIONS {
             let Some(next) = fix(current.analysis(), cfg) else {
                 self.clean_rules.insert(rule, self.edit_epoch);
                 break;
             };
-            let next = if guarded {
-                directives.reconcile(rule, current, &next)
-            } else {
-                next
-            };
-            let plan = current.analysis().plan(next);
+            let mut next = next.into();
+            if guarded {
+                let reconciled = directives.reconcile(rule, current, &next);
+                let plan = next.analysis().plan(reconciled);
+                next.apply(plan)
+                    .expect("reconciliation plan belongs to the candidate epoch");
+            }
+            let plan = current.analysis().plan_version(next);
             if !current
                 .apply(plan)
                 .expect("rule plan belongs to the current epoch")
@@ -1753,7 +1739,10 @@ impl FixContext<'_> {
             changed_rules.push(rule);
             self.edit_epoch += 1;
             if guarded {
-                directives = Directives::parse_with_per_line(current, per_line);
+                directives = Directives::parse_per_line_with_analysis(
+                    current.analysis(),
+                    per_line,
+                );
             }
         }
     }
