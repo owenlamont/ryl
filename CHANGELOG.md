@@ -11,6 +11,9 @@ summarize user-visible changes from the tagged commits and published release rec
   including merge aliases, without automatic fixes. Requested by
   [@pygarap](https://github.com/pygarap).
   ([#515](https://github.com/owenlamont/ryl/issues/515))
+- TOML `[lint] strict = true` enables strict lint exit codes; `--no-strict`
+  overrides configured strict mode. CLI flags take precedence over configuration.
+  ([#522](https://github.com/owenlamont/ryl/issues/522))
 
 ### Breaking changes
 
@@ -28,6 +31,12 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- Use granit's structured unknown-anchor error and collection styles, removing
+  redundant inference without changing lint or formatter output.
+- `ryl format` reuses verified indentation renders and appends padding without
+  allocating temporary strings. ([#758](https://github.com/owenlamont/ryl/issues/758))
+- `ryl format` skips refusal-only indentation and spacing checks when no active
+  refusal exists. ([#758](https://github.com/owenlamont/ryl/issues/758))
 - `ryl format` and `ryl check --fix` reuse scalar and block-header analysis
   while the source text is unchanged.
   ([#758](https://github.com/owenlamont/ryl/issues/758))

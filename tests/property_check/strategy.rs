@@ -223,6 +223,8 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("\"plain\"".to_string()),
         Just("[a , b]".to_string()),
         Just("{ a: 1 }".to_string()),
+        Just("[missing: ]".to_string()),
+        Just("[? missing: ]".to_string()),
         Just("[ ]".to_string()),
         Just("{}".to_string()),
         Just("&anchor value".to_string()),

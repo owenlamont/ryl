@@ -141,6 +141,7 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     let lint = config.merged_lint();
     let (exclude, exclude_from_file) = config.merged_exclude();
     NormalizedConfig {
+        strict: lint.strict,
         cache_dir: config.cache_dir.clone(),
         ignore_patterns: exclude.map(ignore_patterns_from_string_or_vec),
         ignore_from_files: exclude_from_file.map(string_or_vec_items),
@@ -194,6 +195,7 @@ fn normalize_markdown_table(table: &MarkdownTable) -> NormalizedMarkdown {
 
 pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
     NormalizedConfig {
+        strict: None,
         cache_dir: None,
         ignore_patterns: config.ignore.as_ref().map(string_or_vec_items),
         ignore_from_files: config.ignore_from_file.as_ref().map(string_or_vec_items),
@@ -371,6 +373,7 @@ fn normalized_lint_to_toml_table(
     config: &NormalizedConfig,
 ) -> toml::map::Map<String, toml::Value> {
     let mut table = toml::map::Map::new();
+    insert_serialized(&mut table, "strict", config.strict.as_ref());
     if let Some(fix) = config.fix.as_ref() {
         insert_serialized(&mut table, "fixable", Some(&fix.fixable));
         insert_serialized(&mut table, "unfixable", Some(&fix.unfixable));
