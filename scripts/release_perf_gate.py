@@ -17,7 +17,8 @@ from statistics import mean, stdev
 import subprocess
 import tempfile
 from time import perf_counter
-from typing import Annotated
+import tomllib
+from typing import Annotated, Final
 
 import benchmark_yaml_tools as harness
 from changelog import release_notes
@@ -49,6 +50,13 @@ class Result:
     def delta_percent(self) -> float:
         """Positive values denote a slowdown."""
         return (self.candidate_seconds / self.previous_seconds - 1.0) * 100.0
+
+
+_CARGO_MANIFEST: Final = Path("Cargo.toml")
+
+
+def _manifest_release() -> str:
+    return f"v{tomllib.loads(_CARGO_MANIFEST.read_text())['package']['version']}"
 
 
 def accepted_slowdowns(*, changelog: str, release: str) -> dict[str, str]:
@@ -170,11 +178,11 @@ def main(
     file_sizes_kib: str = "1,3,5,7,9",
     changelog: Path = Path("CHANGELOG.md"),
     release: Annotated[
-        str,
+        str | None,
         typer.Option(
-            help="CHANGELOG version or Unreleased; dated headings are accepted."
+            help="CHANGELOG section to read; defaults to the Cargo.toml version."
         ),
-    ] = "Unreleased",
+    ] = None,
     output: Path = Path("manual_outputs/benchmarks/release-perf.json"),
 ) -> None:
     """Gate README real-world lint/format cases with alternating A/B samples.
@@ -190,7 +198,9 @@ def main(
     harness.require_idle_host()
     counts = harness.parse_int_list(file_counts)
     sizes = harness.parse_int_list(file_sizes_kib)
-    accepted = accepted_slowdowns(changelog=changelog.read_text(), release=release)
+    accepted = accepted_slowdowns(
+        changelog=changelog.read_text(), release=release or _manifest_release()
+    )
     with tempfile.TemporaryDirectory(prefix="ryl-release-perf-") as temporary:
         root = Path(temporary)
         if previous_bin is None:

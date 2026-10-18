@@ -136,16 +136,16 @@ The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated 
 
 | Tool | Mode | Real-world mean, 100 × 9 KiB (s) |
 | --- | --- | ---: |
-| ryl | Lint | 0.054 |
-| yamllint | Lint | 2.378 |
-| ryl | Format | 0.365 |
-| yamlfmt | Format | 0.115 |
-| Prettier | Format | 1.161 |
-| dprint | Format | 0.073 |
+| ryl | Lint | 0.050 |
+| yamllint | Lint | 2.304 |
+| ryl | Format | 0.056 |
+| yamlfmt | Format | 0.113 |
+| Prettier | Format | 1.140 |
+| dprint | Format | 0.105 |
 
 | Tool | Mode | Version |
 | --- | --- | --- |
-| ryl | Lint, format | 0.25.1 |
+| ryl | Lint, format | 0.26.0 |
 | yamllint | Lint | 1.38.0 |
 | yamlfmt | Format | 0.21.0 |
 | Prettier | Format | 3.9.10 |
@@ -153,8 +153,9 @@ The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated 
 
 Result caches are cold; install artifacts are warm. The
 [benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
-cache checks. On the real-world dataset, ryl format is slower than dprint and yamlfmt:
-ryl verifies value preservation and convergence ([formatter guarantees](docs/formatter.md#guarantees)).
+cache checks. On the real-world dataset, ryl format is faster than dprint and yamlfmt
+while still verifying value preservation and convergence
+([formatter guarantees](docs/formatter.md#guarantees)).
 
 Run the benchmark with `--warm` to also record second-run timings with each
 tool's result cache enabled. Its warm view is separate from the cold chart above.
