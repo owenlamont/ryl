@@ -9,6 +9,10 @@ description: >-
 
 # Config Discovery
 
+TOML `[lint] strict` defaults to false. `--strict`/`--no-strict` override the config
+and conflict with each other. Strict mode uses the same run-level configuration as
+`[output]` (`main::run_config_settings`), rather than combining per-file values.
+
 ## Precedence
 
 `config::discover_config_with`, high→low: `-d` (inline TOML when `is_inline_toml`, else

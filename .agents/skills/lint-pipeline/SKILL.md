@@ -11,7 +11,9 @@ description: >-
 # Lint Pipeline
 
 Exit codes: `0` (no errors; warnings alone pass), `1` (lint errors or invalid YAML), `2`
-(usage or config error, no rule enabled, or warnings under `--strict`).
+(usage or config error, no rule enabled, or warnings under strict mode).
+TOML `[lint] strict = true` enables strict mode; `--strict`/`--no-strict` override
+the config. `--diff` retains its change-based exit codes.
 
 ## Subcommand shape
 

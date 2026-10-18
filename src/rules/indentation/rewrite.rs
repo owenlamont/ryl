@@ -183,27 +183,36 @@ impl<'a> Prepared<'a> {
             text
         };
         // Documents parse independently, so one round of refusals settles every document.
-        let attempt = render(&refused);
-        if attempt != self.buffer {
-            let (rewritten, _) = documents(&attempt);
+        let mut text = render(&refused);
+        let mut rollback = false;
+        if text != self.buffer {
+            let (rewritten, _) = documents(&text);
             for (index, cause) in refused.iter_mut().enumerate() {
                 let changed = rewritten.get(index).map(|document| &document.events)
                     != Some(&self.original[index].events);
+                rollback |= cause.is_none() && changed;
                 *cause = cause.or(changed.then_some(Cause::Changed));
             }
         }
+        if rollback {
+            text = render(&refused);
+        }
         if cfg.require_consistent {
-            let output = render(&refused);
-            let (output_documents, _) = documents(&output);
-            let output_starts = document_starts(&output, &output_documents);
-            for violation in super::check(&output, &cfg.with_consistent_spaces()) {
+            let (output_documents, _) = documents(&text);
+            let output_starts = document_starts(&text, &output_documents);
+            let mut rollback = false;
+            for violation in super::check(&text, &cfg.with_consistent_spaces()) {
                 let document =
                     output_starts.partition_point(|&start| start < violation.line) - 1;
+                rollback |= refused[document].is_none();
                 refused[document].get_or_insert(Cause::Inconsistent);
+            }
+            if rollback {
+                text = render(&refused);
             }
         }
         Reindented {
-            text: render(&refused),
+            text,
             kept_dash_lines: self.kept_dash_lines.clone(),
             refused: (0..starts.len())
                 .filter_map(|index| {
@@ -311,7 +320,10 @@ fn render_line(
     }
     let indent = content.len() - content.trim_start_matches(' ').len();
     let placed = indent.saturating_add_signed(delta);
-    text.push_str(&" ".repeat(placed * usize::from(!content.is_empty())));
+    text.extend(std::iter::repeat_n(
+        ' ',
+        placed * usize::from(!content.is_empty()),
+    ));
     let mut rest = &content[indent..];
     let mut at = indent;
     for gap in gaps {
@@ -411,7 +423,7 @@ fn reshape(
                 ending
             });
             origin.push(line);
-            text.push_str(&" ".repeat(at));
+            text.extend(std::iter::repeat_n(' ', at));
             text.push_str(&content[at..]);
         } else {
             text.push_str(content);

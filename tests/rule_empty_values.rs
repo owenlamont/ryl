@@ -37,6 +37,20 @@ fn reports_flow_mapping_empty_value() {
 }
 
 #[test]
+fn implicit_flow_mapping_retains_block_mapping_behavior() {
+    let yaml = "[missing: ]\n";
+    let cfg = resolve_config("rules:\n  empty-values: enable\n");
+    let hits = empty_values::check(yaml, &cfg);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].message, "empty value in block mapping");
+
+    let cfg = resolve_config(
+        "rules:\n  empty-values:\n    forbid-in-block-mappings: false\n",
+    );
+    assert!(empty_values::check(yaml, &cfg).is_empty());
+}
+
+#[test]
 fn reports_block_sequence_empty_value() {
     let yaml = "-\n";
     let cfg = resolve_config("rules:\n  empty-values: enable\n");

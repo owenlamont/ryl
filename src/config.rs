@@ -224,6 +224,7 @@ pub struct YamlLintConfig {
     lint_markdown_front_matter: bool,
     lint_markdown_fenced_blocks: bool,
     output: Option<OutputTable>,
+    strict: Option<bool>,
     format: FormatSettings,
     source: Option<PathBuf>,
     line_length: Option<NonZeroU16>,
@@ -606,6 +607,7 @@ impl Default for YamlLintConfig {
             lint_markdown_front_matter: true,
             lint_markdown_fenced_blocks: true,
             output: None,
+            strict: None,
             cache_dir: None,
             format: FormatSettings::default(),
             source: None,
@@ -951,6 +953,11 @@ impl YamlLintConfig {
     }
 
     #[must_use]
+    pub fn strict(&self) -> bool {
+        self.strict.unwrap_or(false)
+    }
+
+    #[must_use]
     pub fn cache_dir(&self) -> Option<&Path> {
         self.cache_dir.as_deref()
     }
@@ -1031,6 +1038,7 @@ impl YamlLintConfig {
     }
 
     fn apply_normalized_config(&mut self, normalized: NormalizedConfig) {
+        self.strict = normalized.strict.or(self.strict);
         if let Some(cache_dir) = &normalized.cache_dir {
             self.cache_dir = Some(PathBuf::from(cache_dir));
         }
@@ -1434,6 +1442,7 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
 
 fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
     NormalizedConfig {
+        strict: config.strict,
         cache_dir: config
             .cache_dir
             .as_ref()

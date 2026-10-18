@@ -231,6 +231,25 @@ fn nothing_to_move_is_no_fix() {
 }
 
 #[test]
+fn changed_events_roll_back_only_the_unsafe_document() {
+    let cfg = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    for newline in ["\n", "\r\n", "\r"] {
+        let input =
+            "k:\n    a: 1\n---\na:\n  - a\nb: >\n   x\n  #\n".replace('\n', newline);
+        let expected =
+            "k:\n  a: 1\n---\na:\n  - a\nb: >\n   x\n  #\n".replace('\n', newline);
+        let output = reindent(&input, &cfg);
+        assert_eq!(output.text, expected);
+        assert_eq!(output.refused, refusal(3..=8, Cause::Changed));
+        assert_eq!(reindent(&output.text, &cfg), output);
+    }
+}
+
+#[test]
 fn indicator_gaps_close_and_what_hangs_on_them_follows() {
     assert_reindents(
         2,

@@ -94,7 +94,9 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`
   suppresses warning-level diagnostics in the output. `--strict` turns a
-  warning-only run into exit code `2`. `--enable <RULES>` runs exactly the
+  warning-only run into exit code `2`; TOML `[lint] strict = true` enables the
+  same behavior for a project, and `--no-strict` overrides the config.
+  `--enable <RULES>` runs exactly the
   listed rules (comma-separated IDs, or `ALL`) in place of the config's
   selection, and needs no config file. `--disable <RULES>` subtracts from the
   selected lint rules. `--exclude <GLOBS>` replaces config file exclusions;

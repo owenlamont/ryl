@@ -119,27 +119,22 @@ fn build_global_cfg(
     }
 }
 
-/// The run-level TOML `[output]` table: from the global config when one was provided
-/// (`-c`/`-d`/env), else from the inputs-anchored project config (so `ryl .` picks up the
-/// project's `.ryl.toml [output]`). A run spanning separate projects takes the first project
-/// config discovered along the inputs (argument-order sensitive); pass `-c`/`-d` to fix it.
+/// Run-level output and strict settings use the global config or the first project
+/// config discovered along the inputs (argument-order sensitive).
 ///
 /// # Errors
 ///
-/// Propagates a config discovery/parse/validation error. The empty-input case has no per-file
-/// discovery, so a malformed `[output]` is surfaced here rather than silently ignored.
-fn run_output_config(
+/// Propagates config discovery/parse/validation errors, including for empty inputs.
+fn run_config_settings(
     global_cfg: Option<&ConfigContext>,
     inputs: &[PathBuf],
     args: &LintArgs,
-) -> Result<Option<OutputTable>, String> {
+) -> Result<(Option<OutputTable>, bool), String> {
     if let Some(ctx) = global_cfg {
-        return Ok(ctx.config.output().cloned());
+        return Ok((ctx.config.output().cloned(), ctx.config.strict()));
     }
-    Ok(discover_config(inputs, &cli_overrides(args))?
-        .config
-        .output()
-        .cloned())
+    let cfg = discover_config(inputs, &cli_overrides(args))?.config;
+    Ok((cfg.output().cloned(), cfg.strict()))
 }
 
 fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
@@ -512,18 +507,29 @@ struct FixFlags {
 }
 
 #[derive(clap::Args, Debug, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "one field per CLI flag")]
 struct CompatibilityLintFlags {
     /// List the files that would be linted (one per line), then exit
     #[arg(long = "list-files", default_value_t = false)]
     list_files: bool,
 
     /// Return exit code 2 when only warnings (no errors) are found
-    #[arg(short = 's', long = "strict", default_value_t = false)]
+    #[arg(short = 's', long = "strict", conflicts_with = "no_strict")]
     strict: bool,
+
+    /// Allow warning-only runs to succeed, overriding `lint.strict`
+    #[arg(long = "no-strict")]
+    no_strict: bool,
 
     /// Suppress warning-level problems (report only errors)
     #[arg(long = "no-warnings", default_value_t = false)]
     no_warnings: bool,
+}
+
+impl CompatibilityLintFlags {
+    fn strict(&self, config_strict: bool) -> bool {
+        self.strict || (!self.no_strict && config_strict)
+    }
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -1218,10 +1224,10 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     // `--diff` has its own unified-diff output, so skip config `[output]`: a config report
     // target must not block it. An explicit CLI `--format junit|gitlab` still conflicts via
     // the CLI-derived targets `validate_targets` reads regardless.
-    let output_config = if args.lint.fix.diff {
-        None
+    let (output_config, config_strict) = if args.lint.fix.diff {
+        (None, false)
     } else {
-        run_output_config(global_cfg.as_ref(), &args.source.inputs, args)?
+        run_config_settings(global_cfg.as_ref(), &args.source.inputs, args)?
     };
     let targets = resolve_targets(matches, args, output_config.as_ref())?;
     validate_targets(&targets, args.lint.fix.diff)?;
@@ -1247,7 +1253,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
         ));
     }
 
-    lint_and_exit(&files, args, targets)
+    lint_and_exit(&files, args, targets, config_strict)
 }
 
 type CollectedFiles = (Option<ConfigContext>, Vec<LintFile>, Option<bool>);
@@ -1319,6 +1325,7 @@ fn lint_and_exit(
     files: &[LintFile],
     args: &LintArgs,
     targets: &[OutputTarget],
+    config_strict: bool,
 ) -> Result<ExitCode, String> {
     let mut sinks = open_targets(targets)?;
 
@@ -1368,7 +1375,10 @@ fn lint_and_exit(
         .as_ref()
         .is_none_or(|(_, errors)| errors.is_empty())
     {
-        Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
+        Ok(summary_to_exit(
+            &summary,
+            args.lint.compatibility.strict(config_strict),
+        ))
     } else {
         Ok(ExitCode::from(2))
     }
@@ -1454,6 +1464,7 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
+    let strict = args.lint.compatibility.strict(cfg.strict());
 
     let files = vec![(path, base_dir, Arc::new(cfg), kind)];
     let results = vec![(0usize, outcome)];
@@ -1462,7 +1473,7 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     let (summary, records) =
         collect_records(&files, results, args.lint.compatibility.no_warnings);
     write_targets(targets, &mut sinks, &records)?;
-    Ok(summary_to_exit(&summary, args.lint.compatibility.strict))
+    Ok(summary_to_exit(&summary, strict))
 }
 
 /// Resolve the source kind for stdin, or `None` to skip an ignored `--stdin-filename`.
@@ -1618,7 +1629,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     }
     if let Some(preview) = preview {
         let output_config = if preview == Preview::Check {
-            run_output_config(global_cfg.as_ref(), &args.source.inputs, &args)?
+            run_config_settings(global_cfg.as_ref(), &args.source.inputs, &args)?.0
         } else {
             None
         };

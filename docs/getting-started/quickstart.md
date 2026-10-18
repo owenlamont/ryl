@@ -102,7 +102,10 @@ Exit codes:
 - `1` &mdash; lint errors, invalid YAML, or a path that could not be read
   (including nonexistent files).
 - `2` &mdash; CLI usage error (no inputs provided, bad flags), a failed
-  `check --fix` write, or `--strict` was set and only warnings were produced.
+  `check --fix` write, or strict mode was enabled and only warnings were produced.
+
+`--strict` (`-s`) enables strict mode; `--no-strict` disables strict mode even when
+configured in TOML. See [Strict mode](#strict-mode) for project configuration.
 
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
@@ -220,7 +223,7 @@ nothing exits `2` without `--enable` rather than silently linting nothing.
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
 `[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
-(`[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
+(`strict`, `[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](../formatter.md)
 settings. Copy the
 preset you want from [Configuration presets](../config-presets.md) and customise
@@ -291,6 +294,23 @@ one wins. The same `ryl --migrate-configs --migrate-write` rewrites such a
 `ryl --migrate-user-config --migrate-write` does the same for the user-global
 config. For `pyproject.toml` it only prints the keys to move, since rewriting
 would drop the rest of the file's comments and layout.
+
+### Strict mode
+
+Set `strict = true` under `[lint]` to return exit code `2` for warning-only lint
+results, including `check --fix` and stdin. The default is `false`.
+
+```toml
+[lint]
+strict = true
+```
+
+In `pyproject.toml`, use `[tool.ryl.lint]` instead. Strict mode is TOML-only.
+Precedence is CLI (`--strict`/`--no-strict`) > config > default; the two CLI flags
+are mutually exclusive. Like `[output]`, strict mode uses the first configuration
+discovered from the run's inputs when spanning projects; pass `-c` or `-d` to choose
+one explicitly. `--no-warnings` still suppresses warnings, and `--diff` keeps its
+existing exit codes. `ryl format` is unaffected.
 
 ## Lint alongside `ryl format`
 
