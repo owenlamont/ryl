@@ -23,17 +23,20 @@ app = typer.Typer(
 )
 
 
+RYL_PRE_COMMIT_URL = "https://github.com/owenlamont/ryl-pre-commit"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Pin:
     version: str
     hooks: tuple[str, ...]
 
 
-def _release_version(*, revision: str, repo: str) -> str:
+def _release_version(revision: str) -> str:
     if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
         return str(Version(revision.removeprefix("v")))
     refs = subprocess.run(
-        ["git", "ls-remote", "--tags", repo, "v[0-9]*"],
+        ["git", "ls-remote", "--tags", "--", RYL_PRE_COMMIT_URL, "v[0-9]*"],
         capture_output=True,
         text=True,
         check=True,
@@ -45,7 +48,9 @@ def _release_version(*, revision: str, repo: str) -> str:
         if sha.lower() == revision.lower()
     ]
     if not versions:
-        raise ValueError(f"{repo}: frozen revision {revision} has no release tag")
+        raise ValueError(
+            f"{RYL_PRE_COMMIT_URL}: frozen revision {revision} has no release tag"
+        )
     return str(max(versions))
 
 
@@ -70,7 +75,7 @@ def read_pin(config: Path) -> Pin:
     if len(matches) != 1:
         raise ValueError(f"{config}: expected exactly one ryl-pre-commit pin")
     repo = matches[0]
-    version = _release_version(revision=repo["rev"], repo=repo["repo"])
+    version = _release_version(repo["rev"])
     return Pin(version=version, hooks=tuple(hook["id"] for hook in repo["hooks"]))
 
 
