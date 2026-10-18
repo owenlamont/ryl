@@ -330,3 +330,65 @@ fn lsp_diagnoses_and_formats_9c9n() {
         .is_none()
     );
 }
+
+#[test]
+fn refused_repair_previews_report_only_the_syntax_error() {
+    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    let input = "flow: [a,\nb, # ryl disable-line rule:indentation\nc]\n";
+    for rewrite in [Rewrite::Fix, Rewrite::Format] {
+        let preview = ryl::fix::diff_outcome(
+            input,
+            &cfg,
+            Path::new("case.yaml"),
+            Path::new("."),
+            SourceKind::Yaml,
+            rewrite,
+        );
+        assert!(!preview.changed);
+        assert_eq!(preview.skipped.len(), 1);
+        assert!(preview.skipped[0].message.contains("syntax"));
+    }
+}
+
+#[test]
+fn markdown_preview_keeps_empty_and_invalid_regions_beside_a_formatted_region() {
+    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    let input = "```yaml\n\n```\n```yaml\nbad: [\n```\n```yaml\nx: 'one'\n```\n";
+    let preview = ryl::fix::diff_outcome(
+        input,
+        &cfg,
+        Path::new("case.md"),
+        Path::new("."),
+        SourceKind::Markdown,
+        Rewrite::Format,
+    );
+    assert!(preview.changed);
+    let diff = preview.diff.unwrap();
+    assert!(diff.contains("+x: one"));
+    assert!(!diff.contains("-bad: ["));
+    assert_eq!(preview.skipped.len(), 1);
+    assert!(preview.skipped[0].message.contains("syntax"));
+}
+
+#[test]
+fn per_line_ignores_cannot_leave_a_repair_with_invalid_syntax() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let file = temp.path().join("case.yaml");
+    std::fs::write(
+        &config,
+        "[lint.rules.document-start]\n[[lint.per-line-ignores]]\nregex = '^b,'\nrules = ['indentation']\n",
+    )
+    .unwrap();
+    std::fs::write(&file, INPUT).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--diff", "-c"])
+        .arg(config)
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(std::fs::read_to_string(file).unwrap(), INPUT);
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("@@"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("syntax"));
+}

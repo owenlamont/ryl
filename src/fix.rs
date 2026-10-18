@@ -1341,29 +1341,37 @@ pub(crate) fn run_passes_with_events(
         let Some(target) = passes.repair_indentation else {
             return input.to_string();
         };
-        repaired = Directives::parse_with_per_line(input, &passes.per_line).reconcile(
-            indentation::ID,
+        repaired = strict_output(
             input,
-            &indentation::reindent_with_events(input, &target, events).text,
+            Directives::parse_with_per_line(input, &passes.per_line).reconcile(
+                indentation::ID,
+                input,
+                &indentation::reindent_with_events(input, &target, events).text,
+            ),
         );
-        if crate::lint::strict_parse_error(&repaired).is_some()
-            || !repair_events_match(input, &repaired)
-        {
+        if repaired == input || !repair_events_match(input, &repaired) {
             return input.to_string();
         }
         tracking.edited.push(indentation::ID);
         events = None;
         &repaired
     };
-    let formatted =
-        run_valid_passes(input, passes, path, max_passes, err, tracking, events);
-    if formatted != input && crate::lint::strict_parse_error(&formatted).is_some() {
-        return original.to_string();
-    }
+    let formatted = strict_output(
+        original,
+        run_valid_passes(input, passes, path, max_passes, err, tracking, events),
+    );
     if original != input && !repair_events_match(original, &formatted) {
         return original.to_string();
     }
     formatted
+}
+
+fn strict_output(original: &str, formatted: String) -> String {
+    if formatted != original && crate::lint::strict_parse_error(&formatted).is_some() {
+        original.to_string()
+    } else {
+        formatted
+    }
 }
 
 fn run_valid_passes(
