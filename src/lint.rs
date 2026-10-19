@@ -11,7 +11,7 @@ use crate::rules::{
     merge_keys, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, tags,
     trailing_spaces, truthy, unicode_line_breaks,
 };
-use crate::text_version::{Analysis, TextVersion};
+use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -101,6 +101,26 @@ macro_rules! emit_problems {
 pub(crate) use emit_problems;
 
 macro_rules! lint_rule {
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, value) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input, $m::Config::resolve($cfg)),
+            |hit: $m::Violation| hit.message);
+    };
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, path) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input, &$m::Config::resolve($cfg, $path)),
+            |hit: $m::Violation| hit.message);
+    };
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, no_config) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input),
+            |hit: $m::Violation| hit.message);
+    };
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, no_config, message) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input),
+            |_| $m::MESSAGE.to_string());
+    };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
             $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
@@ -115,16 +135,6 @@ macro_rules! lint_rule {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
             $m::check($content, &$m::Config::resolve($cfg)),
             |hit: $m::Violation| hit.message);
-    };
-    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, path) => {
-        lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check($content, &$m::Config::resolve($cfg, $path)),
-            |hit: $m::Violation| hit.message);
-    };
-    ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, message) => {
-        lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check($content, &$m::Config::resolve($cfg)),
-            |_| $m::MESSAGE.to_string());
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
@@ -160,8 +170,26 @@ fn collect_layout_diagnostics(
     base_dir: &Path,
 ) {
     let content = input.text();
-    lint_rule!(diagnostics, cfg, content, path, base_dir, document_start);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, document_end);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        document_start,
+        analysis,
+        value
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        document_end,
+        analysis,
+        value
+    );
     lint_rule!(
         diagnostics,
         cfg,
@@ -184,8 +212,8 @@ fn collect_layout_diagnostics(
     lint_rule!(diagnostics, cfg, content, path, base_dir, empty_lines);
     lint_rule!(diagnostics, cfg, input, path, base_dir, commas, analysis);
     lint_rule!(diagnostics, cfg, input, path, base_dir, colons, analysis);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, braces);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, brackets);
+    lint_rule!(diagnostics, cfg, input, path, base_dir, braces, analysis);
+    lint_rule!(diagnostics, cfg, input, path, base_dir, brackets, analysis);
 }
 
 fn collect_value_diagnostics(
@@ -195,15 +223,56 @@ fn collect_value_diagnostics(
     path: &Path,
     base_dir: &Path,
 ) {
-    let content = input.text();
     lint_rule!(diagnostics, cfg, input, path, base_dir, comments, analysis);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, anchors);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, tags);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, octal_values);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, float_values);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, empty_values);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, quoted_strings);
-    lint_rule!(diagnostics, cfg, content, path, base_dir, truthy);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        anchors,
+        analysis,
+        value
+    );
+    lint_rule!(diagnostics, cfg, input, path, base_dir, tags, analysis);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        octal_values,
+        analysis
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        float_values,
+        analysis
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        empty_values,
+        analysis,
+        value
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        quoted_strings,
+        analysis
+    );
+    lint_rule!(diagnostics, cfg, input, path, base_dir, truthy, analysis);
 }
 
 fn collect_block_diagnostics(
@@ -214,14 +283,24 @@ fn collect_block_diagnostics(
     base_dir: &Path,
 ) {
     let content = input.text();
-    lint_rule!(diagnostics, cfg, content, path, base_dir, key_duplicates);
     lint_rule!(
         diagnostics,
         cfg,
-        content,
+        input,
+        path,
+        base_dir,
+        key_duplicates,
+        analysis,
+        value
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
         path,
         base_dir,
         key_ordering,
+        analysis,
         path
     );
     lint_rule!(diagnostics, cfg, input, path, base_dir, hyphens, analysis);
@@ -248,10 +327,11 @@ fn collect_block_diagnostics(
     lint_rule!(
         diagnostics,
         cfg,
-        content,
+        input,
         path,
         base_dir,
         trailing_spaces,
+        analysis,
         no_config,
         message
     );
@@ -267,19 +347,21 @@ fn collect_block_diagnostics(
     lint_rule!(
         diagnostics,
         cfg,
-        content,
+        input,
         path,
         base_dir,
         merge_keys,
+        analysis,
         no_config
     );
     lint_rule!(
         diagnostics,
         cfg,
-        content,
+        input,
         path,
         base_dir,
         block_scalar_chomping,
+        analysis,
         no_config,
         message
     );
@@ -304,6 +386,13 @@ pub fn lint_str(
     let mut diagnostics: Vec<LintProblem> = Vec::new();
     let snapshot = TextVersion::new(content);
     let input = snapshot.analysis();
+    let facts = ParsedFacts::parse_with_options(content, 0, true);
+    if let Some(syntax) = syntax_diagnostic(content, facts.error.as_ref()) {
+        return vec![syntax];
+    }
+    if facts.valid {
+        input.seed_facts(facts);
+    }
     collect_layout_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
     collect_value_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
     collect_block_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
@@ -319,11 +408,6 @@ pub fn lint_str(
 
     if let Some(warning) = higher_minor_version_warning(content) {
         diagnostics.push(warning);
-    }
-
-    if let Some(syntax) = syntax_diagnostic(content) {
-        diagnostics.clear();
-        diagnostics.push(syntax);
     }
 
     diagnostics
@@ -401,17 +485,20 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
 /// The syntax error ryl reports for `content` during linting, or `None` if it lints
 /// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
 /// rule, matching yamllint).
-fn syntax_diagnostic(content: &str) -> Option<LintProblem> {
+fn syntax_diagnostic(
+    content: &str,
+    error: Option<&granit_parser::ScanError>,
+) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
-    match scan(content, true) {
-        Ok(()) => None,
-        Err(err) if matches!(err.kind(), granit_parser::ErrorKind::UnknownAnchor) => {
+    match error {
+        None => None,
+        Some(err) if matches!(err.kind(), granit_parser::ErrorKind::UnknownAnchor) => {
             // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
-        Err(err) => Some(syntax_problem(&err)),
+        Some(err) => Some(syntax_problem(err)),
     }
 }
 

@@ -4,7 +4,7 @@
 //! safe `--fix`: rewrites such as `.5` to `0.5` or expanding `1e3` to `1000` change the
 //! scalar's text and, for tagged or string consumers, its value.
 
-use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 
@@ -66,9 +66,21 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut parser = Parser::new_from_str(buffer);
+    check_with_analysis(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        cfg,
+    )
+}
+
+pub(crate) fn check_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Vec<Violation> {
+    let buffer = input.text();
     let mut receiver = FloatValuesReceiver::new(cfg, buffer);
-    let _ = parser.load(&mut receiver, true);
+    for (event, span) in input.event_iter() {
+        receiver.on_event(event, span);
+    }
     receiver.diagnostics
 }
 

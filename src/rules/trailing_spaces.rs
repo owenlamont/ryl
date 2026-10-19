@@ -9,10 +9,10 @@
 use granit_parser::ScalarStyle;
 use std::collections::HashSet;
 
+use crate::rules::document_end;
 use crate::rules::support::line_syntax::{
-    buffer_newline, line_contents, protected_scalar_lines, split_lines_preserve_endings,
+    buffer_newline, protected_scalar_lines_with_analysis,
 };
-use crate::rules::{block_scalar_chomping, document_end};
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "trailing-spaces";
@@ -26,8 +26,12 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
+    check_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>) -> Vec<Violation> {
     let mut violations = Vec::new();
-    for (idx, line, _ending) in split_lines_preserve_endings(buffer) {
+    for (idx, line, _ending) in input.lines() {
         let trimmed = line.trim_end_matches([' ', '\t']);
         if trimmed.len() < line.len() {
             violations.push(Violation {
@@ -37,15 +41,15 @@ pub fn check(buffer: &str) -> Vec<Violation> {
         }
     }
     if !violations.is_empty() {
-        let mut content = content_blank_lines(buffer);
-        if let Some(protected) = protected_scalar_lines(buffer, |style, _span| {
-            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-        }) {
-            let lines = line_contents(buffer);
-            let headers: HashSet<_> = block_scalar_chomping::headers(buffer)
-                .into_iter()
-                .map(|header| header.line)
-                .collect();
+        let mut content = content_blank_lines_with_analysis(input);
+        if let Some(protected) =
+            protected_scalar_lines_with_analysis(input, |style, _span| {
+                matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+            })
+        {
+            let lines = input.line_contents();
+            let headers: HashSet<_> =
+                input.headers().iter().map(|header| header.line).collect();
             content.extend(protected.into_iter().filter(|line| {
                 lines
                     .get(line - 1)
@@ -138,10 +142,6 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
     }
 
     changed.then_some(output)
-}
-
-pub(crate) fn content_blank_lines(buffer: &str) -> HashSet<usize> {
-    content_blank_lines_with_analysis(TextVersion::new(buffer).analysis())
 }
 
 pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {

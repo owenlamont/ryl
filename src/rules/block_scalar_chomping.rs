@@ -30,8 +30,13 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
-    headers(buffer)
-        .into_iter()
+    check_with_analysis(TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>) -> Vec<Violation> {
+    input
+        .headers()
+        .iter()
         .filter(|header| header.chomping.is_none())
         .map(|header| Violation {
             line: header.line,
@@ -45,10 +50,6 @@ pub(crate) struct Header {
     pub(crate) line: usize,
     pub(crate) column: usize,
     pub(crate) chomping: Option<char>,
-}
-
-pub(crate) fn headers(buffer: &str) -> Vec<Header> {
-    headers_with_analysis(TextVersion::new(buffer).analysis())
 }
 
 pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {

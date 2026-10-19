@@ -1,7 +1,6 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_byte_line_starts, byte_line_and_column, collect_scalar_ranges, skip_comment,
-    target_spacing, template_double_curly_end,
+    byte_line_and_column, skip_comment, target_spacing, template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, containing_byte_scalar_range,
@@ -41,8 +40,18 @@ macro_rules! define_rule {
 
         #[must_use]
         pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
+            check_with_analysis(
+                $crate::text_version::TextVersion::new(buffer).analysis(),
+                cfg,
+            )
+        }
+
+        pub(crate) fn check_with_analysis(
+            input: $crate::text_version::Analysis<'_>,
+            cfg: &Config,
+        ) -> Vec<Violation> {
             $crate::rules::support::flow_collection::check(
-                buffer,
+                input,
                 cfg.inner(),
                 &DESCRIPTOR,
             )
@@ -272,18 +281,19 @@ struct SpacingMessages<'a> {
 
 #[must_use]
 pub fn check(
-    buffer: &str,
+    input: crate::text_version::Analysis<'_>,
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
 ) -> Vec<Violation> {
+    let buffer = input.text();
     if buffer.is_empty() {
         return Vec::new();
     }
 
-    let scalar_ranges = collect_scalar_ranges(buffer);
+    let scalar_ranges = super::punctuation::byte_scalar_ranges(input);
 
     let bytes = buffer.as_bytes();
-    let line_starts = build_byte_line_starts(buffer);
+    let line_starts = input.byte_line_starts();
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
@@ -319,7 +329,7 @@ pub fn check(
                 desc,
                 bytes,
                 idx,
-                &line_starts,
+                line_starts,
                 &mut stack,
                 &mut violations,
             );
@@ -329,7 +339,7 @@ pub fn check(
                 desc,
                 bytes,
                 idx,
-                &line_starts,
+                line_starts,
                 &mut stack,
                 &mut violations,
             );

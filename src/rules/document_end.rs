@@ -48,7 +48,11 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    scan(TextVersion::new(buffer).analysis(), *cfg).violations
+    check_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
+    scan(input, cfg).violations
 }
 
 fn scan(input: Analysis<'_>, cfg: Config) -> Scan {

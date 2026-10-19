@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
+use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
@@ -236,20 +236,38 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
     }
 }
 
-fn walk<'cfg>(buffer: &str, cfg: &'cfg Config) -> TruthyReceiver<'cfg> {
-    let mut parser = Parser::new_from_str(buffer);
+fn walk<'cfg>(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &'cfg Config,
+) -> TruthyReceiver<'cfg> {
     let mut receiver = TruthyReceiver::new(cfg);
-    let _ = parser.load(&mut receiver, true);
+    for (event, span) in input.event_iter() {
+        receiver.on_event(event, span);
+    }
     receiver
 }
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    walk(buffer, cfg).diagnostics
+    check_with_analysis(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        cfg,
+    )
+}
+
+pub(crate) fn check_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Vec<Violation> {
+    walk(input, cfg).diagnostics
 }
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let replacements = walk(buffer, cfg).replacements;
+    let replacements = walk(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        cfg,
+    )
+    .replacements;
     (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
 }
