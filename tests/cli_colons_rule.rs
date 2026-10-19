@@ -98,6 +98,21 @@ fn colons_reports_explicit_key_spacing() {
 }
 
 #[test]
+fn colons_reports_character_columns_with_unicode_and_mixed_breaks() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("unicode.yaml");
+    fs::write(&file, "café:  one\r\nx:  two\r").unwrap();
+    let exe = env!("CARGO_BIN_EXE_ryl");
+    let (code, stdout, stderr) = run(Command::new(exe)
+        .args(["check", "-d", "rules: {colons: enable}"])
+        .arg(&file));
+    assert_eq!(code, 1, "stdout={stdout} stderr={stderr}");
+    let output = if stderr.is_empty() { stdout } else { stderr };
+    assert!(output.contains("1:7"), "Unicode column changed: {output}");
+    assert!(output.contains("2:4"), "bare-CR line changed: {output}");
+}
+
+#[test]
 fn fix_with_a_huge_tolerance_leaves_clean_input_alone() {
     let dir = tempdir().unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");
