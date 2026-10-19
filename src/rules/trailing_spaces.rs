@@ -6,6 +6,8 @@
 //! Multi-line single-quoted and plain scalars fold trailing whitespace away, so they
 //! stay fixable. The protected line set comes from `granit_parser`, so the fix bails
 //! (returns `None`) on an unparsable buffer.
+use crate::rules::support::span_utils::BytePos;
+use crate::text_version::edits::Edit;
 use granit_parser::ScalarStyle;
 use std::collections::HashSet;
 
@@ -68,8 +70,12 @@ pub fn fix(buffer: &str) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
+    crate::text_version::edits::render(input.text(), edits(input))
+}
+
+pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
     let buffer = input.text();
-    let mut protected =
+    let Some(mut protected) =
         crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
             input,
             |style, span| match style {
@@ -77,7 +83,10 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
                 ScalarStyle::DoubleQuoted => span.end.line() > span.start.line(),
                 _ => false,
             },
-        )?;
+        )
+    else {
+        return Vec::new();
+    };
     let lines = input.line_contents();
     let content = content_blank_lines_with_analysis(input);
     let mut keep_blank_eof = false;
@@ -119,7 +128,8 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
             }
         }
     }
-    let mut output = String::with_capacity(buffer.len());
+    let mut edits = Vec::new();
+    let mut offset = 0;
     let mut changed = false;
 
     for (idx, raw_line, ending) in input.lines() {
@@ -133,15 +143,21 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
             }
             trimmed
         };
-        output.push_str(stripped);
-        output.push_str(ending);
+        if stripped.len() < raw_line.len() {
+            edits.push((
+                BytePos::new(offset + stripped.len()),
+                BytePos::new(offset + raw_line.len()),
+                String::new(),
+            ));
+        }
+        offset += raw_line.len() + ending.len();
     }
 
-    if keep_blank_eof {
-        output.push_str(buffer_newline(buffer));
+    if keep_blank_eof && changed {
+        let end = BytePos::new(buffer.len());
+        edits.push((end, end, buffer_newline(buffer).to_string()));
     }
-
-    changed.then_some(output)
+    edits
 }
 
 pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {

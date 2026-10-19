@@ -2,9 +2,7 @@ use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     byte_line_and_column, skip_comment, target_spacing, template_double_curly_end,
 };
-use crate::rules::support::span_utils::{
-    BytePos, apply_replacements, containing_byte_scalar_range,
-};
+use crate::rules::support::span_utils::{BytePos, containing_byte_scalar_range};
 
 macro_rules! define_rule {
     (
@@ -69,7 +67,14 @@ macro_rules! define_rule {
             input: $crate::text_version::Analysis<'_>,
             cfg: &Config,
         ) -> Option<String> {
-            $crate::rules::support::flow_collection::fix(
+            $crate::text_version::edits::render(input.text(), edits(input, cfg))
+        }
+
+        pub(crate) fn edits(
+            input: $crate::text_version::Analysis<'_>,
+            cfg: &Config,
+        ) -> Vec<$crate::text_version::edits::Edit> {
+            $crate::rules::support::flow_collection::edits(
                 input,
                 cfg.inner(),
                 &DESCRIPTOR,
@@ -370,46 +375,27 @@ pub fn check(
 }
 
 #[must_use]
-pub fn fix(
+pub(crate) fn edits(
     input: crate::text_version::Analysis<'_>,
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
-) -> Option<String> {
+) -> Vec<crate::text_version::edits::Edit> {
     let buffer = input.text();
     if buffer.is_empty() || cfg.forbid() != Forbid::None {
-        return None;
+        return Vec::new();
     }
 
-    let scalar_ranges = super::punctuation::byte_scalar_ranges(input);
-
-    let bytes = input.text().as_bytes();
-
-    let mut range_idx = 0usize;
-    let mut idx = 0usize;
+    let bytes = buffer.as_bytes();
+    let legacy;
+    let sites = if desc.open == b'[' && buffer.contains("{{") {
+        legacy = super::punctuation::flow_sites(input, false);
+        &legacy
+    } else {
+        input.flow_sites()
+    };
     let mut stack: Vec<CollectionState> = Vec::new();
-    let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
-
-    while idx < bytes.len() {
-        if let Some(range) =
-            containing_byte_scalar_range(&scalar_ranges, &mut range_idx, idx)
-        {
-            if idx == range.start.get()
-                && let Some(state) = stack.last_mut()
-            {
-                state.is_empty = false;
-            }
-            idx = range.end.get();
-            continue;
-        }
-
-        let ch = bytes[idx];
-        if desc.open == b'{'
-            && let Some(next_idx) = template_double_curly_end(bytes, idx)
-        {
-            idx = next_idx;
-            continue;
-        }
-
+    let mut replacements = Vec::new();
+    for &(idx, ch) in sites {
         if ch == desc.open {
             if let Some(state) = stack.last_mut() {
                 state.is_empty = false;
@@ -420,10 +406,6 @@ pub fn fix(
             fix_close(cfg, bytes, idx, &mut stack, &mut replacements);
         } else {
             match ch {
-                b'#' => {
-                    idx = skip_comment(bytes, idx);
-                    continue;
-                }
                 b',' | b' ' | b'\t' | b'\n' | b'\r' => {}
                 _ => {
                     if let Some(state) = stack.last_mut() {
@@ -432,14 +414,9 @@ pub fn fix(
                 }
             }
         }
-
-        idx += 1;
     }
 
-    if replacements.is_empty() {
-        return None;
-    }
-    Some(apply_replacements(buffer, replacements))
+    replacements
 }
 
 fn handle_open(

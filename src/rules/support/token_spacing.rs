@@ -2,6 +2,7 @@
 //! `hyphens`. Scanner tokens only classify a site: `BlockEntry` sits at the entry's
 //! node rather than the dash, so each run is found by scanning the source from the
 //! indicator and holds only spaces and tabs.
+use crate::text_version::edits::Edit;
 
 use crate::text_version::Analysis;
 use std::ops::Range;
@@ -10,9 +11,7 @@ use crate::text_version::lexical::{Kind as LexicalKind, Tokens};
 use granit_parser::ScalarStyle;
 
 use crate::rules::support::punctuation::byte_line_and_column;
-use crate::rules::support::span_utils::{
-    BytePos, apply_replacements, marker_byte_offset,
-};
+use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Indicator {
@@ -98,15 +97,13 @@ pub(crate) fn sites_with_analysis(input: Analysis<'_>) -> Vec<Site> {
     sites
 }
 
-/// `buffer` with each safe site `tolerance` covers respaced: to `max(tolerance, the
-/// grammar minimum)` where it exceeds that, or under [`Mode::Format`] wherever it differs.
-pub(crate) fn fix(
+pub(crate) fn edits(
     input: Analysis<'_>,
     mode: Mode,
     tolerance: impl Fn(&Site) -> Option<i64>,
-) -> Option<String> {
+) -> Vec<Edit> {
     let buffer = input.text();
-    let replacements: Vec<_> = input
+    input
         .sites()
         .iter()
         .filter(|site| site.fix == Fix::Safe)
@@ -125,8 +122,7 @@ pub(crate) fn fix(
                 )
             })
         })
-        .collect();
-    (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
+        .collect()
 }
 
 struct Walk<'a> {

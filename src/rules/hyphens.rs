@@ -16,6 +16,7 @@
 //! breaks dash-line mappings as part of re-indenting (`indentation::reindent`).
 //!
 //! Sources: YAML 1.2.2 block-sequence grammar; adrienverge/yamllint#527.
+use crate::text_version::edits::Edit;
 
 use crate::text_version::lexical::Kind as LexicalKind;
 
@@ -113,7 +114,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
-    token_spacing::fix(input, cfg.mode, |site| {
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
+    token_spacing::edits(input, cfg.mode, |site| {
         (site.indicator == Indicator::Dash).then_some(cfg.max_spaces_after)
     })
 }

@@ -49,6 +49,7 @@ pub enum Property {
     AliasKey,
     /// A tag from `TAGS`, or an anchor past its end, on an empty key.
     EmptyKey(usize),
+    GapInteractions,
 }
 
 fn arb_property() -> impl Strategy<Value = Property> {
@@ -62,6 +63,7 @@ fn arb_property() -> impl Strategy<Value = Property> {
         2 => (0..QUOTED_KEYS.len()).prop_map(Property::QuotedKey),
         1 => Just(Property::AliasKey),
         1 => (0..=TAGS.len()).prop_map(Property::EmptyKey),
+        1 => Just(Property::GapInteractions),
     ]
 }
 
@@ -173,6 +175,9 @@ impl Decorator<'_> {
         let already_tagged =
             matches!(scalar, Scalar::Plain(text) if text.starts_with('!'));
         let prefix = match property {
+            Property::GapInteractions => {
+                return Scalar::Plain("{ é :  [ x ,y ] }".into());
+            }
             Property::None
             | Property::QuotedKey(_)
             | Property::AliasKey

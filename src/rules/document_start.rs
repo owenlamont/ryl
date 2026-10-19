@@ -4,6 +4,8 @@
 //! after the last `...` that precedes it, else at the buffer start or after a line-1
 //! shebang or `#cloud-config`. Removing `---` (`present: false`) can collide with
 //! document boundaries, so it is not fixed.
+use crate::rules::support::span_utils::BytePos;
+use crate::text_version::edits::Edit;
 use granit_parser::Event;
 
 use crate::config::YamlLintConfig;
@@ -82,10 +84,14 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
     let buffer = input.text();
     let content_lines = scan(input, cfg).implicit_starts;
     if content_lines.is_empty() {
-        return None;
+        return Vec::new();
     }
     let lines: Vec<(&str, &str)> = input
         .lines()
@@ -101,20 +107,16 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<Stri
         .map(|&content_line| marker_line(&lines, first_line, content_line))
         .peekable();
     let newline = buffer_newline(buffer);
-    let mut output = String::with_capacity(buffer.len() + 4 * content_lines.len());
+    let mut edits = Vec::new();
+    let mut offset = 0;
     for (idx, (content, ending)) in lines.iter().enumerate() {
         if marker_lines.next_if_eq(&(idx + 1)).is_some() {
-            let (bom, rest) = split_bom(content);
-            output.push_str(bom);
-            output.push_str("---");
-            output.push_str(newline);
-            output.push_str(rest);
-        } else {
-            output.push_str(content);
+            let at = BytePos::new(offset + split_bom(content).0.len());
+            edits.push((at, at, format!("---{newline}")));
         }
-        output.push_str(ending);
+        offset += content.len() + ending.len();
     }
-    Some(output)
+    edits
 }
 
 /// The 1-based line that takes the `---` for the document whose content starts on

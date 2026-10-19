@@ -2,6 +2,8 @@
 //!
 //! `--fix` preserves scalar content, but trims trailing blanks discarded by chomping.
 //! An unparsable buffer is left untouched.
+use crate::rules::support::span_utils::BytePos;
+use crate::text_version::edits::Edit;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
@@ -63,37 +65,31 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
-    let buffer = input.text();
-    let protected = preserved_scalar_lines_with_analysis(input)?;
-    let mut output = String::with_capacity(buffer.len());
-    let mut blank_run: Vec<(&str, &str)> = Vec::new();
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
+    let Some(protected) = preserved_scalar_lines_with_analysis(input) else {
+        return Vec::new();
+    };
+    let mut edits = Vec::new();
+    let mut blank_run = Vec::new();
     let mut seen_nonblank = false;
-    let mut changed = false;
-
+    let mut offset = 0;
     for (idx, raw_line, ending) in input.lines() {
-        let line_no = idx + 1;
-        let is_blank = raw_line.is_empty();
-
-        if is_blank && !protected.contains(&line_no) {
-            blank_run.push((raw_line, ending));
+        let end = offset + raw_line.len() + ending.len();
+        if raw_line.is_empty() && !protected.contains(&(idx + 1)) {
+            blank_run.push(offset..end);
         } else {
-            flush_blank_run(
-                &mut output,
-                &mut blank_run,
-                middle_max(seen_nonblank, cfg),
-                &mut changed,
-            );
-            output.push_str(raw_line);
-            output.push_str(ending);
-            if !is_blank {
+            flush_blank_run(&mut edits, &mut blank_run, middle_max(seen_nonblank, cfg));
+            if !raw_line.is_empty() {
                 seen_nonblank = true;
             }
         }
+        offset = end;
     }
-
-    flush_blank_run(&mut output, &mut blank_run, cfg.max_end(), &mut changed);
-
-    changed.then_some(output)
+    flush_blank_run(&mut edits, &mut blank_run, cfg.max_end());
+    edits
 }
 
 fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
@@ -149,22 +145,21 @@ fn middle_max(seen_nonblank: bool, cfg: &Config) -> i64 {
 }
 
 fn flush_blank_run(
-    output: &mut String,
-    run: &mut Vec<(&str, &str)>,
+    edits: &mut Vec<Edit>,
+    run: &mut Vec<std::ops::Range<usize>>,
     max: i64,
-    changed: &mut bool,
 ) {
-    if run.is_empty() {
-        return;
-    }
-    let allowed = usize::try_from(max).unwrap_or(0);
-    let keep = run.len().min(allowed);
-    for (raw_line, ending) in run.iter().take(keep) {
-        output.push_str(raw_line);
-        output.push_str(ending);
-    }
-    if keep < run.len() {
-        *changed = true;
+    let keep = usize::try_from(max).unwrap_or(0);
+    if let Some(first) = run.get(keep) {
+        edits.push((
+            BytePos::new(first.start),
+            BytePos::new(
+                run.last()
+                    .expect("a blank run has a first removed line")
+                    .end,
+            ),
+            String::new(),
+        ));
     }
     run.clear();
 }

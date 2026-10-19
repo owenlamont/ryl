@@ -9,6 +9,7 @@
 //! below is left alone: its spacing is the collection's indentation.
 use crate::config::YamlLintConfig;
 use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode, Site};
+use crate::text_version::edits::Edit;
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "colons";
@@ -120,7 +121,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
-    token_spacing::fix(input, cfg.mode, |site| cfg.tolerance(site))
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
+    token_spacing::edits(input, cfg.mode, |site| cfg.tolerance(site))
 }
 
 /// The violations `fix` leaves because respacing them would re-indent a collection.

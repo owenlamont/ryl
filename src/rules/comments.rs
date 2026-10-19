@@ -2,13 +2,14 @@
 //! (ryl-only) maximum gap from preceding inline content, and an optional exemption
 //! for a line-1 shebang or `#cloud-config`. Mirrors yamllint's `comments`. Safe
 //! `--fix` pads or trims the spaces.
+use crate::rules::support::span_utils::BytePos;
+use crate::text_version::edits::Edit;
 
 use granit_parser::Placement;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::comments_scan::CommentInfo;
 use crate::rules::support::line_syntax::is_magic_first_line_comment;
-use crate::rules::support::span_utils::{BytePos, apply_replacements};
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "comments";
@@ -149,6 +150,10 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     let buffer = input.text();
     let mut edits: Vec<(BytePos, BytePos, String)> = Vec::new();
 
@@ -203,11 +208,7 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
         }
     }
 
-    if edits.is_empty() {
-        return None;
-    }
-
-    Some(apply_replacements(buffer, edits))
+    edits
 }
 
 fn comment_byte_start(comment: &CommentInfo) -> usize {

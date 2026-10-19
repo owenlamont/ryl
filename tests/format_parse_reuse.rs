@@ -6,6 +6,76 @@ use ryl::rules::{braces, commas, empty_lines, trailing_spaces};
 use ryl::text_version::TextVersion;
 
 #[test]
+fn byte_edits_merge_in_source_order_and_keep_epoch_guards() {
+    let mut source = TextVersion::new("é : [ a,b ]\r\n");
+    let edits = [
+        (10..11, String::new()),
+        (2..3, String::new()),
+        (9..9, " ".into()),
+    ];
+    let stale = source.analysis().plan_byte_edits(edits.clone()).unwrap();
+    let plan = source.analysis().plan_byte_edits(edits).unwrap();
+    assert_eq!(source.apply(plan), Some(true));
+    assert_eq!(&*source, "é: [ a, b]\r\n");
+    assert_eq!(source.apply(stale), None);
+}
+
+#[test]
+fn byte_edits_reject_conflicting_or_invalid_ranges() {
+    let source = TextVersion::new("é : x\n");
+    for ranges in [
+        vec![(0, 3), (2, 4)],
+        vec![(2, 2), (2, 3)],
+        vec![(1, 2)],
+        vec![(0, 1)],
+        vec![(8, 8)],
+        vec![(0, 8)],
+        vec![(3, 2)],
+        vec![],
+    ] {
+        assert!(
+            source
+                .analysis()
+                .plan_byte_edits(
+                    ranges
+                        .into_iter()
+                        .map(|(start, end)| (start..end, String::new()))
+                )
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn adjacent_byte_edits_and_boundary_insertions_compose() {
+    let mut source = TextVersion::new("a b");
+    let plan = source
+        .analysis()
+        .plan_byte_edits([(0..1, "é".into()), (1..2, ": ".into()), (3..3, "\n".into())])
+        .unwrap();
+    assert_eq!(source.apply(plan), Some(true));
+    assert_eq!(&*source, "é: b\n");
+}
+
+#[test]
+fn comment_punctuation_and_finishing_edits_share_unicode_lines() {
+    assert_format(
+        "é : { a :  [ x,y ] } #note  \n\n\n",
+        "é: {a: [x, y]}  # note\n",
+        "max-blank-lines = 0\n",
+    );
+}
+
+#[test]
+fn finishing_reanalyzes_whitespace_only_lines_before_blank_limits() {
+    assert_format(
+        "é: x  \n  \n\nnext: y  \n",
+        "é: x\nnext: y\n",
+        "max-blank-lines = 0\n",
+    );
+}
+
+#[test]
 fn same_length_edit_rejects_old_plan() {
     let mut source = TextVersion::new("a: x\n");
     let stale = source.analysis().plan("a: z\n".to_string());

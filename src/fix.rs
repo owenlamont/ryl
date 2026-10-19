@@ -24,6 +24,7 @@ use crate::rules::{
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
 };
+use crate::text_version::edits::Batch;
 use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -1480,7 +1481,126 @@ struct FixContext<'a> {
     clean_syntax_epoch: Option<usize>,
 }
 
+#[derive(Clone, Copy)]
+enum EditGroup {
+    Comments,
+    Punctuation,
+    Finishing,
+}
+
+impl EditGroup {
+    fn rules(self) -> &'static [&'static str] {
+        match self {
+            Self::Comments => &[comments::ID, comments_indentation::ID, commas::ID],
+            Self::Punctuation => &[braces::ID, brackets::ID, colons::ID, hyphens::ID],
+            Self::Finishing => &[
+                trailing_spaces::ID,
+                document_start::ID,
+                document_end::ID,
+                empty_lines::ID,
+            ],
+        }
+    }
+}
+
 impl FixContext<'_> {
+    fn batch(
+        &mut self,
+        content: &mut TextVersion<'_>,
+        changed_rules: &mut Vec<&'static str>,
+        group: EditGroup,
+    ) -> bool {
+        if self.passes.indentation.is_none()
+            || !self.passes.per_line.is_empty()
+            || group
+                .rules()
+                .iter()
+                .any(|rule| self.directives.disables_any(rule))
+        {
+            return false;
+        }
+        if group
+            .rules()
+            .iter()
+            .all(|rule| self.clean_rules.get(rule) == Some(&self.edit_epoch))
+        {
+            return true;
+        }
+        let input = content.analysis();
+        let passes = self.passes;
+        let mut batch = Batch::default();
+        macro_rules! plan {
+            ($rule:ident) => {
+                if let Some(cfg) = passes.$rule.as_ref() {
+                    batch.push($rule::ID, $rule::edits(input, cfg));
+                }
+            };
+        }
+        match group {
+            EditGroup::Comments => {
+                plan!(comments);
+                if let Some(cfg) = passes.comments_indentation {
+                    batch.push(
+                        comments_indentation::ID,
+                        comments_indentation::edits(input, cfg),
+                    );
+                }
+                plan!(commas);
+            }
+            EditGroup::Punctuation => {
+                plan!(braces);
+                plan!(brackets);
+                plan!(colons);
+                plan!(hyphens);
+            }
+            EditGroup::Finishing => {
+                if passes.trailing_spaces {
+                    let edits = trailing_spaces::edits(input);
+                    // A newly blank line or scalar EOF newline needs fresh ownership facts.
+                    if edits.iter().any(|(start, _, text)| {
+                        !text.is_empty()
+                            || start.get() == 0
+                            || input.text()[..start.get()].ends_with(['\n', '\r'])
+                    }) {
+                        return false;
+                    }
+                    batch.push(trailing_spaces::ID, edits);
+                }
+                if let Some(cfg) = passes.document_start {
+                    batch.push(document_start::ID, document_start::edits(input, cfg));
+                }
+                if let Some(cfg) = passes.document_end {
+                    batch.push(document_end::ID, document_end::edits(input, cfg));
+                }
+                plan!(empty_lines);
+                // Markers change the blank runs and document boundaries seen by later rules.
+                if batch
+                    .changed_rules()
+                    .iter()
+                    .any(|rule| matches!(*rule, document_start::ID | document_end::ID))
+                {
+                    return false;
+                }
+            }
+        }
+        if batch.changed_rules().is_empty() {
+            for rule in group.rules() {
+                self.clean_rules.insert(rule, self.edit_epoch);
+            }
+            return true;
+        }
+        let rules = batch.changed_rules().to_vec();
+        let Some(plan) = batch.finish(input) else {
+            return false;
+        };
+        content
+            .apply(plan)
+            .expect("batch plan belongs to the current epoch");
+        changed_rules.extend(rules);
+        self.edit_epoch += 1;
+        true
+    }
+
     /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix
     /// changed the text.
     fn pass(
@@ -1505,17 +1625,19 @@ impl FixContext<'_> {
         fix!(new_lines, passes.new_lines.as_ref(), |view, cfg| {
             new_lines::fix(view.text(), *cfg, new_lines::platform_newline())
         });
-        fix!(
-            comments,
-            passes.comments.as_ref(),
-            comments::fix_with_analysis
-        );
-        fix!(
-            comments_indentation,
-            passes.comments_indentation.as_ref(),
-            |view, cfg| comments_indentation::fix_with_analysis(view, *cfg)
-        );
-        fix!(commas, passes.commas.as_ref(), commas::fix_with_analysis);
+        if !self.batch(content, changed_rules, EditGroup::Comments) {
+            fix!(
+                comments,
+                passes.comments.as_ref(),
+                comments::fix_with_analysis
+            );
+            fix!(
+                comments_indentation,
+                passes.comments_indentation.as_ref(),
+                |view, cfg| comments_indentation::fix_with_analysis(view, *cfg)
+            );
+            fix!(commas, passes.commas.as_ref(), commas::fix_with_analysis);
+        }
         let syntax_epoch = self.edit_epoch;
         if self.clean_syntax_epoch != Some(syntax_epoch) {
             if passes.collection_style.is_some() || passes.indentation.is_some() {
@@ -1527,24 +1649,26 @@ impl FixContext<'_> {
         if self.edit_epoch == syntax_epoch {
             self.clean_syntax_epoch = Some(syntax_epoch);
         }
-        fix!(
-            trailing_spaces,
-            passes.trailing_spaces.then_some(&()),
-            |view, ()| trailing_spaces::fix_with_analysis(view)
-        );
-        fix!(
-            document_start,
-            passes.document_start.as_ref(),
-            |view, cfg| document_start::fix_with_analysis(view, *cfg)
-        );
-        fix!(document_end, passes.document_end.as_ref(), |view, cfg| {
-            document_end::fix_with_analysis(view, *cfg)
-        });
-        fix!(
-            empty_lines,
-            passes.empty_lines.as_ref(),
-            empty_lines::fix_with_analysis
-        );
+        if !self.batch(content, changed_rules, EditGroup::Finishing) {
+            fix!(
+                trailing_spaces,
+                passes.trailing_spaces.then_some(&()),
+                |view, ()| trailing_spaces::fix_with_analysis(view)
+            );
+            fix!(
+                document_start,
+                passes.document_start.as_ref(),
+                |view, cfg| document_start::fix_with_analysis(view, *cfg)
+            );
+            fix!(document_end, passes.document_end.as_ref(), |view, cfg| {
+                document_end::fix_with_analysis(view, *cfg)
+            });
+            fix!(
+                empty_lines,
+                passes.empty_lines.as_ref(),
+                empty_lines::fix_with_analysis
+            );
+        }
         fix!(truthy);
         fix!(key_ordering, passes.key_ordering.as_ref(), |view, cfg| {
             key_ordering::fix(view.text(), cfg, &passes.per_line)
@@ -1583,10 +1707,12 @@ impl FixContext<'_> {
                 )
             };
         }
-        fix!(braces, braces::fix_with_analysis);
-        fix!(brackets, brackets::fix_with_analysis);
-        fix!(colons, colons::fix_with_analysis);
-        fix!(hyphens, hyphens::fix_with_analysis);
+        if !self.batch(content, changed_rules, EditGroup::Punctuation) {
+            fix!(braces, braces::fix_with_analysis);
+            fix!(brackets, brackets::fix_with_analysis);
+            fix!(colons, colons::fix_with_analysis);
+            fix!(hyphens, hyphens::fix_with_analysis);
+        }
         self.apply(
             content,
             changed_rules,
@@ -1656,10 +1782,12 @@ impl FixContext<'_> {
                 .expect("collection plan belongs to the current epoch");
             self.edit_epoch += 1;
         }
-        fix!(braces, braces::fix_with_analysis);
-        fix!(brackets, brackets::fix_with_analysis);
-        fix!(colons, colons::fix_with_analysis);
-        fix!(hyphens, hyphens::fix_with_analysis);
+        if !self.batch(content, changed_rules, EditGroup::Punctuation) {
+            fix!(braces, braces::fix_with_analysis);
+            fix!(brackets, brackets::fix_with_analysis);
+            fix!(colons, colons::fix_with_analysis);
+            fix!(hyphens, hyphens::fix_with_analysis);
+        }
         fix!(quoted_strings, fix_quotes);
         fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
             reindent_for_pass(view, cfg, reindented.as_deref_mut())
