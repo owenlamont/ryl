@@ -97,3 +97,35 @@ def test_matching_failed_formatter_runs_do_not_pass(
     )
 
     assert differences == ["fixture/a.yaml: baseline formatter exited 2"]
+
+
+def test_expected_refusal_notice_must_appear(tmp_path: Path, binary_factory) -> None:
+    source = tmp_path / "a.yaml"
+    source.write_bytes(b"a: 1\n")
+    silent = binary_factory("silent", b"a: 1\n")
+    notice = gate._REFUSAL_NOTICE
+    reported = binary_factory("reported", b"a: 1\n", f"{notice.decode()}\n")
+
+    missing = gate._case(
+        silent,
+        silent,
+        tmp_path,
+        [source.name],
+        [],
+        10,
+        "fixture/a.yaml",
+        expected_notice=notice,
+    )
+    assert missing == [f"fixture/a.yaml: expected notice missing: {notice!r}"]
+
+    present = gate._case(
+        reported,
+        reported,
+        tmp_path,
+        [source.name],
+        [],
+        10,
+        "fixture/a.yaml",
+        expected_notice=notice,
+    )
+    assert present == []

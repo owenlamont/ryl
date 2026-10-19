@@ -79,12 +79,11 @@ FIXTURES: Final[dict[str, str | bytes]] = {
     "block-chomping.yaml": "keep: |+\n  text\n\nstrip: >-\n  folded\n  words\n",
     "blank-block-bodies.yaml": "empty: |\nnext: >-\n  \n",
     "invalid.yaml": "key: [unfinished\n",
-    "per-document-refusal.yaml": (
-        "---\na: [a]\nb: c  # yamllint disable-line rule:indentation\n---\nc: [d]\n"
-    ),
+    "per-document-refusal.yaml": "a : 1\n---\n: v\n",
     "markdown-host.md": "# Host\n\n```yaml\na : b\n```\n\nOutside stays.\n",
 }
 _MAX_REPORTED: Final = 100
+_REFUSAL_NOTICE: Final = b"indentation not fixed: cannot re-indent this document safely"
 
 
 @dataclass(frozen=True)
@@ -183,11 +182,14 @@ def _case(
     label: str,
     *,
     markdown: bool = False,
+    expected_notice: bytes | None = None,
 ) -> list[str]:
     original = corpus._snapshot(clone, files)
     old = _format(baseline, clone, files, original, config, timeout, markdown=markdown)
     new = _format(candidate, clone, files, original, config, timeout, markdown=markdown)
     differences = _compare(label, old, new)
+    if expected_notice is not None and expected_notice not in old.stderr:
+        differences.append(f"{label}: expected notice missing: {expected_notice!r}")
     if old.status:
         differences.append(f"{label}: baseline formatter exited {old.status}")
     return differences
@@ -293,6 +295,9 @@ def run(
             for fixture in FIXTURES:
                 if fixture.endswith(".md"):
                     continue
+                expects_refusal = (
+                    name == "default" and fixture == "per-document-refusal.yaml"
+                )
                 differences.extend(
                     _case(
                         baseline,
@@ -302,6 +307,7 @@ def run(
                         fixture_config,
                         timeout_s,
                         f"fixture/{fixture} [{name}]",
+                        expected_notice=_REFUSAL_NOTICE if expects_refusal else None,
                     )
                 )
                 cases += 1
