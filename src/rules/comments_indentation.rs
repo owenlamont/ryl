@@ -204,7 +204,7 @@ fn build_lines(input: Analysis<'_>) -> Vec<LineInfo> {
             LineInfo { indent, kind }
         })
         .collect();
-    for (span, kind) in input.tokens() {
+    for (span, kind) in input.tokens().iter() {
         // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
         // line content again, as yamllint indents by each token's start line.
         if let Some(line) = lines.get_mut(span.start.line() - 1)

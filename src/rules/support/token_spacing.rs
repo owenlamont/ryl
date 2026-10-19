@@ -6,7 +6,7 @@
 use crate::text_version::Analysis;
 use std::ops::Range;
 
-use crate::text_version::lexical::{Kind as LexicalKind, TokenSpan};
+use crate::text_version::lexical::{Kind as LexicalKind, Tokens};
 use granit_parser::ScalarStyle;
 
 use crate::rules::support::punctuation::byte_line_and_column;
@@ -132,7 +132,7 @@ pub(crate) fn fix(
 struct Walk<'a> {
     buffer: &'a str,
     line_starts: &'a [usize],
-    tokens: &'a [(TokenSpan, LexicalKind)],
+    tokens: &'a Tokens,
 }
 
 impl Walk<'_> {
@@ -181,7 +181,7 @@ impl Walk<'_> {
     }
 
     fn before_colon(&self, at: usize, idx: usize) -> Option<Site> {
-        let min = match idx.checked_sub(1).map(|prev| &self.tokens[prev].1) {
+        let min = match idx.checked_sub(1).map(|prev| self.tokens.kind(prev)) {
             Some(
                 LexicalKind::Scalar { .. }
                 | LexicalKind::FlowMappingEnd
@@ -203,7 +203,7 @@ impl Walk<'_> {
     /// Whether the node after token `idx` is a block collection opening on `line` with
     /// a token starting on a later one, or a block scalar whose body runs onto one.
     fn opens_multiline_collection(&self, idx: usize, line: usize) -> bool {
-        let mut rest = self.tokens[idx + 1..].iter();
+        let mut rest = self.tokens.iter_from(idx + 1);
         let opens = rest.next().is_some_and(|(span, token)| {
             span.start.line() == line
                 && matches!(
