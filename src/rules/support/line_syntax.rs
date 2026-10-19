@@ -91,7 +91,7 @@ where
         .collect();
     let headers = input.headers();
     let mut protected = HashSet::new();
-    for &(style, span) in &facts.scalars {
+    for (style, span) in facts.scalars() {
         if !filter(style, span) {
             continue;
         }

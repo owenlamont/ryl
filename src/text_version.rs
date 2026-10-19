@@ -8,6 +8,7 @@ use crate::rules::support::{line_syntax, punctuation, token_spacing};
 use granit_parser::{Event, Parser, ScalarStyle, ScanError, Span};
 mod events;
 pub(crate) mod lexical;
+mod spans;
 use events::StoredEvent;
 
 use crate::rules::block_scalar_chomping::{self, Header};
@@ -21,7 +22,7 @@ pub struct TextVersion<'text> {
     headers: OnceCell<Vec<Header>>,
     byte_line_starts: OnceCell<Vec<usize>>,
     lines: OnceCell<Vec<(usize, usize, usize)>>,
-    tokens: OnceCell<Box<[(lexical::TokenSpan, lexical::Kind)]>>,
+    tokens: OnceCell<lexical::Tokens>,
     sites: OnceCell<Vec<token_spacing::Site>>,
     indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
@@ -150,7 +151,7 @@ impl<'text> Analysis<'text> {
         self.parsed()
             .events
             .iter()
-            .map(move |(event, span)| (event.borrow(self.text()), *span))
+            .map(move |(event, span)| (event.borrow(self.text()), span.get()))
     }
 
     pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
@@ -214,7 +215,7 @@ impl<'text> Analysis<'text> {
         self.lines().map(|(_, line, _)| line).collect()
     }
 
-    pub(crate) fn tokens(self) -> &'text [(lexical::TokenSpan, lexical::Kind)] {
+    pub(crate) fn tokens(self) -> &'text lexical::Tokens {
         self.source
             .tokens
             .get_or_init(|| lexical::scan(self.text()))
@@ -245,15 +246,21 @@ impl<'text> Analysis<'text> {
 
 #[derive(Default)]
 pub(crate) struct ParsedFacts {
-    pub(crate) scalars: Vec<(ScalarStyle, Span)>,
+    scalars: Vec<(ScalarStyle, usize)>,
     pub(crate) root_scalars: HashMap<usize, usize>,
     pub(crate) document_starts: Vec<usize>,
     pub(crate) valid: bool,
     pub(crate) error: Option<ScanError>,
-    events: Vec<(StoredEvent, Span)>,
+    events: Vec<(StoredEvent, spans::StoredSpan)>,
 }
 
 impl ParsedFacts {
+    pub(crate) fn scalars(&self) -> impl Iterator<Item = (ScalarStyle, Span)> {
+        self.scalars
+            .iter()
+            .map(|&(style, index)| (style, self.events[index].1.get()))
+    }
+
     pub(crate) fn event_count(&self) -> usize {
         self.events.len()
     }
@@ -271,7 +278,7 @@ impl ParsedFacts {
             Event::MappingStart(..) | Event::SequenceStart(..) => *depth += 1,
             Event::MappingEnd | Event::SequenceEnd => *depth -= 1,
             Event::Scalar(_, style, ..) => {
-                self.scalars.push((*style, span));
+                self.scalars.push((*style, self.events.len()));
                 if *depth == 0
                     && matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
                 {
@@ -310,7 +317,9 @@ impl ParsedFacts {
                 }
             };
             facts.record(&event, span, &mut depth);
-            facts.events.push((StoredEvent::new(text, event), span));
+            facts
+                .events
+                .push((StoredEvent::new(text, event), spans::StoredSpan::new(span)));
         }
         facts.valid = facts.error.is_none();
         facts.compact();

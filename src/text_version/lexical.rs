@@ -1,20 +1,4 @@
-use granit_parser::{
-    Marker, Placement, ScalarStyle, Scanner, Span, StrInput, TokenType,
-};
-
-// Tag locations belong to parser events, not scanner tokens.
-#[derive(Clone, Copy)]
-pub(crate) struct TokenSpan {
-    pub(crate) start: Marker,
-    pub(crate) end: Marker,
-    pub(crate) indent: Option<usize>,
-}
-
-impl TokenSpan {
-    pub(crate) fn into_span(self) -> Span {
-        Span::new(self.start, self.end).with_indent(self.indent)
-    }
-}
+use granit_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenType};
 
 pub(crate) enum Kind {
     StreamStart,
@@ -32,48 +16,73 @@ pub(crate) enum Kind {
     Alias,
     Anchor,
     Tag,
-    Scalar { style: ScalarStyle, empty: bool },
-    Comment { text: String, placement: Placement },
+    Scalar {
+        style: ScalarStyle,
+        empty: bool,
+    },
+    Comment {
+        text: Box<str>,
+        placement: Placement,
+    },
     Other,
 }
 
-pub(super) fn scan(text: &str) -> Box<[(TokenSpan, Kind)]> {
-    Scanner::new(StrInput::new(text))
-        .map_while(Result::ok)
-        .map(|token| {
-            let (span, kind) = token.into_parts();
-            let span = TokenSpan {
-                start: span.start,
-                end: span.end,
-                indent: span.indent,
-            };
-            let kind = match kind {
-                TokenType::StreamStart => Kind::StreamStart,
-                TokenType::StreamEnd => Kind::StreamEnd,
-                TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
-                TokenType::BlockMappingStart => Kind::BlockMappingStart,
-                TokenType::BlockEnd => Kind::BlockEnd,
-                TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
-                TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
-                TokenType::FlowMappingStart => Kind::FlowMappingStart,
-                TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
-                TokenType::BlockEntry => Kind::BlockEntry,
-                TokenType::Key => Kind::Key,
-                TokenType::Value => Kind::Value,
-                TokenType::Alias(_) => Kind::Alias,
-                TokenType::Anchor(_) => Kind::Anchor,
-                TokenType::Tag(..) => Kind::Tag,
-                TokenType::Scalar(style, value) => Kind::Scalar {
-                    style,
-                    empty: value.is_empty(),
-                },
-                TokenType::Comment(comment) => Kind::Comment {
-                    placement: comment.placement(),
-                    text: comment.into_text().into_owned(),
-                },
-                _ => Kind::Other,
-            };
-            (span, kind)
-        })
-        .collect()
+pub(crate) struct Tokens(Box<[(super::spans::StoredSpan, Kind)]>);
+
+impl Tokens {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Span, &Kind)> {
+        self.iter_from(0)
+    }
+
+    pub(crate) fn iter_from(
+        &self,
+        start: usize,
+    ) -> impl Iterator<Item = (Span, &Kind)> {
+        self.0[start..]
+            .iter()
+            .map(|(span, kind)| (span.get(), kind))
+    }
+
+    pub(crate) fn kind(&self, index: usize) -> &Kind {
+        &self.0[index].1
+    }
+}
+
+pub(super) fn scan(text: &str) -> Tokens {
+    Tokens(
+        Scanner::new(StrInput::new(text))
+            .map_while(Result::ok)
+            .map(|token| {
+                let (span, kind) = token.into_parts();
+                let span = super::spans::StoredSpan::new(span);
+                let kind = match kind {
+                    TokenType::StreamStart => Kind::StreamStart,
+                    TokenType::StreamEnd => Kind::StreamEnd,
+                    TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
+                    TokenType::BlockMappingStart => Kind::BlockMappingStart,
+                    TokenType::BlockEnd => Kind::BlockEnd,
+                    TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
+                    TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
+                    TokenType::FlowMappingStart => Kind::FlowMappingStart,
+                    TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
+                    TokenType::BlockEntry => Kind::BlockEntry,
+                    TokenType::Key => Kind::Key,
+                    TokenType::Value => Kind::Value,
+                    TokenType::Alias(_) => Kind::Alias,
+                    TokenType::Anchor(_) => Kind::Anchor,
+                    TokenType::Tag(..) => Kind::Tag,
+                    TokenType::Scalar(style, value) => Kind::Scalar {
+                        style,
+                        empty: value.is_empty(),
+                    },
+                    TokenType::Comment(comment) => Kind::Comment {
+                        placement: comment.placement(),
+                        text: comment.into_text().into_owned().into_boxed_str(),
+                    },
+                    _ => Kind::Other,
+                };
+                (span, kind)
+            })
+            .collect(),
+    )
 }

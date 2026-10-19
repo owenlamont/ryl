@@ -209,7 +209,7 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
     let line_starts = &mut starts;
     let mut comments = HashSet::new();
     let mut tokens: Vec<Token> = Vec::new();
-    for (span, token_type) in input.tokens() {
+    for (span, token_type) in input.tokens().iter() {
         for marker in [span.start, span.end] {
             let line_start = &mut line_starts[marker.line() - 1];
             align_line_start(text, line_start, marker);

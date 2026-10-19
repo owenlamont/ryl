@@ -22,8 +22,8 @@ pub(crate) fn collect_comments_with_analysis(
         .iter()
         .filter_map(|(span, kind)| match kind {
             LexicalKind::Comment { text, placement } => Some(CommentInfo {
-                span: span.into_span(),
-                text: text.clone(),
+                span,
+                text: text.to_string(),
                 placement: *placement,
             }),
             _ => None,

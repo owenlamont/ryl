@@ -56,7 +56,7 @@ pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
     let line_starts = input.byte_line_starts();
     let mut headers = Vec::new();
     let mut previous_end = 0;
-    for (span, token_type) in input.tokens() {
+    for (span, token_type) in input.tokens().iter() {
         match token_type {
             LexicalKind::Comment { .. } => continue,
             LexicalKind::Scalar {
@@ -67,7 +67,7 @@ pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
                 let (line, column) =
                     byte_line_and_column(chars.as_bytes(), line_starts, marker);
                 headers.push(Header {
-                    span: span.into_span(),
+                    span,
                     line,
                     column,
                     chomping: chars[marker + 1..]

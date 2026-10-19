@@ -1,11 +1,11 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use granit_parser::{Event, Placement, ScalarStyle, Tag};
+use granit_parser::{Event, Placement, ScalarStyle, StructureStyle, Tag, YamlVersion};
 
 pub(super) enum Text {
     Source(Range<usize>),
-    Decoded(String),
+    Decoded(Box<str>),
 }
 
 impl Text {
@@ -18,10 +18,10 @@ impl Text {
                 if source.get(start..end) == Some(value) {
                     Self::Source(start..end)
                 } else {
-                    Self::Decoded(value.to_string())
+                    Self::Decoded(value.into())
                 }
             }
-            Cow::Owned(value) => Self::Decoded(value),
+            Cow::Owned(value) => Self::Decoded(value.into_boxed_str()),
         }
     }
 
@@ -34,16 +34,24 @@ impl Text {
 }
 
 pub(super) enum StoredEvent {
-    Scalar(Text, ScalarStyle, usize, Option<Tag>),
+    Scalar(Text, ScalarStyle, usize, Option<Box<Tag>>),
     Comment(Text, Placement),
-    Other(Event<'static>),
+    StreamStart,
+    StreamEnd,
+    DocumentStart(bool, Option<YamlVersion>),
+    DocumentEnd,
+    Alias(usize),
+    SequenceStart(StructureStyle, usize, Option<Box<Tag>>),
+    SequenceEnd,
+    MappingStart(StructureStyle, usize, Option<Box<Tag>>),
+    MappingEnd,
 }
 
 impl StoredEvent {
     pub(super) fn significant(&self) -> bool {
         !matches!(
             self,
-            Self::Comment(..) | Self::Other(Event::StreamStart | Event::StreamEnd)
+            Self::Comment(..) | Self::StreamStart | Self::StreamEnd
         )
     }
 
@@ -68,39 +76,32 @@ impl StoredEvent {
     }
 
     pub(super) fn new(source: &str, event: Event<'_>) -> Self {
-        let event = match event {
-            Event::Scalar(value, style, anchor, tag) => {
-                return Self::Scalar(
-                    Text::new(source, value),
-                    style,
-                    anchor,
-                    tag.map(Cow::into_owned),
-                );
+        let tag = |tag: Option<Cow<'_, Tag>>| tag.map(|tag| Box::new(tag.into_owned()));
+        match event {
+            Event::Scalar(value, style, anchor, metadata) => {
+                Self::Scalar(Text::new(source, value), style, anchor, tag(metadata))
             }
             Event::Comment(value, placement) => {
-                return Self::Comment(Text::new(source, value), placement);
+                Self::Comment(Text::new(source, value), placement)
             }
-            Event::SequenceStart(style, anchor, tag) => Some(Event::SequenceStart(
-                style,
-                anchor,
-                tag.map(|tag| Cow::Owned(tag.into_owned())),
-            )),
-            Event::MappingStart(style, anchor, tag) => Some(Event::MappingStart(
-                style,
-                anchor,
-                tag.map(|tag| Cow::Owned(tag.into_owned())),
-            )),
-            Event::StreamStart => Some(Event::StreamStart),
-            Event::StreamEnd => Some(Event::StreamEnd),
+            Event::SequenceStart(style, anchor, metadata) => {
+                Self::SequenceStart(style, anchor, tag(metadata))
+            }
+            Event::MappingStart(style, anchor, metadata) => {
+                Self::MappingStart(style, anchor, tag(metadata))
+            }
+            Event::StreamStart => Self::StreamStart,
+            Event::StreamEnd => Self::StreamEnd,
             Event::DocumentStart(explicit, version) => {
-                Some(Event::DocumentStart(explicit, version))
+                Self::DocumentStart(explicit, version)
             }
-            Event::DocumentEnd => Some(Event::DocumentEnd),
-            Event::Alias(anchor) => Some(Event::Alias(anchor)),
-            Event::SequenceEnd => Some(Event::SequenceEnd),
-            end => (end == Event::MappingEnd).then_some(Event::MappingEnd),
-        };
-        Self::Other(event.expect("all granit events are represented"))
+            Event::DocumentEnd => Self::DocumentEnd,
+            Event::Alias(anchor) => Self::Alias(anchor),
+            Event::SequenceEnd => Self::SequenceEnd,
+            end => (end == Event::MappingEnd)
+                .then_some(Self::MappingEnd)
+                .expect("all granit events are represented"),
+        }
     }
 
     pub(super) fn borrow<'a>(&'a self, source: &'a str) -> Event<'a> {
@@ -109,12 +110,26 @@ impl StoredEvent {
                 Cow::Borrowed(value.get(source)),
                 *style,
                 *anchor,
-                tag.as_ref().map(Cow::Borrowed),
+                tag.as_deref().map(Cow::Borrowed),
             ),
             Self::Comment(value, placement) => {
                 Event::Comment(Cow::Borrowed(value.get(source)), *placement)
             }
-            Self::Other(event) => event.clone(),
+            Self::StreamStart => Event::StreamStart,
+            Self::StreamEnd => Event::StreamEnd,
+            Self::DocumentStart(explicit, version) => {
+                Event::DocumentStart(*explicit, *version)
+            }
+            Self::DocumentEnd => Event::DocumentEnd,
+            Self::Alias(anchor) => Event::Alias(*anchor),
+            Self::SequenceStart(style, anchor, tag) => {
+                Event::SequenceStart(*style, *anchor, tag.as_deref().map(Cow::Borrowed))
+            }
+            Self::SequenceEnd => Event::SequenceEnd,
+            Self::MappingStart(style, anchor, tag) => {
+                Event::MappingStart(*style, *anchor, tag.as_deref().map(Cow::Borrowed))
+            }
+            Self::MappingEnd => Event::MappingEnd,
         }
     }
 }

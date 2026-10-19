@@ -155,7 +155,7 @@ fn collect_dash_on_own_line(input: Analysis<'_>) -> Vec<Violation> {
     let mut violations = Vec::new();
     let mut dash_line: Option<usize> = None;
 
-    for (span, token_type) in input.tokens() {
+    for (span, token_type) in input.tokens().iter() {
         match token_type {
             LexicalKind::BlockEntry => {
                 let (line, _) = byte_line_and_column(

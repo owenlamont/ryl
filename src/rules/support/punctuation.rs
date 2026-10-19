@@ -21,8 +21,7 @@ pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<BytePos>> {
 pub(crate) fn byte_scalar_ranges(input: Analysis<'_>) -> Vec<Range<BytePos>> {
     let mut ranges: Vec<_> = input
         .parsed()
-        .scalars
-        .iter()
+        .scalars()
         .filter_map(|(_, span)| {
             let start = marker_byte_offset(span.start);
             let end = marker_byte_offset(span.end);
