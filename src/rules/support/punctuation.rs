@@ -48,7 +48,7 @@ pub(crate) fn flow_sites(
     while idx < bytes.len() {
         if let Some(range) = containing_byte_scalar_range(&ranges, &mut cursor, idx) {
             if idx == range.start.get() && depth > 0 {
-                sites.push((idx, b'x'));
+                flow_content(&mut sites, idx);
             }
             idx = range.end.get();
             continue;
@@ -73,12 +73,18 @@ pub(crate) fn flow_sites(
             }
             b',' => sites.push((idx, ch)),
             b' ' | b'\t' | b'\r' | b'\n' => {}
-            _ if depth > 0 => sites.push((idx, b'x')),
+            _ if depth > 0 => flow_content(&mut sites, idx),
             _ => {}
         }
         idx += 1;
     }
     sites
+}
+
+fn flow_content(sites: &mut Vec<(usize, u8)>, idx: usize) {
+    if sites.last().is_none_or(|&(_, ch)| ch != b'x') {
+        sites.push((idx, b'x'));
+    }
 }
 
 pub(crate) fn skip_comment(bytes: &[u8], mut idx: usize) -> usize {
