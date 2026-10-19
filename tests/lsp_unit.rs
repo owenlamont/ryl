@@ -969,6 +969,32 @@ fn prepare_rename_reports_the_name_range_on_an_anchor() {
 }
 
 #[test]
+fn rename_ranges_follow_cr_and_crlf_with_unicode() {
+    for ending in ["\r", "\r\n"] {
+        let text = format!("café: 1{ending}😀: &anchor 1{ending}b: *anchor{ending}");
+        let edits = rename_edits(
+            &text,
+            Position::new(1, 6),
+            "renamed",
+            PositionEncoding::Utf16,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(edits.len(), 2, "{ending:?}");
+        assert_eq!(
+            edits[0].range,
+            Range::new(Position::new(1, 5), Position::new(1, 11)),
+            "{ending:?}"
+        );
+        assert_eq!(
+            edits[1].range,
+            Range::new(Position::new(2, 4), Position::new(2, 10)),
+            "{ending:?}"
+        );
+    }
+}
+
+#[test]
 fn prepare_rename_is_none_off_an_anchor() {
     assert!(
         prepare_rename(

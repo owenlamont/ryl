@@ -3,6 +3,8 @@ use granit_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenType};
 pub(crate) enum Kind {
     StreamStart,
     StreamEnd,
+    DocumentStart,
+    DocumentEnd,
     BlockSequenceStart,
     BlockMappingStart,
     BlockEnd,
@@ -58,6 +60,8 @@ pub(super) fn scan(text: &str) -> Tokens {
                 let kind = match kind {
                     TokenType::StreamStart => Kind::StreamStart,
                     TokenType::StreamEnd => Kind::StreamEnd,
+                    TokenType::DocumentStart => Kind::DocumentStart,
+                    TokenType::DocumentEnd => Kind::DocumentEnd,
                     TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
                     TokenType::BlockMappingStart => Kind::BlockMappingStart,
                     TokenType::BlockEnd => Kind::BlockEnd,

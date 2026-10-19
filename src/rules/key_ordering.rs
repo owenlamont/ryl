@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::Path;
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Span, SpannedEventReceiver};
 use regex::Regex;
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
@@ -194,9 +194,20 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut parser = Parser::new_from_str(buffer);
+    check_with_analysis(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        cfg,
+    )
+}
+
+pub(crate) fn check_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Vec<Violation> {
     let mut receiver = KeyOrderingReceiver::new(cfg);
-    let _ = parser.load(&mut receiver, true);
+    for (event, span) in input.event_iter() {
+        receiver.on_event(event, span);
+    }
     receiver.violations
 }
 

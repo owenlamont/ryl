@@ -32,7 +32,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use granit_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver, Tag};
+use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
@@ -79,9 +79,20 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut parser = Parser::new_from_str(buffer);
-    let mut receiver = KeyDuplicatesReceiver::new(cfg);
-    let _ = parser.load(&mut receiver, true);
+    check_with_analysis(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        *cfg,
+    )
+}
+
+pub(crate) fn check_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: Config,
+) -> Vec<Violation> {
+    let mut receiver = KeyDuplicatesReceiver::new(&cfg);
+    for (event, span) in input.event_iter() {
+        receiver.on_event(event, span);
+    }
     let mut violations = receiver.violations;
     violations.sort_by_key(|v| (v.line, v.column));
     // One key colliding across several merge sources reports once: the repeated

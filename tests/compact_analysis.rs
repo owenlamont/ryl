@@ -78,6 +78,8 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
             match (kind, token) {
                 (lexical::Kind::StreamStart, TokenType::StreamStart)
                 | (lexical::Kind::StreamEnd, TokenType::StreamEnd)
+                | (lexical::Kind::DocumentStart, TokenType::DocumentStart)
+                | (lexical::Kind::DocumentEnd, TokenType::DocumentEnd)
                 | (lexical::Kind::BlockSequenceStart, TokenType::BlockSequenceStart)
                 | (lexical::Kind::BlockMappingStart, TokenType::BlockMappingStart)
                 | (lexical::Kind::BlockEnd, TokenType::BlockEnd)
@@ -95,8 +97,6 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
                     lexical::Kind::Other,
                     TokenType::VersionDirective(..)
                     | TokenType::TagDirective(..)
-                    | TokenType::DocumentStart
-                    | TokenType::DocumentEnd
                     | TokenType::FlowEntry,
                 ) => {}
                 (

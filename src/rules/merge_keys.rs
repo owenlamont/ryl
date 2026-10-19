@@ -13,7 +13,7 @@
 //!
 //! Sources: YAML 1.2.2 changes page; YAML merge type.
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use granit_parser::{Event, Span, SpannedEventReceiver};
 
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::merge_key::is_merge_directive;
@@ -29,12 +29,19 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str) -> Vec<Violation> {
-    let mut parser = Parser::new_from_str(buffer);
+    check_with_analysis(crate::text_version::TextVersion::new(buffer).analysis())
+}
+
+pub(crate) fn check_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+) -> Vec<Violation> {
     let mut receiver = MergeKeysReceiver {
         walker: Walker::new(),
         violations: Vec::new(),
     };
-    let _ = parser.load(&mut receiver, true);
+    for (event, span) in input.event_iter() {
+        receiver.on_event(event, span);
+    }
     receiver.violations
 }
 

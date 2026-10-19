@@ -20,11 +20,11 @@
 
 use std::collections::HashMap;
 
-use granit_parser::{Scanner, StrInput, TokenType};
+use crate::text_version::{Analysis, TextVersion, lexical::Kind};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{build_line_starts, line_and_column};
-use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::span_utils::marker_byte_offset;
 
 pub const ID: &str = "anchors";
 pub const MESSAGE_UNDECLARED_ALIAS: &str = "found undeclared alias";
@@ -111,21 +111,27 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let char_indices: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&char_indices);
+    check_with_analysis(TextVersion::new(buffer).analysis(), *cfg)
+}
+
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
+    let buffer = input.text();
+    let line_starts = input.byte_line_starts();
     let mut doc = DocState::new();
     let mut violations = Vec::new();
 
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, token_type) = token.into_parts();
+    for (span, token_type) in input.tokens().iter() {
         match token_type {
-            TokenType::DocumentStart | TokenType::DocumentEnd => {
-                finish_doc(&doc, *cfg, &mut violations);
+            Kind::DocumentStart | Kind::DocumentEnd => {
+                finish_doc(&doc, cfg, &mut violations);
                 doc = DocState::new();
             }
-            TokenType::Anchor(name) => {
+            Kind::Anchor => {
+                let start = marker_byte_offset(span.start).get();
+                let end = marker_byte_offset(span.end).get();
+                let name = &buffer[start + 1..end];
                 let (line, column) =
-                    line_and_column(&line_starts, CharPos::new(span.start.index()));
+                    byte_line_and_column(buffer.as_bytes(), line_starts, start);
                 if cfg.forbid_anchors_and_aliases {
                     violations.push(Violation {
                         line,
@@ -142,16 +148,19 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                     });
                 }
                 violations.extend(ambiguous_violation(
-                    *cfg,
-                    &name,
+                    cfg,
+                    name,
                     MESSAGE_AMBIGUOUS_ANCHOR,
                     line,
                     column,
                 ));
             }
-            TokenType::Alias(name) => {
+            Kind::Alias => {
+                let start = marker_byte_offset(span.start).get();
+                let end = marker_byte_offset(span.end).get();
+                let name = &buffer[start + 1..end];
                 let (line, column) =
-                    line_and_column(&line_starts, CharPos::new(span.start.index()));
+                    byte_line_and_column(buffer.as_bytes(), line_starts, start);
                 if cfg.forbid_anchors_and_aliases {
                     violations.push(Violation {
                         line,
@@ -159,7 +168,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                         message: format!("{MESSAGE_FORBIDDEN_ALIAS} \"{name}\""),
                     });
                 }
-                if !doc.mark_alias(&name) && cfg.forbid_undeclared_aliases {
+                if !doc.mark_alias(name) && cfg.forbid_undeclared_aliases {
                     violations.push(Violation {
                         line,
                         column,
@@ -167,8 +176,8 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
                     });
                 }
                 violations.extend(ambiguous_violation(
-                    *cfg,
-                    &name,
+                    cfg,
+                    name,
                     MESSAGE_AMBIGUOUS_ALIAS,
                     line,
                     column,
@@ -177,7 +186,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
             _ => {}
         }
     }
-    finish_doc(&doc, *cfg, &mut violations);
+    finish_doc(&doc, cfg, &mut violations);
     violations
 }
 

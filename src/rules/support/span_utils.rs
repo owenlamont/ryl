@@ -5,12 +5,13 @@ use granit_parser::Marker;
 use crate::rules::support::line_syntax::line_contents;
 
 /// A byte offset into a UTF-8 buffer, valid for `&str` slicing. Distinct type from
-/// [`CharPos`] so a character index can never be silently used as a byte offset.
+/// `CharPos` so a character index can never be silently used as a byte offset.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct BytePos(usize);
 
 /// A character index, as reported by granit spans via `Marker::index`; never used to
 /// address bytes directly.
+#[cfg(feature = "lsp")]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct CharPos(usize);
 
@@ -26,6 +27,7 @@ impl BytePos {
     }
 }
 
+#[cfg(feature = "lsp")]
 impl CharPos {
     #[must_use]
     pub const fn new(index: usize) -> Self {

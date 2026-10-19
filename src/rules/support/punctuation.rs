@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use crate::rules::support::span_utils::{BytePos, CharPos, marker_byte_offset};
+#[cfg(feature = "lsp")]
+use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 use crate::text_version::{Analysis, TextVersion};
 
 /// Clamps `current` into `min..=max`; leaves it alone when `min > max`, since no spacing passes.
@@ -50,6 +52,7 @@ pub(crate) fn skip_comment(bytes: &[u8], mut idx: usize) -> usize {
 /// `CharPos` (not byte offset) at which each line begins, so derived columns are
 /// 1-indexed character counts that match yamllint on multibyte lines. Reuses the
 /// caller's `char_indices()` slice rather than decoding again.
+#[cfg(feature = "lsp")]
 pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
     let mut starts = vec![CharPos::new(0)];
     let mut idx = 0usize;
@@ -108,6 +111,7 @@ pub(crate) fn byte_line_and_column(
 
 /// A `CharPos` as a 1-indexed `(line, column)`. The `CharPos` parameter (not a raw
 /// `usize`) makes passing a byte offset a compile error, so the column counts chars.
+#[cfg(feature = "lsp")]
 pub(crate) fn line_and_column(
     line_starts: &[CharPos],
     char_idx: CharPos,

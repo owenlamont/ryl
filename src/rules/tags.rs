@@ -15,7 +15,7 @@
 //!
 //! Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; `PyYAML` docs.
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver, Tag};
+use granit_parser::{Event, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
 use crate::yaml_dom::{YamlOwned, core_schema_suffix};
@@ -108,12 +108,23 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    let mut parser = Parser::new_from_str(buffer);
+    check_with_analysis(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        cfg,
+    )
+}
+
+pub(crate) fn check_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Vec<Violation> {
     let mut receiver = TagsReceiver {
         cfg,
         diagnostics: Vec::new(),
     };
-    let _ = parser.load(&mut receiver, true);
+    for (event, span) in input.event_iter() {
+        receiver.on_event(event, span);
+    }
     receiver.diagnostics
 }
 

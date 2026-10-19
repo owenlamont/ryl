@@ -1,4 +1,6 @@
-use crate::text_version::{Analysis, TextVersion};
+use crate::text_version::Analysis;
+#[cfg(feature = "lsp")]
+use crate::text_version::TextVersion;
 use std::collections::HashSet;
 
 use granit_parser::{ScalarStyle, Span};
@@ -63,6 +65,7 @@ pub(crate) fn first_line_break(buffer: &str) -> Option<(usize, &'static str)> {
 /// span starts at the first non-blank body line, or is empty on the next token for a
 /// blank-only body, so the blank lines above it are added back up to the header.
 /// `None` (unparsable buffer) means bail, not fix on a partial view.
+#[cfg(feature = "lsp")]
 pub(crate) fn protected_scalar_lines<F>(
     buffer: &str,
     filter: F,
