@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use granit_parser::{Event, Parser, Span};
+use granit_parser::Event;
 use rayon::prelude::*;
 #[cfg(not(unix))]
 use same_file::Handle;
@@ -24,7 +24,7 @@ use crate::rules::{
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
 };
-use crate::text_version::{Analysis, TextVersion};
+use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
 /// Bound on whole-pipeline passes: a later fixer can expose a diagnostic an earlier one
@@ -111,27 +111,27 @@ impl Rewrite {
         (path, base_dir): (&Path, &Path),
         skip: &[&str],
         cache: &mut FormatCache,
-        parsed: Option<&ParsedInput<'_>>,
+        parsed: Option<&mut ParsedInput>,
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
             Self::Format => cache
-                .format_with_events(input, cfg, path, skip, parsed)
+                .format_with_facts(input, cfg, path, skip, parsed)
                 .0
                 .clone(),
         }
     }
 }
 
-pub(crate) struct ParsedInput<'a> {
-    pub(crate) events: Option<Vec<(Event<'a>, Span)>>,
+pub(crate) struct ParsedInput {
+    pub(crate) facts: Option<ParsedFacts>,
     pub(crate) strict_error: Option<crate::lint::LintProblem>,
 }
 
 pub(crate) fn rewrite_parse_gate(
     content: &str,
     rewrite: Rewrite,
-) -> Result<ParsedInput<'_>, crate::lint::LintProblem> {
+) -> Result<ParsedInput, crate::lint::LintProblem> {
     if rewrite == Rewrite::Fix {
         let strict_error = crate::lint::strict_parse_error(content);
         if strict_error.is_some()
@@ -140,27 +140,23 @@ pub(crate) fn rewrite_parse_gate(
             return Err(problem);
         }
         return Ok(ParsedInput {
-            events: None,
+            facts: None,
             strict_error,
         });
     }
-    let mut parsed = Parser::new_from_str_with_options(
-        content,
-        granit_parser::options! { strict_indentation: true },
-    )
-    .collect::<Result<Vec<_>, _>>();
+    let mut facts = ParsedFacts::parse_with_options(content, 0, true);
     let strict_error =
-        crate::lint::parse_error_from_result(content, parsed.as_ref().err());
+        crate::lint::parse_error_from_result(content, facts.error.as_ref());
     if strict_error.is_some() {
-        parsed = Parser::new_from_str(content).collect::<Result<Vec<_>, _>>();
+        facts = ParsedFacts::parse_with_options(content, facts.event_count(), false);
         if let Some(problem) =
-            crate::lint::parse_error_from_result(content, parsed.as_ref().err())
+            crate::lint::parse_error_from_result(content, facts.error.as_ref())
         {
             return Err(problem);
         }
     }
     Ok(ParsedInput {
-        events: Some(parsed.expect("the parse gate accepted these events")),
+        facts: Some(facts),
         strict_error,
     })
 }
@@ -237,7 +233,7 @@ pub fn rewrite_str(
 ) -> (Option<String>, Vec<crate::lint::LintProblem>) {
     match kind {
         SourceKind::Yaml => {
-            let events = match rewrite_parse_gate(content, rewrite) {
+            let mut events = match rewrite_parse_gate(content, rewrite) {
                 Ok(events) => events,
                 Err(problem) => return (None, vec![problem]),
             };
@@ -248,7 +244,7 @@ pub fn rewrite_str(
                 (path, base_dir),
                 &[],
                 &mut cache,
-                Some(&events),
+                Some(&mut events),
             );
             let mut skipped =
                 unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
@@ -566,7 +562,7 @@ fn diff_and_skips(
 ) -> DiffOutcome {
     match kind {
         SourceKind::Yaml => {
-            let events = match rewrite_parse_gate(content, rewrite) {
+            let mut events = match rewrite_parse_gate(content, rewrite) {
                 Ok(events) => events,
                 Err(problem) => {
                     return DiffOutcome {
@@ -582,7 +578,7 @@ fn diff_and_skips(
                 (path, base_dir),
                 &[],
                 cache,
-                Some(&events),
+                Some(&mut events),
             );
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
@@ -727,7 +723,7 @@ fn region_skips(
 fn rewrite_parse_notice(
     original: &str,
     fixed: &str,
-    parsed: &ParsedInput<'_>,
+    parsed: &ParsedInput,
 ) -> Option<crate::lint::LintProblem> {
     if crate::directives::disables_file(original) {
         return None;
@@ -1004,7 +1000,7 @@ fn fix_markdown_cached(
         if region.content.trim().is_empty() {
             continue;
         }
-        let Ok(parsed) = rewrite_parse_gate(&region.content, rewrite) else {
+        let Ok(mut parsed) = rewrite_parse_gate(&region.content, rewrite) else {
             continue;
         };
         let fixed = rewrite.apply(
@@ -1013,7 +1009,7 @@ fn fix_markdown_cached(
             (path, base_dir),
             suppressed_rules(),
             cache,
-            Some(&parsed),
+            Some(&mut parsed),
         );
         if fixed == region.content {
             continue;
@@ -1280,7 +1276,7 @@ pub(crate) fn run_passes(
     err: &mut dyn Write,
     edited: &mut Vec<&'static str>,
 ) -> String {
-    run_passes_with_events(
+    run_passes_with_facts(
         input,
         passes,
         path,
@@ -1320,21 +1316,21 @@ fn reindent_for_pass(
     None
 }
 
-pub(crate) fn run_passes_with_events(
+pub(crate) fn run_passes_with_facts(
     input: &str,
     passes: &Passes,
     path: &Path,
     max_passes: usize,
     err: &mut dyn Write,
     tracking: &mut PassTracking<'_>,
-    initial_events: Option<&[(Event<'_>, Span)]>,
+    initial_facts: Option<ParsedFacts>,
 ) -> TextVersion<'static> {
     if crate::directives::disables_file(input) {
         return TextVersion::new(input.to_string());
     }
     let repaired;
     let original = input;
-    let mut events = initial_events;
+    let mut facts = initial_facts;
     let input = if tracking
         .strict_input
         .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none())
@@ -1345,8 +1341,8 @@ pub(crate) fn run_passes_with_events(
             return TextVersion::new(input.to_string());
         };
         let snapshot = TextVersion::new(input);
-        if let Some(events) = events {
-            snapshot.analysis().seed_events(events);
+        if let Some(facts) = facts.take() {
+            snapshot.analysis().seed_facts(facts);
         }
         repaired = strict_output(
             input,
@@ -1369,12 +1365,11 @@ pub(crate) fn run_passes_with_events(
             return TextVersion::new(input.to_string());
         }
         tracking.edited.push(indentation::ID);
-        events = None;
         &repaired
     };
     let formatted = strict_output(
         original,
-        run_valid_passes(input, passes, path, max_passes, err, tracking, events),
+        run_valid_passes(input, passes, path, max_passes, err, tracking, facts),
     );
     if original != input && !repair_events_match(original, &formatted) {
         return TextVersion::new(original.to_string());
@@ -1403,11 +1398,11 @@ fn run_valid_passes(
     max_passes: usize,
     err: &mut dyn Write,
     tracking: &mut PassTracking<'_>,
-    initial_events: Option<&[(Event<'_>, Span)]>,
+    initial_facts: Option<ParsedFacts>,
 ) -> TextVersion<'static> {
     let mut content = TextVersion::new(input);
-    if let Some(events) = initial_events {
-        content.analysis().seed_events(events);
+    if let Some(facts) = initial_facts {
+        content.analysis().seed_facts(facts);
     }
     let mut ctx = FixContext {
         passes,
@@ -1604,7 +1599,7 @@ impl FixContext<'_> {
         fix!(quoted_strings, |view, cfg| quoted_strings::fix_with_events(
             view.text(),
             cfg,
-            Some(&view.events())
+            Some(view)
         ));
     }
 
@@ -1621,7 +1616,7 @@ impl FixContext<'_> {
             quoted_strings::fix_with_events(
                 view.text(),
                 cfg,
-                view.parsed().valid.then(|| view.events()).as_deref(),
+                view.parsed().valid.then_some(view),
             )
         }
         let passes = self.passes;
@@ -1651,8 +1646,7 @@ impl FixContext<'_> {
                     .analysis()
                     .parsed()
                     .valid
-                    .then(|| content.analysis().events())
-                    .as_deref(),
+                    .then(|| content.analysis()),
             )
         {
             changed_rules.extend(rules);

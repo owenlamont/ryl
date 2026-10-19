@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::path::Path;
 
-use granit_parser::{Event, Span};
 use similar::{DiffTag, TextDiff};
 
 use crate::config::{SourceKind, YamlLintConfig};
@@ -13,7 +12,7 @@ use crate::config_schema::{
 use crate::fix::{
     FIX_PIPELINE_MAX_PASSES, NewlinePolicy, ParsedInput, PassTracking, Passes,
     ReindentCache, region_prefix, rewrite_parse_gate, run_passes,
-    run_passes_with_events, suppressed_rules,
+    run_passes_with_facts, suppressed_rules,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
@@ -216,7 +215,7 @@ pub fn format_str(
     path: &Path,
     skip: &[&str],
 ) -> String {
-    let Ok(parsed) = rewrite_parse_gate(input, crate::fix::Rewrite::Format) else {
+    let Ok(mut parsed) = rewrite_parse_gate(input, crate::fix::Rewrite::Format) else {
         return input.to_string();
     };
     format_tracked(
@@ -229,7 +228,7 @@ pub fn format_str(
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
         },
-        parsed.events.as_deref(),
+        parsed.facts.take(),
     )
     .into_text()
 }
@@ -298,16 +297,16 @@ fn format_tracked(
     path: &Path,
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
-    events: Option<&[(Event<'_>, Span)]>,
+    facts: Option<crate::text_version::ParsedFacts>,
 ) -> TextVersion<'static> {
-    run_passes_with_events(
+    run_passes_with_facts(
         input,
         &Passes::format(cfg, input, skip),
         path,
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::stderr(),
         tracking,
-        events,
+        facts,
     )
 }
 
@@ -329,25 +328,27 @@ impl FormatCache {
         path: &Path,
         skip: &[&str],
     ) -> &(String, Vec<&'static str>) {
-        self.format_with_events(input, cfg, path, skip, None)
+        self.format_with_facts(input, cfg, path, skip, None)
     }
 
-    pub(crate) fn format_with_events(
+    pub(crate) fn format_with_facts(
         &mut self,
         input: &str,
         cfg: &YamlLintConfig,
         path: &Path,
         skip: &[&str],
-        initial: Option<&ParsedInput<'_>>,
+        initial: Option<&mut ParsedInput>,
     ) -> &(String, Vec<&'static str>) {
         if self.formatted.contains_key(input) {
             return &self.formatted[input];
         }
-        let parsed = initial
+        let mut parsed = initial
             .is_none()
             .then(|| rewrite_parse_gate(input, crate::fix::Rewrite::Format));
         let parsed =
-            initial.or_else(|| parsed.as_ref().and_then(|result| result.as_ref().ok()));
+            initial.or_else(|| parsed.as_mut().and_then(|result| result.as_mut().ok()));
+        let strict_input = parsed.as_ref().map(|parsed| parsed.strict_error.is_none());
+        let facts = parsed.and_then(|parsed| parsed.facts.take());
         self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(
@@ -358,9 +359,9 @@ impl FormatCache {
                 &mut PassTracking {
                     edited: &mut edited,
                     reindented: Some(&mut self.reindented),
-                    strict_input: parsed.map(|parsed| parsed.strict_error.is_none()),
+                    strict_input,
                 },
-                parsed.and_then(|parsed| parsed.events.as_deref()),
+                facts,
             );
             let text = formatted.to_string();
             self.snapshot = Some(formatted);

@@ -150,10 +150,6 @@ impl<'text> Analysis<'text> {
             .get_or_init(|| block_scalar_chomping::headers_with_analysis(self))
     }
 
-    pub(crate) fn events(self) -> Vec<(Event<'text>, Span)> {
-        self.event_iter().collect()
-    }
-
     pub(crate) fn event_iter(self) -> impl Iterator<Item = (Event<'text>, Span)> {
         self.parsed()
             .events
@@ -252,23 +248,8 @@ impl<'text> Analysis<'text> {
             .get_or_init(|| token_spacing::sites_with_analysis(self))
     }
 
-    pub(crate) fn seed_events(self, events: &[(Event<'_>, Span)]) {
-        self.source.parsed.get_or_init(|| {
-            let mut facts = ParsedFacts {
-                events: Vec::with_capacity(events.len()),
-                ..ParsedFacts::default()
-            };
-            let mut depth = 0;
-            for (event, span) in events {
-                facts.record(event, *span, &mut depth);
-                facts
-                    .events
-                    .push((StoredEvent::new(self.text(), event.clone()), *span));
-            }
-            facts.valid = true;
-            facts.compact();
-            facts
-        });
+    pub(crate) fn seed_facts(self, facts: ParsedFacts) {
+        self.source.parsed.get_or_init(|| facts);
     }
 }
 
@@ -283,6 +264,10 @@ pub(crate) struct ParsedFacts {
 }
 
 impl ParsedFacts {
+    pub(crate) fn event_count(&self) -> usize {
+        self.events.len()
+    }
+
     fn compact(&mut self) {
         self.events.shrink_to_fit();
         self.scalars.shrink_to_fit();
@@ -309,12 +294,24 @@ impl ParsedFacts {
     }
 
     fn parse(text: &str, event_capacity: usize) -> Self {
+        Self::parse_with_options(text, event_capacity, false)
+    }
+
+    pub(crate) fn parse_with_options(
+        text: &str,
+        event_capacity: usize,
+        strict: bool,
+    ) -> Self {
         let mut facts = Self {
             events: Vec::with_capacity(event_capacity),
             ..Self::default()
         };
         let mut depth = 0;
-        for item in Parser::new_from_str(text) {
+        let parser = Parser::new_from_str_with_options(
+            text,
+            granit_parser::options! { strict_indentation: strict },
+        );
+        for item in parser {
             let (event, span) = match item {
                 Ok(pair) => pair,
                 Err(error) => {
