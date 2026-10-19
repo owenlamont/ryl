@@ -1706,12 +1706,10 @@ impl FixContext<'_> {
                 )
             };
         }
-        if !self.batch(content, changed_rules, EditGroup::Punctuation) {
-            fix!(braces, braces::fix_with_analysis);
-            fix!(brackets, brackets::fix_with_analysis);
-            fix!(colons, colons::fix_with_analysis);
-            fix!(hyphens, hyphens::fix_with_analysis);
-        }
+        fix!(braces, braces::fix_with_analysis);
+        fix!(brackets, brackets::fix_with_analysis);
+        fix!(colons, colons::fix_with_analysis);
+        fix!(hyphens, hyphens::fix_with_analysis);
         self.apply(
             content,
             changed_rules,
