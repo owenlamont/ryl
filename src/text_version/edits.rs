@@ -28,7 +28,8 @@ impl Batch {
         input.plan_byte_edits(
             self.edits
                 .into_iter()
-                .map(|(start, end, text)| (start.get()..end.get(), text)),
+                .map(|(start, end, text)| (start.get()..end.get(), text))
+                .collect(),
         )
     }
 }

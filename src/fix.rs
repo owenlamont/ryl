@@ -1590,15 +1590,14 @@ impl FixContext<'_> {
             return true;
         }
         let rules = batch.changed_rules().to_vec();
-        let Some(plan) = batch.finish(input) else {
-            return false;
-        };
-        let changed = content
-            .apply(plan)
-            .expect("batch plan belongs to the current epoch");
-        changed_rules.extend(rules.into_iter().filter(|_| changed));
-        self.edit_epoch += usize::from(changed);
-        true
+        batch.finish(input).is_some_and(|plan| {
+            let changed = content
+                .apply(plan)
+                .expect("batch plan belongs to the current epoch");
+            changed_rules.extend(rules.into_iter().filter(|_| changed));
+            self.edit_epoch += usize::from(changed);
+            true
+        })
     }
 
     /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix

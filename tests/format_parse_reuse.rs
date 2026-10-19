@@ -8,7 +8,7 @@ use ryl::text_version::TextVersion;
 #[test]
 fn byte_edits_merge_in_source_order_and_keep_epoch_guards() {
     let mut source = TextVersion::new("é : [ a,b ]\r\n");
-    let edits = [
+    let edits = vec![
         (10..11, String::new()),
         (2..3, String::new()),
         (9..9, " ".into()),
@@ -40,6 +40,7 @@ fn byte_edits_reject_conflicting_or_invalid_ranges() {
                     ranges
                         .into_iter()
                         .map(|(start, end)| (start..end, String::new()))
+                        .collect()
                 )
                 .is_none()
         );
@@ -51,7 +52,11 @@ fn adjacent_byte_edits_and_boundary_insertions_compose() {
     let mut source = TextVersion::new("a b");
     let plan = source
         .analysis()
-        .plan_byte_edits([(0..1, "é".into()), (1..2, ": ".into()), (3..3, "\n".into())])
+        .plan_byte_edits(vec![
+            (0..1, "é".into()),
+            (1..2, ": ".into()),
+            (3..3, "\n".into()),
+        ])
         .unwrap();
     assert_eq!(source.apply(plan), Some(true));
     assert_eq!(&*source, "é: b\n");
@@ -101,7 +106,7 @@ fn byte_identical_edit_keeps_existing_plans_valid() {
     let pending = source.analysis().plan("a: y\n".to_string());
     let unchanged = source
         .analysis()
-        .plan_byte_edits([(3..4, "x".into())])
+        .plan_byte_edits(vec![(3..4, "x".into())])
         .unwrap();
     assert_eq!(source.apply(unchanged), Some(false));
     assert_eq!(source.apply(pending), Some(true));

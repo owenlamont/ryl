@@ -133,9 +133,8 @@ impl<'text> Analysis<'text> {
     #[must_use]
     pub fn plan_byte_edits(
         self,
-        edits: impl IntoIterator<Item = (std::ops::Range<usize>, String)>,
+        mut edits: Vec<(std::ops::Range<usize>, String)>,
     ) -> Option<EditPlan> {
-        let mut edits: Vec<_> = edits.into_iter().collect();
         edits.sort_by_key(|(range, _)| (range.start, range.end));
         let buffer = self.text();
         let mut previous = None;
