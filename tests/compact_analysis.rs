@@ -34,6 +34,16 @@ const INPUTS: &[&str] = &[
     "? [a, b]\n: {x: 1}\nblock: |+\n  café\n\nfold: >-\n  hello\n  world\nempty: |\nnext: # own\n  # above\n  null\n",
 ];
 
+fn assert_span_eq(actual: Span, expected: Span) {
+    assert_eq!(actual, expected);
+    assert_eq!(actual.start.byte_offset(), expected.start.byte_offset());
+    assert_eq!(actual.end.byte_offset(), expected.end.byte_offset());
+    assert_eq!(
+        actual.tag_start().map(|marker| marker.byte_offset()),
+        expected.tag_start().map(|marker| marker.byte_offset())
+    );
+}
+
 #[test]
 fn every_event_and_span_reconstructs_exactly() {
     for &source in INPUTS {
@@ -51,7 +61,7 @@ fn every_event_and_span_reconstructs_exactly() {
                 source,
                 source
             ));
-            assert_eq!(spans::StoredSpan::new(span).get(), span);
+            assert_span_eq(spans::StoredSpan::new(span).get(), span);
         }
     }
 }
@@ -66,6 +76,29 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
             let (original, token) = pair.unwrap().into_parts();
             let (span, kind) = reconstructed.next().unwrap();
             match (kind, token) {
+                (lexical::Kind::StreamStart, TokenType::StreamStart)
+                | (lexical::Kind::StreamEnd, TokenType::StreamEnd)
+                | (lexical::Kind::BlockSequenceStart, TokenType::BlockSequenceStart)
+                | (lexical::Kind::BlockMappingStart, TokenType::BlockMappingStart)
+                | (lexical::Kind::BlockEnd, TokenType::BlockEnd)
+                | (lexical::Kind::FlowSequenceStart, TokenType::FlowSequenceStart)
+                | (lexical::Kind::FlowSequenceEnd, TokenType::FlowSequenceEnd)
+                | (lexical::Kind::FlowMappingStart, TokenType::FlowMappingStart)
+                | (lexical::Kind::FlowMappingEnd, TokenType::FlowMappingEnd)
+                | (lexical::Kind::BlockEntry, TokenType::BlockEntry)
+                | (lexical::Kind::Key, TokenType::Key)
+                | (lexical::Kind::Value, TokenType::Value)
+                | (lexical::Kind::Alias, TokenType::Alias(_))
+                | (lexical::Kind::Anchor, TokenType::Anchor(_))
+                | (lexical::Kind::Tag, TokenType::Tag(..))
+                | (
+                    lexical::Kind::Other,
+                    TokenType::VersionDirective(..)
+                    | TokenType::TagDirective(..)
+                    | TokenType::DocumentStart
+                    | TokenType::DocumentEnd
+                    | TokenType::FlowEntry,
+                ) => {}
                 (
                     lexical::Kind::Scalar { style, empty },
                     TokenType::Scalar(original_style, value),
@@ -80,9 +113,9 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
                     assert_eq!(*placement, comment.placement());
                     assert_eq!(text.as_ref(), comment.text());
                 }
-                _ => {}
+                (_, token) => panic!("incorrect stored kind for {token:?}"),
             }
-            assert_eq!(span, original);
+            assert_span_eq(span, original);
             zero_width += usize::from(span.start == span.end);
         }
         assert!(reconstructed.next().is_none());
@@ -97,7 +130,7 @@ fn compact_spans_preserve_absent_byte_offsets_and_indent() {
     for indent in [None, Some(0), Some(17)] {
         let span =
             Span::new(Marker::new(0, 1, 0), Marker::new(3, 2, 1)).with_indent(indent);
-        assert_eq!(spans::StoredSpan::new(span).get(), span);
+        assert_span_eq(spans::StoredSpan::new(span).get(), span);
     }
 }
 
@@ -113,7 +146,7 @@ fn wide_spans_preserve_sentinel_and_large_offsets() {
         ] {
             let stored = spans::StoredSpan::new(span);
             assert!(matches!(stored, spans::StoredSpan::Wide(_)));
-            assert_eq!(stored.get(), span);
+            assert_span_eq(stored.get(), span);
         }
     }
 }
