@@ -325,7 +325,7 @@ fn skip_prefix_bom(text: &str, start: &mut usize) {
 }
 
 fn char_at(text: &str, idx: usize) -> Option<char> {
-    text.get(idx..)?.chars().next()
+    text.get(idx..).and_then(|tail| tail.chars().next())
 }
 
 fn count_spaces(text: &str, from: usize) -> usize {
