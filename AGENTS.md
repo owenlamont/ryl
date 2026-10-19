@@ -193,6 +193,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   `proptest!` function only** (`PROPTEST_CASES=<20 × its cases> cargo test --release
   --test <suite> <name> -- --exact`), under 10 minutes. Release gates run every suite at
   its default count. See the `property-tests` dev skill.
+- Before a formatter performance change lands, run the differential output parity gate
+  against immutable baseline and candidate binaries over every corpus repo and profile;
+  the `property-tests` skill has the command and batching rules. Run the existing corpus
+  gate separately for preservation and idempotence.
 - Several traps make a test pass vacuously or fail only in CI — config discovery walking
   out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
   `testing-traps` dev skill before writing a test that drives the binary.

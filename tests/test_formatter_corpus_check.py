@@ -4,7 +4,8 @@
 # ///
 """Gate logic of scripts/formatter_corpus_check.py, run with:
 
-uv run tests/test_formatter_corpus_check.py
+uv run --with pytest --with typer --with py-yaml12 --with pyyaml --with platformdirs
+pytest tests/test_formatter_corpus_check.py
 """
 
 import hashlib
