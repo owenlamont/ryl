@@ -22,6 +22,7 @@ pub struct TextVersion<'text> {
     headers: OnceCell<Vec<Header>>,
     chars: OnceCell<Vec<(usize, char)>>,
     line_starts: OnceCell<Vec<CharPos>>,
+    byte_line_starts: OnceCell<Vec<usize>>,
     lines: OnceCell<Vec<(usize, usize, usize)>>,
     tokens: OnceCell<Box<[(lexical::TokenSpan, lexical::Kind)]>>,
     sites: OnceCell<Vec<token_spacing::Site>>,
@@ -50,6 +51,7 @@ impl<'text> TextVersion<'text> {
             headers: OnceCell::new(),
             chars: OnceCell::new(),
             line_starts: OnceCell::new(),
+            byte_line_starts: OnceCell::new(),
             lines: OnceCell::new(),
             tokens: OnceCell::new(),
             sites: OnceCell::new(),
@@ -84,6 +86,7 @@ impl<'text> TextVersion<'text> {
             headers: self.headers,
             chars: self.chars,
             line_starts: self.line_starts,
+            byte_line_starts: self.byte_line_starts,
             lines: self.lines,
             tokens: self.tokens,
             sites: self.sites,
@@ -205,6 +208,12 @@ impl<'text> Analysis<'text> {
         self.source
             .line_starts
             .get_or_init(|| punctuation::build_line_starts(self.chars()))
+    }
+
+    pub(crate) fn byte_line_starts(self) -> &'text [usize] {
+        self.source
+            .byte_line_starts
+            .get_or_init(|| punctuation::build_byte_line_starts(self.text()))
     }
 
     pub(crate) fn lines(self) -> impl Iterator<Item = (usize, &'text str, &'text str)> {

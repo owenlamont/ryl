@@ -9,8 +9,10 @@ use std::ops::Range;
 use crate::text_version::lexical::{Kind as LexicalKind, TokenSpan};
 use granit_parser::ScalarStyle;
 
-use crate::rules::support::punctuation::line_and_column;
-use crate::rules::support::span_utils::{BytePos, CharPos, apply_replacements};
+use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::span_utils::{
+    BytePos, apply_replacements, marker_byte_offset,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Indicator {
@@ -68,24 +70,22 @@ impl Site {
 pub(crate) fn sites_with_analysis(input: Analysis<'_>) -> Vec<Site> {
     let buffer = input.text();
     let tokens = input.tokens();
-    let chars = input.chars();
     let walk = Walk {
         buffer,
-        line_starts: input.line_starts(),
-        chars,
+        line_starts: input.byte_line_starts(),
         tokens,
     };
     let mut sites = Vec::new();
     for (idx, (span, token)) in tokens.iter().enumerate() {
-        let at = span.start.index();
+        let at = marker_byte_offset(span.start).get();
         match token {
             LexicalKind::BlockEntry => {
                 let dash = walk.skip_ws_back(at).checked_sub(1);
-                if let Some(dash) = dash.filter(|&dash| walk.char_at(dash) == '-') {
+                if let Some(dash) = dash.filter(|&dash| walk.byte_at(dash) == b'-') {
                     sites.extend(walk.after(Indicator::Dash, dash, idx));
                 }
             }
-            LexicalKind::Key if span.end.index() > at => {
+            LexicalKind::Key if span.end.index() > span.start.index() => {
                 sites.extend(walk.after(Indicator::Question, at, idx));
             }
             LexicalKind::Value => {
@@ -131,31 +131,25 @@ pub(crate) fn fix(
 
 struct Walk<'a> {
     buffer: &'a str,
-    chars: &'a [(usize, char)],
-    line_starts: &'a [CharPos],
+    line_starts: &'a [usize],
     tokens: &'a [(TokenSpan, LexicalKind)],
 }
 
 impl Walk<'_> {
-    fn char_at(&self, idx: usize) -> char {
-        self.chars.get(idx).map_or('\n', |&(_, ch)| ch)
-    }
-
-    fn byte_at(&self, idx: usize) -> usize {
-        self.chars
-            .get(idx)
-            .map_or(self.buffer.len(), |&(byte, _)| byte)
+    fn byte_at(&self, idx: usize) -> u8 {
+        self.buffer.as_bytes().get(idx).copied().unwrap_or(b'\n')
     }
 
     fn skip_ws_back(&self, mut idx: usize) -> usize {
-        while idx > 0 && matches!(self.char_at(idx - 1), ' ' | '\t') {
+        while idx > 0 && matches!(self.byte_at(idx - 1), b' ' | b'\t') {
             idx -= 1;
         }
         idx
     }
 
     fn site(&self, indicator: Indicator, before: bool, ws: Range<usize>) -> Site {
-        let (line, column) = line_and_column(self.line_starts, CharPos::new(ws.end));
+        let (line, column) =
+            byte_line_and_column(self.buffer, self.line_starts, ws.end);
         Site {
             indicator,
             before,
@@ -164,23 +158,21 @@ impl Walk<'_> {
             column: column.saturating_sub(1).max(1),
             spaces: ws.len(),
             min: 1,
-            ws: self.byte_at(ws.start)..self.byte_at(ws.end),
+            ws,
         }
     }
 
-    /// The run after the indicator at char `at`, unless a line break, comment or the end
-    /// of input follows it.
     fn after(&self, indicator: Indicator, at: usize, idx: usize) -> Option<Site> {
         let mut end = at + 1;
-        while matches!(self.char_at(end), ' ' | '\t') {
+        while matches!(self.byte_at(end), b' ' | b'\t') {
             end += 1;
         }
-        let next = self.char_at(end);
-        if matches!(next, '\n' | '\r' | '#') {
+        let next = self.byte_at(end);
+        if matches!(next, b'\n' | b'\r' | b'#') {
             return None;
         }
         let mut site = self.site(indicator, false, at + 1..end);
-        if matches!(next, ',' | ']' | '}') {
+        if matches!(next, b',' | b']' | b'}') {
             site.fix = Fix::Elsewhere;
         } else if self.opens_multiline_collection(idx, site.line) {
             site.fix = Fix::Reindents;
@@ -188,7 +180,6 @@ impl Walk<'_> {
         Some(site)
     }
 
-    /// The run before the `:` at char `at`, when a node ends on the same line before it.
     fn before_colon(&self, at: usize, idx: usize) -> Option<Site> {
         let min = match idx.checked_sub(1).map(|prev| &self.tokens[prev].1) {
             Some(
@@ -201,7 +192,7 @@ impl Walk<'_> {
             _ => return None,
         };
         let start = self.skip_ws_back(at);
-        if start == 0 || matches!(self.char_at(start - 1), '\n' | '\r') {
+        if start == 0 || matches!(self.byte_at(start - 1), b'\n' | b'\r') {
             return None;
         }
         let mut site = self.site(Indicator::Colon, true, start..at);
