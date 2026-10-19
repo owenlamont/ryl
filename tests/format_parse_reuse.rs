@@ -99,7 +99,10 @@ fn identical_documents_have_distinct_epochs() {
 fn byte_identical_edit_keeps_existing_plans_valid() {
     let mut source = TextVersion::new("a: x\n");
     let pending = source.analysis().plan("a: y\n".to_string());
-    let unchanged = source.analysis().plan(source.to_string());
+    let unchanged = source
+        .analysis()
+        .plan_byte_edits([(3..4, "x".into())])
+        .unwrap();
     assert_eq!(source.apply(unchanged), Some(false));
     assert_eq!(source.apply(pending), Some(true));
     assert_eq!(source.into_text(), "a: y\n");

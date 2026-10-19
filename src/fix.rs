@@ -1593,11 +1593,11 @@ impl FixContext<'_> {
         let Some(plan) = batch.finish(input) else {
             return false;
         };
-        content
+        let changed = content
             .apply(plan)
             .expect("batch plan belongs to the current epoch");
-        changed_rules.extend(rules);
-        self.edit_epoch += 1;
+        changed_rules.extend(rules.into_iter().filter(|_| changed));
+        self.edit_epoch += usize::from(changed);
         true
     }
 
