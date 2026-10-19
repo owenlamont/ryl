@@ -52,7 +52,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
     let mut result = Scan::default();
-    for (event, span) in input.events() {
+    for (event, span) in input.event_iter() {
         if let Event::DocumentStart(explicit, _) = event
             && explicit != cfg.requires_marker()
         {

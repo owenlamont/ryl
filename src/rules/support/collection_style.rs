@@ -67,7 +67,7 @@ pub fn restyle(
     buffer: &str,
     cfg: Config,
     indent: Option<&indentation::Config>,
-    events: Option<&[(Event<'_>, Span)]>,
+    events: Option<crate::text_version::Analysis<'_>>,
 ) -> Option<(String, Vec<&'static str>)> {
     let (edits, findings) = plan(buffer, cfg, indent, events);
     let restyled = apply_replacements(buffer, edits);
@@ -96,7 +96,7 @@ fn plan(
     buffer: &str,
     cfg: Config,
     indent: Option<&indentation::Config>,
-    events: Option<&[(Event<'_>, Span)]>,
+    events: Option<crate::text_version::Analysis<'_>>,
 ) -> (Vec<Edit>, Vec<Finding>) {
     if cfg.sequences == CollectionStyleTarget::Preserve
         && cfg.mappings == CollectionStyleTarget::Preserve
@@ -261,10 +261,10 @@ struct Node {
 
 fn tree(
     buffer: &str,
-    events: Option<&[(Event<'_>, Span)]>,
+    events: Option<crate::text_version::Analysis<'_>>,
 ) -> (Vec<Node>, Vec<(usize, usize)>) {
     if let Some(events) = events {
-        tree_from_events(buffer, events.iter().cloned())
+        tree_from_events(buffer, events.event_iter())
     } else {
         tree_from_events(buffer, Parser::new_from_str(buffer).map_while(Result::ok))
     }

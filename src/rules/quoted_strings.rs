@@ -890,11 +890,11 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 pub(crate) fn fix_with_events(
     buffer: &str,
     cfg: &Config,
-    events: Option<&[(Event<'_>, Span)]>,
+    events: Option<crate::text_version::Analysis<'_>>,
 ) -> Option<String> {
     if let Some(events) = events {
         let mut fixer = QuotedStringsFixer::new(cfg, buffer);
-        for (event, span) in events.iter().cloned() {
+        for (event, span) in events.event_iter() {
             fixer.on_event(event, span);
         }
         return fixer.finish();

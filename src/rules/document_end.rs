@@ -54,7 +54,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
     let mut result = Scan::default();
     let mut pending = false;
-    for (event, span) in input.events() {
+    for (event, span) in input.event_iter() {
         if pending {
             let line = if matches!(event, Event::StreamEnd) {
                 result.unended_at_stream_end = true;
