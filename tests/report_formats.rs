@@ -162,6 +162,68 @@ fn gitlab_duplicate_diagnostics_get_distinct_fingerprints() {
 }
 
 #[test]
+fn gitlab_salts_follow_raw_hash_inputs_across_entries() {
+    let entries = [
+        ReportEntry {
+            path: "a\0commas".to_string(),
+            problems: vec![
+                problem(1, 1, Severity::Error, Some("truthy"), "bad"),
+                problem(9, 4, Severity::Warning, Some("truthy"), "bad"),
+            ],
+            error: None,
+        },
+        ReportEntry {
+            path: "a".to_string(),
+            problems: vec![problem(
+                2,
+                1,
+                Severity::Error,
+                Some("commas"),
+                "truthy\0bad",
+            )],
+            error: None,
+        },
+        ReportEntry {
+            path: "a\0commas".to_string(),
+            problems: vec![problem(3, 1, Severity::Error, Some("truthy"), "bad")],
+            error: None,
+        },
+        ReportEntry {
+            path: "e".to_string(),
+            problems: Vec::new(),
+            error: Some("bad".to_string()),
+        },
+        ReportEntry {
+            path: "e".to_string(),
+            problems: vec![
+                problem(4, 1, Severity::Error, Some("error"), "bad"),
+                problem(5, 1, Severity::Error, Some("error"), "b\0ad"),
+            ],
+            error: None,
+        },
+    ];
+    let json = gitlab_json(&entries);
+    let fingerprints: Vec<_> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|issue| issue["fingerprint"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        fingerprints,
+        [
+            "0afb5276f5e7b49fe2b2a1e6dc414f771669b8454d22a03491900d57ad073e1c",
+            "57412a0d8ff29581692387207577d770a7dfb3bccfb6222d007b49eecbdef3e8",
+            "e2f39e73c20ff908fe529b4f80a0ac757ffbeccd30738464a65a68335f313c29",
+            "13095edddd9e0b4c2df61ee2f0cf67b29de7042910a62afb6dfa909150c44f90",
+            "7107c61820b3108ab2738bd1b229200fc2508446605982205f7572cea9c945b4",
+            "73bcb6467c4a70aba058f67df005cee23bec1910b65145a081caf9f179a81594",
+            "c22867f7a5d6d2e411df9170ddddda9c73dcb890e5b006dcacf8ee0485d858a5",
+        ]
+    );
+}
+
+#[test]
 fn gitlab_fingerprints_are_stable_across_runs() {
     let build = || {
         vec![ReportEntry {
