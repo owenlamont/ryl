@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::rules::support::span_utils::CharPos;
 use crate::rules::support::{line_syntax, punctuation, token_spacing};
 use granit_parser::{Event, Parser, ScalarStyle, ScanError, Span};
 mod events;
@@ -20,8 +19,6 @@ pub struct TextVersion<'text> {
     epoch: Rc<()>,
     parsed: OnceCell<ParsedFacts>,
     headers: OnceCell<Vec<Header>>,
-    chars: OnceCell<Vec<(usize, char)>>,
-    line_starts: OnceCell<Vec<CharPos>>,
     byte_line_starts: OnceCell<Vec<usize>>,
     lines: OnceCell<Vec<(usize, usize, usize)>>,
     tokens: OnceCell<Box<[(lexical::TokenSpan, lexical::Kind)]>>,
@@ -49,8 +46,6 @@ impl<'text> TextVersion<'text> {
             epoch: Rc::new(()),
             parsed: OnceCell::new(),
             headers: OnceCell::new(),
-            chars: OnceCell::new(),
-            line_starts: OnceCell::new(),
             byte_line_starts: OnceCell::new(),
             lines: OnceCell::new(),
             tokens: OnceCell::new(),
@@ -84,8 +79,6 @@ impl<'text> TextVersion<'text> {
             epoch: self.epoch,
             parsed: self.parsed,
             headers: self.headers,
-            chars: self.chars,
-            line_starts: self.line_starts,
             byte_line_starts: self.byte_line_starts,
             lines: self.lines,
             tokens: self.tokens,
@@ -196,18 +189,6 @@ impl<'text> Analysis<'text> {
                 source: other.text(),
             });
         original.eq(rewritten)
-    }
-
-    pub(crate) fn chars(self) -> &'text [(usize, char)] {
-        self.source
-            .chars
-            .get_or_init(|| self.text().char_indices().collect())
-    }
-
-    pub(crate) fn line_starts(self) -> &'text [CharPos] {
-        self.source
-            .line_starts
-            .get_or_init(|| punctuation::build_line_starts(self.chars()))
     }
 
     pub(crate) fn byte_line_starts(self) -> &'text [usize] {

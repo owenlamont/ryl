@@ -9,8 +9,8 @@ use crate::text_version::{Analysis, TextVersion};
 use granit_parser::ScalarStyle;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::line_and_column;
-use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::span_utils::marker_byte_offset;
 
 mod rewrite;
 
@@ -149,7 +149,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
     let scanned = input.indentation();
     let mut analyzer =
-        Analyzer::new(input.chars(), &scanned.line_starts, cfg, Mode::Check);
+        Analyzer::new(input.text(), &scanned.line_starts, cfg, Mode::Check);
     analyzer.run(&scanned.tokens);
     analyzer.diagnostics
 }
@@ -199,25 +199,27 @@ impl Token {
 
 pub(crate) struct Scanned {
     tokens: Vec<Token>,
-    line_starts: Vec<CharPos>,
+    line_starts: Vec<usize>,
     comments: HashSet<usize>,
 }
 
 pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
-    let chars = input.chars();
-    let mut starts = input.line_starts().to_vec();
+    let text = input.text();
+    let mut starts = input.byte_line_starts().to_vec();
     let line_starts = &mut starts;
     let mut comments = HashSet::new();
     let mut tokens: Vec<Token> = Vec::new();
     for (span, token_type) in input.tokens() {
         for marker in [span.start, span.end] {
             let line_start = &mut line_starts[marker.line() - 1];
-            if marker.index().saturating_sub(line_start.get()) > marker.col() {
-                skip_prefix_bom(chars, line_start);
-            }
+            align_line_start(text, line_start, marker);
         }
-        let (mut start, mut end) = (span.start.index(), span.end.index());
+        let (mut start, mut end) = (
+            marker_byte_offset(span.start).get(),
+            marker_byte_offset(span.end).get(),
+        );
         let (mut line, mut end_line) = (span.start.line() - 1, span.end.line() - 1);
+        let (mut column, mut end_column) = (span.start.col(), span.end.col());
         let kind = match token_type {
             LexicalKind::Comment { .. } => {
                 comments.insert(line);
@@ -234,16 +236,20 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             LexicalKind::BlockEnd => Kind::BlockEnd,
             LexicalKind::BlockEntry => {
                 // granit marks an entry past the dash's trailing blanks and comment.
-                start = match tokens.last() {
-                    Some(prev) if prev.kind == Kind::BlockSequenceStart => prev.start,
+                (start, column) = match tokens.last() {
+                    Some(prev) if prev.kind == Kind::BlockSequenceStart => {
+                        (prev.start, prev.column)
+                    }
                     _ => {
-                        let line_start = line_starts[line].get();
-                        line_start + count_spaces(chars, line_start)
+                        let line_start = line_starts[line];
+                        let indent = count_spaces(text, line_start);
+                        (line_start + indent, indent)
                     }
                 };
-                line = locate(line_starts, start).0;
+                line = line_starts.partition_point(|&offset| offset <= start) - 1;
                 end = start + 1;
                 end_line = line;
+                end_column = column + 1;
                 Kind::BlockEntry
             }
             LexicalKind::FlowMappingStart => Kind::FlowMappingStart,
@@ -251,8 +257,8 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             LexicalKind::FlowSequenceStart => Kind::FlowSequenceStart,
             LexicalKind::FlowSequenceEnd => Kind::FlowSequenceEnd,
             LexicalKind::Key => Kind::Key {
-                explicit: char_at(chars, start) == Some('?')
-                    && char_at(chars, start + 1)
+                explicit: char_at(text, start) == Some('?')
+                    && char_at(text, start + 1)
                         .is_none_or(|ch| matches!(ch, ' ' | '\t') || is_break(ch)),
             },
             LexicalKind::Value => Kind::Value,
@@ -261,15 +267,17 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
                     let from = tokens.last().map_or(0, |prev| prev.end);
-                    start = block_indicator(chars, from).unwrap_or(start);
-                    line = locate(line_starts, start).0;
-                    skip_prefix_bom(chars, &mut line_starts[line]);
-                    let end_line_start = line_starts[end_line].get();
+                    start = block_indicator(text, from).unwrap_or(start);
+                    line = line_starts.partition_point(|&offset| offset <= start) - 1;
+                    skip_prefix_bom(text, &mut line_starts[line]);
+                    column = text[line_starts[line]..start].chars().count();
+                    let end_line_start = line_starts[end_line];
                     let trailing = end - end_line_start;
-                    if count_spaces(chars, end_line_start) >= trailing
+                    if count_spaces(text, end_line_start) >= trailing
                         && trailing <= span.start.col()
                     {
                         end = end_line_start;
+                        end_column = 0;
                     }
                 }
                 Kind::Scalar {
@@ -279,8 +287,6 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             }
             _ => Kind::Other,
         };
-        let column = start - line_starts[line].get();
-        let end_column = end - line_starts[end_line].get();
         tokens.push(Token {
             kind,
             start,
@@ -298,25 +304,34 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
     }
 }
 
-fn locate(line_starts: &[CharPos], idx: usize) -> (usize, usize) {
-    let (line, column) = line_and_column(line_starts, CharPos::new(idx));
-    (line - 1, column - 1)
-}
-
-fn skip_prefix_bom(chars: &[(usize, char)], start: &mut CharPos) {
-    if char_at(chars, start.get()) == Some('\u{feff}') {
-        *start = CharPos::new(start.get() + 1);
+fn align_line_start(text: &str, line_start: &mut usize, marker: granit_parser::Marker) {
+    if text[*line_start..].starts_with('\u{feff}')
+        && byte_line_and_column(
+            text.as_bytes(),
+            &[*line_start],
+            marker_byte_offset(marker).get(),
+        )
+        .1 - 1
+            > marker.col()
+    {
+        skip_prefix_bom(text, line_start);
     }
 }
 
-fn char_at(chars: &[(usize, char)], idx: usize) -> Option<char> {
-    chars.get(idx).map(|&(_, ch)| ch)
+fn skip_prefix_bom(text: &str, start: &mut usize) {
+    if text[*start..].starts_with('\u{feff}') {
+        *start += '\u{feff}'.len_utf8();
+    }
 }
 
-fn count_spaces(chars: &[(usize, char)], from: usize) -> usize {
-    chars[from.min(chars.len())..]
+fn char_at(text: &str, idx: usize) -> Option<char> {
+    text.get(idx..).and_then(|tail| tail.chars().next())
+}
+
+fn count_spaces(text: &str, from: usize) -> usize {
+    text.as_bytes()[from.min(text.len())..]
         .iter()
-        .take_while(|&&(_, ch)| ch == ' ')
+        .take_while(|&&ch| ch == b' ')
         .count()
 }
 
@@ -324,13 +339,12 @@ const fn is_break(ch: char) -> bool {
     matches!(ch, '\n' | '\r')
 }
 
-fn block_indicator(chars: &[(usize, char)], from: usize) -> Option<usize> {
+fn block_indicator(text: &str, from: usize) -> Option<usize> {
     let mut in_comment = false;
-    let offset = chars[from..].iter().position(|&(_, ch)| {
+    text[from..].char_indices().find_map(|(offset, ch)| {
         in_comment = (in_comment || ch == '#') && !is_break(ch);
-        !in_comment && matches!(ch, '|' | '>')
-    });
-    offset.map(|offset| from + offset)
+        (!in_comment && matches!(ch, '|' | '>')).then_some(from + offset)
+    })
 }
 
 fn to_isize(value: usize) -> isize {
@@ -377,8 +391,8 @@ impl Parent {
 struct UnexpectedToken;
 
 struct Analyzer<'a> {
-    chars: &'a [(usize, char)],
-    line_starts: &'a [CharPos],
+    text: &'a str,
+    line_starts: &'a [usize],
     check_multi_line_strings: bool,
     stack: Vec<Parent>,
     cur_line: usize,
@@ -417,14 +431,9 @@ impl Shift {
 }
 
 impl<'a> Analyzer<'a> {
-    fn new(
-        chars: &'a [(usize, char)],
-        line_starts: &'a [CharPos],
-        cfg: &Config,
-        mode: Mode,
-    ) -> Self {
+    fn new(text: &'a str, line_starts: &'a [usize], cfg: &Config, mode: Mode) -> Self {
         Self {
-            chars,
+            text,
             line_starts,
             check_multi_line_strings: cfg.check_multi_line_strings,
             stack: vec![Parent::new(ParentKind::Root, 0)],
@@ -470,7 +479,7 @@ impl<'a> Analyzer<'a> {
             return;
         };
         let gap = next.column - token.column - 1;
-        if gap > 1 && count_spaces(self.chars, token.start + 1) == gap {
+        if gap > 1 && count_spaces(self.text, token.start + 1) == gap {
             self.gaps[token.line].push(Gap {
                 column: token.column,
                 removed: gap - 1,
@@ -812,9 +821,8 @@ impl<'a> Analyzer<'a> {
     }
 
     fn has_indentation_indicator(&self, token: &Token) -> bool {
-        self.chars[token.start + 1..]
-            .iter()
-            .map(|&(_, ch)| ch)
+        self.text[token.start + 1..]
+            .chars()
             .take_while(|&ch| ch.is_ascii_digit() || matches!(ch, '+' | '-'))
             .any(|ch| ch.is_ascii_digit())
     }
@@ -824,11 +832,11 @@ impl<'a> Analyzer<'a> {
         &self,
         token: &Token,
     ) -> impl Iterator<Item = (usize, usize)> + use<'a> {
-        let (chars, line_starts) = (self.chars, self.line_starts);
+        let (text, line_starts) = (self.text, self.line_starts);
         (token.line + 1..=last_line(token)).filter_map(move |line| {
-            let line_start = line_starts[line].get();
-            let indent = count_spaces(chars, line_start);
-            (!char_at(chars, line_start + indent).is_some_and(is_break))
+            let line_start = line_starts[line];
+            let indent = count_spaces(text, line_start);
+            (!char_at(text, line_start + indent).is_some_and(is_break))
                 .then_some((line, indent))
         })
     }
@@ -879,13 +887,16 @@ impl<'a> Analyzer<'a> {
         if !matches!(token.kind, Kind::Scalar { .. }) {
             return end_line;
         }
-        for pos in (token.start.saturating_sub(1)..token.end).rev() {
-            let ch = self.chars[pos].1;
+        let from = self.text[..token.start]
+            .char_indices()
+            .next_back()
+            .map_or(0, |(byte, _)| byte);
+        for (offset, ch) in self.text[from..token.end].char_indices().rev() {
+            let pos = from + offset;
             if !matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c') {
                 break;
             }
-            if ch == '\n' || (ch == '\r' && char_at(self.chars, pos + 1) != Some('\n'))
-            {
+            if ch == '\n' || (ch == '\r' && char_at(self.text, pos + 1) != Some('\n')) {
                 end_line -= 1;
             }
         }
@@ -893,10 +904,8 @@ impl<'a> Analyzer<'a> {
     }
 
     fn push(&mut self, line: usize, found: usize, message: String) {
-        let start = self.line_starts[line - 1].get();
-        let bom = usize::from(
-            start > 0 && char_at(self.chars, start - 1) == Some('\u{feff}'),
-        );
+        let start = self.line_starts[line - 1];
+        let bom = usize::from(self.text[..start].ends_with('\u{feff}'));
         self.diagnostics.push(Violation {
             line,
             column: found + bom + 1,

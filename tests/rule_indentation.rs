@@ -579,3 +579,43 @@ fn unindented_sequence_before_the_step_is_known_expects_at_least_one_more() {
         vec![(2, 3, "wrong indentation: expected at least 3".to_string())]
     );
 }
+
+#[test]
+fn multibyte_flow_prefix_keeps_alignment_in_character_columns() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, true);
+    assert_eq!(
+        indentation::check("é: [😀,\n   x]\n", &cfg),
+        vec![Violation {
+            line: 2,
+            column: 4,
+            message: "wrong indentation: expected 4 but found 3".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn long_flow_line_keeps_unicode_continuation_alignment() {
+    let input = format!("é: [{}\n x]\n", "😀, ".repeat(30_000));
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, true);
+    assert_eq!(
+        indentation::check(&input, &cfg),
+        vec![Violation {
+            line: 2,
+            column: 2,
+            message: "wrong indentation: expected 4 but found 1".to_string(),
+        }]
+    );
+    let output = indentation::reindent(&input, &cfg);
+    assert!(output.refused.is_empty(), "{:?}", output.refused);
+    assert_eq!(output.text, input.replace("\n x]", "\n    x]"));
+}
+
+#[test]
+fn bom_between_documents_keeps_block_scalar_indentation() {
+    let input = "é: x\n...\n\u{feff}---\né: |\n  😀\n";
+    let cfg = config(SpacesSetting::Fixed(4), IndentSequencesSetting::True, false);
+    let output = indentation::reindent(input, &cfg);
+    assert!(output.refused.is_empty(), "{output:?}");
+    assert_eq!(output.text, "é: x\n...\n\u{feff}---\né: |\n    😀\n");
+    assert!(indentation::check(&output.text, &cfg).is_empty());
+}

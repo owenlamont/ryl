@@ -127,7 +127,7 @@ impl<'a> Prepared<'a> {
         let shaped = self.shaped();
         let scanned = shaped.indentation();
         let mut analyzer =
-            Analyzer::new(shaped.chars(), &scanned.line_starts, cfg, Mode::Target);
+            Analyzer::new(shaped.text(), &scanned.line_starts, cfg, Mode::Target);
         analyzer.run(&scanned.tokens);
         let shaped_lines: Cow<'_, [(&str, &str)]> =
             if self.shaped.is_none() && !self.has_bom {
@@ -319,8 +319,8 @@ impl<'a> Prepared<'a> {
         if !self.has_bom {
             return false;
         }
-        let start = self.shaped().indentation().line_starts[line].get();
-        start > 0 && self.shaped().chars()[start - 1].1 == '\u{feff}'
+        let start = self.shaped().indentation().line_starts[line];
+        self.shaped().text()[..start].ends_with('\u{feff}')
     }
 
     /// Each document's first [`Cause`] other than [`Cause::Changed`].

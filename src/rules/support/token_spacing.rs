@@ -149,7 +149,7 @@ impl Walk<'_> {
 
     fn site(&self, indicator: Indicator, before: bool, ws: Range<usize>) -> Site {
         let (line, column) =
-            byte_line_and_column(self.buffer, self.line_starts, ws.end);
+            byte_line_and_column(self.buffer.as_bytes(), self.line_starts, ws.end);
         Site {
             indicator,
             before,

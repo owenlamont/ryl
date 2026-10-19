@@ -15,8 +15,8 @@
 use crate::text_version::lexical::Kind as LexicalKind;
 use granit_parser::{ScalarStyle, Span};
 
-use crate::rules::support::punctuation::line_and_column;
-use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "block-scalar-chomping";
@@ -52,8 +52,8 @@ pub(crate) fn headers(buffer: &str) -> Vec<Header> {
 }
 
 pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
-    let chars = input.chars();
-    let line_starts = input.line_starts();
+    let chars = input.text();
+    let line_starts = input.byte_line_starts();
     let mut headers = Vec::new();
     let mut previous_end = 0;
     for (span, token_type) in input.tokens() {
@@ -64,21 +64,21 @@ pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
                 ..
             } => {
                 let marker = header_marker(chars, previous_end);
-                let (line, column) = line_and_column(line_starts, CharPos::new(marker));
+                let (line, column) =
+                    byte_line_and_column(chars.as_bytes(), line_starts, marker);
                 headers.push(Header {
                     span: span.into_span(),
                     line,
                     column,
                     chomping: chars[marker + 1..]
-                        .iter()
-                        .map(|&(_, ch)| ch)
+                        .chars()
                         .take_while(|ch| !ch.is_whitespace() && *ch != '#')
                         .find(|ch| matches!(ch, '-' | '+')),
                 });
             }
             _ => {}
         }
-        previous_end = span.end.index();
+        previous_end = marker_byte_offset(span.end).get();
     }
     headers
 }
@@ -174,14 +174,13 @@ pub(crate) fn ambiguous_blank_body_line_with_analysis(
     })
 }
 
-/// The char index of the first `|`/`>` at or past `from` outside a comment.
-fn header_marker(chars: &[(usize, char)], from: usize) -> usize {
+fn header_marker(chars: &str, from: usize) -> usize {
     let mut in_comment = false;
     from + chars[from..]
-        .iter()
-        .position(|&(_, ch)| {
+        .char_indices()
+        .find_map(|(offset, ch)| {
             in_comment = (in_comment || ch == '#') && !matches!(ch, '\n' | '\r');
-            !in_comment && matches!(ch, '|' | '>')
+            (!in_comment && matches!(ch, '|' | '>')).then_some(offset)
         })
         .expect("a block scalar has a `|` or `>` header")
 }

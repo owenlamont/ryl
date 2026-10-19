@@ -225,6 +225,7 @@ struct GitlabLines {
 pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
     let mut issues: Vec<GitlabIssue> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    let mut next_salts: HashMap<String, u64> = HashMap::new();
     for entry in entries {
         if let Some(error) = &entry.error {
             issues.push(make_issue(
@@ -234,6 +235,7 @@ pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
                 error,
                 "blocker",
                 &mut seen,
+                &mut next_salts,
             ));
         } else {
             for problem in &entry.problems {
@@ -246,6 +248,7 @@ pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
                     &problem.message,
                     severity,
                     &mut seen,
+                    &mut next_salts,
                 ));
             }
         }
@@ -271,17 +274,19 @@ fn make_issue(
     message: &str,
     severity: &'static str,
     seen: &mut HashSet<String>,
+    next_salts: &mut HashMap<String, u64>,
 ) -> GitlabIssue {
-    // GitLab requires fingerprints unique within a report, so two findings sharing the same
-    // (path, rule, message) are disambiguated by an encounter-order salt: identity is then
-    // stable under line shifts but a duplicate reordered ahead of another reassigns its salt
-    // (no scheme is stable under both line shifts and duplicate reordering from these inputs).
-    let mut salt = 0u64;
-    let mut hash = fingerprint(path, check_name, message, salt);
-    while !seen.insert(hash.clone()) {
-        salt += 1;
-        hash = fingerprint(path, check_name, message, salt);
-    }
+    // Embedded NULs can make different field tuples share the same hash input.
+    let next_salt = next_salts
+        .entry(format!("{path}\0{check_name}\0{message}"))
+        .or_default();
+    let (salt, hash) = (*next_salt..)
+        .find_map(|salt| {
+            let hash = fingerprint(path, check_name, message, salt);
+            seen.insert(hash.clone()).then_some((salt, hash))
+        })
+        .expect("a report cannot exhaust the u64 salt space");
+    *next_salt = salt + 1;
     GitlabIssue {
         description: sanitize_control(message).into_owned(),
         check_name: check_name.to_string(),

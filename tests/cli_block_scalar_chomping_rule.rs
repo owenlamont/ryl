@@ -353,3 +353,11 @@ fn finds_the_header_past_quote_like_plain_scalars_and_comments() {
         }
     }
 }
+
+#[test]
+fn multibyte_header_after_bom_and_comment_keeps_character_column() {
+    let (code, output) =
+        lint_with_toml_config("\u{feff}é: | # 😀\r\n  body\r\n", ENABLE);
+    assert_eq!(code, 1, "{output}");
+    assert!(output.contains("1:4"), "{output}");
+}

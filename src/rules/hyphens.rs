@@ -20,8 +20,8 @@
 use crate::text_version::lexical::Kind as LexicalKind;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::line_and_column;
-use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::span_utils::marker_byte_offset;
 use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode};
 use crate::text_version::{Analysis, TextVersion};
 
@@ -151,23 +151,29 @@ fn violations(
 /// module header for the token mechanics). The scanner is a lexer, so unparsable input
 /// just yields the tokens it can, no panic.
 fn collect_dash_on_own_line(input: Analysis<'_>) -> Vec<Violation> {
-    let line_starts = input.line_starts();
+    let line_starts = input.byte_line_starts();
     let mut violations = Vec::new();
     let mut dash_line: Option<usize> = None;
 
     for (span, token_type) in input.tokens() {
         match token_type {
             LexicalKind::BlockEntry => {
-                let (line, _) =
-                    line_and_column(line_starts, CharPos::new(span.start.index()));
+                let (line, _) = byte_line_and_column(
+                    input.text().as_bytes(),
+                    line_starts,
+                    marker_byte_offset(span.start).get(),
+                );
                 dash_line = Some(line);
             }
             // Node properties decorate the entry's value without ending the dash.
             LexicalKind::Anchor | LexicalKind::Tag | LexicalKind::Comment { .. } => {}
             LexicalKind::BlockMappingStart => {
                 if let Some(dash) = dash_line.take() {
-                    let (line, column) =
-                        line_and_column(line_starts, CharPos::new(span.start.index()));
+                    let (line, column) = byte_line_and_column(
+                        input.text().as_bytes(),
+                        line_starts,
+                        marker_byte_offset(span.start).get(),
+                    );
                     if line == dash {
                         violations.push(Violation {
                             line,
