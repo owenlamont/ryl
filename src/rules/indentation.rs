@@ -219,6 +219,7 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             marker_byte_offset(span.end).get(),
         );
         let (mut line, mut end_line) = (span.start.line() - 1, span.end.line() - 1);
+        let (mut column, mut end_column) = (span.start.col(), span.end.col());
         let kind = match token_type {
             LexicalKind::Comment { .. } => {
                 comments.insert(line);
@@ -235,16 +236,20 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             LexicalKind::BlockEnd => Kind::BlockEnd,
             LexicalKind::BlockEntry => {
                 // granit marks an entry past the dash's trailing blanks and comment.
-                start = match tokens.last() {
-                    Some(prev) if prev.kind == Kind::BlockSequenceStart => prev.start,
+                (start, column) = match tokens.last() {
+                    Some(prev) if prev.kind == Kind::BlockSequenceStart => {
+                        (prev.start, prev.column)
+                    }
                     _ => {
                         let line_start = line_starts[line];
-                        line_start + count_spaces(text, line_start)
+                        let indent = count_spaces(text, line_start);
+                        (line_start + indent, indent)
                     }
                 };
-                line = locate(text, line_starts, start).0;
+                line = line_starts.partition_point(|&offset| offset <= start) - 1;
                 end = start + 1;
                 end_line = line;
+                end_column = column + 1;
                 Kind::BlockEntry
             }
             LexicalKind::FlowMappingStart => Kind::FlowMappingStart,
@@ -263,14 +268,16 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
                     let from = tokens.last().map_or(0, |prev| prev.end);
                     start = block_indicator(text, from).unwrap_or(start);
-                    line = locate(text, line_starts, start).0;
+                    line = line_starts.partition_point(|&offset| offset <= start) - 1;
                     skip_prefix_bom(text, &mut line_starts[line]);
+                    column = text[line_starts[line]..start].chars().count();
                     let end_line_start = line_starts[end_line];
                     let trailing = end - end_line_start;
                     if count_spaces(text, end_line_start) >= trailing
                         && trailing <= span.start.col()
                     {
                         end = end_line_start;
+                        end_column = 0;
                     }
                 }
                 Kind::Scalar {
@@ -280,8 +287,6 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             }
             _ => Kind::Other,
         };
-        let column = text[line_starts[line]..start].chars().count();
-        let end_column = text[line_starts[end_line]..end].chars().count();
         tokens.push(Token {
             kind,
             start,
@@ -311,11 +316,6 @@ fn align_line_start(text: &str, line_start: &mut usize, marker: granit_parser::M
     {
         skip_prefix_bom(text, line_start);
     }
-}
-
-fn locate(text: &str, line_starts: &[usize], idx: usize) -> (usize, usize) {
-    let (line, column) = byte_line_and_column(text.as_bytes(), line_starts, idx);
-    (line - 1, column - 1)
 }
 
 fn skip_prefix_bom(text: &str, start: &mut usize) {
