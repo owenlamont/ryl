@@ -15,6 +15,8 @@ use crate::rules::block_scalar_chomping::{self, Header};
 
 pub struct TextVersion<'text> {
     text: Cow<'text, str>,
+    strict_valid: bool,
+    event_capacity: usize,
     epoch: Rc<()>,
     parsed: OnceCell<ParsedFacts>,
     headers: OnceCell<Vec<Header>>,
@@ -41,6 +43,8 @@ impl<'text> TextVersion<'text> {
     pub fn new(text: impl Into<Cow<'text, str>>) -> Self {
         Self {
             text: text.into(),
+            strict_valid: false,
+            event_capacity: 0,
             epoch: Rc::new(()),
             parsed: OnceCell::new(),
             headers: OnceCell::new(),
@@ -73,6 +77,8 @@ impl<'text> TextVersion<'text> {
     pub(crate) fn into_owned(self) -> TextVersion<'static> {
         TextVersion {
             text: Cow::Owned(self.text.into_owned()),
+            strict_valid: self.strict_valid,
+            event_capacity: self.event_capacity,
             epoch: self.epoch,
             parsed: self.parsed,
             headers: self.headers,
@@ -89,6 +95,14 @@ impl<'text> TextVersion<'text> {
     pub fn into_text(self) -> String {
         self.text.into_owned()
     }
+
+    pub(crate) fn mark_strict_valid(&mut self) {
+        self.strict_valid = true;
+    }
+
+    pub(crate) fn inherit_event_capacity(&mut self, previous: Analysis<'_>) {
+        self.event_capacity = previous.parsed().events.len();
+    }
 }
 
 impl Deref for TextVersion<'_> {
@@ -100,6 +114,10 @@ impl Deref for TextVersion<'_> {
 }
 
 impl<'text> Analysis<'text> {
+    pub(crate) fn strict_valid(self) -> bool {
+        self.source.strict_valid
+    }
+
     #[must_use]
     pub fn text(self) -> &'text str {
         &self.source.text
@@ -110,7 +128,10 @@ impl<'text> Analysis<'text> {
         self.plan_version(TextVersion::new(output))
     }
 
-    pub(crate) fn plan_version(self, output: TextVersion<'static>) -> EditPlan {
+    pub(crate) fn plan_version(self, mut output: TextVersion<'static>) -> EditPlan {
+        if let Some(parsed) = self.source.parsed.get() {
+            output.event_capacity = parsed.events.len();
+        }
         EditPlan {
             epoch: Rc::clone(&self.source.epoch),
             output,
@@ -120,7 +141,7 @@ impl<'text> Analysis<'text> {
     pub(crate) fn parsed(self) -> &'text ParsedFacts {
         self.source
             .parsed
-            .get_or_init(|| ParsedFacts::parse(self.text()))
+            .get_or_init(|| ParsedFacts::parse(self.text(), self.source.event_capacity))
     }
 
     pub(crate) fn headers(self) -> &'text [Header] {
@@ -138,6 +159,44 @@ impl<'text> Analysis<'text> {
             .events
             .iter()
             .map(move |(event, span)| (event.borrow(self.text()), *span))
+    }
+
+    pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
+        struct WithSource<'a> {
+            event: &'a StoredEvent,
+            source: &'a str,
+        }
+
+        impl PartialEq for WithSource<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                self.event
+                    .equivalent(other.event, self.source, other.source)
+            }
+        }
+
+        impl Eq for WithSource<'_> {}
+
+        let original = self
+            .parsed()
+            .events
+            .iter()
+            .map(|(event, _)| event)
+            .filter(|event| event.significant())
+            .map(|event| WithSource {
+                event,
+                source: self.text(),
+            });
+        let rewritten = other
+            .parsed()
+            .events
+            .iter()
+            .map(|(event, _)| event)
+            .filter(|event| event.significant())
+            .map(|event| WithSource {
+                event,
+                source: other.text(),
+            });
+        original.eq(rewritten)
     }
 
     pub(crate) fn chars(self) -> &'text [(usize, char)] {
@@ -217,6 +276,7 @@ impl<'text> Analysis<'text> {
 pub(crate) struct ParsedFacts {
     pub(crate) scalars: Vec<(ScalarStyle, Span)>,
     pub(crate) root_scalars: HashMap<usize, usize>,
+    pub(crate) document_starts: Vec<usize>,
     pub(crate) valid: bool,
     pub(crate) error: Option<ScanError>,
     events: Vec<(StoredEvent, Span)>,
@@ -230,6 +290,9 @@ impl ParsedFacts {
 
     fn record(&mut self, event: &Event<'_>, span: Span, depth: &mut usize) {
         match event {
+            Event::DocumentStart(..) => {
+                self.document_starts.push(span.start.line() - 1);
+            }
             Event::MappingStart(..) | Event::SequenceStart(..) => *depth += 1,
             Event::MappingEnd | Event::SequenceEnd => *depth -= 1,
             Event::Scalar(_, style, ..) => {
@@ -245,8 +308,11 @@ impl ParsedFacts {
         }
     }
 
-    fn parse(text: &str) -> Self {
-        let mut facts = Self::default();
+    fn parse(text: &str, event_capacity: usize) -> Self {
+        let mut facts = Self {
+            events: Vec::with_capacity(event_capacity),
+            ..Self::default()
+        };
         let mut depth = 0;
         for item in Parser::new_from_str(text) {
             let (event, span) = match item {

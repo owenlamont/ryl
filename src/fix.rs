@@ -1387,6 +1387,7 @@ fn strict_output(
     formatted: TextVersion<'static>,
 ) -> TextVersion<'static> {
     if formatted.analysis().text() != original
+        && !formatted.analysis().strict_valid()
         && crate::lint::strict_parse_error(&formatted).is_some()
     {
         TextVersion::new(original.to_string())
@@ -1494,7 +1495,7 @@ impl FixContext<'_> {
         reindented: Option<&mut ReindentCache>,
     ) -> bool {
         let passes = self.passes;
-        let input = content.to_string();
+        let initial_epoch = self.edit_epoch;
         macro_rules! fix {
             ($rule:ident) => {
                 fix!($rule, passes.$rule.as_ref(), |view, cfg| $rule::fix(
@@ -1564,7 +1565,7 @@ impl FixContext<'_> {
                 .expect("fold plan belongs to the current epoch");
             self.edit_epoch += 1;
         }
-        content.analysis().text() != input
+        self.edit_epoch != initial_epoch
     }
 
     fn lint_syntax_pass(
@@ -1613,6 +1614,16 @@ impl FixContext<'_> {
         changed_rules: &mut Vec<&'static str>,
         mut reindented: Option<&mut ReindentCache>,
     ) {
+        fn fix_quotes(
+            view: Analysis<'_>,
+            cfg: &quoted_strings::Config,
+        ) -> Option<String> {
+            quoted_strings::fix_with_events(
+                view.text(),
+                cfg,
+                view.parsed().valid.then(|| view.events()).as_deref(),
+            )
+        }
         let passes = self.passes;
         macro_rules! fix {
             ($rule:ident) => {
@@ -1655,6 +1666,7 @@ impl FixContext<'_> {
         fix!(brackets, brackets::fix_with_analysis);
         fix!(colons, colons::fix_with_analysis);
         fix!(hyphens, hyphens::fix_with_analysis);
+        fix!(quoted_strings, fix_quotes);
         fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
             reindent_for_pass(view, cfg, reindented.as_deref_mut())
         },);
@@ -1665,18 +1677,6 @@ impl FixContext<'_> {
                 view.text(),
                 policy.newline(view.text())
             )
-        );
-        fix!(
-            quoted_strings,
-            passes.quoted_strings.as_ref(),
-            |view, cfg| {
-                let buffer = view.text();
-                quoted_strings::fix_with_events(
-                    buffer,
-                    cfg,
-                    view.parsed().valid.then(|| view.events()).as_deref(),
-                )
-            },
         );
     }
 
