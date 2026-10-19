@@ -5,8 +5,8 @@
 
 crate::rules::support::flow_collection::define_rule!(
     "braces",
-    '{',
-    '}',
+    b'{',
+    b'}',
     "forbidden flow mapping",
     "too few spaces inside braces",
     "too many spaces inside braces",

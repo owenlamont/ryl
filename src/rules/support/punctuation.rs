@@ -1,8 +1,6 @@
 use std::ops::Range;
 
-use granit_parser::Span;
-
-use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::span_utils::{BytePos, CharPos, marker_byte_offset};
 use crate::text_version::{Analysis, TextVersion};
 
 /// Clamps `current` into `min..=max`; leaves it alone when `min > max`, since no spacing passes.
@@ -16,32 +14,36 @@ pub(crate) fn target_spacing(current: usize, min: i64, max: i64) -> usize {
     }
 }
 
-pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<CharPos>> {
-    scalar_ranges(TextVersion::new(buffer).analysis())
+pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<BytePos>> {
+    byte_scalar_ranges(TextVersion::new(buffer).analysis())
 }
 
-pub(crate) fn scalar_ranges(input: Analysis<'_>) -> Vec<Range<CharPos>> {
-    let mut collector = ScalarRangeCollector::new();
-    for (_, span) in &input.parsed().scalars {
-        collector.push_range(*span);
-    }
-    collector.into_sorted()
+pub(crate) fn byte_scalar_ranges(input: Analysis<'_>) -> Vec<Range<BytePos>> {
+    let mut ranges: Vec<_> = input
+        .parsed()
+        .scalars
+        .iter()
+        .filter_map(|(_, span)| {
+            let start = marker_byte_offset(span.start);
+            let end = marker_byte_offset(span.end);
+            (start < end).then_some(start..end)
+        })
+        .collect();
+    ranges.sort_by_key(|range| range.start);
+    ranges
 }
 
-pub(crate) fn skip_comment(chars: &[(usize, char)], mut idx: usize) -> usize {
+pub(crate) fn skip_comment(bytes: &[u8], mut idx: usize) -> usize {
     idx += 1;
-    while idx < chars.len() {
-        let ch = chars[idx].1;
-        if ch == '\n' {
-            break;
-        }
-        if ch == '\r' {
-            if chars.get(idx + 1).is_some_and(|(_, ch)| *ch == '\n') {
-                idx += 1;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'\n' => break,
+            b'\r' => {
+                idx += usize::from(bytes.get(idx + 1) == Some(&b'\n'));
+                break;
             }
-            break;
+            _ => idx += 1,
         }
-        idx += 1;
     }
     idx
 }
@@ -93,7 +95,7 @@ pub(crate) fn build_byte_line_starts(text: &str) -> Vec<usize> {
 }
 
 pub(crate) fn byte_line_and_column(
-    text: &str,
+    text: &[u8],
     starts: &[usize],
     byte: usize,
 ) -> (usize, usize) {
@@ -101,11 +103,7 @@ pub(crate) fn byte_line_and_column(
         .partition_point(|&start| start <= byte)
         .saturating_sub(1);
     let prefix = &text[starts[line]..byte];
-    let column = if prefix.is_ascii() {
-        prefix.len()
-    } else {
-        prefix.chars().count()
-    };
+    let column = prefix.iter().filter(|&&byte| byte & 0xc0 != 0x80).count();
     (line + 1, column + 1)
 }
 
@@ -134,45 +132,18 @@ pub(crate) fn line_and_column(
     )
 }
 
-pub(crate) fn template_double_curly_end(
-    chars: &[(usize, char)],
-    idx: usize,
-) -> Option<usize> {
-    if idx + 1 >= chars.len() || chars[idx].1 != '{' || chars[idx + 1].1 != '{' {
+pub(crate) fn template_double_curly_end(chars: &[u8], idx: usize) -> Option<usize> {
+    if idx + 1 >= chars.len() || chars[idx] != b'{' || chars[idx + 1] != b'{' {
         return None;
     }
     let mut cursor = idx + 2;
     while cursor + 1 < chars.len() {
-        if chars[cursor].1 == '}' && chars[cursor + 1].1 == '}' {
-            let inner_contains_mapping =
-                chars[idx + 2..cursor].iter().any(|(_, ch)| *ch == ':');
+        if chars[cursor] == b'}' && chars[cursor + 1] == b'}' {
+            let inner_contains_mapping = chars[idx + 2..cursor].contains(&b':');
             return (!inner_contains_mapping).then_some(cursor + 2);
         }
         cursor += 1;
     }
-    let inner_contains_mapping = chars[idx + 2..].iter().any(|(_, ch)| *ch == ':');
+    let inner_contains_mapping = chars[idx + 2..].contains(&b':');
     (!inner_contains_mapping).then_some(chars.len())
-}
-
-struct ScalarRangeCollector {
-    ranges: Vec<Range<CharPos>>,
-}
-
-impl ScalarRangeCollector {
-    const fn new() -> Self {
-        Self { ranges: Vec::new() }
-    }
-
-    fn push_range(&mut self, span: Span) {
-        let start = CharPos::new(span.start.index());
-        let end = CharPos::new(span.end.index());
-        if start < end {
-            self.ranges.push(start..end);
-        }
-    }
-
-    fn into_sorted(mut self) -> Vec<Range<CharPos>> {
-        self.ranges.sort_by_key(|a| a.start);
-        self.ranges
-    }
 }

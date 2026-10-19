@@ -1,10 +1,10 @@
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    build_line_starts, collect_scalar_ranges, line_and_column, skip_comment,
+    build_byte_line_starts, byte_line_and_column, collect_scalar_ranges, skip_comment,
     target_spacing, template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
-    BytePos, CharPos, apply_replacements, containing_scalar_range,
+    BytePos, apply_replacements, containing_byte_scalar_range,
 };
 
 macro_rules! define_rule {
@@ -244,8 +244,8 @@ pub struct Violation {
 }
 
 pub struct FlowCollectionDescriptor {
-    pub open: char,
-    pub close: char,
+    pub open: u8,
+    pub close: u8,
     pub forbid_message: &'static str,
     pub min_message: &'static str,
     pub max_message: &'static str,
@@ -282,17 +282,17 @@ pub fn check(
 
     let scalar_ranges = collect_scalar_ranges(buffer);
 
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    let line_starts = build_line_starts(&chars);
+    let bytes = buffer.as_bytes();
+    let line_starts = build_byte_line_starts(buffer);
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
     let mut stack: Vec<CollectionState> = Vec::new();
     let mut violations = Vec::new();
 
-    while idx < chars.len() {
+    while idx < bytes.len() {
         if let Some(range) =
-            containing_scalar_range(&scalar_ranges, &mut range_idx, idx)
+            containing_byte_scalar_range(&scalar_ranges, &mut range_idx, idx)
         {
             if idx == range.start.get()
                 && let Some(state) = stack.last_mut()
@@ -303,9 +303,9 @@ pub fn check(
             continue;
         }
 
-        let ch = chars[idx].1;
-        if desc.open == '{'
-            && let Some(next_idx) = template_double_curly_end(&chars, idx)
+        let ch = bytes[idx];
+        if desc.open == b'{'
+            && let Some(next_idx) = template_double_curly_end(bytes, idx)
         {
             idx = next_idx;
             continue;
@@ -317,7 +317,7 @@ pub fn check(
             handle_open(
                 cfg,
                 desc,
-                &chars,
+                bytes,
                 idx,
                 &line_starts,
                 &mut stack,
@@ -327,7 +327,7 @@ pub fn check(
             handle_close(
                 cfg,
                 desc,
-                &chars,
+                bytes,
                 idx,
                 &line_starts,
                 &mut stack,
@@ -335,13 +335,13 @@ pub fn check(
             );
         } else {
             match ch {
-                '#' => {
-                    idx = skip_comment(&chars, idx);
+                b'#' => {
+                    idx = skip_comment(bytes, idx);
                     continue;
                 }
-                ',' | ' ' | '\t' | '\n' => {}
-                '\r' => {
-                    if idx + 1 < chars.len() && chars[idx + 1].1 == '\n' {
+                b',' | b' ' | b'\t' | b'\n' => {}
+                b'\r' => {
+                    if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
                         idx += 1;
                     }
                 }
@@ -370,18 +370,18 @@ pub fn fix(
         return None;
     }
 
-    let scalar_ranges = super::punctuation::scalar_ranges(input);
+    let scalar_ranges = super::punctuation::byte_scalar_ranges(input);
 
-    let chars = input.chars();
+    let bytes = input.text().as_bytes();
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
     let mut stack: Vec<CollectionState> = Vec::new();
     let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
 
-    while idx < chars.len() {
+    while idx < bytes.len() {
         if let Some(range) =
-            containing_scalar_range(&scalar_ranges, &mut range_idx, idx)
+            containing_byte_scalar_range(&scalar_ranges, &mut range_idx, idx)
         {
             if idx == range.start.get()
                 && let Some(state) = stack.last_mut()
@@ -392,9 +392,9 @@ pub fn fix(
             continue;
         }
 
-        let ch = chars[idx].1;
-        if desc.open == '{'
-            && let Some(next_idx) = template_double_curly_end(chars, idx)
+        let ch = bytes[idx];
+        if desc.open == b'{'
+            && let Some(next_idx) = template_double_curly_end(bytes, idx)
         {
             idx = next_idx;
             continue;
@@ -404,17 +404,17 @@ pub fn fix(
             if let Some(state) = stack.last_mut() {
                 state.is_empty = false;
             }
-            let state = fix_open(cfg, desc, chars, idx, &mut replacements);
+            let state = fix_open(cfg, desc, bytes, idx, &mut replacements);
             stack.push(state);
         } else if ch == desc.close {
-            fix_close(cfg, chars, idx, &mut stack, &mut replacements);
+            fix_close(cfg, bytes, idx, &mut stack, &mut replacements);
         } else {
             match ch {
-                '#' => {
-                    idx = skip_comment(chars, idx);
+                b'#' => {
+                    idx = skip_comment(bytes, idx);
                     continue;
                 }
-                ',' | ' ' | '\t' | '\n' | '\r' => {}
+                b',' | b' ' | b'\t' | b'\n' | b'\r' => {}
                 _ => {
                     if let Some(state) = stack.last_mut() {
                         state.is_empty = false;
@@ -435,14 +435,14 @@ pub fn fix(
 fn handle_open(
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
-    chars: &[(usize, char)],
+    bytes: &[u8],
     idx: usize,
-    line_starts: &[CharPos],
+    line_starts: &[usize],
     stack: &mut Vec<CollectionState>,
     violations: &mut Vec<Violation>,
 ) {
-    let (line, column) = line_and_column(line_starts, CharPos::new(idx));
-    let next_significant = next_significant_index(chars, idx);
+    let (line, column) = byte_line_and_column(bytes, line_starts, idx);
+    let next_significant = next_significant_index(bytes, idx);
 
     let mut skip_open_check = false;
     match cfg.forbid() {
@@ -455,7 +455,7 @@ fn handle_open(
             skip_open_check = true;
         }
         Forbid::NonEmpty => {
-            let is_empty = matches!(next_significant.map(|j| chars[j].1), Some(close) if close == desc.close);
+            let is_empty = matches!(next_significant.map(|j| bytes[j]), Some(close) if close == desc.close);
             if !is_empty {
                 violations.push(Violation {
                     line,
@@ -469,15 +469,15 @@ fn handle_open(
     }
 
     let mut state = CollectionState {
-        is_empty: matches!(next_significant.map(|j| chars[j].1), Some(close) if close == desc.close),
+        is_empty: matches!(next_significant.map(|j| bytes[j]), Some(close) if close == desc.close),
     };
 
     if !skip_open_check
         && let AfterResult::SameLine { spaces, next_idx } =
-            compute_spaces_after_open(chars, idx)
+            compute_spaces_after_open(bytes, idx)
     {
-        let (line, next_column) = line_and_column(line_starts, CharPos::new(next_idx));
-        if state.is_empty && chars[next_idx].1 == desc.close {
+        let (line, next_column) = byte_line_and_column(bytes, line_starts, next_idx);
+        if state.is_empty && bytes[next_idx] == desc.close {
             record_after_spacing(
                 cfg.effective_min_empty(),
                 cfg.effective_max_empty(),
@@ -513,19 +513,19 @@ fn handle_open(
 fn fix_open(
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
-    chars: &[(usize, char)],
+    bytes: &[u8],
     idx: usize,
     replacements: &mut Vec<(BytePos, BytePos, String)>,
 ) -> CollectionState {
-    let next_significant = next_significant_index(chars, idx);
+    let next_significant = next_significant_index(bytes, idx);
     let mut state = CollectionState {
-        is_empty: matches!(next_significant.map(|j| chars[j].1), Some(close) if close == desc.close),
+        is_empty: matches!(next_significant.map(|j| bytes[j]), Some(close) if close == desc.close),
     };
 
     if let AfterResult::SameLine { spaces, next_idx } =
-        compute_spaces_after_open(chars, idx)
+        compute_spaces_after_open(bytes, idx)
     {
-        let target = if state.is_empty && chars[next_idx].1 == desc.close {
+        let target = if state.is_empty && bytes[next_idx] == desc.close {
             target_spacing(spaces, cfg.effective_min_empty(), cfg.effective_max_empty())
         } else {
             state.is_empty = false;
@@ -534,8 +534,8 @@ fn fix_open(
 
         if target != spaces {
             replacements.push((
-                BytePos::new(chars[idx].0 + chars[idx].1.len_utf8()),
-                BytePos::new(chars[next_idx].0),
+                BytePos::new(idx + 1),
+                BytePos::new(next_idx),
                 " ".repeat(target),
             ));
         }
@@ -547,9 +547,9 @@ fn fix_open(
 fn handle_close(
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
-    chars: &[(usize, char)],
+    bytes: &[u8],
     idx: usize,
-    line_starts: &[CharPos],
+    line_starts: &[usize],
     stack: &mut Vec<CollectionState>,
     violations: &mut Vec<Violation>,
 ) {
@@ -561,9 +561,9 @@ fn handle_close(
         return;
     }
 
-    if let Some((spaces, _start_idx)) = compute_spaces_before_close(chars, idx) {
+    if let Some((spaces, _start_idx)) = compute_spaces_before_close(bytes, idx) {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, close_column) = line_and_column(line_starts, CharPos::new(idx));
+        let (line, close_column) = byte_line_and_column(bytes, line_starts, idx);
         if cfg.max_spaces_inside() >= 0 && spaces_i64 > cfg.max_spaces_inside() {
             let highlight = close_column.saturating_sub(1).max(1);
             violations.push(Violation {
@@ -584,7 +584,7 @@ fn handle_close(
 
 fn fix_close(
     cfg: &Config,
-    chars: &[(usize, char)],
+    bytes: &[u8],
     idx: usize,
     stack: &mut Vec<CollectionState>,
     replacements: &mut Vec<(BytePos, BytePos, String)>,
@@ -597,7 +597,7 @@ fn fix_close(
         return;
     }
 
-    let Some((spaces, start_idx)) = compute_spaces_before_close(chars, idx) else {
+    let Some((spaces, start_idx)) = compute_spaces_before_close(bytes, idx) else {
         return;
     };
     let target =
@@ -606,8 +606,8 @@ fn fix_close(
         return;
     }
     replacements.push((
-        BytePos::new(chars[start_idx].0),
-        BytePos::new(chars[idx].0),
+        BytePos::new(start_idx),
+        BytePos::new(idx),
         " ".repeat(target),
     ));
 }
@@ -639,16 +639,16 @@ fn record_after_spacing(
     }
 }
 
-fn compute_spaces_after_open(chars: &[(usize, char)], open_idx: usize) -> AfterResult {
+fn compute_spaces_after_open(bytes: &[u8], open_idx: usize) -> AfterResult {
     let mut spaces = 0usize;
     let mut idx = open_idx + 1;
-    while idx < chars.len() {
-        match chars[idx].1 {
-            ' ' | '\t' => {
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b' ' | b'\t' => {
                 spaces += 1;
                 idx += 1;
             }
-            '\n' | '\r' | '#' => return AfterResult::Ignored,
+            b'\n' | b'\r' | b'#' => return AfterResult::Ignored,
             _ => {
                 return AfterResult::SameLine {
                     spaces,
@@ -661,7 +661,7 @@ fn compute_spaces_after_open(chars: &[(usize, char)], open_idx: usize) -> AfterR
 }
 
 fn compute_spaces_before_close(
-    chars: &[(usize, char)],
+    bytes: &[u8],
     close_idx: usize,
 ) -> Option<(usize, usize)> {
     let mut spaces = 0usize;
@@ -670,29 +670,29 @@ fn compute_spaces_before_close(
         idx = idx
             .checked_sub(1)
             .expect("closing delimiter should have a preceding opening delimiter");
-        match chars[idx].1 {
-            ' ' | '\t' => spaces += 1,
-            '\n' | '\r' | '#' => return None,
+        match bytes[idx] {
+            b' ' | b'\t' => spaces += 1,
+            b'\n' | b'\r' | b'#' => return None,
             _ => return Some((spaces, idx + 1)),
         }
     }
 }
 
-fn next_significant_index(chars: &[(usize, char)], open_idx: usize) -> Option<usize> {
+fn next_significant_index(bytes: &[u8], open_idx: usize) -> Option<usize> {
     let mut idx = open_idx + 1;
-    while idx < chars.len() {
-        match chars[idx].1 {
-            ' ' | '\t' | '\n' => idx += 1,
-            '\r' => {
-                if idx + 1 < chars.len() && chars[idx + 1].1 == '\n' {
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b' ' | b'\t' | b'\n' => idx += 1,
+            b'\r' => {
+                if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
                     idx += 2;
                 } else {
                     idx += 1;
                 }
             }
-            '#' => {
-                idx = skip_comment(chars, idx);
-                if idx >= chars.len() {
+            b'#' => {
+                idx = skip_comment(bytes, idx);
+                if idx >= bytes.len() {
                     continue;
                 }
                 idx += 1;

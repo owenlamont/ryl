@@ -275,3 +275,21 @@ fn fix_leaves_unsatisfiable_spacing_after_alone() {
     let fixed = commas::fix("[1 ,2]\n", &cfg);
     assert_eq!(fixed, Some("[1,2]\n".to_string()));
 }
+
+#[test]
+fn multibyte_neighbors_keep_character_columns_and_byte_fixes() {
+    for ending in ["\n", "\r\n", "\r"] {
+        let input = format!("# 😀{ending}[é ,😀]{ending}");
+        let hits = commas::check(&input, &defaults());
+        assert_eq!(
+            hits.iter()
+                .map(|hit| (hit.line, hit.column))
+                .collect::<Vec<_>>(),
+            vec![(2, 3), (2, 5)]
+        );
+        assert_eq!(
+            commas::fix(&input, &defaults()).unwrap(),
+            format!("# 😀{ending}[é, 😀]{ending}")
+        );
+    }
+}

@@ -5,8 +5,8 @@
 
 crate::rules::support::flow_collection::define_rule!(
     "brackets",
-    '[',
-    ']',
+    b'[',
+    b']',
     "forbidden flow sequence",
     "too few spaces inside brackets",
     "too many spaces inside brackets",

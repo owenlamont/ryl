@@ -404,3 +404,25 @@ fn brackets_fix_leaves_unsatisfiable_empty_spacing_alone() {
     let fixed = brackets::fix("object: [1, 2]\nempty: []\n", &cfg);
     assert_eq!(fixed, Some("object: [ 1, 2 ]\nempty: []\n".to_string()));
 }
+
+#[test]
+fn multibyte_prefix_and_content_keep_flow_columns() {
+    let cfg = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
+    let hits = braces::check("é: { 😀: é }\n", &cfg);
+    assert_eq!(
+        hits.iter()
+            .map(|hit| (hit.line, hit.column))
+            .collect::<Vec<_>>(),
+        vec![(1, 5), (1, 10)]
+    );
+    assert_eq!(braces::fix("é: { 😀: é }\n", &cfg).unwrap(), "é: {😀: é}\n");
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
+    let hits = brackets::check("é: [ 😀 ]\n", &cfg);
+    assert_eq!(
+        hits.iter()
+            .map(|hit| (hit.line, hit.column))
+            .collect::<Vec<_>>(),
+        vec![(1, 5), (1, 7)]
+    );
+    assert_eq!(brackets::fix("é: [ 😀 ]\n", &cfg).unwrap(), "é: [😀]\n");
+}

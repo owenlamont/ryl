@@ -3,11 +3,11 @@
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    collect_scalar_ranges, line_and_column, skip_comment, target_spacing,
+    byte_line_and_column, collect_scalar_ranges, skip_comment, target_spacing,
     template_double_curly_end,
 };
 use crate::rules::support::span_utils::{
-    BytePos, CharPos, apply_replacements, containing_scalar_range,
+    BytePos, apply_replacements, containing_byte_scalar_range,
 };
 use crate::text_version::{Analysis, TextVersion};
 
@@ -106,10 +106,10 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 }
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
-    let line_starts = input.line_starts();
+    let line_starts = input.byte_line_starts();
     let mut violations = Vec::new();
-    scan_commas(input, |chars, i| {
-        evaluate_comma(cfg, &mut violations, chars, i, line_starts);
+    scan_commas(input, |bytes, i| {
+        evaluate_comma(cfg, &mut violations, bytes, i, line_starts);
     });
     violations
 }
@@ -122,8 +122,8 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
     let buffer = input.text();
     let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
-    scan_commas(input, |chars, i| {
-        collect_comma_fixes(cfg, chars, i, &mut replacements);
+    scan_commas(input, |bytes, i| {
+        collect_comma_fixes(cfg, bytes, i, &mut replacements);
     });
 
     if replacements.is_empty() {
@@ -132,38 +132,39 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
     Some(apply_replacements(buffer, replacements))
 }
 
-fn scan_commas(input: Analysis<'_>, mut visit: impl FnMut(&[(usize, char)], usize)) {
-    let scalar_ranges = crate::rules::support::punctuation::scalar_ranges(input);
-    let chars = input.chars();
+fn scan_commas(input: Analysis<'_>, mut visit: impl FnMut(&[u8], usize)) {
+    let scalar_ranges = crate::rules::support::punctuation::byte_scalar_ranges(input);
+    let bytes = input.text().as_bytes();
     let mut contexts: Vec<FlowKind> = Vec::new();
     let mut i = 0usize;
     let mut range_idx = 0usize;
 
-    while i < chars.len() {
-        if let Some(range) = containing_scalar_range(&scalar_ranges, &mut range_idx, i)
+    while i < bytes.len() {
+        if let Some(range) =
+            containing_byte_scalar_range(&scalar_ranges, &mut range_idx, i)
         {
             i = range.end.get();
             continue;
         }
 
-        match chars[i].1 {
-            '[' => contexts.push(FlowKind::Sequence),
-            '{' => {
-                if let Some(next_idx) = template_double_curly_end(chars, i) {
+        match bytes[i] {
+            b'[' => contexts.push(FlowKind::Sequence),
+            b'{' => {
+                if let Some(next_idx) = template_double_curly_end(bytes, i) {
                     i = next_idx;
                     continue;
                 }
                 contexts.push(FlowKind::Mapping);
             }
-            ']' | '}' => {
+            b']' | b'}' => {
                 contexts.pop();
             }
-            '#' => {
-                i = skip_comment(chars, i);
+            b'#' => {
+                i = skip_comment(bytes, i);
                 continue;
             }
-            ',' if !contexts.is_empty() => {
-                visit(chars, i);
+            b',' if !contexts.is_empty() => {
+                visit(bytes, i);
             }
             _ => {}
         }
@@ -175,17 +176,17 @@ fn scan_commas(input: Analysis<'_>, mut visit: impl FnMut(&[(usize, char)], usiz
 fn evaluate_comma(
     cfg: &Config,
     violations: &mut Vec<Violation>,
-    chars: &[(usize, char)],
+    bytes: &[u8],
     comma_idx: usize,
-    line_starts: &[CharPos],
+    line_starts: &[usize],
 ) {
     if let BeforeResult::SameLine { spaces, .. } =
-        compute_spaces_before(chars, comma_idx)
+        compute_spaces_before(bytes, comma_idx)
         && cfg.max_spaces_before >= 0
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_before {
-            let (line, column) = line_and_column(line_starts, CharPos::new(comma_idx));
+            let (line, column) = byte_line_and_column(bytes, line_starts, comma_idx);
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -196,10 +197,10 @@ fn evaluate_comma(
     }
 
     if let AfterResult::SameLine { spaces, next_char } =
-        compute_spaces_after(chars, comma_idx)
+        compute_spaces_after(bytes, comma_idx)
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, column) = line_and_column(line_starts, CharPos::new(next_char));
+        let (line, column) = byte_line_and_column(bytes, line_starts, next_char);
         if cfg.max_spaces_after >= 0 && spaces_i64 > cfg.max_spaces_after {
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
@@ -218,7 +219,7 @@ fn evaluate_comma(
     }
 }
 
-fn compute_spaces_before(chars: &[(usize, char)], comma_idx: usize) -> BeforeResult {
+fn compute_spaces_before(bytes: &[u8], comma_idx: usize) -> BeforeResult {
     let mut spaces = 0usize;
     let mut idx = comma_idx;
 
@@ -230,13 +231,13 @@ fn compute_spaces_before(chars: &[(usize, char)], comma_idx: usize) -> BeforeRes
             };
         };
 
-        let ch = chars[prev].1;
-        if matches!(ch, ' ' | '\t') {
+        let ch = bytes[prev];
+        if matches!(ch, b' ' | b'\t') {
             spaces += 1;
             idx = prev;
             continue;
         }
-        if matches!(ch, '\n' | '\r') {
+        if matches!(ch, b'\n' | b'\r') {
             return BeforeResult::Ignored;
         }
         return BeforeResult::SameLine {
@@ -246,16 +247,16 @@ fn compute_spaces_before(chars: &[(usize, char)], comma_idx: usize) -> BeforeRes
     }
 }
 
-fn compute_spaces_after(chars: &[(usize, char)], comma_idx: usize) -> AfterResult {
+fn compute_spaces_after(bytes: &[u8], comma_idx: usize) -> AfterResult {
     let mut spaces = 0usize;
     let mut idx = comma_idx + 1;
-    while idx < chars.len() {
-        match chars[idx].1 {
-            ' ' | '\t' => {
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b' ' | b'\t' => {
                 spaces += 1;
                 idx += 1;
             }
-            '\n' | '\r' | '#' => return AfterResult::Ignored,
+            b'\n' | b'\r' | b'#' => return AfterResult::Ignored,
             _ => {
                 return AfterResult::SameLine {
                     spaces,
@@ -270,9 +271,14 @@ fn compute_spaces_after(chars: &[(usize, char)], comma_idx: usize) -> AfterResul
 #[doc(hidden)]
 #[must_use]
 pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<usize> {
-    let chars: Vec<(usize, char)> = buffer.char_indices().collect();
-    debug_assert!(comma_idx < chars.len());
-    match compute_spaces_before(&chars, comma_idx) {
+    let bytes = buffer.as_bytes();
+    let comma_idx = buffer
+        .char_indices()
+        .nth(comma_idx)
+        .expect("comma index identifies a character")
+        .0;
+    debug_assert!(comma_idx < bytes.len());
+    match compute_spaces_before(bytes, comma_idx) {
         BeforeResult::SameLine { spaces, .. } => Some(spaces),
         BeforeResult::Ignored => None,
     }
@@ -298,32 +304,32 @@ pub fn coverage_overlapping_replacements() -> String {
 
 fn collect_comma_fixes(
     cfg: &Config,
-    chars: &[(usize, char)],
+    bytes: &[u8],
     comma_idx: usize,
     replacements: &mut Vec<(BytePos, BytePos, String)>,
 ) {
     if let BeforeResult::SameLine { spaces, start_idx } =
-        compute_spaces_before(chars, comma_idx)
+        compute_spaces_before(bytes, comma_idx)
         && cfg.max_spaces_before >= 0
     {
         let target = usize::try_from(cfg.max_spaces_before).unwrap_or(usize::MAX);
         if spaces > target {
             replacements.push((
-                BytePos::new(chars[start_idx].0),
-                BytePos::new(chars[comma_idx].0),
+                BytePos::new(start_idx),
+                BytePos::new(comma_idx),
                 " ".repeat(target),
             ));
         }
     }
 
     if let AfterResult::SameLine { spaces, next_char } =
-        compute_spaces_after(chars, comma_idx)
+        compute_spaces_after(bytes, comma_idx)
         && let Some(target) = target_spaces_after(cfg, spaces)
         && target != spaces
     {
         replacements.push((
-            BytePos::new(chars[comma_idx].0 + chars[comma_idx].1.len_utf8()),
-            BytePos::new(chars[next_char].0),
+            BytePos::new(comma_idx + 1),
+            BytePos::new(next_char),
             " ".repeat(target),
         ));
     }
@@ -337,11 +343,11 @@ fn target_spaces_after(cfg: &Config, current: usize) -> Option<usize> {
 #[doc(hidden)]
 #[must_use]
 pub fn coverage_skip_comment_crlf() -> (usize, usize) {
-    let chars_crlf: Vec<(usize, char)> = "#\r\n".char_indices().collect();
-    let idx_crlf = skip_comment(&chars_crlf, 0);
+    let chars_crlf = "#\r\n".as_bytes();
+    let idx_crlf = skip_comment(chars_crlf, 0);
 
-    let chars_cr: Vec<(usize, char)> = "#\r".char_indices().collect();
-    let idx_cr = skip_comment(&chars_cr, 0);
+    let chars_cr = "#\r".as_bytes();
+    let idx_cr = skip_comment(chars_cr, 0);
 
     (idx_crlf, idx_cr)
 }

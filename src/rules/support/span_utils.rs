@@ -47,15 +47,11 @@ pub fn marker_byte_offset(marker: Marker) -> BytePos {
     )
 }
 
-/// The scalar range containing char index `idx`, if any, advancing `cursor` past
-/// ranges ending at or before it. Flow-rule scanners use this to skip scalar
-/// interiors; `cursor` persists across calls for one left-to-right scan.
-#[must_use]
-pub fn containing_scalar_range<'a>(
-    ranges: &'a [Range<CharPos>],
+pub(crate) fn containing_byte_scalar_range<'a>(
+    ranges: &'a [Range<BytePos>],
     cursor: &mut usize,
     idx: usize,
-) -> Option<&'a Range<CharPos>> {
+) -> Option<&'a Range<BytePos>> {
     while ranges
         .get(*cursor)
         .is_some_and(|range| range.end.get() <= idx)
