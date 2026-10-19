@@ -85,7 +85,7 @@ pub(crate) fn sites_with_analysis(input: Analysis<'_>) -> Vec<Site> {
                     sites.extend(walk.after(Indicator::Dash, dash, idx));
                 }
             }
-            LexicalKind::Key if span.end.index() > at => {
+            LexicalKind::Key if span.end.index() > span.start.index() => {
                 sites.extend(walk.after(Indicator::Question, at, idx));
             }
             LexicalKind::Value => {
