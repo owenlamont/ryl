@@ -9,6 +9,8 @@ use super::ast::{
     SeqItem,
 };
 
+pub const QUOTED_INDICATORS: &str = "-.?:,[]{}#&*!|>'\"%@` \ta";
+
 fn arb_plain_identifier() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_]{0,6}".prop_map(|value| value)
 }
@@ -21,29 +23,19 @@ fn arb_plain_value() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_']{0,6}".prop_map(|value| value)
 }
 
-fn arb_quoted_payload() -> impl Strategy<Value = String> {
-    prop::collection::vec(
+pub fn arb_quoted_payload() -> impl Strategy<Value = String> {
+    prop_oneof![
+    1 => prop::sample::select(vec!["---", "...", "--- x", "... # c", "first ---\u{feff}x"]).prop_map(str::to_owned),
+    4 => prop::collection::vec(
         prop_oneof![
-            Just('a'),
-            Just('b'),
-            Just('1'),
-            Just(' '),
-            Just('#'),
-            Just(','),
-            Just('{'),
-            Just('}'),
-            Just('['),
-            Just(']'),
-            Just('*'),
-            Just('?'),
-            Just('&'),
-            Just('!'),
-            Just(':'),
-            arb_multibyte_char(),
+            4 => prop::sample::select(QUOTED_INDICATORS.chars().collect::<Vec<_>>()),
+            1 => prop::sample::select(vec!['b', '1']),
+            1 => arb_multibyte_char(),
         ],
-        0usize..=6,
+        0usize..=8,
     )
     .prop_map(|chars| chars.into_iter().collect())
+    ]
 }
 
 // Scalars YAML 1.1 resolves to a non-string but YAML 1.2 reads as a string, generated

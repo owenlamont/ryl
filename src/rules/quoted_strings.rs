@@ -11,6 +11,7 @@ use granit_parser::{
 use regex::Regex;
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::line_syntax::starts_with_document_marker;
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
@@ -713,6 +714,17 @@ fn quotes_are_needed(
     span: Span,
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> bool {
+    if value.contains('\u{feff}')
+        || (span.start.col() == 0
+            && starts_with_document_marker(value)
+            && (value.len() != 3
+                || !span
+                    .end
+                    .byte_offset()
+                    .is_some_and(|end| buffer[end..].starts_with(':'))))
+    {
+        return true;
+    }
     if is_inside_flow
         && value
             .chars()

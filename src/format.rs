@@ -73,6 +73,7 @@ impl Passes<'static> {
             }
         });
         Self {
+            preserve_events: true,
             new_lines: on(new_lines::ID).then_some(line_ending),
             comments: on(comments::ID).then_some(comments::Config::exact_gap(
                 usize::from(table.comment_spacing.get()),

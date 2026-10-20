@@ -7,6 +7,10 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Root strings resembling document markers and scalars containing a BOM keep their
+  quotes in formatting and lint fixes; formatting rolls back rewrites that change
+  document events.
+  ([#806](https://github.com/owenlamont/ryl/issues/806))
 - Migration warnings name the required ryl version, quote config paths, and remove
   legacy project YAML configs; `--migrate-configs` also converts TOML `yaml-files` to
   `[files].yaml`. ([#789](https://github.com/owenlamont/ryl/issues/789))

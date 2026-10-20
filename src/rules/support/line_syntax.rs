@@ -24,6 +24,17 @@ pub(crate) fn leading_whitespace_width(line: &str) -> usize {
         .count()
 }
 
+pub(crate) fn starts_with_document_marker(value: &str) -> bool {
+    value
+        .strip_prefix("---")
+        .or_else(|| value.strip_prefix("..."))
+        .is_some_and(|rest| {
+            rest.chars()
+                .next()
+                .is_none_or(|ch| ch.is_whitespace() || ch == '\u{feff}')
+        })
+}
+
 /// The YAML 1.2 line break at byte `idx` as `(break length, canonical style)`, or
 /// `None` when `idx` is not at a break. Single source of truth for the break set:
 /// [`scan_lines`], [`first_line_break`], and `new_lines::fix` all classify through it.

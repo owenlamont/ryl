@@ -46,6 +46,13 @@ Every edit `ryl format` makes is checked by property tests to be:
 - **Comment-safe.** Every comment stays beside the node it annotates.
 - **Idempotent.** Formatting formatted output changes nothing.
 
+Formatting also compares document events before and after rewriting, allowing quote
+and collection style changes; a changed value or document structure rolls back the
+whole rewrite. Root strings such as `'---'` and `'...'` retain their quotes because
+the plain spellings are document markers. Marker prefixes followed by Unicode
+whitespace also keep quotes for
+[reference-parser compatibility](getting-started/migrating-from-yamllint.md#marker-like-root-strings-and-unicode-whitespace).
+
 Input rejected by strict YAML parsing is left alone and reported on stderr as
 `skipped by ryl format`, with one exception: spec-invalid indentation accepted by
 granit's relaxed parser can be repaired when the output parses strictly and preserves
