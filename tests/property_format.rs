@@ -60,6 +60,115 @@ use representation::{
 };
 
 #[test]
+fn exhaustive_short_quoted_scalars_preserve_each_position() {
+    #[derive(Clone, Copy, Debug)]
+    enum Position {
+        Root,
+        BlockSequence,
+        MappingValue,
+        FlowSequence,
+    }
+
+    fn quoted_batch(
+        chunk: &[String],
+        position: Position,
+        double: bool,
+    ) -> (String, Vec<Value>) {
+        let mut input = String::new();
+        if matches!(position, Position::FlowSequence) {
+            input.push_str("[\n");
+        }
+        let mut expected = Vec::new();
+        for (index, value) in chunk.iter().enumerate() {
+            match position {
+                Position::Root => input.push_str("---\n"),
+                Position::BlockSequence => input.push_str("- "),
+                Position::MappingValue => {
+                    let key = format!("key{index}");
+                    input.push_str(&key);
+                    input.push_str(": ");
+                    expected.push(Value::Core(ryl::yaml_dom::ScalarOwned::String(key)));
+                }
+                Position::FlowSequence => input.push_str("  "),
+            }
+            let scalar = if double {
+                ast::Scalar::DoubleQuoted(value.clone())
+            } else {
+                ast::Scalar::SingleQuoted(value.clone())
+            };
+            scalar.render(&mut input);
+            if matches!(position, Position::FlowSequence) {
+                input.push(',');
+            }
+            input.push('\n');
+            expected.push(Value::Core(ryl::yaml_dom::ScalarOwned::String(
+                value.clone(),
+            )));
+        }
+        if matches!(position, Position::FlowSequence) {
+            input.push_str("]\n");
+        }
+        (input, expected)
+    }
+
+    assert_eq!(
+        strategy::QUOTED_INDICATORS
+            .chars()
+            .collect::<BTreeSet<_>>()
+            .len(),
+        23
+    );
+
+    let mut values = vec![String::new()];
+    let mut layer = values.clone();
+    for _ in 0..3 {
+        layer = layer
+            .iter()
+            .flat_map(|prefix| {
+                strategy::QUOTED_INDICATORS
+                    .chars()
+                    .map(move |ch| format!("{prefix}{ch}"))
+            })
+            .collect();
+        values.extend(layer.iter().cloned());
+    }
+    assert_eq!(values.len(), 12_720);
+    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    let path = std::path::Path::new("quoted.yaml");
+    for double in [false, true] {
+        for position in [
+            Position::Root,
+            Position::BlockSequence,
+            Position::MappingValue,
+            Position::FlowSequence,
+        ] {
+            for chunk in values.chunks(128) {
+                let (input, expected) = quoted_batch(chunk, position, double);
+                let before = representation(&input)
+                    .expect("quoted indicator strings form valid YAML");
+                let loaded: Vec<_> = before
+                    .iter()
+                    .filter_map(|node| match node {
+                        Node::Scalar { value, .. } => Some(value.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(
+                    loaded, expected,
+                    "double={double}, position={position:?}, chunk={chunk:?}"
+                );
+                let output = ryl::format::format_str(&input, &cfg, path, &[]);
+                assert_eq!(
+                    representation(&output),
+                    Some(before),
+                    "double={double}, position={position:?}, chunk={chunk:?}, output={output:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn reference_block_scalar_matrix_keeps_each_value() {
     #[derive(serde::Deserialize)]
     struct Case {
@@ -693,7 +802,7 @@ proptest! {
     #[test]
     fn every_format_pass_keeps_the_guarantee(input in prop_oneof![
         3 => arb_document_with_properties().prop_map(|document| document.render()),
-        1 => properties::arb_marker_document(),
+        1 => properties::arb_quoted_document(),
     ]) {
         for pass in format_passes() {
             check_pass(pass, &input).map_err(TestCaseError::fail)?;

@@ -10,6 +10,7 @@ use super::ast::{
     BlockEntry, MultilineLine, MultilineQuotedSpec, Node, Scalar, SeqBody,
 };
 use super::stack::{StackedDocument, arb_stacked_document};
+use super::strategy::arb_quoted_payload;
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
 
@@ -235,9 +236,9 @@ pub fn arb_document_with_properties() -> impl Strategy<Value = StackedDocument> 
     dead_code,
     reason = "the benchmark shares only the decorated AST generator"
 )]
-pub fn arb_marker_document() -> impl Strategy<Value = String> {
+pub fn arb_quoted_document() -> impl Strategy<Value = String> {
     (
-        prop::sample::select(vec![
+        prop_oneof![4 => arb_quoted_payload(), 1 => prop::sample::select(vec![
             "---",
             "...",
             "--- x",
@@ -248,19 +249,28 @@ pub fn arb_marker_document() -> impl Strategy<Value = String> {
             "...\u{2003}x",
             "---\u{feff}x",
             "first ---\u{feff}x",
-        ]),
+        ]).prop_map(str::to_owned)],
         prop::sample::select(vec![
             ("", "\n"),
             ("- ", "\n"),
             ("key: ", "\n"),
+            ("[", "]\n"),
             ("", ": x\n"),
         ]),
         any::<bool>(),
         any::<bool>(),
     )
         .prop_map(|(value, (prefix, suffix), double, multiline)| {
-            let quote = if double { '"' } else { '\'' };
-            let first = if multiline { "first\n  " } else { "" };
-            format!("{prefix}{quote}{first}{value}{quote}{suffix}")
+            let scalar = if double {
+                Scalar::DoubleQuoted(value)
+            } else {
+                Scalar::SingleQuoted(value)
+            };
+            let mut quoted = String::new();
+            scalar.render(&mut quoted);
+            if multiline && suffix != ": x\n" {
+                quoted.insert_str(1, "first\n  ");
+            }
+            format!("{prefix}{quoted}{suffix}")
         })
 }
