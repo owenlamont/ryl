@@ -313,6 +313,24 @@ fn brackets_fix_ignores_brackets_inside_multibyte_scalars() {
 }
 
 #[test]
+fn brackets_fix_with_template_text_keeps_scalar_protection() {
+    let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
+    assert_eq!(
+        brackets::fix("literal: '{{'\nobject: [  é ]\n", &cfg),
+        Some("literal: '{{'\nobject: [é]\n".to_string())
+    );
+}
+
+#[test]
+fn flow_spacing_keeps_anchor_and_tag_text() {
+    let cfg = BracesConfig::new(Forbid::None, 0, 0, -1, -1);
+    assert_eq!(
+        braces::fix("é: { a: &anchor !local value, b: *anchor }\n", &cfg),
+        Some("é: {a: &anchor !local value, b: *anchor}\n".to_string())
+    );
+}
+
+#[test]
 fn brackets_fix_ignores_comments_and_newlines() {
     let cfg = BracketsConfig::new(Forbid::None, 0, 0, -1, -1);
     let fixed = brackets::fix("object: [1, # comment\n  2]\n", &cfg);

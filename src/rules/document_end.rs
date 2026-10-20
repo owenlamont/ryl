@@ -3,6 +3,8 @@
 //! `--fix` rewrites only `present: true`, inserting `...` before the `---` that follows
 //! each implicitly ended document and appending one at the end of the stream. Removing
 //! `...` (`present: false`) can collide with document boundaries, so it is not fixed.
+use crate::rules::support::span_utils::BytePos;
+use crate::text_version::edits::Edit;
 use std::collections::HashMap;
 
 use granit_parser::Event;
@@ -95,6 +97,10 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
     let buffer = input.text();
     let result = scan(input, cfg);
     let final_blank = if result.unended_at_stream_end {
@@ -105,30 +111,31 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<Stri
     let final_line = input.line_contents().len();
     let newline = buffer_newline(buffer);
     let mut marker_lines = result.unended_before.iter().peekable();
-    let mut output = String::with_capacity(buffer.len() + 4 * result.violations.len());
+    let mut edits = Vec::new();
+    let mut offset = 0;
     for (idx, content, ending) in input.lines() {
         if marker_lines.next_if_eq(&&(idx + 1)).is_some() {
-            output.push_str("...");
-            output.push_str(newline);
+            let at = BytePos::new(offset);
+            edits.push((at, at, format!("...{newline}")));
         }
         if final_blank == FinalBlank::Trim && idx + 1 == final_line {
-            output.push_str(content.trim_end_matches(' '));
-        } else {
-            output.push_str(content);
+            edits.push((
+                BytePos::new(offset + content.trim_end_matches(' ').len()),
+                BytePos::new(offset + content.len()),
+                String::new(),
+            ));
         }
-        output.push_str(ending);
+        offset += content.len() + ending.len();
     }
     // A `\r`-terminated file already ends in a break; checking `\n` only would insert a
     // spurious blank line before `...`.
     let ends_in_break = buffer.ends_with(['\n', '\r']);
     if result.unended_at_stream_end && final_blank != FinalBlank::Refuse {
-        if !ends_in_break {
-            output.push_str(newline);
-        }
-        output.push_str("...");
-        output.push_str(newline);
+        let at = BytePos::new(buffer.len());
+        let prefix = if ends_in_break { "" } else { newline };
+        edits.push((at, at, format!("{prefix}...{newline}")));
     }
-    (output != buffer).then_some(output)
+    edits
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

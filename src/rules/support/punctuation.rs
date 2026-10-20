@@ -2,6 +2,7 @@ use std::ops::Range;
 
 #[cfg(feature = "lsp")]
 use crate::rules::support::span_utils::CharPos;
+use crate::rules::support::span_utils::containing_byte_scalar_range;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 use crate::text_version::{Analysis, TextVersion};
 
@@ -32,6 +33,58 @@ pub(crate) fn byte_scalar_ranges(input: Analysis<'_>) -> Vec<Range<BytePos>> {
         .collect();
     ranges.sort_by_key(|range| range.start);
     ranges
+}
+
+pub(crate) fn flow_sites(
+    input: Analysis<'_>,
+    skip_templates: bool,
+) -> Vec<(usize, u8)> {
+    let ranges = byte_scalar_ranges(input);
+    let bytes = input.text().as_bytes();
+    let mut sites = Vec::new();
+    let mut cursor = 0;
+    let mut idx = 0;
+    let mut depth = 0usize;
+    while idx < bytes.len() {
+        if let Some(range) = containing_byte_scalar_range(&ranges, &mut cursor, idx) {
+            if idx == range.start.get() && depth > 0 {
+                flow_content(&mut sites, idx);
+            }
+            idx = range.end.get();
+            continue;
+        }
+        let ch = bytes[idx];
+        if skip_templates && let Some(end) = template_double_curly_end(bytes, idx) {
+            idx = end;
+            continue;
+        }
+        match ch {
+            b'#' => {
+                idx = skip_comment(bytes, idx);
+                continue;
+            }
+            b'{' | b'[' => {
+                depth += 1;
+                sites.push((idx, ch));
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                sites.push((idx, ch));
+            }
+            b',' => sites.push((idx, ch)),
+            b' ' | b'\t' | b'\r' | b'\n' => {}
+            _ if depth > 0 => flow_content(&mut sites, idx),
+            _ => {}
+        }
+        idx += 1;
+    }
+    sites
+}
+
+fn flow_content(sites: &mut Vec<(usize, u8)>, idx: usize) {
+    if sites.last().is_none_or(|&(_, ch)| ch != b'x') {
+        sites.push((idx, b'x'));
+    }
 }
 
 pub(crate) fn skip_comment(bytes: &[u8], mut idx: usize) -> usize {

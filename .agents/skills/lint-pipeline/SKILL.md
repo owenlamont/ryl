@@ -163,6 +163,13 @@ from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those
 zero-config run formats. Inline directives are honoured by both. A YAML config gets the
 `[format]` defaults.
 
+The formatter batches comment/comma, punctuation, and compatible finishing edits against
+one analysis per group. Quotes, indentation and newline conversion retain their separate
+epochs. Conflicting byte ranges, suppression directives, marker changes and newly blank
+lines retain the sequential fixed-point path; `check --fix` always uses that path.
+Flow spacing shares cached punctuation sites; brackets retain their existing traversal
+when template text occurs, because braces and commas skip template spans.
+
 - `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
   checkers on the original text, kept only for rules that actually edited and lines no
   directive disables, plus a `1:1 would reformat` line per editing rule that no checker

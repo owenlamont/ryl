@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use crate::rules::support::{line_syntax, punctuation, token_spacing};
 use granit_parser::{Event, Parser, ScalarStyle, ScanError, Span};
+pub(crate) mod edits;
 mod events;
 pub(crate) mod lexical;
 mod spans;
@@ -24,6 +25,7 @@ pub struct TextVersion<'text> {
     lines: OnceCell<Vec<(usize, usize, usize)>>,
     tokens: OnceCell<lexical::Tokens>,
     sites: OnceCell<Vec<token_spacing::Site>>,
+    flow_sites: OnceCell<Vec<(usize, u8)>>,
     indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
 }
@@ -51,6 +53,7 @@ impl<'text> TextVersion<'text> {
             lines: OnceCell::new(),
             tokens: OnceCell::new(),
             sites: OnceCell::new(),
+            flow_sites: OnceCell::new(),
             indentation: OnceCell::new(),
             directives: OnceCell::new(),
         }
@@ -84,6 +87,7 @@ impl<'text> TextVersion<'text> {
             lines: self.lines,
             tokens: self.tokens,
             sites: self.sites,
+            flow_sites: self.flow_sites,
             indentation: self.indentation,
             directives: self.directives,
         }
@@ -123,6 +127,41 @@ impl<'text> Analysis<'text> {
     #[must_use]
     pub fn plan(self, output: String) -> EditPlan {
         self.plan_version(TextVersion::new(output))
+    }
+
+    /// Returns no plan for empty, overlapping or non-UTF-8-aligned byte edits.
+    #[must_use]
+    pub fn plan_byte_edits(
+        self,
+        mut edits: Vec<(std::ops::Range<usize>, String)>,
+    ) -> Option<EditPlan> {
+        edits.sort_by_key(|(range, _)| (range.start, range.end));
+        let buffer = self.text();
+        let mut previous = None;
+        for (range, _) in &edits {
+            if range.start > range.end
+                || !buffer.is_char_boundary(range.start)
+                || !buffer.is_char_boundary(range.end)
+                || previous.is_some_and(|(left, right)| {
+                    range.start < right || range.start == left
+                })
+            {
+                return None;
+            }
+            previous = Some((range.start, range.end));
+        }
+        if edits.is_empty() {
+            return None;
+        }
+        let mut output = String::with_capacity(buffer.len());
+        let mut cursor = 0;
+        for (range, text) in edits {
+            output.push_str(&buffer[cursor..range.start]);
+            output.push_str(&text);
+            cursor = range.end;
+        }
+        output.push_str(&buffer[cursor..]);
+        Some(self.plan(output))
     }
 
     pub(crate) fn plan_version(self, mut output: TextVersion<'static>) -> EditPlan {
@@ -237,6 +276,12 @@ impl<'text> Analysis<'text> {
         self.source
             .sites
             .get_or_init(|| token_spacing::sites_with_analysis(self))
+    }
+
+    pub(crate) fn flow_sites(self) -> &'text [(usize, u8)] {
+        self.source
+            .flow_sites
+            .get_or_init(|| punctuation::flow_sites(self, true))
     }
 
     pub(crate) fn seed_facts(self, facts: ParsedFacts) {

@@ -10,6 +10,8 @@
 //! level; on a parse error the option degrades to the base next/reference rule.
 //!
 //! Sources: adrienverge/yamllint#141.
+use crate::rules::support::span_utils::BytePos;
+use crate::text_version::edits::Edit;
 
 use crate::text_version::lexical::Kind as LexicalKind;
 use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
@@ -119,9 +121,13 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<String> {
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
     let buffer = input.text();
     if buffer.is_empty() {
-        return None;
+        return Vec::new();
     }
 
     let lines = build_lines(input);
@@ -134,9 +140,10 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<Stri
         Vec::new()
     };
 
+    let mut edits = Vec::new();
     let mut changed = false;
+    let mut offset = 0;
     let mut last_comment_indent: Option<usize> = None;
-    let mut output = String::with_capacity(buffer.len());
 
     for ((line_idx, raw_line, ending), line) in input.lines().zip(lines.iter()) {
         match line.kind {
@@ -153,29 +160,32 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<Stri
                 ) {
                     line.indent
                 } else {
-                    changed = true;
                     reference_indent
                 };
                 last_comment_indent = Some(target_indent);
-                output.push_str(&" ".repeat(target_indent));
-                output.push_str(raw_line.trim_start_matches([' ', '\t']));
+                let prefix =
+                    raw_line.len() - raw_line.trim_start_matches([' ', '\t']).len();
+                changed |= target_indent != line.indent;
+                if target_indent != line.indent || raw_line[..prefix].contains('\t') {
+                    edits.push((
+                        BytePos::new(offset),
+                        BytePos::new(offset + prefix),
+                        " ".repeat(target_indent),
+                    ));
+                }
             }
             LineKind::ScalarTrailingComment => {
                 last_comment_indent = Some(line.indent);
-                output.push_str(raw_line);
             }
             LineKind::Other | LineKind::DirectiveComment => {
                 last_comment_indent = None;
-                output.push_str(raw_line);
             }
-            LineKind::Empty | LineKind::ScalarBody => {
-                output.push_str(raw_line);
-            }
+            LineKind::Empty | LineKind::ScalarBody => {}
         }
-        output.push_str(ending);
+        offset += raw_line.len() + ending.len();
     }
 
-    changed.then_some(output)
+    if changed { edits } else { Vec::new() }
 }
 
 fn comment_is_aligned(

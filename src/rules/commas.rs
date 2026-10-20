@@ -1,14 +1,12 @@
 //! `commas`: spacing around `,` separators in flow collections: no space before,
 //! exactly one after. Mirrors yamllint's `commas`. Safe `--fix` normalises the spacing.
+use crate::text_version::edits::Edit;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
     byte_line_and_column, collect_scalar_ranges, skip_comment, target_spacing,
-    template_double_curly_end,
 };
-use crate::rules::support::span_utils::{
-    BytePos, apply_replacements, containing_byte_scalar_range,
-};
+use crate::rules::support::span_utils::{BytePos, apply_replacements};
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "commas";
@@ -120,56 +118,31 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
 }
 
 pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<String> {
-    let buffer = input.text();
+    crate::text_version::edits::render(input.text(), edits(input, cfg))
+}
+
+pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
     scan_commas(input, |bytes, i| {
         collect_comma_fixes(cfg, bytes, i, &mut replacements);
     });
 
-    if replacements.is_empty() {
-        return None;
-    }
-    Some(apply_replacements(buffer, replacements))
+    replacements
 }
 
 fn scan_commas(input: Analysis<'_>, mut visit: impl FnMut(&[u8], usize)) {
-    let scalar_ranges = crate::rules::support::punctuation::byte_scalar_ranges(input);
     let bytes = input.text().as_bytes();
-    let mut contexts: Vec<FlowKind> = Vec::new();
-    let mut i = 0usize;
-    let mut range_idx = 0usize;
-
-    while i < bytes.len() {
-        if let Some(range) =
-            containing_byte_scalar_range(&scalar_ranges, &mut range_idx, i)
-        {
-            i = range.end.get();
-            continue;
-        }
-
-        match bytes[i] {
+    let mut contexts = Vec::new();
+    for &(idx, ch) in input.flow_sites() {
+        match ch {
             b'[' => contexts.push(FlowKind::Sequence),
-            b'{' => {
-                if let Some(next_idx) = template_double_curly_end(bytes, i) {
-                    i = next_idx;
-                    continue;
-                }
-                contexts.push(FlowKind::Mapping);
-            }
+            b'{' => contexts.push(FlowKind::Mapping),
             b']' | b'}' => {
                 contexts.pop();
             }
-            b'#' => {
-                i = skip_comment(bytes, i);
-                continue;
-            }
-            b',' if !contexts.is_empty() => {
-                visit(bytes, i);
-            }
+            b',' if !contexts.is_empty() => visit(bytes, idx),
             _ => {}
         }
-
-        i += 1;
     }
 }
 
