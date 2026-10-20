@@ -230,3 +230,37 @@ pub fn arb_document_with_properties() -> impl Strategy<Value = StackedDocument> 
             stacked
         })
 }
+
+#[allow(
+    dead_code,
+    reason = "the benchmark shares only the decorated AST generator"
+)]
+pub fn arb_marker_document() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(vec![
+            "---",
+            "...",
+            "--- x",
+            "... # c",
+            "---x",
+            "...x",
+            "---\u{a0}x",
+            "...\u{2003}x",
+            "---\u{feff}x",
+            "first ---\u{feff}x",
+        ]),
+        prop::sample::select(vec![
+            ("", "\n"),
+            ("- ", "\n"),
+            ("key: ", "\n"),
+            ("", ": x\n"),
+        ]),
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(value, (prefix, suffix), double, multiline)| {
+            let quote = if double { '"' } else { '\'' };
+            let first = if multiline { "first\n  " } else { "" };
+            format!("{prefix}{quote}{first}{value}{quote}{suffix}")
+        })
+}

@@ -99,7 +99,7 @@ fn corpus_markdown_regions() {
 }
 
 fn arb_markdown() -> impl Strategy<Value = String> {
-    wrap::arb_markdown_doc().prop_flat_map(|host| {
+    (wrap::arb_markdown_doc(), properties::arb_marker_document()).prop_flat_map(|(host, marker)| {
         prop::collection::vec(
             properties::arb_document_with_properties(),
             host.sections.len() + usize::from(host.front.is_some()),
@@ -118,6 +118,7 @@ fn arb_markdown() -> impl Strategy<Value = String> {
             }).collect();
             let mut markdown = wrap::MarkdownDoc { front, sections, newline: host.newline }.render();
             markdown.push_str("\n# café\n\n```text\nuntouched: [1,2]\n```\n\n<!-- ordinary Markdown -->\n");
+            markdown.push_str(&format!("\n```yaml\n{marker}```\n"));
             markdown
         })
     })

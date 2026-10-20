@@ -22,7 +22,9 @@ fn arb_plain_value() -> impl Strategy<Value = String> {
 }
 
 fn arb_quoted_payload() -> impl Strategy<Value = String> {
-    prop::collection::vec(
+    prop_oneof![
+    1 => prop::sample::select(vec!["---", "...", "--- x", "... # c", "first ---\u{feff}x"]).prop_map(str::to_owned),
+    4 => prop::collection::vec(
         prop_oneof![
             Just('a'),
             Just('b'),
@@ -44,6 +46,7 @@ fn arb_quoted_payload() -> impl Strategy<Value = String> {
         0usize..=6,
     )
     .prop_map(|chars| chars.into_iter().collect())
+    ]
 }
 
 // Scalars YAML 1.1 resolves to a non-string but YAML 1.2 reads as a string, generated

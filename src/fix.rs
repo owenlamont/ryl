@@ -750,6 +750,32 @@ fn repair_events_match(original: &str, repaired: &str) -> bool {
         .eq(after.iter().map(|doc| &doc.events))
 }
 
+#[doc(hidden)]
+#[must_use]
+/// # Panics
+/// Panics if either input lacks a complete granit parse.
+pub fn format_events_match(original: &str, formatted: &str) -> bool {
+    // The reference parser's marker lookahead includes non-ASCII whitespace.
+    if crate::rules::support::line_syntax::split_lines_preserve_endings(formatted).any(
+        |(_, line, _)| {
+            let line = line.strip_prefix('\u{feff}').unwrap_or(line);
+            crate::rules::support::line_syntax::starts_with_document_marker(line)
+                && line.as_bytes().get(3).is_some_and(|byte| !byte.is_ascii())
+        },
+    ) {
+        return false;
+    }
+    if repair_events_match(original, formatted) {
+        return true;
+    }
+    // Granit's terminal block values depend on disposable indentation and line endings.
+    let normalize = |text: &str| {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        trailing_spaces::fix(&text).unwrap_or(text)
+    };
+    repair_events_match(&normalize(original), &normalize(formatted))
+}
+
 fn repair_representation(
     input: Analysis<'_>,
 ) -> Vec<crate::rules::support::event_compare::Document<'_>> {
@@ -772,17 +798,21 @@ fn repair_representation(
                 Event::Scalar(value, style, _, tag)
                     if (*style != ScalarStyle::Plain
                         || tag.is_some()
-                        || (matches!(
-                            crate::yaml_dom::Scalar::resolve_plain_scalar(
-                                value.clone()
-                            ),
-                            crate::yaml_dom::Scalar::String(_)
-                        ) && !crate::yaml_dom::is_core_schema_int_spelling(
-                            value,
-                        ) && (!yaml11
-                            || !yaml_version::resolves_to_nonstring_in_yaml_1_1(
-                                value,
-                            )))) =>
+                        || (if yaml11 {
+                            !yaml_version::resolves_to_nonstring_in_yaml_1_1(value)
+                        } else {
+                            matches!(
+                                crate::yaml_dom::Scalar::resolve_plain_scalar(
+                                    value.clone()
+                                ),
+                                crate::yaml_dom::Scalar::String(_)
+                            ) && !crate::yaml_dom::is_core_schema_int_spelling(value)
+                        }))
+                        && (!value.contains('\u{feff}')
+                            || matches!(
+                                *style,
+                                ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
+                            )) =>
                 {
                     *style = ScalarStyle::DoubleQuoted;
                 }
@@ -1177,6 +1207,7 @@ impl NewlinePolicy {
 
 /// Each fixer's resolved target, `None` (or `false`) where it does not run.
 pub(crate) struct Passes<'a> {
+    pub(crate) preserve_events: bool,
     pub(crate) new_lines: Option<new_lines::Config>,
     pub(crate) comments: Option<comments::Config>,
     pub(crate) indentation: Option<indentation::Config>,
@@ -1228,6 +1259,7 @@ impl<'a> Passes<'a> {
             NewlinePolicy::FirstBreak
         };
         Self {
+            preserve_events: false,
             new_lines: on(new_lines::ID).then(|| new_lines::Config::resolve(cfg)),
             comments: on(comments::ID).then(|| comments::Config::resolve(cfg)),
             indentation: None,
@@ -1372,7 +1404,10 @@ pub(crate) fn run_passes_with_facts(
         original,
         run_valid_passes(input, passes, path, max_passes, err, tracking, facts),
     );
-    if original != input && !repair_events_match(original, &formatted) {
+    if original != &*formatted
+        && ((passes.preserve_events && !format_events_match(original, &formatted))
+            || (original != input && !repair_events_match(original, &formatted)))
+    {
         return TextVersion::new(original.to_string());
     }
     formatted

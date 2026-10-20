@@ -82,8 +82,18 @@ FIXTURES: Final[dict[str, str | bytes]] = {
     "block-chomping.yaml": "keep: |+\n  text\n\nstrip: >-\n  folded\n  words\n",
     "blank-block-bodies.yaml": "empty: |\nnext: >-\n  \n",
     "invalid.yaml": "key: [unfinished\n",
+    "root-marker-start.yaml": "'---'\n",
+    "root-marker-end.yaml": "'...'\n",
+    "root-marker-trailing.yaml": "'--- x'\n---\n'... # c'\n",
+    "root-marker-unicode.yaml": "'---\u00a0x'\n---\n'...\u2003x'\n",
+    "root-marker-bom.yaml": "'first\n  ---\ufeffx'\n",
+    "nested-markers.yaml": "key: '---'\nlist: ['...', '--- x']\n'---': '...'\n",
+    "marker-continuation.yaml": "'first\n  --- x'\n",
     "per-document-refusal.yaml": "a : 1\n---\n: v\n",
-    "markdown-host.md": "# Host\n\n```yaml\na : b\n```\n\nOutside stays.\n",
+    "markdown-host.md": (
+        "# Host\n\n```yaml\na : b\n```\n\nOutside stays.\n"
+        "\n```yaml\n'---'\n```\n\n```yaml\n'...'\n```\n"
+    ),
 }
 _MAX_REPORTED: Final = 100
 _REFUSAL_NOTICE: Final = b"indentation not fixed: cannot re-indent this document safely"

@@ -441,6 +441,24 @@ indent when moving the sequence dash would change the reference value.
 ryl also refuses to normalize `? a\n:   -   >\n    \n    - x\n`:
 moving the scalar header would turn the blank line's spaces into content.
 
+### Marker-like root strings and Unicode whitespace
+
+Root strings such as `'---'` and `'...'` keep their quotes. Marker prefixes followed
+by Unicode whitespace or a BOM also keep quotes, including `---` followed by U+00A0
+and `x`. The reference parser emits `=VAL '---\_x` for the quoted form, but only
+`+STR -STR` and a parse error for the plain form; granit and resolving loaders accept
+the plain form as a string. Formatting refuses rewrites that introduce such root lines.
+
+YAML 1.2.2's [production 206, `c-forbidden`](https://yaml.org/spec/1.2.2/#rule-c-forbidden)
+checks `b-char | s-white | <end-of-input>` after a column-zero marker; `s-white` is
+ASCII space or tab. Keeping the original quotes remains safe under both the grammar
+and the reference parser's broader whitespace lookahead.
+
+A BOM inside a scalar retains quotes in every position, including a joined
+continuation: [production 27, `nb-char`](https://yaml.org/spec/1.2.2/#rule-nb-char)
+excludes `c-byte-order-mark` from plain and block scalar content. The reference
+parser rejects a plain scalar containing U+FEFF; the quoted form preserves the character.
+
 ### Root block scalar with an explicit indentation indicator
 
 For `|2\n  x\n  `, the reference parser emits `=VAL | x\n \n`:
