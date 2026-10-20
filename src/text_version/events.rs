@@ -1,7 +1,37 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use granit_parser::{Event, Placement, ScalarStyle, StructureStyle, Tag, YamlVersion};
+use granit_parser::{
+    Event, Parser, Placement, ScalarStyle, ScanError, Span, StructureStyle, Tag,
+    YamlVersion,
+};
+
+pub(super) fn verify_strict<'a, 'b>(
+    expected: impl Iterator<Item = Event<'a>>,
+    output: &'b str,
+    mut observe: impl FnMut(Event<'b>, Span),
+) -> Result<bool, ScanError> {
+    let significant = |event: &Event<'_>| {
+        !matches!(
+            event,
+            Event::Comment(..) | Event::StreamStart | Event::StreamEnd
+        )
+    };
+    let mut expected = expected.filter(significant);
+    let parser = Parser::new_from_str_with_options(
+        output,
+        granit_parser::options! { strict_indentation: true },
+    );
+    let mut matches = true;
+    for item in parser {
+        let (event, span) = item?;
+        if significant(&event) {
+            matches &= expected.next().as_ref() == Some(&event);
+        }
+        observe(event, span);
+    }
+    Ok(matches && expected.next().is_none())
+}
 
 pub(super) enum Text {
     Source(Range<usize>),

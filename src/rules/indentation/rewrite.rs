@@ -217,9 +217,21 @@ impl<'a> Prepared<'a> {
             return false;
         }
         let strict = output.analysis().text().len() >= 1_000_000;
+        let single = refused.len() == 1;
+        if strict
+            && single
+            && let Ok(matches) = self.input.verify_strict(output.analysis())
+        {
+            let rollback = refused[0].is_none() && !matches;
+            refused[0] = refused[0].or((!matches).then_some(Cause::Changed));
+            if matches {
+                output.mark_strict_valid();
+            }
+            return rollback;
+        }
         let mut rollback = false;
         let mut compare = || {
-            if refused.len() == 1 {
+            if single {
                 let changed = !self.input.significant_events_match(output.analysis());
                 rollback = refused[0].is_none() && changed;
                 refused[0] = refused[0].or(changed.then_some(Cause::Changed));
@@ -234,7 +246,7 @@ impl<'a> Prepared<'a> {
                 }
             }
         };
-        let valid = if strict {
+        let valid = if strict && !single {
             std::thread::scope(|scope| {
                 let text = output.analysis().text();
                 let check = scope

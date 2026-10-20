@@ -370,3 +370,61 @@ fn large_reindent_keeps_the_strictly_valid_result() {
         expected
     );
 }
+
+#[test]
+fn large_reindent_retains_single_document_rollback() {
+    let input = format!("# {}\na:\n  - a\nb: >\n   x\n  #\n", "x".repeat(1_000_000));
+    let cfg = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    let output = reindent(&input, &cfg);
+    assert_eq!(output.text, input);
+    assert_eq!(output.refused, refusal(1..=6, Cause::Changed));
+}
+
+#[test]
+fn large_multi_document_reindent_keeps_strict_verification_and_rollback() {
+    let prefix = format!("# {}\n", "x".repeat(1_000_000));
+    for (suffix, expected, refused) in [
+        ("z:\n    b: 2\n", "z:\n  b: 2\n", vec![]),
+        (
+            "a:\n  - a\nb: >\n   x\n  #\n",
+            "a:\n  - a\nb: >\n   x\n  #\n",
+            refusal(4..=9, Cause::Changed),
+        ),
+    ] {
+        let input = format!("{prefix}k:\n    a: 1\n---\n{suffix}");
+        let expected = format!("{prefix}k:\n  a: 1\n---\n{expected}");
+        let cfg = Config::new(
+            SpacesSetting::Fixed(2),
+            IndentSequencesSetting::False,
+            false,
+        );
+        let output = reindent(&input, &cfg);
+        assert_eq!(output.text, expected);
+        assert_eq!(output.refused, refused);
+        assert_eq!(reindent(&output.text, &cfg).text, expected);
+    }
+}
+
+#[test]
+fn large_relaxed_only_reindent_keeps_the_final_strict_guard_required() {
+    let prefix = format!("# {}\n", "x".repeat(1_000_000));
+    let input = format!("{prefix}key: [\n  value\n  ]\n");
+    let output = reindent(&input, &target(0));
+    assert_eq!(
+        output.text.strip_prefix(&prefix),
+        Some("key: [\nvalue\n ]\n")
+    );
+    assert!(output.refused.is_empty());
+    assert!(
+        granit_parser::Parser::new_from_str_with_options(
+            &output.text,
+            granit_parser::options! { strict_indentation: true },
+        )
+        .collect::<Result<Vec<_>, _>>()
+        .is_err()
+    );
+}
