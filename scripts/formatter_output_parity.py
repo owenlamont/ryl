@@ -86,7 +86,7 @@ FIXTURES: Final[dict[str, str | bytes]] = {
     "root-marker-end.yaml": "'...'\n",
     "root-marker-trailing.yaml": "'--- x'\n---\n'... # c'\n",
     "root-marker-unicode.yaml": "'---\u00a0x'\n---\n'...\u2003x'\n",
-    "root-marker-bom.yaml": "'first\n  ---\ufeffx'\n",
+    "root-marker-bom-content.yaml": "'first\n  ---\ufeffx'\n",
     "nested-markers.yaml": "key: '---'\nlist: ['...', '--- x']\n'---': '...'\n",
     "marker-continuation.yaml": "'first\n  --- x'\n",
     "per-document-refusal.yaml": "a : 1\n---\n: v\n",
