@@ -274,3 +274,47 @@ pub fn arb_quoted_document() -> impl Strategy<Value = String> {
             format!("{prefix}{quoted}{suffix}")
         })
 }
+
+#[allow(
+    dead_code,
+    reason = "the benchmark shares only the decorated AST generator"
+)]
+pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
+    (1usize..=4).prop_flat_map(|indent| {
+        (
+            prop::sample::select(vec!['|', '>']),
+            prop::sample::select(vec!["", "-", "+"]),
+            any::<bool>(),
+            prop::collection::vec((0usize..=3, "[a-z]{1,6}( [a-z]{1,6})?"), 0..=4),
+            prop::collection::vec((0usize..=indent + 4, 0usize..=4), 1..=4),
+            0usize..=4,
+            prop::sample::select(vec!["\n", "\r\n", "\r"]),
+        )
+            .prop_map(
+                move |(style, chomp, explicit, body, whitespace, trailing, ending)| {
+                    let indicator = if explicit {
+                        indent.to_string()
+                    } else {
+                        String::new()
+                    };
+                    let mut input = format!(
+                        "a: {style}{indicator}{chomp}\n{}a\n",
+                        " ".repeat(indent)
+                    );
+                    for (extra, text) in body {
+                        input.push_str(&format!(
+                            "{}{text}\n",
+                            " ".repeat(indent + extra)
+                        ));
+                    }
+                    for (spaces, blanks) in whitespace {
+                        input.push_str(&"\n".repeat(blanks));
+                        input.push_str(&" ".repeat(spaces));
+                        input.push('\n');
+                    }
+                    input.push_str(&"\n".repeat(trailing));
+                    input.replace('\n', ending)
+                },
+            )
+    })
+}

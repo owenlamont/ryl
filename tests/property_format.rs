@@ -29,6 +29,8 @@ mod indentation_render;
 mod passes;
 #[path = "property_format/properties.rs"]
 mod properties;
+#[path = "property_format/reference.rs"]
+mod reference;
 #[path = "property_format/representation.rs"]
 mod representation;
 #[path = "property_format/settings.rs"]
@@ -60,112 +62,41 @@ use representation::{
 };
 
 #[test]
-fn exhaustive_short_quoted_scalars_preserve_each_position() {
-    #[derive(Clone, Copy, Debug)]
-    enum Position {
-        Root,
-        BlockSequence,
-        MappingValue,
-        FlowSequence,
-    }
-
-    fn quoted_batch(
-        chunk: &[String],
-        position: Position,
-        double: bool,
-    ) -> (String, Vec<Value>) {
-        let mut input = String::new();
-        if matches!(position, Position::FlowSequence) {
-            input.push_str("[\n");
-        }
-        let mut expected = Vec::new();
-        for (index, value) in chunk.iter().enumerate() {
-            match position {
-                Position::Root => input.push_str("---\n"),
-                Position::BlockSequence => input.push_str("- "),
-                Position::MappingValue => {
-                    let key = format!("key{index}");
-                    input.push_str(&key);
-                    input.push_str(": ");
-                    expected.push(Value::Core(ryl::yaml_dom::ScalarOwned::String(key)));
-                }
-                Position::FlowSequence => input.push_str("  "),
-            }
-            let scalar = if double {
-                ast::Scalar::DoubleQuoted(value.clone())
-            } else {
-                ast::Scalar::SingleQuoted(value.clone())
-            };
-            scalar.render(&mut input);
-            if matches!(position, Position::FlowSequence) {
-                input.push(',');
-            }
-            input.push('\n');
-            expected.push(Value::Core(ryl::yaml_dom::ScalarOwned::String(
-                value.clone(),
-            )));
-        }
-        if matches!(position, Position::FlowSequence) {
-            input.push_str("]\n");
-        }
-        (input, expected)
-    }
-
+fn folded_crlf_whitespace_tail_seed_keeps_the_reference_value() {
+    let input = "a: >\r\n  a\r\n\r\n\r\n    \r\n\r\n\r\n\r\n";
+    let output = "a: >\n  a\n\n\n    \n";
+    let normalized = input.replace("\r\n", "\n");
+    assert_eq!(ryl::rules::trailing_spaces::fix(&normalized), None);
     assert_eq!(
-        strategy::QUOTED_INDICATORS
-            .chars()
-            .collect::<BTreeSet<_>>()
-            .len(),
-        23
+        ryl::rules::empty_lines::fix(
+            &normalized,
+            &ryl::rules::empty_lines::Config::new(2, 0, 0)
+        ),
+        Some(output.to_string())
     );
+    assert_eq!(representation(input), representation(output));
+    let expected =
+        Value::Core(ryl::yaml_dom::ScalarOwned::String("a\n\n\n\n  \n".into()));
+    assert!(
+        representation(input).unwrap().iter().any(
+            |node| matches!(node, Node::Scalar { value, .. } if value == &expected)
+        )
+    );
+    assert!(check_values(input, "a: >\n  a\n\n    \n").is_err());
+    assert!(ryl::fix::format_events_match(input, output));
+    assert!(!ryl::fix::format_events_match(input, "a: >\n  a\n\n    \n"));
+    for pass in format_passes() {
+        check_invariants(&pass.format, input).unwrap();
+    }
+}
 
-    let mut values = vec![String::new()];
-    let mut layer = values.clone();
-    for _ in 0..3 {
-        layer = layer
-            .iter()
-            .flat_map(|prefix| {
-                strategy::QUOTED_INDICATORS
-                    .chars()
-                    .map(move |ch| format!("{prefix}{ch}"))
-            })
-            .collect();
-        values.extend(layer.iter().cloned());
-    }
-    assert_eq!(values.len(), 12_720);
-    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
-    let path = std::path::Path::new("quoted.yaml");
-    for double in [false, true] {
-        for position in [
-            Position::Root,
-            Position::BlockSequence,
-            Position::MappingValue,
-            Position::FlowSequence,
-        ] {
-            for chunk in values.chunks(128) {
-                let (input, expected) = quoted_batch(chunk, position, double);
-                let before = representation(&input)
-                    .expect("quoted indicator strings form valid YAML");
-                let loaded: Vec<_> = before
-                    .iter()
-                    .filter_map(|node| match node {
-                        Node::Scalar { value, .. } => Some(value.clone()),
-                        _ => None,
-                    })
-                    .collect();
-                assert_eq!(
-                    loaded, expected,
-                    "double={double}, position={position:?}, chunk={chunk:?}"
-                );
-                let output = ryl::format::format_str(&input, &cfg, path, &[]);
-                assert_eq!(
-                    representation(&output),
-                    Some(before),
-                    "double={double}, position={position:?}, chunk={chunk:?}, output={output:?}"
-                );
-            }
-        }
-    }
+#[test]
+fn folded_multiple_whitespace_lines_reject_an_invented_newline() {
+    let input = "a: >\n  a\n\n    \n    \n\n";
+    let equivalent = r#"a: "a\n\n  \n  \n""#;
+    let mutated = r#"a: "a\n\n  \n\n  \n""#;
+    assert_eq!(check_values(input, equivalent), Ok(()));
+    assert!(check_values(input, mutated).is_err());
 }
 
 #[test]
@@ -612,6 +543,44 @@ proptest! {
         ))),
         ..ProptestConfig::default()
     })]
+
+    #[test]
+    fn block_scalar_whitespace_keeps_the_guarantee(input in properties::arb_whitespace_block_scalar()) {
+        for pass in format_passes() {
+            check_pass(pass, &input).map_err(TestCaseError::fail)?;
+        }
+    }
+
+    #[test]
+    #[ignore = "requires Node and RYL_REFERENCE_PARSER pointing to yaml-parser"]
+    fn block_scalar_oracle_matches_reference(input in properties::arb_whitespace_block_scalar()) {
+        let expected = reference::block_value(&input);
+        let equivalent = format!("a: {}\n", serde_json::to_string(&expected).unwrap());
+        prop_assert_eq!(check_values(&input, &equivalent), Ok(()));
+        let mutated = format!("a: {}\n", serde_json::to_string(&format!("\n{expected}")).unwrap());
+        prop_assert!(check_values(&input, &mutated).is_err());
+    }
+
+    #[test]
+    fn quoted_indicator_scalars_keep_their_value(
+        value in strategy::arb_quoted_payload(),
+        double in any::<bool>(),
+        position in prop::sample::select(vec![("", "\n"), ("- ", "\n"), ("a: ", "\n"), ("[", "]\n")]),
+    ) {
+        let scalar = if double { ast::Scalar::DoubleQuoted(value.clone()) } else { ast::Scalar::SingleQuoted(value.clone()) };
+        let mut quoted = String::new();
+        scalar.render(&mut quoted);
+        let input = format!("{}{quoted}{}", position.0, position.1);
+        let nodes = representation(&input).expect("quoted scalar parses");
+        let loaded = nodes.iter().rev().find_map(|node| match node {
+            Node::Scalar { value, .. } => Some(value),
+            _ => None,
+        });
+        prop_assert_eq!(loaded, Some(&Value::Core(ryl::yaml_dom::ScalarOwned::String(value))));
+        for pass in format_passes() {
+            check_pass(pass, &input).map_err(TestCaseError::fail)?;
+        }
+    }
 
     #[test]
     fn repaired_flow_output_parses_strictly(

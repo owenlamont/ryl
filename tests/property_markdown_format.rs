@@ -207,13 +207,34 @@ proptest! {
 
     #[test]
     fn markdown_format_preserves_regions_and_host(
-        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar(), arb_blank_scalar_with_explicit_sequence_key(), arb_reference_block_scalar()],
+        markdown in prop_oneof![arb_markdown(), arb_fence_like_scalar(), arb_blank_scalar_with_explicit_sequence_key(), arb_reference_block_scalar(), arb_whitespace_tail_scalar()],
         table in settings::arb_format_config(),
     ) {
         run_invariants(&markdown)?;
         let cfg = ryl::config::YamlLintConfig::from_toml_str(&table).expect(&table);
         check_config(&markdown, &table, &cfg)?;
     }
+}
+
+fn arb_whitespace_tail_scalar() -> impl Strategy<Value = String> {
+    (properties::arb_whitespace_block_scalar(), any::<bool>()).prop_map(
+        |(yaml, fenced)| {
+            let ending = if yaml.contains("\r\n") {
+                "\r\n"
+            } else if yaml.contains('\r') {
+                "\r"
+            } else {
+                "\n"
+            };
+            let yaml = yaml.replace("\r\n", "\n").replace('\r', "\n");
+            let host = if fenced {
+                format!("# Host\n\n```yaml\n{yaml}```\n\nHost tail.\n")
+            } else {
+                format!("---\n{yaml}---\n\nHost tail.\n")
+            };
+            host.replace('\n', ending)
+        },
+    )
 }
 
 fn arb_reference_block_scalar() -> impl Strategy<Value = String> {

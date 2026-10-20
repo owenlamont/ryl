@@ -622,25 +622,28 @@ pub(super) fn reference_terminal_block_value(
     let last_content = chunks.iter().rposition(|(text, _)| !text.is_empty());
     let trailing_blank =
         last_content.map_or(chunks.len(), |index| chunks.len() - index - 1);
-    let final_blank_run = chunks
+    let content_chunks = &chunks[..last_content.map_or(0, |index| index + 1)];
+    let whitespace_start = content_chunks
         .iter()
-        .rev()
-        .take_while(|(text, _)| text.trim().is_empty())
+        .rposition(|(text, _)| !text.trim().is_empty())
+        .map_or(0, |index| index + 1);
+    let blank_count = content_chunks[whitespace_start..]
+        .iter()
+        .take_while(|(text, _)| text.is_empty())
         .count();
     if style == ScalarStyle::Folded
-        && final_blank_run >= 3
-        && chunks
-            .iter()
-            .rev()
-            .find(|(text, _)| !text.trim().is_empty())
-            .is_some_and(|(text, _)| !text.starts_with([' ', '\t']))
-        && chunks
-            .last()
-            .is_some_and(|(text, _)| !text.is_empty() && text.trim().is_empty())
+        && blank_count >= 2
+        && whitespace_start
+            .checked_sub(1)
+            .is_some_and(|index| !content_chunks[index].0.starts_with([' ', '\t']))
     {
-        let tail_len = chunks.last()?.0.len();
+        let tail_len = content_chunks[whitespace_start + blank_count..]
+            .iter()
+            .map(|(text, has_break)| text.len() + usize::from(*has_break))
+            .sum::<usize>()
+            - usize::from(content_chunks.last()?.1);
         let at = value.len().checked_sub(tail_len)?;
-        value.insert_str(at, &"\n".repeat(final_blank_run - 2));
+        value.insert_str(at, &"\n".repeat(blank_count - 1));
     }
     // The reference parser counts keep-chomped blank tails differently by style.
     let breaks = if indicator.contains('-') {
