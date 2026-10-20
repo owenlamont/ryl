@@ -137,6 +137,10 @@ TOML row for the ryl-only ladder options.
   tags, the anchor/alias graph, and each scalar resolved against its document's declared
   version. A `%YAML 1.1` document resolves plain scalars through the suite's own 1.1
   table, written independently of `quoted-strings`'.
+- Folded whitespace-tail corrections locate the last content line before counting
+  trailing empty lines; `reference_block_whitespace_tails.jsonl` pins reference values
+  across chomping modes, whitespace indentation and trailing blank counts, with each
+  fixture replayed under LF, CRLF and CR.
 - Comment fidelity keys each trimmed comment to the data events before it and whether it
   is inline; anchor and alias names must survive in order.
 - Re-indent (`reindent_places_each_line_or_leaves_its_document`) calls

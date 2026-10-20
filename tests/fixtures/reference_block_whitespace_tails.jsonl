@@ -1,0 +1,324 @@
+{"input":"a: >\n  a\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n\n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n \n","expected":"a\n"}
+{"input":"a: >\n  a\n \n\n","expected":"a\n"}
+{"input":"a: >\n  a\n \n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n \n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n \n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n \n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n \n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n \n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n \n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n  \n","expected":"a\n"}
+{"input":"a: >\n  a\n  \n\n","expected":"a\n"}
+{"input":"a: >\n  a\n  \n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n  \n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n  \n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n  \n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n  \n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n  \n\n","expected":"a\n"}
+{"input":"a: >\n  a\n\n\n\n  \n\n\n\n","expected":"a\n"}
+{"input":"a: >\n  a\n   \n","expected":"a\n \n"}
+{"input":"a: >\n  a\n   \n\n","expected":"a\n \n"}
+{"input":"a: >\n  a\n   \n\n\n\n","expected":"a\n \n"}
+{"input":"a: >\n  a\n\n\n   \n","expected":"a\n\n\n\n \n"}
+{"input":"a: >\n  a\n\n\n   \n\n","expected":"a\n\n\n\n \n"}
+{"input":"a: >\n  a\n\n\n   \n\n\n\n","expected":"a\n\n\n\n \n"}
+{"input":"a: >\n  a\n\n\n\n   \n","expected":"a\n\n\n\n\n\n \n"}
+{"input":"a: >\n  a\n\n\n\n   \n\n","expected":"a\n\n\n\n\n\n \n"}
+{"input":"a: >\n  a\n\n\n\n   \n\n\n\n","expected":"a\n\n\n\n\n\n \n"}
+{"input":"a: >\n  a\n    \n","expected":"a\n  \n"}
+{"input":"a: >\n  a\n    \n\n","expected":"a\n  \n"}
+{"input":"a: >\n  a\n    \n\n\n\n","expected":"a\n  \n"}
+{"input":"a: >\n  a\n\n\n    \n","expected":"a\n\n\n\n  \n"}
+{"input":"a: >\n  a\n\n\n    \n\n","expected":"a\n\n\n\n  \n"}
+{"input":"a: >\n  a\n\n\n    \n\n\n\n","expected":"a\n\n\n\n  \n"}
+{"input":"a: >\n  a\n\n\n\n    \n","expected":"a\n\n\n\n\n\n  \n"}
+{"input":"a: >\n  a\n\n\n\n    \n\n","expected":"a\n\n\n\n\n\n  \n"}
+{"input":"a: >\n  a\n\n\n\n    \n\n\n\n","expected":"a\n\n\n\n\n\n  \n"}
+{"input":"a: >\n  a\n      \n","expected":"a\n    \n"}
+{"input":"a: >\n  a\n      \n\n","expected":"a\n    \n"}
+{"input":"a: >\n  a\n      \n\n\n\n","expected":"a\n    \n"}
+{"input":"a: >\n  a\n\n\n      \n","expected":"a\n\n\n\n    \n"}
+{"input":"a: >\n  a\n\n\n      \n\n","expected":"a\n\n\n\n    \n"}
+{"input":"a: >\n  a\n\n\n      \n\n\n\n","expected":"a\n\n\n\n    \n"}
+{"input":"a: >\n  a\n\n\n\n      \n","expected":"a\n\n\n\n\n\n    \n"}
+{"input":"a: >\n  a\n\n\n\n      \n\n","expected":"a\n\n\n\n\n\n    \n"}
+{"input":"a: >\n  a\n\n\n\n      \n\n\n\n","expected":"a\n\n\n\n\n\n    \n"}
+{"input":"a: >-\n  a\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n\n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n \n","expected":"a"}
+{"input":"a: >-\n  a\n \n\n","expected":"a"}
+{"input":"a: >-\n  a\n \n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n \n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n \n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n \n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n \n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n \n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n \n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n  \n","expected":"a"}
+{"input":"a: >-\n  a\n  \n\n","expected":"a"}
+{"input":"a: >-\n  a\n  \n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n  \n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n  \n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n  \n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n  \n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n  \n\n","expected":"a"}
+{"input":"a: >-\n  a\n\n\n\n  \n\n\n\n","expected":"a"}
+{"input":"a: >-\n  a\n   \n","expected":"a\n "}
+{"input":"a: >-\n  a\n   \n\n","expected":"a\n "}
+{"input":"a: >-\n  a\n   \n\n\n\n","expected":"a\n "}
+{"input":"a: >-\n  a\n\n\n   \n","expected":"a\n\n\n\n "}
+{"input":"a: >-\n  a\n\n\n   \n\n","expected":"a\n\n\n\n "}
+{"input":"a: >-\n  a\n\n\n   \n\n\n\n","expected":"a\n\n\n\n "}
+{"input":"a: >-\n  a\n\n\n\n   \n","expected":"a\n\n\n\n\n\n "}
+{"input":"a: >-\n  a\n\n\n\n   \n\n","expected":"a\n\n\n\n\n\n "}
+{"input":"a: >-\n  a\n\n\n\n   \n\n\n\n","expected":"a\n\n\n\n\n\n "}
+{"input":"a: >-\n  a\n    \n","expected":"a\n  "}
+{"input":"a: >-\n  a\n    \n\n","expected":"a\n  "}
+{"input":"a: >-\n  a\n    \n\n\n\n","expected":"a\n  "}
+{"input":"a: >-\n  a\n\n\n    \n","expected":"a\n\n\n\n  "}
+{"input":"a: >-\n  a\n\n\n    \n\n","expected":"a\n\n\n\n  "}
+{"input":"a: >-\n  a\n\n\n    \n\n\n\n","expected":"a\n\n\n\n  "}
+{"input":"a: >-\n  a\n\n\n\n    \n","expected":"a\n\n\n\n\n\n  "}
+{"input":"a: >-\n  a\n\n\n\n    \n\n","expected":"a\n\n\n\n\n\n  "}
+{"input":"a: >-\n  a\n\n\n\n    \n\n\n\n","expected":"a\n\n\n\n\n\n  "}
+{"input":"a: >-\n  a\n      \n","expected":"a\n    "}
+{"input":"a: >-\n  a\n      \n\n","expected":"a\n    "}
+{"input":"a: >-\n  a\n      \n\n\n\n","expected":"a\n    "}
+{"input":"a: >-\n  a\n\n\n      \n","expected":"a\n\n\n\n    "}
+{"input":"a: >-\n  a\n\n\n      \n\n","expected":"a\n\n\n\n    "}
+{"input":"a: >-\n  a\n\n\n      \n\n\n\n","expected":"a\n\n\n\n    "}
+{"input":"a: >-\n  a\n\n\n\n      \n","expected":"a\n\n\n\n\n\n    "}
+{"input":"a: >-\n  a\n\n\n\n      \n\n","expected":"a\n\n\n\n\n\n    "}
+{"input":"a: >-\n  a\n\n\n\n      \n\n\n\n","expected":"a\n\n\n\n\n\n    "}
+{"input":"a: >+\n  a\n\n","expected":"a\n\n\n"}
+{"input":"a: >+\n  a\n\n\n","expected":"a\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n \n","expected":"a\n\n\n"}
+{"input":"a: >+\n  a\n \n\n","expected":"a\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n \n","expected":"a\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n \n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n \n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n \n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n  \n","expected":"a\n\n\n"}
+{"input":"a: >+\n  a\n  \n\n","expected":"a\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n  \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n  \n","expected":"a\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n  \n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n  \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n  \n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n  \n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n  \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n   \n","expected":"a\n \n"}
+{"input":"a: >+\n  a\n   \n\n","expected":"a\n \n\n\n\n"}
+{"input":"a: >+\n  a\n   \n\n\n\n","expected":"a\n \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n   \n","expected":"a\n\n\n\n \n"}
+{"input":"a: >+\n  a\n\n\n   \n\n","expected":"a\n\n\n\n \n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n   \n\n\n\n","expected":"a\n\n\n\n \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n   \n","expected":"a\n\n\n\n\n\n \n"}
+{"input":"a: >+\n  a\n\n\n\n   \n\n","expected":"a\n\n\n\n\n\n \n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n   \n\n\n\n","expected":"a\n\n\n\n\n\n \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n    \n","expected":"a\n  \n"}
+{"input":"a: >+\n  a\n    \n\n","expected":"a\n  \n\n\n\n"}
+{"input":"a: >+\n  a\n    \n\n\n\n","expected":"a\n  \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n    \n","expected":"a\n\n\n\n  \n"}
+{"input":"a: >+\n  a\n\n\n    \n\n","expected":"a\n\n\n\n  \n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n    \n\n\n\n","expected":"a\n\n\n\n  \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n    \n","expected":"a\n\n\n\n\n\n  \n"}
+{"input":"a: >+\n  a\n\n\n\n    \n\n","expected":"a\n\n\n\n\n\n  \n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n    \n\n\n\n","expected":"a\n\n\n\n\n\n  \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n      \n","expected":"a\n    \n"}
+{"input":"a: >+\n  a\n      \n\n","expected":"a\n    \n\n\n\n"}
+{"input":"a: >+\n  a\n      \n\n\n\n","expected":"a\n    \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n      \n","expected":"a\n\n\n\n    \n"}
+{"input":"a: >+\n  a\n\n\n      \n\n","expected":"a\n\n\n\n    \n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n      \n\n\n\n","expected":"a\n\n\n\n    \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n      \n","expected":"a\n\n\n\n\n\n    \n"}
+{"input":"a: >+\n  a\n\n\n\n      \n\n","expected":"a\n\n\n\n\n\n    \n\n\n\n"}
+{"input":"a: >+\n  a\n\n\n\n      \n\n\n\n","expected":"a\n\n\n\n\n\n    \n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |\n  a\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n\n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n \n","expected":"a\n"}
+{"input":"a: |\n  a\n \n\n","expected":"a\n"}
+{"input":"a: |\n  a\n \n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n \n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n \n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n \n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n \n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n \n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n \n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n  \n","expected":"a\n"}
+{"input":"a: |\n  a\n  \n\n","expected":"a\n"}
+{"input":"a: |\n  a\n  \n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n  \n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n  \n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n  \n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n  \n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n  \n\n","expected":"a\n"}
+{"input":"a: |\n  a\n\n\n\n  \n\n\n\n","expected":"a\n"}
+{"input":"a: |\n  a\n   \n","expected":"a\n \n"}
+{"input":"a: |\n  a\n   \n\n","expected":"a\n \n"}
+{"input":"a: |\n  a\n   \n\n\n\n","expected":"a\n \n"}
+{"input":"a: |\n  a\n\n\n   \n","expected":"a\n\n\n \n"}
+{"input":"a: |\n  a\n\n\n   \n\n","expected":"a\n\n\n \n"}
+{"input":"a: |\n  a\n\n\n   \n\n\n\n","expected":"a\n\n\n \n"}
+{"input":"a: |\n  a\n\n\n\n   \n","expected":"a\n\n\n\n \n"}
+{"input":"a: |\n  a\n\n\n\n   \n\n","expected":"a\n\n\n\n \n"}
+{"input":"a: |\n  a\n\n\n\n   \n\n\n\n","expected":"a\n\n\n\n \n"}
+{"input":"a: |\n  a\n    \n","expected":"a\n  \n"}
+{"input":"a: |\n  a\n    \n\n","expected":"a\n  \n"}
+{"input":"a: |\n  a\n    \n\n\n\n","expected":"a\n  \n"}
+{"input":"a: |\n  a\n\n\n    \n","expected":"a\n\n\n  \n"}
+{"input":"a: |\n  a\n\n\n    \n\n","expected":"a\n\n\n  \n"}
+{"input":"a: |\n  a\n\n\n    \n\n\n\n","expected":"a\n\n\n  \n"}
+{"input":"a: |\n  a\n\n\n\n    \n","expected":"a\n\n\n\n  \n"}
+{"input":"a: |\n  a\n\n\n\n    \n\n","expected":"a\n\n\n\n  \n"}
+{"input":"a: |\n  a\n\n\n\n    \n\n\n\n","expected":"a\n\n\n\n  \n"}
+{"input":"a: |\n  a\n      \n","expected":"a\n    \n"}
+{"input":"a: |\n  a\n      \n\n","expected":"a\n    \n"}
+{"input":"a: |\n  a\n      \n\n\n\n","expected":"a\n    \n"}
+{"input":"a: |\n  a\n\n\n      \n","expected":"a\n\n\n    \n"}
+{"input":"a: |\n  a\n\n\n      \n\n","expected":"a\n\n\n    \n"}
+{"input":"a: |\n  a\n\n\n      \n\n\n\n","expected":"a\n\n\n    \n"}
+{"input":"a: |\n  a\n\n\n\n      \n","expected":"a\n\n\n\n    \n"}
+{"input":"a: |\n  a\n\n\n\n      \n\n","expected":"a\n\n\n\n    \n"}
+{"input":"a: |\n  a\n\n\n\n      \n\n\n\n","expected":"a\n\n\n\n    \n"}
+{"input":"a: |-\n  a\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n\n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n \n","expected":"a"}
+{"input":"a: |-\n  a\n \n\n","expected":"a"}
+{"input":"a: |-\n  a\n \n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n \n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n \n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n \n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n \n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n \n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n \n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n  \n","expected":"a"}
+{"input":"a: |-\n  a\n  \n\n","expected":"a"}
+{"input":"a: |-\n  a\n  \n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n  \n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n  \n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n  \n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n  \n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n  \n\n","expected":"a"}
+{"input":"a: |-\n  a\n\n\n\n  \n\n\n\n","expected":"a"}
+{"input":"a: |-\n  a\n   \n","expected":"a\n "}
+{"input":"a: |-\n  a\n   \n\n","expected":"a\n "}
+{"input":"a: |-\n  a\n   \n\n\n\n","expected":"a\n "}
+{"input":"a: |-\n  a\n\n\n   \n","expected":"a\n\n\n "}
+{"input":"a: |-\n  a\n\n\n   \n\n","expected":"a\n\n\n "}
+{"input":"a: |-\n  a\n\n\n   \n\n\n\n","expected":"a\n\n\n "}
+{"input":"a: |-\n  a\n\n\n\n   \n","expected":"a\n\n\n\n "}
+{"input":"a: |-\n  a\n\n\n\n   \n\n","expected":"a\n\n\n\n "}
+{"input":"a: |-\n  a\n\n\n\n   \n\n\n\n","expected":"a\n\n\n\n "}
+{"input":"a: |-\n  a\n    \n","expected":"a\n  "}
+{"input":"a: |-\n  a\n    \n\n","expected":"a\n  "}
+{"input":"a: |-\n  a\n    \n\n\n\n","expected":"a\n  "}
+{"input":"a: |-\n  a\n\n\n    \n","expected":"a\n\n\n  "}
+{"input":"a: |-\n  a\n\n\n    \n\n","expected":"a\n\n\n  "}
+{"input":"a: |-\n  a\n\n\n    \n\n\n\n","expected":"a\n\n\n  "}
+{"input":"a: |-\n  a\n\n\n\n    \n","expected":"a\n\n\n\n  "}
+{"input":"a: |-\n  a\n\n\n\n    \n\n","expected":"a\n\n\n\n  "}
+{"input":"a: |-\n  a\n\n\n\n    \n\n\n\n","expected":"a\n\n\n\n  "}
+{"input":"a: |-\n  a\n      \n","expected":"a\n    "}
+{"input":"a: |-\n  a\n      \n\n","expected":"a\n    "}
+{"input":"a: |-\n  a\n      \n\n\n\n","expected":"a\n    "}
+{"input":"a: |-\n  a\n\n\n      \n","expected":"a\n\n\n    "}
+{"input":"a: |-\n  a\n\n\n      \n\n","expected":"a\n\n\n    "}
+{"input":"a: |-\n  a\n\n\n      \n\n\n\n","expected":"a\n\n\n    "}
+{"input":"a: |-\n  a\n\n\n\n      \n","expected":"a\n\n\n\n    "}
+{"input":"a: |-\n  a\n\n\n\n      \n\n","expected":"a\n\n\n\n    "}
+{"input":"a: |-\n  a\n\n\n\n      \n\n\n\n","expected":"a\n\n\n\n    "}
+{"input":"a: |+\n  a\n\n","expected":"a\n\n"}
+{"input":"a: |+\n  a\n\n\n","expected":"a\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n","expected":"a\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n\n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n \n","expected":"a\n\n"}
+{"input":"a: |+\n  a\n \n\n","expected":"a\n\n\n\n"}
+{"input":"a: |+\n  a\n \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n \n","expected":"a\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n \n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n \n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n \n\n","expected":"a\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n  \n","expected":"a\n\n"}
+{"input":"a: |+\n  a\n  \n\n","expected":"a\n\n\n\n"}
+{"input":"a: |+\n  a\n  \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n  \n","expected":"a\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n  \n\n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n  \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n  \n","expected":"a\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n  \n\n","expected":"a\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n  \n\n\n\n","expected":"a\n\n\n\n\n\n\n\n\n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n   \n","expected":"a\n \n"}
+{"input":"a: |+\n  a\n   \n\n","expected":"a\n \n\n"}
+{"input":"a: |+\n  a\n   \n\n\n\n","expected":"a\n \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n   \n","expected":"a\n\n\n \n"}
+{"input":"a: |+\n  a\n\n\n   \n\n","expected":"a\n\n\n \n\n"}
+{"input":"a: |+\n  a\n\n\n   \n\n\n\n","expected":"a\n\n\n \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n   \n","expected":"a\n\n\n\n \n"}
+{"input":"a: |+\n  a\n\n\n\n   \n\n","expected":"a\n\n\n\n \n\n"}
+{"input":"a: |+\n  a\n\n\n\n   \n\n\n\n","expected":"a\n\n\n\n \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n    \n","expected":"a\n  \n"}
+{"input":"a: |+\n  a\n    \n\n","expected":"a\n  \n\n"}
+{"input":"a: |+\n  a\n    \n\n\n\n","expected":"a\n  \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n    \n","expected":"a\n\n\n  \n"}
+{"input":"a: |+\n  a\n\n\n    \n\n","expected":"a\n\n\n  \n\n"}
+{"input":"a: |+\n  a\n\n\n    \n\n\n\n","expected":"a\n\n\n  \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n    \n","expected":"a\n\n\n\n  \n"}
+{"input":"a: |+\n  a\n\n\n\n    \n\n","expected":"a\n\n\n\n  \n\n"}
+{"input":"a: |+\n  a\n\n\n\n    \n\n\n\n","expected":"a\n\n\n\n  \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n      \n","expected":"a\n    \n"}
+{"input":"a: |+\n  a\n      \n\n","expected":"a\n    \n\n"}
+{"input":"a: |+\n  a\n      \n\n\n\n","expected":"a\n    \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n      \n","expected":"a\n\n\n    \n"}
+{"input":"a: |+\n  a\n\n\n      \n\n","expected":"a\n\n\n    \n\n"}
+{"input":"a: |+\n  a\n\n\n      \n\n\n\n","expected":"a\n\n\n    \n\n\n\n\n\n"}
+{"input":"a: |+\n  a\n\n\n\n      \n","expected":"a\n\n\n\n    \n"}
+{"input":"a: |+\n  a\n\n\n\n      \n\n","expected":"a\n\n\n\n    \n\n"}
+{"input":"a: |+\n  a\n\n\n\n      \n\n\n\n","expected":"a\n\n\n\n    \n\n\n\n\n\n"}

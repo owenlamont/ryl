@@ -622,23 +622,24 @@ pub(super) fn reference_terminal_block_value(
     let last_content = chunks.iter().rposition(|(text, _)| !text.is_empty());
     let trailing_blank =
         last_content.map_or(chunks.len(), |index| chunks.len() - index - 1);
-    let final_blank_run = chunks
+    let content_chunks = &chunks[..last_content.map_or(0, |index| index + 1)];
+    let final_blank_run = content_chunks
         .iter()
         .rev()
         .take_while(|(text, _)| text.trim().is_empty())
         .count();
     if style == ScalarStyle::Folded
         && final_blank_run >= 3
-        && chunks
+        && content_chunks
             .iter()
             .rev()
             .find(|(text, _)| !text.trim().is_empty())
             .is_some_and(|(text, _)| !text.starts_with([' ', '\t']))
-        && chunks
+        && content_chunks
             .last()
             .is_some_and(|(text, _)| !text.is_empty() && text.trim().is_empty())
     {
-        let tail_len = chunks.last()?.0.len();
+        let tail_len = content_chunks.last()?.0.len();
         let at = value.len().checked_sub(tail_len)?;
         value.insert_str(at, &"\n".repeat(final_blank_run - 2));
     }

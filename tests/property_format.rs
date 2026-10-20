@@ -169,6 +169,75 @@ fn exhaustive_short_quoted_scalars_preserve_each_position() {
 }
 
 #[test]
+fn folded_crlf_whitespace_tail_seed_keeps_the_reference_value() {
+    let input = "a: >\r\n  a\r\n\r\n\r\n    \r\n\r\n\r\n\r\n";
+    let output = "a: >\n  a\n\n\n    \n";
+    let normalized = input.replace("\r\n", "\n");
+    assert_eq!(ryl::rules::trailing_spaces::fix(&normalized), None);
+    assert_eq!(
+        ryl::rules::empty_lines::fix(
+            &normalized,
+            &ryl::rules::empty_lines::Config::new(2, 0, 0)
+        ),
+        Some(output.to_string())
+    );
+    assert_eq!(representation(input), representation(output));
+    let expected =
+        Value::Core(ryl::yaml_dom::ScalarOwned::String("a\n\n\n\n  \n".into()));
+    assert!(
+        representation(input).unwrap().iter().any(
+            |node| matches!(node, Node::Scalar { value, .. } if value == &expected)
+        )
+    );
+    assert!(check_values(input, "a: >\n  a\n\n    \n").is_err());
+    assert!(ryl::fix::format_events_match(input, output));
+    assert!(!ryl::fix::format_events_match(input, "a: >\n  a\n\n    \n"));
+    for pass in format_passes() {
+        check_invariants(&pass.format, input).unwrap();
+    }
+}
+
+#[test]
+fn folded_whitespace_tails_follow_reference_values_across_line_endings() {
+    check_reference_whitespace_tails('>');
+}
+
+#[test]
+fn literal_whitespace_tails_follow_reference_values_across_line_endings() {
+    check_reference_whitespace_tails('|');
+}
+
+fn check_reference_whitespace_tails(style: char) {
+    #[derive(serde::Deserialize)]
+    struct Case {
+        input: String,
+        expected: String,
+    }
+    let passes = format_passes();
+    for row in include_str!("fixtures/reference_block_whitespace_tails.jsonl").lines() {
+        let case: Case = serde_json::from_str(row).unwrap();
+        if !case.input.starts_with(&format!("a: {style}")) {
+            continue;
+        }
+        let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String(case.expected));
+        for ending in ["\n", "\r\n", "\r"] {
+            let input = case.input.replace('\n', ending);
+            let nodes = representation(&input).unwrap();
+            let actual = nodes.iter().rev().find_map(|node| match node {
+                Node::Scalar { value, .. } => Some(value),
+                _ => None,
+            });
+            assert_eq!(actual, Some(&expected), "{input:?}");
+            for pass in passes {
+                check_invariants(&pass.format, &input).unwrap_or_else(|error| {
+                    panic!("{}: {input:?}: {error}", pass.name)
+                });
+            }
+        }
+    }
+}
+
+#[test]
 fn reference_block_scalar_matrix_keeps_each_value() {
     #[derive(serde::Deserialize)]
     struct Case {

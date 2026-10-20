@@ -424,6 +424,17 @@ reference parser for this EOF shape.
 272/279 valid cases; PyYAML and ruamel rejected 82/94 invalid cases and matched
 210–222/279 valid cases.
 
+### Whitespace-only lines inside folded scalars
+
+For `a: >\n  a\n\n\n    \n\n\n\n`, `ryl format` removes the last three
+empty lines. The reference parser emits `=VAL >a\n\n\n\n  \n` before and
+after; granit, eemeli `yaml`, PyYAML and ruamel read `"a\n\n\n  \n"` on
+both sides. CRLF and CR line endings have the same meaning.
+The formatter follows the reference parser's equal-value verdict.
+YAML 1.2.2's [folded content production](https://yaml.org/spec/1.2.2/#rule-l-folded-content)
+(`l-folded-content(n,t) ::= (l-nb-diff-lines(n) b-chomped-last(t))?
+l-chomped-empty(n,t)`) separates content from chomped trailing empty lines.
+
 ### Spaces in a blank-only block scalar
 
 For `a: |+\n  \nb: 1\n`, the reference parser emits `=VAL | \n`: one
