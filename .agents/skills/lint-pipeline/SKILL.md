@@ -163,6 +163,9 @@ from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those
 zero-config run formats. Inline directives are honoured by both. A YAML config gets the
 `[format]` defaults.
 
+Every changed formatter result must parse strictly and preserve the original significant
+events; a failed comparison rolls the rewrite back to the original input.
+
 The formatter batches comment/comma, punctuation, and compatible finishing edits against
 one analysis per group. Quotes, indentation and newline conversion retain their separate
 epochs. Conflicting byte ranges, suppression directives, marker changes and newly blank
@@ -171,6 +174,7 @@ Flow spacing shares cached punctuation sites; brackets retain their existing tra
 when template text occurs, because braces and commas skip template spans.
 
 Formatter quote passes retain the value-keyed plain-snippet cache across epochs.
+Column-zero document-marker checks run before the value-only cache lookup.
 Unguarded single-line ladder replacements settle locally before indentation measures
 the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
 probe. Multiline replacements, line-leading scalars (including after a BOM), and

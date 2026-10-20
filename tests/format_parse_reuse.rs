@@ -142,16 +142,13 @@ fn settled_quote_keys_keep_a_quote_dependent_colon() {
 }
 
 #[test]
-fn line_leading_quotes_retain_the_legacy_fixed_point() {
-    for (input, expected) in [
-        ("\"--- 'quoted'\"\n", "--- quoted\n"),
-        ("\u{feff}\"--- 'quoted'\"\n", "\u{feff}--- quoted\n"),
-        (
-            "first: value\n...\n\"--- 'quoted'\"\n",
-            "first: value\n...\n--- quoted\n",
-        ),
+fn line_leading_marker_strings_keep_load_bearing_quotes() {
+    for input in [
+        "\"--- 'quoted'\"\n",
+        "\u{feff}\"--- 'quoted'\"\n",
+        "first: value\n...\n\"--- 'quoted'\"\n",
     ] {
-        assert_format(input, expected, "");
+        assert_format(input, input, "");
     }
 }
 
