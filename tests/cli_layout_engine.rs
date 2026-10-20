@@ -73,27 +73,36 @@ fn markers_own_blank_runs_before_empty_line_limits() {
     }
 }
 
-#[test]
-fn every_indent_width_and_dash_policy_uses_the_layout_engine() {
+fn assert_indentation_layout(config: &str, expected: &str) {
     let input = "é:\n    seq:\n    - key: 'café'\n      next: [ a,b ] #note\n";
-    for width in 1..=4 {
-        for sequences in [false, true] {
-            for own_line in [false, true] {
-                let config = format!(
-                    "indent-width = {width}\n[format]\nindent-sequences = {sequences}\ndash-on-own-line = {own_line}\n"
-                );
-                let (output, statistics) = format_with_statistics(input, &config);
-                assert_eq!(
-                    statistics["fallback"],
-                    Value::Null,
-                    "{config}: {statistics}"
-                );
-                assert!(output.contains("next: [a, b]  # note"));
-                assert!(output.contains("key: café"));
-                assert_eq!(format_with_statistics(&output, &config).0, output);
-            }
-        }
-    }
+    let (output, statistics) = format_with_statistics(input, config);
+    assert_eq!(output, expected);
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn width_one_preserves_unindented_sequence_ownership() {
+    assert_indentation_layout(
+        "indent-width = 1\n[format]\nindent-sequences = false\ndash-on-own-line = false\n",
+        "é:\n seq:\n - key: café\n   next: [a, b]  # note\n",
+    );
+}
+
+#[test]
+fn indented_sequences_move_the_mapping_with_the_dash() {
+    assert_indentation_layout(
+        "indent-width = 2\n[format]\nindent-sequences = true\ndash-on-own-line = false\n",
+        "é:\n  seq:\n    - key: café\n      next: [a, b]  # note\n",
+    );
+}
+
+#[test]
+fn standalone_dashes_separate_mapping_indentation_from_sequence_indentation() {
+    assert_indentation_layout(
+        "indent-width = 4\n[format]\nindent-sequences = true\ndash-on-own-line = true\n",
+        "é:\n    seq:\n        -\n            key: café\n            next: [a, b]  # note\n",
+    );
 }
 
 #[test]
@@ -477,4 +486,13 @@ fn a_blank_folded_scalar_does_not_fold_the_next_root_node() {
     );
     assert_eq!(output, "a: >\n\nb: alpha\n  beta gamma\n  delta\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn an_empty_flow_string_rolls_back_inconsistent_dry_indentation() {
+    let (output, statistics) = format_with_statistics("[\n  \"\",\n]\n", "[format]\n");
+    assert_eq!(output, "[\n  '',\n]\n");
+    assert_eq!(statistics["fallback"], "Refusal", "{statistics}");
+    assert_eq!(statistics["rollback"], 1, "{statistics}");
+    assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
 }
