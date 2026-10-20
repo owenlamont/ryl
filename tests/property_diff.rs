@@ -28,6 +28,9 @@ mod ast;
 mod config;
 #[path = "common/encoding.rs"]
 mod encoding;
+#[path = "property_format/representation.rs"]
+#[allow(dead_code, reason = "shared formatter oracle also checks annotations")]
+mod representation;
 #[path = "property_safe_fix/strategy.rs"]
 mod strategy;
 #[path = "property_markdown_fix/wrap.rs"]

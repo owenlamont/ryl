@@ -202,7 +202,18 @@ fn comment_is_aligned(
 /// Classify every line once, shared by `check` and `fix`. Scalar tokens come from the
 /// scanner rather than the parser, as in `comments_scan`, so a parse error degrades less.
 fn build_lines(input: Analysis<'_>) -> Vec<LineInfo> {
-    let mut lines: Vec<LineInfo> = input
+    if let Some(facts) = input.layout_facts() {
+        return facts.comment_lines.clone();
+    }
+    let mut lines = line_facts(input);
+    for (span, kind) in input.tokens().iter() {
+        classify_token(&mut lines, span, kind);
+    }
+    lines
+}
+
+pub(crate) fn line_facts(input: Analysis<'_>) -> Vec<LineInfo> {
+    input
         .lines()
         .map(|(idx, line, _)| {
             let indent = leading_whitespace_width(line);
@@ -213,37 +224,37 @@ fn build_lines(input: Analysis<'_>) -> Vec<LineInfo> {
             };
             LineInfo { indent, kind }
         })
-        .collect();
-    for (span, kind) in input.tokens().iter() {
-        // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
-        // line content again, as yamllint indents by each token's start line.
-        if let Some(line) = lines.get_mut(span.start.line() - 1)
-            && line.kind == LineKind::ScalarBody
-        {
-            line.kind = LineKind::Other;
-        }
-        let LexicalKind::Scalar { style, .. } = kind else {
-            continue;
-        };
-        // A block scalar's span starts on its first body line, and runs on to the
-        // indentation of the line after its body.
-        let first = span.start.line()
-            + usize::from(!matches!(style, ScalarStyle::Literal | ScalarStyle::Folded));
-        let run_on = lines
-            .get(span.end.line() - 1)
-            .is_some_and(|line| span.end.col() <= line.indent);
-        let last = span.end.line() - usize::from(run_on);
-        for line in lines.iter_mut().take(last).skip(first - 1) {
-            line.kind = LineKind::ScalarBody;
-        }
-        if let Some(line) = lines.get_mut(last)
-            && run_on
-            && line.kind == LineKind::Comment
-        {
-            line.kind = LineKind::ScalarTrailingComment;
-        }
+        .collect()
+}
+
+pub(crate) fn classify_token(lines: &mut [LineInfo], span: Span, kind: &LexicalKind) {
+    // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
+    // line content again, as yamllint indents by each token's start line.
+    if let Some(line) = lines.get_mut(span.start.line() - 1)
+        && line.kind == LineKind::ScalarBody
+    {
+        line.kind = LineKind::Other;
     }
-    lines
+    let LexicalKind::Scalar { style, .. } = kind else {
+        return;
+    };
+    // A block scalar's span starts on its first body line, and runs on to the
+    // indentation of the line after its body.
+    let first = span.start.line()
+        + usize::from(!matches!(style, ScalarStyle::Literal | ScalarStyle::Folded));
+    let run_on = lines
+        .get(span.end.line() - 1)
+        .is_some_and(|line| span.end.col() <= line.indent);
+    let last = span.end.line() - usize::from(run_on);
+    for line in lines.iter_mut().take(last).skip(first - 1) {
+        line.kind = LineKind::ScalarBody;
+    }
+    if let Some(line) = lines.get_mut(last)
+        && run_on
+        && line.kind == LineKind::Comment
+    {
+        line.kind = LineKind::ScalarTrailingComment;
+    }
 }
 
 /// For each line (1-based `L` -> `result[L - 1]`), the start columns of the block
@@ -315,7 +326,7 @@ fn buffer_starts_with_flow_indicator(buffer: &str, byte: usize) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct LineInfo {
+pub(crate) struct LineInfo {
     indent: usize,
     kind: LineKind,
 }

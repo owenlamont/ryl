@@ -42,8 +42,13 @@ pub fn refused(
     notices: &[ryl::lint::LintProblem],
     before: &[ryl::lint::LintProblem],
 ) -> bool {
-    let input_lines: Vec<_> = input.lines().collect();
-    let output_lines: Vec<_> = output.lines().collect();
+    let mut input_lines: Vec<_> = input.lines().collect();
+    let mut output_lines: Vec<_> = output.lines().collect();
+    if problem.rule == Some("indentation") {
+        for line in input_lines.iter_mut().chain(&mut output_lines) {
+            *line = line.trim_end_matches([' ', '\t']);
+        }
+    }
     let unchanged_input_line = if input == output {
         Some(problem.line)
     } else {

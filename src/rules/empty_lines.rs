@@ -39,15 +39,15 @@ impl Config {
         }
     }
 
-    const fn max(&self) -> i64 {
+    pub(crate) const fn max(&self) -> i64 {
         self.max
     }
 
-    const fn max_start(&self) -> i64 {
+    pub(crate) const fn max_start(&self) -> i64 {
         self.max_start
     }
 
-    const fn max_end(&self) -> i64 {
+    pub(crate) const fn max_end(&self) -> i64 {
         self.max_end
     }
 }
@@ -99,6 +99,13 @@ fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
 pub(crate) fn preserved_scalar_lines_with_analysis(
     input: Analysis<'_>,
 ) -> Option<HashSet<usize>> {
+    preserved_scalar_lines_with_empty(input, |line| input.line_is_empty(line))
+}
+
+pub(crate) fn preserved_scalar_lines_with_empty(
+    input: Analysis<'_>,
+    empty: impl Fn(usize) -> bool,
+) -> Option<HashSet<usize>> {
     let mut protected =
         crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
             input,
@@ -128,7 +135,7 @@ pub(crate) fn preserved_scalar_lines_with_analysis(
             - usize::from(span.end.col() == 0 || span.is_empty() || next_token);
         for line in (header.line + 1..=last)
             .rev()
-            .take_while(|line| lines[*line - 1].is_empty())
+            .take_while(|line| empty(*line - 1))
         {
             protected.remove(&line);
         }

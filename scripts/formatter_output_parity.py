@@ -65,6 +65,7 @@ FIXTURES: Final[dict[str, str | bytes]] = {
     "root-marker-multidoc.yaml": "first: value\n...\n\"--- 'quoted'\"\n",
     "unicode-columns.yaml": "café:  世  # 🦀\nlist: [é, 世]\n",
     "bom.yaml": b"\xef\xbb\xbfkey : value\n",
+    "bom-marker-line.yaml": "a: a\n...\n\ufeff\na: 1\n",
     "crlf.yaml": b"a : b\r\nlist: [1,2]\r\n",
     "bare-cr.yaml": b"a : b\rlist: [1,2]\r",
     "tags-directives.yaml": (

@@ -53,21 +53,46 @@ pub(crate) struct Header {
 }
 
 pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
-    let chars = input.text();
-    let line_starts = input.byte_line_starts();
-    let mut headers = Vec::new();
-    let mut previous_end = 0;
+    let mut scanner = Headers::new(input);
     for (span, token_type) in input.tokens().iter() {
+        scanner.push(span, token_type);
+    }
+    scanner.finish()
+}
+
+pub(crate) struct Headers<'a> {
+    chars: &'a str,
+    starts: &'a [usize],
+    previous_end: usize,
+    found: Vec<Header>,
+}
+
+impl<'a> Headers<'a> {
+    pub(crate) fn new(input: Analysis<'a>) -> Self {
+        Self {
+            chars: input.text(),
+            starts: input.byte_line_starts(),
+            previous_end: 0,
+            found: Vec::new(),
+        }
+    }
+
+    pub(crate) fn finish(self) -> Vec<Header> {
+        self.found
+    }
+
+    pub(crate) fn push(&mut self, span: Span, token_type: &LexicalKind) {
+        let chars = self.chars;
         match token_type {
-            LexicalKind::Comment { .. } => continue,
+            LexicalKind::Comment { .. } => return,
             LexicalKind::Scalar {
                 style: ScalarStyle::Literal | ScalarStyle::Folded,
                 ..
             } => {
-                let marker = header_marker(chars, previous_end);
+                let marker = header_marker(chars, self.previous_end);
                 let (line, column) =
-                    byte_line_and_column(chars.as_bytes(), line_starts, marker);
-                headers.push(Header {
+                    byte_line_and_column(chars.as_bytes(), self.starts, marker);
+                self.found.push(Header {
                     span,
                     line,
                     column,
@@ -79,9 +104,8 @@ pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
             }
             _ => {}
         }
-        previous_end = marker_byte_offset(span.end).get();
+        self.previous_end = marker_byte_offset(span.end).get();
     }
-    headers
 }
 
 pub(crate) fn ambiguous_blank_body_line(buffer: &str) -> Option<usize> {

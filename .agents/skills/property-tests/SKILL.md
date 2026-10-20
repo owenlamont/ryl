@@ -173,6 +173,9 @@ Markdown repos. Cover every repo and profile across the batches. `--fixtures-onl
 quick smoke check, not the gate. Run
 `uv run scripts/formatter_corpus_check.py run` independently for preservation and
 idempotence. Any output difference requires a separate correctness PR.
+Set `RYL_CORPUS_BINARY` to pin an immutable candidate; the Rust oracle build can
+replace `target/release/ryl` during the run.
+The checker disables ryl's result cache so the second format actually checks idempotence.
 
 `uv run scripts/formatter_corpus_check.py run` formats the pinned repos in
 `scripts/formatter_corpus.toml` with the release build, in the default and

@@ -59,7 +59,10 @@ app = typer.Typer(add_completion=False, help=__doc__)
 TESTED_DATE: Final = "2026-10-15"
 _ROOT: Final = Path(__file__).resolve().parent.parent
 _MANIFEST: Final = Path(__file__).with_name("formatter_corpus.toml")
-_RYL: Final = _ROOT / "target" / "release" / ("ryl.exe" if os.name == "nt" else "ryl")
+_RYL: Final = Path(
+    os.environ.get("RYL_CORPUS_BINARY")
+    or _ROOT / "target" / "release" / ("ryl.exe" if os.name == "nt" else "ryl")
+).resolve()
 _YAML_PATTERNS: Final = ("*.yaml", "*.yml")
 _ALWAYS_CHECKED_OUT: Final = (
     ".gitignore",
@@ -266,6 +269,7 @@ def _ryl(
         proc = subprocess.run(
             [str(_RYL), *args],
             cwd=clone,
+            env={**os.environ, "RYL_NO_CACHE": "1"},
             capture_output=True,
             text=True,
             encoding="utf-8",

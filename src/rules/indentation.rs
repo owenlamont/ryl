@@ -2,8 +2,6 @@
 //! `ryl format` re-indents through [`reindent`], which places each line where the check
 //! expects it.
 
-use std::collections::HashSet;
-
 use crate::text_version::lexical::Kind as LexicalKind;
 use crate::text_version::{Analysis, TextVersion};
 use granit_parser::ScalarStyle;
@@ -16,6 +14,7 @@ mod rewrite;
 
 pub(crate) use rewrite::reindent_with_analysis;
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
+pub(crate) use rewrite::{DryLayout, Layout, Targets, stream_layout};
 
 pub const ID: &str = "indentation";
 
@@ -131,6 +130,10 @@ impl Config {
         self
     }
 
+    pub(crate) const fn requires_consistency(self) -> bool {
+        self.require_consistent
+    }
+
     /// Whether a file indented uniformly by `width` spaces satisfies `spaces`.
     #[must_use]
     pub fn admits_width(&self, width: u8) -> bool {
@@ -150,7 +153,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
     let scanned = input.indentation();
     let mut analyzer =
         Analyzer::new(input.text(), &scanned.line_starts, cfg, Mode::Check);
-    analyzer.run(&scanned.tokens);
+    analyzer.run(scanned.tokens.iter().copied());
     analyzer.diagnostics
 }
 
@@ -181,7 +184,7 @@ enum Kind {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Token {
+pub(crate) struct Token {
     kind: Kind,
     start: usize,
     end: usize,
@@ -200,20 +203,48 @@ impl Token {
 pub(crate) struct Scanned {
     tokens: Vec<Token>,
     line_starts: Vec<usize>,
-    comments: HashSet<usize>,
 }
 
 pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
+    let line_starts = normalized_line_starts(input);
+    let tokens = normalized_tokens(input, &line_starts).collect();
+    Scanned {
+        tokens,
+        line_starts,
+    }
+}
+
+pub(crate) fn normalized_line_starts(input: Analysis<'_>) -> Vec<usize> {
     let text = input.text();
     let mut starts = input.byte_line_starts().to_vec();
-    let line_starts = &mut starts;
-    let mut comments = HashSet::new();
-    let mut tokens: Vec<Token> = Vec::new();
-    for (span, token_type) in input.tokens().iter() {
-        for marker in [span.start, span.end] {
-            let line_start = &mut line_starts[marker.line() - 1];
-            align_line_start(text, line_start, marker);
+    if text.contains('\u{feff}') {
+        for (span, _) in input.tokens().iter() {
+            for marker in [span.start, span.end] {
+                align_line_start(text, &mut starts[marker.line() - 1], marker);
+            }
         }
+        for header in input.headers() {
+            skip_prefix_bom(text, &mut starts[header.line - 1]);
+        }
+    }
+    starts
+}
+
+pub(crate) fn normalized_tokens<'a>(
+    input: Analysis<'a>,
+    line_starts: &'a [usize],
+) -> impl Iterator<Item = Token> {
+    normalized_tokens_from(input.text(), line_starts, input.tokens().iter())
+}
+
+pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + 'a>(
+    text: &'a str,
+    line_starts: &'a [usize],
+    tokens: impl Iterator<Item = (granit_parser::Span, K)> + 'a,
+) -> impl Iterator<Item = Token> + 'a {
+    let mut previous: Option<Token> = None;
+    tokens.filter_map(move |(span, token_type)| {
+        let token_type = token_type.borrow();
         let (mut start, mut end) = (
             marker_byte_offset(span.start).get(),
             marker_byte_offset(span.end).get(),
@@ -222,13 +253,12 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
         let (mut column, mut end_column) = (span.start.col(), span.end.col());
         let kind = match token_type {
             LexicalKind::Comment { .. } => {
-                comments.insert(line);
-                continue;
+                return None;
             }
             LexicalKind::FlowMappingStart | LexicalKind::FlowMappingEnd
                 if start == end =>
             {
-                continue;
+                return None;
             }
             LexicalKind::StreamStart | LexicalKind::StreamEnd => Kind::StreamBoundary,
             LexicalKind::BlockMappingStart => Kind::BlockMappingStart,
@@ -236,7 +266,7 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             LexicalKind::BlockEnd => Kind::BlockEnd,
             LexicalKind::BlockEntry => {
                 // granit marks an entry past the dash's trailing blanks and comment.
-                (start, column) = match tokens.last() {
+                (start, column) = match previous.as_ref() {
                     Some(prev) if prev.kind == Kind::BlockSequenceStart => {
                         (prev.start, prev.column)
                     }
@@ -266,10 +296,9 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             LexicalKind::Scalar { style, empty } => {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
-                    let from = tokens.last().map_or(0, |prev| prev.end);
+                    let from = previous.as_ref().map_or(0, |prev| prev.end);
                     start = block_indicator(text, from).unwrap_or(start);
                     line = line_starts.partition_point(|&offset| offset <= start) - 1;
-                    skip_prefix_bom(text, &mut line_starts[line]);
                     column = text[line_starts[line]..start].chars().count();
                     let end_line_start = line_starts[end_line];
                     let trailing = end - end_line_start;
@@ -287,7 +316,7 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             }
             _ => Kind::Other,
         };
-        tokens.push(Token {
+        let token = Token {
             kind,
             start,
             end,
@@ -295,13 +324,10 @@ pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
             column,
             end_line,
             end_column,
-        });
-    }
-    Scanned {
-        tokens,
-        line_starts: starts,
-        comments,
-    }
+        };
+        previous = Some(token);
+        Some(token)
+    })
 }
 
 fn align_line_start(text: &str, line_start: &mut usize, marker: granit_parser::Marker) {
@@ -392,6 +418,7 @@ struct UnexpectedToken;
 
 struct Analyzer<'a> {
     text: &'a str,
+    lines: Option<&'a [crate::format::layout::VirtualLine<'a>]>,
     line_starts: &'a [usize],
     check_multi_line_strings: bool,
     stack: Vec<Parent>,
@@ -402,16 +429,18 @@ struct Analyzer<'a> {
     diagnostics: Vec<Violation>,
     mode: Mode,
     shifts: Vec<Option<Shift>>,
-    gaps: Vec<Vec<Gap>>,
+    scalar_owners: Option<Vec<(usize, usize)>>,
+    gaps: Vec<Gap>,
 }
 
 /// The spaces after an indicator that `ryl format` closes to one, with the rule that owns
 /// them.
 #[derive(Debug, Clone, Copy)]
-struct Gap {
-    column: usize,
-    removed: usize,
-    rule: &'static str,
+pub(crate) struct Gap {
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) removed: usize,
+    pub(crate) rule: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -434,6 +463,7 @@ impl<'a> Analyzer<'a> {
     fn new(text: &'a str, line_starts: &'a [usize], cfg: &Config, mode: Mode) -> Self {
         Self {
             text,
+            lines: None,
             line_starts,
             check_multi_line_strings: cfg.check_multi_line_strings,
             stack: vec![Parent::new(ParentKind::Root, 0)],
@@ -446,18 +476,29 @@ impl<'a> Analyzer<'a> {
             indent_sequences: cfg.indent_sequences,
             diagnostics: Vec::new(),
             mode,
-            shifts: vec![None; line_starts.len()],
-            gaps: vec![Vec::new(); line_starts.len()],
+            shifts: if mode == Mode::Target {
+                vec![None; line_starts.len()]
+            } else {
+                Vec::new()
+            },
+            scalar_owners: None,
+            gaps: Vec::new(),
         }
     }
 
     fn delta(&self, line: usize) -> isize {
-        self.shifts[line].map_or(0, Shift::delta)
+        self.shifts
+            .get(line)
+            .copied()
+            .flatten()
+            .map_or(0, Shift::delta)
     }
 
     fn column(&self, token: &Token) -> isize {
-        let closed: usize = self.gaps[token.line]
+        let first = self.gaps.partition_point(|gap| gap.line < token.line);
+        let closed: usize = self.gaps[first..]
             .iter()
+            .take_while(|gap| gap.line == token.line)
             .filter(|gap| gap.column < token.column)
             .map(|gap| gap.removed)
             .sum();
@@ -479,8 +520,11 @@ impl<'a> Analyzer<'a> {
             return;
         };
         let gap = next.column - token.column - 1;
-        if gap > 1 && count_spaces(self.text, token.start + 1) == gap {
-            self.gaps[token.line].push(Gap {
+        let spaces = self.lines.expect("target analysis has virtual lines")[token.line]
+            .spaces_after(token.column);
+        if gap > 1 && spaces == gap {
+            self.gaps.push(Gap {
+                line: token.line,
                 column: token.column,
                 removed: gap - 1,
                 rule,
@@ -488,17 +532,42 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn run(&mut self, tokens: &[Token]) {
-        for (idx, token) in tokens.iter().enumerate() {
-            let prev = idx.checked_sub(1).and_then(|prev| tokens.get(prev));
-            let next = tokens.get(idx + 1);
-            if self.step(token, prev, next, tokens.get(idx + 2)).is_err() {
-                self.push(
-                    token.line + 1,
-                    token.column,
-                    "cannot infer indentation: unexpected token".to_string(),
-                );
-            }
+    fn run(&mut self, mut tokens: impl Iterator<Item = Token>) {
+        self.run_with(&mut tokens, |_, _, _, _| {});
+    }
+
+    fn run_with(
+        &mut self,
+        mut tokens: impl Iterator<Item = Token>,
+        mut observe: impl FnMut(&Token, Option<&Token>, Option<&Token>, Option<&Token>),
+    ) {
+        let mut prev = None;
+        let mut current = tokens.next();
+        let mut next = tokens.next();
+        let mut after = tokens.next();
+        while let Some(token) = current {
+            observe(&token, prev.as_ref(), next.as_ref(), after.as_ref());
+            self.advance(&token, prev.as_ref(), next.as_ref(), after.as_ref());
+            prev = current;
+            current = next;
+            next = after;
+            after = tokens.next();
+        }
+    }
+
+    fn advance(
+        &mut self,
+        token: &Token,
+        prev: Option<&Token>,
+        next: Option<&Token>,
+        after: Option<&Token>,
+    ) {
+        if self.step(token, prev, next, after).is_err() {
+            self.push(
+                token.line + 1,
+                token.column,
+                "cannot infer indentation: unexpected token".to_string(),
+            );
         }
     }
 
@@ -554,6 +623,7 @@ impl<'a> Analyzer<'a> {
             }
             if self.mode == Mode::Target {
                 self.carry_scalar_lines(token, style);
+                self.record_scalar_owner(token);
             }
         }
         if visible {
@@ -564,6 +634,24 @@ impl<'a> Analyzer<'a> {
         }
         self.update_stack(token, prev, next, nextnext)?;
         self.unwind(token, next)
+    }
+
+    fn record_scalar_owner(&mut self, token: &Token) {
+        let Some(owners) = &mut self.scalar_owners else {
+            return;
+        };
+        let column = self
+            .stack
+            .iter()
+            .rev()
+            .find(|parent| {
+                matches!(
+                    parent.kind,
+                    ParentKind::BlockMapping | ParentKind::BlockSequence
+                )
+            })
+            .map_or(0, |parent| parent.indent);
+        owners.push((token.start, usize::try_from(column).unwrap_or(0)));
     }
 
     fn expected(&mut self, token: &Token, found: isize) -> isize {

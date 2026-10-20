@@ -192,7 +192,10 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
             zero_width += usize::from(span.start == span.end);
         }
         assert!(reconstructed.next().is_none());
-        assert!(matches!(tokens.kind(0), lexical::Kind::StreamStart));
+        assert!(matches!(
+            tokens.iter().next().unwrap().1,
+            lexical::Kind::StreamStart
+        ));
         assert_eq!(tokens.iter_from(1).count() + 1, tokens.iter().count());
     }
     assert!(zero_width > 10);

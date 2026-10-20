@@ -2412,3 +2412,37 @@ fn review_refusal_hides_unrelated_bracket_spacing() {
     assert_eq!(formatted, "[x]: a\n");
     check_values(output, &formatted).unwrap();
 }
+
+#[test]
+fn g11_refusal_maps_indentation_through_trailing_space_cleanup() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "indent-width = 153\n[format]\n[lint.rules.indentation]\n",
+    )
+    .unwrap();
+    let input = "key:\n  -  value: !!str |3- \n        \n";
+    let output = "key:\n  -  value: !!str |3-\n        \n";
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let after = lint_str(output, synthetic_path(), &cfg, synthetic_base_dir());
+    let problem = after
+        .iter()
+        .find(|problem| problem.rule == Some("indentation") && problem.line == 2)
+        .unwrap();
+    let mut refusal = problem.clone();
+    refusal.line = 1;
+    refusal.column = 1;
+    refusal.message = "cannot re-indent this document safely".to_owned();
+    assert!(consistency::refused(
+        input,
+        output,
+        problem,
+        &[refusal.clone()],
+        &before,
+    ));
+    assert!(!consistency::refused(
+        input,
+        &output.replace("value:", "changed:"),
+        problem,
+        &[refusal],
+        &before,
+    ));
+}

@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
+use crate::text_version::lexical::Kind;
+use crate::text_version::{Analysis, TextVersion};
+use granit_parser::ScalarStyle;
 
 use super::{Config, ID};
 use crate::directives::{Directives, directive_scope};
@@ -15,6 +17,13 @@ use crate::rules::support::span_utils::{
 pub struct Fold {
     pub width: u16,
     pub indent: u8,
+}
+
+#[derive(Clone)]
+pub(crate) struct FoldableScalar {
+    pub(crate) content: Range<usize>,
+    pub(crate) owner: Option<(usize, usize)>,
+    pub(crate) style: ScalarStyle,
 }
 
 impl Fold {
@@ -34,7 +43,9 @@ impl Fold {
 /// comment, which a fold would move.
 #[must_use]
 pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
-    let directives = Directives::parse(buffer);
+    let source = TextVersion::new(buffer);
+    let input = source.analysis();
+    let directives = Directives::parse_with_analysis(input);
     let mut start = 0;
     let lines: Vec<(usize, &str)> = split_lines_preserve_endings(buffer)
         .map(|(_, content, ending)| {
@@ -47,7 +58,13 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
         |offset: usize| lines.partition_point(|(start, _)| *start <= offset) - 1;
     let newline = buffer_newline(buffer);
     let mut edits = Vec::new();
-    for (span, owner, style) in foldable_scalars(buffer) {
+    for FoldableScalar {
+        content: span,
+        owner,
+        style,
+    } in foldable_scalars(input)
+    {
+        let owner = owner.map(|(_, column)| column);
         // granit rejects a quoted mapping value continued one column past its key.
         let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
         let (first, last) = (line_of(span.start), line_of(span.end - 1));
@@ -112,58 +129,88 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
 /// The content (inside any quotes) of each block-context plain, quoted or `>` scalar that is
 /// not a key, with the column of the collection that owns it (`None` at the document root)
 /// and its style.
-fn foldable_scalars(buffer: &str) -> Vec<(Range<usize>, Option<usize>, ScalarStyle)> {
-    let mut blocks = Vec::new();
-    let mut flow = 0usize;
-    let mut owner = None;
-    let mut scalars = Vec::new();
-    for token in Scanner::new(StrInput::new(buffer)).map_while(Result::ok) {
-        let (span, kind) = token.into_parts();
-        owner = match kind {
-            TokenType::Anchor(_) | TokenType::Tag(..) | TokenType::Comment(_) => {
-                continue;
+pub(crate) fn foldable_scalars(input: Analysis<'_>) -> Vec<FoldableScalar> {
+    if let Some(facts) = input.layout_facts() {
+        return facts.folds.clone();
+    }
+    let mut scalars = Foldables::default();
+    for (span, kind) in input.tokens().iter() {
+        scalars.push(span, kind);
+    }
+    scalars.finish()
+}
+
+#[derive(Default)]
+pub(crate) struct Foldables {
+    blocks: Vec<(usize, usize)>,
+    flow: usize,
+    owner: Option<Owner>,
+    scalars: Vec<FoldableScalar>,
+}
+
+#[derive(Clone, Copy)]
+enum Owner {
+    Root,
+    Collection(usize, usize),
+}
+
+impl Foldables {
+    pub(crate) fn finish(self) -> Vec<FoldableScalar> {
+        self.scalars
+    }
+
+    pub(crate) fn push(&mut self, span: granit_parser::Span, kind: &Kind) {
+        self.owner = match kind {
+            Kind::Anchor | Kind::Tag | Kind::Comment { .. } => {
+                return;
             }
-            TokenType::StreamStart
-            | TokenType::DocumentStart
-            | TokenType::DocumentEnd => Some(None),
-            TokenType::Value | TokenType::BlockEntry => Some(blocks.last().copied()),
-            TokenType::BlockMappingStart | TokenType::BlockSequenceStart => {
-                blocks.push(span.start.col());
+            Kind::StreamStart | Kind::DocumentStart | Kind::DocumentEnd => {
+                Some(Owner::Root)
+            }
+            Kind::Value | Kind::BlockEntry => {
+                Some(self.blocks.last().map_or(Owner::Root, |&(line, column)| {
+                    Owner::Collection(line, column)
+                }))
+            }
+            Kind::BlockMappingStart | Kind::BlockSequenceStart => {
+                self.blocks.push((span.start.line() - 1, span.start.col()));
                 None
             }
-            TokenType::BlockEnd => {
-                blocks.pop();
+            Kind::BlockEnd => {
+                self.blocks.pop();
                 None
             }
-            TokenType::FlowMappingStart | TokenType::FlowSequenceStart => {
-                flow += 1;
+            Kind::FlowMappingStart | Kind::FlowSequenceStart => {
+                self.flow += 1;
                 None
             }
-            TokenType::FlowMappingEnd | TokenType::FlowSequenceEnd => {
-                flow = flow.saturating_sub(1);
+            Kind::FlowMappingEnd | Kind::FlowSequenceEnd => {
+                self.flow = self.flow.saturating_sub(1);
                 None
             }
-            TokenType::Scalar(style, _) if flow == 0 => {
+            Kind::Scalar { style, .. } if self.flow == 0 => {
                 let quotes = usize::from(matches!(
                     style,
                     ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
                 ));
-                if let Some(owner) = owner
-                    && style != ScalarStyle::Literal
+                if let Some(owner) = self.owner
+                    && *style != ScalarStyle::Literal
                 {
-                    scalars.push((
-                        marker_byte_offset(span.start).get() + quotes
+                    self.scalars.push(FoldableScalar {
+                        content: marker_byte_offset(span.start).get() + quotes
                             ..marker_byte_offset(span.end).get() - quotes,
-                        owner,
-                        style,
-                    ));
+                        owner: match owner {
+                            Owner::Root => None,
+                            Owner::Collection(line, column) => Some((line, column)),
+                        },
+                        style: *style,
+                    });
                 }
                 None
             }
             _ => None,
         };
     }
-    scalars
 }
 
 /// The byte offsets in `line` of the spaces to break at so each piece fits `width` chars
@@ -177,11 +224,21 @@ fn breaks(
     indent: usize,
     width: usize,
 ) -> Vec<usize> {
-    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    breaks_from_chars(line.char_indices(), scalar, style, indent, width)
+}
+
+pub(crate) fn breaks_from_chars(
+    chars: impl Iterator<Item = (usize, char)>,
+    scalar: &Range<usize>,
+    style: ScalarStyle,
+    indent: usize,
+    width: usize,
+) -> Vec<usize> {
+    let chars: Vec<(usize, char)> = chars.collect();
     let candidates: Vec<(usize, usize)> = chars
         .windows(3)
         .enumerate()
-        .filter(|(_, window)| {
+        .filter(|(index, window)| {
             let ((before, left), (after, right)) = (window[0], window[2]);
             window[1].1 == ' '
                 && !left.is_whitespace()
@@ -191,10 +248,9 @@ fn breaks(
                 && scalar.contains(&before)
                 && scalar.contains(&after)
                 && !(style == ScalarStyle::DoubleQuoted
-                    && line[..window[1].0]
-                        .bytes()
+                    && chars[..index + 1].iter()
                         .rev()
-                        .take_while(|byte| *byte == b'\\')
+                        .take_while(|(_, ch)| *ch == '\\')
                         .count()
                         % 2
                         == 1)

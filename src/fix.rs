@@ -742,12 +742,7 @@ fn rewrite_parse_notice(
 fn repair_events_match(original: &str, repaired: &str) -> bool {
     let before = TextVersion::new(original);
     let after = TextVersion::new(repaired);
-    let before = repair_representation(before.analysis());
-    let after = repair_representation(after.analysis());
-    before
-        .iter()
-        .map(|doc| &doc.events)
-        .eq(after.iter().map(|doc| &doc.events))
+    representation_matches(before.analysis(), after.analysis())
 }
 
 #[doc(hidden)]
@@ -755,72 +750,106 @@ fn repair_events_match(original: &str, repaired: &str) -> bool {
 /// # Panics
 /// Panics if either input lacks a complete granit parse.
 pub fn format_events_match(original: &str, formatted: &str) -> bool {
+    let before = TextVersion::new(original);
+    let after = TextVersion::new(formatted);
+    if format_events_match_with_analysis(before.analysis(), after.analysis()) {
+        return true;
+    }
+    let normalize = |text: &str| {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        trailing_spaces::fix(&text).unwrap_or(text)
+    };
+    !non_ascii_marker(formatted)
+        && repair_events_match(&normalize(original), &normalize(formatted))
+}
+
+pub(crate) fn format_events_match_with_analysis(
+    original: Analysis<'_>,
+    formatted: Analysis<'_>,
+) -> bool {
+    !non_ascii_marker(formatted.text()) && representation_matches(original, formatted)
+}
+
+fn non_ascii_marker(formatted: &str) -> bool {
     // The reference parser's marker lookahead includes non-ASCII whitespace.
-    if crate::rules::support::line_syntax::split_lines_preserve_endings(formatted).any(
+    crate::rules::support::line_syntax::split_lines_preserve_endings(formatted).any(
         |(_, line, _)| {
             let line = line.strip_prefix('\u{feff}').unwrap_or(line);
             crate::rules::support::line_syntax::starts_with_document_marker(line)
                 && line.as_bytes().get(3).is_some_and(|byte| !byte.is_ascii())
         },
-    ) {
-        return false;
-    }
-    if repair_events_match(original, formatted) {
-        return true;
-    }
-    // Granit's terminal block values depend on disposable indentation and line endings.
-    let normalize = |text: &str| {
-        let text = text.replace("\r\n", "\n").replace('\r', "\n");
-        trailing_spaces::fix(&text).unwrap_or(text)
-    };
-    repair_events_match(&normalize(original), &normalize(formatted))
+    )
 }
 
-fn repair_representation(
-    input: Analysis<'_>,
-) -> Vec<crate::rules::support::event_compare::Document<'_>> {
-    use crate::rules::support::yaml_version;
-    use granit_parser::{ScalarStyle, StructureStyle};
-    let (documents, parsed) =
-        crate::rules::support::event_compare::documents_with_analysis(input);
-    let mut documents = parsed
-        .then_some(documents)
-        .expect("repair operands have complete parses");
-    for document in &mut documents {
-        let yaml11 = matches!(document.events.first(), Some(Event::DocumentStart(_, Some(version)))
-            if yaml_version::resolves_as_yaml_1_1(Some(yaml_version::event_version(*version))));
-        for event in &mut document.events {
-            match event {
-                Event::DocumentStart(explicit, _) => *explicit = false,
-                Event::SequenceStart(style, ..) | Event::MappingStart(style, ..) => {
-                    *style = StructureStyle::Block;
+fn representation_matches(before: Analysis<'_>, after: Analysis<'_>) -> bool {
+    assert!(
+        before.parsed().valid && after.parsed().valid,
+        "repair operands have complete parses"
+    );
+    let significant = |event: &Event<'_>| {
+        !matches!(
+            event,
+            Event::Comment(..) | Event::StreamStart | Event::StreamEnd
+        )
+    };
+    let mut left = before
+        .event_iter()
+        .map(|(event, _)| event)
+        .filter(significant);
+    let mut right = after
+        .event_iter()
+        .map(|(event, _)| event)
+        .filter(significant);
+    let mut yaml11 = false;
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return true,
+            (Some(a), Some(b)) => {
+                if let Event::DocumentStart(_, version) = &a {
+                    yaml11 = crate::rules::support::yaml_version::resolves_as_yaml_1_1(
+                        version.map(crate::rules::support::yaml_version::event_version),
+                    );
                 }
-                Event::Scalar(value, style, _, tag)
-                    if (*style != ScalarStyle::Plain
-                        || tag.is_some()
-                        || (if yaml11 {
-                            !yaml_version::resolves_to_nonstring_in_yaml_1_1(value)
-                        } else {
-                            matches!(
-                                crate::yaml_dom::Scalar::resolve_plain_scalar(
-                                    value.clone()
-                                ),
-                                crate::yaml_dom::Scalar::String(_)
-                            ) && !crate::yaml_dom::is_core_schema_int_spelling(value)
-                        }))
-                        && (!value.contains('\u{feff}')
-                            || matches!(
-                                *style,
-                                ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
-                            )) =>
+                if a != b && normalized_event(a, yaml11) != normalized_event(b, yaml11)
                 {
-                    *style = ScalarStyle::DoubleQuoted;
+                    return false;
                 }
-                _ => {}
             }
+            _ => return false,
         }
     }
-    documents
+}
+
+fn normalized_event(mut event: Event<'_>, yaml11: bool) -> Event<'_> {
+    use crate::rules::support::yaml_version;
+    use granit_parser::{ScalarStyle, StructureStyle};
+    match &mut event {
+        Event::DocumentStart(explicit, _) => *explicit = false,
+        Event::SequenceStart(style, ..) | Event::MappingStart(style, ..) => {
+            *style = StructureStyle::Block;
+        }
+        Event::Scalar(value, style, _, tag)
+            if (*style != ScalarStyle::Plain
+                || tag.is_some()
+                || (if yaml11 {
+                    !yaml_version::resolves_to_nonstring_in_yaml_1_1(value)
+                } else {
+                    matches!(
+                        crate::yaml_dom::Scalar::resolve_plain_scalar(value.clone()),
+                        crate::yaml_dom::Scalar::String(_)
+                    ) && !crate::yaml_dom::is_core_schema_int_spelling(value)
+                }))
+                && (!value.contains('\u{feff}')
+                    || matches!(
+                        *style,
+                        ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
+                    )) =>
+        {
+            *style = ScalarStyle::DoubleQuoted;
+        }
+        _ => {}
+    }
+    event
 }
 
 /// Whether either side ends in a bare `\r`, which `similar` renders as a hunk line no patch

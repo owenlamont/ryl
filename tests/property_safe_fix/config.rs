@@ -10,6 +10,8 @@ use ryl::lint::{LintProblem, lint_str};
 #[path = "../common/yaml_canonical.rs"]
 mod yaml_canonical;
 use tempfile::TempDir;
+
+use super::representation;
 pub use yaml_canonical::parse_for_compare;
 
 const COMMON_SAFE_FIX_RULES_YAML: &str = "rules:
@@ -246,12 +248,12 @@ pub fn reference_safe_eof_append(input: &str, fixed: &str) -> bool {
     if input.ends_with(['\r', '\n']) {
         return false;
     }
-    let Some(before) = noyalib::from_str::<noyalib::Value>(input).ok() else {
+    let Some(before) = representation::representation(input) else {
         return false;
     };
     ["\n", "\r\n", "\r"].into_iter().any(|newline| {
         let terminated = format!("{input}{newline}");
-        noyalib::from_str::<noyalib::Value>(&terminated).ok() == Some(before.clone())
+        representation::representation(&terminated).as_ref() == Some(&before)
             && parse_for_compare(&terminated)
                 .is_some_and(|value| Some(value) == parse_for_compare(fixed))
     })

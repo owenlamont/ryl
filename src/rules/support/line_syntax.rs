@@ -98,40 +98,50 @@ where
     if !facts.valid {
         return None;
     }
+    let mut protected = HashSet::new();
+    for ((style, span), &(start, last)) in facts.scalars().zip(input.scalar_lines()) {
+        if filter(style, span) {
+            protected.extend(start..=last);
+        }
+    }
+    Some(protected)
+}
+
+pub(crate) fn scalar_line_ranges(input: Analysis<'_>) -> Vec<(usize, usize)> {
     let buffer = input.text();
     let blank: Vec<_> = input
         .lines()
         .map(|(_, line, _)| line.trim_matches([' ', '\t']).is_empty())
         .collect();
     let headers = input.headers();
-    let mut protected = HashSet::new();
-    for (style, span) in facts.scalars() {
-        if !filter(style, span) {
-            continue;
-        }
-        let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
-        let start = if block {
-            let header = headers
-                .iter()
-                .find(|header| header.span.start.index() == span.start.index())
-                .map_or(span.start.line(), |header| header.line);
-            (1..span.start.line())
-                .rev()
-                .take_while(|above| blank.get(above - 1) == Some(&true))
-                .last()
-                .unwrap_or(span.start.line())
-                .max(header)
-        } else {
-            span.start.line()
-        };
-        let last = span.end.line()
-            - usize::from(
-                span.end.col() == 0
-                    || (block && span.end.byte_offset() != Some(buffer.len())),
-            );
-        protected.extend(start..=last);
-    }
-    Some(protected)
+    input
+        .parsed()
+        .scalars()
+        .map(|(style, span)| {
+            let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+            let start = if block {
+                let header = headers
+                    .binary_search_by_key(&span.start.index(), |header| {
+                        header.span.start.index()
+                    })
+                    .map_or(span.start.line(), |index| headers[index].line);
+                (1..span.start.line())
+                    .rev()
+                    .take_while(|above| blank.get(above - 1) == Some(&true))
+                    .last()
+                    .unwrap_or(span.start.line())
+                    .max(header)
+            } else {
+                span.start.line()
+            };
+            let last = span.end.line()
+                - usize::from(
+                    span.end.col() == 0
+                        || (block && span.end.byte_offset() != Some(buffer.len())),
+                );
+            (start, last)
+        })
+        .collect()
 }
 
 /// `(0-based index, content, ending)` triples per line; `ending` is the matched break

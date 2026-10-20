@@ -4,7 +4,7 @@
 //! decisions that depend on the scalar's style and whether folding is legal there, so
 //! only `ryl format` folds, and only where [`fold`] proves it safe.
 
-mod fold;
+pub(crate) mod fold;
 
 pub use fold::{Fold, fold};
 
