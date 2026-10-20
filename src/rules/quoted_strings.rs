@@ -1035,13 +1035,13 @@ impl<'cfg> FixState<'cfg> {
         span: Span,
         replacement: Replacement,
     ) -> (Replacement, bool) {
-        let prefix = self.buffer[..replacement.0.get()]
-            .rsplit(['\n', '\r'])
-            .next()
-            .expect("splitting yields the scalar's line prefix");
+        let prefix = self.buffer[..replacement.0.get()].trim_end_matches('\u{feff}');
         // A line-leading plain scalar can expose a document marker and a quoted child.
         if span.start.line() != span.end.line()
-            || prefix.trim_start_matches('\u{feff}').is_empty()
+            || prefix
+                .as_bytes()
+                .last()
+                .is_none_or(|last| matches!(last, b'\n' | b'\r'))
         {
             return (replacement, false);
         }
