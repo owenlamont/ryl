@@ -28,6 +28,8 @@ pub struct TextVersion<'text> {
     flow_sites: OnceCell<Vec<(usize, u8)>>,
     indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
+    layout_facts: OnceCell<crate::format::layout::dry::Facts>,
+    scalar_lines: OnceCell<Vec<(usize, usize)>>,
 }
 
 #[derive(Clone, Copy)]
@@ -56,6 +58,8 @@ impl<'text> TextVersion<'text> {
             flow_sites: OnceCell::new(),
             indentation: OnceCell::new(),
             directives: OnceCell::new(),
+            layout_facts: OnceCell::new(),
+            scalar_lines: OnceCell::new(),
         }
     }
 
@@ -90,6 +94,8 @@ impl<'text> TextVersion<'text> {
             flow_sites: self.flow_sites,
             indentation: self.indentation,
             directives: self.directives,
+            layout_facts: self.layout_facts,
+            scalar_lines: self.scalar_lines,
         }
     }
 
@@ -99,6 +105,27 @@ impl<'text> TextVersion<'text> {
 
     pub(crate) fn mark_strict_valid(&mut self) {
         self.strict_valid = true;
+    }
+
+    pub(crate) fn into_facts(self) -> Option<ParsedFacts> {
+        self.parsed.into_inner()
+    }
+
+    pub(crate) fn take_facts(&mut self) -> Option<ParsedFacts> {
+        self.parsed.take()
+    }
+
+    pub(crate) fn release_layout(&mut self) {
+        self.headers.take();
+        self.byte_line_starts.take();
+        self.lines.take();
+        self.tokens.take();
+        self.sites.take();
+        self.flow_sites.take();
+        self.indentation.take();
+        self.directives.take();
+        self.layout_facts.take();
+        self.scalar_lines.take();
     }
 
     pub(crate) fn inherit_event_capacity(&mut self, previous: Analysis<'_>) {
@@ -181,6 +208,9 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn headers(self) -> &'text [Header] {
+        if let Some(facts) = self.layout_facts() {
+            return &facts.headers;
+        }
         self.source
             .headers
             .get_or_init(|| block_scalar_chomping::headers_with_analysis(self))
@@ -194,19 +224,31 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn verify_strict(self, output: Analysis<'_>) -> Result<bool, ScanError> {
+        self.verify_strict_events(output, self.event_iter().map(|(event, _)| event))
+    }
+
+    pub(crate) fn verify_strict_events(
+        self,
+        output: Analysis<'_>,
+        expected: impl Iterator<Item = Event<'text>>,
+    ) -> Result<bool, ScanError> {
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Analysis,
+        );
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Verify,
+        );
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Strict,
+        );
         let mut facts = ParsedFacts {
             events: Vec::with_capacity(self.parsed().events.len()),
             ..ParsedFacts::default()
         };
         let mut depth = 0;
-        let matches = events::verify_strict(
-            self.parsed()
-                .events
-                .iter()
-                .map(|(event, _)| event.borrow(self.text())),
-            output.text(),
-            |event, span| facts.push(output.text(), event, span, &mut depth),
-        )?;
+        let matches = events::verify_strict(expected, output.text(), |event, span| {
+            facts.push(output.text(), event, span, &mut depth);
+        })?;
         facts.valid = true;
         facts.compact();
         output.seed_facts(facts);
@@ -274,10 +316,22 @@ impl<'text> Analysis<'text> {
         self.lines().map(|(_, line, _)| line).collect()
     }
 
+    pub(crate) fn line_is_empty(self, line: usize) -> bool {
+        let lines = self
+            .source
+            .lines
+            .get_or_init(|| line_syntax::scan_lines(self.text()).collect());
+        let (start, end, _) = lines[line];
+        start == end
+    }
+
     pub(crate) fn tokens(self) -> &'text lexical::Tokens {
-        self.source
-            .tokens
-            .get_or_init(|| lexical::scan(self.text()))
+        self.source.tokens.get_or_init(|| {
+            crate::format::layout::stats::count(
+                crate::format::layout::stats::Counter::Scan,
+            );
+            lexical::scan(self.text())
+        })
     }
 
     pub(crate) fn directives(self) -> &'text crate::directives::Directives {
@@ -293,6 +347,9 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn sites(self) -> &'text [token_spacing::Site] {
+        if let Some(facts) = self.layout_facts() {
+            return &facts.sites;
+        }
         self.source
             .sites
             .get_or_init(|| token_spacing::sites_with_analysis(self))
@@ -306,6 +363,22 @@ impl<'text> Analysis<'text> {
 
     pub(crate) fn seed_facts(self, facts: ParsedFacts) {
         self.source.parsed.get_or_init(|| facts);
+    }
+
+    pub(crate) fn layout_facts(
+        self,
+    ) -> Option<&'text crate::format::layout::dry::Facts> {
+        self.source.layout_facts.get()
+    }
+
+    pub(crate) fn seed_layout_facts(self, facts: crate::format::layout::dry::Facts) {
+        self.source.layout_facts.get_or_init(|| facts);
+    }
+
+    pub(crate) fn scalar_lines(self) -> &'text [(usize, usize)] {
+        self.source
+            .scalar_lines
+            .get_or_init(|| line_syntax::scalar_line_ranges(self))
     }
 }
 
@@ -370,6 +443,14 @@ impl ParsedFacts {
         event_capacity: usize,
         strict: bool,
     ) -> Self {
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Analysis,
+        );
+        if strict {
+            crate::format::layout::stats::count(
+                crate::format::layout::stats::Counter::Strict,
+            );
+        }
         let mut facts = Self {
             events: Vec::with_capacity(event_capacity),
             ..Self::default()

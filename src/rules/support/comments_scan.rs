@@ -3,6 +3,7 @@ use granit_parser::{Placement, Span};
 
 /// `text` is granit's raw payload (after the `#`, excluding the break); `span` covers
 /// the whole comment including the `#`; `placement` is `Right` for trailing comments.
+#[derive(Clone)]
 pub(crate) struct CommentInfo {
     pub(crate) span: Span,
     pub(crate) text: String,
@@ -17,6 +18,9 @@ pub(crate) struct CommentInfo {
 pub(crate) fn collect_comments_with_analysis(
     input: crate::text_version::Analysis<'_>,
 ) -> Vec<CommentInfo> {
+    if let Some(facts) = input.layout_facts() {
+        return facts.comments.clone();
+    }
     input
         .tokens()
         .iter()

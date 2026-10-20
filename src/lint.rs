@@ -442,6 +442,7 @@ pub(crate) fn relaxed_parse_error(content: &str) -> Option<LintProblem> {
 }
 
 pub(crate) fn strict_parse_error(content: &str) -> Option<LintProblem> {
+    crate::format::layout::stats::count(crate::format::layout::stats::Counter::Strict);
     unsupported_version_error(content)
         .or_else(|| scan(content, true).err().as_ref().map(syntax_problem))
 }

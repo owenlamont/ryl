@@ -7,7 +7,7 @@ use crate::text_version::edits::Edit;
 use crate::text_version::Analysis;
 use std::ops::Range;
 
-use crate::text_version::lexical::{Kind as LexicalKind, Tokens};
+use crate::text_version::lexical::Kind as LexicalKind;
 use granit_parser::ScalarStyle;
 
 use crate::rules::support::punctuation::byte_line_and_column;
@@ -67,34 +67,105 @@ impl Site {
 }
 
 pub(crate) fn sites_with_analysis(input: Analysis<'_>) -> Vec<Site> {
-    let buffer = input.text();
-    let tokens = input.tokens();
-    let walk = Walk {
-        buffer,
-        line_starts: input.byte_line_starts(),
-        tokens,
-    };
-    let mut sites = Vec::new();
-    for (idx, (span, token)) in tokens.iter().enumerate() {
+    let mut sites = Sites::new(input);
+    for (span, kind) in input.tokens().iter() {
+        sites.push(span, kind);
+    }
+    sites.finish()
+}
+
+pub(crate) struct Sites<'a> {
+    walk: Walk<'a>,
+    found: Vec<Site>,
+    previous_min: Option<usize>,
+    pending: Option<(usize, usize)>,
+    open: Vec<(usize, usize, usize)>,
+}
+
+impl<'a> Sites<'a> {
+    pub(crate) fn new(input: Analysis<'a>) -> Self {
+        Self {
+            walk: Walk {
+                buffer: input.text(),
+                line_starts: input.byte_line_starts(),
+            },
+            found: Vec::new(),
+            previous_min: None,
+            pending: None,
+            open: Vec::new(),
+        }
+    }
+
+    pub(crate) fn finish(self) -> Vec<Site> {
+        self.found
+    }
+
+    pub(crate) fn push(&mut self, span: granit_parser::Span, token: &LexicalKind) {
+        self.open.retain_mut(|(index, line, depth)| {
+            match token {
+                LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart => {
+                    *depth += 1;
+                }
+                LexicalKind::BlockEnd => *depth -= 1,
+                _ => {}
+            }
+            let multiline = *depth > 0
+                && match token {
+                    LexicalKind::Comment { .. } | LexicalKind::BlockEnd => false,
+                    LexicalKind::Scalar {
+                        style: ScalarStyle::Literal | ScalarStyle::Folded,
+                        ..
+                    } => span.end.line() > *line,
+                    _ => span.start.line() > *line,
+                };
+            if multiline {
+                self.found[*index].fix = Fix::Reindents;
+            }
+            *depth > 0 && !multiline
+        });
+        if let Some((index, line)) = self.pending.take()
+            && span.start.line() == line
+            && matches!(
+                token,
+                LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart
+            )
+        {
+            self.open.push((index, line, 1));
+        }
+        let walk = &self.walk;
         let at = marker_byte_offset(span.start).get();
-        match token {
+        let after = match token {
             LexicalKind::BlockEntry => {
                 let dash = walk.skip_ws_back(at).checked_sub(1);
                 if let Some(dash) = dash.filter(|&dash| walk.byte_at(dash) == b'-') {
-                    sites.extend(walk.after(Indicator::Dash, dash, idx));
+                    walk.after(Indicator::Dash, dash)
+                } else {
+                    None
                 }
             }
             LexicalKind::Key if span.end.index() > span.start.index() => {
-                sites.extend(walk.after(Indicator::Question, at, idx));
+                walk.after(Indicator::Question, at)
             }
             LexicalKind::Value => {
-                sites.extend(walk.before_colon(at, idx));
-                sites.extend(walk.after(Indicator::Colon, at, idx));
+                self.found.extend(walk.before_colon(at, self.previous_min));
+                walk.after(Indicator::Colon, at)
             }
-            _ => {}
+            _ => None,
+        };
+        if let Some(site) = after {
+            if site.fix == Fix::Safe {
+                self.pending = Some((self.found.len(), site.line));
+            }
+            self.found.push(site);
         }
+        self.previous_min = match token {
+            LexicalKind::Scalar { .. }
+            | LexicalKind::FlowMappingEnd
+            | LexicalKind::FlowSequenceEnd => Some(0),
+            LexicalKind::Alias | LexicalKind::Anchor | LexicalKind::Tag => Some(1),
+            _ => None,
+        };
     }
-    sites
 }
 
 pub(crate) fn edits(
@@ -128,7 +199,6 @@ pub(crate) fn edits(
 struct Walk<'a> {
     buffer: &'a str,
     line_starts: &'a [usize],
-    tokens: &'a Tokens,
 }
 
 impl Walk<'_> {
@@ -158,7 +228,7 @@ impl Walk<'_> {
         }
     }
 
-    fn after(&self, indicator: Indicator, at: usize, idx: usize) -> Option<Site> {
+    fn after(&self, indicator: Indicator, at: usize) -> Option<Site> {
         let mut end = at + 1;
         while matches!(self.byte_at(end), b' ' | b'\t') {
             end += 1;
@@ -170,23 +240,12 @@ impl Walk<'_> {
         let mut site = self.site(indicator, false, at + 1..end);
         if matches!(next, b',' | b']' | b'}') {
             site.fix = Fix::Elsewhere;
-        } else if self.opens_multiline_collection(idx, site.line) {
-            site.fix = Fix::Reindents;
         }
         Some(site)
     }
 
-    fn before_colon(&self, at: usize, idx: usize) -> Option<Site> {
-        let min = match idx.checked_sub(1).map(|prev| self.tokens.kind(prev)) {
-            Some(
-                LexicalKind::Scalar { .. }
-                | LexicalKind::FlowMappingEnd
-                | LexicalKind::FlowSequenceEnd,
-            ) => 0,
-            // `:` is an anchor-name and tag char, so `&a: v` is a scalar `v` anchored `a:`.
-            Some(LexicalKind::Alias | LexicalKind::Anchor | LexicalKind::Tag) => 1,
-            _ => return None,
-        };
+    fn before_colon(&self, at: usize, min: Option<usize>) -> Option<Site> {
+        let min = min?;
         let start = self.skip_ws_back(at);
         if start == 0 || matches!(self.byte_at(start - 1), b'\n' | b'\r') {
             return None;
@@ -194,40 +253,5 @@ impl Walk<'_> {
         let mut site = self.site(Indicator::Colon, true, start..at);
         site.min = min;
         Some(site)
-    }
-
-    /// Whether the node after token `idx` is a block collection opening on `line` with
-    /// a token starting on a later one, or a block scalar whose body runs onto one.
-    fn opens_multiline_collection(&self, idx: usize, line: usize) -> bool {
-        let mut rest = self.tokens.iter_from(idx + 1);
-        let opens = rest.next().is_some_and(|(span, token)| {
-            span.start.line() == line
-                && matches!(
-                    token,
-                    LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart
-                )
-        });
-        let mut depth = 1usize;
-        opens
-            && rest
-                .take_while(|(_, token)| {
-                    match token {
-                        LexicalKind::BlockMappingStart
-                        | LexicalKind::BlockSequenceStart => {
-                            depth += 1;
-                        }
-                        LexicalKind::BlockEnd => depth -= 1,
-                        _ => {}
-                    }
-                    depth > 0
-                })
-                .any(|(span, token)| match token {
-                    LexicalKind::Comment { .. } | LexicalKind::BlockEnd => false,
-                    LexicalKind::Scalar {
-                        style: ScalarStyle::Literal | ScalarStyle::Folded,
-                        ..
-                    } => span.end.line() > line,
-                    _ => span.start.line() > line,
-                })
     }
 }

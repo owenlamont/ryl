@@ -155,8 +155,11 @@ skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).
 
 ## `ryl format`
 
-`ryl format` reuses the `--fix` engine (`fix::run_passes`: parse gate, `disable-file`,
-fixed-point loop, convergence report) over a `fix::Passes` value. `ryl check --fix`
+`ryl format` plans supported strict-valid inputs in `format::layout`, using one
+candidate emission, strict event verification, the whole-format semantic guard and
+a mandatory dry plan. Unsupported interactions restart the bounded `--fix` engine
+from the original bytes. Both paths consume a resolved `fix::Passes` value.
+`ryl check --fix`
 builds its `Passes` from the lint config (rule selection, per-rule `ignore`,
 per-file-ignores, `fixable`/`unfixable`, per-line-ignores); `ryl format` builds its own
 from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those, so a
@@ -166,24 +169,38 @@ zero-config run formats. Inline directives are honoured by both. A YAML config g
 Every changed formatter result must parse strictly and preserve the original significant
 events; a failed comparison rolls the rewrite back to the original input.
 
-The formatter batches comment/comma, punctuation, and compatible finishing edits against
-one analysis per group. Quotes, indentation and newline conversion retain their separate
-epochs. Conflicting byte ranges, suppression directives, marker changes and newly blank
+The fallback formatter batches comment/comma, punctuation, and compatible finishing
+edits against one analysis per group. Quotes, indentation and newline conversion
+retain their separate epochs. Conflicting byte ranges, suppression directives,
+marker changes and newly blank
 lines retain the sequential fixed-point path; `check --fix` always uses that path.
 Flow spacing shares cached punctuation sites; brackets retain their existing traversal
 when template text occurs, because braces and commas skip template spans.
 
-Formatter quote passes retain the value-keyed plain-snippet cache across epochs.
+Formatter quote decisions retain the value-keyed plain-snippet cache across plans.
 Column-zero document-marker checks run before the value-only cache lookup.
-Unguarded single-line ladder replacements settle locally before indentation measures
+Unguarded ladder replacements settle locally before indentation measures
 the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
-probe. Multiline replacements, line-leading scalars (including after a BOM), and
-suppressed quotes retain the bounded fixed-point path. Every quote replacement retains
+probe. Multiline collapses change virtual lines; multiline style changes compose
+line-local edits. Unsettled, line-leading or suppressed quote interactions retain
+the bounded fixed-point path. Every quote replacement retains
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
 
-For changed single-document indentation output of at least 1 MB, one strict streaming
-parse compares significant events against the input tape through EOF and caches compact
+The layout planner retains source provenance through dash joins, scalar collapses,
+comment shifts, folding and boundary finishing. Refusal-sensitive combinations use
+the existing driver; `check --fix` keeps its ordered rule pipeline. Set
+`RYL_LAYOUT_STATS` to a JSONL destination to record per-input fallback reasons,
+traversal/emission counts and elapsed time during development.
+
+The dry plan streams scanner tokens through bounded indentation lookahead and
+collects shared header, comment, spacing and folding facts. BOM inputs retain the
+cached normalizer, whose marker columns distinguish prefix BOMs from scalar content.
+Scalar protection ranges are cached per text epoch. Space replacements emit counts.
+
+For fallback and indentation-only callers, changed single-document output of at
+least 1 MB uses one strict streaming parse to compare significant events against the
+input tape through EOF and cache compact
 output facts for the subsequent passes. A successful comparison certifies strict validity.
 Strict parse errors retain the cached relaxed comparison and final strict-output guard.
 Small files and multi-document streams retain their existing verification paths.

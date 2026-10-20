@@ -44,49 +44,49 @@ impl Tokens {
             .iter()
             .map(|(span, kind)| (span.get(), kind))
     }
-
-    pub(crate) fn kind(&self, index: usize) -> &Kind {
-        &self.0[index].1
-    }
 }
 
 pub(super) fn scan(text: &str) -> Tokens {
     Tokens(
-        Scanner::new(StrInput::new(text))
-            .map_while(Result::ok)
-            .map(|token| {
-                let (span, kind) = token.into_parts();
-                let span = super::spans::StoredSpan::new(span);
-                let kind = match kind {
-                    TokenType::StreamStart => Kind::StreamStart,
-                    TokenType::StreamEnd => Kind::StreamEnd,
-                    TokenType::DocumentStart => Kind::DocumentStart,
-                    TokenType::DocumentEnd => Kind::DocumentEnd,
-                    TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
-                    TokenType::BlockMappingStart => Kind::BlockMappingStart,
-                    TokenType::BlockEnd => Kind::BlockEnd,
-                    TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
-                    TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
-                    TokenType::FlowMappingStart => Kind::FlowMappingStart,
-                    TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
-                    TokenType::BlockEntry => Kind::BlockEntry,
-                    TokenType::Key => Kind::Key,
-                    TokenType::Value => Kind::Value,
-                    TokenType::Alias(_) => Kind::Alias,
-                    TokenType::Anchor(_) => Kind::Anchor,
-                    TokenType::Tag(..) => Kind::Tag,
-                    TokenType::Scalar(style, value) => Kind::Scalar {
-                        style,
-                        empty: value.is_empty(),
-                    },
-                    TokenType::Comment(comment) => Kind::Comment {
-                        placement: comment.placement(),
-                        text: comment.into_text().into_owned().into_boxed_str(),
-                    },
-                    _ => Kind::Other,
-                };
-                (span, kind)
-            })
+        stream(text)
+            .map(|(span, kind)| (super::spans::StoredSpan::new(span), kind))
             .collect(),
     )
+}
+
+pub(crate) fn stream(text: &str) -> impl Iterator<Item = (Span, Kind)> {
+    Scanner::new(StrInput::new(text))
+        .map_while(Result::ok)
+        .map(|token| {
+            let (span, kind) = token.into_parts();
+            let kind = match kind {
+                TokenType::StreamStart => Kind::StreamStart,
+                TokenType::StreamEnd => Kind::StreamEnd,
+                TokenType::DocumentStart => Kind::DocumentStart,
+                TokenType::DocumentEnd => Kind::DocumentEnd,
+                TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
+                TokenType::BlockMappingStart => Kind::BlockMappingStart,
+                TokenType::BlockEnd => Kind::BlockEnd,
+                TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
+                TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
+                TokenType::FlowMappingStart => Kind::FlowMappingStart,
+                TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
+                TokenType::BlockEntry => Kind::BlockEntry,
+                TokenType::Key => Kind::Key,
+                TokenType::Value => Kind::Value,
+                TokenType::Alias(_) => Kind::Alias,
+                TokenType::Anchor(_) => Kind::Anchor,
+                TokenType::Tag(..) => Kind::Tag,
+                TokenType::Scalar(style, value) => Kind::Scalar {
+                    style,
+                    empty: value.is_empty(),
+                },
+                TokenType::Comment(comment) => Kind::Comment {
+                    placement: comment.placement(),
+                    text: comment.into_text().into_owned().into_boxed_str(),
+                },
+                _ => Kind::Other,
+            };
+            (span, kind)
+        })
 }

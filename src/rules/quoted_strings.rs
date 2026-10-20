@@ -935,6 +935,20 @@ pub(crate) fn fix_format_with_cache(
     cache: &mut HashMap<String, Option<bool>>,
     settle: bool,
 ) -> (Option<String>, bool) {
+    let (replacements, settled, _) = format_replacements(input, cfg, cache, settle);
+    (
+        (!replacements.is_empty())
+            .then(|| apply_replacements(input.text(), replacements)),
+        settled,
+    )
+}
+
+pub(crate) fn format_replacements(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+    cache: &mut HashMap<String, Option<bool>>,
+    settle: bool,
+) -> (Vec<Replacement>, bool, Option<usize>) {
     let mut fixer = QuotedStringsFixer::new(cfg, input.text());
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
     fixer.settle = settle;
@@ -943,8 +957,7 @@ pub(crate) fn fix_format_with_cache(
         fixer.on_event(event, span);
     }
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
-    let settled = fixer.settled;
-    (fixer.finish(), settled)
+    (fixer.replacements, fixer.settled, fixer.unsettled)
 }
 
 fn initial_consistent_quote_style(cfg: &Config, buffer: &str) -> Option<QuoteStyle> {
@@ -988,6 +1001,7 @@ struct QuotedStringsFixer<'cfg> {
     replacements: Vec<Replacement>,
     settle: bool,
     settled: bool,
+    unsettled: Option<usize>,
 }
 
 impl<'cfg> QuotedStringsFixer<'cfg> {
@@ -1001,6 +1015,7 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
             replacements: Vec::new(),
             settle: false,
             settled: false,
+            unsettled: None,
         }
     }
 
@@ -1017,11 +1032,15 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
         let replacements = &mut self.replacements;
         let settle = self.settle;
         let settled = &mut self.settled;
+        let unsettled = &mut self.unsettled;
         self.state
             .visit_event(event, span, |state, style, value, tag, span| {
                 let (replacement, final_scalar) =
                     state.fix_scalar(style, value, tag, span, settle);
                 *settled &= final_scalar;
+                if !final_scalar {
+                    unsettled.get_or_insert(marker_byte_offset(span.start).get());
+                }
                 if let Some(replacement) = replacement {
                     replacements.push(replacement);
                 }
@@ -1044,16 +1063,14 @@ impl<'cfg> FixState<'cfg> {
         &mut self,
         value: &str,
         active_key: bool,
-        span: Span,
         replacement: Replacement,
     ) -> (Replacement, bool) {
         let prefix = self.buffer[..replacement.0.get()].trim_end_matches('\u{feff}');
         // A line-leading plain scalar can expose a document marker and a quoted child.
-        if span.start.line() != span.end.line()
-            || prefix
-                .as_bytes()
-                .last()
-                .is_none_or(|last| matches!(last, b'\n' | b'\r'))
+        if prefix
+            .as_bytes()
+            .last()
+            .is_none_or(|last| matches!(last, b'\n' | b'\r'))
         {
             return (replacement, false);
         }
@@ -1075,9 +1092,19 @@ impl<'cfg> FixState<'cfg> {
         };
         let buffer = format!("{text}{suffix}");
         let chars = text.chars().count();
+        let end_line = 1
+            + crate::rules::support::line_syntax::split_lines_preserve_endings(&text)
+                .filter(|(_, _, ending)| !ending.is_empty())
+                .count();
+        let end_column = text
+            .rsplit(['\n', '\r'])
+            .next()
+            .unwrap_or("")
+            .chars()
+            .count();
         let span = Span::new(
             Marker::new(0, 1, 0).with_byte_offset(Some(0)),
-            Marker::new(chars, 1, chars).with_byte_offset(Some(text.len())),
+            Marker::new(chars, end_line, end_column).with_byte_offset(Some(text.len())),
         );
         let mut local = FixState::new(self.config, &buffer);
         if self.in_flow() {
@@ -1094,7 +1121,10 @@ impl<'cfg> FixState<'cfg> {
         std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
         match next {
             None => ((start, end, text), true),
-            Some((_, _, next)) => ((start, end, next), false),
+            Some((_, _, next)) => {
+                let final_scalar = !next.starts_with(['\'', '"']);
+                ((start, end, next), final_scalar)
+            }
         }
     }
 
@@ -1213,7 +1243,7 @@ impl<'cfg> FixState<'cfg> {
         let mut settled = true;
         if settle && let Some(first) = replacement.take() {
             let (final_replacement, final_scalar) =
-                self.settle_scalar(value, active_key, span, first);
+                self.settle_scalar(value, active_key, first);
             replacement = Some(final_replacement);
             settled = final_scalar;
         }

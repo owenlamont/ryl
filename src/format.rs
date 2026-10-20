@@ -25,6 +25,8 @@ use crate::rules::{
 };
 use crate::text_version::{Analysis, TextVersion};
 
+pub(crate) mod layout;
+
 /// The rules `ryl format` applies, whatever the lint config enables.
 pub const FORMAT_RULE_IDS: [&str; 16] = [
     new_lines::ID,
@@ -300,14 +302,33 @@ fn format_tracked(
     tracking: &mut PassTracking<'_>,
     facts: Option<crate::text_version::ParsedFacts>,
 ) -> TextVersion<'static> {
+    let _recording = layout::stats::Recording::start(
+        path,
+        input.len(),
+        facts.is_some(),
+        tracking.strict_input,
+    );
+    let passes = Passes::format(cfg, input, skip);
+    let mut source = TextVersion::new(input);
+    if let Some(facts) = facts {
+        source.analysis().seed_facts(facts);
+    }
+    if tracking.strict_input == Some(true) {
+        match layout::format(&mut source, &passes, tracking) {
+            Ok(output) => return output,
+            Err(reason) => layout::stats::Recording::fallback(&reason),
+        }
+    } else if tracking.strict_input == Some(false) {
+        layout::stats::Recording::fallback(&layout::Fallback::Repair);
+    }
     run_passes_with_facts(
         input,
-        &Passes::format(cfg, input, skip),
+        &passes,
         path,
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::stderr(),
         tracking,
-        facts,
+        source.into_facts(),
     )
 }
 
