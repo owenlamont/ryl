@@ -198,6 +198,15 @@ fn folded_crlf_whitespace_tail_seed_keeps_the_reference_value() {
 }
 
 #[test]
+fn folded_multiple_whitespace_lines_reject_an_invented_newline() {
+    let input = "a: >\n  a\n\n    \n    \n\n";
+    let equivalent = r#"a: "a\n\n  \n  \n""#;
+    let mutated = r#"a: "a\n\n  \n\n  \n""#;
+    assert_eq!(check_values(input, equivalent), Ok(()));
+    assert!(check_values(input, mutated).is_err());
+}
+
+#[test]
 fn folded_whitespace_tails_follow_reference_values_across_line_endings() {
     check_reference_whitespace_tails('>');
 }
@@ -219,9 +228,17 @@ fn check_reference_whitespace_tails(style: char) {
         if !case.input.starts_with(&format!("a: {style}")) {
             continue;
         }
+        let equivalent =
+            format!("a: {}\n", serde_json::to_string(&case.expected).unwrap());
+        let mutated = format!(
+            "a: {}\n",
+            serde_json::to_string(&format!("\n{}", case.expected)).unwrap()
+        );
         let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String(case.expected));
         for ending in ["\n", "\r\n", "\r"] {
             let input = case.input.replace('\n', ending);
+            assert_eq!(check_values(&input, &equivalent), Ok(()), "{input:?}");
+            assert!(check_values(&input, &mutated).is_err(), "{input:?}");
             let nodes = representation(&input).unwrap();
             let actual = nodes.iter().rev().find_map(|node| match node {
                 Node::Scalar { value, .. } => Some(value),
