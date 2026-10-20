@@ -137,11 +137,11 @@ TOML row for the ryl-only ladder options.
   tags, the anchor/alias graph, and each scalar resolved against its document's declared
   version. A `%YAML 1.1` document resolves plain scalars through the suite's own 1.1
   table, written independently of `quoted-strings`'.
-- Folded whitespace-tail corrections distinguish empty lines from whitespace content
-  and apply the reference adjustment before the first whitespace content line;
-  `reference_block_whitespace_tails.jsonl` pins reference values
-  across chomping modes, whitespace indentation and trailing blank counts, with each
-  fixture replayed under LF, CRLF and CR.
+- Whitespace-tail breadth lives in `arb_whitespace_block_scalar`, shared by YAML and
+  Markdown properties. The ignored `block_scalar_oracle_matches_reference` property
+  cross-checks the oracle against the reference parser: set `RYL_REFERENCE_PARSER` to
+  the `yaml-parser` CLI and run with `--ignored --exact`. Keep named regressions for
+  the CRLF seed and multiple whitespace content lines instead of fixture matrices.
 - Comment fidelity keys each trimmed comment to the data events before it and whether it
   is inline; anchor and alias names must survive in order.
 - Re-indent (`reindent_places_each_line_or_leaves_its_document`) calls

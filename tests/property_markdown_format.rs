@@ -217,57 +217,24 @@ proptest! {
 }
 
 fn arb_whitespace_tail_scalar() -> impl Strategy<Value = String> {
-    (
-        prop::sample::select(vec!['|', '>']),
-        prop::sample::select(vec!["", "-", "+"]),
-        0usize..=6,
-        0usize..=3,
-        0usize..=3,
-        1usize..=3,
-        prop::sample::select(vec!["\n", "\r\n"]),
+    (properties::arb_whitespace_block_scalar(), any::<bool>()).prop_map(
+        |(yaml, fenced)| {
+            let ending = if yaml.contains("\r\n") {
+                "\r\n"
+            } else if yaml.contains('\r') {
+                "\r"
+            } else {
+                "\n"
+            };
+            let yaml = yaml.replace("\r\n", "\n").replace('\r', "\n");
+            let host = if fenced {
+                format!("# Host\n\n```yaml\n{yaml}```\n\nHost tail.\n")
+            } else {
+                format!("---\n{yaml}---\n\nHost tail.\n")
+            };
+            host.replace('\n', ending)
+        },
     )
-        .prop_map(|(style, chomp, indent, blanks, trailing, count, ending)| {
-            format!(
-                "```yaml\na: {style}{chomp}\n  a\n{}{}\n{}```\n",
-                "\n".repeat(blanks),
-                vec![" ".repeat(indent); count].join("\n"),
-                "\n".repeat(trailing)
-            )
-            .replace('\n', ending)
-        })
-}
-
-#[test]
-fn folded_whitespace_tails_survive_markdown_profiles() {
-    check_whitespace_tail_regions('>', 1);
-    check_whitespace_tail_regions('>', 2);
-}
-
-#[test]
-fn literal_whitespace_tails_survive_markdown_profiles() {
-    check_whitespace_tail_regions('|', 1);
-    check_whitespace_tail_regions('|', 2);
-}
-
-fn check_whitespace_tail_regions(style: char, count: usize) {
-    for chomp in ["", "-", "+"] {
-        for indent in [0, 1, 2, 3, 4, 6] {
-            for trailing in [0, 1, 3] {
-                for ending in ["\n", "\r\n"] {
-                    let yaml = format!(
-                        "a: {style}{chomp}\n  a\n\n\n{}\n{}",
-                        vec![" ".repeat(indent); count].join("\n"),
-                        "\n".repeat(trailing)
-                    );
-                    let fenced =
-                        format!("# Host\n\n```yaml\n{yaml}```\n\nHost tail.\n");
-                    let front_matter = format!("---\n{yaml}---\n\nHost tail.\n");
-                    run_invariants(&fenced.replace('\n', ending)).unwrap();
-                    run_invariants(&front_matter.replace('\n', ending)).unwrap();
-                }
-            }
-        }
-    }
 }
 
 fn arb_reference_block_scalar() -> impl Strategy<Value = String> {
