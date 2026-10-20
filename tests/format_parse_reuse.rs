@@ -123,6 +123,25 @@ fn scalar_protection_tracks_spacing_quote_and_header_edits() {
 }
 
 #[test]
+fn scalar_quote_plans_preserve_flow_context_and_feed_layout() {
+    assert_format("a: \"é\tvalue\"\n", "a: é\tvalue\n", "");
+    assert_format(
+        "é: \"café \\\"quoted\\\"\"\nflow: {\"é\":x, 'café': \"café \\\"quoted\\\"\", apostrophe: 'café''s: value', list: \"café [value]\"}\nrepeated: \"café \\\"quoted\\\"\"\ns: |+\n  value\n  \n",
+        "é: café \"quoted\"\nflow: {é: x, café: café \"quoted\", apostrophe: \"café's: value\", list: 'café [value]'}\nrepeated: café \"quoted\"\ns: |+\n  value\n\n",
+        "",
+    );
+}
+
+#[test]
+fn settled_quote_keys_keep_a_quote_dependent_colon() {
+    assert_format(
+        "flow: {\"é\":x} # ryl disable-line rule:colons\n",
+        "flow: {'é':x}  # ryl disable-line rule:colons\n",
+        "",
+    );
+}
+
+#[test]
 fn utf8_byte_length_change_before_block_scalar_rejects_old_plan() {
     let mut source = TextVersion::new("a: x\ns: |+\n  value\n  \n\n");
     let stale = source

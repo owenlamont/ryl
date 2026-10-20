@@ -170,6 +170,13 @@ lines retain the sequential fixed-point path; `check --fix` always uses that pat
 Flow spacing shares cached punctuation sites; brackets retain their existing traversal
 when template text occurs, because braces and commas skip template spans.
 
+Formatter quote passes retain the value-keyed plain-snippet cache across epochs.
+Unguarded single-line ladder replacements settle locally before indentation measures
+the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
+probe. Multiline replacements and suppressed quotes retain the bounded fixed-point
+path. Every quote replacement retains the existing schema and snippet checks;
+unchanged plain and block scalars need no quote decision.
+
 - `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
   checkers on the original text, kept only for rules that actually edited and lines no
   directive disables, plus a `1:1 would reformat` line per editing rule that no checker

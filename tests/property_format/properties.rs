@@ -13,7 +13,7 @@ use super::stack::{StackedDocument, arb_stacked_document};
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
 
-const ESCAPED: [(bool, &str); 10] = [
+const ESCAPED: [(bool, &str); 14] = [
     (true, "line\nbreak"),
     (true, "tab\there"),
     (true, "back\\slash"),
@@ -24,6 +24,10 @@ const ESCAPED: [(bool, &str); 10] = [
     (false, "it's \\ x: y"),
     (true, "it's \"x\": y"),
     (false, "it's \"x\": y"),
+    (true, "café \"quoted\""),
+    (true, "café \"quoted\": value"),
+    (false, "café's: value"),
+    (true, "café [value]"),
 ];
 
 const QUOTED_KEYS: [&str; 8] = [
@@ -176,7 +180,7 @@ impl Decorator<'_> {
             matches!(scalar, Scalar::Plain(text) if text.starts_with('!'));
         let prefix = match property {
             Property::GapInteractions => {
-                return Scalar::Plain("{ é :  [ x ,y ] }".into());
+                return Scalar::Plain("{ é :  [ \"é\tvalue\" ,y ] }".into());
             }
             Property::None
             | Property::QuotedKey(_)
