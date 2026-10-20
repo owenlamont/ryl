@@ -23,6 +23,9 @@ mod ast;
     reason = "shared with the safe-fix suite, which uses every item"
 )]
 mod config;
+#[path = "property_format/representation.rs"]
+#[allow(dead_code, reason = "shared formatter oracle also checks annotations")]
+mod representation;
 #[path = "property_fix_convergence/stack.rs"]
 mod stack;
 #[path = "property_safe_fix/strategy.rs"]
@@ -277,6 +280,27 @@ fn probe_covers_every_safe_fix_rule() {
         sorted, expected,
         "probe rule table must match SAFE_FIX_RULES: {probed:?}"
     );
+}
+
+#[test]
+fn unterminated_keep_scalar_uses_reference_eof_value() {
+    let input = "a: |+ \r\n\r\n  ";
+    let fixed = "---\na: |+\n\n\n...\n";
+    assert!(reference_safe_eof_append(input, fixed));
+    assert_converges(input, named_config("yamllint-default"), "yamllint-default")
+        .unwrap();
+    for changed in [
+        "---\na: |+\n\n...\n",
+        "---\nb: |+\n\n\n...\n",
+        "---\na: |+\n\n\n\n...\n",
+    ] {
+        assert!(!reference_safe_eof_append(input, changed), "{changed:?}");
+    }
+    assert!(!reference_safe_eof_append("a: one", "a: two\n"));
+    assert!(!reference_safe_eof_append(
+        "a: |+\n  text\n  ",
+        "a: |+\n  text\n"
+    ));
 }
 
 #[test]
