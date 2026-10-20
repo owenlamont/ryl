@@ -60,6 +60,9 @@ PROFILES: Final[dict[str, str | None]] = {
 }
 
 FIXTURES: Final[dict[str, str | bytes]] = {
+    "root-marker-followup.yaml": "\"--- 'quoted'\"\n",
+    "root-marker-bom.yaml": "\ufeff\"--- 'quoted'\"\n",
+    "root-marker-multidoc.yaml": "first: value\n...\n\"--- 'quoted'\"\n",
     "unicode-columns.yaml": "café:  世  # 🦀\nlist: [é, 世]\n",
     "bom.yaml": b"\xef\xbb\xbfkey : value\n",
     "crlf.yaml": b"a : b\r\nlist: [1,2]\r\n",

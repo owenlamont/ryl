@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use granit_parser::{
-    Event, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
+    Event, Marker, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
 };
 use regex::Regex;
 
@@ -917,6 +917,24 @@ pub(crate) fn fix_with_events(
     fixer.finish()
 }
 
+pub(crate) fn fix_format_with_cache(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+    cache: &mut HashMap<String, Option<bool>>,
+    settle: bool,
+) -> (Option<String>, bool) {
+    let mut fixer = QuotedStringsFixer::new(cfg, input.text());
+    std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
+    fixer.settle = settle;
+    fixer.settled = fixer.settle;
+    for (event, span) in input.event_iter() {
+        fixer.on_event(event, span);
+    }
+    std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
+    let settled = fixer.settled;
+    (fixer.finish(), settled)
+}
+
 fn initial_consistent_quote_style(cfg: &Config, buffer: &str) -> Option<QuoteStyle> {
     if !matches!(cfg.quote_type, QuoteType::Consistent) {
         return None;
@@ -956,6 +974,8 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
 struct QuotedStringsFixer<'cfg> {
     state: FixState<'cfg>,
     replacements: Vec<Replacement>,
+    settle: bool,
+    settled: bool,
 }
 
 impl<'cfg> QuotedStringsFixer<'cfg> {
@@ -967,6 +987,8 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
                 initial_consistent_quote_style(cfg, buffer),
             ),
             replacements: Vec::new(),
+            settle: false,
+            settled: false,
         }
     }
 
@@ -981,9 +1003,14 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
 impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         let replacements = &mut self.replacements;
+        let settle = self.settle;
+        let settled = &mut self.settled;
         self.state
             .visit_event(event, span, |state, style, value, tag, span| {
-                if let Some(replacement) = state.fix_scalar(style, value, tag, span) {
+                let (replacement, final_scalar) =
+                    state.fix_scalar(style, value, tag, span, settle);
+                *settled &= final_scalar;
+                if let Some(replacement) = replacement {
                     replacements.push(replacement);
                 }
             });
@@ -1001,6 +1028,64 @@ struct FixState<'cfg> {
 }
 
 impl<'cfg> FixState<'cfg> {
+    fn settle_scalar(
+        &mut self,
+        value: &str,
+        active_key: bool,
+        span: Span,
+        replacement: Replacement,
+    ) -> (Replacement, bool) {
+        let prefix = self.buffer[..replacement.0.get()].trim_end_matches('\u{feff}');
+        // A line-leading plain scalar can expose a document marker and a quoted child.
+        if span.start.line() != span.end.line()
+            || prefix
+                .as_bytes()
+                .last()
+                .is_none_or(|last| matches!(last, b'\n' | b'\r'))
+        {
+            return (replacement, false);
+        }
+        let (start, end, text) = replacement;
+        let suffix = if active_key
+            && next_token(&self.buffer[end.get()..])
+                .strip_prefix(':')
+                .and_then(|after| after.chars().next())
+                .is_some_and(|next| !next.is_whitespace())
+        {
+            ":x"
+        } else {
+            ""
+        };
+        let style = match text.as_bytes().first() {
+            Some(b'\'') => ScalarStyle::SingleQuoted,
+            Some(b'"') => ScalarStyle::DoubleQuoted,
+            _ => return ((start, end, text), true),
+        };
+        let buffer = format!("{text}{suffix}");
+        let chars = text.chars().count();
+        let span = Span::new(
+            Marker::new(0, 1, 0).with_byte_offset(Some(0)),
+            Marker::new(chars, 1, chars).with_byte_offset(Some(text.len())),
+        );
+        let mut local = FixState::new(self.config, &buffer);
+        if self.in_flow() {
+            local.enter_sequence(true);
+        }
+        std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
+        let next = local.compute_fix(
+            style,
+            value,
+            active_key,
+            resolves_to_string_for_version(self.current_version, value),
+            span,
+        );
+        std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
+        match next {
+            None => ((start, end, text), true),
+            Some((_, _, next)) => ((start, end, next), false),
+        }
+    }
+
     fn visit_event(
         &mut self,
         event: Event<'_>,
@@ -1089,22 +1174,40 @@ impl<'cfg> FixState<'cfg> {
         value: &str,
         tag: Option<&Tag>,
         span: Span,
-    ) -> Option<Replacement> {
+        settle: bool,
+    ) -> (Option<Replacement>, bool) {
         let context = self.walker.begin_node();
         let active_key = context.active();
+        if settle
+            && matches!(
+                style,
+                ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded
+            )
+        {
+            self.walker.finish_node(context);
+            return (None, true);
+        }
         let resolves_to_string =
             resolves_to_string_for_version(self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
-            return None;
+            return (None, true);
         }
 
-        let replacement =
+        let mut replacement =
             self.compute_fix(style, value, active_key, resolves_to_string, span);
 
+        let mut settled = true;
+        if settle && let Some(first) = replacement.take() {
+            let (final_replacement, final_scalar) =
+                self.settle_scalar(value, active_key, span, first);
+            replacement = Some(final_replacement);
+            settled = final_scalar;
+        }
+
         self.walker.finish_node(context);
-        replacement
+        (replacement, settled)
     }
 
     fn collect_consistent_quote_style(

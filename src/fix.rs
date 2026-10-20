@@ -1414,6 +1414,7 @@ fn run_valid_passes(
         edit_epoch: 0,
         clean_rules: HashMap::new(),
         clean_syntax_epoch: None,
+        quote_cache: HashMap::new(),
     };
     if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
         content.analysis(),
@@ -1479,6 +1480,7 @@ struct FixContext<'a> {
     edit_epoch: usize,
     clean_rules: HashMap<&'static str, usize>,
     clean_syntax_epoch: Option<usize>,
+    quote_cache: HashMap<String, Option<bool>>,
 }
 
 #[derive(Clone, Copy)]
@@ -1504,6 +1506,35 @@ impl EditGroup {
 }
 
 impl FixContext<'_> {
+    fn quotes(
+        &mut self,
+        content: &mut TextVersion<'_>,
+        changed_rules: &mut Vec<&'static str>,
+    ) {
+        let settle = self.passes.indentation.is_some()
+            && self.passes.per_line.is_empty()
+            && !self.directives.disables_any(quoted_strings::ID);
+        let mut cache = std::mem::take(&mut self.quote_cache);
+        let mut settled = false;
+        self.apply(
+            content,
+            changed_rules,
+            quoted_strings::ID,
+            self.passes.quoted_strings.as_ref(),
+            |view, cfg| {
+                if settled {
+                    return None;
+                }
+                let (output, final_scalars) = quoted_strings::fix_format_with_cache(
+                    view, cfg, &mut cache, settle,
+                );
+                settled = final_scalars;
+                output
+            },
+        );
+        self.quote_cache = cache;
+    }
+
     fn batch(
         &mut self,
         content: &mut TextVersion<'_>,
@@ -1732,16 +1763,6 @@ impl FixContext<'_> {
         changed_rules: &mut Vec<&'static str>,
         mut reindented: Option<&mut ReindentCache>,
     ) {
-        fn fix_quotes(
-            view: Analysis<'_>,
-            cfg: &quoted_strings::Config,
-        ) -> Option<String> {
-            quoted_strings::fix_with_events(
-                view.text(),
-                cfg,
-                view.parsed().valid.then_some(view),
-            )
-        }
         let passes = self.passes;
         macro_rules! fix {
             ($rule:ident) => {
@@ -1785,7 +1806,7 @@ impl FixContext<'_> {
             fix!(colons, colons::fix_with_analysis);
             fix!(hyphens, hyphens::fix_with_analysis);
         }
-        fix!(quoted_strings, fix_quotes);
+        self.quotes(content, changed_rules);
         fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
             reindent_for_pass(view, cfg, reindented.as_deref_mut())
         },);
