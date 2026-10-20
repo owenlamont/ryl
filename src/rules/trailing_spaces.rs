@@ -43,18 +43,17 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>) -> Vec<Violation> {
         }
     }
     if !violations.is_empty() {
-        let mut content = content_blank_lines_with_analysis(input);
+        let mut content = input.content_blank_lines().clone();
         if let Some(protected) =
             protected_scalar_lines_with_analysis(input, |style, _span| {
                 matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
             })
         {
-            let lines = input.line_contents();
             let headers: HashSet<_> =
                 input.headers().iter().map(|header| header.line).collect();
             content.extend(protected.into_iter().filter(|line| {
-                lines
-                    .get(line - 1)
+                input
+                    .get_line(line - 1)
                     .is_some_and(|text| !text.trim().is_empty())
                     && !headers.contains(line)
             }));
@@ -87,12 +86,10 @@ pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
     else {
         return Vec::new();
     };
-    let lines = input.line_contents();
-    let content = content_blank_lines_with_analysis(input);
+    let content = input.content_blank_lines();
     let mut keep_blank_eof = false;
     let headers = input.headers();
-    let root_indents =
-        document_end::root_explicit_content_indents_with_analysis(input, &lines);
+    let root_indents = document_end::root_explicit_content_indents_with_analysis(input);
     for header in headers {
         protected.remove(&header.line);
         let span = header.span;
@@ -107,21 +104,21 @@ pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
         let root_indent = root_indents.get(&span.start.index()).copied();
         let indent = root_indent.unwrap_or(scanner_indent);
         for line in header.line + 1..=span.end.line() {
-            if lines.get(line - 1).is_some_and(|text| {
+            if input.get_line(line - 1).is_some_and(|text| {
                 text.len() <= indent
                     && text.bytes().all(|ch| ch == b' ')
                     && !content.contains(&line)
             }) {
                 protected.remove(&line);
                 if header.chomping == Some('+')
-                    && line == lines.len()
+                    && line == input.line_count()
                     && !buffer.ends_with(['\n', '\r'])
                 {
                     keep_blank_eof = true;
                 }
             } else if root_indent.is_some()
-                && lines
-                    .get(line - 1)
+                && input
+                    .get_line(line - 1)
                     .is_some_and(|text| text.bytes().all(|ch| ch == b' '))
             {
                 protected.insert(line);
@@ -162,13 +159,11 @@ pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
 
 pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {
     let buffer = input.text();
-    let lines = input.line_contents();
     let mut content = HashSet::new();
     let headers = input.headers();
-    let root_indents =
-        document_end::root_explicit_content_indents_with_analysis(input, &lines);
+    let root_indents = document_end::root_explicit_content_indents_with_analysis(input);
     for header in headers {
-        let header_line = lines[header.line - 1];
+        let header_line = input.line_content(header.line - 1);
         let indicator = header_line
             .chars()
             .skip(header.column)
@@ -181,8 +176,9 @@ pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<
             .is_some_and(|offset| !buffer[offset..].trim().is_empty());
         let blank_only = followed
             && header.line < header.span.end.line()
-            && lines[header.line..header.span.end.line() - 1]
-                .iter()
+            && input
+                .line_contents_from(header.line)
+                .take(header.span.end.line() - 1 - header.line)
                 .all(|line| line.bytes().all(|ch| ch == b' '));
         let value_indent =
             if let Some(indent) = root_indents.get(&header.span.start.index()) {
@@ -194,7 +190,7 @@ pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<
                 continue;
             };
         for line in header.line + 1..=header.span.end.line() {
-            if lines.get(line - 1).is_some_and(|text| {
+            if input.get_line(line - 1).is_some_and(|text| {
                 text.len() > value_indent && text.bytes().all(|ch| ch == b' ')
             }) {
                 content.insert(line);

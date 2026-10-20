@@ -1,19 +1,26 @@
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 
-pub(super) type PlanEdit = (BytePos, BytePos, Replacement);
+pub(crate) type PlanEdit = (BytePos, BytePos, Replacement);
 
 #[derive(PartialEq, Eq)]
-pub(super) enum Replacement {
+pub(crate) enum Replacement {
     Text(String),
     Spaces(usize),
 }
 
 impl Replacement {
-    pub(super) fn piece(&self) -> Piece<'_> {
+    pub(crate) fn piece(&self) -> Piece<'_> {
         match self {
             Self::Text(text) => Piece::Text(text),
             Self::Spaces(count) => Piece::Spaces(*count),
+        }
+    }
+
+    pub(crate) fn char_count(&self) -> usize {
+        match self {
+            Self::Text(text) => text.chars().count(),
+            Self::Spaces(count) => *count,
         }
     }
 
@@ -32,7 +39,7 @@ pub(super) fn plan_edit((start, end, text): Edit) -> PlanEdit {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum Piece<'a> {
+pub(crate) enum Piece<'a> {
     Text(&'a str),
     Spaces(usize),
 }
@@ -45,7 +52,7 @@ impl<'a> Piece<'a> {
         }
     }
 
-    pub(super) fn chars(self) -> impl Iterator<Item = char> + 'a {
+    pub(crate) fn chars(self) -> impl Iterator<Item = char> + 'a {
         let (spaces, text) = match self {
             Self::Text(text) => (0, text),
             Self::Spaces(count) => (count, ""),

@@ -15,6 +15,11 @@ struct Counts {
     strict_parses: usize,
     verification_parses: usize,
     rollback: usize,
+    cached_lexical_tapes: usize,
+    line_table_builds: usize,
+    token_normalizations: usize,
+    sites_retained: usize,
+    projected_coordinate_queries: usize,
     fallback: Option<String>,
     seconds: f64,
 }
@@ -33,9 +38,18 @@ pub(crate) enum Counter {
     Strict,
     Verify,
     Rollback,
+    Tape,
+    Lines,
+    Normalize,
+    Sites,
+    Project,
 }
 
 pub(crate) fn count(counter: Counter) {
+    add(counter, 1);
+}
+
+pub(crate) fn add(counter: Counter, amount: usize) {
     COUNTS.with_borrow_mut(|counts| {
         if let Some(counts) = counts {
             let slot = match counter {
@@ -47,8 +61,13 @@ pub(crate) fn count(counter: Counter) {
                 Counter::Strict => &mut counts.strict_parses,
                 Counter::Verify => &mut counts.verification_parses,
                 Counter::Rollback => &mut counts.rollback,
+                Counter::Tape => &mut counts.cached_lexical_tapes,
+                Counter::Lines => &mut counts.line_table_builds,
+                Counter::Normalize => &mut counts.token_normalizations,
+                Counter::Sites => &mut counts.sites_retained,
+                Counter::Project => &mut counts.projected_coordinate_queries,
             };
-            *slot += 1;
+            *slot += amount;
         }
     });
 }

@@ -108,7 +108,7 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
     } else {
         FinalBlank::Keep
     };
-    let final_line = input.line_contents().len();
+    let final_line = input.line_count();
     let newline = buffer_newline(buffer);
     let mut marker_lines = result.unended_before.iter().peekable();
     let mut edits = Vec::new();
@@ -146,22 +146,21 @@ enum FinalBlank {
 }
 
 fn final_blank_scalar_action(input: Analysis<'_>) -> FinalBlank {
-    let lines = input.line_contents();
     let headers = input.headers();
-    let root_indents = root_explicit_content_indents_with_analysis(input, &lines);
-    let line = lines
-        .last()
+    let root_indents = root_explicit_content_indents_with_analysis(input);
+    let line = input
+        .get_line(input.line_count().saturating_sub(1))
         .expect("a document with a missing end is nonempty");
     headers
         .iter()
         .find_map(|header| {
             let span = header.span;
-            if header.line >= lines.len()
+            if header.line >= input.line_count()
                 || span
                     .end
                     .line()
                     .saturating_sub(usize::from(span.end.col() == 0))
-                    != lines.len()
+                    != input.line_count()
                 || line.is_empty()
                 || !line.bytes().all(|ch| ch == b' ')
             {
@@ -189,7 +188,6 @@ fn final_blank_scalar_action(input: Analysis<'_>) -> FinalBlank {
 
 pub(crate) fn root_explicit_content_indents_with_analysis(
     input: Analysis<'_>,
-    lines: &[&str],
 ) -> HashMap<usize, usize> {
     let headers = input.headers();
     if headers.is_empty() {
@@ -202,7 +200,8 @@ pub(crate) fn root_explicit_content_indents_with_analysis(
             roots.get(&header.span.start.index()) == Some(&header.span.end.index())
         })
         .filter_map(|header| {
-            lines[header.line - 1]
+            input
+                .line_content(header.line - 1)
                 .chars()
                 .skip(header.column)
                 .take_while(|ch| !ch.is_whitespace() && *ch != '#')

@@ -314,6 +314,7 @@ fn format_tracked(
         source.analysis().seed_facts(facts);
     }
     if tracking.strict_input == Some(true) {
+        source.mark_strict_valid();
         match layout::format(&mut source, &passes, tracking) {
             Ok(output) => return output,
             Err(reason) => layout::stats::Recording::fallback(&reason),
@@ -535,13 +536,18 @@ pub(crate) fn unfixed(
     let cached = cache
         .reindented
         .as_ref()
-        .filter(|(buffer, config, _)| buffer == content && *config == target)
-        .map(|(_, _, result)| result);
+        .filter(|result| result.matches(input, target));
     let computed;
     let reindented = if let Some(result) = cached {
         result
     } else {
-        computed = indentation::reindent_with_analysis(input, &target).0;
+        let result = indentation::reindent_with_analysis(input, &target).0;
+        computed = crate::fix::ReindentEvidence::new(
+            input,
+            target,
+            result.refused,
+            result.kept_dash_lines,
+        );
         &computed
     };
     let inconsistent = if reindented

@@ -10,16 +10,26 @@ pub(crate) struct CommentInfo {
     pub(crate) placement: Placement,
 }
 
-/// Scans rather than parses so comments are still reported for documents that fail to
-/// parse: the parser stops at its first error, but a parse error (an undefined alias,
-/// say) is not a lexical one, so the scanner tokenizes straight past it. Consumers only
-/// test for `Right`, so the scanner reporting an own-line comment as `Free` where the
-/// parser resolved it to `Above` makes no difference.
+/// Reuses certified strict events; otherwise scans past parse errors such as undefined
+/// aliases, preserving trailing-comment placement without requiring a complete parse.
 pub(crate) fn collect_comments_with_analysis(
     input: crate::text_version::Analysis<'_>,
 ) -> Vec<CommentInfo> {
     if let Some(facts) = input.layout_facts() {
         return facts.comments.clone();
+    }
+    if input.strict_valid() {
+        return input
+            .event_iter()
+            .filter_map(|(event, span)| match event {
+                granit_parser::Event::Comment(text, placement) => Some(CommentInfo {
+                    span,
+                    text: text.into_owned(),
+                    placement,
+                }),
+                _ => None,
+            })
+            .collect();
     }
     input
         .tokens()

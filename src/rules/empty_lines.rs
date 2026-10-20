@@ -4,7 +4,6 @@
 //! An unparsable buffer is left untouched.
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
-use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use crate::config::YamlLintConfig;
@@ -78,7 +77,7 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     let mut offset = 0;
     for (idx, raw_line, ending) in input.lines() {
         let end = offset + raw_line.len() + ending.len();
-        if raw_line.is_empty() && !protected.contains(&(idx + 1)) {
+        if raw_line.is_empty() && !protected[idx] {
             blank_run.push(offset..end);
         } else {
             flush_blank_run(&mut edits, &mut blank_run, middle_max(seen_nonblank, cfg));
@@ -92,33 +91,38 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     edits
 }
 
-fn preserved_scalar_lines(buffer: &str) -> Option<HashSet<usize>> {
+fn preserved_scalar_lines(buffer: &str) -> Option<Vec<bool>> {
     preserved_scalar_lines_with_analysis(TextVersion::new(buffer).analysis())
 }
 
 pub(crate) fn preserved_scalar_lines_with_analysis(
     input: Analysis<'_>,
-) -> Option<HashSet<usize>> {
+) -> Option<Vec<bool>> {
     preserved_scalar_lines_with_empty(input, |line| input.line_is_empty(line))
 }
 
 pub(crate) fn preserved_scalar_lines_with_empty(
     input: Analysis<'_>,
     empty: impl Fn(usize) -> bool,
-) -> Option<HashSet<usize>> {
-    let mut protected =
-        crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
-            input,
-            |_style, _span| true,
-        )?;
-    let lines = input.line_contents();
+) -> Option<Vec<bool>> {
+    if !input.parsed().valid {
+        return None;
+    }
+    let mut protected = vec![false; input.line_count()];
+    for &(start, last) in input.scalar_lines() {
+        let end = last.min(protected.len());
+        let start = start.saturating_sub(1).min(end);
+        protected[start..end].fill(true);
+    }
     for header in input.headers() {
-        let blank_only_literal = lines[header.line - 1].chars().nth(header.column - 1)
+        let blank_only_literal = input
+            .line_content(header.line - 1)
+            .chars()
+            .nth(header.column - 1)
             == Some('|')
             && header.chomping.is_none()
-            && lines
-                .iter()
-                .skip(header.line)
+            && input
+                .line_contents_from(header.line)
                 .take_while(|line| line.trim().is_empty())
                 .count()
                 >= 2;
@@ -126,7 +130,8 @@ pub(crate) fn preserved_scalar_lines_with_empty(
             continue;
         }
         let span = header.span;
-        let end_line = lines.get(span.end.line() - 1);
+        let end_line = (span.end.line() <= input.line_count())
+            .then(|| input.line_content(span.end.line() - 1));
         let next_token = end_line.is_some_and(|line| {
             line.chars().take(span.end.col()).all(|ch| ch == ' ')
                 && line.chars().nth(span.end.col()).is_some()
@@ -137,7 +142,9 @@ pub(crate) fn preserved_scalar_lines_with_empty(
             .rev()
             .take_while(|line| empty(*line - 1))
         {
-            protected.remove(&line);
+            if let Some(protected) = protected.get_mut(line - 1) {
+                *protected = false;
+            }
         }
     }
     Some(protected)
@@ -213,7 +220,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     if !violations.is_empty()
         && let Some(protected) = preserved_scalar_lines(buffer)
     {
-        violations.retain(|violation| !protected.contains(&violation.line));
+        violations.retain(|violation| !protected[violation.line - 1]);
     }
     violations
 }

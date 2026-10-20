@@ -35,6 +35,18 @@ const INPUTS: &[&str] = &[
 ];
 
 #[test]
+fn scanner_failure_has_no_stream_end_certificate() {
+    assert!(
+        lexical::stream("key: value\n")
+            .any(|(_, kind)| matches!(kind, lexical::Kind::StreamEnd))
+    );
+    assert!(
+        !lexical::stream("key: ['unterminated")
+            .any(|(_, kind)| matches!(kind, lexical::Kind::StreamEnd))
+    );
+}
+
+#[test]
 fn streaming_verification_keeps_exact_events_and_ignores_layout() {
     for &source in INPUTS {
         let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);

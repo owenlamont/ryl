@@ -55,7 +55,8 @@ compact `- k: v` / `- - a` items, multi-line ones included. Each entry's `Layout
 the indentation it nests at (width 1–5, sequences flush with their key) and its leading
 comment's column; block scalars take indicators 1–4, whitespace-only lines and a comment
 after the body; plain, quoted and flow continuations sit at random depths past their
-parent. Nesting reaches depth 2. Deterministic siblings pin
+parent. Flow nesting usually reaches depth 2, with rare depth-8 trees, long quoted
+lines and long blank tails. Deterministic siblings pin
 known-dirty / production-bug inputs through the same checks (and assert the fixer clears
 them) so the property can't pass vacuously.
 

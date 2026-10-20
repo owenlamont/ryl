@@ -81,6 +81,17 @@ macro_rules! define_rule {
             )
         }
 
+        pub(crate) fn edit_sites<'a>(
+            cfg: &'a Config,
+            buffer: &'a str,
+        ) -> $crate::rules::support::flow_collection::Edits<'a> {
+            $crate::rules::support::flow_collection::Edits::new(
+                buffer.as_bytes(),
+                cfg.inner(),
+                &DESCRIPTOR,
+            )
+        }
+
         impl Config {
             #[must_use]
             pub fn resolve(cfg: &$crate::config::YamlLintConfig) -> Self {
@@ -272,6 +283,60 @@ struct CollectionState {
     is_empty: bool,
 }
 
+pub(crate) struct Edits<'a> {
+    bytes: &'a [u8],
+    config: &'a Config,
+    descriptor: &'a FlowCollectionDescriptor,
+    stack: Vec<CollectionState>,
+    replacements: Vec<super::token_spacing::SpaceEdit>,
+}
+
+impl<'a> Edits<'a> {
+    pub(crate) fn new(
+        bytes: &'a [u8],
+        config: &'a Config,
+        descriptor: &'a FlowCollectionDescriptor,
+    ) -> Self {
+        Self {
+            bytes,
+            config,
+            descriptor,
+            stack: Vec::new(),
+            replacements: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, idx: usize, ch: u8) {
+        let Self {
+            bytes,
+            config,
+            descriptor: desc,
+            stack,
+            replacements,
+        } = self;
+        if config.forbid() != Forbid::None {
+            return;
+        }
+        if ch == desc.open {
+            if let Some(state) = stack.last_mut() {
+                state.is_empty = false;
+            }
+            let state = fix_open(config, desc, bytes, idx, replacements);
+            stack.push(state);
+        } else if ch == desc.close {
+            fix_close(config, bytes, idx, stack, replacements);
+        } else if !matches!(ch, b',' | b' ' | b'\t' | b'\n' | b'\r')
+            && let Some(state) = stack.last_mut()
+        {
+            state.is_empty = false;
+        }
+    }
+
+    pub(crate) fn finish(self) -> Vec<super::token_spacing::SpaceEdit> {
+        self.replacements
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum AfterResult {
     SameLine { spaces: usize, next_idx: usize },
@@ -393,30 +458,15 @@ pub(crate) fn edits(
     } else {
         input.flow_sites()
     };
-    let mut stack: Vec<CollectionState> = Vec::new();
-    let mut replacements = Vec::new();
+    let mut edits = Edits::new(bytes, cfg, desc);
     for &(idx, ch) in sites {
-        if ch == desc.open {
-            if let Some(state) = stack.last_mut() {
-                state.is_empty = false;
-            }
-            let state = fix_open(cfg, desc, bytes, idx, &mut replacements);
-            stack.push(state);
-        } else if ch == desc.close {
-            fix_close(cfg, bytes, idx, &mut stack, &mut replacements);
-        } else {
-            match ch {
-                b',' | b' ' | b'\t' | b'\n' | b'\r' => {}
-                _ => {
-                    if let Some(state) = stack.last_mut() {
-                        state.is_empty = false;
-                    }
-                }
-            }
-        }
+        edits.push(idx, ch);
     }
-
-    replacements
+    edits
+        .finish()
+        .into_iter()
+        .map(|(from, to, spaces)| (from, to, " ".repeat(spaces)))
+        .collect()
 }
 
 fn handle_open(
@@ -502,7 +552,7 @@ fn fix_open(
     desc: &FlowCollectionDescriptor,
     bytes: &[u8],
     idx: usize,
-    replacements: &mut Vec<(BytePos, BytePos, String)>,
+    replacements: &mut Vec<super::token_spacing::SpaceEdit>,
 ) -> CollectionState {
     let next_significant = next_significant_index(bytes, idx);
     let mut state = CollectionState {
@@ -520,11 +570,7 @@ fn fix_open(
         };
 
         if target != spaces {
-            replacements.push((
-                BytePos::new(idx + 1),
-                BytePos::new(next_idx),
-                " ".repeat(target),
-            ));
+            replacements.push((BytePos::new(idx + 1), BytePos::new(next_idx), target));
         }
     }
 
@@ -574,7 +620,7 @@ fn fix_close(
     bytes: &[u8],
     idx: usize,
     stack: &mut Vec<CollectionState>,
-    replacements: &mut Vec<(BytePos, BytePos, String)>,
+    replacements: &mut Vec<super::token_spacing::SpaceEdit>,
 ) {
     let Some(state) = stack.pop() else {
         return;
@@ -592,11 +638,7 @@ fn fix_close(
     if target == spaces {
         return;
     }
-    replacements.push((
-        BytePos::new(start_idx),
-        BytePos::new(idx),
-        " ".repeat(target),
-    ));
+    replacements.push((BytePos::new(start_idx), BytePos::new(idx), target));
 }
 
 fn record_after_spacing(

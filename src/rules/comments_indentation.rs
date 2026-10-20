@@ -201,15 +201,15 @@ fn comment_is_aligned(
 
 /// Classify every line once, shared by `check` and `fix`. Scalar tokens come from the
 /// scanner rather than the parser, as in `comments_scan`, so a parse error degrades less.
-fn build_lines(input: Analysis<'_>) -> Vec<LineInfo> {
+fn build_lines(input: Analysis<'_>) -> std::borrow::Cow<'_, [LineInfo]> {
     if let Some(facts) = input.layout_facts() {
-        return facts.comment_lines.clone();
+        return std::borrow::Cow::Borrowed(&facts.comment_lines);
     }
     let mut lines = line_facts(input);
     for (span, kind) in input.tokens().iter() {
         classify_token(&mut lines, span, kind);
     }
-    lines
+    std::borrow::Cow::Owned(lines)
 }
 
 pub(crate) fn line_facts(input: Analysis<'_>) -> Vec<LineInfo> {

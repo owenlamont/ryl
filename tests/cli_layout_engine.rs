@@ -53,9 +53,55 @@ fn multiline_quotes_share_layout_and_a_dry_plan() {
         ("strict_parses", 2),
         ("verification_parses", 1),
         ("rollback", 0),
+        ("cached_lexical_tapes", 0),
+        ("line_table_builds", 2),
+        ("token_normalizations", 2),
     ] {
         assert_eq!(statistics[name], count, "{name}: {statistics}");
     }
+}
+
+#[test]
+fn projected_unicode_endpoints_survive_nested_gaps_and_scalar_collapse() {
+    let input = "🦀: { é : [ '世',x ] }\r\nnext: 'first\r\n  last'\r\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, "🦀: {é: [世, x]}\nnext: first last\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
+    assert!(statistics["projected_coordinate_queries"].as_u64().unwrap() > 0);
+    assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
+}
+
+#[test]
+fn a_comment_ending_in_a_dash_cannot_join_the_mapping_below() {
+    let (output, statistics) =
+        format_with_statistics("- # -\n        key: value\n", "[format]\n");
+    assert_eq!(output, "-  # -\n  key: value\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn a_directive_keyword_inside_a_scalar_does_not_cache_tokens() {
+    let (output, statistics) =
+        format_with_statistics("word: 'ryl message'\n", "[format]\n");
+    assert_eq!(output, "word: ryl message\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["cached_lexical_tapes"], 0, "{statistics}");
+}
+
+#[test]
+fn a_dash_at_the_end_of_a_key_does_not_own_the_colon_gap() {
+    let (status, _, diagnostics, _) = common::cli::ryl_on(
+        Some("[format]\n"),
+        "café- : x\n",
+        &["format", "--check", "--output-format", "parsable"],
+    );
+    assert_eq!(status, 1);
+    assert!(
+        diagnostics.contains(":1:6: [error] too many spaces before colon (colons)"),
+        "{diagnostics}"
+    );
+    assert!(!diagnostics.contains("(hyphens)"), "{diagnostics}");
 }
 
 #[test]
