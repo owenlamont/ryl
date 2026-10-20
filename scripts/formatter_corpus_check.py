@@ -269,6 +269,7 @@ def _ryl(
         proc = subprocess.run(
             [str(_RYL), *args],
             cwd=clone,
+            env={**os.environ, "RYL_NO_CACHE": "1"},
             capture_output=True,
             text=True,
             encoding="utf-8",
