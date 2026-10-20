@@ -34,6 +34,79 @@ const INPUTS: &[&str] = &[
     "? [a, b]\n: {x: 1}\nblock: |+\n  café\n\nfold: >-\n  hello\n  world\nempty: |\nnext: # own\n  # above\n  null\n",
 ];
 
+#[test]
+fn streaming_verification_keeps_exact_events_and_ignores_layout() {
+    for &source in INPUTS {
+        let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
+        let mut observed = Vec::new();
+        assert!(
+            events::verify_strict(expected, source, |event, span| {
+                observed.push((event, span));
+            })
+            .unwrap()
+        );
+        assert_eq!(
+            observed,
+            Parser::new_from_str(source)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        );
+    }
+    let expected = Parser::new_from_str("é:\n    - &a café\n    - *a\n")
+        .map(|item| item.unwrap().0);
+    assert!(
+        events::verify_strict(
+            expected,
+            "# heading\né:\n  - &a café # inline\n  - *a\n",
+            |_, _| {}
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn streaming_verification_rejects_each_significant_event_difference() {
+    for (source, output) in [
+        ("a: café\n", "a: cafe\n"),
+        ("a: café\n", "a: 'café'\n"),
+        ("a: !!str café\n", "a: café\n"),
+        ("a: [b]\n", "a:\n  - b\n"),
+        ("a: {b: c}\n", "a:\n  b: c\n"),
+        ("a: &a café\nb: *a\n", "a: café\nb: café\n"),
+        (
+            "a: &a café\nb: &b café\nc: *a\n",
+            "a: &a café\nb: &b café\nc: *b\n",
+        ),
+        ("%YAML 1.1\n---\na: yes\n", "%YAML 1.2\n---\na: yes\n"),
+        ("a: b\n", "---\na: b\n"),
+        ("a: b\n", "a: b\n---\nc: d\n"),
+        ("a: b\n---\nc: d\n", "a: b\n"),
+        ("a: b\n", ""),
+        ("", "a: b\n"),
+    ] {
+        let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
+        assert!(
+            !events::verify_strict(expected, output, |_, _| {}).unwrap(),
+            "{source:?}: {output:?}"
+        );
+    }
+}
+
+#[test]
+fn streaming_verification_parses_strictly_through_mismatches_and_suffixes() {
+    for output in [
+        "a: [first,\nsecond]\n",
+        "a: b\n---\nbad: [\n",
+        "x: y\n---\nbad: [\n",
+    ] {
+        let expected = Parser::new_from_str("a: b\n").map(|item| item.unwrap().0);
+        assert!(
+            events::verify_strict(expected, output, |_, _| {}).is_err(),
+            "{output:?}"
+        );
+    }
+}
+
 fn assert_span_eq(actual: Span, expected: Span) {
     assert_eq!(actual, expected);
     assert_eq!(actual.start.byte_offset(), expected.start.byte_offset());

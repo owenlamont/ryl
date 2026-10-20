@@ -193,6 +193,26 @@ impl<'text> Analysis<'text> {
             .map(move |(event, span)| (event.borrow(self.text()), span.get()))
     }
 
+    pub(crate) fn verify_strict(self, output: Analysis<'_>) -> Result<bool, ScanError> {
+        let mut facts = ParsedFacts {
+            events: Vec::with_capacity(self.parsed().events.len()),
+            ..ParsedFacts::default()
+        };
+        let mut depth = 0;
+        let matches = events::verify_strict(
+            self.parsed()
+                .events
+                .iter()
+                .map(|(event, _)| event.borrow(self.text())),
+            output.text(),
+            |event, span| facts.push(output.text(), event, span, &mut depth),
+        )?;
+        facts.valid = true;
+        facts.compact();
+        output.seed_facts(facts);
+        Ok(matches)
+    }
+
     pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
         struct WithSource<'a> {
             event: &'a StoredEvent,
@@ -339,6 +359,12 @@ impl ParsedFacts {
         Self::parse_with_options(text, event_capacity, false)
     }
 
+    fn push(&mut self, text: &str, event: Event<'_>, span: Span, depth: &mut usize) {
+        self.record(&event, span, depth);
+        self.events
+            .push((StoredEvent::new(text, event), spans::StoredSpan::new(span)));
+    }
+
     pub(crate) fn parse_with_options(
         text: &str,
         event_capacity: usize,
@@ -361,10 +387,7 @@ impl ParsedFacts {
                     break;
                 }
             };
-            facts.record(&event, span, &mut depth);
-            facts
-                .events
-                .push((StoredEvent::new(text, event), spans::StoredSpan::new(span)));
+            facts.push(text, event, span, &mut depth);
         }
         facts.valid = facts.error.is_none();
         facts.compact();

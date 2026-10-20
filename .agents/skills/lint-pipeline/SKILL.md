@@ -182,6 +182,13 @@ suppressed quotes retain the bounded fixed-point path. Every quote replacement r
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
 
+For changed single-document indentation output of at least 1 MB, one strict streaming
+parse compares significant events against the input tape through EOF and caches compact
+output facts for the subsequent passes. A successful comparison certifies strict validity.
+Strict parse errors retain the cached relaxed comparison and final strict-output guard.
+Small files and multi-document streams retain their existing verification paths.
+Consistency checks, per-document rollback and the bounded fixed-point loop still run.
+
 - `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
   checkers on the original text, kept only for rules that actually edited and lines no
   directive disables, plus a `1:1 would reformat` line per editing rule that no checker
