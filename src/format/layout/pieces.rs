@@ -5,26 +5,26 @@ pub(crate) type PlanEdit = (BytePos, BytePos, Replacement);
 
 #[derive(PartialEq, Eq)]
 pub(crate) enum Replacement {
-    Text(String),
+    Text { text: String, chars: usize },
     Spaces(usize),
 }
 
 impl Replacement {
     pub(crate) fn piece(&self) -> Piece<'_> {
         match self {
-            Self::Text(text) => Piece::Text(text),
+            Self::Text { text, .. } => Piece::Text(text),
             Self::Spaces(count) => Piece::Spaces(*count),
         }
     }
 
     pub(crate) fn char_count(&self) -> usize {
         match self {
-            Self::Text(text) => text.chars().count(),
+            Self::Text { chars, .. } => *chars,
             Self::Spaces(count) => *count,
         }
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.piece().len()
     }
 }
@@ -33,7 +33,10 @@ pub(super) fn plan_edit((start, end, text): Edit) -> PlanEdit {
     let replacement = if text.bytes().all(|byte| byte == b' ') {
         Replacement::Spaces(text.len())
     } else {
-        Replacement::Text(text)
+        Replacement::Text {
+            chars: text.chars().count(),
+            text,
+        }
     };
     (start, end, replacement)
 }
@@ -84,15 +87,10 @@ impl<'a> Piece<'a> {
 }
 
 pub(super) fn bridge_width(
-    edits: &[PlanEdit],
-    bridge: Option<(usize, usize)>,
+    bridge: Option<&super::Bridge>,
     byte: usize,
 ) -> Option<usize> {
-    bridge.map_or(Some(0), |(start, end)| {
-        (byte >= end).then(|| {
-            edits[edits.partition_point(|(from, _, _)| from.get() < start)]
-                .2
-                .len()
-        })
+    bridge.map_or(Some(0), |bridge| {
+        (byte >= bridge.end).then_some(bridge.bytes)
     })
 }

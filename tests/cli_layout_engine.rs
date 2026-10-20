@@ -63,9 +63,13 @@ fn multiline_quotes_share_layout_and_a_dry_plan() {
 
 #[test]
 fn projected_unicode_endpoints_survive_nested_gaps_and_scalar_collapse() {
-    let input = "🦀: { é : [ '世',x ] }\r\nnext: 'first\r\n  last'\r\n";
+    let input =
+        "🦀: { é : [ '世',x ] }\r\nnext: ['first\r\n  last', café, { tail : z }]\r\n";
     let (output, statistics) = format_with_statistics(input, "[format]\n");
-    assert_eq!(output, "🦀: {é: [世, x]}\nnext: first last\n");
+    assert_eq!(
+        output,
+        "🦀: {é: [世, x]}\nnext: [first last, café, {tail: z}]\n"
+    );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
     assert!(statistics["projected_coordinate_queries"].as_u64().unwrap() > 0);

@@ -515,8 +515,15 @@ impl<'a> DocumentPlan<'a> {
         let edits = &mut self.edits;
         let boundaries = &mut self.boundaries;
         let rules = &mut self.rules;
-        let scalar_owners: Vec<_> =
-            layout.lines.iter().filter_map(|line| line.bridge).collect();
+        let scalar_owners: Vec<_> = layout
+            .lines
+            .iter()
+            .filter_map(|line| {
+                line.bridge
+                    .as_ref()
+                    .map(|bridge| (bridge.start, bridge.end))
+            })
+            .collect();
         if passes.trailing_spaces {
             let next = trailing_spaces::edits(input);
             if !next.is_empty() {
@@ -838,7 +845,12 @@ impl<'a> DocumentPlan<'a> {
             * usize::from(!line.is_empty())
     }
 
-    fn byte_on_line(&self, index: usize, byte: usize) -> Option<usize> {
+    fn byte_on_line(
+        &self,
+        index: usize,
+        byte: usize,
+        projection: &projection::Projection,
+    ) -> Option<usize> {
         let line = &self.layout.lines[index];
         let source = self.input.text();
         let mut position = self.prefix(index) + usize::from(line.bom) * 3;
@@ -850,8 +862,7 @@ impl<'a> DocumentPlan<'a> {
                 valid
                     .then(|| {
                         let bridge = pieces::bridge_width(
-                            &self.edits,
-                            line.bridge.filter(|_| piece == 1),
+                            line.bridge.as_deref().filter(|_| piece == 1),
                             byte,
                         );
                         valid &= bridge.is_some();
@@ -864,7 +875,8 @@ impl<'a> DocumentPlan<'a> {
                         valid &= byte >= start;
                         valid
                             .then(|| {
-                                position = self.edited_position(
+                                position = projection.byte_position(
+                                    self.input,
                                     start,
                                     byte.min(end),
                                     position,
@@ -874,17 +886,6 @@ impl<'a> DocumentPlan<'a> {
                             .flatten()
                     })
                     .flatten()
-            })
-    }
-
-    fn edited_position(&self, start: usize, stop: usize, position: usize) -> usize {
-        let first = self.edits.partition_point(|(_, end, _)| end.get() < start);
-        self.edits[first..]
-            .iter()
-            .take_while(|(_, to, _)| to.get() <= stop)
-            .filter(|(from, _, _)| from.get() >= start)
-            .fold(position + stop - start, |position, (from, to, text)| {
-                position + text.len() - (to.get() - from.get())
             })
     }
 
@@ -904,8 +905,9 @@ impl<'a> DocumentPlan<'a> {
         &mut self,
         cfg: crate::rules::line_length::Fold,
     ) -> Result<(), Fallback> {
+        let projection = projection::Projection::new(self.input, &self.edits);
         for scalar in crate::rules::line_length::fold::foldable_scalars(self.input) {
-            self.plan_scalar_fold(scalar.content, scalar.style, cfg)?;
+            self.plan_scalar_fold(scalar.content, scalar.style, cfg, &projection)?;
         }
         self.folds.sort_by_key(|site| (site.line, site.byte));
         Ok(())
@@ -916,6 +918,7 @@ impl<'a> DocumentPlan<'a> {
         range: std::ops::Range<usize>,
         original_style: ScalarStyle,
         cfg: crate::rules::line_length::Fold,
+        projection: &projection::Projection,
     ) -> Result<(), Fallback> {
         let starts = self.input.byte_line_starts();
         let line_of = |byte| {
@@ -943,7 +946,7 @@ impl<'a> DocumentPlan<'a> {
         let last = self
             .layout
             .project_line(line_of(full.end - 1), full.end - 1);
-        self.byte_on_line(first, full.start)
+        self.byte_on_line(first, full.start, projection)
             .map(|at| at + quotes)
             .ok_or(Fallback::ScalarInteraction)
             .and_then(|content| {
@@ -977,7 +980,7 @@ impl<'a> DocumentPlan<'a> {
                     width: cfg.width,
                 };
                 for index in (first..=last).filter(|_| !folded || content > owner) {
-                    self.plan_fold_line(index, &scalar)?;
+                    self.plan_fold_line(index, &scalar, projection)?;
                 }
                 Ok(())
             })
@@ -987,6 +990,7 @@ impl<'a> DocumentPlan<'a> {
         &mut self,
         index: usize,
         scalar: &ScalarFold,
+        projection: &projection::Projection,
     ) -> Result<(), Fallback> {
         use crate::rules::line_length::fold::breaks_from_chars;
         let width = scalar.width;
@@ -1026,7 +1030,7 @@ impl<'a> DocumentPlan<'a> {
                 } else {
                     let start = if index == first { content } else { 0 };
                     let end = if index == last {
-                        self.byte_on_line(index, full.end)
+                        self.byte_on_line(index, full.end, projection)
                             .ok_or(Fallback::ScalarInteraction)?
                             - quotes
                     } else {
@@ -1194,6 +1198,15 @@ fn remove_blanks(
     run.clear();
 }
 
+pub(crate) struct Bridge {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) bytes: usize,
+    pub(crate) characters: usize,
+    pub(crate) prefix_column: usize,
+    pub(crate) end_position: Option<(usize, usize)>,
+}
+
 pub(crate) struct VirtualLine<'a> {
     pub(crate) origin: usize,
     pub(crate) prefix: usize,
@@ -1201,7 +1214,7 @@ pub(crate) struct VirtualLine<'a> {
     pub(crate) tail: &'a str,
     pub(crate) ending: &'a str,
     pub(crate) bom: bool,
-    pub(crate) bridge: Option<(usize, usize)>,
+    pub(crate) bridge: Option<Box<Bridge>>,
 }
 
 impl<'a> VirtualLine<'a> {
@@ -1311,10 +1324,10 @@ fn visit_body<'a>(
         .enumerate()
         .try_for_each(|(piece, part)| {
             let bridge = if piece == 1 {
-                line.bridge.map_or(Ok(()), |(start, end)| {
-                    let edit = &edits
-                        [edits.partition_point(|(from, _, _)| from.get() < start)];
-                    ((edit.0.get(), edit.1.get()) == (start, end))
+                line.bridge.as_ref().map_or(Ok(()), |bridge| {
+                    let edit = &edits[edits
+                        .partition_point(|(from, _, _)| from.get() < bridge.start)];
+                    ((edit.0.get(), edit.1.get()) == (bridge.start, bridge.end))
                         .then_some(())
                         .ok_or(Fallback::Overlap)
                         .and_then(|()| append(edit.2.piece()))
@@ -1336,7 +1349,9 @@ fn visit_body<'a>(
                     .iter()
                     .take_while(|(from, _, _)| from.get() <= end)
                     .try_for_each(|(from, to, text)| {
-                        if line.bridge == Some((from.get(), to.get())) {
+                        if line.bridge.as_ref().is_some_and(|bridge| {
+                            (bridge.start, bridge.end) == (from.get(), to.get())
+                        }) {
                             return Ok(());
                         }
                         if from.get() < start || to.get() > end {

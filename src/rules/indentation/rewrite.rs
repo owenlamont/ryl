@@ -94,7 +94,28 @@ impl<'a> Layout<'a> {
             let body_end = self.lines[last].body.as_ptr() as usize
                 - source.as_ptr() as usize
                 + self.lines[last].body.len();
-            collapses.push((first, last, start.get(), end.get()));
+            let end_line = starts.partition_point(|&at| at <= end.get()) - 1;
+            let prefix = self.source_starts[self.lines[first].origin];
+            collapses.push((
+                first,
+                last,
+                Box::new(crate::format::layout::Bridge {
+                    start: start.get(),
+                    end: end.get(),
+                    bytes: text.len(),
+                    characters: text.char_count(),
+                    prefix_column: source[prefix..start.get()].chars().count(),
+                    // BOM-normalized columns retain the byte-derived tail width.
+                    end_position: matches!(self.source_starts, Cow::Borrowed(_)).then(
+                        || {
+                            (
+                                end_line,
+                                source[starts[end_line]..end.get()].chars().count(),
+                            )
+                        },
+                    ),
+                }),
+            ));
             compatible &= !text.piece().chars().any(|ch| matches!(ch, '\n' | '\r'))
                 && first <= last
                 && self.lines[first].tail.is_empty()
@@ -114,9 +135,10 @@ impl<'a> Layout<'a> {
         let mut physical = original.into_iter().enumerate();
         let mut collapses = collapses.into_iter().peekable();
         while let Some((index, mut line)) = physical.next() {
-            if let Some((_, last, start, end)) =
-                collapses.next_if(|(first, _, _, _)| *first == index)
+            if let Some((_, last, bridge)) =
+                collapses.next_if(|(first, _, _)| *first == index)
             {
+                let (start, end) = (bridge.start, bridge.end);
                 let body_start = line.body.as_ptr() as usize - source.as_ptr() as usize;
                 let mut ending = line.ending;
                 let mut body_end = body_start + line.body.len();
@@ -128,7 +150,7 @@ impl<'a> Layout<'a> {
                 line.body = &source[body_start..start];
                 line.tail = &source[end..body_end];
                 line.ending = ending;
-                line.bridge = Some((start, end));
+                line.bridge = Some(bridge);
             }
             self.lines.push(line);
         }
@@ -314,7 +336,6 @@ impl<'a> Layout<'a> {
                 };
                 if !edits.is_empty() {
                     token.column = self.project_column(
-                        edits,
                         (&projection, None),
                         line,
                         token.line,
@@ -322,7 +343,6 @@ impl<'a> Layout<'a> {
                         token.column,
                     );
                     token.end_column = self.project_column(
-                        edits,
                         (&projection, None),
                         end_line,
                         token.end_line,
@@ -474,7 +494,6 @@ impl<'a> Layout<'a> {
             };
             if !edits.is_empty() || !spacing.is_empty() {
                 token.column = self.project_column(
-                    edits,
                     (&projection, Some(&gaps)),
                     projected,
                     token.line,
@@ -482,7 +501,6 @@ impl<'a> Layout<'a> {
                     token.column,
                 );
                 token.end_column = self.project_column(
-                    edits,
                     (&projection, Some(&gaps)),
                     end,
                     token.end_line,
@@ -651,7 +669,6 @@ impl<'a> Layout<'a> {
 
     fn project_column(
         &self,
-        edits: &[crate::format::layout::PlanEdit],
         projections: (
             &crate::format::layout::projection::Projection,
             Option<&crate::format::layout::projection::Projection>,
@@ -662,20 +679,24 @@ impl<'a> Layout<'a> {
         column: usize,
     ) -> usize {
         let (projection, extra) = projections;
-        if let Some((start, end)) = self.lines.get(index).and_then(|line| line.bridge)
-            && byte >= end
+        if let Some(bridge) = self
+            .lines
+            .get(index)
+            .and_then(|line| line.bridge.as_deref())
+            && byte >= bridge.end
         {
             let source_line = self.lines[index].origin;
-            let from = self.source_starts[source_line];
-            let prefix = self.input.text()[from..start].chars().count();
-            let prefix = projection.column(source_line, start, prefix);
             let prefix =
-                extra.map_or(prefix, |extra| extra.column(source_line, start, prefix));
-            let replacement =
-                &edits[edits.partition_point(|(from, _, _)| from.get() < start)].2;
-            return prefix
-                + replacement.char_count()
-                + self.input.text()[end..byte].chars().count();
+                projection.column(source_line, bridge.start, bridge.prefix_column);
+            let prefix = extra.map_or(prefix, |extra| {
+                extra.column(source_line, bridge.start, prefix)
+            });
+            let tail = bridge
+                .end_position
+                .filter(|(line, _)| *line == original)
+                .and_then(|(_, end_column)| column.checked_sub(end_column))
+                .unwrap_or_else(|| self.input.text()[bridge.end..byte].chars().count());
+            return prefix + bridge.characters + tail;
         }
         let column = projection.column(original, byte, column);
         extra.map_or(column, |extra| extra.column(original, byte, column))
