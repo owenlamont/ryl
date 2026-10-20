@@ -370,3 +370,16 @@ fn large_reindent_keeps_the_strictly_valid_result() {
         expected
     );
 }
+
+#[test]
+fn large_reindent_retains_single_document_rollback() {
+    let input = format!("# {}\na:\n  - a\nb: >\n   x\n  #\n", "x".repeat(1_000_000));
+    let cfg = Config::new(
+        SpacesSetting::Fixed(2),
+        IndentSequencesSetting::False,
+        false,
+    );
+    let output = reindent(&input, &cfg);
+    assert_eq!(output.text, input);
+    assert_eq!(output.refused, refusal(1..=6, Cause::Changed));
+}
