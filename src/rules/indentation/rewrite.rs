@@ -602,7 +602,7 @@ pub(crate) fn stream_layout(
     let starts = input.byte_line_starts();
     let lines = virtual_lines(input, starts);
     let mut commented = std::collections::HashSet::new();
-    let mut shapes = Vec::new();
+    let mut candidates = Vec::new();
     let mut analyzer = Analyzer::new(input.text(), starts, cfg, Mode::Target);
     analyzer.scalar_owners = folding.then(Vec::new);
     analyzer.lines = Some(&lines);
@@ -625,26 +625,24 @@ pub(crate) fn stream_layout(
                 && let Some(start) = next
                 && let Some(shape) = shape(token, start, own_line, &lines)
             {
-                shapes.push(shape);
+                candidates.push(shape);
             }
         },
     );
     let mut kept_dash_lines = Vec::new();
-    shapes.retain(|&(line, split, dash)| {
-        if split.is_some() && commented.contains(&line) {
-            kept_dash_lines.push((line + 1, dash + 1));
-            false
-        } else {
-            true
-        }
-    });
+    let mut shaped = false;
+    for (line, split, dash) in candidates {
+        let keep_dash = split.is_some() && commented.contains(&line);
+        kept_dash_lines.extend(keep_dash.then_some((line + 1, dash + 1)));
+        shaped |= !keep_dash;
+    }
     DryLayout {
         config: *cfg,
         deltas: settle(&lines, &analyzer.shifts),
         gaps: analyzer.gaps,
         diagnostics: analyzer.diagnostics,
         consistent: consistency.is_none_or(|check| check.diagnostics.is_empty()),
-        shaped: !shapes.is_empty(),
+        shaped,
         kept_dash_lines,
         scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
     }

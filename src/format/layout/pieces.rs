@@ -53,10 +53,11 @@ impl<'a> Piece<'a> {
         std::iter::repeat_n(' ', spaces).chain(text.chars())
     }
 
-    pub(super) fn is_char_boundary(self, at: usize) -> bool {
+    pub(super) fn get(self, range: std::ops::Range<usize>) -> Option<Self> {
         match self {
-            Self::Text(text) => text.is_char_boundary(at),
-            Self::Spaces(count) => at <= count,
+            Self::Text(text) => text.get(range).map(Self::Text),
+            Self::Spaces(count) => (range.start <= range.end && range.end <= count)
+                .then_some(Self::Spaces(range.len())),
         }
     }
 
@@ -73,4 +74,18 @@ impl<'a> Piece<'a> {
             Self::Spaces(count) => output.extend(std::iter::repeat_n(' ', count)),
         }
     }
+}
+
+pub(super) fn bridge_width(
+    edits: &[PlanEdit],
+    bridge: Option<(usize, usize)>,
+    byte: usize,
+) -> Option<usize> {
+    bridge.map_or(Some(0), |(start, end)| {
+        (byte >= end).then(|| {
+            edits[edits.partition_point(|(from, _, _)| from.get() < start)]
+                .2
+                .len()
+        })
+    })
 }

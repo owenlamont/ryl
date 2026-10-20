@@ -66,23 +66,25 @@ pub(crate) fn format(
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
     let mut quotes = HashMap::new();
-    let (prepared, kept) = {
-        let plan = DocumentPlan::new(source.analysis(), passes, &mut quotes)?;
-        let kept = plan.layout.kept_dash_lines.clone();
-        if !plan.dirty
-            && passes.indentation.is_some_and(|cfg| {
-                cfg.requires_consistency() && !plan.layout.consistent(&cfg)
-            })
-        {
-            return Err(Fallback::Refusal);
-        }
-        (
-            plan.dirty
-                .then(|| plan.emit().map(|text| (text, plan.styles, plan.rules)))
-                .transpose()?,
-            kept,
-        )
-    };
+    let (prepared, kept) = DocumentPlan::new(source.analysis(), passes, &mut quotes)
+        .and_then(|plan| {
+            let consistent = plan.dirty
+                || !passes.indentation.is_some_and(|cfg| {
+                    cfg.requires_consistency() && !plan.layout.consistent(&cfg)
+                });
+            let kept = plan.layout.kept_dash_lines.clone();
+            consistent
+                .then_some(())
+                .ok_or(Fallback::Refusal)
+                .and_then(|()| {
+                    plan.dirty
+                        .then(|| {
+                            plan.emit().map(|text| (text, plan.styles, plan.rules))
+                        })
+                        .transpose()
+                        .map(|prepared| (prepared, kept))
+                })
+        })?;
     let Some((text, styles, rules)) = prepared else {
         remember(tracking, source, passes.indentation, kept);
         source.mark_strict_valid();
@@ -246,7 +248,7 @@ impl Presentation {
     ) -> Result<Self, Fallback> {
         let mut edits = Vec::new();
         let mut styles = Vec::new();
-        if let Some(cfg) = passes.quoted_strings.as_ref() {
+        let result = passes.quoted_strings.as_ref().map_or(Ok(()), |cfg| {
             let (next, settled, unsettled) =
                 quoted_strings::format_replacements(input, cfg, quotes, true);
             if !settled {
@@ -262,27 +264,28 @@ impl Presentation {
                 };
                 styles.push((start.get(), style));
             }
-            for (start, end, text) in next {
+            next.into_iter().try_for_each(|(start, end, text)| {
                 if text.contains(['\n', '\r']) {
-                    edits.extend(
-                        multiline_edits(input.text(), start, end, &text)
-                            .ok_or(Fallback::ScalarInteraction)?,
-                    );
+                    multiline_edits(input.text(), start, end, &text)
+                        .map(|next| edits.extend(next))
+                        .ok_or(Fallback::ScalarInteraction)
                 } else {
                     edits.push((start, end, text));
+                    Ok(())
                 }
+            })
+        });
+        result.map(|()| {
+            let rules = if edits.is_empty() {
+                Vec::new()
+            } else {
+                vec![quoted_strings::ID]
+            };
+            Self {
+                edits,
+                styles,
+                rules,
             }
-        }
-
-        let rules = if edits.is_empty() {
-            Vec::new()
-        } else {
-            vec![quoted_strings::ID]
-        };
-        Ok(Self {
-            edits,
-            styles,
-            rules,
         })
     }
 }
@@ -507,23 +510,25 @@ impl<'a> DocumentPlan<'a> {
         let rules = &mut self.rules;
         edits.sort_by_key(|(start, end, _)| (start.get(), end.get()));
         edits.dedup();
-        if edits
+        let disjoint = !edits
             .windows(2)
-            .any(|pair| pair[0].1 > pair[1].0 || pair[0].0 == pair[1].0)
-        {
-            return Err(Fallback::Overlap);
-        }
+            .any(|pair| pair[0].1 > pair[1].0 || pair[0].0 == pair[1].0);
         boundaries.sort_by_key(|(start, _, _)| start.get());
         styles.sort_by_key(|(start, _)| *start);
         self.dirty = !rules.is_empty();
-        if let Some(cfg) = passes.line_length {
-            self.plan_folds(cfg)?;
-        }
-        if !self.folds.is_empty() {
-            self.rules.push(crate::rules::line_length::ID);
-            self.dirty = true;
-        }
-        Ok(())
+        disjoint
+            .then_some(())
+            .ok_or(Fallback::Overlap)
+            .and_then(|()| {
+                if let Some(cfg) = passes.line_length {
+                    self.plan_folds(cfg)?;
+                }
+                if !self.folds.is_empty() {
+                    self.rules.push(crate::rules::line_length::ID);
+                    self.dirty = true;
+                }
+                Ok(())
+            })
     }
 
     fn empty_lines(&mut self, cfg: &empty_lines::Config) {
@@ -540,6 +545,7 @@ impl<'a> DocumentPlan<'a> {
                 empty[line]
             })
             .expect("layout input has a complete parse");
+        let maximum = |seen| if seen { cfg.max() } else { cfg.max_start() };
         let mut run = Vec::new();
         let mut seen = false;
         let mut boundary = 0;
@@ -556,7 +562,7 @@ impl<'a> DocumentPlan<'a> {
                     &self.layout.lines,
                     &mut self.removed,
                     &mut run,
-                    if seen { cfg.max() } else { cfg.max_start() },
+                    maximum(seen),
                 );
                 seen = true;
                 while self
@@ -579,12 +585,12 @@ impl<'a> DocumentPlan<'a> {
                 &self.layout.lines,
                 &mut self.removed,
                 &mut run,
-                if seen { cfg.max() } else { cfg.max_start() },
+                maximum(seen),
             );
             seen |= !line.is_empty();
         }
         let maximum = if boundary < self.boundaries.len() {
-            if seen { cfg.max() } else { cfg.max_start() }
+            maximum(seen)
         } else {
             cfg.max_end()
         };
@@ -705,52 +711,62 @@ impl<'a> DocumentPlan<'a> {
         let line = &self.layout.lines[index];
         let source = self.input.text();
         let mut position = self.prefix(index) + usize::from(line.bom) * 3;
-        for (piece, part) in [line.body, line.tail].into_iter().enumerate() {
-            if piece == 1
-                && let Some((start, end)) = line.bridge
-            {
-                if byte < end {
-                    return None;
-                }
-                position += self.edits[self
-                    .edits
-                    .partition_point(|(from, _, _)| from.get() < start)]
-                .2
-                .len();
-            }
-            if part.is_empty() {
-                continue;
-            }
-            let start = part.as_ptr() as usize - source.as_ptr() as usize;
-            let end = start + part.len();
-            if byte < start {
-                return None;
-            }
-            let stop = byte.min(end);
-            position += stop - start;
-            let first = self.edits.partition_point(|(_, end, _)| end.get() < start);
-            for (from, to, text) in self.edits[first..]
-                .iter()
-                .take_while(|(_, to, _)| to.get() <= stop)
-            {
-                if from.get() < start {
-                    continue;
-                }
-                position = position + text.len() - (to.get() - from.get());
-            }
-            if byte <= end {
-                let raw = position.saturating_add_signed(-self.targets.deltas[index]);
-                let first = self.targets.gaps.partition_point(|gap| gap.line < index);
-                for gap in self.targets.gaps[first..]
-                    .iter()
-                    .take_while(|gap| gap.line == index)
-                {
-                    position -= gap.removed.min(raw.saturating_sub(gap.column + 2));
-                }
-                return Some(position);
-            }
+        let mut valid = true;
+        [line.body, line.tail]
+            .into_iter()
+            .enumerate()
+            .find_map(|(piece, part)| {
+                valid
+                    .then(|| {
+                        let bridge = pieces::bridge_width(
+                            &self.edits,
+                            line.bridge.filter(|_| piece == 1),
+                            byte,
+                        );
+                        valid &= bridge.is_some();
+                        position += bridge.unwrap_or_default();
+                        if part.is_empty() {
+                            return None;
+                        }
+                        let start = part.as_ptr() as usize - source.as_ptr() as usize;
+                        let end = start + part.len();
+                        valid &= byte >= start;
+                        valid
+                            .then(|| {
+                                position = self.edited_position(
+                                    start,
+                                    byte.min(end),
+                                    position,
+                                );
+                                (byte <= end).then(|| self.close_gaps(index, position))
+                            })
+                            .flatten()
+                    })
+                    .flatten()
+            })
+    }
+
+    fn edited_position(&self, start: usize, stop: usize, position: usize) -> usize {
+        let first = self.edits.partition_point(|(_, end, _)| end.get() < start);
+        self.edits[first..]
+            .iter()
+            .take_while(|(_, to, _)| to.get() <= stop)
+            .filter(|(from, _, _)| from.get() >= start)
+            .fold(position + stop - start, |position, (from, to, text)| {
+                position + text.len() - (to.get() - from.get())
+            })
+    }
+
+    fn close_gaps(&self, index: usize, mut position: usize) -> usize {
+        let raw = position.saturating_add_signed(-self.targets.deltas[index]);
+        let first = self.targets.gaps.partition_point(|gap| gap.line < index);
+        for gap in self.targets.gaps[first..]
+            .iter()
+            .take_while(|gap| gap.line == index)
+        {
+            position -= gap.removed.min(raw.saturating_sub(gap.column + 2));
         }
-        None
+        position
     }
 
     fn plan_folds(
@@ -796,46 +812,44 @@ impl<'a> DocumentPlan<'a> {
         let last = self
             .layout
             .project_line(line_of(full.end - 1), full.end - 1);
-        let Some(content) = self.byte_on_line(first, full.start).map(|at| at + quotes)
-        else {
-            return Err(Fallback::ScalarInteraction);
-        };
-        let owner = self
-            .targets
-            .scalar_owners
-            .partition_point(|&(at, _)| at <= full.start)
-            .checked_sub(1)
-            .map_or(0, |index| self.targets.scalar_owners[index].1);
-        let folded = style == ScalarStyle::Folded;
-        if folded && content <= owner {
-            return Ok(());
-        }
-        let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
-        let existing = (first + 1..=last)
-            .find(|&line| !self.layout.lines[line].body.trim().is_empty())
-            .map(|line| self.prefix(line))
-            .filter(|&prefix| prefix > 0);
-        if !folded && existing.is_some_and(|indent| indent < owner + min_step) {
-            return Ok(());
-        }
-        let indent = if folded {
-            content
-        } else {
-            existing.unwrap_or(owner + usize::from(cfg.indent).max(min_step))
-        };
-        let scalar = ScalarFold {
-            full,
-            style,
-            first,
-            last,
-            content,
-            indent,
-            width: cfg.width,
-        };
-        for index in first..=last {
-            self.plan_fold_line(index, &scalar)?;
-        }
-        Ok(())
+        self.byte_on_line(first, full.start)
+            .map(|at| at + quotes)
+            .ok_or(Fallback::ScalarInteraction)
+            .and_then(|content| {
+                let owner = self
+                    .targets
+                    .scalar_owners
+                    .partition_point(|&(at, _)| at <= full.start)
+                    .checked_sub(1)
+                    .map_or(0, |index| self.targets.scalar_owners[index].1);
+                let folded = style == ScalarStyle::Folded;
+                let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
+                let existing = (first + 1..=last)
+                    .find(|&line| !self.layout.lines[line].body.trim().is_empty())
+                    .map(|line| self.prefix(line))
+                    .filter(|&prefix| prefix > 0);
+                if !folded && existing.is_some_and(|indent| indent < owner + min_step) {
+                    return Ok(());
+                }
+                let indent = if folded {
+                    content
+                } else {
+                    existing.unwrap_or(owner + usize::from(cfg.indent).max(min_step))
+                };
+                let scalar = ScalarFold {
+                    full,
+                    style,
+                    first,
+                    last,
+                    content,
+                    indent,
+                    width: cfg.width,
+                };
+                for index in (first..=last).filter(|_| !folded || content > owner) {
+                    self.plan_fold_line(index, &scalar)?;
+                }
+                Ok(())
+            })
     }
 
     fn plan_fold_line(
@@ -867,55 +881,65 @@ impl<'a> DocumentPlan<'a> {
         {
             return Ok(());
         }
-        let mut parts = Vec::new();
-        self.visit_body(index, |part| parts.push(part))?;
-        let prefix = self.prefix(index);
         let bom = if line.bom { "\u{feff}" } else { "" };
-        let length =
-            prefix + bom.len() + parts.iter().map(|part| part.len()).sum::<usize>();
-        let scalar = if folded {
-            indent..length
-        } else {
-            let start = if index == first { content } else { 0 };
-            let end = if index == last {
-                self.byte_on_line(index, full.end)
-                    .ok_or(Fallback::ScalarInteraction)?
-                    - quotes
-            } else {
-                length
-            };
-            start..end
-        };
-        if index == last
-            && source[full.end..]
-                .split(['\r', '\n'])
-                .next()
-                .and_then(|rest| rest.split_once('#'))
-                .is_some_and(|(_, comment)| {
-                    crate::directives::directive_scope(comment).is_some()
-                })
-        {
-            return Ok(());
-        }
-        let chars = bom
-            .chars()
-            .chain(std::iter::repeat_n(' ', prefix))
-            .chain(parts.iter().flat_map(|part| part.chars()));
-        let mut byte = 0;
-        let chars = chars.map(|ch| {
-            let at = byte;
-            byte += ch.len_utf8();
-            (at, ch)
-        });
-        let breaks =
-            breaks_from_chars(chars, &scalar, style, indent, usize::from(width));
-        self.folds.extend(breaks.into_iter().map(|byte| FoldBreak {
-            line: index,
-            byte,
-            indent,
-        }));
-
-        Ok(())
+        let mut parts = Vec::new();
+        let result = self
+            .visit_body(index, |part| parts.push(part))
+            .and_then(|()| {
+                let prefix = self.prefix(index);
+                let length = prefix
+                    + bom.len()
+                    + parts.iter().map(|part| part.len()).sum::<usize>();
+                let scalar = if folded {
+                    indent..length
+                } else {
+                    let start = if index == first { content } else { 0 };
+                    let end = if index == last {
+                        self.byte_on_line(index, full.end)
+                            .ok_or(Fallback::ScalarInteraction)?
+                            - quotes
+                    } else {
+                        length
+                    };
+                    start..end
+                };
+                if index == last
+                    && source[full.end..]
+                        .split(['\r', '\n'])
+                        .next()
+                        .and_then(|rest| rest.split_once('#'))
+                        .is_some_and(|(_, comment)| {
+                            crate::directives::directive_scope(comment).is_some()
+                        })
+                {
+                    return Ok(Vec::new());
+                }
+                let chars = bom
+                    .chars()
+                    .chain(std::iter::repeat_n(' ', prefix))
+                    .chain(parts.iter().flat_map(|part| part.chars()));
+                let mut byte = 0;
+                let chars = chars.map(|ch| {
+                    let at = byte;
+                    byte += ch.len_utf8();
+                    (at, ch)
+                });
+                let breaks = breaks_from_chars(
+                    chars,
+                    &scalar,
+                    style,
+                    indent,
+                    usize::from(width),
+                );
+                Ok(breaks)
+            });
+        result.map(|breaks| {
+            self.folds.extend(breaks.into_iter().map(|byte| FoldBreak {
+                line: index,
+                byte,
+                indent,
+            }));
+        })
     }
 }
 
@@ -999,39 +1023,37 @@ fn multiline_edits(
         line_syntax::split_lines_preserve_endings, span_utils::BytePos,
     };
     let original = &source[start.get()..end.get()];
-    let mut before = split_lines_preserve_endings(original);
-    let mut after = split_lines_preserve_endings(replacement);
     let mut offset = start.get();
+    let mut replacement_end = 0;
     let mut edits = Vec::new();
-    loop {
-        match (before.next(), after.next()) {
-            (None, None) => return Some(edits),
-            (Some((_, old, ending)), Some((_, new, _))) => {
-                if old != new {
-                    let prefix: usize = old
-                        .chars()
-                        .zip(new.chars())
-                        .take_while(|(a, b)| a == b)
-                        .map(|(ch, _)| ch.len_utf8())
-                        .sum();
-                    let suffix: usize = old[prefix..]
-                        .chars()
-                        .rev()
-                        .zip(new[prefix..].chars().rev())
-                        .take_while(|(a, b)| a == b)
-                        .map(|(ch, _)| ch.len_utf8())
-                        .sum();
-                    edits.push((
-                        BytePos::new(offset + prefix),
-                        BytePos::new(offset + old.len() - suffix),
-                        new[prefix..new.len() - suffix].to_string(),
-                    ));
-                }
-                offset += old.len() + ending.len();
-            }
-            _ => return None,
+    for ((_, old, ending), (_, new, replacement_break)) in
+        split_lines_preserve_endings(original)
+            .zip(split_lines_preserve_endings(replacement))
+    {
+        if old != new {
+            let prefix: usize = old
+                .chars()
+                .zip(new.chars())
+                .take_while(|(a, b)| a == b)
+                .map(|(ch, _)| ch.len_utf8())
+                .sum();
+            let suffix: usize = old[prefix..]
+                .chars()
+                .rev()
+                .zip(new[prefix..].chars().rev())
+                .take_while(|(a, b)| a == b)
+                .map(|(ch, _)| ch.len_utf8())
+                .sum();
+            edits.push((
+                BytePos::new(offset + prefix),
+                BytePos::new(offset + old.len() - suffix),
+                new[prefix..new.len() - suffix].to_string(),
+            ));
         }
+        offset += old.len() + ending.len();
+        replacement_end += new.len() + replacement_break.len();
     }
+    (offset == end.get() && replacement_end == replacement.len()).then_some(edits)
 }
 
 fn remove_blanks(
@@ -1134,72 +1156,84 @@ fn visit_body<'a>(
     edits: &'a [PlanEdit],
     mut write: impl FnMut(Piece<'a>),
 ) -> Result<(), Fallback> {
-    let first = 0;
-    let last = gaps.len();
-    let mut gap = first;
+    let mut gap = 0;
     let mut column = line.prefix;
     let mut append = |text: Piece<'a>| -> Result<(), Fallback> {
         let mut from = 0;
-        while gap < last && gaps[gap].column + 2 < column + text.len() {
+        let mut valid = true;
+        let mut complete = true;
+        while valid
+            && complete
+            && gap < gaps.len()
+            && gaps[gap].column + 2 < column + text.len()
+        {
             let site = &gaps[gap];
             let start = (site.column + 2).saturating_sub(column);
             let end = (site.column + 2 + site.removed)
                 .saturating_sub(column)
                 .min(text.len());
-            if from > start
-                || !text.is_char_boundary(start)
-                || !text.is_char_boundary(end)
-            {
-                return Err(Fallback::Overlap);
-            }
-            write(text.slice(from..start));
-            from = end;
-            if column + end == site.column + 2 + site.removed {
-                gap += 1;
-            } else {
-                break;
-            }
+            let slices = text.get(from..start).zip(text.get(end..text.len()));
+            valid = slices
+                .map(|(prefix, _)| {
+                    write(prefix);
+                    from = end;
+                    complete = column + end == site.column + 2 + site.removed;
+                    gap += usize::from(complete);
+                })
+                .is_some();
         }
-        write(text.slice(from..text.len()));
-        column += text.len();
-        Ok(())
+        text.get(from..text.len())
+            .filter(|_| valid)
+            .map(|tail| {
+                write(tail);
+                column += text.len();
+            })
+            .ok_or(Fallback::Overlap)
     };
-    for (piece, part) in [line.body, line.tail].into_iter().enumerate() {
-        if piece == 1
-            && let Some((start, end)) = line.bridge
-        {
-            let edit = &edits[edits.partition_point(|(from, _, _)| from.get() < start)];
-            if (edit.0.get(), edit.1.get()) != (start, end) {
-                return Err(Fallback::Overlap);
-            }
-            append(edit.2.piece())?;
-        }
-        if part.is_empty() {
-            continue;
-        }
-        let start = part.as_ptr() as usize - source.as_ptr() as usize;
-        let end = start + part.len();
-        let mut at = start;
-        let first = edits.partition_point(|(from, end, _)| {
-            end.get() < start || (end.get() == start && from < end)
-        });
-        for (from, to, text) in edits[first..]
-            .iter()
-            .take_while(|(from, _, _)| from.get() <= end)
-        {
-            if line.bridge == Some((from.get(), to.get())) {
-                continue;
-            }
-            if from.get() < start || to.get() > end {
-                return Err(Fallback::Overlap);
-            }
-            append(Piece::Text(&source[at..from.get()]))?;
-            append(text.piece())?;
-            at = to.get();
-        }
-        append(Piece::Text(&source[at..end]))?;
-    }
-    Ok(())
+    [line.body, line.tail]
+        .into_iter()
+        .enumerate()
+        .try_for_each(|(piece, part)| {
+            let bridge = if piece == 1 {
+                line.bridge.map_or(Ok(()), |(start, end)| {
+                    let edit = &edits
+                        [edits.partition_point(|(from, _, _)| from.get() < start)];
+                    ((edit.0.get(), edit.1.get()) == (start, end))
+                        .then_some(())
+                        .ok_or(Fallback::Overlap)
+                        .and_then(|()| append(edit.2.piece()))
+                })
+            } else {
+                Ok(())
+            };
+            bridge.and_then(|()| {
+                if part.is_empty() {
+                    return Ok(());
+                }
+                let start = part.as_ptr() as usize - source.as_ptr() as usize;
+                let end = start + part.len();
+                let mut at = start;
+                let first = edits.partition_point(|(from, end, _)| {
+                    end.get() < start || (end.get() == start && from < end)
+                });
+                edits[first..]
+                    .iter()
+                    .take_while(|(from, _, _)| from.get() <= end)
+                    .try_for_each(|(from, to, text)| {
+                        if line.bridge == Some((from.get(), to.get())) {
+                            return Ok(());
+                        }
+                        if from.get() < start || to.get() > end {
+                            return Err(Fallback::Overlap);
+                        }
+                        let result = append(Piece::Text(&source[at..from.get()]))
+                            .and_then(|()| append(text.piece()));
+                        at = to.get();
+                        result
+                    })
+                    .and_then(|()| append(Piece::Text(&source[at..end])))
+            })
+        })
 }
 
 pub(crate) fn emit_line(

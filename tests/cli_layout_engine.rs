@@ -449,3 +449,32 @@ fn fold_after_indentation_closes_a_skipped_colon_gap() {
     );
     assert_eq!(output, "? key\n: alpha beta\n  gamma\n  delta\n");
 }
+
+#[test]
+fn a_commented_mapping_keeps_its_dash_during_dry_planning() {
+    let (output, statistics) =
+        format_with_statistics("- a : b # tail\n", "[format]\ndash-on-own-line=true\n");
+    assert_eq!(output, "- a: b  # tail\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["streamed_dry_scans"], 1);
+}
+
+#[test]
+fn an_empty_folded_scalar_does_not_fold_the_next_root_node() {
+    let (output, statistics) = format_with_statistics(
+        "a: >\nb: alpha beta gamma delta\n",
+        "line-length=12\n[format]\nfold-long-lines=true\n",
+    );
+    assert_eq!(output, "a: >\nb: alpha\n  beta gamma\n  delta\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn a_blank_folded_scalar_does_not_fold_the_next_root_node() {
+    let (output, statistics) = format_with_statistics(
+        "a: >\n\nb: alpha beta gamma delta\n",
+        "line-length=12\n[format]\nfold-long-lines=true\n",
+    );
+    assert_eq!(output, "a: >\n\nb: alpha\n  beta gamma\n  delta\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
