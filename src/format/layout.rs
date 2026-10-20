@@ -449,6 +449,9 @@ impl<'a> DocumentPlan<'a> {
                     edits.push(plan_edit(edit));
                     continue;
                 }
+                if rule == document_start::ID {
+                    attach_marker_bom(input, &mut self.layout, edit.0);
+                }
                 if rule == document_end::ID
                     && passes.final_newline.is_some()
                     && edit.0.get() == input.text().len()
@@ -913,6 +916,26 @@ impl<'a> DocumentPlan<'a> {
         }));
 
         Ok(())
+    }
+}
+
+fn attach_marker_bom(
+    input: Analysis<'_>,
+    layout: &mut indentation::Layout<'_>,
+    at: crate::rules::support::span_utils::BytePos,
+) {
+    let original = input
+        .byte_line_starts()
+        .partition_point(|&byte| byte <= at.get())
+        - 1;
+    let index = layout.project_line(original, at.get());
+    let line = &mut layout.lines[index];
+    if !line.bom && at.get() == input.byte_line_starts()[original] + 3 {
+        line.body = line
+            .body
+            .strip_prefix('\u{feff}')
+            .expect("document marker follows a leading BOM");
+        line.bom = true;
     }
 }
 

@@ -299,12 +299,14 @@ impl<'text> Analysis<'text> {
             .get_or_init(|| punctuation::build_byte_line_starts(self.text()))
     }
 
-    pub(crate) fn lines(self) -> impl Iterator<Item = (usize, &'text str, &'text str)> {
-        let lines = self
-            .source
+    fn line_ranges(self) -> &'text [(usize, usize, usize)] {
+        self.source
             .lines
-            .get_or_init(|| line_syntax::scan_lines(self.text()).collect());
-        lines
+            .get_or_init(|| line_syntax::scan_lines(self.text()).collect())
+    }
+
+    pub(crate) fn lines(self) -> impl Iterator<Item = (usize, &'text str, &'text str)> {
+        self.line_ranges()
             .iter()
             .enumerate()
             .map(move |(line, &(start, end, next))| {
@@ -317,11 +319,7 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn line_is_empty(self, line: usize) -> bool {
-        let lines = self
-            .source
-            .lines
-            .get_or_init(|| line_syntax::scan_lines(self.text()).collect());
-        let (start, end, _) = lines[line];
+        let (start, end, _) = self.line_ranges()[line];
         start == end
     }
 

@@ -520,10 +520,8 @@ impl<'a> Analyzer<'a> {
             return;
         };
         let gap = next.column - token.column - 1;
-        let spaces = self.lines.map_or_else(
-            || count_spaces(self.text, token.start + 1),
-            |lines| lines[token.line].spaces_after(token.column),
-        );
+        let spaces = self.lines.expect("target analysis has virtual lines")[token.line]
+            .spaces_after(token.column);
         if gap > 1 && spaces == gap {
             self.gaps.push(Gap {
                 line: token.line,

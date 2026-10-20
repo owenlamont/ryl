@@ -74,12 +74,10 @@ impl<'a> Layout<'a> {
         let source = self.input.text();
         let starts = self.input.byte_line_starts();
         let mut collapses = Vec::new();
+        let mut compatible = true;
         for (start, end, text) in edits {
             if !source[start.get()..end.get()].contains(['\n', '\r']) {
                 continue;
-            }
-            if text.contains(['\n', '\r']) {
-                return false;
             }
             let first = self.project_line(
                 starts.partition_point(|&at| at <= start.get()) - 1,
@@ -89,18 +87,24 @@ impl<'a> Layout<'a> {
                 starts.partition_point(|&at| at < end.get()) - 1,
                 end.get(),
             );
-            if first > last
-                || !self.lines[first].tail.is_empty()
-                || !self.lines[last].tail.is_empty()
-            {
-                return false;
-            }
+            let body_start =
+                self.lines[first].body.as_ptr() as usize - source.as_ptr() as usize;
+            let body_end = self.lines[last].body.as_ptr() as usize
+                - source.as_ptr() as usize
+                + self.lines[last].body.len();
             collapses.push((first, last, start.get(), end.get()));
+            compatible &= !text.contains(['\n', '\r'])
+                && first <= last
+                && self.lines[first].tail.is_empty()
+                && self.lines[last].tail.is_empty()
+                && body_start <= start.get()
+                && start.get() <= body_start + self.lines[first].body.len()
+                && end.get() <= body_end;
         }
         if collapses.is_empty() {
             return true;
         }
-        if collapses.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
+        if !compatible || collapses.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
             return false;
         }
         let original = std::mem::take(&mut self.lines);
@@ -112,18 +116,12 @@ impl<'a> Layout<'a> {
                 collapses.next_if(|(first, _, _, _)| *first == index)
             {
                 let body_start = line.body.as_ptr() as usize - source.as_ptr() as usize;
-                if start < body_start || start > body_start + line.body.len() {
-                    return false;
-                }
                 let mut ending = line.ending;
                 let mut body_end = body_start + line.body.len();
                 for (_, later) in physical.by_ref().take(last - index) {
                     ending = later.ending;
                     body_end = later.body.as_ptr() as usize - source.as_ptr() as usize
                         + later.body.len();
-                }
-                if end > body_end {
-                    return false;
                 }
                 line.body = &source[body_start..start];
                 line.tail = &source[end..body_end];

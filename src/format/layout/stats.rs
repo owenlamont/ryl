@@ -106,7 +106,8 @@ impl Drop for Recording {
                 .create(true)
                 .append(true)
                 .open(&self.destination)?;
-            let mut line = serde_json::to_vec(&counts)?;
+            let mut line = serde_json::to_vec(&counts)
+                .expect("layout statistics contain only JSON-native values");
             line.push(b'\n');
             file.write_all(&line)
         };
