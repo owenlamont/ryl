@@ -45,6 +45,25 @@ pub(crate) enum Counter {
     Project,
 }
 
+struct Unrecorded(Option<Counts>);
+
+impl Drop for Unrecorded {
+    fn drop(&mut self) {
+        COUNTS.with_borrow_mut(|counts| *counts = self.0.take());
+    }
+}
+
+// A waiting Rayon worker can run another file's diagnostics under its active recording.
+pub(crate) fn unrecorded<T>(f: impl FnOnce() -> T) -> T {
+    let _scope = Unrecorded(COUNTS.with_borrow_mut(Option::take));
+    f()
+}
+
+pub(crate) fn prefetched() {
+    count(Counter::Scan);
+    count(Counter::Tape);
+}
+
 pub(crate) fn count(counter: Counter) {
     add(counter, 1);
 }

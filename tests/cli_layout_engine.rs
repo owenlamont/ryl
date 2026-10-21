@@ -5,6 +5,10 @@ use serde_json::Value;
 mod common;
 
 fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
+    format_with_workers(input, config, 2)
+}
+
+fn format_with_workers(input: &str, config: &str, workers: usize) -> (String, Value) {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("layout.yaml");
     let configuration = directory.path().join("ryl.toml");
@@ -16,6 +20,7 @@ fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
         .arg(&configuration)
         .arg(&file)
         .env("RYL_LAYOUT_STATS", &statistics)
+        .env("RAYON_NUM_THREADS", workers.to_string())
         .output()
         .unwrap();
     assert!(
@@ -611,4 +616,155 @@ fn an_empty_flow_string_rolls_back_inconsistent_dry_indentation() {
     assert_eq!(statistics["fallback"], "Refusal", "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
+}
+
+fn threshold_input(bytes: usize, body: &str) -> String {
+    format!("# {}\n{body}", "p".repeat(bytes - body.len() - 3))
+}
+
+fn assert_threshold(bytes: usize, tapes: usize) {
+    let input = threshold_input(bytes, "é:  x\n");
+    let (output, stats) = format_with_statistics(&input, "[format]\n");
+    assert!(
+        output == input.replace("é:  x", "é: x"),
+        "only the colon gap changes"
+    );
+    assert_eq!(stats["fallback"], Value::Null);
+    let parallel = std::thread::available_parallelism().unwrap().get() > 1;
+    assert_eq!(
+        stats["cached_lexical_tapes"],
+        if parallel { tapes } else { 0 }
+    );
+    for (name, count) in [
+        ("analyses", 2),
+        ("strict_parses", 2),
+        ("lexical_scans", 2),
+        ("planning_invocations", 2),
+        ("emissions", 1),
+    ] {
+        assert_eq!(stats[name], count, "{name}: {stats}");
+    }
+}
+
+#[test]
+fn below_prefetch_threshold_keeps_streaming() {
+    assert_threshold(1_048_575, 0);
+}
+
+#[test]
+fn exact_prefetch_threshold_only_prefetches_the_original() {
+    assert_threshold(1_048_576, 1);
+}
+
+#[test]
+fn above_prefetch_threshold_counts_both_worker_scans() {
+    assert_threshold(1_048_577, 2);
+}
+
+#[test]
+fn one_worker_keeps_large_epochs_serial() {
+    let input = threshold_input(1_048_580, "é:  x\n");
+    let (output, stats) = format_with_workers(&input, "[format]\n", 1);
+    assert!(
+        output == input.replace("é:  x", "é: x"),
+        "only the colon gap changes"
+    );
+    assert_eq!(stats["cached_lexical_tapes"], 0);
+    assert_eq!(stats["lexical_scans"], 2);
+}
+
+#[test]
+fn prefetched_bom_reuses_the_cached_tape() {
+    let input = format!("\u{feff}{}", threshold_input(1_048_580, "é:  x\n"));
+    let (output, stats) = format_with_workers(&input, "[format]\n", 4);
+    assert!(
+        output == input.replace("é:  x", "é: x"),
+        "only the colon gap changes"
+    );
+    assert_eq!(stats["lexical_scans"], 2, "{stats}");
+}
+
+#[test]
+fn prefetched_late_parse_error_keeps_original_bytes_and_error() {
+    let input = threshold_input(1_048_580, "é:  x\nbroken: [\n");
+    let (code, _, diagnostics, output) =
+        common::cli::ryl_on(Some("[format]\n"), &input, &["format", "--no-cache"]);
+    assert_eq!(output, input);
+    assert_eq!(code, 0, "{diagnostics}");
+    assert!(diagnostics.contains("skipped"), "{diagnostics}");
+}
+
+#[test]
+fn prefetched_candidate_verification_failure_joins_before_rollback() {
+    let input = threshold_input(1_048_620, "empty:\n-\n- null\nmap: {a:,b: null}\n");
+    let (output, stats) = format_with_statistics(&input, "[format]\n");
+    assert!(output == input.replace("{a:,b:", "{a:, b:"));
+    assert_eq!(stats["fallback"], "Verification", "{stats}");
+    assert_eq!(stats["rollback"], 1);
+}
+
+#[test]
+fn prefetched_dirty_dry_plan_restarts_from_original_bytes() {
+    let input = threshold_input(1_048_620, "---\n{ \"foo\"\n  :bar }\n");
+    let (output, stats) = format_with_statistics(&input, "[format]\n");
+    assert!(output == input.replace("{ \"foo\"\n  :bar }", "{foo\n : bar}"));
+    assert_eq!(stats["fallback"], "DryEdits", "{stats}");
+    assert_eq!(stats["rollback"], 1);
+}
+
+#[test]
+fn concurrent_input_gates_do_not_charge_another_files_recording() {
+    assert_independent_recordings(false);
+}
+
+#[test]
+fn concurrent_previews_do_not_charge_another_files_recording() {
+    assert_independent_recordings(true);
+}
+
+fn assert_independent_recordings(preview: bool) {
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = directory.path().join("ryl.toml");
+    let statistics = directory.path().join("statistics.jsonl");
+    fs::write(&configuration, "[format]\n").unwrap();
+    for (name, body) in [
+        ("block.yaml", "keep: |+\n  text\n\nnext:  é\n"),
+        ("invalid.yaml", "key: [unfinished\n"),
+        ("flow.yaml", "café:  [é,世]\n"),
+        ("plain.yaml", "é:  x\n"),
+    ] {
+        fs::write(
+            directory.path().join(name),
+            threshold_input(1_048_620, body),
+        )
+        .unwrap();
+    }
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ryl"));
+    if preview {
+        command.arg("format").arg("--check");
+    } else {
+        command.arg("format");
+    }
+    let output = command
+        .args(["--no-cache", "-c"])
+        .arg(configuration)
+        .arg(directory.path())
+        .env("RYL_LAYOUT_STATS", &statistics)
+        .env("RAYON_NUM_THREADS", "4")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(i32::from(preview)));
+    let rows: Vec<Value> = fs::read_to_string(statistics)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .filter(|row: &Value| row["planning_invocations"] == 2)
+        .collect();
+    assert_eq!(rows.len(), 3);
+    for row in rows {
+        assert_eq!(row["fallback"], Value::Null, "{row}");
+        assert_eq!(row["analyses"], 2, "{row}");
+        assert_eq!(row["strict_parses"], 2, "{row}");
+        assert_eq!(row["lexical_scans"], 2, "{row}");
+    }
 }

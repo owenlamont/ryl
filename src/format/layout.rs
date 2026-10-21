@@ -96,6 +96,7 @@ pub(crate) fn format(
             })?;
     let Some((text, styles, rules)) = prepared else {
         remember(tracking, source, passes.indentation, kept);
+        source.release_tokens();
         source.mark_strict_valid();
         return Ok(
             std::mem::replace(source, TextVersion::new(String::new())).into_owned()
@@ -149,6 +150,8 @@ pub(crate) fn format(
         passes.indentation,
         dry.layout.kept_dash_lines.clone(),
     );
+    drop(dry);
+    output.release_tokens();
     tracking.edited.extend(rules);
     let plan = source.analysis().plan_version(output);
     source

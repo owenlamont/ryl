@@ -231,7 +231,7 @@ pub fn format_str(
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
         },
-        parsed.facts.take(),
+        Some(&mut parsed),
     )
     .into_text()
 }
@@ -300,18 +300,26 @@ fn format_tracked(
     path: &Path,
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
-    facts: Option<crate::text_version::ParsedFacts>,
+    mut parsed: Option<&mut ParsedInput>,
 ) -> TextVersion<'static> {
     let _recording = layout::stats::Recording::start(
         path,
         input.len(),
-        facts.is_some(),
+        parsed.as_ref().is_some_and(|parsed| parsed.facts.is_some()),
         tracking.strict_input,
     );
     let passes = Passes::format(cfg, input, skip);
     let mut source = TextVersion::new(input);
-    if let Some(facts) = facts {
-        source.analysis().seed_facts(facts);
+    if let Some(parsed) = &mut parsed {
+        if std::mem::take(&mut parsed.prefetched) {
+            layout::stats::prefetched();
+        }
+        if let Some(facts) = parsed.facts.take() {
+            source.analysis().seed_facts(facts);
+        }
+        if let Some(tokens) = parsed.tokens.take() {
+            source.analysis().seed_tokens(tokens);
+        }
     }
     if tracking.strict_input == Some(true) {
         source.mark_strict_valid();
@@ -371,7 +379,6 @@ impl FormatCache {
         let parsed =
             initial.or_else(|| parsed.as_mut().and_then(|result| result.as_mut().ok()));
         let strict_input = parsed.as_ref().map(|parsed| parsed.strict_error.is_none());
-        let facts = parsed.and_then(|parsed| parsed.facts.take());
         self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(
@@ -384,7 +391,7 @@ impl FormatCache {
                     reindented: Some(&mut self.reindented),
                     strict_input,
                 },
-                facts,
+                parsed,
             );
             let text = formatted.to_string();
             self.snapshot = Some(formatted);

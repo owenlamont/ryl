@@ -138,6 +138,10 @@ impl<'text> TextVersion<'text> {
         self.parsed.take()
     }
 
+    pub(crate) fn release_tokens(&mut self) {
+        self.tokens.take();
+    }
+
     pub(crate) fn release_layout(&mut self) {
         self.headers.take();
         self.line_table.take();
@@ -271,6 +275,29 @@ impl<'text> Analysis<'text> {
     }
 
     fn verify_events(
+        self,
+        output: Analysis<'_>,
+        expected: impl Iterator<Item = Event<'text>>,
+        semantic: bool,
+    ) -> Result<bool, ScanError> {
+        if semantic && prefetch_enabled(output.text()) {
+            let text = output.text();
+            let mut tokens = None;
+            let result = rayon::in_place_scope(|scope| {
+                scope.spawn(|_| tokens = Some(lexical::scan(text)));
+                self.verify_events_serial(output, expected, semantic)
+            });
+            crate::format::layout::stats::prefetched();
+            if result.as_ref().is_ok_and(|matches| *matches) {
+                output
+                    .seed_tokens(tokens.expect("the scanner joined before scope exit"));
+            }
+            return result;
+        }
+        self.verify_events_serial(output, expected, semantic)
+    }
+
+    fn verify_events_serial(
         self,
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
@@ -429,6 +456,14 @@ impl<'text> Analysis<'text> {
         start == end
     }
 
+    pub(crate) fn prefetched_tokens(self) -> Option<&'text lexical::Tokens> {
+        self.source.tokens.get()
+    }
+
+    pub(crate) fn seed_tokens(self, tokens: lexical::Tokens) {
+        self.source.tokens.get_or_init(|| tokens);
+    }
+
     pub(crate) fn tokens(self) -> &'text lexical::Tokens {
         self.source.tokens.get_or_init(|| {
             crate::format::layout::stats::count(
@@ -569,6 +604,25 @@ impl ParsedFacts {
                 crate::format::layout::stats::Counter::Strict,
             );
         }
+        Self::parse_unrecorded(text, event_capacity, strict)
+    }
+
+    pub(crate) fn parse_for_format(text: &str) -> (Self, Option<lexical::Tokens>) {
+        if !prefetch_enabled(text) {
+            return (Self::parse_unrecorded(text, 0, true), None);
+        }
+        let (facts, tokens) = rayon::join(
+            || Self::parse_unrecorded(text, 0, true),
+            || lexical::scan(text),
+        );
+        (facts, Some(tokens))
+    }
+
+    pub(crate) fn parse_unrecorded(
+        text: &str,
+        event_capacity: usize,
+        strict: bool,
+    ) -> Self {
         let mut facts = Self {
             events: Vec::with_capacity(event_capacity),
             ..Self::default()
@@ -598,4 +652,10 @@ impl From<String> for TextVersion<'static> {
     fn from(text: String) -> Self {
         Self::new(text)
     }
+}
+
+fn prefetch_enabled(text: &str) -> bool {
+    text.len() >= 1_048_576
+        && std::thread::available_parallelism().is_ok_and(|cpus| cpus.get() > 1)
+        && rayon::current_num_threads() > 1
 }

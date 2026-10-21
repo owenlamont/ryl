@@ -126,6 +126,8 @@ impl Rewrite {
 
 pub(crate) struct ParsedInput {
     pub(crate) facts: Option<ParsedFacts>,
+    pub(crate) tokens: Option<crate::text_version::lexical::Tokens>,
+    pub(crate) prefetched: bool,
     pub(crate) strict_error: Option<crate::lint::LintProblem>,
 }
 
@@ -142,14 +144,18 @@ pub(crate) fn rewrite_parse_gate(
         }
         return Ok(ParsedInput {
             facts: None,
+            tokens: None,
+            prefetched: false,
             strict_error,
         });
     }
-    let mut facts = ParsedFacts::parse_with_options(content, 0, true);
+    let (mut facts, mut tokens) = ParsedFacts::parse_for_format(content);
+    let prefetched = tokens.is_some();
     let strict_error =
         crate::lint::parse_error_from_result(content, facts.error.as_ref());
     if strict_error.is_some() {
-        facts = ParsedFacts::parse_with_options(content, facts.event_count(), false);
+        tokens.take();
+        facts = ParsedFacts::parse_unrecorded(content, facts.event_count(), false);
         if let Some(problem) =
             crate::lint::parse_error_from_result(content, facts.error.as_ref())
         {
@@ -158,6 +164,8 @@ pub(crate) fn rewrite_parse_gate(
     }
     Ok(ParsedInput {
         facts: Some(facts),
+        tokens,
+        prefetched,
         strict_error,
     })
 }
