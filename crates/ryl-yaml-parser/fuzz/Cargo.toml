@@ -1,0 +1,86 @@
+[package]
+name = "granit-parser-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+default = ["comments"]
+comments = ["granit-parser/comments"]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+granit-parser = { path = "..", default-features = false, features = ["std", "error_messages"] }
+
+[[bin]]
+name = "aliases_merges"
+path = "fuzz_targets/aliases_merges.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_collections"
+path = "fuzz_targets/flow_collections.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "large_scalars"
+path = "fuzz_targets/large_scalars.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "duplicate_keys"
+path = "fuzz_targets/duplicate_keys.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "directives_tags"
+path = "fuzz_targets/directives_tags.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_any"
+path = "fuzz_targets/parse_any.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "scan_any"
+path = "fuzz_targets/scan_any.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "options"
+path = "fuzz_targets/options.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fallible_input"
+path = "fuzz_targets/fallible_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parser_stack"
+path = "fuzz_targets/parser_stack.rs"
+test = false
+doc = false
+bench = false

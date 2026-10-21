@@ -1,0 +1,33 @@
+[package]
+name = "walk"
+authors = [
+  # Provided versions up to 0.0.6 inclusive
+  "Ethiraric <ethiraric@gmail.com>",
+  "David Aguilar <davvid@gmail.com>",
+  "Yuheng Chen <yuhengchen@sensetime.com>",
+
+  # Later versions
+  "Bourumir Wyngs <bourumir-wyngs@gmail.com>"
+]
+categories = [ "encoding", "parser-implementations" ]
+description = "A span navigation tool for granit-parser"
+documentation = "https://docs.rs/granit-parser/latest/granit_parser"
+edition = "2021"
+keywords = [ "yaml", "parser", "spans" ]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bourumir-wyngs/granit-parser"
+rust-version = "1.81.0"
+version = "0.0.1"
+
+[features]
+debug_prints = []
+
+[dependencies]
+granit-parser = { path = "../.." }
+miette = { version = "7.5.0", features = ["fancy"] }
+rustyline = "17.0.2"
+thiserror = { version = ">= 2.0.15, <= 2.0.18", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"
+unsafe_op_in_unsafe_fn = "deny"

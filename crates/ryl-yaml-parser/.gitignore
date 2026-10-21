@@ -1,0 +1,4 @@
+target
+*.swp
+/perf.*
+/coverage.sh
