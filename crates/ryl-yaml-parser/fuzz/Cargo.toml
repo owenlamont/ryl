@@ -1,3 +1,6 @@
+# cargo-fuzz builds this package on its own, outside ryl's workspace.
+[workspace]
+
 [package]
 name = "ryl-yaml-parser-fuzz"
 version = "0.0.0"

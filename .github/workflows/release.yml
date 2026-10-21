@@ -424,10 +424,19 @@ jobs:
         uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe
         with:
           tool: cross
+      # The action copies each include to the archive root by basename, so the parser's
+      # LICENSE needs its own directory to sit beside ryl's.
+      - name: Stage ryl-yaml-parser's license notices
+        shell: bash
+        run: |-
+          mkdir -p target/notices/ryl-yaml-parser
+          cp -r crates/ryl-yaml-parser/LICENSE crates/ryl-yaml-parser/.licenses \
+            target/notices/ryl-yaml-parser/
       - name: Build binaries for ${{ matrix.target }}
         uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6
         with:
           bin: ryl
+          include: LICENSE,LICENSE-APACHE,target/notices/ryl-yaml-parser
           target: ${{ matrix.target }}
           locked: true
           token: ${{ secrets.GITHUB_TOKEN }}

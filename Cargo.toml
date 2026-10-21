@@ -1,6 +1,5 @@
 [workspace]
 members = ["crates/ryl-yaml-parser"]
-exclude = ["crates/ryl-yaml-parser/fuzz"]
 
 [package]
 name = "ryl"
