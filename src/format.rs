@@ -300,23 +300,26 @@ fn format_tracked(
     path: &Path,
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
-    mut parsed: Option<&mut ParsedInput>,
+    parsed: Option<&mut ParsedInput>,
 ) -> TextVersion<'static> {
     let _recording = layout::stats::Recording::start(
         path,
         input.len(),
-        parsed.as_ref().is_some_and(|parsed| parsed.facts.is_some()),
+        parsed.is_some(),
         tracking.strict_input,
     );
     let passes = Passes::format(cfg, input, skip);
     let mut source = TextVersion::new(input);
-    if let Some(parsed) = &mut parsed {
+    if let Some(parsed) = parsed {
         if std::mem::take(&mut parsed.prefetched) {
             layout::stats::prefetched();
         }
-        if let Some(facts) = parsed.facts.take() {
-            source.analysis().seed_facts(facts);
-        }
+        source.analysis().seed_facts(
+            parsed
+                .facts
+                .take()
+                .expect("format facts are transferred once"),
+        );
         if let Some(tokens) = parsed.tokens.take() {
             source.analysis().seed_tokens(tokens);
         }
