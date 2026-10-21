@@ -32,12 +32,16 @@ const INPUTS: &[&str] = &[
 
 #[test]
 fn scanner_failure_has_no_stream_end_certificate() {
+    let complete = "key: value\n";
+    let incomplete = "key: ['unterminated";
     assert!(
-        lexical::stream("key: value\n")
+        lexical::scan(complete)
+            .iter(complete)
             .any(|(_, kind)| matches!(kind, lexical::Kind::StreamEnd))
     );
     assert!(
-        !lexical::stream("key: ['unterminated")
+        !lexical::scan(incomplete)
+            .iter(incomplete)
             .any(|(_, kind)| matches!(kind, lexical::Kind::StreamEnd))
     );
 }

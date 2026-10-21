@@ -460,10 +460,6 @@ impl<'text> Analysis<'text> {
         start == end
     }
 
-    pub(crate) fn captured_tokens(self) -> Option<&'text lexical::Tokens> {
-        self.source.tokens.get()
-    }
-
     pub(crate) fn seed_tokens(self, tokens: lexical::Tokens) {
         self.source.tokens.get_or_init(|| tokens);
     }

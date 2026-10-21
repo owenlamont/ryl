@@ -39,36 +39,34 @@ pub(crate) struct Tokens {
 impl Tokens {
     #[inline]
     pub(super) fn push(&mut self, span: &Span, kind: TokenKind<'_>) {
-        let kind = Kind::new(kind);
         let index = match kind {
-            Kind::StreamStart => 0,
-            Kind::StreamEnd => 1,
-            Kind::DocumentStart => 2,
-            Kind::DocumentEnd => 3,
-            Kind::BlockSequenceStart => 4,
-            Kind::BlockMappingStart => 5,
-            Kind::BlockEnd => 6,
-            Kind::FlowSequenceStart => 7,
-            Kind::FlowSequenceEnd => 8,
-            Kind::FlowMappingStart => 9,
-            Kind::FlowMappingEnd => 10,
-            Kind::BlockEntry => 11,
-            Kind::Key => 12,
-            Kind::Value => 13,
-            Kind::Alias => 14,
-            Kind::Anchor => 15,
-            Kind::Tag => 16,
-            Kind::Other => 17,
-            Kind::Scalar { style, empty } => {
+            TokenKind::StreamStart => 0,
+            TokenKind::StreamEnd => 1,
+            TokenKind::DocumentStart => 2,
+            TokenKind::DocumentEnd => 3,
+            TokenKind::BlockSequenceStart => 4,
+            TokenKind::BlockMappingStart => 5,
+            TokenKind::BlockEnd => 6,
+            TokenKind::FlowSequenceStart => 7,
+            TokenKind::FlowSequenceEnd => 8,
+            TokenKind::FlowMappingStart => 9,
+            TokenKind::FlowMappingEnd => 10,
+            TokenKind::BlockEntry => 11,
+            TokenKind::Key => 12,
+            TokenKind::Value => 13,
+            TokenKind::Alias => 14,
+            TokenKind::Anchor => 15,
+            TokenKind::Tag => 16,
+            TokenKind::Scalar { style, value } => {
                 18 + 2 * match style {
                     ScalarStyle::Plain => 0,
                     ScalarStyle::SingleQuoted => 1,
                     ScalarStyle::DoubleQuoted => 2,
                     ScalarStyle::Literal => 3,
                     ScalarStyle::Folded => 4,
-                } + u32::from(empty)
+                } + u32::from(value.is_empty())
             }
-            Kind::Comment { placement, .. } => {
+            TokenKind::Comment { placement, .. } => {
                 28 + u32::try_from(
                     PLACEMENTS
                         .iter()
@@ -77,6 +75,7 @@ impl Tokens {
                 )
                 .expect("placement index fits u32")
             }
+            _ => 17,
         };
         self.records.push((self.spans.store(span), index));
     }
@@ -106,37 +105,6 @@ impl Tokens {
 }
 
 impl<'text> Kind<'text> {
-    #[inline]
-    fn new(kind: TokenKind<'_>) -> Self {
-        match kind {
-            TokenKind::StreamStart => Kind::StreamStart,
-            TokenKind::StreamEnd => Kind::StreamEnd,
-            TokenKind::DocumentStart => Kind::DocumentStart,
-            TokenKind::DocumentEnd => Kind::DocumentEnd,
-            TokenKind::BlockSequenceStart => Kind::BlockSequenceStart,
-            TokenKind::BlockMappingStart => Kind::BlockMappingStart,
-            TokenKind::BlockEnd => Kind::BlockEnd,
-            TokenKind::FlowSequenceStart => Kind::FlowSequenceStart,
-            TokenKind::FlowSequenceEnd => Kind::FlowSequenceEnd,
-            TokenKind::FlowMappingStart => Kind::FlowMappingStart,
-            TokenKind::FlowMappingEnd => Kind::FlowMappingEnd,
-            TokenKind::BlockEntry => Kind::BlockEntry,
-            TokenKind::Key => Kind::Key,
-            TokenKind::Value => Kind::Value,
-            TokenKind::Alias => Kind::Alias,
-            TokenKind::Anchor => Kind::Anchor,
-            TokenKind::Tag => Kind::Tag,
-            TokenKind::Scalar { style, value } => Kind::Scalar {
-                style,
-                empty: value.is_empty(),
-            },
-            TokenKind::Comment { placement, .. } => Kind::Comment {
-                placement,
-                text: "",
-            },
-            _ => Kind::Other,
-        }
-    }
     fn with_source(mut self, source: &'text str, span: &Span) -> Self {
         if let Self::Comment { text, .. } = &mut self {
             let start = span
@@ -160,17 +128,6 @@ pub(super) fn scan(text: &str) -> Tokens {
         tokens.push(&token.span(), token.token_type().kind());
     }
     tokens
-}
-
-pub(crate) fn stream(text: &str) -> impl Iterator<Item = (Span, Kind<'_>)> {
-    Scanner::new(StrInput::new(text))
-        .map_while(Result::ok)
-        .map(|token| {
-            (
-                token.span(),
-                Kind::new(token.token_type().kind()).with_source(text, &token.span()),
-            )
-        })
 }
 
 static COMMON: &[Kind<'static>] = &[

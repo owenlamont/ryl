@@ -466,28 +466,15 @@ impl<'a> Layout<'a> {
         let input = self.input;
         let projection = Projection::new(input, edits);
         let mut gaps = Projection::incremental();
-        let tokens = if let Some(tape) = input.captured_tokens() {
-            let scanner = tape.iter(input.text()).inspect(move |(span, kind)| {
+        let scanner = input
+            .tokens()
+            .iter(input.text())
+            .inspect(move |(span, kind)| {
                 facts.borrow_mut().push(*span, kind);
             });
-            rayon::iter::Either::Left(super::normalized_tokens_from(
-                input.text(),
-                &self.source_starts,
-                scanner,
-            ))
-        } else {
-            crate::format::layout::stats::count(
-                crate::format::layout::stats::Counter::Scan,
-            );
-            let scanner = crate::text_version::lexical::stream(input.text())
-                .inspect(move |(span, kind)| facts.borrow_mut().push(*span, kind));
-            rayon::iter::Either::Right(super::normalized_tokens_from(
-                input.text(),
-                &self.source_starts,
-                scanner,
-            ))
-        };
-        let mut tokens = tokens.peekable();
+        let mut tokens =
+            super::normalized_tokens_from(input.text(), &self.source_starts, scanner)
+                .peekable();
         let mut line = std::collections::VecDeque::new();
         std::iter::from_fn(move || {
             if line.is_empty() {
